@@ -1,0 +1,229 @@
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef};
+use rusqlite::ToSql;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CardState {
+    Decomposed,
+    Instructed,
+    Verifying,
+    Verified,
+    Rejected,
+    Extended,
+}
+
+impl CardState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Decomposed => "decomposed",
+            Self::Instructed => "instructed",
+            Self::Verifying => "verifying",
+            Self::Verified => "verified",
+            Self::Rejected => "rejected",
+            Self::Extended => "extended",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, crate::db::DbError> {
+        match value {
+            "decomposed" => Ok(Self::Decomposed),
+            "instructed" => Ok(Self::Instructed),
+            "verifying" => Ok(Self::Verifying),
+            "verified" => Ok(Self::Verified),
+            "rejected" => Ok(Self::Rejected),
+            "extended" => Ok(Self::Extended),
+            other => Err(crate::db::DbError::InvalidCardState(other.to_owned())),
+        }
+    }
+}
+
+impl ToSql for CardState {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(self.as_str()))
+    }
+}
+
+impl FromSql for CardState {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let raw = value.as_str()?;
+        Self::parse(raw).map_err(|err| FromSqlError::Other(Box::new(err)))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewProject {
+    pub name: String,
+    pub path: String,
+    pub provider_default: Option<String>,
+    pub model_default: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectRow {
+    pub id: i64,
+    pub name: String,
+    pub path: String,
+    pub provider_default: Option<String>,
+    pub model_default: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewSession {
+    pub project_id: i64,
+    pub title: String,
+    pub ended_at: Option<i64>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionRow {
+    pub id: i64,
+    pub project_id: i64,
+    pub title: String,
+    pub started_at: i64,
+    pub ended_at: Option<i64>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewWorkmap {
+    pub session_id: i64,
+    pub current_stage: String,
+    pub collapsed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkmapRow {
+    pub session_id: i64,
+    pub current_stage: String,
+    pub collapsed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewCard {
+    pub session_id: i64,
+    pub title: String,
+    pub instruction: Option<String>,
+    pub state: CardState,
+    pub verify_log: Option<String>,
+    pub changed_files: Option<Value>,
+    pub position: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CardRow {
+    pub id: i64,
+    pub session_id: i64,
+    pub title: String,
+    pub instruction: Option<String>,
+    pub state: CardState,
+    pub verify_log: Option<String>,
+    pub changed_files: Option<Value>,
+    pub position: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewMessage {
+    pub session_id: i64,
+    pub card_id: Option<i64>,
+    pub role: String,
+    pub content: String,
+    pub tool_calls: Option<Value>,
+    pub usage: Option<Value>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageRow {
+    pub id: i64,
+    pub session_id: i64,
+    pub card_id: Option<i64>,
+    pub role: String,
+    pub content: String,
+    pub tool_calls: Option<Value>,
+    pub usage: Option<Value>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewToolCall {
+    pub message_id: i64,
+    pub name: String,
+    pub input: Value,
+    pub output: Option<Value>,
+    pub approved: Option<bool>,
+    pub risk_level: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolCallRow {
+    pub id: i64,
+    pub message_id: i64,
+    pub name: String,
+    pub input: Value,
+    pub output: Option<Value>,
+    pub approved: Option<bool>,
+    pub risk_level: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewCheckpoint {
+    pub session_id: i64,
+    pub card_id: Option<i64>,
+    pub git_sha: String,
+    pub kind: String,
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckpointRow {
+    pub id: i64,
+    pub session_id: i64,
+    pub card_id: Option<i64>,
+    pub git_sha: String,
+    pub kind: String,
+    pub label: Option<String>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewProviderConfig {
+    pub kind: String,
+    pub auth_type: String,
+    pub base_url: Option<String>,
+    pub config: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderConfigRow {
+    pub id: i64,
+    pub kind: String,
+    pub auth_type: String,
+    pub base_url: Option<String>,
+    pub config: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewEventLog {
+    pub session_id: Option<i64>,
+    pub r#type: String,
+    pub payload: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventLogRow {
+    pub id: i64,
+    pub session_id: Option<i64>,
+    pub r#type: String,
+    pub payload: Value,
+    pub created_at: i64,
+}

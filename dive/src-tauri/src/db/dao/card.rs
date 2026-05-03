@@ -1,0 +1,119 @@
+use rusqlite::{params, Connection, OptionalExtension};
+
+use crate::db::dao::{optional_json_to_string, parse_optional_json};
+use crate::db::models::{CardRow, NewCard};
+use crate::db::{now_ms, DbError};
+
+fn map_row(row: &rusqlite::Row<'_>) -> Result<CardRow, DbError> {
+    Ok(CardRow {
+        id: row.get(0)?,
+        session_id: row.get(1)?,
+        title: row.get(2)?,
+        instruction: row.get(3)?,
+        state: row.get(4)?,
+        verify_log: row.get(5)?,
+        changed_files: parse_optional_json(row.get(6)?)?,
+        position: row.get(7)?,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
+    })
+}
+fn query_map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CardRow> {
+    map_row(row).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, Box::new(err))
+    })
+}
+
+pub fn insert(conn: &Connection, row: &NewCard) -> Result<i64, DbError> {
+    let now = now_ms();
+    let changed_files = optional_json_to_string(row.changed_files.as_ref())?;
+    conn.execute("INSERT INTO Card(session_id, title, instruction, state, verify_log, changed_files, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", params![row.session_id,row.title,row.instruction,row.state,row.verify_log,changed_files,row.position,now,now])?;
+    Ok(conn.last_insert_rowid())
+}
+pub fn get_by_id(conn: &Connection, id: i64) -> Result<Option<CardRow>, DbError> {
+    Ok(conn.query_row("SELECT id, session_id, title, instruction, state, verify_log, changed_files, position, created_at, updated_at FROM Card WHERE id = ?", [id], query_map_row).optional()?)
+}
+pub fn list(conn: &Connection) -> Result<Vec<CardRow>, DbError> {
+    let mut stmt=conn.prepare("SELECT id, session_id, title, instruction, state, verify_log, changed_files, position, created_at, updated_at FROM Card ORDER BY id")?;
+    let rows = stmt
+        .query_map([], query_map_row)?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+pub fn list_by_session(conn: &Connection, session_id: i64) -> Result<Vec<CardRow>, DbError> {
+    let mut stmt=conn.prepare("SELECT id, session_id, title, instruction, state, verify_log, changed_files, position, created_at, updated_at FROM Card WHERE session_id = ? ORDER BY position, id")?;
+    let rows = stmt
+        .query_map([session_id], query_map_row)?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+pub fn update(conn: &Connection, id: i64, row: &NewCard) -> Result<(), DbError> {
+    let changed_files = optional_json_to_string(row.changed_files.as_ref())?;
+    conn.execute("UPDATE Card SET session_id = ?, title = ?, instruction = ?, state = ?, verify_log = ?, changed_files = ?, position = ?, updated_at = ? WHERE id = ?", params![row.session_id,row.title,row.instruction,row.state,row.verify_log,changed_files,row.position,now_ms(),id])?;
+    Ok(())
+}
+pub fn delete(conn: &Connection, id: i64) -> Result<(), DbError> {
+    conn.execute("DELETE FROM Card WHERE id = ?", [id])?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::models::CardState;
+    use crate::db::tests::{fresh_db, seed_project_session};
+    use serde_json::json;
+    fn new_card(sid: i64, state: CardState, pos: i64) -> NewCard {
+        NewCard {
+            session_id: sid,
+            title: format!("c{pos}"),
+            instruction: Some("i".into()),
+            state,
+            verify_log: None,
+            changed_files: Some(json!(["a.rs"])),
+            position: pos,
+        }
+    }
+    #[test]
+    fn crud_roundtrip_and_list_by_session() {
+        let (db, _) = fresh_db();
+        let (_, sid) = seed_project_session(db.conn());
+        let id = insert(db.conn(), &new_card(sid, CardState::Decomposed, 2)).unwrap();
+        insert(db.conn(), &new_card(sid, CardState::Verified, 1)).unwrap();
+        assert_eq!(
+            get_by_id(db.conn(), id).unwrap().unwrap().state,
+            CardState::Decomposed
+        );
+        update(db.conn(), id, &new_card(sid, CardState::Rejected, 3)).unwrap();
+        assert_eq!(list_by_session(db.conn(), sid).unwrap().len(), 2);
+        assert_eq!(list(db.conn()).unwrap().len(), 2);
+        delete(db.conn(), id).unwrap();
+        assert!(get_by_id(db.conn(), id).unwrap().is_none());
+    }
+    #[test]
+    fn foreign_key_rejects_missing_session() {
+        let (db, _) = fresh_db();
+        let err = insert(db.conn(), &new_card(999, CardState::Decomposed, 1)).unwrap_err();
+        assert!(matches!(
+            err,
+            DbError::Sqlite(rusqlite::Error::SqliteFailure(_, _))
+        ));
+    }
+    #[test]
+    fn card_state_roundtrips_all_variants() {
+        let (db, _) = fresh_db();
+        let (_, sid) = seed_project_session(db.conn());
+        let states = [
+            CardState::Decomposed,
+            CardState::Instructed,
+            CardState::Verifying,
+            CardState::Verified,
+            CardState::Rejected,
+            CardState::Extended,
+        ];
+        for (idx, state) in states.iter().enumerate() {
+            let id = insert(db.conn(), &new_card(sid, *state, idx as i64)).unwrap();
+            assert_eq!(get_by_id(db.conn(), id).unwrap().unwrap().state, *state);
+        }
+    }
+}

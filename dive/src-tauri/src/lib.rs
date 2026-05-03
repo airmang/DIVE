@@ -10,6 +10,8 @@ pub mod mcp;
 pub mod providers;
 pub mod tools;
 
+pub use db::Database;
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
