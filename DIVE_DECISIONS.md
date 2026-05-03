@@ -352,3 +352,46 @@
   - Playwright 신규 2 suite = 21 asserts (`verify-onboarding` 12 + `verify-project-session` 9). Phase 3 회귀 11 suite 전부 통과 (2 suite에 `dive:onboarded` pre-set 추가하는 non-invasive 수정).
   - `AppState::with_keyring()` 패턴 덕에 Phase 4-2/4-3의 정책·재시도 테스트도 OS keyring 없이 단위화 가능.
   - Sidebar 하단 "현재 모델" 카드 → `?demo=settings` 푸시 — 4-2가 이 링크를 소비.
+
+## ADR-020: 자동 승인 정책은 process-local + Warn/Danger 도구 잠금 + 다음 차시 초기화
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 4-2)
+- 컨텍스트: §8.3은 `AutoApprovePolicy`를 정의하지만 UI 표현과 저장 수명은 열려 있음. 학교 환경 특성(여러 학생이 같은 PC, 차시마다 다른 교사·실습) + 안전 기준(§6.4: Warn·Danger 도구는 항상 수동 승인) + UX 단순성 사이에서 결정 필요.
+- 결정:
+  - **정책 저장은 process-local `once_cell::Lazy<Mutex<AutoApprovePolicyDto>>`**: 4-2는 설정 UI 레이어만. DB `ProviderConfig.config.auto_approve` 영속화는 4-3에서 `PolicyHook`을 Agent Loop의 실제 디폴트로 연결할 때 함께. 4-2 독립 단위로 머물면 회귀 영향 최소.
+  - **Safe 도구만 토글 가능, Warn·Danger는 항상 잠금**: `read_file` / `list_dir` / `search_files` 3개는 체크박스 토글. `write_file` / `edit_file`은 `data-testid="policy-row-locked"`로 disabled 표시 + 시각적 `opacity-60`. 이는 §6.4.1(도구별 위험도 표) + `AutoApprovePolicy::decide`의 Danger 반환 None을 UI에 반영.
+  - **"다음 차시 초기화" 기본 on**: `dive:reset-next-session=true` 기본값. 4-3에서 `session_create`/`session_delete` 시 자동 정책 초기화 훅을 연결. 학교 시나리오: 교사가 1차시에 `read_file=always`를 켰어도 2차시 시작 시 리셋 → 학생이 새 교사/실습에서 예상치 못한 자동 승인 안전.
+  - **프론트 fallback은 `localStorage` 동기화**: IPC 실패 또는 브라우저 데모일 때 `dive:auto-approve-policy` JSON blob로 대체. 양쪽 경로가 같은 shape을 가지므로 Phase 4-3의 DB 영속화 전환이 non-breaking.
+- 대안:
+  - **즉시 DB 영속화**: 4-2 범위를 넘어 Agent Loop의 PermissionHook swap + `AppState`에 `Arc<Mutex<PolicyHook>>` 추가 필요. 4-3의 AgentLoop 재시도 로직과 충돌 가능 → 4-3에서 합쳐서 진행.
+  - **Warn 도구도 토글 가능**: §6.4 위반. 학교 환경에서 `write_file` 자동 승인은 학생이 파일 시스템을 의도치 않게 변경할 위험 증가. 기본값 잠금.
+  - **정책 영구 저장 (차시 간 보존)**: 여러 학생이 같은 PC를 쓸 때 이전 학생 설정이 남으면 보안·학습 혼란. "다음 차시 초기화"가 기본 on.
+  - **프로바이더 kind 별 정책 분기**: MVP 초과. 모든 kind가 동일 도구 셋 사용(내장 도구는 provider-agnostic).
+- 결과:
+  - Rust 테스트 +3 (`ipc::policy::tests` DTO roundtrip + Danger manual + default fallback). 120 lib passing.
+  - 4-3의 재시도 + 실제 테스트 실행(bash) 작업이 같은 `AppState` 확장 패턴을 공유하므로 후속 변경 면적 감소.
+
+## ADR-021: CheckpointTimeline은 IPC + mockItems prop 이중 경로 + 26×26px 고정 점
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 4-2)
+- 컨텍스트: §5.8.2 체크포인트 타임라인 시각 규격 — 점 26×26px, 색상 4종(init/auto/manual/current). 이를 Tauri 런타임(실제 `checkpoint_timeline` IPC)과 브라우저 데모(mock) 양쪽에서 동작시키며, 회귀 안정성을 깨지 않고 슬라이드 인 하단에 붙일 수 있어야 함.
+- 결정:
+  - **`mockItems?: TimelineItem[]` prop 주입**: 있으면 Tauri IPC 호출 생략 + 직접 표시. 없으면 `sessionId` 기반 IPC 시도. 두 경로가 같은 React state로 수렴하므로 시각적 회귀 없음.
+  - **색상 매핑**:
+    - init: 투명 배경 + 회색 테두리 (시작점)
+    - auto: success 색 채움 (V 통과 / E 진입 자동 생성)
+    - manual: accent 색 채움 (Ctrl+S 수동 저장)
+    - current (`data-active="true"`): accent + glow 효과 (`shadow-accent`) — "지금 여기" 표시
+  - **호버 툴팁 + 인라인 복원 버튼**: 툴팁이 뜰 때만 복원 버튼 표시. 클릭 → `onRestore(id)` 콜백. 4-4에서 "복원 직전 자동 체크포인트" 확인 다이얼로그와 함께 사용.
+  - **`file_changes` 필드 예약만**: 4-2는 0으로 채움. 실제 git tree diff로 파일 변경 수 계산은 4-4 폴리싱에서 (체크포인트 간 `Tree::diff_tree_to_tree` 호출 필요, 비용이 크므로 lazy 계산 검토).
+  - **빈 상태 `data-empty="true"`**: 체크포인트 0개일 때 "체크포인트가 없습니다" 메시지. Playwright가 `data-empty`로 분기 검증 가능.
+- 대안:
+  - **IPC 결과를 워크스토어(Zustand) 전역으로**: 여러 컴포넌트가 공유하지 않으므로 과설계. 슬라이드 인 내부만.
+  - **점 크기 CSS 변수화**: §5.8.2가 26×26 고정 명세라 유연성 불필요.
+  - **복원 버튼을 툴팁 밖에**: 클릭 영역이 겹쳐 잘못된 복원 유발. 툴팁 내부 명시적 버튼이 안전.
+  - **`file_changes` 즉시 계산**: 체크포인트 100개 타임라인이면 git diff 100번 호출 → 렌더 블록. 4-4에서 lazy + debounced.
+- 결과:
+  - Rust 테스트 +1 (`ipc::timeline::tests::row_to_item_preserves_fields`). Playwright verify-timeline 10 asserts.
+  - Phase 4-4에서 실제 git diff 기반 `file_changes` + "복원 직전 자동 체크포인트" + 복원 확인 다이얼로그가 이 컴포넌트를 그대로 확장.
