@@ -145,6 +145,8 @@ async function main() {
 
   console.log("\n14. MainShell [코드/미리보기] opens slide-in");
   await page.goto(BASE);
+  await page.evaluate(() => window.localStorage.setItem("dive:onboarded", "true"));
+  await page.reload();
   await page.waitForSelector('[data-testid="workmap-strip"]');
   await page.click('button[aria-label="코드와 미리보기 패널 열기"]');
   await page.waitForTimeout(350);

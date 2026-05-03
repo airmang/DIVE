@@ -3,6 +3,19 @@
 //! Task 3-1 extends the Phase 2 surface with card state-machine commands
 //! and an optional `stage` parameter on `chat_send` so the frontend can
 //! request I/V/E gate evaluation in addition to the default D gate.
+//!
+//! Task 4-1 adds project / session / provider CRUD via the sibling
+//! `project`, `session`, and `provider` submodules. The keyring used for
+//! provider secrets defaults to the OS-native backend but can be swapped
+//! (tests use `InMemoryKeyring`).
+
+pub mod project;
+pub mod provider;
+pub mod session;
+
+pub use project::*;
+pub use provider::*;
+pub use session::*;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -16,6 +29,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::agent::{
     AgentEvent, AgentLoop, AwaitUserHook, PendingApprovals, PermissionDecision, PermissionHook,
 };
+use crate::auth::{Keyring, OsKeyring};
 use crate::db::dao::{card as card_dao, workmap as workmap_dao};
 use crate::db::models::{CardState, NewCard};
 use crate::db::Database;
@@ -32,6 +46,7 @@ pub struct AppState {
     pub project_root: PathBuf,
     pub model: String,
     pub cancels: Arc<Mutex<HashMap<i64, Arc<AtomicBool>>>>,
+    pub keyring: Arc<dyn Keyring>,
 }
 
 impl AppState {
@@ -53,6 +68,7 @@ impl AppState {
             project_root,
             model,
             cancels: Arc::new(Mutex::new(HashMap::new())),
+            keyring: Arc::new(OsKeyring::new()),
         }
     }
 
@@ -61,6 +77,11 @@ impl AppState {
         db.migrate().expect("migrate");
         let provider = Arc::new(MockProvider::new(Vec::new()));
         Self::new(db, provider, PathBuf::from("."), "mock-model".into())
+    }
+
+    pub fn with_keyring(mut self, keyring: Arc<dyn Keyring>) -> Self {
+        self.keyring = keyring;
+        self
     }
 }
 

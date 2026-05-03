@@ -47,7 +47,20 @@ pub fn run() {
             ipc::openrouter_issue_key,
             ipc::openrouter_revoke_all,
             ipc::openrouter_list_keys,
-            ipc::export_session
+            ipc::export_session,
+            ipc::project_create,
+            ipc::project_list,
+            ipc::project_get,
+            ipc::project_open,
+            ipc::project_delete,
+            ipc::session_create,
+            ipc::session_list,
+            ipc::session_rename,
+            ipc::session_archive,
+            ipc::session_delete,
+            ipc::provider_connect,
+            ipc::provider_list,
+            ipc::provider_disconnect
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -4,6 +4,7 @@ import { ChatArea, type ChatStageBanner } from "./ChatArea";
 import { WorkmapStrip } from "./WorkmapStrip";
 import { SlideInPanel } from "../slide-in/SlideInPanel";
 import { AiAssistDialog } from "../workmap/AiAssistDialog";
+import { OnboardingDialog } from "../onboarding/OnboardingDialog";
 import {
   CardDetailPanel,
   type CardTransitionKind,
@@ -17,6 +18,7 @@ import {
   selectCurrentCard,
   useWorkmapStore,
 } from "../../stores/workmap";
+import { useProjectSessionStore } from "../../stores/project-session";
 import type { CardState, CardTileData } from "../workmap/types";
 import type { ChangedFile } from "../slide-in/types";
 import { getCardStateMeta } from "../workmap/card-state-meta";
@@ -45,6 +47,7 @@ export function MainShell() {
   const [workmapCollapsed, setWorkmapCollapsed] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [verifyLogs, setVerifyLogs] = useState<Record<number, VerifyLogView | null>>({});
   const [verifyStates, setVerifyStates] = useState<Record<number, "idle" | "running" | "error">>(
     {},
@@ -52,6 +55,25 @@ export function MainShell() {
   const [verifyErrors, setVerifyErrors] = useState<Record<number, string | null>>({});
   const [checkpointBadges, setCheckpointBadges] = useState<Record<number, string>>({});
   const [lastManualCheckpointLabel, setLastManualCheckpointLabel] = useState<string | null>(null);
+
+  const projectSessionLoaded = useProjectSessionStore((s) => s.loaded);
+  const loadProjectSession = useProjectSessionStore((s) => s.loadAll);
+  const projects = useProjectSessionStore((s) => s.projects);
+  const isOnboarded = useProjectSessionStore((s) => s.isOnboarded);
+
+  useEffect(() => {
+    if (!projectSessionLoaded) void loadProjectSession();
+  }, [projectSessionLoaded, loadProjectSession]);
+
+  useEffect(() => {
+    if (!projectSessionLoaded) return;
+    const isDemoRoute =
+      typeof window !== "undefined" && new URLSearchParams(window.location.search).has("demo");
+    if (isDemoRoute) return;
+    if (!isOnboarded() && projects.length === 0) {
+      setOnboardingOpen(true);
+    }
+  }, [projectSessionLoaded, projects.length, isOnboarded]);
 
   const cards = useWorkmapStore((s) => s.cards);
   const addCards = useWorkmapStore((s) => s.addCards);
@@ -255,6 +277,7 @@ export function MainShell() {
         onVerify={handleVerify}
         onOpenCode={handleOpenCodeForCard}
       />
+      <OnboardingDialog open={onboardingOpen} onOpenChange={setOnboardingOpen} />
       <input type="hidden" data-testid="current-stage" value={stage} />
       <input type="hidden" data-testid="current-card-id" value={currentCardId ?? ""} />
       <input

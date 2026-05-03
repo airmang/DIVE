@@ -126,6 +126,8 @@ async function main() {
 
   console.log("\n14. Default MainShell still renders");
   await page.goto(BASE);
+  await page.evaluate(() => window.localStorage.setItem("dive:onboarded", "true"));
+  await page.reload();
   await page.waitForSelector('[data-testid="workmap-strip"]');
   const shell = await page.$('[data-testid="workmap-strip"]');
   check("default / renders MainShell", !!shell);

@@ -1,8 +1,15 @@
-import { Moon, Sun } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Moon, Plus, Sun, Trash2 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { useTheme } from "../../hooks/useTheme";
+import {
+  useProjectSessionStore,
+  selectCurrentProject,
+  selectHasConnectedProvider,
+} from "../../stores/project-session";
+import { NewProjectDialog } from "../onboarding/NewProjectDialog";
 
 interface SidebarProps {
   className?: string;
@@ -11,6 +18,47 @@ interface SidebarProps {
 export function Sidebar({ className }: SidebarProps) {
   const { theme, toggleTheme } = useTheme();
   const themeSwitchLabel = theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환";
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+
+  const loaded = useProjectSessionStore((s) => s.loaded);
+  const loadAll = useProjectSessionStore((s) => s.loadAll);
+  const projects = useProjectSessionStore((s) => s.projects);
+  const sessions = useProjectSessionStore((s) => s.sessions);
+  const currentProject = useProjectSessionStore(selectCurrentProject);
+  const currentSessionId = useProjectSessionStore((s) => s.currentSessionId);
+  const hasProvider = useProjectSessionStore(selectHasConnectedProvider);
+  const providers = useProjectSessionStore((s) => s.providers);
+  const selectProject = useProjectSessionStore((s) => s.selectProject);
+  const deleteProject = useProjectSessionStore((s) => s.deleteProject);
+  const createSession = useProjectSessionStore((s) => s.createSession);
+  const selectSession = useProjectSessionStore((s) => s.selectSession);
+  const deleteSession = useProjectSessionStore((s) => s.deleteSession);
+
+  useEffect(() => {
+    if (!loaded) void loadAll();
+  }, [loaded, loadAll]);
+
+  const handleNewSession = async () => {
+    if (!currentProject) return;
+    await createSession(currentProject.id);
+  };
+
+  const handleDeleteProject = async (id: number) => {
+    const ok = window.confirm(
+      "프로젝트를 삭제할까요? 폴더의 .dive/ 디렉터리만 지워집니다. (코드는 보존)",
+    );
+    if (!ok) return;
+    await deleteProject(id, false);
+  };
+
+  const handleDeleteSession = async (id: number) => {
+    const ok = window.confirm("이 세션을 삭제할까요?");
+    if (!ok) return;
+    await deleteSession(id);
+  };
+
+  const providerLabel =
+    providers.find((p) => p.is_connected)?.kind ?? (hasProvider ? "연결됨" : "프로바이더 미연결");
 
   return (
     <aside
@@ -19,6 +67,7 @@ export function Sidebar({ className }: SidebarProps) {
         "overflow-y-auto",
         className,
       )}
+      data-testid="sidebar"
     >
       <div className="flex items-center gap-2 px-1">
         <span className="text-xl font-bold tracking-tight text-accent">DIVE</span>
@@ -28,38 +77,120 @@ export function Sidebar({ className }: SidebarProps) {
         <Button
           variant="ghost"
           size="sm"
-          disabled
-          className="w-full justify-start text-fg-muted"
-          aria-label="새 프로젝트 (준비 중)"
+          className="w-full justify-start"
+          onClick={() => setProjectDialogOpen(true)}
+          data-testid="btn-new-project"
         >
-          + 새 프로젝트
+          <Plus className="h-3.5 w-3.5" />+ 새 프로젝트
         </Button>
-        <EmptyLine text="프로젝트가 없습니다" />
+        {projects.length === 0 ? (
+          <EmptyLine text="프로젝트가 없습니다" />
+        ) : (
+          <ul className="flex flex-col gap-0.5" data-testid="project-list">
+            {projects.map((p) => (
+              <li key={p.id} className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => void selectProject(p.id)}
+                  className={cn(
+                    "flex-1 rounded-md px-3 py-1.5 text-left text-sm text-fg hover:bg-bg-panel2",
+                    currentProject?.id === p.id && "bg-accent-subtle text-fg",
+                  )}
+                  data-testid="project-item"
+                  data-project-id={p.id}
+                  data-active={currentProject?.id === p.id ? "true" : "false"}
+                >
+                  <div className="truncate font-medium">{p.name}</div>
+                  <div className="truncate text-[10px] text-fg-muted">{p.path}</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteProject(p.id)}
+                  className="rounded p-1 text-fg-muted hover:bg-bg-panel2 hover:text-danger"
+                  aria-label={`프로젝트 ${p.name} 삭제`}
+                  data-testid="project-delete"
+                  data-project-id={p.id}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </SidebarSection>
 
       <SidebarSection label="세션">
         <Button
           variant="ghost"
           size="sm"
-          disabled
-          className="w-full justify-start text-fg-muted"
-          aria-label="새 세션 (준비 중)"
+          className="w-full justify-start"
+          onClick={() => void handleNewSession()}
+          disabled={!currentProject}
+          data-testid="btn-new-session"
         >
-          + 새 세션
+          <Plus className="h-3.5 w-3.5" />+ 새 세션
         </Button>
-        <EmptyLine text="세션이 없습니다" />
+        {currentProject ? (
+          sessions.length === 0 ? (
+            <EmptyLine text="세션이 없습니다" />
+          ) : (
+            <ul className="flex flex-col gap-0.5" data-testid="session-list">
+              {sessions.map((s) => (
+                <li key={s.id} className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => selectSession(s.id)}
+                    className={cn(
+                      "flex-1 rounded-md px-3 py-1.5 text-left text-xs text-fg hover:bg-bg-panel2",
+                      currentSessionId === s.id && "bg-accent-subtle",
+                      s.status === "archived" && "opacity-60",
+                    )}
+                    data-testid="session-item"
+                    data-session-id={s.id}
+                    data-active={currentSessionId === s.id ? "true" : "false"}
+                  >
+                    <div className="truncate">{s.title}</div>
+                    {s.status === "archived" ? (
+                      <div className="text-[9px] text-fg-muted">보관됨</div>
+                    ) : null}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteSession(s.id)}
+                    className="rounded p-1 text-fg-muted hover:bg-bg-panel2 hover:text-danger"
+                    aria-label={`세션 ${s.title} 삭제`}
+                    data-testid="session-delete"
+                    data-session-id={s.id}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )
+        ) : (
+          <EmptyLine text="프로젝트를 선택하세요" />
+        )}
       </SidebarSection>
 
       <div className="mt-auto flex flex-col gap-2 pt-4">
         <button
           type="button"
-          disabled
-          aria-label="프로바이더·모델 변경 (준비 중)"
-          className="block w-full cursor-not-allowed text-left opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg rounded-lg"
+          aria-label="설정 화면 열기"
+          onClick={() => {
+            const url = new URL(window.location.href);
+            url.searchParams.set("demo", "settings");
+            window.history.pushState({}, "", url.toString());
+            window.dispatchEvent(new PopStateEvent("popstate"));
+          }}
+          className="block w-full text-left rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          data-testid="btn-open-settings"
         >
-          <Card className="px-3 py-2.5">
+          <Card className="px-3 py-2.5 hover:bg-bg-panel2">
             <div className="text-xs text-fg-muted">현재 모델</div>
-            <div className="text-sm font-medium text-fg">Anthropic · claude-sonnet-4.5</div>
+            <div className="truncate text-sm font-medium text-fg" data-testid="provider-label">
+              {providerLabel}
+            </div>
           </Card>
         </button>
 
@@ -74,6 +205,8 @@ export function Sidebar({ className }: SidebarProps) {
           {themeSwitchLabel}
         </Button>
       </div>
+
+      <NewProjectDialog open={projectDialogOpen} onOpenChange={setProjectDialogOpen} />
     </aside>
   );
 }
