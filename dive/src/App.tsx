@@ -10,6 +10,8 @@ import ScenarioBDemoPage from "./pages/scenario-b-demo";
 import ToolGuardDemoPage from "./pages/tool-guard-demo";
 import ProvisioningDemoPage from "./pages/provisioning-demo";
 import ExportDemoPage from "./pages/export-demo";
+import SettingsPage from "./pages/settings";
+import TimelineDemoPage from "./pages/timeline-demo";
 
 type Route =
   | "main"
@@ -22,7 +24,9 @@ type Route =
   | "scenario-b"
   | "tool-guard"
   | "provisioning"
-  | "export";
+  | "export"
+  | "settings"
+  | "timeline";
 
 function resolveRoute(): Route {
   if (typeof window === "undefined") return "main";
@@ -38,6 +42,8 @@ function resolveRoute(): Route {
   if (demo === "tool-guard") return "tool-guard";
   if (demo === "provisioning") return "provisioning";
   if (demo === "export") return "export";
+  if (demo === "settings") return "settings";
+  if (demo === "timeline") return "timeline";
   return "main";
 }
 
@@ -60,6 +66,8 @@ function App() {
   if (route === "tool-guard") return <ToolGuardDemoPage />;
   if (route === "provisioning") return <ProvisioningDemoPage />;
   if (route === "export") return <ExportDemoPage />;
+  if (route === "settings") return <SettingsPage />;
+  if (route === "timeline") return <TimelineDemoPage />;
   return <MainShell />;
 }
 
