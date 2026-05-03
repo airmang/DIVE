@@ -386,3 +386,16 @@ pub async fn openrouter_list_keys(
         .await
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn export_session(
+    state: State<'_, AppState>,
+    session_id: i64,
+    options: Option<crate::export::ExportOptions>,
+) -> Result<String, String> {
+    let engine = crate::export::ExportEngine::new(state.db.clone());
+    let opts = options.unwrap_or_default();
+    engine
+        .export_session(session_id, &opts)
+        .map_err(|e| e.to_string())
+}

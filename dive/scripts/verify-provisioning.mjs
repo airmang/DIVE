@@ -28,32 +28,16 @@ async function main() {
   await page.waitForSelector('[data-testid="demo-section-intro"]');
 
   console.log("\n2. Form fields present");
-  check(
-    "main key field present",
-    (await page.$('[data-testid="prov-main-key"]')) !== null,
-  );
+  check("main key field present", (await page.$('[data-testid="prov-main-key"]')) !== null);
   check("label field present", (await page.$('[data-testid="prov-label"]')) !== null);
   check("count field present", (await page.$('[data-testid="prov-count"]')) !== null);
   check("limit field present", (await page.$('[data-testid="prov-limit"]')) !== null);
-  check(
-    "issue button present",
-    (await page.$('[data-testid="prov-issue"]')) !== null,
-  );
+  check("issue button present", (await page.$('[data-testid="prov-issue"]')) !== null);
 
   console.log("\n3. Default values");
-  const defaultLabel = await page.$eval(
-    '[data-testid="prov-label"]',
-    (el) => el.value,
-  );
-  check(
-    "default label has date + 반",
-    defaultLabel.includes("반"),
-    defaultLabel,
-  );
-  const defaultCount = await page.$eval(
-    '[data-testid="prov-count"]',
-    (el) => el.value,
-  );
+  const defaultLabel = await page.$eval('[data-testid="prov-label"]', (el) => el.value);
+  check("default label has date + 반", defaultLabel.includes("반"), defaultLabel);
+  const defaultCount = await page.$eval('[data-testid="prov-count"]', (el) => el.value);
   check("default count is 25", defaultCount === "25", defaultCount);
 
   console.log("\n4. Reduce count to 3 for faster test");
@@ -64,10 +48,7 @@ async function main() {
   await page.waitForSelector('[data-testid="demo-section-results"]', { timeout: 3000 });
 
   console.log("\n6. Source indicator reports 'mock' in browser");
-  const source = await page.$eval(
-    '[data-testid="prov-source"]',
-    (el) => el.textContent ?? "",
-  );
+  const source = await page.$eval('[data-testid="prov-source"]', (el) => el.textContent ?? "");
   check("source is mock", source.includes("mock"), source);
 
   console.log("\n7. Exactly 3 result items rendered");
@@ -79,9 +60,8 @@ async function main() {
   check("3 QR codes", qrs.length === 3, String(qrs.length));
 
   console.log("\n9. Each item label follows 차시 라벨-#NN pattern");
-  const labels = await page.$$eval(
-    '[data-testid="prov-result-item"]',
-    (els) => els.map((e) => e.getAttribute("data-label") ?? ""),
+  const labels = await page.$$eval('[data-testid="prov-result-item"]', (els) =>
+    els.map((e) => e.getAttribute("data-label") ?? ""),
   );
   check(
     "labels carry class prefix + #NN",
@@ -91,10 +71,7 @@ async function main() {
 
   console.log("\n10. Issue with empty main key is blocked");
   await page.fill('[data-testid="prov-main-key"]', "");
-  const disabled = await page.$eval(
-    '[data-testid="prov-issue"]',
-    (el) => el.disabled,
-  );
+  const disabled = await page.$eval('[data-testid="prov-issue"]', (el) => el.disabled);
   check("issue disabled with empty main key", disabled === true);
 
   console.log("\n11. Increase count to 10 + re-issue — 6 preview + overflow note");

@@ -9,6 +9,7 @@ import ScenarioADemoPage from "./pages/scenario-a-demo";
 import ScenarioBDemoPage from "./pages/scenario-b-demo";
 import ToolGuardDemoPage from "./pages/tool-guard-demo";
 import ProvisioningDemoPage from "./pages/provisioning-demo";
+import ExportDemoPage from "./pages/export-demo";
 
 type Route =
   | "main"
@@ -20,7 +21,8 @@ type Route =
   | "scenario-a"
   | "scenario-b"
   | "tool-guard"
-  | "provisioning";
+  | "provisioning"
+  | "export";
 
 function resolveRoute(): Route {
   if (typeof window === "undefined") return "main";
@@ -35,6 +37,7 @@ function resolveRoute(): Route {
   if (demo === "scenario-b") return "scenario-b";
   if (demo === "tool-guard") return "tool-guard";
   if (demo === "provisioning") return "provisioning";
+  if (demo === "export") return "export";
   return "main";
 }
 
@@ -56,6 +59,7 @@ function App() {
   if (route === "scenario-b") return <ScenarioBDemoPage />;
   if (route === "tool-guard") return <ToolGuardDemoPage />;
   if (route === "provisioning") return <ProvisioningDemoPage />;
+  if (route === "export") return <ExportDemoPage />;
   return <MainShell />;
 }
 

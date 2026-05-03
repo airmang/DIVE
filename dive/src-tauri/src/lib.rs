@@ -5,6 +5,7 @@ pub mod auth;
 pub mod checkpoint;
 pub mod db;
 pub mod dive;
+pub mod export;
 pub mod ipc;
 pub mod mcp;
 pub mod providers;
@@ -45,7 +46,8 @@ pub fn run() {
             ipc::checkpoint_list,
             ipc::openrouter_issue_key,
             ipc::openrouter_revoke_all,
-            ipc::openrouter_list_keys
+            ipc::openrouter_list_keys,
+            ipc::export_session
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
