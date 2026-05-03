@@ -199,44 +199,76 @@ pub async fn card_update_instruction(
 #[tauri::command]
 pub async fn card_transition(
     state: State<'_, AppState>,
+    app: AppHandle,
     card_id: i64,
     transition: CardTransition,
     approve_force: Option<bool>,
 ) -> Result<CardState, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let existing = card_dao::get_by_id(db.conn(), card_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("card {card_id} not found"))?;
+    let (next, session_id, card_title) = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let existing = card_dao::get_by_id(db.conn(), card_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("card {card_id} not found"))?;
 
-    if matches!(transition, CardTransition::Approve) && !approve_force.unwrap_or(false) {
-        let log_str = existing
-            .verify_log
-            .as_deref()
-            .ok_or_else(|| "verify_log required: run card_verify first".to_string())?;
-        let log = crate::dive::VerifyLog::from_json_str(log_str).map_err(|e| e.to_string())?;
-        if !log.approve_eligible() {
-            return Err(format!(
-                "verify failed: intent_match={}, test_result={:?}. Pass approve_force=true to override.",
-                log.intent_match, log.test_result
-            ));
+        if matches!(transition, CardTransition::Approve) && !approve_force.unwrap_or(false) {
+            let log_str = existing
+                .verify_log
+                .as_deref()
+                .ok_or_else(|| "verify_log required: run card_verify first".to_string())?;
+            let log = crate::dive::VerifyLog::from_json_str(log_str).map_err(|e| e.to_string())?;
+            if !log.approve_eligible() {
+                return Err(format!(
+                    "verify failed: intent_match={}, test_result={:?}. Pass approve_force=true to override.",
+                    log.intent_match, log.test_result
+                ));
+            }
+        }
+
+        let next = apply_transition(existing.state, transition).map_err(|e| e.to_string())?;
+        card_dao::update(
+            db.conn(),
+            card_id,
+            &NewCard {
+                session_id: existing.session_id,
+                title: existing.title.clone(),
+                instruction: existing.instruction.clone(),
+                state: next,
+                verify_log: existing.verify_log.clone(),
+                changed_files: existing.changed_files.clone(),
+                position: existing.position,
+            },
+        )
+        .map_err(|e| e.to_string())?;
+        (next, existing.session_id, existing.title.clone())
+    };
+
+    if matches!(transition, CardTransition::Approve | CardTransition::Extend) {
+        let engine =
+            crate::checkpoint::CheckpointEngine::new(state.project_root.clone(), state.db.clone());
+        if engine.checkpoint_dir().join("HEAD").exists() {
+            let label = match transition {
+                CardTransition::Approve => format!("[V 통과] {card_title}"),
+                CardTransition::Extend => format!("[E 진입] {card_title}"),
+                _ => unreachable!(),
+            };
+            if let Ok(row) =
+                engine.create_checkpoint(session_id, Some(card_id), "auto", Some(&label))
+            {
+                let _ = app.emit(
+                    "checkpoint_created",
+                    serde_json::json!({
+                        "id": row.id,
+                        "session_id": row.session_id,
+                        "card_id": row.card_id,
+                        "kind": row.kind,
+                        "label": row.label,
+                        "git_sha": row.git_sha,
+                    }),
+                );
+            }
         }
     }
 
-    let next = apply_transition(existing.state, transition).map_err(|e| e.to_string())?;
-    card_dao::update(
-        db.conn(),
-        card_id,
-        &NewCard {
-            session_id: existing.session_id,
-            title: existing.title.clone(),
-            instruction: existing.instruction.clone(),
-            state: next,
-            verify_log: existing.verify_log.clone(),
-            changed_files: existing.changed_files.clone(),
-            position: existing.position,
-        },
-    )
-    .map_err(|e| e.to_string())?;
     Ok(next)
 }
 
@@ -280,5 +312,44 @@ pub async fn ai_assist_cards(
     engine
         .suggest_cards(&description)
         .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn checkpoint_create(
+    state: State<'_, AppState>,
+    session_id: i64,
+    card_id: Option<i64>,
+    label: Option<String>,
+) -> Result<crate::db::models::CheckpointRow, String> {
+    let engine =
+        crate::checkpoint::CheckpointEngine::new(state.project_root.clone(), state.db.clone());
+    engine.init().map_err(|e| e.to_string())?;
+    engine
+        .create_checkpoint(session_id, card_id, "manual", label.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn checkpoint_restore(
+    state: State<'_, AppState>,
+    checkpoint_id: i64,
+) -> Result<(), String> {
+    let engine =
+        crate::checkpoint::CheckpointEngine::new(state.project_root.clone(), state.db.clone());
+    engine
+        .restore_checkpoint(checkpoint_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn checkpoint_list(
+    state: State<'_, AppState>,
+    session_id: i64,
+) -> Result<Vec<crate::db::models::CheckpointRow>, String> {
+    let engine =
+        crate::checkpoint::CheckpointEngine::new(state.project_root.clone(), state.db.clone());
+    engine
+        .list_checkpoints(session_id)
         .map_err(|e| e.to_string())
 }

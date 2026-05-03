@@ -63,6 +63,16 @@ export interface VerifyLogPayload {
   ran_at: number;
 }
 
+export interface CheckpointRowPayload {
+  id: number;
+  session_id: number;
+  card_id: number | null;
+  git_sha: string;
+  kind: "init" | "auto" | "manual";
+  label: string | null;
+  created_at: number;
+}
+
 type TauriApi = {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
   listen: <T>(event: string, handler: (e: { payload: T }) => void) => Promise<() => void>;
@@ -232,6 +242,31 @@ export function useChatSession(sessionId: number) {
     [sessionId],
   );
 
+  const createCheckpoint = useCallback(
+    async (cardId: number | null, label?: string) => {
+      const api = apiRef.current;
+      if (!api) return null;
+      return api.invoke<CheckpointRowPayload>("checkpoint_create", {
+        sessionId,
+        cardId,
+        label: label ?? null,
+      });
+    },
+    [sessionId],
+  );
+
+  const listCheckpoints = useCallback(async () => {
+    const api = apiRef.current;
+    if (!api) return [];
+    return api.invoke<CheckpointRowPayload[]>("checkpoint_list", { sessionId });
+  }, [sessionId]);
+
+  const restoreCheckpoint = useCallback(async (checkpointId: number) => {
+    const api = apiRef.current;
+    if (!api) return;
+    await api.invoke<void>("checkpoint_restore", { checkpointId });
+  }, []);
+
   return {
     ...state,
     sendUserMessage,
@@ -242,6 +277,9 @@ export function useChatSession(sessionId: number) {
     updateCardInstruction,
     transitionCardRemote,
     verifyCard,
+    createCheckpoint,
+    listCheckpoints,
+    restoreCheckpoint,
   };
 }
 

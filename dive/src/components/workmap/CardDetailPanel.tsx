@@ -35,6 +35,7 @@ interface CardDetailPanelProps {
   verifyLog?: VerifyLogView | null;
   verifyState?: "idle" | "running" | "error";
   verifyError?: string | null;
+  checkpointBadge?: string | null;
   onOpenChange: (open: boolean) => void;
   onInstructionChange?: (cardId: number, instruction: string) => void | Promise<void>;
   onTransition?: (
@@ -53,6 +54,7 @@ export function CardDetailPanel({
   verifyLog = null,
   verifyState = "idle",
   verifyError = null,
+  checkpointBadge = null,
   onOpenChange,
   onInstructionChange,
   onTransition,
@@ -141,6 +143,7 @@ export function CardDetailPanel({
             onVerify: handleVerify,
             forceApprove,
             setForceApprove,
+            checkpointBadge,
           })}
         </div>
 
@@ -173,6 +176,7 @@ interface BodyContext {
   onVerify: () => Promise<void>;
   forceApprove: boolean;
   setForceApprove: (v: boolean) => void;
+  checkpointBadge: string | null;
 }
 
 function renderStateBody(state: CardState, ctx: BodyContext) {
@@ -310,6 +314,14 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
           <p className="text-xs text-fg-muted">
             코드 결과를 확인하거나, 문제가 발견되면 다시 거부할 수 있습니다.
           </p>
+          {ctx.checkpointBadge ? (
+            <p
+              className="inline-flex items-center gap-1 rounded-md border border-success/40 bg-success/10 px-2 py-0.5 text-[11px] font-medium text-success"
+              data-testid="checkpoint-badge"
+            >
+              체크포인트 기록됨 · {ctx.checkpointBadge}
+            </p>
+          ) : null}
         </div>
       );
     case "extended":

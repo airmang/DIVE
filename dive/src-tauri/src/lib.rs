@@ -39,7 +39,10 @@ pub fn run() {
             ipc::card_update_instruction,
             ipc::card_transition,
             ipc::card_verify,
-            ipc::ai_assist_cards
+            ipc::ai_assist_cards,
+            ipc::checkpoint_create,
+            ipc::checkpoint_restore,
+            ipc::checkpoint_list
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -64,10 +64,7 @@ async function main() {
   check("button label '검증 실행'", (btnText ?? "").includes("검증 실행"), `text: ${btnText}`);
 
   console.log("\n7. Approve button disabled before verify runs");
-  const approveBefore = await page.$eval(
-    '[data-testid="btn-approve"]',
-    (el) => el.disabled,
-  );
+  const approveBefore = await page.$eval('[data-testid="btn-approve"]', (el) => el.disabled);
   check("approve disabled before verify", approveBefore === true);
 
   console.log("\n8. Click [검증 실행] — mock verify resolves after ~500ms");
@@ -84,11 +81,7 @@ async function main() {
   const testEl = await page.$('[data-testid="verify-test-result"]');
   check("verify-test-result rendered", testEl !== null);
   const testVal = await testEl?.getAttribute("data-test-result");
-  check(
-    "test-result is skipped (mock)",
-    testVal === "skipped",
-    `got ${testVal}`,
-  );
+  check("test-result is skipped (mock)", testVal === "skipped", `got ${testVal}`);
 
   const detailsEl = await page.$('[data-testid="verify-details"]');
   check("verify-details rendered", detailsEl !== null);
@@ -100,10 +93,7 @@ async function main() {
   );
 
   console.log("\n10. Approve button now enabled (intent_match=true, not fail)");
-  const approveAfter = await page.$eval(
-    '[data-testid="btn-approve"]',
-    (el) => el.disabled,
-  );
+  const approveAfter = await page.$eval('[data-testid="btn-approve"]', (el) => el.disabled);
   check("approve enabled after verify success", approveAfter === false);
 
   console.log("\n11. Rerun button label becomes '재검증'");
@@ -111,11 +101,7 @@ async function main() {
     '[data-testid="btn-run-verify"]',
     (el) => el.textContent ?? "",
   );
-  check(
-    "button label becomes '재검증'",
-    rerunText.includes("재검증"),
-    `text: ${rerunText}`,
-  );
+  check("button label becomes '재검증'", rerunText.includes("재검증"), `text: ${rerunText}`);
 
   console.log("\n12. Click [최종 승인] → card transitions to verified");
   await page.click('[data-testid="btn-approve"]');

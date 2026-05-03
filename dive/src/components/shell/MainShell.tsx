@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Sidebar } from "./Sidebar";
 import { ChatArea, type ChatStageBanner } from "./ChatArea";
 import { WorkmapStrip } from "./WorkmapStrip";
@@ -50,6 +50,8 @@ export function MainShell() {
     {},
   );
   const [verifyErrors, setVerifyErrors] = useState<Record<number, string | null>>({});
+  const [checkpointBadges, setCheckpointBadges] = useState<Record<number, string>>({});
+  const [lastManualCheckpointLabel, setLastManualCheckpointLabel] = useState<string | null>(null);
 
   const cards = useWorkmapStore((s) => s.cards);
   const addCards = useWorkmapStore((s) => s.addCards);
@@ -153,7 +155,33 @@ export function MainShell() {
   ) => {
     const nextState = TRANSITION_TO_STATE[transition];
     transitionCard(cardId, nextState);
+    if (transition === "approve" || transition === "extend") {
+      setCheckpointBadges((s) => ({
+        ...s,
+        [cardId]: transition === "approve" ? "[V 통과]" : "[E 진입]",
+      }));
+    }
   };
+
+  const handleManualCheckpoint = useCallback(() => {
+    const label = currentCard ? `수동 저장 — ${currentCard.title}` : "수동 저장";
+    setLastManualCheckpointLabel(label);
+    console.log("[checkpoint] manual save requested", {
+      cardId: currentCardId,
+      label,
+    });
+  }, [currentCard, currentCardId]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        handleManualCheckpoint();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handleManualCheckpoint]);
 
   const handleVerify = useCallback(async (cardId: number) => {
     setVerifyStates((s) => ({ ...s, [cardId]: "running" }));
@@ -220,6 +248,7 @@ export function MainShell() {
         verifyLog={currentVerifyLog}
         verifyState={currentVerifyState}
         verifyError={currentVerifyError}
+        checkpointBadge={currentCard ? (checkpointBadges[currentCard.id] ?? null) : null}
         onOpenChange={handleDetailOpenChange}
         onInstructionChange={handleInstructionChange}
         onTransition={handleTransition}
@@ -228,6 +257,11 @@ export function MainShell() {
       />
       <input type="hidden" data-testid="current-stage" value={stage} />
       <input type="hidden" data-testid="current-card-id" value={currentCardId ?? ""} />
+      <input
+        type="hidden"
+        data-testid="last-manual-checkpoint"
+        value={lastManualCheckpointLabel ?? ""}
+      />
     </div>
   );
 }
