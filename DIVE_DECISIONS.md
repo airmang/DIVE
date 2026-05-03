@@ -395,3 +395,43 @@
 - 결과:
   - Rust 테스트 +1 (`ipc::timeline::tests::row_to_item_preserves_fields`). Playwright verify-timeline 10 asserts.
   - Phase 4-4에서 실제 git diff 기반 `file_changes` + "복원 직전 자동 체크포인트" + 복원 확인 다이얼로그가 이 컴포넌트를 그대로 확장.
+
+## ADR-022: 재시도는 provider.chat() 시작점만 래핑 + 분류기로 빠른 실패
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 4-3)
+- 컨텍스트: §9.6은 "네트워크 오류 시 자동 재시도 3회 후 사용자 노출"을 요구. 실제로 LLM 호출은 HTTP POST → SSE stream 형태라 재시도 경계가 두 단계(connection establish vs mid-stream). 전체 스트림 재시도는 상태 복구(이미 emit된 TextDelta 되돌리기)가 복잡하고, 단순 replay는 idempotency 보장 불가능.
+- 결정:
+  - **재시도는 `provider.chat(request)` 초기 호출만**: `with_retry` 래퍼가 `BoxStream`을 반환하는 해당 Future만 감싼다. 스트림이 시작된 후의 mid-flight 에러는 `stream.next()` loop에서 `ChatEvent::Error`로 emit되어 UI에서 재시도 버튼으로 수동 처리(4-4).
+  - **`is_retryable` 분류기**: 5xx + `reqwest::Error::is_timeout()` + `is_connect()` + `ProviderError::Stream` 파서 에러만 재시도. 400/401/403 + `Auth` + `Unsupported`는 재시도해도 절대 성공하지 않으므로 즉시 표면화. 학교 환경에서 잘못된 API 키로 3번 대기 → 5초 후 실패는 최악의 UX.
+  - **지수 백오프 0.5s/1s/2s, max=3**: §9.6 명세 "3회" 준수. 백오프 base 값은 `Duration` 파라미터라 테스트에서 1ms로 축소 가능.
+  - **`ChatRequest::Clone` 활용**: 이미 derive된 `Clone`으로 각 재시도 attempt마다 request 복제. 메시지 배열이 크면 오버헤드가 있지만 초당 0.5회 이하 재시도라 무시 가능.
+  - **Stream variant를 retryable로 포함**: SSE 파서가 처음 chunk에서 실패하는 경우(서버가 잘못된 Content-Type을 잠깐 반환) 재시도가 유의미. Permanent bug라면 3번 모두 실패.
+- 대안:
+  - **전체 stream 재시도**: emit된 이벤트 rollback이 UI state machine을 오염. AgentLoop가 assistant_end를 이미 쏜 경우 재시도 시 중복 메시지.
+  - **400/401도 재시도**: 명세 위반 + UX 악화. API 키 만료면 즉시 설정 화면으로 유도하는 게 올바름.
+  - **linear backoff**: 1+1+1=3초 vs 지수 0.5+1+2=3.5초로 총 시간 유사. 지수는 짧은 장애(0.5초)를 빠르게 복구 + 긴 장애에도 서버 부하 분산.
+  - **재시도 수 설정화(설정 화면 슬라이더)**: MVP 초과. 3회 고정이 §9.6 권장.
+- 결과:
+  - Rust 테스트 +5. AgentLoop `stream_assistant` 1줄 변경으로 통합 완료(125 lib passing / 5 integration scenarios 전부 통과).
+  - 4-4에서 mid-stream 에러 토스트 + "다른 프로바이더로 전환" 버튼을 붙일 때 에러 원인이 `retryable=false` / `retryable=true` 구분 정보를 이미 갖고 있음.
+
+## ADR-023: ToastProvider는 root-mount + 4 variant + max 3 + action 선택 콜백
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 4-3)
+- 컨텍스트: §9.6 에러 메시지 표시 + 4-4가 사용할 체크포인트 저장 알림 + 복원 확인 전에 토스트 인프라가 필요. 여러 컴포넌트가 토스트를 쏘므로 context + provider가 필수.
+- 결정:
+  - **`main.tsx`에 `<ToastProvider><App /></ToastProvider>`**: 최상단 mount. `demo=*` 라우트도 토스트가 필요(restore 토스트, 에러 토스트)하므로 App 루트 외 다른 경로 불가.
+  - **컨텍스트/hook과 Provider 파일 분리**: `toast-context.ts`는 `createContext` + `useContext` hook만, `ToastProvider.tsx`는 React 컴포넌트만. 이는 eslint-plugin-react-refresh의 `only-export-components` 규칙 + HMR 안정성 때문. 하나의 파일에 컴포넌트 + non-component 둘 다 export 하면 hot reload가 깨짐.
+  - **4 variant + max 3 + 5s auto dismiss**: success/info/warn/error + stacking 오래된 것 drop. 동시에 10개 토스트가 뜨면 사용자 panic → 3이 실용적 상한.
+  - **선택적 `actionLabel` + `onAction` 콜백**: 에러 토스트에 "다시 시도" 같은 single primary action을 붙일 수 있음. 클릭 시 콜백 + 자동 dismiss. 복잡한 다중 action 필요하면 Dialog로 승격.
+  - **`useToast()` fallback**: Provider 밖에서 호출해도 `{ toast: () => "", dismiss: () => {} }` no-op 반환 → 테스트·SSR 안전.
+  - **`data-testid="toast"` + `data-variant`**: Playwright가 스크립트 하나로 4 variant 회귀 가능.
+- 대안:
+  - **shadcn/ui `<Sonner />` 또는 `<Toaster />` 채택**: 의존성 추가 부담 + 현재 스타일 토큰과 맞추는 작업이 직접 구현과 비슷. 직접 구현이 투명하고 번들 크기 작음.
+  - **Provider 없이 전역 event bus**: React 트리 외부 side effect → React 18 Strict Mode에서 double-fire. Provider + context가 표준 패턴.
+  - **모든 토스트가 action 버튼 필수**: 대부분 정보 제공만 필요. optional이 올바름.
+- 결과:
+  - Playwright 10 asserts + 16 스위트 통과. 4-4에서 이 인프라를 Ctrl+S 체크포인트 성공 토스트로 재사용 (console.log 제거 경로).
+  - Phase 4-4/4-6 i18n 작업이 `toast({ title: t("checkpoint.saved") })` 한 줄로 다국어화 가능한 설계.
