@@ -7,6 +7,7 @@ pub mod anthropic;
 pub mod error;
 pub mod mock;
 pub mod openai;
+pub mod retry;
 pub mod sse;
 pub mod types;
 
@@ -17,6 +18,7 @@ pub use anthropic::AnthropicProvider;
 pub use error::ProviderError;
 pub use mock::MockProvider;
 pub use openai::OpenAiProvider;
+pub use retry::{is_retryable, with_retry};
 pub use types::{
     ChatEvent, ChatRequest, FinishReason, Message, ModelInfo, ToolCall, ToolChoice, ToolDef, Usage,
 };

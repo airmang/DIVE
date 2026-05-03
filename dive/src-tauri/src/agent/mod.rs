@@ -312,7 +312,17 @@ impl AgentLoop {
         request: ChatRequest,
         emit: &mut (dyn FnMut(AgentEvent) + Send),
     ) -> Result<(String, Vec<ToolCall>, FinishReason), AgentError> {
-        let mut stream = self.provider.chat(request).await?;
+        let provider = self.provider.clone();
+        let mut stream = crate::providers::with_retry(
+            || {
+                let provider = provider.clone();
+                let req = request.clone();
+                async move { provider.chat(req).await }
+            },
+            3,
+            std::time::Duration::from_millis(500),
+        )
+        .await?;
         let mut content = String::new();
         let mut pending_tool_calls: Vec<PendingToolCall> = Vec::new();
         let mut finish_reason = FinishReason::Stop;

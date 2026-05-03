@@ -56,19 +56,14 @@ async function main() {
   console.log("\n6. Toggle read_file policy — persists in localStorage");
   await page.click('[data-testid="policy-toggle"][data-tool="read_file"]');
   await page.waitForTimeout(100);
-  const stored = await page.evaluate(() =>
-    window.localStorage.getItem("dive:auto-approve-policy"),
-  );
+  const stored = await page.evaluate(() => window.localStorage.getItem("dive:auto-approve-policy"));
   check("policy persisted", stored !== null && stored.includes("read_file"), String(stored));
 
   console.log("\n7. Click anthropic connect → key input appears");
-  await page.click(
-    '[data-testid="provider-connect-btn"][data-provider-kind="anthropic"]',
-  );
-  await page.waitForSelector(
-    '[data-testid="provider-key-input"][data-provider-kind="anthropic"]',
-    { timeout: 1000 },
-  );
+  await page.click('[data-testid="provider-connect-btn"][data-provider-kind="anthropic"]');
+  await page.waitForSelector('[data-testid="provider-key-input"][data-provider-kind="anthropic"]', {
+    timeout: 1000,
+  });
   check("anthropic key input visible", true);
 
   console.log("\n8. Enter key + submit → provider shown as connected");

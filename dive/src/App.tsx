@@ -12,6 +12,7 @@ import ProvisioningDemoPage from "./pages/provisioning-demo";
 import ExportDemoPage from "./pages/export-demo";
 import SettingsPage from "./pages/settings";
 import TimelineDemoPage from "./pages/timeline-demo";
+import ToastDemoPage from "./pages/toast-demo";
 
 type Route =
   | "main"
@@ -26,7 +27,8 @@ type Route =
   | "provisioning"
   | "export"
   | "settings"
-  | "timeline";
+  | "timeline"
+  | "toast";
 
 function resolveRoute(): Route {
   if (typeof window === "undefined") return "main";
@@ -44,6 +46,7 @@ function resolveRoute(): Route {
   if (demo === "export") return "export";
   if (demo === "settings") return "settings";
   if (demo === "timeline") return "timeline";
+  if (demo === "toast") return "toast";
   return "main";
 }
 
@@ -68,6 +71,7 @@ function App() {
   if (route === "export") return <ExportDemoPage />;
   if (route === "settings") return <SettingsPage />;
   if (route === "timeline") return <TimelineDemoPage />;
+  if (route === "toast") return <ToastDemoPage />;
   return <MainShell />;
 }
 
