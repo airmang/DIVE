@@ -454,3 +454,22 @@
   - Playwright `verify-polish.mjs` 10 asserts 통과. 17 스위트 합계.
   - MainShell Ctrl+S → 토스트 연결(4-1에서 예고). 3-3 `console.log` 완전 제거.
   - 4-5 파일럿 환경 검증에서 이 다이얼로그가 학생 사용성의 1차 검증 대상이 됨.
+
+## ADR-025: 파일럿 검증은 코드·문서 준비 vs 실제 교실 검증 분리 (Phase 4-5)
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 4-5)
+- 컨텍스트: 핸드오프 명세가 요구한 4-5 범위는 (a) 실제 학교 PC에 설치 및 검증 (b) OpenRouter 자식 키 25개 발급 + 25명 동시 호출 시뮬레이션 (c) Cloudflare Workers 짧은 URL 호스팅. 이번 세션은 외부 자원(학교 PC, 충전된 OpenRouter main key, Cloudflare 계정/도메인) 부재로 (a)(b)(c) 세 번째 단계를 직접 수행할 수 없음.
+- 결정:
+  - **코드·문서 준비는 이번 세션에서 완료**: 교사 체크리스트, 벤치마크 템플릿, Windows 빌드 가이드, 25명 동시 시뮬레이션 스크립트. 모두 "사용자가 실제 자원을 가진 시점에 바로 실행 가능"한 상태.
+  - **실제 학교 PC 검증은 사용자 몫으로 명시 이관**: `DIVE_PROGRESS.md` 4-5 완료 노트에 "외부 자원 필요 항목(사용자 실행 대기)" 섹션 추가. Phase 5 진입 전이라도 파일럿 실시 가능.
+  - **25명 시뮬레이션은 Playwright로 가능 범위까지**: 실제 OpenRouter 호출 없이 UI 플로우(onboarding → 프로젝트 → 세션)만 25 컨텍스트 동시 실행. 네트워크 stress는 목표가 아니고 UI 동시성·localStorage 충돌 회귀 검증이 목표. 실제 API stress는 유료 실제 키 필요.
+  - **Cloudflare Workers는 Phase 5로 연기**: 학교 환경에서 QR 직접 스캔만으로도 25명 배포가 가능함을 ADR-017(OpenRouter provisioning 3-5)이 확인. 짧은 URL은 편의 기능이지 필수가 아님.
+- 대안:
+  - **4-5를 Phase 5로 완전 이관**: 핸드오프에서 명시적으로 "코드 준비 완료"로 PHASE_GATE를 통과하는 옵션이 있었고 사용자가 이를 택함. Phase 5를 차단할 필요 없음.
+  - **무료 OpenRouter 키로 제한된 stress 테스트**: 무료 티어는 $0 한도 + rate limit 엄격 → 25명 동시 호출이 의미 있는 데이터를 주지 못함. 불필요 비용만 발생.
+  - **실제 학교 PC 없이 Windows VM으로 대체**: VM은 SmartScreen/Defender 동작이 실제 학교 IT 환경과 다름 → false positive 많음. 실제 하드웨어가 유일한 truth source.
+- 결과:
+  - 4 docs 신규 (`docs/pilot-checklist.md`, `pilot-benchmarks.md`, `windows-build-guide.md` + 향후 `pilot-feedback.md` 템플릿은 4-6에서 매뉴얼과 함께 추가).
+  - `scripts/simulate-25-users.mjs`는 CI 회귀에는 들어가지 않음 — on-demand 벤치마크 도구. `--count N` 파라미터로 규모 조정.
+  - Phase 4 PHASE_GATE는 "코드·문서 준비 완료, 실환경 검증 사용자 대기"로 마킹. 실제 검증 후 필요 시 Phase 4-5-post 패치 ADR.
