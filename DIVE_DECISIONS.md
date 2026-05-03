@@ -41,3 +41,39 @@
 ---
 
 <!-- 새 ADR은 아래에 추가하세요. 번호는 003부터 시작 -->
+
+## ADR-003: Windows NSIS 빌드 검증을 GitHub Actions로 위임
+
+- 일시: 2026-05-03
+- 상태: 채택
+- 컨텍스트: 개발 환경은 macOS (darwin arm64)이며, 작업 1-1의 완료 조건에는 Windows x64와 ARM64 NSIS 인스톨러 생성이 포함된다. macOS에서 `x86_64-pc-windows-msvc` / `aarch64-pc-windows-msvc` 타겟으로 cargo를 돌릴 수는 있지만 MSVC 링커·Windows SDK·NSIS 툴체인이 없어서 실제 NSIS 인스톨러 산출까지 가는 경로가 현실적으로 막혀 있다. Windows 머신을 상시 보유한 상태도 아니다.
+- 결정:
+  - 로컬(macOS)에서는 pnpm install, typecheck, lint, format, cargo check, cargo fmt, `pnpm tauri:dev`(창이 뜨는지 확인)까지만 검증한다.
+  - Windows x64 / ARM64 NSIS 빌드는 `.github/workflows/build.yml`의 `build-windows` 매트릭스(`windows-latest` + `windows-11-arm` 러너)에서 수행하고, NSIS `.exe`를 artifact로 업로드한다.
+  - Phase 1 이후에도 동일한 CI 매트릭스를 유지한다. 로컬 머신을 확보하면 보강만 하고 CI 정책을 바꾸지 않는다.
+- 대안:
+  - macOS에서 `cargo-xwin`으로 Windows 크로스 빌드 강행 — NSIS 번들링·코드 서명 흐름과 호환성이 불확실하고, 공식 Tauri 문서가 권장하는 경로가 아니라 기각.
+  - Windows VM을 상시 로컬에서 돌림 — 디스크·메모리 오버헤드 부담. ralph 루프가 사용자 부재 시간에 돌아간다는 점과도 맞지 않음.
+  - 친지 Windows 머신에서 수동 빌드 — 재현성·접근성 부족.
+- 결과:
+  - 작업 1-1의 Windows 빌드 완료 조건 2개는 CI 첫 push에서 자동 검증된다. 실패 시 `DIVE_NEXT.md`에 BLOCKED로 다시 기록한다.
+  - GitHub Actions 무료 러너 `windows-11-arm`는 2025년부터 GA된 상태이므로 비용 추가 없이 ARM64 검증이 가능하다.
+  - 로컬 macOS 검증 + Windows CI 검증의 이원화를 공식 절차로 문서화(`dive/README.md`의 "CI (권장)" 섹션).
+
+## ADR-004: v1.0 전까지 개발 빌드를 코드 서명하지 않음
+
+- 일시: 2026-05-03
+- 상태: 채택
+- 컨텍스트: 개발·파일럿 단계(Phase 1~5)에서 생성되는 NSIS 인스톨러는 교내 파일럿 참가자(25명, Phase 4)와 개발자 본인에게 한정 배포된다. 현재 EV 코드 서명 인증서는 보유하지 않으며, 연간 수십만 원~수백만 원 규모 비용이 든다. 서명 없는 인스톨러는 Windows SmartScreen에서 "게시자를 알 수 없음" 경고가 뜨지만 `추가 정보 → 실행`으로 진행 가능하다.
+- 결정:
+  - Phase 1~5 기간 동안 코드 서명을 도입하지 않는다.
+  - `dive/README.md`의 "코드 서명 / SmartScreen" 섹션에 SmartScreen 경고가 정상이며 실행 절차를 설명해 둔다.
+  - 파일럿 교사·학생에게 배포할 때도 릴리스 노트에 동일 문구를 포함한다.
+  - v1.0 정식 배포를 준비하는 Phase 6 (작업 6-4 / 6-5)에서 EV 인증서 구매, 서명 파이프라인 구축, SmartScreen 평판 축적을 일괄 처리한다.
+- 대안:
+  - 지금부터 OV/EV 인증서 구매 — 초기 비용 대비 가치 없음. 파일럿 전 UI/로직 변경이 잦아 재서명 부담만 누적.
+  - Self-signed 인증서 사용 — SmartScreen 우회 효과 없음. 사용자가 설치 전 루트 CA를 수동으로 신뢰해야 하므로 교육 환경 배포 난이도만 올라감.
+  - 빌드 산출물 대신 소스를 직접 실행 — 파일럿 환경(학교 PC)에서 pnpm/cargo를 설치할 수 없으므로 비현실적.
+- 결과:
+  - Phase 4 파일럿까지 "서명 없음 안내"가 공식 상태로 유지됨.
+  - 코드 서명 비용·흐름 결정이 Phase 6로 지연됨. 그 전까지 인증서 구매/신청 리드 타임(보통 1~2주)만 파악해 두면 됨.
