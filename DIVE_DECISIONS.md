@@ -281,3 +281,25 @@
   - `path_filter`는 `src/checkpoint/mod.rs:path_filter` 한 함수에 집중 — 새 제외 패턴 추가 시 여기에만 추가하고 단위 테스트로 검증 가능.
   - 복원 시 unrelated 파일이 남는 behavior는 의도 (사용자의 새 실험 파일은 복원 대상에 없으면 보존). 사용자가 원하면 그 파일을 삭제 후 다시 복원 가능 — 명세 §6.5.4 미니멀 복원 의미론에 부합.
   - Approve/Extend만 자동 체크포인트를 발행하므로 git objects 크기 증가가 선형적이고 학생 세션(카드 5~10개) 당 10~20MB 수준으로 예측 가능.
+
+## ADR-017: OpenRouter는 OpenAI 어댑터의 base_url 스왑으로 재사용, Provisioning은 별도 모듈
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 3-5)
+- 컨텍스트: 명세 §7.5는 OpenRouter Provisioning Keys를 "부수 공급자"로 기술. 하지만 OpenRouter의 채팅 API(`/chat/completions`)는 OpenAI와 완전 호환이고, 차이는 오직 (a) base_url, (b) 모델 ID 네이밍뿐이다. 한편 `/api/v1/keys` Provisioning 엔드포인트는 OpenAI에 없는 OpenRouter 전용 API라 별도 처리 필요.
+- 결정:
+  - **채팅 경로**: 신규 `providers/openrouter.rs` 어댑터를 만들지 않고 `OpenAiProvider::openrouter(api_key)` 편의 생성자를 추가. 내부적으로 `with_base_url("https://openrouter.ai/api/v1")` 한 줄. 현실적으로 OpenAI·OpenRouter를 넘나드는 테스트·fmt·clippy·SSE 파서 유지 비용이 0이 된다.
+  - **Provisioning 경로**: `auth/openrouter_provisioning.rs`에 별도 모듈. `OpenRouterProvisioning`는 `reqwest::Client`만 들고 있고 `LlmProvider` 트레이트와 무관 — Provisioning은 채팅 트레이트 계약과 근본적으로 다른 관리 API이기 때문.
+  - **`ChildKey`는 1회성**: 발급 시점에만 `key` 필드를 반환, 이후 `list_child_keys`는 `ChildKeySummary { hash, label, limit_usd, disabled }`로 `.key` 생략. OpenRouter 서버 정책과 일치 — 분실 시 재생성.
+  - **keyring 저장은 IPC 레이어 선택**: 3-5 IPC는 발급 결과를 그대로 프론트에 반환. 실제 keyring 저장(`SecretScope::OpenRouterChildKey { label }`)은 교사 UX에 따라 달라져 Phase 4-2 설정 UI에서 결정. 3-5는 하위 레이어만.
+  - **wiremock-only 테스트**: 실제 main key가 없으므로 3-5 검증은 5개 wiremock 시나리오(발급·401 에러·목록·개별 폐기·접두사 일괄 폐기)로 한정. 파일럿(4-5)에서 실제 API로 E2E 재검증.
+  - **QR만, 짧은 URL 없음**: `qrcode.react`로 각 자식 키를 즉시 QR로 렌더. 짧은 URL 호스팅(Cloudflare Workers 등)은 Phase 4-5로 연기 — 학생이 QR을 촬영하면 즉시 키가 노출되므로 짧은 URL 없이도 수업 진행 가능.
+- 대안:
+  - **완전 별도 `providers/openrouter.rs`**: 코드 중복. 재사용 가능한 OpenAI 어댑터와 diff가 base_url 한 줄이라 가치 없음.
+  - **Provisioning을 `providers` 하위에 두기**: 채팅 API와 관리 API를 혼재시키면 LlmProvider 트레이트 설계가 오염. auth가 이미 keyring 같은 "크로스-provider 보안/관리"를 담당하므로 자연스러운 위치.
+  - **`SecretScope::OpenRouterChildKey` 자동 저장**: 3-5 범위를 벗어남. 교사가 키 발급 후 (a) 현장 QR 공유 (b) 키를 앱에 기억 (c) 세션 종료 후 일괄 폐기 — 세 워크플로가 공존할 수 있어 4-2에서 UI와 함께 결정.
+  - **실제 OpenRouter 토큰으로 통합 테스트**: 비용 + 공유 API 키 유출 위험. wiremock이 `/api/v1/keys` 계약 3종 모두 커버하므로 스키마 회귀는 잡힘.
+- 결과:
+  - 테스트 +5 (wiremock 5). `cargo test` 총 **152 passed / 0 failed / 1 ignored**.
+  - `providers::OpenAiProvider::openrouter()` 덕분에 Phase 4-2 설정 UI에서 OpenRouter를 일등 공급자로 노출하는 비용이 거의 없다 (ProviderConfig `base_url` 컬럼에 OpenRouter URL 저장 시 자동 분기).
+  - `ProvisioningError::Remote { status, body }`가 UI 디버깅에 그대로 쓰이도록 설계 — 교사가 "401: invalid token" 같은 원인을 즉시 파악 가능.
