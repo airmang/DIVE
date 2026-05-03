@@ -193,3 +193,23 @@
   - `Connection::open_in_memory()` — 빠르지만 WAL이 실제로는 `memory` 모드라 저널 동작 검증이 제한적. 파일 잠금·sidecar(`-wal`/`-shm`) 시나리오 재현 불가.
   - `tempfile::TempDir` + 수동 경로 — 동등하지만 현재 규모에서는 NamedTempFile 단일 파일이 더 단순.
 - 결과: 테스트 실행 시간이 미세하게 증가하나(22 테스트 0.04s), FK/WAL/파일 잠금을 프로덕션과 동일 조건으로 검증. Windows 파일 잠금 이슈가 생기면 `TempDir + db.sqlite` helper로 전환한다.
+
+## ADR-013: 카드 상태 머신은 세션당 `current_card_id` 단일 슬롯으로 강제 (DB 마이그레이션 v2)
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 3-1)
+- 컨텍스트: 명세 §4.3 — "한 번에 하나의 카드만 I 단계에 있을 수 있다". 또한 §4.6 상태 머신은 카드 단위 state 전이지만, I/V 게이트는 "현재 어떤 카드에 대해 대화 중인가"를 아는 맥락이 필요.
+- 결정:
+  - DB 마이그레이션 v2로 `Workmap.current_card_id INTEGER REFERENCES Card(id) ON DELETE SET NULL` 컬럼을 append-only ALTER로 추가. 세션당 0개 또는 1개의 current card.
+  - FK `ON DELETE SET NULL`로 카드 삭제 시 애플리케이션 레벨 체크 없이 자동 null 처리.
+  - `CardTransition` enum은 6 variant (`EnterInstruct`, `RequestVerify`, `Approve`, `Reject`, `ReopenFromReject`, `Extend`)로 고정. 명세 §4.6 그림 4의 화살표 8개 전부 매핑 + `EnterInstruct`는 Decomposed→Instructed와 Instructed→Instructed(재편집) 모두 허용.
+  - 게이트 레이어는 `current_card_id`만 읽고 쓰기는 하지 않는다. 프론트가 `workmap_set_current_card` IPC로 명시적 세팅, 또는 카드 전이 시 UI 로직이 함께 갱신.
+- 대안:
+  - 세션 레벨 current card 없이 카드 테이블만으로 "가장 최근 편집된 카드" 추론 — 암묵적이고 race condition 우려. 모든 게이트 판정이 시간 정렬에 의존하게 되어 테스트 복잡도 증가.
+  - 카드별 독립 진행 (N개 카드가 각자 I/V 단계 동시 진행) — 명세 §4.3 위반. AgentLoop가 어느 카드에 대해 응답 중인지 판단할 컨텍스트 부재.
+  - Checkpoint 테이블처럼 `SessionCurrentCard(session_id, card_id, created_at)` 별도 테이블 — 단일 슬롯 의미론을 PRIMARY KEY로 강제하려면 결국 `session_id PRIMARY KEY`가 되어 `Workmap` 컬럼 추가와 동등. 테이블 수만 늘어남.
+- 결과:
+  - 마이그레이션 v2는 1줄 ALTER이므로 롤백·WAL 시나리오 모두 안전. v1→v2 순차 적용이 idempotent (schema_version 테이블로 보장).
+  - I/V/E 게이트 판정 로직이 DB 쿼리 1~2회로 단순화 (`workmap.current_card_id → cards.get_by_id`).
+  - 상태 머신은 Rust 순수 함수 (`apply(state, transition) -> Result<state, TransitionError>`)로 추출. DB 의존성 없이 12 개 단위 테스트로 매트릭스 전수 검증. 잘못된 전이(예: `Decomposed → Approve`)는 명시적 `InvalidTransition` 에러.
+  - 프론트 Zustand 스토어도 동일한 전이 개념(`transitionCard(id, nextState)`)으로 미러링. 백엔드 IPC `card_transition`은 DB update를 실제로 수행하되, Phase 3 현재 MainShell은 아직 IPC 호출 없이 프론트 스토어만 업데이트 (3-2 이후 백엔드 연동).
