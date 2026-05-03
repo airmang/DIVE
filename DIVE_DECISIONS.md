@@ -77,3 +77,63 @@
 - 결과:
   - Phase 4 파일럿까지 "서명 없음 안내"가 공식 상태로 유지됨.
   - 코드 서명 비용·흐름 결정이 Phase 6로 지연됨. 그 전까지 인증서 구매/신청 리드 타임(보통 1~2주)만 파악해 두면 됨.
+
+## ADR-005: shadcn/ui 구조 채택 (CLI 대신 수동 작성)
+
+- 일시: 2026-05-03
+- 상태: 채택
+- 컨텍스트: 작업 1-2에서 Button, Card, Badge, Input, Tabs, Tooltip, Dialog 7종 베이스 컴포넌트가 필요하다. 명세 §A.3는 shadcn/ui 계열(Radix primitive + Tailwind + 소스 복사 방식)을 권장한다. shadcn CLI(`pnpm dlx shadcn@latest init`)는 기본 팔레트를 자동 주입하는데, DIVE는 이미 §2.3 고유 팔레트를 CSS 변수로 정의한 상태라 CLI 기본값과 충돌한다.
+- 결정:
+  - shadcn/ui의 아키텍처 패턴(Radix headless + cva variants + tailwind-merge + 컴포넌트 소스 `src/components/ui/`에 직접 소유)을 채택한다.
+  - CLI는 돌리지 않고 7종 컴포넌트를 직접 작성한다. cva/tailwind-merge/clsx는 개별 의존성으로만 추가.
+  - 팔레트는 DIVE 전용 토큰(`bg`, `accent`, `fg`, `success`, `warn`, `danger`, `info`)을 Tailwind config에 노출하고 컴포넌트는 이 토큰만 참조한다.
+  - cva 변형 팩토리는 `*-variants.ts` 파일로 분리(`button-variants.ts`, `badge-variants.ts`)하여 `react-refresh/only-export-components` 경고를 방지하고 `.tsx`는 컴포넌트만 export한다.
+  - 추후 shadcn이 제공하는 추가 컴포넌트(Sheet, Popover, Command 등)가 필요해지면 CLI를 `components/ui/`에 바로 돌려도 충돌 없이 확장 가능하다.
+- 대안:
+  - Radix primitive만 쓰고 래퍼를 전혀 안 두기 — 매 호출마다 중복 Tailwind 클래스 필요, 디자인 일관성 유지 부담.
+  - Headless UI (@headlessui/react) 기반 — Dialog/Tooltip의 API 풍부도가 Radix보다 얕음, 접근성 기본값도 Radix가 더 완비.
+  - shadcn CLI 사용 + 기본 팔레트를 덮어쓰기 — init이 기존 `globals.css`를 덮어쓸 위험, 작업 단위 구분이 흐려짐.
+- 결과:
+  - 7종 컴포넌트가 DIVE 토큰만으로 스타일링됨. 임의 `#xxxxxx` 하드코딩 0건(grep 확인).
+  - 소스 복사 방식이므로 향후 디자인 드리프트 시 해당 파일만 수정하면 되고 node_modules 업데이트에 얽매이지 않음.
+  - cva variants 파일 분리로 ESLint `--max-warnings 0` 통과.
+
+## ADR-006: 폰트 로컬 호스팅 (Pretendard Variable + JetBrains Mono)
+
+- 일시: 2026-05-03
+- 상태: 채택
+- 컨텍스트: DIVE는 Tauri 네이티브 앱으로 학교 PC에 배포된다. 파일럿 교실 네트워크는 필터링·오프라인 가능성이 있으며, 첫 렌더에서 한글 폰트가 빠지면 시각적 인상이 크게 훼손된다. Pretendard Variable은 가변 폰트 단일 woff2(2MB)로 제공되고 OFL 라이선스이며, JetBrains Mono는 Apache 2.0이다.
+- 결정:
+  - `src/assets/fonts/` 아래 woff2 직접 포함: `PretendardVariable.woff2`(2.0MB), `JetBrainsMono-Regular.woff2`(92KB), `JetBrainsMono-Bold.woff2`(95KB). 합계 ~2.2MB.
+  - `src/styles/globals.css`의 `@font-face`로 상대 경로 참조 → Vite가 해시 파일명으로 번들에 포함.
+  - CDN fallback은 두지 않는다. 오프라인 환경에서도 100% 동일 렌더 보장.
+  - Pretendard Variable은 `font-weight: 45 920`으로 선언해 100~900 어느 굵기 요청도 변형으로 대응.
+  - README 라이선스 섹션에 Pretendard(OFL) / JetBrains Mono(Apache 2.0) 고지를 Phase 6 정식 배포 시 포함한다(현재는 ADR로만 기록).
+- 대안:
+  - jsdelivr/google fonts CDN — 리포지토리 경량화에 유리하지만 오프라인 환경에서 시스템 fallback으로 밀려남. 파일럿 PC 환경이 불투명한 상태에서 리스크 과도.
+  - Pretendard 정적 웨이트 5~7개 woff2 — 가변 폰트 1개로 대체 가능하며 용량도 비슷함. 가변 쪽이 구현 단순.
+  - Noto Sans KR — 한글 커버리지는 비슷하지만 §2.3 권장 순위가 "Pretendard 또는 Noto Sans KR"이므로 Pretendard가 상위 선택지.
+- 결과:
+  - 빌드 산출물 크기 증가 2.2MB. Tauri NSIS 인스톨러 전체 크기 대비 무시할 수준.
+  - 학교 PC에서 첫 실행부터 올바른 한글 타이포그래피 보장.
+  - `font-display: swap`으로 초기 로드 중에는 시스템 sans로 대체 후 폰트 로드 완료 시 교체 — FOUT는 발생 가능하나 FOUC보다 수용 가능.
+
+## ADR-007: FOUC 방지 인라인 스크립트를 index.html `<head>`에 배치
+
+- 일시: 2026-05-03
+- 상태: 채택
+- 컨텍스트: 다크/라이트 테마는 `<html>` 클래스(`dark`/`light`)로 전환된다. React가 마운트되기 전에 이 클래스가 결정되지 않으면 초기 페인트가 잘못된 테마로 그려졌다가 번쩍이며 전환된다(FOUC). DIVE_NEXT.md 완료 조건에 "FOUC 없음"이 명시되어 있다.
+- 결정:
+  - `index.html`의 `<head>`에 동기 인라인 IIFE를 둔다. React 번들 로드보다 먼저 실행되어 DOM parsing 초기 시점에 `<html>` 클래스를 적용한다.
+  - 순서: localStorage `dive.theme` 값(dark/light) → 없으면 `matchMedia('(prefers-color-scheme: light)')` → 그래도 실패하면 dark 기본값.
+  - `<html>`에 `class="dark"`를 정적으로 써 두어 JS 실패 시에도 다크 모드로 폴백.
+  - `meta name="color-scheme" content="dark light"`를 선언해 네이티브 스크롤바/폼 요소가 테마에 맞춰 그려지도록 함.
+  - 현재 `src-tauri/tauri.conf.json`의 CSP는 null(비활성)이라 인라인 스크립트 허용. v1.0에서 CSP를 켤 경우 nonce 주입 또는 별도 `public/theme-init.js`로 전환한다.
+- 대안:
+  - 외부 `public/theme-init.js` 사용 — 로컬 파일이라 지연은 무시 가능하지만 현재 CSP가 비활성이므로 굳이 분리할 실익 없음. CSP 강화 시점에 전환 예정.
+  - React 최초 렌더에서 처리 — 첫 페인트가 무조건 다크로 번쩍 뒤 라이트로 전환되는 FOUC 발생. 완료 조건 위반.
+  - next-themes 같은 라이브러리 — Next.js 종속. Vite 환경에서 과한 의존성.
+- 결과:
+  - Playwright 검증에서 OS=dark 상태 초기 접속 시 `classList: ["dark"]`로 시작, 토글 후 reload해도 `classList: ["light"]` + 백그라운드 `rgb(250,250,252)` 유지 확인.
+  - 인라인 스크립트 5줄(try/catch 포함)로 충분. 유지보수 부담 적음.
+  - 향후 CSP 강화 시 ADR 추가로 마이그레이션 경로 문서화.
