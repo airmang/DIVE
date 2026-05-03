@@ -258,3 +258,26 @@
   - 프론트 `CardDetailPanel`의 verifying body 한 곳만 고쳐도 실제 LLM ↔ mock ↔ 실패 판정 세 경로를 모두 커버. Playwright 19 assertion으로 전체 흐름 검증.
   - `ai_assist_cards` IPC는 3-2 범위 밖이었지만 VerifyEngine과 동일 패턴이라 비용이 거의 없어 함께 처리 (핸드오프 권장안 5번 답). AiAssistDialog가 더 이상 4개 하드코드 mock에만 의존하지 않음.
   - `approve_force` 파라미터는 향후 설정 UI(Phase 4-2)에서 "자동 재승인 정책"과 별개의 수동 override 경로로 재활용 가능.
+
+## ADR-016: 체크포인트는 베어 git 저장소 + 수동 트리 재작성으로 복원 (reset-hard 불가)
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 3-3)
+- 컨텍스트: 명세 §6.5는 `.dive/git/` 베어 저장소 + 복원 기능을 요구. 그러나 git2-rs의 `Repository::reset(ResetType::Hard)`는 베어 저장소에서 `"cannot reset hard. This operation is not allowed against bare repositories."` 에러로 거부한다. `set_workdir(root, false)`로 work dir을 지정해도 마찬가지.
+- 결정:
+  - **베어 저장소 유지**: 사용자 자신의 `.git/`과 완전 분리해야 하므로 non-bare 저장소를 project_root에 만드는 선택지는 `git status` 오염·사용자 혼란 때문에 기각. `.dive/git/`은 계속 bare로 둔다.
+  - **복원은 수동 트리 재작성 3단계**: ① `clear_tracked_worktree`로 이전 HEAD 트리가 참조하던 blob 경로만 `fs::remove_file`. 사용자의 unrelated 파일(빌드 산출물, 새 파일)은 건드리지 않음. ② `write_tree_to_disk`가 타겟 트리를 순회하며 blob 내용을 `fs::write`로 풀어냄. 디렉터리는 `create_dir_all`. ③ `repo.reference("HEAD", oid, true, ...)`로 HEAD 갱신. `checkout_tree` 호출도 시도했지만 베어 저장소에서는 경고만 남기고 파일을 쓰지 않아 제외.
+  - **복원 전 자동 "복원 직전" 체크포인트**: 복원이 파괴적 작업이라 반드시 선행 스냅샷. 라벨은 한국어 고정으로 DB에 저장 — UI가 타임라인에서 "되돌릴 수 있는 지점"을 쉽게 식별.
+  - **`add_all(["*"], path_filter)`**: WAL/SHM/SQLite/빌드 산출물 제외는 `.gitignore` 대신 `IndexMatchedPath` 콜백으로. 이유: `.gitignore` 파일을 베어 저장소 최상위에 두면 워크트리 추적·무시 경계가 불명확하고 사용자가 실수로 편집할 수 있음. 콜백은 코드로만 제어되므로 감사가 쉬움.
+  - **자동 트리거 범위**: 3-3에서는 Approve·Extend만 (§6.5.2 5가지 중 실제 파일 변화가 확정되는 두 시점). D 통과·I 통과·V 거부는 Phase 4 파일럿 피드백 후 확장 여부 재평가 — 학생 PC에서 체크포인트 빈도를 낮춰 git objects 비대를 피한다.
+- 대안:
+  - **non-bare 저장소**: `.dive/git/`이 work dir을 갖게 하면 `reset --hard` 사용 가능하지만 파일이 `.dive/git/.git/`으로 내려가 디렉터리 구조 가독성 악화, 그리고 `repo.set_workdir`로 project_root를 가리키도록 강제해야 해서 결국 수동 제어 필요. 베어 유지가 깔끔.
+  - **`checkout_tree(tree, Some(&mut CheckoutBuilder))`**: 베어 저장소에서 target_dir를 명시해도 실제 파일 쓰기를 하지 않는다 (git2-rs 0.18 확인). 수동 write가 유일한 신뢰 가능 경로.
+  - **`.gitignore` 기반 필터**: 위 결정 참조. 코드 콜백이 더 감사 친화적.
+  - **D/I 통과 자동 체크포인트도 포함**: 카드 10개짜리 세션에서 커밋 50+개 생성. 의미 있는 복원 지점은 V 통과이므로 범위를 좁히는 것이 사용자 경험상 유리.
+  - **`repo.reset()` 실패 시 fallback으로 non-bare로 전환**: 마이그레이션 부담. 기존 베어 저장소를 가진 사용자의 히스토리 처리 문제. 수동 복원이 더 단순.
+- 결과:
+  - Rust 테스트 8개 (lib 5 + 통합 3). 복원 왕복 시나리오가 실제 파일 시스템 내용 변화를 검증 (`v1` → `v2` → restore → `v1` 확인 + "복원 직전" 자동 생성 확인).
+  - `path_filter`는 `src/checkpoint/mod.rs:path_filter` 한 함수에 집중 — 새 제외 패턴 추가 시 여기에만 추가하고 단위 테스트로 검증 가능.
+  - 복원 시 unrelated 파일이 남는 behavior는 의도 (사용자의 새 실험 파일은 복원 대상에 없으면 보존). 사용자가 원하면 그 파일을 삭제 후 다시 복원 가능 — 명세 §6.5.4 미니멀 복원 의미론에 부합.
+  - Approve/Extend만 자동 체크포인트를 발행하므로 git objects 크기 증가가 선형적이고 학생 세션(카드 5~10개) 당 10~20MB 수준으로 예측 가능.
