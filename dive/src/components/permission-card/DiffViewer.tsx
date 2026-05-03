@@ -5,9 +5,12 @@ import { computeLineDiff } from "./diff";
 interface Props {
   diff: DiffPreviewData;
   className?: string;
+  /** When set, render a link in the truncated footer that opens the full diff
+   * in the slide-in panel (task 2-5). */
+  onExpand?: () => void;
 }
 
-export function DiffViewer({ diff, className }: Props) {
+export function DiffViewer({ diff, className, onExpand }: Props) {
   const result = useMemo(() => computeLineDiff(diff.before, diff.after), [diff.before, diff.after]);
 
   return (
@@ -56,8 +59,18 @@ export function DiffViewer({ diff, className }: Props) {
         })}
       </pre>
       {result.truncated ? (
-        <footer className="border-t bg-bg-panel2 px-3 py-1.5 text-xs text-warn">
-          300줄 초과 — 전체 보기는 슬라이드 인 패널에서 (2-5에서 연결)
+        <footer className="flex items-center justify-between border-t bg-bg-panel2 px-3 py-1.5 text-xs">
+          <span className="text-warn">300줄 초과 — 일부만 표시</span>
+          {onExpand ? (
+            <button
+              type="button"
+              onClick={onExpand}
+              data-testid="diff-expand"
+              className="text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            >
+              전체 보기 →
+            </button>
+          ) : null}
         </footer>
       ) : null}
     </div>

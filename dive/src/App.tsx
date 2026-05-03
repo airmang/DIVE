@@ -4,8 +4,9 @@ import ShowcasePage from "./pages/showcase";
 import WorkmapDemoPage from "./pages/workmap-demo";
 import ChatDemoPage from "./pages/chat-demo";
 import PermissionDemoPage from "./pages/permission-demo";
+import SlideInDemoPage from "./pages/slide-in-demo";
 
-type Route = "main" | "showcase" | "workmap" | "chat" | "permission";
+type Route = "main" | "showcase" | "workmap" | "chat" | "permission" | "slide-in";
 
 function resolveRoute(): Route {
   if (typeof window === "undefined") return "main";
@@ -15,6 +16,7 @@ function resolveRoute(): Route {
   if (demo === "showcase") return "showcase";
   if (demo === "chat") return "chat";
   if (demo === "permission") return "permission";
+  if (demo === "slide-in") return "slide-in";
   return "main";
 }
 
@@ -31,6 +33,7 @@ function App() {
   if (route === "showcase") return <ShowcasePage />;
   if (route === "chat") return <ChatDemoPage />;
   if (route === "permission") return <PermissionDemoPage />;
+  if (route === "slide-in") return <SlideInDemoPage />;
   return <MainShell />;
 }
 
