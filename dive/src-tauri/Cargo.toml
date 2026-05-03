@@ -26,6 +26,7 @@ async-trait = "0.1"
 futures = "0.3"
 eventsource-stream = "0.2"
 bytes = "1"
+keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service"] }
 
 [dev-dependencies]
 tempfile = "3"

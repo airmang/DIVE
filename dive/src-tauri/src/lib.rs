@@ -10,6 +10,7 @@ pub mod mcp;
 pub mod providers;
 pub mod tools;
 
+pub use auth::{AuthError, Keyring, OsKeyring, SecretScope};
 pub use db::Database;
 pub use providers::{
     AnthropicProvider, ChatEvent, ChatRequest, FinishReason, LlmProvider, Message, ModelInfo,
