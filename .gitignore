@@ -1,0 +1,17 @@
+# Ralph 루프 로그 (사용자별 환경, 커밋 대상 아님)
+ralph_logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 에디터
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.sw?
+
+# 환경 변수·시크릿
+.env
+.env.local
+.env.*.local
