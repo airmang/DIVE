@@ -28,15 +28,9 @@ async function main() {
   await page.waitForSelector('[data-testid="demo-section-intro"]');
 
   console.log("\n2. Form + options + buttons present");
-  check(
-    "session select present",
-    (await page.$('[data-testid="exp-session"]')) !== null,
-  );
+  check("session select present", (await page.$('[data-testid="exp-session"]')) !== null);
   check("options grid present", (await page.$('[data-testid="exp-options"]')) !== null);
-  check(
-    "preview button present",
-    (await page.$('[data-testid="exp-preview"]')) !== null,
-  );
+  check("preview button present", (await page.$('[data-testid="exp-preview"]')) !== null);
   check(
     "download button present (disabled initially)",
     (await page.$eval('[data-testid="exp-download"]', (el) => el.disabled)) === true,
@@ -67,10 +61,7 @@ async function main() {
   console.log("\n5. Click 미리보기 with hashing on → masked preview");
   await page.click('[data-testid="exp-preview"]');
   await page.waitForSelector('[data-testid="demo-section-preview"]', { timeout: 3000 });
-  const source = await page.$eval(
-    '[data-testid="exp-source"]',
-    (el) => el.textContent ?? "",
-  );
+  const source = await page.$eval('[data-testid="exp-source"]', (el) => el.textContent ?? "");
   check("source badge visible", source.includes("mock") || source.includes("ipc"), source);
 
   const preview = await page.$eval(
@@ -101,10 +92,7 @@ async function main() {
     preview2.includes("로그인 폼 만들어줘"),
     preview2.slice(0, 40),
   );
-  check(
-    "plaintext file path present when masking off",
-    preview2.includes("src/App.tsx"),
-  );
+  check("plaintext file path present when masking off", preview2.includes("src/App.tsx"));
 
   console.log("\n7. Exclude messages → message records disappear");
   await page.click('[data-testid="opt-includeMessages"] input');
@@ -114,9 +102,7 @@ async function main() {
     '[data-testid="exp-preview-text"]',
     (el) => el.textContent ?? "",
   );
-  const messageLines = preview3
-    .split("\n")
-    .filter((l) => l.includes('"kind":"message"'));
+  const messageLines = preview3.split("\n").filter((l) => l.includes('"kind":"message"'));
   check("no message records when excluded", messageLines.length === 0);
 
   console.log("\n8. Line count indicator updates with preview");
@@ -127,18 +113,12 @@ async function main() {
   check("line count indicator shows 'records'", lineCountText.includes("records"), lineCountText);
 
   console.log("\n9. Download button enabled after preview");
-  const downloadDisabled = await page.$eval(
-    '[data-testid="exp-download"]',
-    (el) => el.disabled,
-  );
+  const downloadDisabled = await page.$eval('[data-testid="exp-download"]', (el) => el.disabled);
   check("download enabled after preview", downloadDisabled === false);
 
   console.log("\n10. Change session selection works");
   await page.selectOption('[data-testid="exp-session"]', "3");
-  const selected = await page.$eval(
-    '[data-testid="exp-session"]',
-    (el) => el.value,
-  );
+  const selected = await page.$eval('[data-testid="exp-session"]', (el) => el.value);
   check("session selection updates", selected === "3");
 
   console.log("\n11. Main shell still works");
