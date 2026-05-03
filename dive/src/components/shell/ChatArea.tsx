@@ -1,15 +1,36 @@
-import { Code, Eye, Send, Sparkles } from "lucide-react";
+import { Code, Eye } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
+import { ChatInput } from "../chat/ChatInput";
+import { MessageList } from "../chat/MessageList";
+import type { ChatMessage } from "../chat/types";
 
 interface ChatAreaProps {
   className?: string;
+  messages?: ChatMessage[];
+  cardTitle?: string | null;
+  onSendMessage?: (text: string) => void;
+  onOpenSlidePanel?: () => void;
+  onRetryError?: (id: string) => void;
+  modelLabel?: string;
+  inputDisabled?: boolean;
 }
 
-export function ChatArea({ className }: ChatAreaProps) {
+export function ChatArea({
+  className,
+  messages,
+  cardTitle,
+  onSendMessage,
+  onOpenSlidePanel,
+  onRetryError,
+  modelLabel,
+  inputDisabled,
+}: ChatAreaProps) {
+  const hasConversation = messages !== undefined && messages.length > 0;
+
   const handleOpenSlidePanel = () => {
-    console.log("open slide-in panel (task 2-5)");
+    if (onOpenSlidePanel) onOpenSlidePanel();
+    else console.log("open slide-in panel (task 2-5)");
   };
 
   return (
@@ -17,7 +38,9 @@ export function ChatArea({ className }: ChatAreaProps) {
       <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b px-6">
         <div className="flex items-baseline gap-3">
           <h1 className="text-lg font-bold text-fg">대화</h1>
-          <span className="text-xs text-fg-muted">카드 선택 안 됨</span>
+          <span className="text-xs text-fg-muted" data-testid="chat-card-title">
+            {cardTitle ?? "세션 없음"}
+          </span>
         </div>
         <Button
           variant="outline"
@@ -33,38 +56,25 @@ export function ChatArea({ className }: ChatAreaProps) {
         </Button>
       </header>
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 px-6 text-center">
-          <p className="text-xl font-semibold text-fg">세션을 시작해 대화를 시작하세요</p>
-          <p className="text-sm text-fg-muted">
-            사이드바에서 <span className="font-medium text-fg">+ 새 세션</span>을 눌러 시작
-          </p>
-        </div>
+      <div className="flex-1 min-h-0 overflow-hidden">
+        {hasConversation ? (
+          <MessageList messages={messages} onRetryError={onRetryError} />
+        ) : (
+          <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 px-6 text-center">
+            <p className="text-xl font-semibold text-fg">세션을 시작해 대화를 시작하세요</p>
+            <p className="text-sm text-fg-muted">
+              사이드바에서 <span className="font-medium text-fg">+ 새 세션</span>을 눌러 시작
+            </p>
+          </div>
+        )}
       </div>
 
       <footer className="shrink-0 border-t p-4">
-        <div className="flex flex-col gap-2">
-          <Input
-            disabled
-            placeholder="메시지를 입력하세요..."
-            aria-label="메시지 입력 (준비 중)"
-            className="h-10"
-          />
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" disabled aria-label="모델 선택 (준비 중)">
-              claude-sonnet-4.5 <span aria-hidden>▾</span>
-            </Button>
-            <Button variant="ghost" size="sm" disabled aria-label="프롬프트 도우미 (준비 중)">
-              <Sparkles />
-              프롬프트 도우미
-            </Button>
-            <div className="flex-1" />
-            <Button variant="primary" size="sm" disabled aria-label="메시지 전송 (준비 중)">
-              <Send />
-              전송
-            </Button>
-          </div>
-        </div>
+        {onSendMessage ? (
+          <ChatInput onSend={onSendMessage} disabled={inputDisabled} modelLabel={modelLabel} />
+        ) : (
+          <ChatInput onSend={() => {}} disabled modelLabel={modelLabel} />
+        )}
       </footer>
     </section>
   );

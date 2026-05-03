@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import MainShell from "./components/shell/MainShell";
 import ShowcasePage from "./pages/showcase";
 import WorkmapDemoPage from "./pages/workmap-demo";
+import ChatDemoPage from "./pages/chat-demo";
 
-type Route = "main" | "showcase" | "workmap";
+type Route = "main" | "showcase" | "workmap" | "chat";
 
 function resolveRoute(): Route {
   if (typeof window === "undefined") return "main";
@@ -11,6 +12,7 @@ function resolveRoute(): Route {
   const demo = params.get("demo");
   if (demo === "workmap") return "workmap";
   if (demo === "showcase") return "showcase";
+  if (demo === "chat") return "chat";
   return "main";
 }
 
@@ -25,6 +27,7 @@ function App() {
 
   if (route === "workmap") return <WorkmapDemoPage />;
   if (route === "showcase") return <ShowcasePage />;
+  if (route === "chat") return <ChatDemoPage />;
   return <MainShell />;
 }
 

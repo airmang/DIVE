@@ -33,7 +33,11 @@ async function main() {
   console.log("\n2. 4 expanded cards in section 1");
   const expandedCards = await page.$$eval(
     '[data-testid="demo-section-expanded"] [data-testid="card-tile"]',
-    (els) => els.map((e) => ({ id: e.getAttribute("data-card-id"), state: e.getAttribute("data-card-state") })),
+    (els) =>
+      els.map((e) => ({
+        id: e.getAttribute("data-card-id"),
+        state: e.getAttribute("data-card-state"),
+      })),
   );
   check("section 1 has 4 cards", expandedCards.length === 4, JSON.stringify(expandedCards));
 
@@ -70,20 +74,28 @@ async function main() {
     '[data-testid="demo-section-all-states"] [data-testid="card-tile"]',
     (els) => els.map((e) => e.getAttribute("data-card-state")),
   );
-  const expectedStates = ["decomposed", "instructed", "verifying", "verified", "rejected", "extended"];
+  const expectedStates = [
+    "decomposed",
+    "instructed",
+    "verifying",
+    "verified",
+    "rejected",
+    "extended",
+  ];
   const hasAllStates = expectedStates.every((s) => sixStates.includes(s));
   check("6 unique CardStates present", hasAllStates, `got ${JSON.stringify(sixStates)}`);
 
   console.log("\n6. Color bar uses distinct colors per state");
   const barColors = await page.$$eval(
     '[data-testid="demo-section-all-states"] [data-testid="card-tile"]',
-    (els) => els.map((el) => {
-      const bar = el.querySelector('[data-testid="card-color-bar"]');
-      return {
-        state: el.getAttribute("data-card-state"),
-        bg: bar ? getComputedStyle(bar).backgroundColor : null,
-      };
-    }),
+    (els) =>
+      els.map((el) => {
+        const bar = el.querySelector('[data-testid="card-color-bar"]');
+        return {
+          state: el.getAttribute("data-card-state"),
+          bg: bar ? getComputedStyle(bar).backgroundColor : null,
+        };
+      }),
   );
   // decomposed/instructed/verifying/verified/rejected should all differ
   const distinctColors = new Set(barColors.filter((c) => c.state !== "extended").map((c) => c.bg));
@@ -96,21 +108,26 @@ async function main() {
   console.log("\n7. DIVE progress dots — completed count matches aria-valuenow");
   const progressCheck = await page.$$eval(
     '[data-testid="demo-section-all-states"] [data-testid="card-tile"]',
-    (els) => els.map((el) => {
-      const pb = el.querySelector('[data-testid="dive-progress"][data-mode="expanded"]');
-      if (!pb) return { state: el.getAttribute("data-card-state"), valid: false };
-      const now = Number(pb.getAttribute("aria-valuenow"));
-      const filled = pb.querySelectorAll('[data-completed="true"]').length;
-      return {
-        state: el.getAttribute("data-card-state"),
-        ariaValue: now,
-        filledDots: filled,
-        valid: now === filled && Number(pb.getAttribute("aria-valuemax")) === 4,
-      };
-    }),
+    (els) =>
+      els.map((el) => {
+        const pb = el.querySelector('[data-testid="dive-progress"][data-mode="expanded"]');
+        if (!pb) return { state: el.getAttribute("data-card-state"), valid: false };
+        const now = Number(pb.getAttribute("aria-valuenow"));
+        const filled = pb.querySelectorAll('[data-completed="true"]').length;
+        return {
+          state: el.getAttribute("data-card-state"),
+          ariaValue: now,
+          filledDots: filled,
+          valid: now === filled && Number(pb.getAttribute("aria-valuemax")) === 4,
+        };
+      }),
   );
   const allValid = progressCheck.every((c) => c.valid);
-  check("DIVE dots valid (aria-valuenow == filled count, max=4)", allValid, JSON.stringify(progressCheck));
+  check(
+    "DIVE dots valid (aria-valuenow == filled count, max=4)",
+    allValid,
+    JSON.stringify(progressCheck),
+  );
 
   console.log("\n8. Tab navigates between cards");
   await page.keyboard.press("Tab");
@@ -134,7 +151,11 @@ async function main() {
     '[data-testid="demo-section-list"] [data-testid="workmap-add-card"]',
     (el) => el.disabled,
   );
-  check("add card initially enabled (checkbox default)", !initialDisabled, `disabled=${initialDisabled}`);
+  check(
+    "add card initially enabled (checkbox default)",
+    !initialDisabled,
+    `disabled=${initialDisabled}`,
+  );
 
   await page.click('[data-testid="demo-toggle-can-add"]');
   await page.waitForTimeout(50);
