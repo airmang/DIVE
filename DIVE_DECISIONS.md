@@ -137,3 +137,59 @@
   - Playwright 검증에서 OS=dark 상태 초기 접속 시 `classList: ["dark"]`로 시작, 토글 후 reload해도 `classList: ["light"]` + 백그라운드 `rgb(250,250,252)` 유지 확인.
   - 인라인 스크립트 5줄(try/catch 포함)로 충분. 유지보수 부담 적음.
   - 향후 CSP 강화 시 ADR 추가로 마이그레이션 경로 문서화.
+
+## ADR-008: rusqlite 0.32 + bundled feature 채택
+
+- 일시: 2026-05-03
+- 상태: 채택
+- 컨텍스트: 작업 1-3에서 SQLite 기반 데이터 레이어를 추가해야 한다. 명세 §11.1은 `rusqlite`와 `bundled` feature 사용을 명시한다. 타겟은 Windows x64/ARM64 + macOS 개발 환경이며 시스템 sqlite3 의존은 NSIS 인스톨러 배포에 부담이다.
+- 결정: `rusqlite = { version = "0.32", features = ["bundled"] }`. `Cargo.lock`에 기존 항목이 없으므로 0.32(당시 최신 안정)로 고정.
+- 대안:
+  - `sqlx` — 비동기 + compile-time 쿼리 검증이지만 현재 단계에서는 동기 rusqlite로 충분하고, 비동기가 필요한 레이어는 후속 작업에서 `tokio::task::spawn_blocking`으로 감쌀 예정.
+  - `rusqlite` 시스템 SQLite 링크 — Windows 배포 환경 불투명, bundled 쪽이 안전.
+- 결과: SQLite C 소스를 cc로 컴파일해 첫 빌드가 길어지지만(CI 매트릭스 전체 +30초 수준) 모든 타겟에서 동일 SQLite 런타임을 보장. 이후 업그레이드는 별도 ADR로 처리.
+
+## ADR-009: 시간 필드 i64 Unix millisecond epoch 표현
+
+- 일시: 2026-05-03
+- 상태: 채택
+- 컨텍스트: `Project.created_at`, `Session.started_at`, `EventLog.created_at`, `schema_version.applied_at` 등 모든 시간 필드를 SQLite에 저장한다. 명세는 표현을 규정하지 않음.
+- 결정: DB 모델의 시간 필드는 전부 `i64` Unix millisecond epoch로 저장·직렬화한다. 헬퍼 `db::now_ms()` 제공.
+- 대안:
+  - `chrono::DateTime<Utc>` + serde — 타입 안전·가독성 우수하지만 chrono 의존성 1개 추가. 현재는 불필요한 무게.
+  - `time` crate — 비슷한 성격, 동일한 이유로 제외.
+  - ISO 8601 TEXT 저장 — SQLite `datetime()` 함수와 친화적이지만 정렬/비교 속도가 떨어지고 serde 처리가 번거로움.
+- 결과: serde JSON 직렬화가 숫자 그대로이며 SQLite 인덱스/정렬이 단순. 도메인 계층에서 타입 안전성이 필요해지면 저장 포맷 유지 + newtype 래퍼로 대응 가능.
+
+## ADR-010: schema_version 메타 테이블 기반 마이그레이션
+
+- 일시: 2026-05-03
+- 상태: 채택
+- 컨텍스트: 9개 테이블을 v1 마이그레이션에 모두 포함하되, 향후 스키마 변경은 append-only로 누적해야 한다(명세 §10.2 원칙). 현재 버전 추적 방법을 선택해야 한다.
+- 결정: `schema_version(version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)` 메타 테이블로 적용된 마이그레이션을 기록한다. `migrate()`는 `MAX(version)` 조회 → 다음 버전만 트랜잭션 내 실행 → 성공 시 메타 테이블에 `(version, applied_at)` INSERT.
+- 대안:
+  - `PRAGMA user_version` — 가장 가볍고 SQLite 내장이지만 `applied_at` 타임스탬프/설명/체크섬 같은 감사 메타데이터를 붙일 수 없음.
+  - `refinery`, `sqlx::migrate` 같은 외부 crate — 기능은 많지만 동기 rusqlite 환경에서 추가 의존성을 정당화할 만한 요구가 아직 없음.
+- 결과: 테이블 1개가 추가되지만 migration 이력과 적용 시점을 남길 수 있고, 향후 checksum/description 컬럼 추가 여지도 확보. 추가 조회 성능이 필요하면 보조로 `PRAGMA user_version`을 미러링하면 됨.
+
+## ADR-011: DAO는 순수 함수 스타일
+
+- 일시: 2026-05-03
+- 상태: 채택
+- 컨텍스트: Project/Session/Workmap/Card/Message/ToolCall/Checkpoint/ProviderConfig/EventLog 9개 엔티티의 CRUD를 제공해야 한다. 테스트 용이성과 트랜잭션 조합이 우선 과제.
+- 결정: 각 DAO 모듈은 `insert(conn, &NewFoo) -> Result<i64, DbError>`, `get_by_id(conn, id)`, `list(conn)`, `update(conn, id, &NewFoo)`, `delete(conn, id)` 같은 순수 함수 집합으로 작성한다. 상태를 가진 구조체(`CardRepository`)나 trait 추상화는 도입하지 않는다.
+- 대안:
+  - Trait 기반 repository(`trait CardRepo`) — 테스트용 mock 주입에 유리하지만 현 단계에서 mock이 필요한 소비자가 없음. 과한 추상화.
+  - 구조체 + impl(`struct CardDao<'a>(&'a Connection)`) — 메서드 체이닝이 약간 자연스럽지만 함수형과 본질적 차이는 없고 트랜잭션 전달 시 라이프타임이 번거로움.
+- 결과: `&Connection`/`&Transaction` 중 어느 쪽이든 받는 단일 시그니처로 트랜잭션 내 여러 DAO 호출 조합이 단순. 후일 mocking이 필요해지면 기존 순수 함수를 감싸는 trait facade를 append할 수 있음.
+
+## ADR-012: 테스트 DB는 tempfile 기반 디스크 SQLite
+
+- 일시: 2026-05-03
+- 상태: 채택
+- 컨텍스트: CI 매트릭스(Linux/macOS/Windows x64+ARM64)에서 DAO·마이그레이션 테스트가 통과해야 한다. `Database::open()`은 WAL + FK를 켜고, 이 조건이 실제 프로덕션과 동일하게 검증되는 것이 바람직.
+- 결정: 테스트는 `tempfile::NamedTempFile`로 생성한 디스크 SQLite 파일을 기본으로 사용한다. 각 테스트는 `fresh_db()` 헬퍼로 새 파일 + migrate()를 받는다.
+- 대안:
+  - `Connection::open_in_memory()` — 빠르지만 WAL이 실제로는 `memory` 모드라 저널 동작 검증이 제한적. 파일 잠금·sidecar(`-wal`/`-shm`) 시나리오 재현 불가.
+  - `tempfile::TempDir` + 수동 경로 — 동등하지만 현재 규모에서는 NamedTempFile 단일 파일이 더 단순.
+- 결과: 테스트 실행 시간이 미세하게 증가하나(22 테스트 0.04s), FK/WAL/파일 잠금을 프로덕션과 동일 조건으로 검증. Windows 파일 잠금 이슈가 생기면 `TempDir + db.sqlite` helper로 전환한다.
