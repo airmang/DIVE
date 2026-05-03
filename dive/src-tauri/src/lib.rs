@@ -11,6 +11,10 @@ pub mod providers;
 pub mod tools;
 
 pub use db::Database;
+pub use providers::{
+    AnthropicProvider, ChatEvent, ChatRequest, FinishReason, LlmProvider, Message, ModelInfo,
+    OpenAiProvider, ProviderError, ToolCall, ToolChoice, ToolDef, Usage,
+};
 
 #[tauri::command]
 fn greet(name: &str) -> String {
