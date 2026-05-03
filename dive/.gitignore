@@ -1,0 +1,41 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Node
+node_modules
+dist
+dist-ssr
+*.local
+coverage
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Rust / Tauri
+src-tauri/target
+src-tauri/gen
+src-tauri/WixTools
+
+# DIVE 런타임 디렉터리 (체크포인트 git 저장소, 로컬 DB 등 사용자별 데이터)
+# 명세 §6.5, §10.1 — 프로젝트 루트 .dive/ 는 추적 대상 아님
+.dive/
+
+# 환경 변수·시크릿
+.env
+.env.local
+.env.*.local
+*.pem
