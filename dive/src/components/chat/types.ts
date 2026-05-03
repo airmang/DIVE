@@ -37,7 +37,7 @@ export interface ToolCallMessageData extends BaseMessage {
   toolName: string;
   /** One-line preview of tool arguments. */
   paramsPreview: string;
-  status: "pending" | "approved" | "denied";
+  status: "pending" | "approved" | "denied" | "blocked";
   /** Populated when the backend emitted a `ToolCallStart` with risk + args. */
   risk?: "safe" | "warn" | "danger";
   diffPreview?: {
@@ -47,6 +47,11 @@ export interface ToolCallMessageData extends BaseMessage {
   } | null;
   args?: unknown;
   deniedReason?: string;
+  /** Spec §9.2 — populated when a `tool_call_blocked` event arrived. */
+  blockedReason?: {
+    rule: string;
+    pattern: string;
+  };
 }
 
 export interface ToolResultMessageData extends BaseMessage {

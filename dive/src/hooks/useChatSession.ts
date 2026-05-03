@@ -39,6 +39,11 @@ type AgentEvent =
   | { type: "tool_call_approved"; id: string }
   | { type: "tool_call_denied"; id: string; reason: string }
   | {
+      type: "tool_call_blocked";
+      id: string;
+      reason: { rule: string; pattern: string };
+    }
+  | {
       type: "tool_result";
       call_id: string;
       success: boolean;
@@ -281,6 +286,16 @@ function reduce(prev: State, evt: AgentEvent): State {
         messages: prev.messages.map((m) =>
           m.id === evt.id && m.kind === "tool_call"
             ? { ...m, status: "denied", deniedReason: evt.reason }
+            : m,
+        ),
+      };
+    }
+    case "tool_call_blocked": {
+      return {
+        ...prev,
+        messages: prev.messages.map((m) =>
+          m.id === evt.id && m.kind === "tool_call"
+            ? { ...m, status: "blocked", blockedReason: evt.reason }
             : m,
         ),
       };

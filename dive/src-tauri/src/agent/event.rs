@@ -1,7 +1,7 @@
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::tools::RiskLevel;
+use crate::tools::{BlockReason, RiskLevel};
 
 /// UI-facing event emitted by the Agent Loop. Spec §8.1 defines the sequence;
 /// `AgentEvent` flattens the Rust enum so the frontend adapter is
@@ -41,6 +41,10 @@ pub enum AgentEvent {
     ToolCallDenied {
         id: String,
         reason: String,
+    },
+    ToolCallBlocked {
+        id: String,
+        reason: BlockReason,
     },
     ToolResult {
         call_id: String,

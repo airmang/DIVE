@@ -4,7 +4,8 @@ use std::sync::Arc;
 use crate::providers::ToolDef;
 
 use super::{
-    edit_file::EditFile, list_dir::ListDir, read_file::ReadFile, write_file::WriteFile, Tool,
+    bash::Bash, edit_file::EditFile, list_dir::ListDir, read_file::ReadFile, write_file::WriteFile,
+    Tool,
 };
 
 /// Registry of built-in tools indexed by name. Tools are `Arc<dyn Tool>` so
@@ -27,6 +28,7 @@ impl ToolRegistry {
         r.register(Arc::new(ListDir));
         r.register(Arc::new(WriteFile));
         r.register(Arc::new(EditFile));
+        r.register(Arc::new(Bash));
         r
     }
 

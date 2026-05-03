@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use super::guard::reject_symlink_components;
 use super::ToolError;
 
 /// Path sandbox enforcement. Spec §9.3 — all tool filesystem operations must
@@ -43,11 +44,12 @@ impl FsGuard {
                 ".git directory is not writable".into(),
             ));
         }
+        reject_symlink_components(&normalized, &self.project_root)?;
         Ok(normalized)
     }
 
     /// Read-only resolution — allows `.git` (e.g. viewing log/config), still
-    /// blocks escape.
+    /// blocks escape and symlink traversal.
     pub fn resolve_read(&self, user_path: impl AsRef<Path>) -> Result<PathBuf, ToolError> {
         let p = user_path.as_ref();
         if p.is_absolute() {
@@ -64,6 +66,7 @@ impl FsGuard {
                 p.display()
             )));
         }
+        reject_symlink_components(&normalized, &self.project_root)?;
         Ok(normalized)
     }
 }

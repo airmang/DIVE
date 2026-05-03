@@ -3,9 +3,11 @@
 //! Spec §8.4 — `Tool` trait + `RiskLevel`. Four built-ins land here in task 2-3:
 //! read_file, list_dir, write_file, edit_file. `bash`/`search_files` arrive later.
 
+pub mod bash;
 pub mod context;
 pub mod edit_file;
 pub mod fs_guard;
+pub mod guard;
 pub mod list_dir;
 pub mod read_file;
 pub mod registry;
@@ -18,6 +20,7 @@ use thiserror::Error;
 
 pub use context::ToolContext;
 pub use fs_guard::FsGuard;
+pub use guard::{classify_bash_command, BlockReason};
 pub use registry::ToolRegistry;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,6 +72,8 @@ pub enum ToolError {
     InvalidInput(String),
     #[error("path denied: {0}")]
     PathDenied(String),
+    #[error("blocked: {} ({})", .0.rule, .0.pattern)]
+    Blocked(BlockReason),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
     #[error("json: {0}")]
@@ -83,6 +88,12 @@ pub trait Tool: Send + Sync {
     fn description(&self) -> &str;
     fn input_schema(&self) -> Value;
     fn risk_level(&self) -> RiskLevel;
+    /// Spec §9.2. Cheap pre-flight check run before permission prompt.
+    /// Blocks destructive patterns even if the user later clicks approve.
+    /// Default = always allow; danger tools override to enforce the blocklist.
+    fn validate(&self, _input: &Value) -> Result<(), ToolError> {
+        Ok(())
+    }
     async fn run(&self, input: Value, ctx: &ToolContext) -> Result<ToolOutput, ToolError>;
 }
 
