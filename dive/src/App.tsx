@@ -1,7 +1,7 @@
-import ShowcasePage from "./pages/showcase";
+import MainShell from "./components/shell/MainShell";
 
 function App() {
-  return <ShowcasePage />;
+  return <MainShell />;
 }
 
 export default App;
