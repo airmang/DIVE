@@ -303,3 +303,27 @@
   - 테스트 +5 (wiremock 5). `cargo test` 총 **152 passed / 0 failed / 1 ignored**.
   - `providers::OpenAiProvider::openrouter()` 덕분에 Phase 4-2 설정 UI에서 OpenRouter를 일등 공급자로 노출하는 비용이 거의 없다 (ProviderConfig `base_url` 컬럼에 OpenRouter URL 저장 시 자동 분기).
   - `ProvisioningError::Remote { status, body }`가 UI 디버깅에 그대로 쓰이도록 설계 — 교사가 "401: invalid token" 같은 원인을 즉시 파악 가능.
+
+## ADR-018: 익명화 export는 per-export UUIDv4 salt + 접두사 표기 + 경로 감지 휴리스틱
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 3-6)
+- 컨텍스트: 명세 §9.4는 "SHA-256 해시 마스킹 — 학번 등 식별자가 원본으로 저장되지 않음"과 "이 데이터는 후속 분석·연구 목적으로만 사용됩니다" 동의를 요구. 문제는 (a) salt를 어디 범위로 잡을지, (b) 마스킹된 값을 육안으로 식별 가능하게 할지, (c) 경로 감지를 어떻게 할지.
+- 결정:
+  - **Per-export UUIDv4 salt**: export 호출마다 `uuid::Uuid::new_v4()`로 새 salt 생성. 동일 세션을 두 번 export 해도 hash 프리픽스가 바뀐다 → 연구자가 두 export 파일을 합쳐 re-identification을 시도해도 교차 매칭 불가. Salt는 출력에 포함하지 않음(§9.4 준수), 테스트로 누수 없음을 검증.
+  - **접두사 표기 `h:` / `p:`**: 해시값은 SHA-256의 앞 16자(64비트) hex. 사용자 텍스트는 `h:<16hex>`, 파일 경로는 `p:<16hex>`. 접두사를 붙인 이유는 (i) 육안 검사 시 "이 값은 마스킹되었음"을 즉시 식별, (ii) 분석 스크립트가 prefix로 필터링해 집계 용이. 16자는 64비트 collision 확률이 학교 1차시 규모(N < 10⁴)에서 무시 가능.
+  - **경로 감지 휴리스틱**: JSON 트리를 순회하며 (i) key가 `{path, file, filename, file_path, target_path}` 중 하나이면 그 값(문자열)을 통째 path로 간주, (ii) 그 외 모든 문자열은 `'/' 또는 '\\' 포함` AND `알려진 소스 확장자(.rs, .ts, .tsx, .js, .py, .json, .md 등 17개) 접미사`이면 path로 간주. false positive는 마스킹 과다(사용자 데이터 손실 없음), false negative는 마스킹 누락(학생 식별 위험)이라 보수적으로 범위를 넓혔다.
+  - **레코드 순서 결정적**: `session_meta → card(position asc) → message(id asc) → tool_call(id asc) → checkpoint(created_at asc) → event(id asc)`. 파일럿 분석 스크립트(pandas/jq)가 순서에 의존해 조인하므로 DAO 쿼리에 항상 ORDER BY 명시. Kind 문자열 + 필드 이름은 **stable API** — 필드 추가는 자유, 제거/이름 변경은 ADR 필요.
+  - **기본값 everything-on**: 포함 옵션 5개 모두 + 마스킹 옵션 2개 모두 기본 on. 연구자가 명시적으로 옵트아웃하지 않으면 최대 보호.
+  - **IPC는 JSONL 문자열 반환**: Tauri 프런트가 문자열을 Blob으로 감싸 `save` dialog + `writeFile`을 호출하는 쪽이 역할 분리상 깔끔. 3-6은 백엔드 API만 제공, UX 디테일은 Phase 4-2에서.
+- 대안:
+  - **Per-session salt**: 한 세션의 동일 문자열이 항상 같은 hash가 되므로 세션 내 재식별 공격에 취약. 개인 식별자(학번·이름)가 여러 메시지에 반복 등장할 때 빈도 분석이 가능해짐.
+  - **영구 salt (앱 설치 단위)**: 크로스-세션 통계가 가능하지만 연구자 퇴장 후 salt 유출 시 전체 재식별 가능. 학교 환경에서는 "이번 차시만 마스킹" 범위가 더 현실적.
+  - **접두사 없이 순수 hex**: 분석 스크립트가 어떤 필드가 마스킹됐는지 별도 메타로 알려야 함. 접두사 방식이 self-describing.
+  - **AST 기반 경로 감지 (실제 파일 시스템 질의)**: 빌드 시 존재하지 않을 수 있는 경로 + 느림. 휴리스틱으로 충분.
+  - **IPC에서 직접 파일 쓰기**: `save` dialog가 Tauri 프런트에서 네이티브라 프런트가 관장하는 쪽이 UX 일관성. 3-6 범위에서는 JSONL 문자열만 반환.
+  - **Salt를 output에 포함해 같은 export 내 재분석 허용**: §9.4 명세 "학번 등 식별자가 원본으로 저장되지 않음" 위반. Salt가 있으면 무차별 해시 사전 공격으로 원본 복구 가능.
+- 결과:
+  - Rust 테스트 +11 (`tests/export_jsonl.rs` 6 + inline 5). `cargo test` 총 **163 passed / 0 failed**.
+  - 파일럿(Phase 4-5)은 **jq 기반 10줄 분석 스크립트**로 즉시 집계 가능 — record kind 필터 + field 선택.
+  - 향후 스키마 진화: 필드 추가는 자유, 제거/rename은 ADR + 버전 필드 추가 후 migration note 커밋.
