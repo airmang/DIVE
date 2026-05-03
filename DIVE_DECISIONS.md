@@ -235,3 +235,26 @@
   - `Cargo.toml` 신규 의존성 `regex = "1"`, `once_cell = "1"` (정규식 카탈로그 lazy 초기화). `tokio` features에 `process` + `io-util` 추가 (bash 도구 `tokio::process::Command`).
   - 매칭은 `classify_bash_command(cmd) -> Option<BlockReason>` 단일 진입점이므로 향후 패턴 추가·갱신이 한 파일 안에서 완결. 테스트도 같은 파일에 위치해 리뷰어가 "어떤 명령이 어떻게 차단되는가"를 한눈에 감사 가능.
   - 프론트 `ToolCallMessage.tsx`의 blocked 분기는 기존 pending/approved/denied 분기와 독립적이라 기존 Playwright 스위트(111 assertions) 회귀 없이 16개 신규 assertion이 추가됐다.
+
+## ADR-015: V-stage 검증과 AI 분해는 single-tool `tool_choice` 패턴으로 구조화 출력 강제
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 3-2)
+- 컨텍스트: 명세 §4.4 V 단계는 `verify_log` JSON 스키마를 요구. 명세 §4.1 D 단계 AI 도움은 카드 배열을 요구. 두 경로 모두 "모델이 자유 텍스트로 답하면 파싱이 깨지기 쉽다"는 공통 위험이 있다. Anthropic `tool_use`, OpenAI `tools` + `tool_choice`는 둘 다 단일 도구 강제 호출을 지원하므로 JSON schema 검증을 provider 레벨에서 받아낼 수 있다.
+- 결정:
+  - **`VerifyEngine`과 `AiAssistEngine`을 별도 모듈로** (각각 `dive/verify.rs`, `dive/assist.rs`) — `AgentLoop`와 라이프사이클이 다르다. AgentLoop는 사용자 메시지 주도, Engine들은 카드·D단계 주도 1-shot.
+  - **Single-tool `tool_choice: Specific(tool_name)`**: `verify_result` / `assist_cards` 각 1개 도구만 노출하고 선택을 강제. 모델이 다른 도구를 쓰거나 텍스트로만 답할 여지 차단. 같은 패턴을 두 엔진이 공유해 코드 감사가 쉬움.
+  - **`VerifyLog`는 JSON으로 `Card.verify_log` TEXT 컬럼에 직렬화**: v1 스키마가 이미 TEXT nullable 컬럼을 갖고 있어 마이그레이션 비용 0. 읽을 때만 lazy parse (`VerifyLog::from_json_str`).
+  - **Approve 게이트는 IPC 레이어에서 강제**: `state_machine::apply`는 순수 함수로 유지 (6개 카드 상태 enum + 전이 매트릭스). verify_log 조건은 `card_transition` IPC가 DB 쿼리와 함께 검사해 `TransitionError::InvalidTransition`과 별개의 명확한 에러("verify failed: ... Pass approve_force=true to override.")로 surface. `approve_force: Option<bool>` 파라미터가 명시적 override 경로.
+  - **Test runner는 Phase 4로 연기**: 명세 §4.4의 "실행 후 결과 확인" 단계는 3-2 범위 밖. `VerifyLog.test_result`는 기본 `skipped`, AI가 정적 분석만으로 `pass/fail`을 확신 가능할 때만 채움. 실제 `bash` 기반 테스트 실행은 3-4 블록리스트가 선행됐으므로 Phase 4-3에서 안전하게 확장.
+- 대안:
+  - **자유 텍스트 JSON 요청 (tool 없이)**: Anthropic의 "response format: JSON" 없음. OpenAI도 `response_format: json_schema`가 있지만 프로바이더 간 추상화 부담. 도구 호출은 두 프로바이더가 이미 공통 어댑터로 추상화돼 있어 유리.
+  - **다중 도구 노출 + Auto 선택**: 모델이 `verify_result`를 건너뛰고 다른 도구를 쓰거나 텍스트로만 답할 여지. 1-shot 검증에서는 신뢰성이 떨어짐.
+  - **Approve 게이트를 state_machine에 합치기**: 순수 함수 성질이 깨진다. 상태 전이 테스트 복잡도 급증. IPC 레이어 게이트가 관심사 분리 면에서 우수.
+  - **Test runner를 3-2에서 함께 구현**: 긴 verify 시간 때문에 UI 블로킹 증가. 3-4 블록리스트는 있으나 실제 테스트 명령 결정(프로젝트별 `pnpm test` vs `cargo test` 등)은 4-3에서 다룰 설정 UI가 필요.
+  - **Mock LLM fallback을 프로덕션 빌드에 포함**: 브라우저 데모(`?demo=scenario-b`)와 Playwright에 유용하지만 Tauri 빌드에서는 `__TAURI_INTERNALS__` 감지로 자동 분기. 프로덕션 경로는 항상 실제 IPC.
+- 결과:
+  - Rust 테스트 +10 (`tests/verify_engine.rs` 7 + `tests/ai_assist_engine.rs` 3) = **139 passed / 0 failed**. 두 엔진 모두 `MockProvider` 스크립트로 구조화 응답 시뮬레이션.
+  - 프론트 `CardDetailPanel`의 verifying body 한 곳만 고쳐도 실제 LLM ↔ mock ↔ 실패 판정 세 경로를 모두 커버. Playwright 19 assertion으로 전체 흐름 검증.
+  - `ai_assist_cards` IPC는 3-2 범위 밖이었지만 VerifyEngine과 동일 패턴이라 비용이 거의 없어 함께 처리 (핸드오프 권장안 5번 답). AiAssistDialog가 더 이상 4개 하드코드 mock에만 의존하지 않음.
+  - `approve_force` 파라미터는 향후 설정 UI(Phase 4-2)에서 "자동 재승인 정책"과 별개의 수동 override 경로로 재활용 가능.
