@@ -353,3 +353,36 @@ pub async fn checkpoint_list(
         .list_checkpoints(session_id)
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn openrouter_issue_key(
+    main_key: String,
+    label: String,
+    limit_usd: Option<f64>,
+) -> Result<crate::auth::ChildKey, String> {
+    let prov = crate::auth::OpenRouterProvisioning::new();
+    prov.issue_child_key(&main_key, &label, limit_usd)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn openrouter_revoke_all(
+    main_key: String,
+    label_prefix: String,
+) -> Result<usize, String> {
+    let prov = crate::auth::OpenRouterProvisioning::new();
+    prov.revoke_all_by_prefix(&main_key, &label_prefix)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn openrouter_list_keys(
+    main_key: String,
+) -> Result<Vec<crate::auth::ChildKeySummary>, String> {
+    let prov = crate::auth::OpenRouterProvisioning::new();
+    prov.list_child_keys(&main_key)
+        .await
+        .map_err(|e| e.to_string())
+}

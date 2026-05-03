@@ -10,6 +10,7 @@
 //! [`InMemoryKeyring`]은 테스트·CI 전용이며 프로덕션 경로에서 사용하지 않는다.
 
 mod error;
+pub mod openrouter_provisioning;
 mod scope;
 
 use std::collections::HashMap;
@@ -17,6 +18,9 @@ use std::fmt;
 use std::sync::Mutex;
 
 pub use error::AuthError;
+pub use openrouter_provisioning::{
+    ChildKey, ChildKeySummary, OpenRouterProvisioning, ProvisioningError,
+};
 pub use scope::SecretScope;
 
 /// 민감 정보를 저장·조회·삭제하는 동기 keyring 추상화.

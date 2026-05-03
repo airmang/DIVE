@@ -25,6 +25,10 @@ impl OpenAiProvider {
         self.base_url = base_url.into().trim_end_matches('/').to_string();
         self
     }
+
+    pub fn openrouter(api_key: String) -> Self {
+        Self::new(api_key).with_base_url("https://openrouter.ai/api/v1")
+    }
 }
 
 #[async_trait]

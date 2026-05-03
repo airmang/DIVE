@@ -42,7 +42,10 @@ pub fn run() {
             ipc::ai_assist_cards,
             ipc::checkpoint_create,
             ipc::checkpoint_restore,
-            ipc::checkpoint_list
+            ipc::checkpoint_list,
+            ipc::openrouter_issue_key,
+            ipc::openrouter_revoke_all,
+            ipc::openrouter_list_keys
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

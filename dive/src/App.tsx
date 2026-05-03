@@ -8,6 +8,7 @@ import SlideInDemoPage from "./pages/slide-in-demo";
 import ScenarioADemoPage from "./pages/scenario-a-demo";
 import ScenarioBDemoPage from "./pages/scenario-b-demo";
 import ToolGuardDemoPage from "./pages/tool-guard-demo";
+import ProvisioningDemoPage from "./pages/provisioning-demo";
 
 type Route =
   | "main"
@@ -18,7 +19,8 @@ type Route =
   | "slide-in"
   | "scenario-a"
   | "scenario-b"
-  | "tool-guard";
+  | "tool-guard"
+  | "provisioning";
 
 function resolveRoute(): Route {
   if (typeof window === "undefined") return "main";
@@ -32,6 +34,7 @@ function resolveRoute(): Route {
   if (demo === "scenario-a") return "scenario-a";
   if (demo === "scenario-b") return "scenario-b";
   if (demo === "tool-guard") return "tool-guard";
+  if (demo === "provisioning") return "provisioning";
   return "main";
 }
 
@@ -52,6 +55,7 @@ function App() {
   if (route === "scenario-a") return <ScenarioADemoPage />;
   if (route === "scenario-b") return <ScenarioBDemoPage />;
   if (route === "tool-guard") return <ToolGuardDemoPage />;
+  if (route === "provisioning") return <ProvisioningDemoPage />;
   return <MainShell />;
 }
 
