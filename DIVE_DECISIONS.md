@@ -213,3 +213,25 @@
   - I/V/E 게이트 판정 로직이 DB 쿼리 1~2회로 단순화 (`workmap.current_card_id → cards.get_by_id`).
   - 상태 머신은 Rust 순수 함수 (`apply(state, transition) -> Result<state, TransitionError>`)로 추출. DB 의존성 없이 12 개 단위 테스트로 매트릭스 전수 검증. 잘못된 전이(예: `Decomposed → Approve`)는 명시적 `InvalidTransition` 에러.
   - 프론트 Zustand 스토어도 동일한 전이 개념(`transitionCard(id, nextState)`)으로 미러링. 백엔드 IPC `card_transition`은 DB update를 실제로 수행하되, Phase 3 현재 MainShell은 아직 IPC 호출 없이 프론트 스토어만 업데이트 (3-2 이후 백엔드 연동).
+
+## ADR-014: 블록리스트는 리터럴 substring + 정규식 혼합, 심볼릭 링크 거부는 프로젝트 루트 하위 컴포넌트만
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 3-4)
+- 컨텍스트: 명세 §9.2 — "정규식 + AST 기반 매칭 (단순 문자열 매칭은 회피 쉬움)". 명세 §9.3 — "심볼릭 링크는 따라가지 않음 (canonicalize 후 검사)". 두 가지 모두 학생 PC에서 실수든 의도든 시스템 파괴를 막는 최후 방어선.
+- 결정:
+  - **블록리스트 매칭 전략**: 리터럴 substring (case-insensitive, 명세 §9.2 예시의 14 변형) + 정규식 (dd→block device, mkfs.*, curl|bash, wget|sh, iwr|iex, rm -rf 절대 경로 루트레벨). AST 파싱은 `v1.0` 이후로 연기 — bash 문법 파서 추가 복잡도 대비 이득이 낮고, 리터럴+정규식 2중화로 스펙 예시 전부 차단 가능.
+  - **`BlockReason { rule, pattern }` 구조**: UI에 매칭 규칙 이름과 패턴을 별도로 표시해 사용자가 왜 차단되었는지 즉시 이해. EventLog에도 동일 구조 저장.
+  - **`Tool::validate()` trait 훅**: 도구별 사전 검증을 PermissionHook 이전에 실행. 기본 구현은 `Ok(())`, `bash` 도구만 오버라이드하여 `classify_bash_command`를 호출. 향후 신규 danger 도구가 자체 정책을 쉽게 붙일 수 있다.
+  - **심볼릭 링크 거부 범위**: `reject_symlink_components(target, root)`는 **프로젝트 루트 하위** 컴포넌트만 검사. 루트 자체나 그 위 조상은 건드리지 않음 — macOS `/tmp` → `/private/tmp`, Linux `/home` 바인드 마운트 등 시스템 레벨 심볼릭 링크에 프로젝트를 두는 정당한 사용을 막지 않기 위함. 루트 하위에서 학생이 임의 심볼릭 링크로 FsGuard를 우회하는 시나리오만 차단.
+  - **블록 통지 경로**: PermissionCard/Approve 플로우를 건너뛰고, 별도 `AgentEvent::ToolCallBlocked { id, reason }` 이벤트 + 빨간 "실행 불가" 카드. 기존 `ToolCallDenied`와 의미를 구분 — Denied는 사용자가 거부한 것, Blocked는 정책이 거부한 것이며 사용자 승인도 불가.
+- 대안:
+  - **완전 AST 기반 매칭** (실제 bash parser) — 회피 저항성은 높지만 `bash`/`cmd`/`powershell`마다 별도 파서 필요. v1.0 범위를 벗어남. Phase 6 다국어 셸 지원 시점에 재검토.
+  - **sudo도 허용** — 명세 §9.2가 `sudo *`를 명시적 차단 패턴으로 지정. 학생 PC에서 sudo가 필요한 시나리오는 수업 밖의 시스템 관리로 한정되므로 정책적으로 전면 차단.
+  - **심볼릭 링크 검사를 전체 경로에 적용** — 초기 구현이었으나 macOS `/tmp` → `/private/tmp` 때문에 테스트 환경 자체가 깨졌다. 프로젝트 루트 기준으로 축소하는 것이 안전성과 실용성의 균형점.
+  - **경고 카드 variant 신설** — 명세 §9.2는 차단과 블록을 구분하지 않음. 경고는 §4.2 자동 승인 정책 영역으로, 현재는 차단만 구현 (경고 카드는 Phase 4-2 설정 화면에서 자동 승인 정책 UI로 다룸).
+- 결과:
+  - `src-tauri/src/tools/guard.rs` 16개 단위 테스트 + `tests/tool_guard.rs` 3개 통합 테스트로 패턴 전수 검증 + AgentLoop 이벤트 발행 검증.
+  - `Cargo.toml` 신규 의존성 `regex = "1"`, `once_cell = "1"` (정규식 카탈로그 lazy 초기화). `tokio` features에 `process` + `io-util` 추가 (bash 도구 `tokio::process::Command`).
+  - 매칭은 `classify_bash_command(cmd) -> Option<BlockReason>` 단일 진입점이므로 향후 패턴 추가·갱신이 한 파일 안에서 완결. 테스트도 같은 파일에 위치해 리뷰어가 "어떤 명령이 어떻게 차단되는가"를 한눈에 감사 가능.
+  - 프론트 `ToolCallMessage.tsx`의 blocked 분기는 기존 pending/approved/denied 분기와 독립적이라 기존 Playwright 스위트(111 assertions) 회귀 없이 16개 신규 assertion이 추가됐다.
