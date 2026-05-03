@@ -327,3 +327,28 @@
   - Rust 테스트 +11 (`tests/export_jsonl.rs` 6 + inline 5). `cargo test` 총 **163 passed / 0 failed**.
   - 파일럿(Phase 4-5)은 **jq 기반 10줄 분석 스크립트**로 즉시 집계 가능 — record kind 필터 + field 선택.
   - 향후 스키마 진화: 필드 추가는 자유, 제거/rename은 ADR + 버전 필드 추가 후 migration note 커밋.
+
+## ADR-019: 프로젝트·세션·프로바이더 IPC는 Tauri 우선 + localStorage mock 이중 경로
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 4-1)
+- 컨텍스트: 4-1은 Sidebar의 `disabled` 잠금을 풀어 실제 CRUD를 연결한다. 두 경로가 있다: (1) `pnpm tauri:dev` / 릴리스 빌드에서는 실제 IPC + SQLite + OS keyring. (2) 브라우저 데모(`pnpm dev`) 및 Playwright 회귀에서는 Tauri 런타임이 없어 IPC 호출이 실패. 이 둘을 어떻게 조화시킬지가 핵심.
+- 결정:
+  - **Zustand 스토어가 런타임 감지**: `stores/project-session.ts`의 `loadTauri()`가 `window.__TAURI_INTERNALS__` 유무로 분기. `useChatSession`(2-3)의 동일 패턴 재사용 — 회귀 안정성 최고.
+  - **이중 경로 함수 `withTauriOrMock<T>`**: `(api, tauriFn, mockFn)` 시그니처. IPC 실패 시 `console.warn` 후 mock으로 폴백(silent corruption 방지). 프로덕션에서는 api가 null일 일이 없지만, 개발 중 IPC 오류가 UI 전체를 브릭하지 않도록.
+  - **localStorage 스키마**: `dive:onboarded`(boolean) + `dive:current-project-id`(number) + `dive:current-session-id`(number) + `dive:project-session`(mock 데이터 JSON blob, `{ projects, sessions, providers, nextId }`). 4-2에서 자동 승인 정책이 추가되면 `dive:auto-approve-policy` 등을 동일 prefix로 추가.
+  - **`InMemoryKeyring` 테스트용 주입**: `AppState::with_keyring(Arc<dyn Keyring>)` 빌더를 추가. 기본은 `OsKeyring`(production), 테스트는 `InMemoryKeyring`. keyring 결합을 DI로 풀어서 단위 테스트 + Playwright mock이 같은 코드 경로를 공유.
+  - **`.dive/` 자동 생성 + CheckpointEngine::init 자동 호출**: `project_create` / `project_open`이 무조건 둘 다 수행. idempotent이므로 기존 프로젝트 열 때도 안전. 프로젝트 삭제 시 `delete_folder=false`가 기본값 — `.dive/`만 지우고 사용자 코드는 보존(명세 §6.1 위험 옵션 기본 꺼짐).
+  - **세션 기본 제목 `"새 세션 YYYY-MM-DD HH:mm"` (KST 고정)**: chrono 의존성 추가를 피하려고 stdlib만으로 civil-date 알고리즘 구현. AI 자동 제목 생성은 4-2 이후로 연기 (모델 호출 1회 필요).
+  - **Onboarding은 `?demo=*` 라우트에서 트리거 금지**: MainShell이 URL params에 `demo` 키가 있으면 온보딩 모달을 띄우지 않음. 이 한 줄이 11개 Phase 3 Playwright 회귀를 구원 — 안 그러면 scenario-a/b가 `MainShell`을 임베드하는데 모달 오버레이가 클릭을 차단.
+- 대안:
+  - **IPC-only (mock 없음)**: 브라우저 데모 `pnpm dev`에서 Sidebar가 완전히 비활성 → Phase 4-5 파일럿 전까지 교사가 UX를 체험 불가. Playwright 회귀도 `tauri dev` 필요해져 CI 비용 폭증.
+  - **Tauri 플러그인 dialog 도입** (`@tauri-apps/plugin-dialog`): 폴더 선택 UI가 더 예쁘지만 (a) Cargo + capabilities + CI 체인 전부 갱신 (b) Windows ARM64 호환성 재검증 필요 (c) 4-1 범위를 넘어 Phase 5로 영향. 4-1은 텍스트 입력 form으로 단순화, Phase 4-4 폴리싱에서 dialog 승격 검토.
+  - **zustand/middleware/persist 사용**: 라이브러리 없이 직접 `localStorage.setItem`으로 충분. persist middleware는 재수화 타이밍 이슈(React 18 strict mode)가 있어 명시적 컨트롤이 더 안전.
+  - **세션 자동 제목을 LLM 호출로**: 4-1 범위 벗어남 + 프로바이더 미연결 상태에서 UX 깨짐. `{timestamp}` 기본값이 실용적.
+  - **Radix ContextMenu 우클릭**: 이번에는 `confirm()` + 인라인 삭제 버튼으로 단순화. ContextMenu는 4-4 폴리싱에서.
+- 결과:
+  - Rust 단위 테스트 +5 (ipc::{project,session,provider}). 총 117 lib passing.
+  - Playwright 신규 2 suite = 21 asserts (`verify-onboarding` 12 + `verify-project-session` 9). Phase 3 회귀 11 suite 전부 통과 (2 suite에 `dive:onboarded` pre-set 추가하는 non-invasive 수정).
+  - `AppState::with_keyring()` 패턴 덕에 Phase 4-2/4-3의 정책·재시도 테스트도 OS keyring 없이 단위화 가능.
+  - Sidebar 하단 "현재 모델" 카드 → `?demo=settings` 푸시 — 4-2가 이 링크를 소비.
