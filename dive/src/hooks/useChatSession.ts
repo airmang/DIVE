@@ -29,6 +29,12 @@ type AgentEvent =
       tool: string;
       params_preview: string;
       risk: "safe" | "warn" | "danger";
+      diff_preview?: {
+        path: string;
+        before: string;
+        after: string;
+      } | null;
+      args: unknown;
     }
   | { type: "tool_call_approved"; id: string }
   | { type: "tool_call_denied"; id: string; reason: string }
@@ -135,7 +141,31 @@ export function useChatSession(sessionId: number) {
     await api.invoke<void>("chat_cancel", { sessionId });
   }, [sessionId]);
 
-  return { ...state, sendUserMessage, cancel };
+  const approveToolCall = useCallback(async (toolCallId: string, modifiedArgs?: unknown) => {
+    const api = apiRef.current;
+    if (!api) return;
+    await api.invoke<boolean>("tool_approve", {
+      toolCallId,
+      modifiedArgs: modifiedArgs ?? null,
+    });
+  }, []);
+
+  const denyToolCall = useCallback(async (toolCallId: string, reason?: string) => {
+    const api = apiRef.current;
+    if (!api) return;
+    await api.invoke<boolean>("tool_deny", {
+      toolCallId,
+      reason: reason ?? null,
+    });
+  }, []);
+
+  return {
+    ...state,
+    sendUserMessage,
+    cancel,
+    approveToolCall,
+    denyToolCall,
+  };
 }
 
 function reduce(prev: State, evt: AgentEvent): State {
@@ -185,6 +215,9 @@ function reduce(prev: State, evt: AgentEvent): State {
         toolName: evt.tool,
         paramsPreview: evt.params_preview,
         status: "pending",
+        risk: evt.risk,
+        diffPreview: evt.diff_preview ?? null,
+        args: evt.args,
       };
       return { ...prev, messages: [...prev.messages, m] };
     }
@@ -200,7 +233,9 @@ function reduce(prev: State, evt: AgentEvent): State {
       return {
         ...prev,
         messages: prev.messages.map((m) =>
-          m.id === evt.id && m.kind === "tool_call" ? { ...m, status: "denied" } : m,
+          m.id === evt.id && m.kind === "tool_call"
+            ? { ...m, status: "denied", deniedReason: evt.reason }
+            : m,
         ),
       };
     }

@@ -12,6 +12,8 @@ interface Props {
   onRetryError?: (id: string) => void;
   onEditUser?: (id: string) => void;
   onResendUser?: (id: string) => void;
+  onApproveToolCall?: (toolCallId: string, modifiedArgs?: unknown) => void;
+  onDenyToolCall?: (toolCallId: string, reason?: string) => void;
   /** Cap DOM nodes to last N. Real virtualization lands in task 4-4. */
   maxRendered?: number;
 }
@@ -24,6 +26,8 @@ function MessageListImpl({
   onRetryError,
   onEditUser,
   onResendUser,
+  onApproveToolCall,
+  onDenyToolCall,
   maxRendered = 200,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -76,7 +80,14 @@ function MessageListImpl({
             case "assistant":
               return <AssistantMessage key={msg.id} message={msg} />;
             case "tool_call":
-              return <ToolCallMessage key={msg.id} message={msg} />;
+              return (
+                <ToolCallMessage
+                  key={msg.id}
+                  message={msg}
+                  onApprove={onApproveToolCall}
+                  onDeny={onDenyToolCall}
+                />
+              );
             case "tool_result":
               return <ToolResultMessage key={msg.id} message={msg} />;
             case "system":

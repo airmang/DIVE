@@ -10,7 +10,10 @@ use dive_lib::db::models::{NewProject, NewSession};
 use dive_lib::Database;
 use dive_lib::{ChatEvent, FinishReason, MockProvider};
 
-use dive_lib::agent::{AgentError, AgentEvent, AgentLoop, AlwaysApproveHook, AlwaysDenyHook};
+use dive_lib::agent::{
+    AgentError, AgentEvent, AgentLoop, AlwaysApproveHook, AlwaysDenyHook, AwaitUserHook,
+    PendingApprovals, PermissionDecision,
+};
 use dive_lib::tools::{ToolContext, ToolRegistry};
 
 fn fresh_env() -> (
@@ -291,4 +294,290 @@ async fn scenario_e_cancel_mid_stream() {
     let mut events = Vec::new();
     let result = loop_.run(sid, "hi", &mut |e| events.push(e)).await;
     assert!(matches!(result, Err(AgentError::Cancelled)));
+}
+
+#[tokio::test]
+async fn scenario_f_await_user_hook_approved() {
+    let (db, _db_file, root, sid) = fresh_env();
+    std::fs::create_dir_all(root.path().join("sub")).unwrap();
+    let mock = Arc::new(MockProvider::new(vec![
+        vec![
+            ChatEvent::ToolCallStart {
+                id: "call-1".into(),
+                name: "list_dir".into(),
+            },
+            ChatEvent::ToolCallDelta {
+                id: "call-1".into(),
+                arguments_delta: r#"{"path":"sub"}"#.into(),
+            },
+            ChatEvent::ToolCallEnd {
+                id: "call-1".into(),
+            },
+            ChatEvent::Done {
+                finish_reason: FinishReason::ToolCalls,
+            },
+        ],
+        vec![
+            ChatEvent::TextDelta("done".into()),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ],
+    ]));
+    let pending = PendingApprovals::new();
+    let hook = Arc::new(AwaitUserHook::new(pending.clone(), false));
+    let loop_ = AgentLoop::builder()
+        .provider(mock)
+        .registry(Arc::new(ToolRegistry::with_builtins()))
+        .permission(hook)
+        .db(db)
+        .tool_ctx(ToolContext::new(root.path(), sid))
+        .model("mock-model")
+        .cancel(Arc::new(AtomicBool::new(false)))
+        .max_iterations(5)
+        .build()
+        .unwrap();
+
+    let events: Arc<Mutex<Vec<AgentEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let events_clone = events.clone();
+    let pending_clone = pending.clone();
+
+    let run_task = tokio::spawn(async move {
+        let mut buf = Vec::new();
+        let r = loop_.run(sid, "go", &mut |e| buf.push(e)).await;
+        events_clone.lock().unwrap().extend(buf);
+        r
+    });
+
+    // wait for the hook to register the pending approval
+    for _ in 0..50 {
+        if pending_clone.pending_count() > 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(pending_clone.pending_count(), 1, "hook should have parked");
+    assert!(pending_clone.resolve("call-1", PermissionDecision::approved()));
+
+    run_task.await.unwrap().unwrap();
+    let evts = events.lock().unwrap();
+    assert!(evts
+        .iter()
+        .any(|e| matches!(e, AgentEvent::ToolCallApproved { .. })));
+    assert!(evts
+        .iter()
+        .any(|e| matches!(e, AgentEvent::ToolResult { success: true, .. })));
+}
+
+#[tokio::test]
+async fn scenario_g_await_user_hook_modified_args() {
+    let (db, _db_file, root, sid) = fresh_env();
+    std::fs::create_dir_all(root.path().join("a")).unwrap();
+    std::fs::create_dir_all(root.path().join("b")).unwrap();
+    std::fs::write(root.path().join("a/x"), "").unwrap();
+    std::fs::write(root.path().join("b/y1"), "").unwrap();
+    std::fs::write(root.path().join("b/y2"), "").unwrap();
+
+    let mock = Arc::new(MockProvider::new(vec![
+        vec![
+            ChatEvent::ToolCallStart {
+                id: "call-1".into(),
+                name: "list_dir".into(),
+            },
+            ChatEvent::ToolCallDelta {
+                id: "call-1".into(),
+                arguments_delta: r#"{"path":"a"}"#.into(),
+            },
+            ChatEvent::ToolCallEnd {
+                id: "call-1".into(),
+            },
+            ChatEvent::Done {
+                finish_reason: FinishReason::ToolCalls,
+            },
+        ],
+        vec![
+            ChatEvent::TextDelta("ok".into()),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ],
+    ]));
+    let pending = PendingApprovals::new();
+    let hook = Arc::new(AwaitUserHook::new(pending.clone(), false));
+    let loop_ = AgentLoop::builder()
+        .provider(mock)
+        .registry(Arc::new(ToolRegistry::with_builtins()))
+        .permission(hook)
+        .db(db)
+        .tool_ctx(ToolContext::new(root.path(), sid))
+        .model("mock-model")
+        .cancel(Arc::new(AtomicBool::new(false)))
+        .max_iterations(5)
+        .build()
+        .unwrap();
+
+    let events: Arc<Mutex<Vec<AgentEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let events_clone = events.clone();
+    let pending_clone = pending.clone();
+
+    let run_task = tokio::spawn(async move {
+        let mut buf = Vec::new();
+        let r = loop_.run(sid, "go", &mut |e| buf.push(e)).await;
+        events_clone.lock().unwrap().extend(buf);
+        r
+    });
+
+    for _ in 0..50 {
+        if pending_clone.pending_count() > 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    // Approve with modified_args pointing to directory "b" instead of "a"
+    let override_args = serde_json::json!({ "path": "b" });
+    pending_clone.resolve("call-1", PermissionDecision::approved_with(override_args));
+    run_task.await.unwrap().unwrap();
+
+    let evts = events.lock().unwrap();
+    let summary = evts
+        .iter()
+        .find_map(|e| match e {
+            AgentEvent::ToolResult {
+                summary,
+                success: true,
+                ..
+            } => Some(summary.clone()),
+            _ => None,
+        })
+        .expect("expected a ToolResult");
+    assert!(summary.contains("b: 2 entries"), "got {summary}");
+}
+
+#[tokio::test]
+async fn scenario_h_await_user_hook_denied_with_reason() {
+    let (db, _db_file, root, sid) = fresh_env();
+    let mock = Arc::new(MockProvider::new(vec![
+        vec![
+            ChatEvent::ToolCallStart {
+                id: "call-1".into(),
+                name: "write_file".into(),
+            },
+            ChatEvent::ToolCallDelta {
+                id: "call-1".into(),
+                arguments_delta: r#"{"path":"out.txt","content":"x"}"#.into(),
+            },
+            ChatEvent::ToolCallEnd {
+                id: "call-1".into(),
+            },
+            ChatEvent::Done {
+                finish_reason: FinishReason::ToolCalls,
+            },
+        ],
+        vec![
+            ChatEvent::TextDelta("ok".into()),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ],
+    ]));
+    let pending = PendingApprovals::new();
+    let hook = Arc::new(AwaitUserHook::new(pending.clone(), false));
+    let loop_ = AgentLoop::builder()
+        .provider(mock)
+        .registry(Arc::new(ToolRegistry::with_builtins()))
+        .permission(hook)
+        .db(db)
+        .tool_ctx(ToolContext::new(root.path(), sid))
+        .model("mock-model")
+        .cancel(Arc::new(AtomicBool::new(false)))
+        .max_iterations(5)
+        .build()
+        .unwrap();
+
+    let events: Arc<Mutex<Vec<AgentEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let events_clone = events.clone();
+    let pending_clone = pending.clone();
+
+    let run_task = tokio::spawn(async move {
+        let mut buf = Vec::new();
+        let r = loop_.run(sid, "write", &mut |e| buf.push(e)).await;
+        events_clone.lock().unwrap().extend(buf);
+        r
+    });
+
+    for _ in 0..50 {
+        if pending_clone.pending_count() > 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    pending_clone.resolve(
+        "call-1",
+        PermissionDecision::denied("user refused destructive write"),
+    );
+    run_task.await.unwrap().unwrap();
+
+    let evts = events.lock().unwrap();
+    assert!(evts.iter().any(|e| matches!(
+        e,
+        AgentEvent::ToolCallDenied { reason, .. } if reason.contains("refused")
+    )));
+    assert!(!root.path().join("out.txt").exists());
+}
+
+#[tokio::test]
+async fn diff_preview_populated_for_write_and_edit() {
+    let (db, _db_file, root, sid) = fresh_env();
+    std::fs::write(root.path().join("hello.txt"), "old content").unwrap();
+
+    let mock = Arc::new(MockProvider::new(vec![
+        vec![
+            ChatEvent::ToolCallStart {
+                id: "call-w".into(),
+                name: "write_file".into(),
+            },
+            ChatEvent::ToolCallDelta {
+                id: "call-w".into(),
+                arguments_delta: r#"{"path":"hello.txt","content":"new content"}"#.into(),
+            },
+            ChatEvent::ToolCallEnd {
+                id: "call-w".into(),
+            },
+            ChatEvent::Done {
+                finish_reason: FinishReason::ToolCalls,
+            },
+        ],
+        vec![ChatEvent::Done {
+            finish_reason: FinishReason::Stop,
+        }],
+    ]));
+    let loop_ = AgentLoop::builder()
+        .provider(mock)
+        .registry(Arc::new(ToolRegistry::with_builtins()))
+        .permission(Arc::new(AlwaysApproveHook))
+        .db(db)
+        .tool_ctx(ToolContext::new(root.path(), sid))
+        .model("mock-model")
+        .cancel(Arc::new(AtomicBool::new(false)))
+        .max_iterations(5)
+        .build()
+        .unwrap();
+
+    let mut events = Vec::new();
+    loop_
+        .run(sid, "replace", &mut |e| events.push(e))
+        .await
+        .unwrap();
+
+    let dp = events.iter().find_map(|e| match e {
+        AgentEvent::ToolCallStart {
+            diff_preview: Some(d),
+            ..
+        } => Some(d.clone()),
+        _ => None,
+    });
+    let dp = dp.expect("expected diff_preview on write_file");
+    assert_eq!(dp.before, "old content");
+    assert_eq!(dp.after, "new content");
+    assert!(dp.path.ends_with("hello.txt"));
 }

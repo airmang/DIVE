@@ -38,6 +38,15 @@ export interface ToolCallMessageData extends BaseMessage {
   /** One-line preview of tool arguments. */
   paramsPreview: string;
   status: "pending" | "approved" | "denied";
+  /** Populated when the backend emitted a `ToolCallStart` with risk + args. */
+  risk?: "safe" | "warn" | "danger";
+  diffPreview?: {
+    path: string;
+    before: string;
+    after: string;
+  } | null;
+  args?: unknown;
+  deniedReason?: string;
 }
 
 export interface ToolResultMessageData extends BaseMessage {

@@ -32,7 +32,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             ipc::chat_send,
-            ipc::chat_cancel
+            ipc::chat_cancel,
+            ipc::tool_approve,
+            ipc::tool_deny
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

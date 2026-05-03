@@ -31,6 +31,9 @@ pub enum AgentEvent {
         tool: String,
         params_preview: String,
         risk: RiskLevel,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        diff_preview: Option<DiffPreview>,
+        args: Value,
     },
     ToolCallApproved {
         id: String,
@@ -52,4 +55,13 @@ pub enum AgentEvent {
     Done {
         reason: String,
     },
+}
+
+/// Diff payload surfaced on `ToolCallStart` for edit_file / write_file so the
+/// permission card can render the change before user approval.
+#[derive(Debug, Clone, Serialize)]
+pub struct DiffPreview {
+    pub path: String,
+    pub before: String,
+    pub after: String,
 }

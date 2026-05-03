@@ -11,10 +11,10 @@ pub mod event;
 pub mod permission;
 
 pub use error::AgentError;
-pub use event::AgentEvent;
+pub use event::{AgentEvent, DiffPreview};
 pub use permission::{
-    AlwaysApproveHook, AlwaysDenyHook, AutoApprove, AutoApprovePolicy, PermissionDecision,
-    PermissionHook, PolicyHook, SafeOnlyHook,
+    AlwaysApproveHook, AlwaysDenyHook, AutoApprove, AutoApprovePolicy, AwaitUserHook,
+    PendingApprovals, PermissionDecision, PermissionHook, PolicyHook, SafeOnlyHook,
 };
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -156,11 +156,14 @@ impl AgentLoop {
                         Value::Object(Default::default())
                     });
                 let preview = params_preview(&tc.name, &args_value);
+                let diff_preview = self.build_diff_preview(&tc.name, &args_value).await;
                 emit(AgentEvent::ToolCallStart {
                     id: tc.id.clone(),
                     tool: tc.name.clone(),
                     params_preview: preview.clone(),
                     risk,
+                    diff_preview,
+                    args: args_value.clone(),
                 });
                 self.log_event(
                     session_id,
@@ -170,8 +173,9 @@ impl AgentLoop {
 
                 let decision = self.permission.intercept(tc, risk).await;
                 match decision {
-                    PermissionDecision::Approved => {
+                    PermissionDecision::Approved { modified_args } => {
                         emit(AgentEvent::ToolCallApproved { id: tc.id.clone() });
+                        let effective_args = modified_args.unwrap_or(args_value);
                         let Some(tool) = tool_opt else {
                             let msg = format!("tool '{}' not registered", tc.name);
                             emit(AgentEvent::ToolResult {
@@ -186,7 +190,7 @@ impl AgentLoop {
                             });
                             continue;
                         };
-                        let out = match tool.run(args_value, &self.tool_ctx).await {
+                        let out = match tool.run(effective_args, &self.tool_ctx).await {
                             Ok(out) => out,
                             Err(e) => {
                                 let msg = format!("{e}");
@@ -433,6 +437,44 @@ impl AgentLoop {
             Err(AgentError::Cancelled)
         } else {
             Ok(())
+        }
+    }
+
+    async fn build_diff_preview(&self, tool_name: &str, args: &Value) -> Option<DiffPreview> {
+        let path = args.get("path")?.as_str()?.to_string();
+        match tool_name {
+            "write_file" => {
+                let after = args.get("content")?.as_str()?.to_string();
+                let resolved = self.tool_ctx.fs.resolve_read(&path).ok()?;
+                let before = tokio::fs::read_to_string(&resolved)
+                    .await
+                    .unwrap_or_default();
+                Some(DiffPreview {
+                    path,
+                    before,
+                    after,
+                })
+            }
+            "edit_file" => {
+                let find = args.get("find")?.as_str()?;
+                let replace = args.get("replace")?.as_str()?;
+                let resolved = self.tool_ctx.fs.resolve_read(&path).ok()?;
+                let before = tokio::fs::read_to_string(&resolved).await.ok()?;
+                if !before.contains(find) {
+                    return Some(DiffPreview {
+                        path,
+                        before,
+                        after: String::new(),
+                    });
+                }
+                let after = before.replacen(find, replace, 1);
+                Some(DiffPreview {
+                    path,
+                    before,
+                    after,
+                })
+            }
+            _ => None,
         }
     }
 }

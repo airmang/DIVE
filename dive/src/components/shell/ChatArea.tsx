@@ -12,6 +12,8 @@ interface ChatAreaProps {
   onSendMessage?: (text: string) => void;
   onOpenSlidePanel?: () => void;
   onRetryError?: (id: string) => void;
+  onApproveToolCall?: (toolCallId: string, modifiedArgs?: unknown) => void;
+  onDenyToolCall?: (toolCallId: string, reason?: string) => void;
   modelLabel?: string;
   inputDisabled?: boolean;
 }
@@ -23,6 +25,8 @@ export function ChatArea({
   onSendMessage,
   onOpenSlidePanel,
   onRetryError,
+  onApproveToolCall,
+  onDenyToolCall,
   modelLabel,
   inputDisabled,
 }: ChatAreaProps) {
@@ -58,7 +62,12 @@ export function ChatArea({
 
       <div className="flex-1 min-h-0 overflow-hidden">
         {hasConversation ? (
-          <MessageList messages={messages} onRetryError={onRetryError} />
+          <MessageList
+            messages={messages}
+            onRetryError={onRetryError}
+            onApproveToolCall={onApproveToolCall}
+            onDenyToolCall={onDenyToolCall}
+          />
         ) : (
           <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 px-6 text-center">
             <p className="text-xl font-semibold text-fg">세션을 시작해 대화를 시작하세요</p>

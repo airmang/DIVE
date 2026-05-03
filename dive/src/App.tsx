@@ -3,8 +3,9 @@ import MainShell from "./components/shell/MainShell";
 import ShowcasePage from "./pages/showcase";
 import WorkmapDemoPage from "./pages/workmap-demo";
 import ChatDemoPage from "./pages/chat-demo";
+import PermissionDemoPage from "./pages/permission-demo";
 
-type Route = "main" | "showcase" | "workmap" | "chat";
+type Route = "main" | "showcase" | "workmap" | "chat" | "permission";
 
 function resolveRoute(): Route {
   if (typeof window === "undefined") return "main";
@@ -13,6 +14,7 @@ function resolveRoute(): Route {
   if (demo === "workmap") return "workmap";
   if (demo === "showcase") return "showcase";
   if (demo === "chat") return "chat";
+  if (demo === "permission") return "permission";
   return "main";
 }
 
@@ -28,6 +30,7 @@ function App() {
   if (route === "workmap") return <WorkmapDemoPage />;
   if (route === "showcase") return <ShowcasePage />;
   if (route === "chat") return <ChatDemoPage />;
+  if (route === "permission") return <PermissionDemoPage />;
   return <MainShell />;
 }
 

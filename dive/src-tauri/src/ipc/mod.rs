@@ -1,9 +1,9 @@
 //! Tauri IPC commands (spec §11.5).
 //!
-//! Exposes `chat_send` and `chat_cancel` wired to the Agent Loop. `AppState`
-//! owns the shared runtime handles (DB, provider, registry, permission hook,
-//! in-flight cancel tokens). The provider is initialized from the
-//! `DIVE_PROVIDER` env var in task 2-3; full settings UI lands in task 4-2.
+//! Exposes `chat_send` / `chat_cancel` / `tool_approve` / `tool_deny` wired
+//! to the Agent Loop. `AppState` owns DB, provider, registry, permission
+//! hook (`AwaitUserHook` by default so warn/danger wait for the UI),
+//! in-flight cancel tokens, and the `PendingApprovals` registry.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -11,9 +11,12 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
+use serde_json::Value;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::agent::{AgentEvent, AgentLoop, PermissionHook, SafeOnlyHook};
+use crate::agent::{
+    AgentEvent, AgentLoop, AwaitUserHook, PendingApprovals, PermissionDecision, PermissionHook,
+};
 use crate::db::Database;
 use crate::providers::{LlmProvider, MockProvider};
 use crate::tools::{ToolContext, ToolRegistry};
@@ -23,6 +26,7 @@ pub struct AppState {
     pub provider: Arc<dyn LlmProvider>,
     pub registry: Arc<ToolRegistry>,
     pub permission: Arc<dyn PermissionHook>,
+    pub pending_approvals: PendingApprovals,
     pub project_root: PathBuf,
     pub model: String,
     pub cancels: Arc<Mutex<HashMap<i64, Arc<AtomicBool>>>>,
@@ -35,11 +39,15 @@ impl AppState {
         project_root: PathBuf,
         model: String,
     ) -> Self {
+        let pending = PendingApprovals::new();
+        let permission: Arc<dyn PermissionHook> =
+            Arc::new(AwaitUserHook::new(pending.clone(), true));
         Self {
             db: Arc::new(Mutex::new(db)),
             provider,
             registry: Arc::new(ToolRegistry::with_builtins()),
-            permission: Arc::new(SafeOnlyHook),
+            permission,
+            pending_approvals: pending,
             project_root,
             model,
             cancels: Arc::new(Mutex::new(HashMap::new())),
@@ -110,4 +118,27 @@ pub async fn chat_cancel(state: State<'_, AppState>, session_id: i64) -> Result<
         token.store(true, std::sync::atomic::Ordering::SeqCst);
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn tool_approve(
+    state: State<'_, AppState>,
+    tool_call_id: String,
+    modified_args: Option<Value>,
+) -> Result<bool, String> {
+    let decision = match modified_args {
+        Some(args) => PermissionDecision::approved_with(args),
+        None => PermissionDecision::approved(),
+    };
+    Ok(state.pending_approvals.resolve(&tool_call_id, decision))
+}
+
+#[tauri::command]
+pub async fn tool_deny(
+    state: State<'_, AppState>,
+    tool_call_id: String,
+    reason: Option<String>,
+) -> Result<bool, String> {
+    let decision = PermissionDecision::denied(reason.unwrap_or_else(|| "사용자가 거부함".into()));
+    Ok(state.pending_approvals.resolve(&tool_call_id, decision))
 }
