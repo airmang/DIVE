@@ -1,0 +1,116 @@
+/*
+ * DIVE design tokens. Source: DIVE_SPEC.md §2.3.
+ * RGB triplets + hex comment let reviewers verify palette fidelity.
+ * Dark is DEFAULT (:root). `.light` on <html> opts into light mode.
+ */
+
+@font-face {
+  font-family: "Pretendard Variable";
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+  src: url("../assets/fonts/PretendardVariable.woff2") format("woff2-variations");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url("../assets/fonts/JetBrainsMono-Regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url("../assets/fonts/JetBrainsMono-Bold.woff2") format("woff2");
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root,
+  :root.dark {
+    color-scheme: dark;
+
+    --color-bg: 26 26 31; /* #1A1A1F */
+    --color-bg-panel: 37 36 44; /* #25242C */
+    --color-bg-panel2: 45 44 54; /* #2D2C36 */
+    --color-border: 54 53 63; /* #36353F */
+
+    --color-fg: 232 230 240; /* #E8E6F0 */
+    --color-fg-muted: 142 140 154; /* #8E8C9A */
+    --color-fg-subtle: 106 104 117; /* derived: hint-level fg */
+
+    --color-accent: 177 156 217; /* #B19CD9 */
+    --color-accent-hover: 196 180 227; /* lightened +10% */
+    --color-accent-active: 158 138 198; /* darkened -10% */
+    --color-accent-subtle: 46 40 64; /* #2E2840 */
+    --color-accent-fg: 26 26 31; /* text on accent bg = bg */
+
+    --color-success: 122 184 154; /* #7AB89A */
+    --color-warn: 224 184 112; /* #E0B870 */
+    --color-danger: 216 144 144; /* #D89090 */
+    --color-info: 138 168 208; /* #8AA8D0 */
+
+    --color-ring: 177 156 217;
+  }
+
+  /* Light reuses dark semantic tones (success/warn/danger/info)
+     since §2.3 defines no separate light values; still legible on FAFAFC. */
+  :root.light {
+    color-scheme: light;
+
+    --color-bg: 250 250 252; /* #FAFAFC */
+    --color-bg-panel: 240 239 245; /* #F0EFF5 */
+    --color-bg-panel2: 255 255 255; /* white card on light panel */
+    --color-border: 224 222 230; /* #E0DEE6 */
+
+    --color-fg: 42 41 51; /* #2A2933 */
+    --color-fg-muted: 130 128 142; /* #82808E */
+    --color-fg-subtle: 162 160 174;
+
+    --color-accent: 155 133 199; /* #9B85C7 */
+    --color-accent-hover: 170 150 210;
+    --color-accent-active: 136 114 180;
+    --color-accent-subtle: 238 232 248; /* #EEE8F8 */
+    --color-accent-fg: 255 255 255;
+
+    --color-success: 90 154 124;
+    --color-warn: 196 154 80;
+    --color-danger: 192 112 112;
+    --color-info: 106 140 184;
+
+    --color-ring: 155 133 199;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg text-fg font-sans antialiased;
+    font-size: 14px;
+    line-height: 1.6;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  *:focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-bg;
+  }
+
+  code,
+  pre,
+  kbd,
+  samp {
+    @apply font-mono;
+  }
+}
