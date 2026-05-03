@@ -95,11 +95,14 @@ async function main() {
   );
   check("card now verifying", verifyingCount === 1);
 
-  console.log("\n9. Open verifying card → approve → Verified");
+  console.log("\n9. Open verifying card → run verify → approve → Verified");
   await page.click('[data-testid="card-tile"][data-card-state="verifying"]');
   await page.waitForSelector('[data-testid="card-detail-panel"][data-card-state="verifying"]');
-  await page.waitForSelector('[data-testid="btn-approve"]');
-  await page.click('[data-testid="btn-approve"]');
+  await page.waitForSelector('[data-testid="btn-run-verify"]:not([disabled])');
+  await page.locator('[data-testid="btn-run-verify"]').click({ force: true });
+  await page.waitForSelector('[data-testid="verify-log"]', { timeout: 3000 });
+  await page.waitForSelector('[data-testid="btn-approve"]:not([disabled])');
+  await page.locator('[data-testid="btn-approve"]').click({ force: true });
   await page.waitForTimeout(200);
   const verifiedCount = await page.$$eval(
     '[data-card-state="verified"][data-testid="card-tile"]',

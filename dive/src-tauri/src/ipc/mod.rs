@@ -201,11 +201,27 @@ pub async fn card_transition(
     state: State<'_, AppState>,
     card_id: i64,
     transition: CardTransition,
+    approve_force: Option<bool>,
 ) -> Result<CardState, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let existing = card_dao::get_by_id(db.conn(), card_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("card {card_id} not found"))?;
+
+    if matches!(transition, CardTransition::Approve) && !approve_force.unwrap_or(false) {
+        let log_str = existing
+            .verify_log
+            .as_deref()
+            .ok_or_else(|| "verify_log required: run card_verify first".to_string())?;
+        let log = crate::dive::VerifyLog::from_json_str(log_str).map_err(|e| e.to_string())?;
+        if !log.approve_eligible() {
+            return Err(format!(
+                "verify failed: intent_match={}, test_result={:?}. Pass approve_force=true to override.",
+                log.intent_match, log.test_result
+            ));
+        }
+    }
+
     let next = apply_transition(existing.state, transition).map_err(|e| e.to_string())?;
     card_dao::update(
         db.conn(),
@@ -222,4 +238,47 @@ pub async fn card_transition(
     )
     .map_err(|e| e.to_string())?;
     Ok(next)
+}
+
+#[tauri::command]
+pub async fn card_verify(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    session_id: i64,
+    card_id: i64,
+) -> Result<crate::dive::VerifyLog, String> {
+    let engine = crate::dive::VerifyEngine::new(
+        state.provider.clone(),
+        state.db.clone(),
+        state.model.clone(),
+    );
+    let _ = app.emit(
+        "verify_started",
+        serde_json::json!({ "session_id": session_id, "card_id": card_id }),
+    );
+    let log = engine
+        .verify_card(session_id, card_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit(
+        "verify_done",
+        serde_json::json!({
+            "session_id": session_id,
+            "card_id": card_id,
+            "intent_match": log.intent_match,
+        }),
+    );
+    Ok(log)
+}
+
+#[tauri::command]
+pub async fn ai_assist_cards(
+    state: State<'_, AppState>,
+    description: String,
+) -> Result<Vec<crate::dive::AssistedCard>, String> {
+    let engine = crate::dive::AiAssistEngine::new(state.provider.clone(), state.model.clone());
+    engine
+        .suggest_cards(&description)
+        .await
+        .map_err(|e| e.to_string())
 }

@@ -42,6 +42,29 @@ function mockSuggestionsFor(_input: string): Draft[] {
   ];
 }
 
+interface BackendCard {
+  title: string;
+  summary: string;
+}
+
+async function fetchAssistCardsViaIpc(description: string): Promise<Draft[] | null> {
+  const w =
+    typeof window === "undefined" ? null : (window as unknown as { __TAURI_INTERNALS__?: unknown });
+  if (!w?.__TAURI_INTERNALS__) return null;
+  try {
+    const core = await import("@tauri-apps/api/core");
+    const raw = await core.invoke<BackendCard[]>("ai_assist_cards", { description });
+    if (!Array.isArray(raw) || raw.length === 0) return null;
+    return raw.map((c, idx) => ({
+      id: idx + 1,
+      title: c.title,
+      summary: c.summary,
+    }));
+  } catch {
+    return null;
+  }
+}
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -54,23 +77,33 @@ export function AiAssistDialog({ open, onOpenChange, onAccept, positionStart = 1
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(false);
+  const [source, setSource] = useState<"mock" | "llm" | null>(null);
 
   const reset = () => {
     setInput("");
     setDrafts(null);
     setSelected(new Set());
     setLoading(false);
+    setSource(null);
   };
 
-  const requestSuggestions = () => {
+  const requestSuggestions = async () => {
     setLoading(true);
     setDrafts(null);
-    setTimeout(() => {
-      const next = mockSuggestionsFor(input);
-      setDrafts(next);
-      setSelected(new Set(next.map((d) => d.id)));
+    const fromIpc = await fetchAssistCardsViaIpc(input);
+    if (fromIpc) {
+      setDrafts(fromIpc);
+      setSelected(new Set(fromIpc.map((d) => d.id)));
+      setSource("llm");
       setLoading(false);
-    }, 350);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 350));
+    const next = mockSuggestionsFor(input);
+    setDrafts(next);
+    setSelected(new Set(next.map((d) => d.id)));
+    setSource("mock");
+    setLoading(false);
   };
 
   const toggle = (id: number) => {
@@ -119,6 +152,7 @@ export function AiAssistDialog({ open, onOpenChange, onAccept, positionStart = 1
       <DialogContent
         className="max-w-xl"
         data-testid="ai-assist-dialog"
+        data-source={source ?? ""}
         aria-describedby={undefined}
       >
         <DialogHeader>
@@ -146,7 +180,9 @@ export function AiAssistDialog({ open, onOpenChange, onAccept, positionStart = 1
               <Button
                 variant="primary"
                 data-testid="ai-assist-request"
-                onClick={requestSuggestions}
+                onClick={() => {
+                  void requestSuggestions();
+                }}
                 disabled={loading || input.trim().length === 0}
               >
                 <Sparkles />

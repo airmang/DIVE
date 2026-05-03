@@ -4,8 +4,12 @@
 //! card state machine (spec §4.6 figure 4). `DiveGateEngine::check` routes
 //! by stage; `state_machine::apply` validates card transitions.
 
+pub mod assist;
 pub mod gate;
 pub mod state_machine;
+pub mod verify;
 
+pub use assist::{AiAssistEngine, AssistError, AssistedCard};
 pub use gate::{card_tool_call_count, DiveGateEngine, DiveStage, GateDecision};
 pub use state_machine::{apply as apply_transition, CardTransition, TransitionError};
+pub use verify::{TestResult, VerifyEngine, VerifyError, VerifyLog};

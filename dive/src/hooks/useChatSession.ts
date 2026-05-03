@@ -55,6 +55,14 @@ type AgentEvent =
 
 type Envelope = AgentEvent & { session_id: number };
 
+export interface VerifyLogPayload {
+  intent_match: boolean;
+  test_result: "pass" | "fail" | "skipped";
+  details: string;
+  model: string;
+  ran_at: number;
+}
+
 type TauriApi = {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
   listen: <T>(event: string, handler: (e: { payload: T }) => void) => Promise<() => void>;
@@ -199,12 +207,29 @@ export function useChatSession(sessionId: number) {
         | "reject"
         | "reopen_from_reject"
         | "extend",
+      approveForce = false,
     ) => {
       const api = apiRef.current;
       if (!api) return null;
-      return api.invoke<string>("card_transition", { cardId, transition });
+      return api.invoke<string>("card_transition", {
+        cardId,
+        transition,
+        approveForce,
+      });
     },
     [],
+  );
+
+  const verifyCard = useCallback(
+    async (cardId: number) => {
+      const api = apiRef.current;
+      if (!api) return null;
+      return api.invoke<VerifyLogPayload>("card_verify", {
+        sessionId,
+        cardId,
+      });
+    },
+    [sessionId],
   );
 
   return {
@@ -216,6 +241,7 @@ export function useChatSession(sessionId: number) {
     setCurrentCard,
     updateCardInstruction,
     transitionCardRemote,
+    verifyCard,
   };
 }
 

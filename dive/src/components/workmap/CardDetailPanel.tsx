@@ -20,13 +20,29 @@ export type CardTransitionKind =
   | "reopen_from_reject"
   | "extend";
 
+export interface VerifyLogView {
+  intent_match: boolean;
+  test_result: "pass" | "fail" | "skipped";
+  details: string;
+  model: string;
+  ran_at: number;
+}
+
 interface CardDetailPanelProps {
   open: boolean;
   card: CardTileData | null;
   toolCallCount?: number;
+  verifyLog?: VerifyLogView | null;
+  verifyState?: "idle" | "running" | "error";
+  verifyError?: string | null;
   onOpenChange: (open: boolean) => void;
   onInstructionChange?: (cardId: number, instruction: string) => void | Promise<void>;
-  onTransition?: (cardId: number, transition: CardTransitionKind) => void | Promise<void>;
+  onTransition?: (
+    cardId: number,
+    transition: CardTransitionKind,
+    options?: { approveForce?: boolean },
+  ) => void | Promise<void>;
+  onVerify?: (cardId: number) => void | Promise<void>;
   onOpenCode?: (cardId: number) => void;
 }
 
@@ -34,18 +50,25 @@ export function CardDetailPanel({
   open,
   card,
   toolCallCount = 0,
+  verifyLog = null,
+  verifyState = "idle",
+  verifyError = null,
   onOpenChange,
   onInstructionChange,
   onTransition,
+  onVerify,
   onOpenCode,
 }: CardDetailPanelProps) {
   const [instructionDraft, setInstructionDraft] = useState("");
+  const [forceApprove, setForceApprove] = useState(false);
 
   useEffect(() => {
     if (card) {
       setInstructionDraft(card.summary ?? "");
+      setForceApprove(false);
     } else {
       setInstructionDraft("");
+      setForceApprove(false);
     }
   }, [card]);
 
@@ -65,6 +88,7 @@ export function CardDetailPanel({
   const meta = getCardStateMeta(card.state);
   const trimmedDraft = instructionDraft.trim();
   const instructionNonEmpty = trimmedDraft.length > 0;
+  const approveEligible = !!verifyLog && verifyLog.intent_match && verifyLog.test_result !== "fail";
 
   const handleSaveInstruction = async () => {
     if (onInstructionChange) {
@@ -72,9 +96,18 @@ export function CardDetailPanel({
     }
   };
 
-  const handleTransition = async (transition: CardTransitionKind) => {
+  const handleTransition = async (
+    transition: CardTransitionKind,
+    options?: { approveForce?: boolean },
+  ) => {
     if (onTransition) {
-      await onTransition(card.id, transition);
+      await onTransition(card.id, transition, options);
+    }
+  };
+
+  const handleVerify = async () => {
+    if (onVerify) {
+      await onVerify(card.id);
     }
   };
 
@@ -102,6 +135,12 @@ export function CardDetailPanel({
             setInstructionDraft,
             trimmedDraftLength: trimmedDraft.length,
             toolCallCount,
+            verifyLog,
+            verifyState,
+            verifyError,
+            onVerify: handleVerify,
+            forceApprove,
+            setForceApprove,
           })}
         </div>
 
@@ -109,6 +148,9 @@ export function CardDetailPanel({
           {renderStateFooter(card.state, {
             instructionNonEmpty,
             toolCallCount,
+            verifyLog,
+            approveEligible,
+            forceApprove,
             onSaveInstruction: handleSaveInstruction,
             onTransition: handleTransition,
             onOpenCode: onOpenCode ? () => onOpenCode(card.id) : undefined,
@@ -125,6 +167,12 @@ interface BodyContext {
   setInstructionDraft: (v: string) => void;
   trimmedDraftLength: number;
   toolCallCount: number;
+  verifyLog: VerifyLogView | null;
+  verifyState: "idle" | "running" | "error";
+  verifyError: string | null;
+  onVerify: () => Promise<void>;
+  forceApprove: boolean;
+  setForceApprove: (v: boolean) => void;
 }
 
 function renderStateBody(state: CardState, ctx: BodyContext) {
@@ -161,11 +209,98 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
       );
     case "verifying":
       return (
-        <div className="space-y-2" data-testid="verifying-body">
-          <p className="text-sm text-fg">AI 자체검증이 진행 중입니다.</p>
+        <div className="space-y-3" data-testid="verifying-body">
           <p className="text-xs text-fg-muted">
-            결과를 확인한 뒤 최종 승인 또는 거부를 선택하세요. (3-2에서 실제 검증 로직 추가)
+            AI가 지시와 코드 변경의 일치 여부를 분석합니다. 결과를 확인한 뒤 최종 승인 또는 거부를
+            선택하세요.
           </p>
+          {ctx.verifyLog ? (
+            <div className="space-y-2" data-testid="verify-log">
+              <div
+                className="rounded-md border border-border bg-bg-panel2 p-3"
+                data-testid="verify-intent-match"
+                data-intent-match={ctx.verifyLog.intent_match ? "true" : "false"}
+              >
+                <p className="text-xs font-semibold text-fg-muted">의도-코드 일치</p>
+                <p className="mt-0.5 text-sm font-medium text-fg">
+                  {ctx.verifyLog.intent_match ? "일치 ✓" : "불일치 ✗"}
+                </p>
+              </div>
+              <div
+                className="rounded-md border border-border bg-bg-panel2 p-3"
+                data-testid="verify-test-result"
+                data-test-result={ctx.verifyLog.test_result}
+              >
+                <p className="text-xs font-semibold text-fg-muted">테스트 결과</p>
+                <p className="mt-0.5 text-sm font-medium text-fg">
+                  {ctx.verifyLog.test_result === "pass"
+                    ? "통과"
+                    : ctx.verifyLog.test_result === "fail"
+                      ? "실패"
+                      : "실행 안 함"}
+                </p>
+              </div>
+              <div
+                className="rounded-md border border-border bg-bg-panel2 p-3"
+                data-testid="verify-details"
+              >
+                <p className="text-xs font-semibold text-fg-muted">세부 내역</p>
+                <p className="mt-0.5 whitespace-pre-wrap text-sm text-fg">
+                  {ctx.verifyLog.details || "(없음)"}
+                </p>
+                <p className="mt-1 text-[10px] text-fg-muted">
+                  모델: {ctx.verifyLog.model} · {new Date(ctx.verifyLog.ran_at).toLocaleString()}
+                </p>
+              </div>
+
+              {!(ctx.verifyLog.intent_match && ctx.verifyLog.test_result !== "fail") ? (
+                <label
+                  className="flex cursor-pointer items-start gap-2 rounded-md border border-warn/40 bg-warn/10 p-2 text-xs"
+                  data-testid="force-approve-toggle"
+                >
+                  <input
+                    type="checkbox"
+                    checked={ctx.forceApprove}
+                    onChange={(e) => ctx.setForceApprove(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    검증이 성공하지 않았습니다. <b>그래도 최종 승인</b>하려면 체크하세요.
+                  </span>
+                </label>
+              ) : null}
+            </div>
+          ) : (
+            <div
+              className="rounded-md border border-dashed border-border bg-bg-panel2 p-3 text-xs text-fg-muted"
+              data-testid="verify-empty"
+            >
+              아직 검증이 실행되지 않았습니다. [검증 실행] 버튼을 눌러 시작하세요.
+            </div>
+          )}
+
+          {ctx.verifyState === "running" ? (
+            <p className="text-xs text-fg-muted" data-testid="verify-running">
+              검증 중...
+            </p>
+          ) : null}
+          {ctx.verifyState === "error" && ctx.verifyError ? (
+            <p className="text-xs text-danger" data-testid="verify-error">
+              검증 실패: {ctx.verifyError}
+            </p>
+          ) : null}
+
+          <Button
+            variant="outline"
+            size="sm"
+            data-testid="btn-run-verify"
+            disabled={ctx.verifyState === "running"}
+            onClick={() => {
+              void ctx.onVerify();
+            }}
+          >
+            {ctx.verifyLog ? "재검증" : "검증 실행"}
+          </Button>
         </div>
       );
     case "verified":
@@ -190,8 +325,11 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
 interface FooterContext {
   instructionNonEmpty: boolean;
   toolCallCount: number;
+  verifyLog: VerifyLogView | null;
+  approveEligible: boolean;
+  forceApprove: boolean;
   onSaveInstruction: () => Promise<void>;
-  onTransition: (t: CardTransitionKind) => Promise<void>;
+  onTransition: (t: CardTransitionKind, options?: { approveForce?: boolean }) => Promise<void>;
   onOpenCode?: () => void;
   onClose: () => void;
 }
@@ -244,7 +382,8 @@ function renderStateFooter(state: CardState, ctx: FooterContext) {
           </Button>
         </>
       );
-    case "verifying":
+    case "verifying": {
+      const canApprove = !!ctx.verifyLog && (ctx.approveEligible || ctx.forceApprove);
       return (
         <>
           <Button
@@ -260,8 +399,11 @@ function renderStateFooter(state: CardState, ctx: FooterContext) {
           <Button
             variant="primary"
             data-testid="btn-approve"
+            disabled={!canApprove}
             onClick={async () => {
-              await ctx.onTransition("approve");
+              await ctx.onTransition("approve", {
+                approveForce: !ctx.approveEligible && ctx.forceApprove,
+              });
               ctx.onClose();
             }}
           >
@@ -269,6 +411,7 @@ function renderStateFooter(state: CardState, ctx: FooterContext) {
           </Button>
         </>
       );
+    }
     case "verified":
       return (
         <>

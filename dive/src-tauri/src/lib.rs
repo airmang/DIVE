@@ -37,7 +37,9 @@ pub fn run() {
             ipc::tool_deny,
             ipc::workmap_set_current_card,
             ipc::card_update_instruction,
-            ipc::card_transition
+            ipc::card_transition,
+            ipc::card_verify,
+            ipc::ai_assist_cards
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
