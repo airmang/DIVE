@@ -19,6 +19,7 @@ import {
   useWorkmapStore,
 } from "../../stores/workmap";
 import { useProjectSessionStore } from "../../stores/project-session";
+import { useToast } from "../toast/toast-context";
 import type { CardState, CardTileData } from "../workmap/types";
 import type { ChangedFile } from "../slide-in/types";
 import { getCardStateMeta } from "../workmap/card-state-meta";
@@ -60,6 +61,7 @@ export function MainShell() {
   const loadProjectSession = useProjectSessionStore((s) => s.loadAll);
   const projects = useProjectSessionStore((s) => s.projects);
   const isOnboarded = useProjectSessionStore((s) => s.isOnboarded);
+  const { toast } = useToast();
 
   useEffect(() => {
     if (!projectSessionLoaded) void loadProjectSession();
@@ -188,11 +190,12 @@ export function MainShell() {
   const handleManualCheckpoint = useCallback(() => {
     const label = currentCard ? `수동 저장 — ${currentCard.title}` : "수동 저장";
     setLastManualCheckpointLabel(label);
-    console.log("[checkpoint] manual save requested", {
-      cardId: currentCardId,
-      label,
+    toast({
+      variant: "success",
+      title: "체크포인트 저장됨",
+      description: label,
     });
-  }, [currentCard, currentCardId]);
+  }, [currentCard, toast]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

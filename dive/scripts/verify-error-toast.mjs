@@ -60,11 +60,7 @@ async function main() {
     await page.waitForTimeout(200);
   }
   const afterDismiss = await page.$$eval('[data-testid="toast"]', (els) => els.length);
-  check(
-    "dismissed one toast",
-    afterDismiss < beforeDismiss,
-    `${beforeDismiss} -> ${afterDismiss}`,
-  );
+  check("dismissed one toast", afterDismiss < beforeDismiss, `${beforeDismiss} -> ${afterDismiss}`);
 
   console.log("\n7. Action button triggers onAction + dismisses toast");
   await page.evaluate(() => {
