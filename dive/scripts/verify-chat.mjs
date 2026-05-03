@@ -142,10 +142,7 @@ async function main() {
   check("cursor gone after completion", !cursorAfter);
 
   console.log("\n12. Shift+Enter inserts newline (no submit)");
-  await page.fill(
-    '[data-testid="demo-section-stream"] [data-testid="chat-input-textarea"]',
-    "",
-  );
+  await page.fill('[data-testid="demo-section-stream"] [data-testid="chat-input-textarea"]', "");
   await page.focus('[data-testid="demo-section-stream"] [data-testid="chat-input-textarea"]');
   await page.keyboard.type("line1");
   await page.keyboard.down("Shift");

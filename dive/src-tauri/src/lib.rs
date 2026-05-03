@@ -12,9 +12,10 @@ pub mod tools;
 
 pub use auth::{AuthError, Keyring, OsKeyring, SecretScope};
 pub use db::Database;
+pub use ipc::AppState;
 pub use providers::{
-    AnthropicProvider, ChatEvent, ChatRequest, FinishReason, LlmProvider, Message, ModelInfo,
-    OpenAiProvider, ProviderError, ToolCall, ToolChoice, ToolDef, Usage,
+    AnthropicProvider, ChatEvent, ChatRequest, FinishReason, LlmProvider, Message, MockProvider,
+    ModelInfo, OpenAiProvider, ProviderError, ToolCall, ToolChoice, ToolDef, Usage,
 };
 
 #[tauri::command]
@@ -24,9 +25,15 @@ fn greet(name: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let app_state = ipc::AppState::dev_mock();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .manage(app_state)
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            ipc::chat_send,
+            ipc::chat_cancel
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

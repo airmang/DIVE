@@ -5,6 +5,7 @@
 
 pub mod anthropic;
 pub mod error;
+pub mod mock;
 pub mod openai;
 pub mod sse;
 pub mod types;
@@ -14,6 +15,7 @@ use futures::stream::BoxStream;
 
 pub use anthropic::AnthropicProvider;
 pub use error::ProviderError;
+pub use mock::MockProvider;
 pub use openai::OpenAiProvider;
 pub use types::{
     ChatEvent, ChatRequest, FinishReason, Message, ModelInfo, ToolCall, ToolChoice, ToolDef, Usage,
