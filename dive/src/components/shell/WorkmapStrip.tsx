@@ -1,19 +1,53 @@
 import { ChevronDown, ChevronUp, Plus } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
+import { WorkmapCardList } from "../workmap/WorkmapCardList";
+import type { CardTileData } from "../workmap/types";
 
 interface WorkmapStripProps {
   className?: string;
   collapsed: boolean;
   onToggle: () => void;
+  cards?: CardTileData[];
+  canAddCard?: boolean;
+  onAddCard?: () => void;
+  onCardClick?: (card: CardTileData) => void;
 }
 
 const EXPANDED_HEIGHT = 220;
 const COLLAPSED_HEIGHT = 80;
 
-export function WorkmapStrip({ className, collapsed, onToggle }: WorkmapStripProps) {
+export function WorkmapStrip({
+  className,
+  collapsed,
+  onToggle,
+  cards = [],
+  canAddCard = false,
+  onAddCard,
+  onCardClick,
+}: WorkmapStripProps) {
   const height = collapsed ? COLLAPSED_HEIGHT : EXPANDED_HEIGHT;
-  const progressPercent = 0;
+  const mode = collapsed ? "collapsed" : "expanded";
+
+  const total = cards.length;
+  const completed = cards.filter((c) => c.stagesCompleted.e).length;
+  const progressPercent =
+    total > 0
+      ? Math.round(
+          (cards.reduce((sum, c) => {
+            const s = c.stagesCompleted;
+            const weight = s.e ? 1 : s.v ? 0.75 : s.i ? 0.5 : s.d ? 0.25 : 0;
+            return sum + weight;
+          }, 0) /
+            total) *
+            100,
+        )
+      : 0;
+
+  const handleHeaderAdd = () => {
+    if (!canAddCard) return;
+    onAddCard?.();
+  };
 
   return (
     <section
@@ -30,7 +64,9 @@ export function WorkmapStrip({ className, collapsed, onToggle }: WorkmapStripPro
       <header className="flex h-10 shrink-0 items-center gap-3 px-4">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-bold text-fg">워크맵</h2>
-          <span className="text-xs text-fg-muted">{progressPercent}%</span>
+          <span className="text-xs text-fg-muted" data-testid="workmap-progress-label">
+            {completed}/{total} · {progressPercent}%
+          </span>
         </div>
 
         <div
@@ -48,7 +84,13 @@ export function WorkmapStrip({ className, collapsed, onToggle }: WorkmapStripPro
         </div>
 
         <div className="ml-auto flex items-center gap-1.5">
-          <Button variant="outline" size="sm" disabled aria-label="카드 추가 (준비 중)">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleHeaderAdd}
+            disabled={!canAddCard}
+            aria-label={canAddCard ? "카드 추가" : "카드 추가 (D 단계에서만 가능)"}
+          >
             <Plus />
             카드 추가
           </Button>
@@ -70,15 +112,25 @@ export function WorkmapStrip({ className, collapsed, onToggle }: WorkmapStripPro
         id="workmap-body"
         aria-hidden={collapsed}
         className={cn(
-          "flex-1 overflow-x-auto overflow-y-hidden px-4 pb-4",
+          "relative flex-1 overflow-hidden px-4 pb-3",
           collapsed && "pointer-events-none invisible",
         )}
       >
-        <div className="flex h-full items-center justify-center">
-          <p className="text-sm text-fg-muted">
-            아직 카드가 없습니다. D 단계에서 작업을 분해해 카드를 만드세요.
-          </p>
-        </div>
+        {cards.length === 0 ? (
+          <div className="flex h-full items-center justify-center">
+            <p className="text-sm text-fg-muted">
+              아직 카드가 없습니다. D 단계에서 작업을 분해해 카드를 만드세요.
+            </p>
+          </div>
+        ) : (
+          <WorkmapCardList
+            cards={cards}
+            mode={mode}
+            canAddCard={canAddCard}
+            onAddCard={onAddCard}
+            onCardClick={onCardClick}
+          />
+        )}
       </div>
     </section>
   );
