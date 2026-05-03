@@ -1,4 +1,4 @@
-import { Code, Eye } from "lucide-react";
+import { AlertCircle, Code, Eye } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { ChatInput } from "../chat/ChatInput";
@@ -16,6 +16,7 @@ interface ChatAreaProps {
   onDenyToolCall?: (toolCallId: string, reason?: string) => void;
   modelLabel?: string;
   inputDisabled?: boolean;
+  inputBlocked?: { reason: string } | null;
 }
 
 export function ChatArea({
@@ -29,6 +30,7 @@ export function ChatArea({
   onDenyToolCall,
   modelLabel,
   inputDisabled,
+  inputBlocked,
 }: ChatAreaProps) {
   const hasConversation = messages !== undefined && messages.length > 0;
 
@@ -79,10 +81,28 @@ export function ChatArea({
       </div>
 
       <footer className="shrink-0 border-t p-4">
+        {inputBlocked ? (
+          <div
+            className="mb-2 flex items-start gap-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn"
+            role="status"
+            data-testid="chat-input-blocked"
+          >
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            <span className="flex-1 text-fg">{inputBlocked.reason}</span>
+          </div>
+        ) : null}
         {onSendMessage ? (
-          <ChatInput onSend={onSendMessage} disabled={inputDisabled} modelLabel={modelLabel} />
+          <ChatInput
+            onSend={onSendMessage}
+            disabled={inputDisabled || !!inputBlocked}
+            modelLabel={modelLabel}
+          />
         ) : (
-          <ChatInput onSend={() => {}} disabled modelLabel={modelLabel} />
+          <ChatInput
+            onSend={() => {}}
+            disabled={inputDisabled || !!inputBlocked}
+            modelLabel={modelLabel}
+          />
         )}
       </footer>
     </section>

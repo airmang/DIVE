@@ -1,4 +1,9 @@
-//! DIVE Gate Engine.
+//! DIVE Gate Engine (spec §4.7).
 //!
-//! 명세 §4. D·I·V·E 4단계 워크플로우 게이트 강제, 카드 상태 머신.
-//! 작업 2-6 (D 단계 게이트) → 작업 3-1 (I·V·E) 에서 구현 예정.
+//! Task 2-6 implements the D-stage gate only: block chat when the session's
+//! workmap has zero cards. I/V/E gates are placeholders (always Allow) and
+//! land in task 3-1 alongside the full card state machine.
+
+pub mod gate;
+
+pub use gate::{DiveGateEngine, DiveStage, GateDecision};

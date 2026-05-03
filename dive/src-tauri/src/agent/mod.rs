@@ -61,6 +61,8 @@ impl AgentLoop {
         user_input: &str,
         emit: &mut (dyn FnMut(AgentEvent) + Send),
     ) -> Result<String, AgentError> {
+        self.check_d_gate(session_id, emit)?;
+
         let user_msg_id = Uuid::new_v4().to_string();
         let created_at = crate::db::now_ms();
         self.persist_user_message(session_id, user_input)?;
@@ -437,6 +439,32 @@ impl AgentLoop {
             Err(AgentError::Cancelled)
         } else {
             Ok(())
+        }
+    }
+
+    fn check_d_gate(
+        &self,
+        session_id: i64,
+        emit: &mut (dyn FnMut(AgentEvent) + Send),
+    ) -> Result<(), AgentError> {
+        let db = self
+            .db
+            .lock()
+            .map_err(|_| AgentError::Internal("db mutex poisoned".into()))?;
+        let decision = crate::dive::DiveGateEngine::check_stage_d(db.conn(), session_id)?;
+        drop(db);
+        match decision {
+            crate::dive::GateDecision::Allow => Ok(()),
+            crate::dive::GateDecision::Block { stage, reason } => {
+                emit(AgentEvent::Error {
+                    message: reason.clone(),
+                    retryable: false,
+                });
+                Err(AgentError::GateBlocked {
+                    stage: stage.as_str().into(),
+                    reason,
+                })
+            }
         }
     }
 

@@ -20,6 +20,8 @@ pub enum AgentError {
     Cancelled,
     #[error("invalid json in tool arguments: {0}")]
     ArgumentJson(serde_json::Error),
+    #[error("dive gate blocked at {stage}: {reason}")]
+    GateBlocked { stage: String, reason: String },
     #[error("internal: {0}")]
     Internal(String),
 }

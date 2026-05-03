@@ -27,9 +27,8 @@ async function main() {
   await page.goto(`${BASE}/?demo=slide-in`);
   await page.waitForSelector('[data-testid="slide-in-panel"]');
   await page.waitForTimeout(350);
-  const openAttr = await page.$eval(
-    '[data-testid="slide-in-panel"]',
-    (el) => el.getAttribute("data-open"),
+  const openAttr = await page.$eval('[data-testid="slide-in-panel"]', (el) =>
+    el.getAttribute("data-open"),
   );
   check("panel data-open=true after mount", openAttr === "true", `got ${openAttr}`);
 
@@ -49,29 +48,20 @@ async function main() {
   );
   check(
     "3 tabs, code selected",
-    tabs.length === 3 &&
-      tabs.find((t) => t.id === "code")?.selected === "true",
+    tabs.length === 3 && tabs.find((t) => t.id === "code")?.selected === "true",
     JSON.stringify(tabs),
   );
 
   console.log("\n4. CodeTab renders 3 mock files + diff");
-  const fileCount = await page.$$eval(
-    '[data-testid="changed-file-item"]',
-    (els) => els.length,
-  );
+  const fileCount = await page.$$eval('[data-testid="changed-file-item"]', (els) => els.length);
   check("3 changed files listed", fileCount === 3, `got ${fileCount}`);
   const diffPresent = await page.$('[data-testid="diff-viewer"]');
   check("diff viewer visible", !!diffPresent);
 
   console.log("\n5. Click second file → diff path updates");
-  await page.click(
-    '[data-testid="changed-file-item"][data-file-path="src/main.tsx"]',
-  );
+  await page.click('[data-testid="changed-file-item"][data-file-path="src/main.tsx"]');
   await page.waitForTimeout(100);
-  const diffPath = await page.$eval(
-    '[data-testid="diff-path"]',
-    (el) => el.textContent,
-  );
+  const diffPath = await page.$eval('[data-testid="diff-path"]', (el) => el.textContent);
   check(
     "diff path reflects selected file",
     diffPath?.includes("src/main.tsx") ?? false,
@@ -92,10 +82,7 @@ async function main() {
   check("preview error visible for invalid URL", !!previewErr);
 
   console.log("\n8. Valid URL loads iframe");
-  await page.fill(
-    '[data-testid="preview-url-input"]',
-    "https://example.com",
-  );
+  await page.fill('[data-testid="preview-url-input"]', "https://example.com");
   await page.click('[data-testid="preview-load"]');
   await page.waitForTimeout(150);
   const iframe = await page.$('[data-testid="preview-iframe"]');
@@ -115,16 +102,12 @@ async function main() {
   );
   await page.click('[data-testid="open-terminal-btn"]');
   await page.waitForTimeout(150);
-  const lineCount = await page.$$eval(
-    '[data-testid="terminal-line"]',
-    (els) => els.length,
-  );
+  const lineCount = await page.$$eval('[data-testid="terminal-line"]', (els) => els.length);
   check("5 terminal lines after sample", lineCount === 5, `got ${lineCount}`);
 
   console.log("\n10. Terminal has stderr kind line");
-  const kinds = await page.$$eval(
-    '[data-testid="terminal-line"]',
-    (els) => els.map((e) => e.getAttribute("data-kind")),
+  const kinds = await page.$$eval('[data-testid="terminal-line"]', (els) =>
+    els.map((e) => e.getAttribute("data-kind")),
   );
   check(
     "terminal has stderr + stdout + info",
@@ -135,34 +118,28 @@ async function main() {
   console.log("\n11. Clear button empties terminal");
   await page.click('[data-testid="terminal-clear"]');
   await page.waitForTimeout(80);
-  const clearedCount = await page.$$eval(
-    '[data-testid="terminal-line"]',
-    (els) => els.length,
-  );
+  const clearedCount = await page.$$eval('[data-testid="terminal-line"]', (els) => els.length);
   check("terminal cleared", clearedCount === 0);
 
   console.log("\n12. ESC closes the panel");
   await page.keyboard.press("Escape");
   await page.waitForTimeout(350);
-  const closedAttr = await page.$eval(
-    '[data-testid="slide-in-panel"]',
-    (el) => el.getAttribute("data-open"),
+  const closedAttr = await page.$eval('[data-testid="slide-in-panel"]', (el) =>
+    el.getAttribute("data-open"),
   );
   check("panel data-open=false after ESC", closedAttr === "false", `got ${closedAttr}`);
 
   console.log("\n13. Reopen via button + close button works");
   await page.click('[data-testid="open-code-btn"]');
   await page.waitForTimeout(350);
-  const reopened = await page.$eval(
-    '[data-testid="slide-in-panel"]',
-    (el) => el.getAttribute("data-open"),
+  const reopened = await page.$eval('[data-testid="slide-in-panel"]', (el) =>
+    el.getAttribute("data-open"),
   );
   check("panel reopen", reopened === "true");
   await page.click('[data-testid="slide-in-close"]');
   await page.waitForTimeout(350);
-  const closedAgain = await page.$eval(
-    '[data-testid="slide-in-panel"]',
-    (el) => el.getAttribute("data-open"),
+  const closedAgain = await page.$eval('[data-testid="slide-in-panel"]', (el) =>
+    el.getAttribute("data-open"),
   );
   check("panel closed via X button", closedAgain === "false");
 
@@ -171,9 +148,8 @@ async function main() {
   await page.waitForSelector('[data-testid="workmap-strip"]');
   await page.click('button[aria-label="코드와 미리보기 패널 열기"]');
   await page.waitForTimeout(350);
-  const shellOpen = await page.$eval(
-    '[data-testid="slide-in-panel"]',
-    (el) => el.getAttribute("data-open"),
+  const shellOpen = await page.$eval('[data-testid="slide-in-panel"]', (el) =>
+    el.getAttribute("data-open"),
   );
   check("main shell slide-in opens via button", shellOpen === "true");
 

@@ -5,8 +5,8 @@
 
 use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
-use dive_lib::db::dao::{event_log, message, project, session};
-use dive_lib::db::models::{NewProject, NewSession};
+use dive_lib::db::dao::{card, event_log, message, project, session};
+use dive_lib::db::models::{CardState, NewCard, NewProject, NewSession};
 use dive_lib::Database;
 use dive_lib::{ChatEvent, FinishReason, MockProvider};
 
@@ -17,6 +17,53 @@ use dive_lib::agent::{
 use dive_lib::tools::{ToolContext, ToolRegistry};
 
 fn fresh_env() -> (
+    Arc<Mutex<Database>>,
+    tempfile::NamedTempFile,
+    tempfile::TempDir,
+    i64,
+) {
+    let db_file = tempfile::NamedTempFile::new().unwrap();
+    let mut db = Database::open(db_file.path()).unwrap();
+    db.migrate().unwrap();
+    let project_root = tempfile::tempdir().unwrap();
+    let project_id = project::insert(
+        db.conn(),
+        &NewProject {
+            name: "test".into(),
+            path: project_root.path().to_string_lossy().into(),
+            provider_default: None,
+            model_default: None,
+        },
+    )
+    .unwrap();
+    let session_id = session::insert(
+        db.conn(),
+        &NewSession {
+            project_id,
+            title: "s".into(),
+            ended_at: None,
+            status: "active".into(),
+        },
+    )
+    .unwrap();
+    // Seed one card so the D-stage gate (task 2-6) allows chat.
+    card::insert(
+        db.conn(),
+        &NewCard {
+            session_id,
+            title: "test card".into(),
+            instruction: None,
+            state: CardState::Decomposed,
+            verify_log: None,
+            changed_files: None,
+            position: 1,
+        },
+    )
+    .unwrap();
+    (Arc::new(Mutex::new(db)), db_file, project_root, session_id)
+}
+
+fn fresh_env_no_cards() -> (
     Arc<Mutex<Database>>,
     tempfile::NamedTempFile,
     tempfile::TempDir,
@@ -580,4 +627,41 @@ async fn diff_preview_populated_for_write_and_edit() {
     assert_eq!(dp.before, "old content");
     assert_eq!(dp.after, "new content");
     assert!(dp.path.ends_with("hello.txt"));
+}
+
+#[tokio::test]
+async fn scenario_i_d_gate_blocks_empty_workmap() {
+    let (db, _db_file, root, sid) = fresh_env_no_cards();
+    let mock = Arc::new(MockProvider::new(vec![vec![
+        ChatEvent::TextDelta("ignored".into()),
+        ChatEvent::Done {
+            finish_reason: FinishReason::Stop,
+        },
+    ]]));
+    let loop_ = AgentLoop::builder()
+        .provider(mock.clone())
+        .registry(Arc::new(ToolRegistry::with_builtins()))
+        .permission(Arc::new(AlwaysApproveHook))
+        .db(db)
+        .tool_ctx(ToolContext::new(root.path(), sid))
+        .model("mock-model")
+        .cancel(Arc::new(AtomicBool::new(false)))
+        .max_iterations(5)
+        .build()
+        .unwrap();
+
+    let mut events = Vec::new();
+    let result = loop_.run(sid, "hi", &mut |e| events.push(e)).await;
+    assert!(
+        matches!(result, Err(AgentError::GateBlocked { ref stage, .. }) if stage == "D"),
+        "expected GateBlocked, got {result:?}"
+    );
+    assert_eq!(mock.request_count(), 0, "provider must not be called");
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            AgentEvent::Error { retryable: false, message } if message.contains("카드")
+        )),
+        "expected Error event with guidance"
+    );
 }

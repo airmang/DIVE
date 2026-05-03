@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Plus } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, Sparkles } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { WorkmapCardList } from "../workmap/WorkmapCardList";
@@ -12,6 +12,7 @@ interface WorkmapStripProps {
   canAddCard?: boolean;
   onAddCard?: () => void;
   onCardClick?: (card: CardTileData) => void;
+  onRequestAiAssist?: () => void;
 }
 
 const EXPANDED_HEIGHT = 220;
@@ -25,6 +26,7 @@ export function WorkmapStrip({
   canAddCard = false,
   onAddCard,
   onCardClick,
+  onRequestAiAssist,
 }: WorkmapStripProps) {
   const height = collapsed ? COLLAPSED_HEIGHT : EXPANDED_HEIGHT;
   const mode = collapsed ? "collapsed" : "expanded";
@@ -117,10 +119,21 @@ export function WorkmapStrip({
         )}
       >
         {cards.length === 0 ? (
-          <div className="flex h-full items-center justify-center">
+          <div className="flex h-full flex-col items-center justify-center gap-3">
             <p className="text-sm text-fg-muted">
               아직 카드가 없습니다. D 단계에서 작업을 분해해 카드를 만드세요.
             </p>
+            {onRequestAiAssist ? (
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={onRequestAiAssist}
+                data-testid="workmap-ai-assist"
+              >
+                <Sparkles />
+                AI 도움 받기
+              </Button>
+            ) : null}
           </div>
         ) : (
           <WorkmapCardList
