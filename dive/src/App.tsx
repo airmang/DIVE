@@ -6,8 +6,17 @@ import ChatDemoPage from "./pages/chat-demo";
 import PermissionDemoPage from "./pages/permission-demo";
 import SlideInDemoPage from "./pages/slide-in-demo";
 import ScenarioADemoPage from "./pages/scenario-a-demo";
+import ScenarioBDemoPage from "./pages/scenario-b-demo";
 
-type Route = "main" | "showcase" | "workmap" | "chat" | "permission" | "slide-in" | "scenario-a";
+type Route =
+  | "main"
+  | "showcase"
+  | "workmap"
+  | "chat"
+  | "permission"
+  | "slide-in"
+  | "scenario-a"
+  | "scenario-b";
 
 function resolveRoute(): Route {
   if (typeof window === "undefined") return "main";
@@ -19,6 +28,7 @@ function resolveRoute(): Route {
   if (demo === "permission") return "permission";
   if (demo === "slide-in") return "slide-in";
   if (demo === "scenario-a") return "scenario-a";
+  if (demo === "scenario-b") return "scenario-b";
   return "main";
 }
 
@@ -37,6 +47,7 @@ function App() {
   if (route === "permission") return <PermissionDemoPage />;
   if (route === "slide-in") return <SlideInDemoPage />;
   if (route === "scenario-a") return <ScenarioADemoPage />;
+  if (route === "scenario-b") return <ScenarioBDemoPage />;
   return <MainShell />;
 }
 

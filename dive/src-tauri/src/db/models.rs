@@ -93,6 +93,7 @@ pub struct NewWorkmap {
     pub session_id: i64,
     pub current_stage: String,
     pub collapsed: bool,
+    pub current_card_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -100,6 +101,7 @@ pub struct WorkmapRow {
     pub session_id: i64,
     pub current_stage: String,
     pub collapsed: bool,
+    pub current_card_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

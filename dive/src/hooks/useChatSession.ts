@@ -112,7 +112,7 @@ export function useChatSession(sessionId: number) {
   }, [sessionId]);
 
   const sendUserMessage = useCallback(
-    async (text: string) => {
+    async (text: string, stage?: "d" | "i" | "v" | "e") => {
       const api = apiRef.current;
       if (!api) {
         setState((s) => ({
@@ -123,7 +123,11 @@ export function useChatSession(sessionId: number) {
       }
       setState((s) => ({ ...s, isStreaming: true, error: null }));
       try {
-        await api.invoke<void>("chat_send", { sessionId, text });
+        await api.invoke<void>("chat_send", {
+          sessionId,
+          text,
+          stage: stage ?? null,
+        });
       } catch (err) {
         setState((s) => ({
           ...s,
@@ -159,12 +163,54 @@ export function useChatSession(sessionId: number) {
     });
   }, []);
 
+  const setCurrentCard = useCallback(
+    async (cardId: number | null) => {
+      const api = apiRef.current;
+      if (!api) return;
+      await api.invoke<void>("workmap_set_current_card", {
+        sessionId,
+        cardId,
+      });
+    },
+    [sessionId],
+  );
+
+  const updateCardInstruction = useCallback(async (cardId: number, instruction: string) => {
+    const api = apiRef.current;
+    if (!api) return null;
+    return api.invoke<string>("card_update_instruction", {
+      cardId,
+      instruction,
+    });
+  }, []);
+
+  const transitionCardRemote = useCallback(
+    async (
+      cardId: number,
+      transition:
+        | "enter_instruct"
+        | "request_verify"
+        | "approve"
+        | "reject"
+        | "reopen_from_reject"
+        | "extend",
+    ) => {
+      const api = apiRef.current;
+      if (!api) return null;
+      return api.invoke<string>("card_transition", { cardId, transition });
+    },
+    [],
+  );
+
   return {
     ...state,
     sendUserMessage,
     cancel,
     approveToolCall,
     denyToolCall,
+    setCurrentCard,
+    updateCardInstruction,
+    transitionCardRemote,
   };
 }
 

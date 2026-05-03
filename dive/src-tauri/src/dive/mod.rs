@@ -1,9 +1,11 @@
 //! DIVE Gate Engine (spec §4.7).
 //!
-//! Task 2-6 implements the D-stage gate only: block chat when the session's
-//! workmap has zero cards. I/V/E gates are placeholders (always Allow) and
-//! land in task 3-1 alongside the full card state machine.
+//! Task 3-1 extends D-only enforcement into full I/V/E gates plus the
+//! card state machine (spec §4.6 figure 4). `DiveGateEngine::check` routes
+//! by stage; `state_machine::apply` validates card transitions.
 
 pub mod gate;
+pub mod state_machine;
 
-pub use gate::{DiveGateEngine, DiveStage, GateDecision};
+pub use gate::{card_tool_call_count, DiveGateEngine, DiveStage, GateDecision};
+pub use state_machine::{apply as apply_transition, CardTransition, TransitionError};

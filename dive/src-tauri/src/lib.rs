@@ -34,7 +34,10 @@ pub fn run() {
             ipc::chat_send,
             ipc::chat_cancel,
             ipc::tool_approve,
-            ipc::tool_deny
+            ipc::tool_deny,
+            ipc::workmap_set_current_card,
+            ipc::card_update_instruction,
+            ipc::card_transition
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

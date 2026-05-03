@@ -101,3 +101,6 @@ pub const CREATE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_event_log_session_created_at ON EventLog(session_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_event_log_type ON EventLog(type)",
 ];
+
+pub const ALTER_WORKMAP_ADD_CURRENT_CARD_ID: &str =
+    "ALTER TABLE Workmap ADD COLUMN current_card_id INTEGER REFERENCES Card(id) ON DELETE SET NULL";

@@ -24,9 +24,10 @@ use futures::StreamExt;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::db::dao::{event_log, message};
+use crate::db::dao::{card, event_log, message, workmap};
 use crate::db::models::{NewEventLog, NewMessage};
 use crate::db::Database;
+use crate::dive::DiveStage;
 use crate::providers::{
     ChatEvent, ChatRequest, FinishReason, LlmProvider, Message as ProviderMessage, ToolCall,
 };
@@ -43,6 +44,7 @@ pub struct AgentLoop {
     pub max_iterations: u32,
     pub cancel: Arc<AtomicBool>,
     pub model: String,
+    pub stage: DiveStage,
 }
 
 pub struct AgentOutcome {
@@ -61,11 +63,12 @@ impl AgentLoop {
         user_input: &str,
         emit: &mut (dyn FnMut(AgentEvent) + Send),
     ) -> Result<String, AgentError> {
-        self.check_d_gate(session_id, emit)?;
+        self.check_gate(session_id, emit)?;
 
         let user_msg_id = Uuid::new_v4().to_string();
         let created_at = crate::db::now_ms();
-        self.persist_user_message(session_id, user_input)?;
+        let current_card_id = self.current_card_id(session_id)?;
+        self.persist_user_message(session_id, current_card_id, user_input)?;
         emit_and_forward(
             emit,
             AgentEvent::UserMessage {
@@ -74,9 +77,16 @@ impl AgentLoop {
                 created_at,
             },
         );
-        self.log_event(session_id, "user_message", json!({ "content": user_input }))?;
+        self.log_event(
+            session_id,
+            "user_message",
+            json!({ "content": user_input, "stage": self.stage.as_str() }),
+        )?;
 
         let mut messages = self.load_history(session_id)?;
+        if let Some(prompt) = self.current_card_system_prompt(session_id)? {
+            messages.insert(0, ProviderMessage::System { content: prompt });
+        }
         if let Some(last) = messages.last() {
             if !matches!(last, ProviderMessage::User { .. }) {
                 messages.push(ProviderMessage::User {
@@ -117,7 +127,7 @@ impl AgentLoop {
             let (content, tool_calls, finish_reason) =
                 self.stream_assistant(&assistant_id, request, emit).await?;
 
-            self.persist_assistant_message(session_id, &content, &tool_calls)?;
+            self.persist_assistant_message(session_id, current_card_id, &content, &tool_calls)?;
             emit(AgentEvent::AssistantEnd {
                 id: assistant_id,
                 content: content.clone(),
@@ -334,7 +344,12 @@ impl AgentLoop {
         Ok((content, tool_calls, finish_reason))
     }
 
-    fn persist_user_message(&self, session_id: i64, content: &str) -> Result<i64, AgentError> {
+    fn persist_user_message(
+        &self,
+        session_id: i64,
+        card_id: Option<i64>,
+        content: &str,
+    ) -> Result<i64, AgentError> {
         let db = self
             .db
             .lock()
@@ -343,7 +358,7 @@ impl AgentLoop {
             db.conn(),
             &NewMessage {
                 session_id,
-                card_id: None,
+                card_id,
                 role: "user".into(),
                 content: content.to_string(),
                 tool_calls: None,
@@ -358,6 +373,7 @@ impl AgentLoop {
     fn persist_assistant_message(
         &self,
         session_id: i64,
+        card_id: Option<i64>,
         content: &str,
         tool_calls: &[ToolCall],
     ) -> Result<i64, AgentError> {
@@ -374,7 +390,7 @@ impl AgentLoop {
             db.conn(),
             &NewMessage {
                 session_id,
-                card_id: None,
+                card_id,
                 role: "assistant".into(),
                 content: content.to_string(),
                 tool_calls: tool_calls_json,
@@ -442,7 +458,7 @@ impl AgentLoop {
         }
     }
 
-    fn check_d_gate(
+    fn check_gate(
         &self,
         session_id: i64,
         emit: &mut (dyn FnMut(AgentEvent) + Send),
@@ -451,7 +467,7 @@ impl AgentLoop {
             .db
             .lock()
             .map_err(|_| AgentError::Internal("db mutex poisoned".into()))?;
-        let decision = crate::dive::DiveGateEngine::check_stage_d(db.conn(), session_id)?;
+        let decision = crate::dive::DiveGateEngine::check(db.conn(), session_id, self.stage)?;
         drop(db);
         match decision {
             crate::dive::GateDecision::Allow => Ok(()),
@@ -465,6 +481,42 @@ impl AgentLoop {
                     reason,
                 })
             }
+        }
+    }
+
+    fn current_card_id(&self, session_id: i64) -> Result<Option<i64>, AgentError> {
+        let db = self
+            .db
+            .lock()
+            .map_err(|_| AgentError::Internal("db mutex poisoned".into()))?;
+        let Some(wm) = workmap::get(db.conn(), session_id)? else {
+            return Ok(None);
+        };
+        Ok(wm.current_card_id)
+    }
+
+    fn current_card_system_prompt(&self, session_id: i64) -> Result<Option<String>, AgentError> {
+        let db = self
+            .db
+            .lock()
+            .map_err(|_| AgentError::Internal("db mutex poisoned".into()))?;
+        let Some(wm) = workmap::get(db.conn(), session_id)? else {
+            return Ok(None);
+        };
+        let Some(cid) = wm.current_card_id else {
+            return Ok(None);
+        };
+        let Some(card) = card::get_by_id(db.conn(), cid)? else {
+            return Ok(None);
+        };
+        let instruction = card.instruction.as_deref().unwrap_or("").trim();
+        if instruction.is_empty() {
+            Ok(Some(format!("현재 작업 중인 카드: {}", card.title)))
+        } else {
+            Ok(Some(format!(
+                "현재 작업 중인 카드: {}\n지시: {}",
+                card.title, instruction
+            )))
         }
     }
 
@@ -537,6 +589,7 @@ pub struct AgentLoopBuilder {
     max_iterations: Option<u32>,
     cancel: Option<Arc<AtomicBool>>,
     model: Option<String>,
+    stage: Option<DiveStage>,
 }
 
 impl AgentLoopBuilder {
@@ -572,6 +625,10 @@ impl AgentLoopBuilder {
         self.model = Some(m.into());
         self
     }
+    pub fn stage(mut self, s: DiveStage) -> Self {
+        self.stage = Some(s);
+        self
+    }
 
     pub fn build(self) -> Result<AgentLoop, String> {
         Ok(AgentLoop {
@@ -587,6 +644,7 @@ impl AgentLoopBuilder {
                 .cancel
                 .unwrap_or_else(|| Arc::new(AtomicBool::new(false))),
             model: self.model.unwrap_or_else(|| "mock-model".into()),
+            stage: self.stage.unwrap_or(DiveStage::D),
         })
     }
 }

@@ -5,10 +5,19 @@ import { ChatInput } from "../chat/ChatInput";
 import { MessageList } from "../chat/MessageList";
 import type { ChatMessage } from "../chat/types";
 
+export type ChatStageBannerTone = "info" | "warn" | "success";
+
+export interface ChatStageBanner {
+  tone: ChatStageBannerTone;
+  message: string;
+}
+
 interface ChatAreaProps {
   className?: string;
   messages?: ChatMessage[];
   cardTitle?: string | null;
+  cardStateLabel?: string | null;
+  stageBanner?: ChatStageBanner | null;
   onSendMessage?: (text: string) => void;
   onOpenSlidePanel?: () => void;
   onRetryError?: (id: string) => void;
@@ -23,6 +32,8 @@ export function ChatArea({
   className,
   messages,
   cardTitle,
+  cardStateLabel,
+  stageBanner,
   onSendMessage,
   onOpenSlidePanel,
   onRetryError,
@@ -47,6 +58,14 @@ export function ChatArea({
           <span className="text-xs text-fg-muted" data-testid="chat-card-title">
             {cardTitle ?? "세션 없음"}
           </span>
+          {cardStateLabel ? (
+            <span
+              className="rounded-full bg-bg-panel2 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-fg-muted"
+              data-testid="chat-card-state"
+            >
+              {cardStateLabel}
+            </span>
+          ) : null}
         </div>
         <Button
           variant="outline"
@@ -61,6 +80,23 @@ export function ChatArea({
           <span>미리보기</span>
         </Button>
       </header>
+
+      {stageBanner ? (
+        <div
+          role="status"
+          data-testid="chat-stage-banner"
+          data-tone={stageBanner.tone}
+          className={cn(
+            "flex items-center gap-2 border-b px-6 py-2 text-xs",
+            stageBanner.tone === "warn" && "bg-warn/10 text-warn",
+            stageBanner.tone === "success" && "bg-success/10 text-success",
+            stageBanner.tone === "info" && "bg-info/10 text-info",
+          )}
+        >
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span className="text-fg">{stageBanner.message}</span>
+        </div>
+      ) : null}
 
       <div className="flex-1 min-h-0 overflow-hidden">
         {hasConversation ? (
