@@ -724,3 +724,27 @@
   - 제어판 > 앱 제거에서 "DIVE · DIVE 연구진 · © 2026 …" 표시
   - 회귀 없음: 모든 기존 테스트 pass (Rust fmt/check/clippy + 프론트 typecheck/lint/format/build)
   - 6-5에서 해야 할 잔여 작업 체크리스트 명시(`docs/packaging-windows.md` §8)
+
+## ADR-037: 릴리스 자동화 — 태그 푸시 → 3곳 버전 검증 → NSIS 매트릭스 → CHANGELOG 자동 추출 → Draft Release
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 6-5)
+- 컨텍스트: v1.0 배포를 위해 (a) 오픈소스 라이선스 선택(명세 §14.1 — MIT 우선 검토), (b) 공개용 README (기존 루트 README는 ralph 운영 문서였음), (c) 릴리스 자동화가 필요. 수동 릴리스는 (3곳 버전 동기화 누락, CHANGELOG 복사 누락, 아티팩트 첨부 누락) 오류 유형이 많다.
+- 결정:
+  - **MIT 라이선스**: 가장 자유롭고 학교·기업·개인 모두 사용 가능. Apache 2.0의 특허 조항은 학생 교육용 SW에 과도한 규율. AGPL은 상용 fork 방지 목적이 현 단계에 무리(연구 목적 + 교육 보급이 우선). 의존 라이브러리(Tauri/React/Zustand/Radix/Lucide 모두 MIT 또는 동등) 라이선스 호환.
+  - **README는 공개용으로 완전 교체**: 기존 ralph 운영 문서는 `RALPH_README.md`로 이동. 일반 방문자가 GitHub에서 처음 보는 파일은 "이게 뭐고 어떻게 쓰나"에 답해야 하지, "codex CLI로 어떻게 자동 개발하나"가 아니다.
+  - **CHANGELOG는 Keep a Changelog 포맷**: 섹션(Added/Changed/Fixed/Security/...) 고정. 릴리스 워크플로우가 `awk`로 해당 버전 블록 추출 → GitHub Release body에 주입. Phase별 이력을 역순으로 기록.
+  - **버전 동기화는 릴리스 워크플로우 첫 단계에서 검증**: `verify-versions` job이 3곳(`package.json`·`Cargo.toml`·`tauri.conf.json`) 모두 태그 버전과 일치하는지 확인 → 불일치 시 `::error::` + exit 1. CI에서 실패하므로 잘못된 버전으로 릴리스 빌드 시작조차 못함.
+  - **Draft Release로 생성**: 자동 publish 하지 않고 draft에 머묾. 릴리스 관리자가 아티팩트 / 노트 검토 후 GitHub UI에서 수동 publish. 파일럿 버전 노트 수정이 자주 필요할 것이라는 현실 고려.
+  - **`softprops/action-gh-release@v2`**: 인정받는 릴리스 액션. Tauri 공식 가이드에서도 권장. `fail_on_unmatched_files: true`로 x64·ARM64 인스톨러 둘 다 없으면 실패.
+  - **`awk` 기반 CHANGELOG 추출**: `index($0, h) == 1` 패턴으로 regex 문자 클래스 오해석 방지(예: `[1.0.0-rc.1]` 안의 `[...]`). 테스트 완료.
+- 대안:
+  - **semantic-release 도입**: 커밋 메시지 기반 자동 버전 산정 + 자동 publish. 강력하지만 conventional commits 엄격 준수 + 수동 검토 기회 감소. 파일럿 초기에는 드래프트 수동 승인이 안전.
+  - **release-drafter**: PR 라벨 기반 changelog 자동 생성. CHANGELOG.md 수동 유지와 중복 — 이미 ADR 기록 중심의 명세 리포지토리라 한 곳(CHANGELOG)에 집중하는 편이 일관적.
+  - **JSON CHANGELOG (conventional-changelog)**: 파싱 쉽지만 사람이 읽기 어려움. Keep a Changelog 형식이 방문자 친화적.
+  - **Apache 2.0**: 특허 부여 조항 명시 필요. DIVE는 독창적 알고리즘이 주 기여가 아니라 워크플로우 설계 + 교육 자료라서 특허 부여가 큰 의미 없음. MIT로 충분.
+  - **AGPL**: Microsoft Trusted Signing 같은 상용 인프라와 마찰 가능성. DIVE 채택 목표(학교 보급 + 오픈 연구 공유)와 배치.
+- 결과:
+  - `LICENSE` + `README.md`(공개) + `CHANGELOG.md` + `.github/workflows/release.yml` 4 파일 신규 (+ `RALPH_README.md` 파일 이동)
+  - 첫 릴리스(`v1.0.0-rc.1` 태그) 푸시 시 3곳 버전 검증 통과 후 자동으로 Windows x64/ARM64 NSIS 인스톨러 첨부된 Draft Release 생성
+  - Phase 6 종료 후 사용자(총괄 연구원)가 Draft 검토 → 수동 Publish → v1.0 정식 배포
