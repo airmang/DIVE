@@ -564,3 +564,25 @@
   - UI 일관성: 3종 권한 카드 + ToolCallMessage 2종 variant에 동일 출처 배지. 접근성은 Phase 6에서 `aria-label="MCP 출처 {server}"` 추가.
   - "not registered" 실패 메시지는 모델이 실수로 `mcp__nonexistent__foo`를 생성해도 자동으로 다시 정정할 수 있게 도와줌(재귀 호출 없이 다음 턴에서 자체 수정).
   - rmcp 전환 여부는 여전히 5-6에서 결정 (ADR-028 유지).
+
+## ADR-030: 프롬프트 도우미는 순수 TS 정규식 + 단계별 템플릿 + 데이터 노출 0
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 5-4)
+- 컨텍스트: 명세 §6.6.2는 "실시간 모호함 감지"를 외부 호출 없이 로컬에서 처리하라고 요구한다(개인정보 보호). 두 가지 구현 노선이 가능: (A) 정규식 + 휴리스틱, (B) 클라이언트 사이드 경량 언어 모델(예: transformers.js). 또한 "JS 단위 테스트 러너"가 DIVE 프로젝트에 아직 없고(Playwright만 있음), 이를 도입하면 빌드·CI 복잡도가 늘어난다.
+- 결정:
+  - **정규식 + span 기반 감지**: 5 규칙(지시 대명사 / 모호한 시점 / 모호한 주어 / 모호한 수량 / 대상 누락)을 `(pattern, kind, suggestion)` 튜플로 정의. `detectAmbiguity(text) -> AmbiguityHit[]`는 span 정렬 + 겹침 제거. 결과는 `[start, end]` 인덱스이므로 underlay mark 렌더에 그대로 쓸 수 있음.
+  - **JS `\b` 포기**: 한국어는 `\b` 워드 바운더리가 동작하지 않음(ASCII 문자 경계 전용). 대신 "~줘/~해줘" suffix를 명령어 규칙에 하드코딩해 불필요한 매치 방지. 예: `missing_target`은 "지워줘/삭제해줘/…"처럼 어미까지 포함한 정확 매치 + "(문장 끝 또는 구두점)" lookahead로 "바꿔줘 파일명" 같은 완전한 명령은 통과.
+  - **단계별 템플릿 SSOT**: 8 템플릿 각각 `stages: DiveStage[]`로 멀티-스테이지 선언. 현재는 1 템플릿 = 1 단계지만 Phase 6에서 "여러 단계에 공통 쓸 수 있는" 템플릿 확장 여지. 필터는 `templatesForStage(stage)`.
+  - **Playwright로 단위 검증 대체**: `window.__test_detect_ambiguity` / `window.__test_prompt_templates` 글로벌 노출(demo 페이지 mount 시점에만). Playwright가 `page.evaluate()`로 직접 호출해 span·kind를 검증. vitest 도입은 Phase 6로 연기 — 추가 CI 러너는 지금 필요 없음.
+  - **Underlay pointer-events-none**: textarea 위에 absolute mark overlay. 키보드 포커스·커서·선택 동작을 방해하지 않음. `whitespace-pre-wrap`으로 textarea 래핑 규칙 맞춤.
+  - **500ms debounce**: 명세 정의값 그대로. 타자 중 감지가 깜빡이는 것을 방지.
+- 대안:
+  - **transformers.js 또는 tree-sitter-korean**: 품질 ↑, 그러나 wasm 적재 시간(3~10MB) 및 ARM64/Windows 호환 검증 필요. 교실에서의 첫 입력 응답성 우선이라 과공학.
+  - **서버(백엔드 Rust)로 감지 위임**: 로컬 전용 원칙에는 부합하나 IPC 왕복 비용이 타자 중 매 keystroke마다 발생. 프론트 완결이 맞음.
+  - **vitest/jest 즉시 도입**: 빌드 시간·의존성 증가 vs 얻는 이득(빠른 단위 회귀)이 현재로서는 작음. Playwright로 충분 검증됨. Phase 6 접근성 정리와 함께 재검토.
+  - **한 규칙에 `\p{Script=Hangul}` 사용한 복잡한 look-around**: JS `u` 플래그로 가능하나 가독성↓. 현재 suffix 화이트리스트가 명확.
+- 결과:
+  - +16 Playwright 검증, 0 신규 CI 러너, 이전 회귀 전부 유지(21 suites / 330 assertions)
+  - 한국어 특화 규칙 품질은 파일럿 데이터로 튜닝 예정 — `docs/pilot-benchmarks.md`에 "모호함 감지 오탐/누락 비율" 지표 추가 여부를 5-6 통합 이후 결정
+  - "보내기 전 점검"(§6.6.3, 모델 자체 비평)은 5-5에서 — 모델 호출 1회 추가 + 토큰 사용량 표시까지. 5-4는 외부 호출 0 원칙 유지
