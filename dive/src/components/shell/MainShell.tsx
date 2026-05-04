@@ -32,6 +32,7 @@ import { pickFolder } from "../../lib/tauri-dialog";
 import { useTheme } from "../../hooks/useTheme";
 import { Button } from "../ui/button";
 import { hasDevDemoParam } from "../../lib/dev-demo";
+import { useUiPreferencesStore } from "../../stores/ui-preferences";
 
 export function MainShell() {
   const t = useT();
@@ -305,6 +306,16 @@ export function MainShell() {
     },
     "menu:settings": openSettingsRoute,
     "menu:toggle-theme": () => toggleTheme(),
+    "menu:help-tutorial": () => {
+      const { tutorialEnabled, setTutorialEnabled } = useUiPreferencesStore.getState();
+      const nextEnabled = !tutorialEnabled;
+      setTutorialEnabled(nextEnabled);
+      toast({
+        variant: "info",
+        title: nextEnabled ? "튜토리얼 모드를 켰습니다" : "튜토리얼 모드를 껐습니다",
+        description: "Settings > 일반에서 언제든 바꿀 수 있습니다.",
+      });
+    },
     "menu:help-docs": () => {
       void openExternalUrl(
         "https://github.com/coreelab/dive/blob/main/README.md",

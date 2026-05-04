@@ -7,6 +7,7 @@ import { cn } from "../../lib/utils";
 import { CodeTab } from "./CodeTab";
 import { PreviewTab } from "./PreviewTab";
 import { TerminalTab } from "./TerminalTab";
+import { LearningHint } from "../ui/learning-hint";
 
 const TABS: { id: SlideInTab; label: string }[] = [
   { id: "code", label: "코드" },
@@ -68,6 +69,9 @@ export function SlideInPanel() {
           <X />
         </Button>
       </header>
+      <LearningHint className="border-b bg-bg-panel px-4 py-2 text-xs">
+        코드 / 미리보기 / 터미널 — AI가 만든 결과를 이 창에서 확인하세요.
+      </LearningHint>
 
       <nav className="flex border-b bg-bg-panel" role="tablist" aria-label="슬라이드 인 탭">
         {TABS.map((t, idx) => {

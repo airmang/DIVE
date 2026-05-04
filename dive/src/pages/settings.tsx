@@ -7,6 +7,8 @@ import { useTheme } from "../hooks/useTheme";
 import { useProjectSessionStore, type ProviderSummary } from "../stores/project-session";
 import { CodexOAuthDialog } from "../components/codex/CodexOAuthDialog";
 import { LOCALE_LABEL, SUPPORTED_LOCALES, useLocaleStore, type Locale } from "../i18n";
+import { LearningHint } from "../components/ui/learning-hint";
+import { useUiPreferencesStore } from "../stores/ui-preferences";
 
 type TauriApi = {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -87,6 +89,8 @@ export function SettingsPage() {
   const { theme, toggleTheme } = useTheme();
   const locale = useLocaleStore((s) => s.locale);
   const setLocale = useLocaleStore((s) => s.setLocale);
+  const tutorialEnabled = useUiPreferencesStore((s) => s.tutorialEnabled);
+  const setTutorialEnabled = useUiPreferencesStore((s) => s.setTutorialEnabled);
   const loaded = useProjectSessionStore((s) => s.loaded);
   const loadAll = useProjectSessionStore((s) => s.loadAll);
   const providers = useProjectSessionStore((s) => s.providers);
@@ -365,6 +369,24 @@ export function SettingsPage() {
               {theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환"}
             </Button>
           </div>
+
+          <div className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2.5">
+            <div>
+              <div className="text-sm font-medium">튜토리얼 모드</div>
+              <div className="text-[11px] text-fg-muted">
+                단계별 상세 설명을 표시합니다. 익숙해지면 끄세요.
+              </div>
+            </div>
+            <label className="inline-flex cursor-pointer items-center">
+              <input
+                type="checkbox"
+                checked={tutorialEnabled}
+                onChange={(e) => setTutorialEnabled(e.target.checked)}
+                data-testid="settings-tutorial-toggle"
+                className="h-4 w-4"
+              />
+            </label>
+          </div>
         </section>
 
         <section className="flex flex-col gap-3" data-testid="settings-section-providers">
@@ -492,10 +514,10 @@ export function SettingsPage() {
 
         <section className="flex flex-col gap-3" data-testid="settings-section-policy">
           <h2 className="text-lg font-semibold">자동 승인 정책</h2>
-          <p className="text-xs text-fg-muted">
-            안전(Safe) 도구에 한해 자동 승인을 허용할 수 있습니다. 주의(Warn)·위험(Danger) 도구는
-            항상 수동 승인이 필요합니다.
-          </p>
+          <p className="text-xs text-fg-muted">Safe 도구만 자동 승인할 수 있습니다.</p>
+          <LearningHint className="text-xs">
+            주의(Warn)·위험(Danger) 도구는 항상 수동 승인이 필요합니다.
+          </LearningHint>
           <div className="flex flex-col gap-2" data-testid="policy-tool-list">
             {SAFE_TOOLS.map((tool) => {
               const on = policy.rules[tool] === "always";
@@ -554,9 +576,9 @@ export function SettingsPage() {
         <section className="flex flex-col gap-3" data-testid="settings-section-mcp">
           <div className="flex items-baseline justify-between">
             <h2 className="text-lg font-semibold">MCP 서버</h2>
-            <span className="text-xs text-fg-muted">
+            <LearningHint inline className="text-xs">
               Model Context Protocol 서버 등록 · 도구는 권한 카드로 라우팅됩니다 (5-3에서 확장).
-            </span>
+            </LearningHint>
           </div>
           <div className="flex flex-col gap-2" data-testid="mcp-server-list">
             {mcpServers.length === 0 ? (

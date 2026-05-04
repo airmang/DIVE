@@ -54,10 +54,14 @@ pub fn build_menu<R: Runtime>(
         .item(&toggle_theme)
         .build()?;
 
+    let help_tutorial =
+        MenuItemBuilder::with_id("menu:help-tutorial", "튜토리얼 모드 토글").build(app)?;
     let help_docs = MenuItemBuilder::with_id("menu:help-docs", "문서 보기").build(app)?;
     let help_issue = MenuItemBuilder::with_id("menu:help-issue", "문제 신고").build(app)?;
     let help_about = MenuItemBuilder::with_id("menu:help-about", "DIVE 정보").build(app)?;
     let help = SubmenuBuilder::new(app, "Help")
+        .item(&help_tutorial)
+        .separator()
         .item(&help_docs)
         .item(&help_issue)
         .separator()

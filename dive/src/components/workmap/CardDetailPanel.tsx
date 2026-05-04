@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Button } from "../ui/button";
+import { LearningHint } from "../ui/learning-hint";
 import { CardStateBadge } from "./CardStateBadge";
 import { getCardStateMeta } from "./card-state-meta";
 import type { CardState, CardTileData } from "./types";
@@ -212,13 +213,13 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
             onChange={(e) => ctx.setInstructionDraft(e.target.value)}
             rows={4}
             className="w-full rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg"
-            placeholder="이 카드에서 AI에게 시킬 일을 구체적으로 적으세요"
+            placeholder="이 카드에서 AI가 해야 할 일"
           />
-          <p className="text-[11px] text-fg-muted">
+          <LearningHint>
             {state === "rejected"
               ? "거부 사유를 반영해 지시를 수정한 뒤 다시 시작하세요."
               : "지시가 작성되면 I 단계로 진입합니다."}
-          </p>
+          </LearningHint>
           <div className="space-y-1 pt-2">
             <label className="text-xs font-semibold text-fg-muted" htmlFor="test-command-input">
               검증 명령 (선택)
@@ -232,14 +233,17 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
               placeholder="예: pnpm test src/App.test.ts"
             />
             <p className="text-[11px] text-fg-muted">
-              V 단계 검증 시 프로젝트 루트에서 실행됩니다. 위험하거나 프로젝트 밖으로 나가는
-              명령은 차단됩니다.
+              검증 명령은 프로젝트 루트에서 실행되며, 위험한 명령은 차단됩니다.
             </p>
           </div>
           {state === "instructed" ? (
             <p className="text-[11px] text-fg-muted" data-testid="tool-call-count">
               도구 호출: {ctx.toolCallCount}회
-              {ctx.toolCallCount === 0 ? " · 도구 호출 1회 이상 후 검증 시작 가능" : ""}
+              {ctx.toolCallCount === 0 ? (
+                <LearningHint inline className="ml-1">
+                  · 도구 호출 1회 이상 후 검증 시작 가능
+                </LearningHint>
+              ) : null}
             </p>
           ) : null}
         </div>
@@ -247,10 +251,11 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
     case "verifying":
       return (
         <div className="space-y-3" data-testid="verifying-body">
-          <p className="text-xs text-fg-muted">
+          <p className="text-xs text-fg-muted">결과를 검증하세요.</p>
+          <LearningHint className="text-xs">
             AI가 지시와 코드 변경의 일치 여부를 분석합니다. 결과를 확인한 뒤 최종 승인 또는 거부를
             선택하세요.
-          </p>
+          </LearningHint>
           {ctx.verifyLog ? (
             <div className="space-y-2" data-testid="verify-log">
               <div
@@ -348,7 +353,8 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
               className="rounded-md border border-dashed border-border bg-bg-panel2 p-3 text-xs text-fg-muted"
               data-testid="verify-empty"
             >
-              아직 검증이 실행되지 않았습니다. [검증 실행] 버튼을 눌러 시작하세요.
+              <div>아직 검증 결과가 없습니다.</div>
+              <LearningHint>[검증 실행] 버튼을 눌러 시작하세요.</LearningHint>
             </div>
           )}
 
@@ -380,9 +386,9 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
       return (
         <div className="space-y-2" data-testid="verified-body">
           <p className="text-sm text-fg">검증을 통과했습니다.</p>
-          <p className="text-xs text-fg-muted">
+          <LearningHint className="text-xs">
             코드 결과를 확인하거나, 문제가 발견되면 다시 거부할 수 있습니다.
-          </p>
+          </LearningHint>
           {ctx.checkpointBadge ? (
             <p
               className="inline-flex items-center gap-1 rounded-md border border-success/40 bg-success/10 px-2 py-0.5 text-[11px] font-medium text-success"
@@ -397,7 +403,9 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
       return (
         <div className="space-y-2" data-testid="extended-body">
           <p className="text-sm text-fg">E 단계 통합·확장 완료.</p>
-          <p className="text-xs text-fg-muted">읽기 전용. 다음 세션에서 이어서 작업하세요.</p>
+          <LearningHint className="text-xs">
+            읽기 전용. 다음 세션에서 이어서 작업하세요.
+          </LearningHint>
         </div>
       );
   }

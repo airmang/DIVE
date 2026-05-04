@@ -1,6 +1,7 @@
 import { AlertCircle, Code, Eye } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
+import { LearningHint } from "../ui/learning-hint";
 import { ChatInput } from "../chat/ChatInput";
 import { MessageList } from "../chat/MessageList";
 import type { ChatMessage } from "../chat/types";
@@ -119,12 +120,15 @@ export function ChatArea({
               {emptyState?.title ?? "세션을 시작해 대화를 시작하세요"}
             </p>
             <p className="text-sm text-fg-muted">
-              {emptyState?.description ?? (
+              {emptyState?.description ?? "카드를 선택하고 메시지를 입력하세요"}
+            </p>
+            {!emptyState?.description ? (
+              <LearningHint className="text-sm">
                 <>
                   사이드바에서 <span className="font-medium text-fg">+ 새 세션</span>을 눌러 시작
                 </>
-              )}
-            </p>
+              </LearningHint>
+            ) : null}
             {emptyState?.actionLabel && emptyState.onAction ? (
               <Button
                 variant="primary"

@@ -23,6 +23,7 @@
     "verify:v4:track-b": "node scripts/verify-track-b.mjs",
     "verify:v4:track-c": "node scripts/verify-track-c.mjs",
     "verify:v4:track-d": "node scripts/verify-track-d.mjs",
+    "verify:v4:track-e": "node scripts/verify-track-e.mjs",
     "verify:v4:track-f": "node scripts/verify-track-f.mjs",
     "release:smoke": "node scripts/release-gate-smoke.mjs",
     "release:smoke:preflight": "node scripts/release-gate-smoke.mjs --preflight",

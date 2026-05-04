@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Button } from "../ui/button";
+import { LearningHint } from "../ui/learning-hint";
 import type { CardState, CardTileData } from "./types";
 
 interface Draft {
@@ -189,7 +190,10 @@ export function AiAssistDialog({
         <DialogHeader>
           <DialogTitle>AI 도움 받기</DialogTitle>
           <DialogDescription>
-            만들고 싶은 기능을 한 문장으로 설명하면 AI가 작업 카드를 제안합니다.
+            만들고 싶은 기능을 한 문장으로 적으세요.
+            <LearningHint inline className="ml-1">
+              AI가 작업 카드를 제안합니다.
+            </LearningHint>
           </DialogDescription>
         </DialogHeader>
 
