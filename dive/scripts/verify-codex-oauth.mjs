@@ -105,9 +105,7 @@ async function main() {
 
   console.log("\n9. Disconnect flow clears codex connected state");
   page.once("dialog", (d) => d.accept());
-  await page.click(
-    '[data-testid="provider-disconnect"][data-provider-kind="codex"]',
-  );
+  await page.click('[data-testid="provider-disconnect"][data-provider-kind="codex"]');
   await page.waitForFunction(
     () =>
       document

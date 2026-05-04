@@ -68,7 +68,12 @@ pub fn run() {
             ipc::codex_oauth_complete,
             ipc::codex_oauth_status,
             ipc::codex_oauth_logout,
-            ipc::codex_oauth_refresh
+            ipc::codex_oauth_refresh,
+            ipc::mcp_server_add,
+            ipc::mcp_server_list,
+            ipc::mcp_server_remove,
+            ipc::mcp_server_set_enabled,
+            ipc::mcp_server_test_connect
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

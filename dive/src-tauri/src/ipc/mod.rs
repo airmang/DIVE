@@ -10,6 +10,7 @@
 //! (tests use `InMemoryKeyring`).
 
 pub mod codex_oauth;
+pub mod mcp;
 pub mod policy;
 pub mod project;
 pub mod provider;
@@ -17,6 +18,7 @@ pub mod session;
 pub mod timeline;
 
 pub use codex_oauth::*;
+pub use mcp::*;
 pub use policy::*;
 pub use project::*;
 pub use provider::*;

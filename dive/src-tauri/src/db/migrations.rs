@@ -4,7 +4,8 @@ use crate::db::{now_ms, schema, DbError};
 
 type MigrationFn = fn(&Transaction<'_>) -> rusqlite::Result<()>;
 
-const MIGRATIONS: &[(i64, MigrationFn)] = &[(1, migration_v1), (2, migration_v2)];
+const MIGRATIONS: &[(i64, MigrationFn)] =
+    &[(1, migration_v1), (2, migration_v2), (3, migration_v3)];
 
 pub fn migrate(conn: &mut Connection) -> Result<(), DbError> {
     conn.execute(
@@ -66,6 +67,11 @@ fn migration_v2(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     Ok(())
 }
 
+fn migration_v3(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    tx.execute_batch(schema::CREATE_MCP_SERVER)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::db::tests::fresh_db;
@@ -114,6 +120,20 @@ mod tests {
     }
 
     #[test]
+    fn migration_v3_creates_mcp_server_table() {
+        let (db, _tmp) = fresh_db();
+        let count: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'McpServer'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
     fn schema_version_reaches_latest() {
         let (db, _tmp) = fresh_db();
         let latest: i64 = db
@@ -122,6 +142,6 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(latest, 2);
+        assert_eq!(latest, 3);
     }
 }

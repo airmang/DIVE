@@ -1,0 +1,252 @@
+use async_trait::async_trait;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum TransportError {
+    #[error("io: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("http: {0}")]
+    Http(#[from] reqwest::Error),
+    #[error("closed")]
+    Closed,
+    #[error("{0}")]
+    Other(String),
+}
+
+#[async_trait]
+pub trait Transport: Send + Sync {
+    async fn send(&self, request: &[u8]) -> Result<Vec<u8>, TransportError>;
+    fn kind(&self) -> TransportKind;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransportKind {
+    Stdio,
+    Http,
+    Mock,
+}
+
+pub struct HttpTransport {
+    endpoint: String,
+    headers: HashMap<String, String>,
+    client: reqwest::Client,
+}
+
+impl HttpTransport {
+    pub fn new(endpoint: impl Into<String>) -> Self {
+        Self {
+            endpoint: endpoint.into(),
+            headers: HashMap::new(),
+            client: reqwest::Client::new(),
+        }
+    }
+
+    pub fn with_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers.insert(name.into(), value.into());
+        self
+    }
+}
+
+#[async_trait]
+impl Transport for HttpTransport {
+    async fn send(&self, request: &[u8]) -> Result<Vec<u8>, TransportError> {
+        let mut req = self
+            .client
+            .post(&self.endpoint)
+            .header(reqwest::header::CONTENT_TYPE, "application/json");
+        for (k, v) in &self.headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        let resp = req.body(request.to_vec()).send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(TransportError::Other(format!("http {}: {}", status, body)));
+        }
+        Ok(resp.bytes().await?.to_vec())
+    }
+
+    fn kind(&self) -> TransportKind {
+        TransportKind::Http
+    }
+}
+
+pub struct StdioTransport {
+    child: Mutex<Option<tokio::process::Child>>,
+    stdin: tokio::sync::Mutex<Option<tokio::process::ChildStdin>>,
+    stdout: tokio::sync::Mutex<Option<tokio::io::BufReader<tokio::process::ChildStdout>>>,
+}
+
+impl StdioTransport {
+    pub async fn spawn(
+        command: &str,
+        args: &[String],
+        env: &HashMap<String, String>,
+    ) -> Result<Self, TransportError> {
+        use tokio::process::Command;
+        let mut cmd = Command::new(command);
+        cmd.args(args);
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        cmd.stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null());
+        let mut child = cmd.spawn()?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| TransportError::Other("stdin not captured".into()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| TransportError::Other("stdout not captured".into()))?;
+        Ok(Self {
+            child: Mutex::new(Some(child)),
+            stdin: tokio::sync::Mutex::new(Some(stdin)),
+            stdout: tokio::sync::Mutex::new(Some(tokio::io::BufReader::new(stdout))),
+        })
+    }
+
+    pub async fn kill(&self) {
+        if let Ok(mut guard) = self.child.lock() {
+            if let Some(mut child) = guard.take() {
+                let _ = child.start_kill();
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl Transport for StdioTransport {
+    async fn send(&self, request: &[u8]) -> Result<Vec<u8>, TransportError> {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        let mut stdin_guard = self.stdin.lock().await;
+        let stdin = stdin_guard.as_mut().ok_or(TransportError::Closed)?;
+        stdin.write_all(request).await?;
+        stdin.write_all(b"\n").await?;
+        stdin.flush().await?;
+        drop(stdin_guard);
+
+        let mut stdout_guard = self.stdout.lock().await;
+        let stdout = stdout_guard.as_mut().ok_or(TransportError::Closed)?;
+        let mut line = String::new();
+        let n = stdout.read_line(&mut line).await?;
+        if n == 0 {
+            return Err(TransportError::Closed);
+        }
+        Ok(line.trim_end_matches(&['\r', '\n'][..]).as_bytes().to_vec())
+    }
+
+    fn kind(&self) -> TransportKind {
+        TransportKind::Stdio
+    }
+}
+
+pub struct MockTransport {
+    responses: tokio::sync::Mutex<std::collections::VecDeque<serde_json::Value>>,
+}
+
+impl MockTransport {
+    pub fn new(responses: Vec<serde_json::Value>) -> Self {
+        Self {
+            responses: tokio::sync::Mutex::new(responses.into()),
+        }
+    }
+}
+
+#[async_trait]
+impl Transport for MockTransport {
+    async fn send(&self, _request: &[u8]) -> Result<Vec<u8>, TransportError> {
+        let mut queue = self.responses.lock().await;
+        let next = queue
+            .pop_front()
+            .ok_or_else(|| TransportError::Other("mock queue exhausted".into()))?;
+        Ok(serde_json::to_vec(&next).map_err(|e| TransportError::Other(e.to_string()))?)
+    }
+
+    fn kind(&self) -> TransportKind {
+        TransportKind::Mock
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn http_transport_sends_and_receives() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/rpc"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"ok":true}"#))
+            .mount(&server)
+            .await;
+        let t = HttpTransport::new(format!("{}/rpc", server.uri()));
+        let bytes = t
+            .send(br#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#)
+            .await
+            .unwrap();
+        assert_eq!(bytes, br#"{"ok":true}"#);
+    }
+
+    #[tokio::test]
+    async fn http_transport_surfaces_error_status() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/rpc"))
+            .respond_with(ResponseTemplate::new(401).set_body_string("unauthorized"))
+            .mount(&server)
+            .await;
+        let t = HttpTransport::new(format!("{}/rpc", server.uri()));
+        let err = t.send(b"{}").await.unwrap_err();
+        assert!(matches!(err, TransportError::Other(_)));
+    }
+
+    #[tokio::test]
+    async fn http_transport_adds_custom_headers() {
+        let server = MockServer::start().await;
+        use wiremock::matchers::header;
+        Mock::given(method("POST"))
+            .and(path("/rpc"))
+            .and(header("x-api-key", "test-key"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+            .mount(&server)
+            .await;
+        let t = HttpTransport::new(format!("{}/rpc", server.uri()))
+            .with_header("x-api-key", "test-key");
+        t.send(b"{}").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn mock_transport_returns_queued_responses() {
+        let t = MockTransport::new(vec![
+            serde_json::json!({"a": 1}),
+            serde_json::json!({"b": 2}),
+        ]);
+        let a = t.send(b"req1").await.unwrap();
+        assert_eq!(a, br#"{"a":1}"#);
+        let b = t.send(b"req2").await.unwrap();
+        assert_eq!(b, br#"{"b":2}"#);
+        let err = t.send(b"req3").await.unwrap_err();
+        assert!(matches!(err, TransportError::Other(_)));
+    }
+
+    #[tokio::test]
+    async fn stdio_transport_round_trips_with_cat_subprocess() {
+        #[cfg(unix)]
+        {
+            use std::collections::HashMap;
+            let t = StdioTransport::spawn("cat", &[], &HashMap::new())
+                .await
+                .unwrap();
+            let bytes = t.send(b"hello-line").await.unwrap();
+            assert_eq!(bytes, b"hello-line");
+            t.kill().await;
+        }
+    }
+}

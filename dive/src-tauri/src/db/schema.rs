@@ -104,3 +104,19 @@ pub const CREATE_INDEXES: &[&str] = &[
 
 pub const ALTER_WORKMAP_ADD_CURRENT_CARD_ID: &str =
     "ALTER TABLE Workmap ADD COLUMN current_card_id INTEGER REFERENCES Card(id) ON DELETE SET NULL";
+
+pub const CREATE_MCP_SERVER: &str = "
+CREATE TABLE IF NOT EXISTS McpServer (
+    id INTEGER PRIMARY KEY,
+    label TEXT NOT NULL UNIQUE,
+    transport TEXT NOT NULL CHECK(transport IN ('stdio','http')),
+    command TEXT,
+    args TEXT,
+    env TEXT,
+    url TEXT,
+    headers TEXT,
+    default_risk TEXT NOT NULL DEFAULT 'caution' CHECK(default_risk IN ('safe','caution','danger')),
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+)";
