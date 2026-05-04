@@ -2,9 +2,11 @@ pub mod stream;
 
 use async_trait::async_trait;
 use futures::{stream::BoxStream, StreamExt};
-use serde_json::json;
+use serde_json::{json, Value};
 
-use super::{sse, ChatEvent, ChatRequest, LlmProvider, ModelInfo, ProviderError};
+use super::{
+    sse, ChatEvent, ChatRequest, LlmProvider, Message, ModelInfo, ProviderError, ToolChoice,
+};
 
 pub struct OpenAiProvider {
     api_key: String,
@@ -65,9 +67,11 @@ impl LlmProvider for OpenAiProvider {
     }
 
     async fn chat(&self, req: ChatRequest) -> Result<BoxStream<'static, ChatEvent>, ProviderError> {
-        let mut body = serde_json::to_value(&req)?;
+        let mut body = to_openai_payload(&req);
         body["stream"] = json!(true);
-        body["stream_options"] = json!({"include_usage": true});
+        if self.id == "openai" {
+            body["stream_options"] = json!({"include_usage": true});
+        }
 
         let response = self
             .http
@@ -92,6 +96,86 @@ impl LlmProvider for OpenAiProvider {
     async fn refresh_auth(&mut self) -> Result<(), ProviderError> {
         Ok(())
     }
+}
+
+fn to_openai_payload(req: &ChatRequest) -> Value {
+    let messages = req
+        .messages
+        .iter()
+        .map(|message| match message {
+            Message::System { content } => json!({ "role": "system", "content": content }),
+            Message::User { content } => json!({ "role": "user", "content": content }),
+            Message::Assistant {
+                content,
+                tool_calls,
+            } => {
+                let mut msg = json!({ "role": "assistant", "content": content });
+                if let Some(calls) = tool_calls {
+                    msg["tool_calls"] = Value::Array(
+                        calls
+                            .iter()
+                            .map(|call| {
+                                json!({
+                                    "id": call.id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": call.name,
+                                        "arguments": call.arguments,
+                                    }
+                                })
+                            })
+                            .collect(),
+                    );
+                }
+                msg
+            }
+            Message::Tool {
+                content,
+                tool_call_id,
+            } => {
+                json!({ "role": "tool", "content": content, "tool_call_id": tool_call_id })
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let mut body = json!({
+        "model": req.model,
+        "messages": messages,
+    });
+    if let Some(temperature) = req.temperature {
+        body["temperature"] = json!(temperature);
+    }
+    if let Some(max_tokens) = req.max_tokens {
+        body["max_tokens"] = json!(max_tokens);
+    }
+    if let Some(tools) = &req.tools {
+        body["tools"] = Value::Array(
+            tools
+                .iter()
+                .map(|tool| {
+                    json!({
+                        "type": "function",
+                        "function": {
+                            "name": tool.name,
+                            "description": tool.description,
+                            "parameters": tool.parameters,
+                        }
+                    })
+                })
+                .collect(),
+        );
+    }
+    if let Some(choice) = &req.tool_choice {
+        body["tool_choice"] = match choice {
+            ToolChoice::Auto => json!("auto"),
+            ToolChoice::None => json!("none"),
+            ToolChoice::Required => json!("required"),
+            ToolChoice::Specific(name) => {
+                json!({ "type": "function", "function": { "name": name } })
+            }
+        };
+    }
+    body
 }
 
 fn default_openai_models() -> Vec<ModelInfo> {
@@ -125,6 +209,7 @@ fn models_from_pairs(pairs: &[(&str, &str)]) -> Vec<ModelInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::{Message, ToolCall, ToolChoice, ToolDef};
 
     #[test]
     fn opencode_zen_sets_id_base_url_and_free_models() {
@@ -159,5 +244,78 @@ mod tests {
 
         assert_eq!(provider.id(), "compatible");
         assert_eq!(provider.list_models()[0].id, "custom-model");
+    }
+
+    #[test]
+    fn converts_tool_request_to_openai_compatible_shape() {
+        let req = ChatRequest {
+            model: "m".into(),
+            messages: vec![
+                Message::System {
+                    content: "sys".into(),
+                },
+                Message::User {
+                    content: "make cards".into(),
+                },
+            ],
+            tools: Some(vec![ToolDef {
+                name: "assist_cards".into(),
+                description: "cards".into(),
+                parameters: json!({"type":"object"}),
+            }]),
+            tool_choice: Some(ToolChoice::Specific("assist_cards".into())),
+            temperature: Some(0.4),
+            max_tokens: Some(1024),
+            stream: true,
+        };
+
+        let body = to_openai_payload(&req);
+        assert_eq!(body["tools"][0]["type"], json!("function"));
+        assert_eq!(body["tools"][0]["function"]["name"], json!("assist_cards"));
+        assert_eq!(
+            body["tool_choice"],
+            json!({"type":"function","function":{"name":"assist_cards"}})
+        );
+    }
+
+    #[test]
+    fn converts_assistant_tool_history_to_openai_compatible_shape() {
+        let req = ChatRequest {
+            model: "m".into(),
+            messages: vec![
+                Message::Assistant {
+                    content: "".into(),
+                    tool_calls: Some(vec![ToolCall {
+                        id: "call_1".into(),
+                        name: "read_file".into(),
+                        arguments: "{\"path\":\"a\"}".into(),
+                    }]),
+                },
+                Message::Tool {
+                    content: "ok".into(),
+                    tool_call_id: "call_1".into(),
+                },
+            ],
+            tools: None,
+            tool_choice: None,
+            temperature: None,
+            max_tokens: None,
+            stream: true,
+        };
+
+        let body = to_openai_payload(&req);
+        assert_eq!(
+            body["messages"][0]["tool_calls"][0],
+            json!({
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                    "name": "read_file",
+                    "arguments": "{\"path\":\"a\"}",
+                }
+            })
+        );
+        assert_eq!(body["messages"][1]["role"], json!("tool"));
+        assert_eq!(body["messages"][1]["tool_call_id"], json!("call_1"));
     }
 }
