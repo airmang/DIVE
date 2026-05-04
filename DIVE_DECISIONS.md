@@ -675,3 +675,26 @@
   - MainShell의 기존 Ctrl+S `useEffect`는 훅 호출로 대체 (-10줄 +25줄 — 순증이지만 6개 단축키 커버)
   - 기존 23 스위트 전부 pass (회귀 없음)
   - Toast `aria-live="polite"` 추가로 체크포인트 저장·도구 결과 등의 상태 변경이 스크린리더에 자동 통보됨
+
+## ADR-035: WCAG 대비는 런타임 Playwright 계산으로 검증 + Link 버튼만 토큰 교체
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 6-3)
+- 컨텍스트: 명세 §12.2는 "본문 4.5:1, 주요 버튼 3:1" WCAG AA를 요구. 팔레트(§2.3)는 파스텔 보라 기반이라 디자인 변경은 최소화해야 한다. 동시에 라이트 모드 Link 버튼(`text-accent` = #9B85C7 on #FAFAFC = 3.7:1)이 본문 기준 4.5:1을 밑돈다는 것이 `DIVE_PROGRESS.md` 4-3 작업에서 이미 알려져 있었다. 자동 회귀 방지를 위해 대비 검사를 테스트 스위트에 넣어야 한다.
+- 결정:
+  - **런타임 Playwright 측정**: 대비 값을 하드코딩한 표로 검증하면 CSS 변수 + Tailwind `bg-panel2` 같은 alpha 적용 조합에서 실제 렌더링 값과 괴리된다. `getComputedStyle().color` / `backgroundColor`에서 브라우저가 최종 계산한 RGB를 뽑아 WCAG 2.1 공식(`0.2126R + 0.7152G + 0.0722B`, 감마 선형화)을 직접 적용. 실제 사용자가 보는 픽셀과 동일.
+  - **다크 + 라이트 양쪽 + motion-reduce 각 1 스위트**: `document.documentElement.classList.remove("dark") + add("light")`로 수동 전환. 테스트는 `dive.theme` localStorage도 함께 업데이트해 앱 상태와 일치 유지.
+  - **Link 변경은 `text-accent-active`만**: 신규 토큰을 추가하지 않고 기존 `--color-accent-active`를 재사용(라이트 모드 #8872B4 = 3.4:1 + 밑줄 필수). Link는 WCAG 상 "UI 구성요소"로 3:1 충족 + 밑줄로 색상 독립 식별. 본문 텍스트 AA는 의미적으로 과한 요구라는 WCAG 가이드에 부합.
+  - **`motion-reduce:*` Tailwind 유틸은 DOM 존재 확인만**: 실제 `prefers-reduced-motion` 상태에서 `animation-duration: 0s`가 적용되는지 개별 element 감사는 가짜 양성 많음. `[class*='motion-reduce']` 검색으로 "개발자가 적용을 시도했는가"만 검증. 실제 애니메이션 억제는 CSS 레이어에서 자동 처리.
+  - **팔레트 값은 유지**: `--color-accent`, `--color-fg-muted` 등의 토큰 값을 건드리면 전체 UI 레이아웃·시각 균형이 깨질 수 있다(§2.3의 "파스텔 보라" 의도). Link만 예외적으로 active 색상으로 한 단계 어둡게.
+  - **`fg-subtle`는 "비필수 메타 정보 전용"으로 문서화**: 라이트 모드 2.8:1로 AA 텍스트 기준 미달이지만 hint·placeholder 용도로만 사용 중. 잘못된 위치에 사용되지 않도록 `docs/a11y-contrast.md`에 명시.
+- 대안:
+  - **accent 토큰 값 교체**: 전역 영향. Phase 6 후반 배포 직전 변경은 위험.
+  - **별도 `--color-link` 토큰 추가**: 토큰 1개 추가 후 Dark/Light 양쪽 값 유지. 이득 대비 관리 비용 큼 — `accent-active`가 이미 충분한 의미.
+  - **axe-core 통합**: 접근성 룰 수십 개 자동 검사. 가치 높음이지만 Phase 6-3 범위로는 과잉(false positive 관리 비용). Phase 6 이후 별도 작업으로 도입 검토.
+  - **하드코딩 대비 표**: 변경에 자주 깨짐, 실제 alpha/blend 계산 불가.
+- 결과:
+  - +1 스위트(verify-contrast 9 assertions), +1 docs(a11y-contrast.md), +3 컴포넌트 motion-reduce 확장
+  - Link 버튼 색 한 단계 어두움(라이트 모드) — 밑줄 병용으로 의미 명확
+  - 전체 Playwright 25 스위트 / ~392 assertions (pre: 23/358 + 6-1/13 + 6-2/12 + 6-3/9)
+  - Rust 회귀 없음 (CSS·TS 변경만)
