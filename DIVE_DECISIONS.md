@@ -494,3 +494,26 @@
   - 학생 quickstart 1 + 교사 manual 1 + 시나리오 6 = 총 8 신규 문서. 전체 ~700줄.
   - 차시 간 의존성 명시 — 02는 01의 파일 재사용, 04는 03 상태 전제. 복사·이동 시 전제 깨지지 않게 주의 필요.
   - Phase 4 PHASE_GATE 조건 중 "사용자 매뉴얼 + 6차시 시나리오"가 이로써 충족. 실제 교실 walkthrough는 사용자 몫.
+
+## ADR-027: Codex OAuth는 PKCE(S256) + 코드 붙여넣기 fallback + 토큰은 3-scope Keyring 저장
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 5-1)
+- 컨텍스트: 명세 §7.4는 ChatGPT Plus/Pro/Team/Enterprise 구독으로 Codex를 호출하는 흐름을 기술. PKCE 기반 OAuth라 client secret 없이 public client로 동작. 표준 흐름은 시스템 브라우저 실행 + `localhost:1455` 콜백 서버 수신. 하지만 (a) 헤드리스 테스트 환경에서는 브라우저 자동화가 불안정, (b) Playwright가 실제 chatgpt.com OAuth 페이지를 주행하는 것은 사용자 계정이 필요하고 자동화 ToS 위반 위험, (c) wiremock으로 대체 가능한 범위가 어디까지인지 명확화 필요.
+- 결정:
+  - **PKCE S256 + RFC 7636 준수**: 32-byte verifier → SHA-256 → URL-safe base64 challenge. 고정 client_id (Codex CLI 참조값).
+  - **토큰 저장은 3-scope Keyring 분리**: `SecretScope::Codex{Access,Refresh,Id}Token`. DB `ProviderConfig`는 `auth_type="oauth"` 메타만, 민감값은 키링. 기존 §7.7 / §10.4 정책(1-5 ADR-013)과 정합.
+  - **id_token JWT 서명 검증은 하지 않음**: 토큰이 TLS로 `auth.openai.com`에서 직접 수신된 직후 파싱되며, 실제 API 호출은 서버가 재검증한다. `account_id` 클레임은 라우팅 힌트에 불과(보안 경계 아님). jsonwebtoken 등 크립토 라이브러리 의존 회피로 빌드 시간·ARM64 호환성 이득.
+  - **UI는 phase 기반 + 코드 붙여넣기 fallback**: idle/waiting/done/error 4-phase. `[ChatGPT 연결]` → 시스템 브라우저 열기 → 리다이렉트 URL에서 `code=` + `state=` 추출해 붙여넣기. Codex CLI의 `--paste-code` 모드와 동등하며, 헤드리스·CI·데모 환경에서도 동일 UI로 검증 가능. 실제 localhost 콜백 서버는 Phase 5-6 통합 테스트 또는 실사용 시점에 선택 가능(UI 변경 없음).
+  - **검증은 wiremock 전용**: `/oauth/token` 교환·갱신을 로컬 mock 서버로 커버. 실제 `auth.openai.com` + 브라우저 리다이렉트는 사용자 실환경 검증으로 분리(ADR-025와 동일 패턴).
+  - **CSRF state는 32-byte random + server-side verify**: `start`가 생성한 state를 pending-flow에 저장, `complete`에서 정확히 일치 여부만 확인. mismatch 시 즉시 오류.
+- 대안:
+  - **jsonwebtoken crate로 id_token 서명 검증**: 과공학. OpenAI JWKS 동기화 부담 + ARM64 crypto 빌드 의존 증가. 이득은 "중간자가 위조한 id_token이 DB에 기록될 수 있음" 리스크이지만 이미 tokens.access_token이 실 호출에서 서버 검증됨.
+  - **localhost:1455 콜백 서버를 기본 UX로**: 사용자가 코드 복사·붙여넣기 할 필요 없어 편의성 ↑. 그러나 방화벽·다른 애플리케이션과 포트 충돌 시 폴백 UX 필요 → 어차피 paste 모드가 존재. Phase 5-6 폴리싱에서 옵션 추가 여지.
+  - **Playwright가 실제 chatgpt.com 주행**: 테스트 안정성 낮음(OpenAI가 captcha·2FA·UI 변경). 또한 OpenAI ToS상 자동화 로그인 금지 가능성.
+  - **별도 `CodexProvider::openrouter` 같은 특수 생성자**: OpenRouter는 이미 `OpenAiProvider::openrouter`로 해결됨. Codex는 고유 헤더(`ChatGPT-Account-ID`, `OpenAI-Beta`) 때문에 별도 provider 필요.
+- 결과:
+  - +31 Rust 테스트, +1 Playwright 스위트(17 assertions), Settings UI 1 카드 재작성 + 1 다이얼로그 신규
+  - 기존 onboarding / project-session / settings(4개 assertion 갱신 반영) 회귀 모두 통과
+  - 실제 OAuth 플로우 E2E 검증은 5-6 통합 테스트 또는 사용자 파일럿 시점에
+  - `CodexProvider`는 Agent Loop와 직접 연결되지 않음 — 현재 `AppState`는 생성 시 provider 1개 고정. Codex로 스위칭은 5-6 단계에서 provider factory + `ai_assist`/`verify` 엔진 재사용 방식 재검토
