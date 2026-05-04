@@ -16,6 +16,7 @@ import ToastDemoPage from "./pages/toast-demo";
 import PolishDemoPage from "./pages/polish-demo";
 import McpDemoPage from "./pages/mcp-demo";
 import PromptHelperDemoPage from "./pages/prompt-helper-demo";
+import Phase5IntegrationPage from "./pages/phase5-integration";
 
 type Route =
   | "main"
@@ -34,7 +35,8 @@ type Route =
   | "toast"
   | "polish"
   | "mcp"
-  | "prompt-helper";
+  | "prompt-helper"
+  | "phase5";
 
 function resolveRoute(): Route {
   if (typeof window === "undefined") return "main";
@@ -56,6 +58,7 @@ function resolveRoute(): Route {
   if (demo === "polish") return "polish";
   if (demo === "mcp") return "mcp";
   if (demo === "prompt-helper") return "prompt-helper";
+  if (demo === "phase5") return "phase5";
   return "main";
 }
 
@@ -84,6 +87,7 @@ function App() {
   if (route === "polish") return <PolishDemoPage />;
   if (route === "mcp") return <McpDemoPage />;
   if (route === "prompt-helper") return <PromptHelperDemoPage />;
+  if (route === "phase5") return <Phase5IntegrationPage />;
   return <MainShell />;
 }
 
