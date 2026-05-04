@@ -60,7 +60,26 @@ export default function PromptHelperDemoPage() {
         </div>
 
         <div className="rounded-md border bg-bg-panel p-3">
-          <ChatInput onSend={setLastSent} stage={stage} />
+          <ChatInput
+            onSend={setLastSent}
+            stage={stage}
+            promptCheckMock={{
+              issues: [
+                {
+                  kind: "pronoun",
+                  excerpt: "이거",
+                  suggestion: "대상 파일/함수 이름을 명시하세요",
+                },
+                {
+                  kind: "missing_target",
+                  excerpt: "바꿔줘",
+                  suggestion: "무엇을 어떤 값으로 바꿀지 구체화하세요",
+                },
+              ],
+              refined_text: "src/App.tsx 파일의 title 필드를 '안녕' 으로 설정해 주세요.",
+              approximate_tokens: 142,
+            }}
+          />
         </div>
 
         <div className="rounded-md border bg-bg-panel px-3 py-2 text-xs" data-testid="last-sent">

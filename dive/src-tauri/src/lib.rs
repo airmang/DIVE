@@ -74,7 +74,8 @@ pub fn run() {
             ipc::mcp_server_remove,
             ipc::mcp_server_set_enabled,
             ipc::mcp_server_test_connect,
-            ipc::mcp_server_list_tools
+            ipc::mcp_server_list_tools,
+            ipc::prompt_check_review
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

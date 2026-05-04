@@ -29,7 +29,7 @@ const RULES: RegexRule[] = [
   {
     kind: "ambiguous_time",
     pattern: /(저번|지난번|방금|아까)\s*(거|것|대화|코드|파일)?/gu,
-    suggestion: "언제·어느 시점의 것인지 명시해 주세요 — 예: \"카드 3번\" 또는 \"직전 메시지\".",
+    suggestion: '언제·어느 시점의 것인지 명시해 주세요 — 예: "카드 3번" 또는 "직전 메시지".',
   },
   {
     kind: "vague_subject",
@@ -43,8 +43,7 @@ const RULES: RegexRule[] = [
   },
   {
     kind: "missing_target",
-    pattern:
-      /(지워줘|삭제해줘|없애줘|고쳐줘|수정해줘|바꿔줘|만들어줘|추가해줘)(?=\s*$|\s*[.!?])/gu,
+    pattern: /(지워줘|삭제해줘|없애줘|고쳐줘|수정해줘|바꿔줘|만들어줘|추가해줘)(?=\s*$|\s*[.!?])/gu,
     suggestion: "무엇을 대상으로 하는 명령인지(파일·함수·UI 요소) 덧붙여 주세요.",
   },
 ];

@@ -1,10 +1,11 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { Send, Sparkles } from "lucide-react";
+import { Send, Sparkles, ClipboardCheck } from "lucide-react";
 import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
 import type { AmbiguityHit, DiveStage } from "../../lib/ambiguity";
 import { AmbiguityHintList, AmbiguityUnderlay } from "../prompt-helper/AmbiguityHinter";
 import { PromptHelperPanel } from "../prompt-helper/PromptHelperPanel";
+import { PromptCheckDialog, type PromptCheckResult } from "../prompt-helper/PromptCheckDialog";
 
 interface Props {
   onSend: (text: string) => void;
@@ -13,6 +14,7 @@ interface Props {
   onPromptHelper?: () => void;
   stage?: DiveStage | null;
   className?: string;
+  promptCheckMock?: PromptCheckResult;
 }
 
 const MIN_HEIGHT_PX = 40;
@@ -25,10 +27,12 @@ export function ChatInput({
   onPromptHelper,
   stage = null,
   className,
+  promptCheckMock,
 }: Props) {
   const [value, setValue] = useState("");
   const [hits, setHits] = useState<AmbiguityHit[]>([]);
   const [helperOpen, setHelperOpen] = useState(false);
+  const [checkOpen, setCheckOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const resize = useCallback(() => {
@@ -45,6 +49,7 @@ export function ChatInput({
   }, [value, resize]);
 
   const canSend = value.trim().length > 0 && !disabled;
+  const canCheck = value.trim().length > 0 && !disabled;
 
   const handleSend = () => {
     if (!canSend) return;
@@ -54,6 +59,13 @@ export function ChatInput({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && e.shiftKey && (e.ctrlKey || e.metaKey)) {
+      if (canCheck) {
+        e.preventDefault();
+        setCheckOpen(true);
+      }
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSend();
@@ -69,6 +81,16 @@ export function ChatInput({
     setValue((v) => (v.length === 0 ? body : `${v}\n${body}`));
     textareaRef.current?.focus();
     setHelperOpen(false);
+  };
+
+  const handleApplyRefined = (refined: string, alsoSend: boolean) => {
+    if (alsoSend) {
+      onSend(refined);
+      setValue("");
+      setHits([]);
+    } else {
+      setValue(refined);
+    }
   };
 
   return (
@@ -107,7 +129,18 @@ export function ChatInput({
             data-testid="chat-prompt-helper"
           >
             <Sparkles />
-            프롬프트 도우미
+            도우미
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setCheckOpen(true)}
+            disabled={!canCheck}
+            aria-label="보내기 전 점검 (Ctrl+Shift+Enter)"
+            data-testid="chat-prompt-check"
+          >
+            <ClipboardCheck />
+            점검
           </Button>
           <div className="flex-1" />
           <Button
@@ -137,6 +170,14 @@ export function ChatInput({
         stage={stage}
         onClose={() => setHelperOpen(false)}
         onInsert={handleInsertTemplate}
+      />
+      <PromptCheckDialog
+        open={checkOpen}
+        initialText={value}
+        stage={stage}
+        onOpenChange={setCheckOpen}
+        onApply={handleApplyRefined}
+        mockResult={promptCheckMock}
       />
     </div>
   );

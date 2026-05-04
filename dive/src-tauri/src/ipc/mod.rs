@@ -345,6 +345,19 @@ pub async fn ai_assist_cards(
 }
 
 #[tauri::command]
+pub async fn prompt_check_review(
+    state: State<'_, AppState>,
+    text: String,
+    stage: Option<String>,
+) -> Result<crate::dive::PromptCheckResult, String> {
+    let engine = crate::dive::PromptCheckEngine::new(state.provider.clone(), state.model.clone());
+    engine
+        .review(&text, stage.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn checkpoint_create(
     state: State<'_, AppState>,
     session_id: i64,

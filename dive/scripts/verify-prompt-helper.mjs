@@ -70,22 +70,17 @@ async function main() {
   console.log("\n4. Type ambiguous text into ChatInput, hits appear after 500ms debounce");
   await page.fill('[data-testid="chat-input-textarea"]', "이거 좀 고쳐줘");
   await page.waitForSelector('[data-testid="ambiguity-hint-list"]', { timeout: 2000 });
-  const hintKinds = await page.$$eval(
-    '[data-testid="ambiguity-hint"]',
-    (els) => els.map((el) => el.getAttribute("data-hit-kind")),
+  const hintKinds = await page.$$eval('[data-testid="ambiguity-hint"]', (els) =>
+    els.map((el) => el.getAttribute("data-hit-kind")),
   );
   check("at least one pronoun hint", hintKinds.includes("pronoun"), JSON.stringify(hintKinds));
 
   console.log("\n5. Underlay renders highlighted span");
-  const underlayCount = await page.$eval(
-    '[data-testid="ambiguity-underlay"]',
-    (el) => Number(el.getAttribute("data-hit-count")),
+  const underlayCount = await page.$eval('[data-testid="ambiguity-underlay"]', (el) =>
+    Number(el.getAttribute("data-hit-count")),
   );
   check("underlay reports hits", underlayCount >= 1, String(underlayCount));
-  const markCount = await page.$$eval(
-    '[data-testid="ambiguity-hit"]',
-    (els) => els.length,
-  );
+  const markCount = await page.$$eval('[data-testid="ambiguity-hit"]', (els) => els.length);
   check("mark element rendered", markCount >= 1, String(markCount));
 
   console.log("\n6. Clean input has no hits");
@@ -95,33 +90,24 @@ async function main() {
     "package.json 의 react 버전을 19.2.0 으로 설정해 주세요",
   );
   await page.waitForTimeout(700);
-  const cleanCount = await page.$eval(
-    '[data-testid="ambiguity-underlay"]',
-    (el) => Number(el.getAttribute("data-hit-count")),
+  const cleanCount = await page.$eval('[data-testid="ambiguity-underlay"]', (el) =>
+    Number(el.getAttribute("data-hit-count")),
   );
   check("no hits on specific prompt", cleanCount === 0, String(cleanCount));
 
   console.log("\n7. Prompt helper panel opens and inserts template");
   await page.click('[data-testid="chat-prompt-helper"]');
   await page.waitForSelector('[data-testid="prompt-helper-panel"]');
-  const templateButtons = await page.$$(
-    '[data-testid="prompt-helper-template"]',
-  );
+  const templateButtons = await page.$$('[data-testid="prompt-helper-template"]');
   check("templates rendered in panel", templateButtons.length >= 2, String(templateButtons.length));
-  const stageAttr = await page.$eval(
-    '[data-testid="prompt-helper-panel"]',
-    (el) => el.getAttribute("data-stage"),
+  const stageAttr = await page.$eval('[data-testid="prompt-helper-panel"]', (el) =>
+    el.getAttribute("data-stage"),
   );
   check("panel shows current stage", stageAttr === "I", stageAttr ?? "");
 
   await page.fill('[data-testid="chat-input-textarea"]', "");
-  await page.click(
-    '[data-testid="prompt-helper-template"][data-template-id="i-focus-card"]',
-  );
-  const filled = await page.$eval(
-    '[data-testid="chat-input-textarea"]',
-    (el) => el.value,
-  );
+  await page.click('[data-testid="prompt-helper-template"][data-template-id="i-focus-card"]');
+  const filled = await page.$eval('[data-testid="chat-input-textarea"]', (el) => el.value);
   check("template inserted into textarea", filled.includes("[현재 카드]"), filled);
   const panelAfterInsert = await page.$('[data-testid="prompt-helper-panel"]');
   check("panel closes after insert", panelAfterInsert === null);
@@ -130,9 +116,7 @@ async function main() {
   await page.click('[data-testid="stage-set"][data-stage="V"]');
   await page.click('[data-testid="chat-prompt-helper"]');
   await page.waitForSelector('[data-testid="prompt-helper-panel"][data-stage="V"]');
-  const vTemplates = await page.$$(
-    '[data-testid="prompt-helper-template"]',
-  );
+  const vTemplates = await page.$$('[data-testid="prompt-helper-template"]');
   check("V stage shows V templates", vTemplates.length >= 2, String(vTemplates.length));
   const firstIdV = await vTemplates[0].getAttribute("data-template-id");
   check("first V template starts with 'v-'", (firstIdV ?? "").startsWith("v-"), firstIdV ?? "");
