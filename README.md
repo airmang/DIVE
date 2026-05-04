@@ -1,127 +1,156 @@
-# DIVE 명세 + Ralph 자동 구현 패키지
+# DIVE
 
-이 폴더는 DIVE 프로젝트를 codex로 자동 구현하기 위한 **명세 + 자동화 운영 자료**입니다. ChatGPT 구독 기반 codex CLI와 ralph 루프를 사용해 며칠~몇 주 자율 진행하도록 설계되었습니다.
+> 바이브 코딩 입문자를 위한 AI 코딩 워크플로우 데스크톱 앱
 
-## 파일 구성
+**DIVE**(Decompose · Instruct · Verify · Extend)는 자연어로 AI에게 코딩을 시키는 방식이 익숙하지 않은 입문자가 안전하고 체계적으로 AI 코딩 에이전트를 활용할 수 있도록 설계된 **Windows 데스크톱 앱**입니다. 한 번에 모든 걸 시키고 결과를 검증하지 않는 대표적 실패 패턴을, **4단계 강제 게이트**로 구조적으로 차단합니다.
 
-| 파일 | 역할 | 누가 수정하나 |
+[![build](https://github.com/coreelab/dive/actions/workflows/build.yml/badge.svg)](https://github.com/coreelab/dive/actions/workflows/build.yml)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20ARM64-0078d4.svg)](#설치)
+
+---
+
+## 4단계 워크플로우
+
+| 단계 | 의미 | 강제되는 행동 |
 |---|---|---|
-| `DIVE_SPEC.md` | 제품 명세 (Single Source of Truth) | 사용자만 |
-| `DIVE_DECISIONS.md` | 의사결정 기록 (ADR 누적) | codex가 ADR 추가, 사용자가 검토 |
-| `DIVE_PROGRESS.md` | 36개 작업 체크리스트 | codex가 갱신 |
-| `DIVE_NEXT.md` | 이번 턴 단일 작업 | codex가 매 턴 갱신 |
-| `RALPH_PROMPT.md` | ralph 루프 본체 (codex에 입력되는 프롬프트) | 사용자만 (드물게) |
-| `ralph_run.sh` / `ralph_run.ps1` | ralph 루프 실행 스크립트 | 환경에 맞게 조정 |
-| `images/` | 명세서가 참조하는 와이어프레임 18개 | 변경 없음 |
+| **D — Decompose** | 작업을 작은 카드로 분해 | 카드 ≥ 1 없이는 AI에게 말을 걸 수 없음 |
+| **I — Instruct** | 카드마다 구체적 지시 작성 | 지시 없으면 다음 단계 잠금 |
+| **V — Verify** | AI 자체 검증 + 사용자 최종 승인 | 2단계 게이트로 "눈으로 보지 않은 결과" 방지 |
+| **E — Extend** | 통합 후 다음 카드로 확장 | 모든 카드 V 통과 후에만 활성화 |
 
-## 운영 흐름
+![DIVE 4단계](images/03_dive_stages.png)
 
-```
-[사용자]                              [Ralph 루프]
-   │                                      │
-   ├─ ralph_run.sh 실행 ──────────────────>│
-   │                                      │
-   │                                      ├─ 매 턴 fresh codex 호출
-   │                                      │   ├─ SoT 4파일 읽기
-   │                                      │   ├─ DIVE_NEXT.md 작업 수행
-   │                                      │   ├─ 검증
-   │                                      │   ├─ DIVE_PROGRESS.md 갱신
-   │                                      │   ├─ DIVE_DECISIONS.md ADR 추가
-   │                                      │   └─ DIVE_NEXT.md 다음 작업 작성
-   │                                      │
-   │                                      ├─ [PHASE_GATE] 또는 [BLOCKED] 감지
-   │<──────── 정지 + 알림 ─────────────────┤
-   │                                      │
-   ├─ DIVE_NEXT.md 검토                   │
-   ├─ 결정 후 사용자가 NEXT 갱신          │
-   ├─ ralph_run.sh 재실행 ────────────────>│
-```
+---
 
-## 시작하기
+## 설치 (Windows)
 
-### 1. 사전 준비
+**Windows 10 22H2 이상** 또는 **Windows 11** 필요.
 
-- ChatGPT 구독 (Plus 이상)
-- codex CLI 설치 및 OAuth 인증 완료
-- Windows: PowerShell 5.1+ 또는 7+
-- macOS/Linux: bash 4+
+### 1. 다운로드
 
-### 2. 첫 실행
+[GitHub Releases](https://github.com/coreelab/dive/releases/latest) 페이지에서 본인 PC 아키텍처에 맞는 인스톨러를 받으세요:
+
+- **x64 (일반 인텔·AMD)**: `DIVE_<version>_x64-setup.exe`
+- **ARM64 (Surface Pro X / Copilot+ PC)**: `DIVE_<version>_arm64-setup.exe`
+
+### 2. 실행
+
+1. 다운로드한 `.exe`를 더블클릭
+2. **SmartScreen 경고 — "추가 정보" → "실행"**
+   - v1.0 시점에는 EV 코드 서명 미적용이라 정상 동작입니다
+   - 코드 서명은 Azure Trusted Signing 도입 검토 중 (`docs/packaging-windows.md` §4)
+3. NSIS 설치 마법사 → 기본값 그대로 → 완료
+
+설치 경로: `%LOCALAPPDATA%\Programs\DIVE\` (사용자 프로필, 관리자 권한 불필요)
+
+### 3. 첫 실행
+
+- OS 언어가 한국어면 한국어 UI, 아니면 영어로 시작 (사이드바 하단 토글로 전환 가능)
+- 온보딩 다이얼로그 → 프로젝트 폴더 선택 → AI 프로바이더 연결(ChatGPT·Claude·OpenAI·OpenRouter 중 하나)
+
+자세한 사용법: [`docs/student-quickstart.md`](./docs/student-quickstart.md) · [`docs/teacher-manual.md`](./docs/teacher-manual.md)
+
+---
+
+## 핵심 기능
+
+- **DIVE 4단계 게이트** — 단계 미통과 시 다음 UI 비활성화 (명세 §4)
+- **6 프로바이더 지원** — Anthropic · OpenAI · OpenRouter · **ChatGPT Plus/Pro OAuth** · Custom OpenAI-compat · **MCP 서버**
+- **권한 카드** — 모든 도구 호출 전 위험도(낮음/보통/높음) + 사용자 승인 (명세 §5.5 · §6.4)
+- **자동 체크포인트** — 단계 전환 시 git 기반 스냅샷 · 1-클릭 복원 (§6.5)
+- **프롬프트 도우미** — D/I/V/E 단계별 템플릿 + 한국어 모호함 감지 + AI 자체 비평 (§6.6)
+- **다국어** — 한국어 · 영어 (§2.5 · §12.3)
+- **접근성** — WCAG AA 대비 · 키보드 전용 동작 · 스크린리더 aria-live (§12.2)
+- **안전장치** — 차단 명령 블록리스트 · 프로젝트 폴더 외부 쓰기 금지 (§9)
+
+---
+
+## 스크린샷
+
+| 워크맵 + 채팅 | 권한 카드 | 슬라이드 인 패널 |
+|---|---|---|
+| ![메인](images/00_main_layout.png) | ![권한 카드](images/08_permission_card.png) | ![슬라이드 인](images/05_slide_in_code.png) |
+
+더 많은 와이어프레임은 `images/` 디렉터리를 참조하세요.
+
+---
+
+## 개발자 섹션
+
+상세 빌드 가이드는 [`dive/README.md`](./dive/README.md) · [`docs/packaging-windows.md`](./docs/packaging-windows.md)를 참조.
 
 ```bash
-# 폴더 구조 확인
-ls dive_spec/
-
-# ralph_run.sh의 codex 호출 부분을 실제 환경에 맞게 조정
-# (codex CLI 명령 형식이 버전마다 다를 수 있음)
-
-# 첫 실행
-chmod +x ralph_run.sh
-./ralph_run.sh
-
-# 또는 Windows
-.\ralph_run.ps1
+# 요구사항: Node 22+, pnpm 10+, Rust 1.80+
+cd dive
+pnpm install
+pnpm tauri:dev        # 개발 모드 (hot reload)
+pnpm tauri:build:x64  # Windows x64 NSIS
 ```
 
-### 3. 모니터링
+### 검증 체크
 
-- ralph는 `ralph_logs/turn_NNNN_*.log`에 매 턴 로그를 남김
-- 사용자는 가끔 `DIVE_PROGRESS.md`를 확인해 진행 상황 점검
-- `DIVE_NEXT.md`에 `[PHASE_GATE]` 또는 `[BLOCKED]` 표시가 뜨면 ralph가 자동 정지하고 사용자 결정 대기
+```bash
+cd dive/src-tauri && cargo test --all-targets           # Rust (238+ tests)
+cd dive/src-tauri && cargo clippy --all-targets -- -D warnings
+cd dive && pnpm typecheck && pnpm lint && pnpm build
+cd dive && pnpm dev                                      # 한 터미널
+node dive/scripts/verify-i18n.mjs                        # 다른 터미널 (여러 스위트)
+```
 
-### 4. 정지·재개
+---
 
-- 사용자가 직접 정지: `Ctrl+C`
-- 자동 정지: Phase 게이트 도달, BLOCKED 발생, 1000턴 초과
-- 재개: 결정을 `DIVE_NEXT.md`에 반영한 후 다시 `ralph_run.sh` 실행
+## 설계 원칙 (요약)
 
-## 36개 작업 — Phase 구성
+- **사고 절차의 외화** — 머릿속 계산을 화면에 보이는 4단계로 분해
+- **게이트는 강제, 도구는 자유** — 프로바이더·모델·도구 선택은 사용자 재량
+- **가역성** — 자동 체크포인트로 언제든 되돌리기
+- **투명성** — 도구 호출·에러·토큰 사용량 모두 채팅 흐름에 노출
+- **개인정보 보호** — 기본 로컬 우선, 프로젝트 폴더 외부 접근 차단, 텔레메트리 없음 (§9.4)
 
-| Phase | 시기 | 목표 | 작업 수 |
-|---|---|---|---|
-| 1 | 5월 | 기술 스파이크 — 빌드 가능한 골격 | 6 |
-| 2 | 6월 | v0.1 — 채팅 + 권한 카드 + D 게이트 | 6 |
-| 3 | 7월 | v0.2 — 모든 게이트 + 체크포인트 + 안전장치 | 6 |
-| 4 | 8월 초 | 파일럿 직전 폴리싱 + 현장 검증 | 6 |
-| 5 | 10월 | v0.3 — Codex OAuth + MCP + 프롬프트 도우미 | 6 |
-| 6 | 11~12월 | v1.0 — 다국어 + 접근성 + 정식 배포 | 6 |
+전체 명세: [`DIVE_SPEC.md`](./DIVE_SPEC.md) (1600+ 라인)
+의사결정 기록: [`DIVE_DECISIONS.md`](./DIVE_DECISIONS.md) (36 ADR)
 
-각 Phase 종료 시 `[PHASE_GATE]` — 사용자 확인 필수.
+---
 
-## 사용자 개입 시점
+## 연구진
 
-ralph는 다음 경우에만 멈춥니다. **그 외에는 자율 진행합니다.**
+| 연구원 | 소속 | 역할 |
+|---|---|---|
+| 고규현 (총괄) | 광교고등학교 | 제품 개발 · 광교고 파일럿 · 명세 총괄 |
+| 김나영 | 토평고등학교 | 학생 활동지 · 학술 발표 · 보조 검증 |
+| 양회욱 | 어정중학교 | 지도안 · 중학교 baseline |
+| 이장원 교수 (자문) | 경인교대 컴퓨터교육과 | 학술 자문 · 연구 설계 |
 
-1. **Phase 게이트** — 한 Phase 6개 작업 완료 후
-2. **BLOCKED** — 명세 모호함 / 의존성 미충족 / 외부 도구 실패 / 중대 결정 필요
-3. **1000턴 초과** (안전장치)
-4. **사용자가 Ctrl+C로 직접 정지**
+---
 
-## 사용자가 ralph에게 절대 안 시켜도 되는 것
+## 로드맵
 
-- 명세 변경 — `DIVE_SPEC.md`는 사용자만 수정
-- ADR 삭제·수정 — 폐기는 새 ADR로
-- 변경 불가 결정 (RALPH_PROMPT.md 3단계 박스) 위반
+| 시기 | 버전 | 범위 |
+|---|---|---|
+| 2026-05 | — | 기술 스파이크 (Phase 1) ✅ |
+| 2026-06 | v0.1 | 워크맵 + 채팅 + 권한 카드 (Phase 2) ✅ |
+| 2026-07 | v0.2 | 검증 게이트 + 체크포인트 (Phase 3) ✅ |
+| 2026-08 | v0.2 | 파일럿 직전 폴리싱 (Phase 4) ✅ |
+| 2026-10 | v0.3 | Codex OAuth + MCP + 프롬프트 도우미 (Phase 5) ✅ |
+| 2026-11 ~ 12 | **v1.0** | **다국어 · 접근성 · 정식 배포 (Phase 6)** ✅ |
 
-## 트러블슈팅
+Phase별 상세는 [`DIVE_PROGRESS.md`](./DIVE_PROGRESS.md) 참조.
 
-### codex CLI가 OAuth 인증을 자꾸 요구할 때
-- 토큰 만료 가능. `codex auth status`로 확인 후 `codex auth login` 재인증
-- macOS는 keychain, Windows는 Credential Manager에 토큰 저장됨
+---
 
-### ralph가 같은 작업을 반복할 때
-- `DIVE_NEXT.md`에 `상태: [DONE]`이 빠진 채로 다음 작업이 작성됐을 가능성
-- 직접 `DIVE_PROGRESS.md`를 확인해 그 작업이 정말 끝났는지 점검 후 수동으로 NEXT 갱신
+## 라이선스
 
-### 빌드/테스트가 깨졌는데 ralph가 인지 못 할 때
-- RALPH_PROMPT.md의 4단계 (검증) 박스를 codex가 건너뛰고 있을 가능성
-- 강제하려면 ralph_run.sh 안에서 매 턴 후 `pnpm typecheck && pnpm tauri:build:x64`를 직접 돌려서 실패 시 자동 [BLOCKED] 처리하도록 추가 가능
+[MIT License](./LICENSE) — Copyright © 2026 DIVE 연구진.
 
-### Codex CLI 응답 형식이 바뀌어 ralph가 못 읽을 때
-- ChatGPT 구독 codex CLI는 비공식이라 업데이트로 깨질 수 있음
-- 명세 §7.4의 OpenAI 차단 위험 노트 참조
-- fallback: Anthropic API 키로 전환해 Claude로 ralph 운영도 가능
+연구 목적·교육 활용·상용 fork 모두 허용. 출처 표기만 유지하세요.
 
-## 참고 — 첫 작업
+---
 
-`DIVE_NEXT.md`에 첫 작업(1-1: 프로젝트 부트스트랩 + ARM64 빌드 검증)이 이미 작성되어 있습니다. ralph를 처음 실행하면 이 작업부터 시작합니다.
+## 기여·문의
+
+- 이슈·PR: [GitHub Issues](https://github.com/coreelab/dive/issues)
+- 보안 취약점 제보: 별도 이슈 대신 연구진에게 직접 연락
+- 파일럿 참여 문의: 광교고 고규현 (총괄)
+
+프로젝트 내부 운영(ralph 자동 구현 루프)은 [`RALPH_README.md`](./RALPH_README.md) 참조.

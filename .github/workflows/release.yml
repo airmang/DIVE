@@ -1,0 +1,160 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.0.0-rc.1)"
+        required: true
+        default: "v1.0.0-rc.1"
+
+permissions:
+  contents: write
+
+jobs:
+  verify-versions:
+    name: verify version numbers match tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: extract expected version
+        id: extract
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          # Strip leading "v"
+          VERSION="${TAG#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Expecting version: ${VERSION}"
+
+      - name: check dive/package.json version
+        run: |
+          EXPECTED="${{ steps.extract.outputs.version }}"
+          ACTUAL=$(node -p "require('./dive/package.json').version")
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "::error::dive/package.json version mismatch: $ACTUAL != $EXPECTED"
+            exit 1
+          fi
+
+      - name: check dive/src-tauri/Cargo.toml version
+        run: |
+          EXPECTED="${{ steps.extract.outputs.version }}"
+          ACTUAL=$(grep -m 1 '^version = ' dive/src-tauri/Cargo.toml | sed -E 's/version = "([^"]+)"/\1/')
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "::error::Cargo.toml version mismatch: $ACTUAL != $EXPECTED"
+            exit 1
+          fi
+
+      - name: check dive/src-tauri/tauri.conf.json version
+        run: |
+          EXPECTED="${{ steps.extract.outputs.version }}"
+          ACTUAL=$(node -p "require('./dive/src-tauri/tauri.conf.json').version")
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "::error::tauri.conf.json version mismatch: $ACTUAL != $EXPECTED"
+            exit 1
+          fi
+
+  build-windows:
+    name: build ${{ matrix.label }}
+    needs: verify-versions
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: windows-x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+          - label: windows-arm64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: dive
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: dive/pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dive/src-tauri
+          key: release-${{ matrix.target }}
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: tauri build
+        run: pnpm tauri build --target ${{ matrix.target }} --bundles nsis
+
+      - name: upload NSIS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: DIVE-${{ matrix.label }}-nsis
+          path: dive/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: create draft GitHub Release
+    needs: [verify-versions, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: collect installer paths
+        id: collect
+        run: |
+          find artifacts -name '*.exe' | sort | tee installer-list.txt
+          echo "installers<<EOF" >> "$GITHUB_OUTPUT"
+          cat installer-list.txt >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: extract release notes from CHANGELOG
+        id: notes
+        run: |
+          VERSION="${{ needs.verify-versions.outputs.version }}"
+          HEADER="## [${VERSION}]"
+          awk -v h="$HEADER" '
+            index($0, h) == 1 { capture=1; next }
+            capture && /^## \[/ { exit }
+            capture { print }
+          ' CHANGELOG.md > release-notes.md
+          cat release-notes.md
+
+      - name: create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: DIVE ${{ needs.verify-versions.outputs.version }}
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+          body_path: release-notes.md
+          files: |
+            artifacts/DIVE-windows-x64-nsis/*.exe
+            artifacts/DIVE-windows-arm64-nsis/*.exe
+          fail_on_unmatched_files: true
