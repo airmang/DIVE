@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Languages, Moon, Plus, Sun, Trash2 } from "lucide-react";
+import { Moon, Plus, Sun, Trash2 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
@@ -10,7 +10,7 @@ import {
   selectHasConnectedProvider,
 } from "../../stores/project-session";
 import { NewProjectDialog } from "../onboarding/NewProjectDialog";
-import { useLocale, useLocaleStore, useT } from "../../i18n";
+import { useT } from "../../i18n";
 
 interface SidebarProps {
   className?: string;
@@ -19,8 +19,6 @@ interface SidebarProps {
 export function Sidebar({ className }: SidebarProps) {
   const { theme, toggleTheme } = useTheme();
   const t = useT();
-  const locale = useLocale();
-  const setLocale = useLocaleStore((s) => s.setLocale);
   const themeSwitchLabel =
     theme === "dark" ? t("sidebar.theme_to_light") : t("sidebar.theme_to_dark");
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
@@ -201,34 +199,6 @@ export function Sidebar({ className }: SidebarProps) {
             </div>
           </Card>
         </button>
-
-        <div
-          role="group"
-          aria-label={t("sidebar.language")}
-          className="flex items-center gap-1 rounded-md border border-border bg-bg-panel2 p-1"
-          data-testid="language-switch"
-        >
-          <Languages className="mx-1 h-3.5 w-3.5 text-fg-muted" aria-hidden="true" />
-          {(["ko", "en"] as const).map((code) => (
-            <button
-              key={code}
-              type="button"
-              onClick={() => setLocale(code)}
-              aria-pressed={locale === code}
-              className={cn(
-                "flex-1 rounded px-2 py-1 text-xs font-medium transition-colors",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                locale === code
-                  ? "bg-accent-subtle text-fg"
-                  : "text-fg-muted hover:text-fg hover:bg-bg-panel",
-              )}
-              data-testid={`lang-${code}`}
-              data-active={locale === code ? "true" : "false"}
-            >
-              {code === "ko" ? t("sidebar.lang_ko") : t("sidebar.lang_en")}
-            </button>
-          ))}
-        </div>
 
         <Button
           variant="ghost"

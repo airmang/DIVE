@@ -96,20 +96,6 @@ async function runSuite(page, themeName) {
     );
   }
 
-  console.log("\n* Active language toggle (AA 3:1)");
-  const activeLang = await page.$('[data-active="true"][data-testid^="lang-"]');
-  if (activeLang) {
-    const testid = await activeLang.evaluate((el) => el.getAttribute("data-testid"));
-    await contrastPair(
-      page,
-      `[data-testid="${testid}"][data-active="true"]`,
-      '[data-testid="language-switch"]',
-      "active lang pill",
-      3,
-    );
-  } else {
-    check("active lang toggle discoverable", false, "no [data-active=true]");
-  }
 }
 
 async function main() {

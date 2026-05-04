@@ -37,10 +37,7 @@
     "provider_connected": "연결됨",
     "theme_to_light": "라이트 모드로 전환",
     "theme_to_dark": "다크 모드로 전환",
-    "open_settings": "설정 화면 열기",
-    "language": "언어",
-    "lang_ko": "한국어",
-    "lang_en": "English"
+    "open_settings": "설정 화면 열기"
   },
   "stage": {
     "d": "D 단계",

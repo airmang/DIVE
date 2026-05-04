@@ -72,7 +72,7 @@ async function main() {
   await page.keyboard.press("Control+,");
   await page.waitForTimeout(300);
   const onSettings = await page.evaluate(() =>
-    new URLSearchParams(window.location.search).get("demo"),
+    new URLSearchParams(window.location.search).get("route"),
   );
   check("navigated to settings route", onSettings === "settings", String(onSettings));
 
@@ -108,7 +108,7 @@ async function main() {
   await page.keyboard.press("Control+/");
   await page.waitForTimeout(300);
   const promptRoute = await page.evaluate(() =>
-    new URLSearchParams(window.location.search).get("demo"),
+    new URLSearchParams(window.location.search).get("route"),
   );
   check("navigated to prompt-helper route", promptRoute === "prompt-helper", String(promptRoute));
 
@@ -145,17 +145,19 @@ async function main() {
     `focused=${focusedTag}, dialog=${dialogWhileTyping ? "open" : "closed"}`,
   );
 
-  console.log("\n10. Language switch has role=group + aria-label");
-  const langGroupLabel = await page.$eval(
-    '[data-testid="language-switch"]',
+  console.log("\n10. Settings locale select has aria-label");
+  await page.evaluate(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("route", "settings");
+    window.history.pushState({}, "", url.toString());
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await page.waitForSelector('[data-testid="settings-locale-select"]');
+  const localeSelectLabel = await page.$eval(
+    '[data-testid="settings-locale-select"]',
     (el) => el.getAttribute("aria-label") || "",
   );
-  check("language switch has aria-label", langGroupLabel.length > 0, langGroupLabel);
-  const langGroupRole = await page.$eval(
-    '[data-testid="language-switch"]',
-    (el) => el.getAttribute("role") || "",
-  );
-  check("language switch role=group", langGroupRole === "group", langGroupRole);
+  check("settings locale select has aria-label", localeSelectLabel.length > 0, localeSelectLabel);
 
   console.log(`\nPASS ${pass} / FAIL ${fail}`);
   await browser.close();

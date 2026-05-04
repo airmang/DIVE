@@ -6,6 +6,7 @@ import { Input } from "../components/ui/input";
 import { useTheme } from "../hooks/useTheme";
 import { useProjectSessionStore, type ProviderSummary } from "../stores/project-session";
 import { CodexOAuthDialog } from "../components/codex/CodexOAuthDialog";
+import { LOCALE_LABEL, SUPPORTED_LOCALES, useLocaleStore, type Locale } from "../i18n";
 
 type TauriApi = {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -84,6 +85,8 @@ function defaultMcpDraft(): McpDraft {
 
 export function SettingsPage() {
   const { theme, toggleTheme } = useTheme();
+  const locale = useLocaleStore((s) => s.locale);
+  const setLocale = useLocaleStore((s) => s.setLocale);
   const loaded = useProjectSessionStore((s) => s.loaded);
   const loadAll = useProjectSessionStore((s) => s.loadAll);
   const providers = useProjectSessionStore((s) => s.providers);
@@ -321,6 +324,48 @@ export function SettingsPage() {
           <h1 className="text-2xl font-bold">설정</h1>
           <div />
         </div>
+
+        <section className="flex flex-col gap-3" data-testid="settings-section-general">
+          <h2 className="text-lg font-semibold">일반</h2>
+
+          <div className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2.5">
+            <div>
+              <div className="text-sm font-medium">언어</div>
+              <div className="text-[11px] text-fg-muted">앱 인터페이스 언어</div>
+            </div>
+            <select
+              value={locale}
+              onChange={(e) => setLocale(e.target.value as Locale)}
+              className="rounded-md border bg-bg px-2 py-1 text-sm"
+              data-testid="settings-locale-select"
+              aria-label="언어 선택"
+            >
+              {SUPPORTED_LOCALES.map((code) => (
+                <option key={code} value={code}>
+                  {LOCALE_LABEL[code]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2.5">
+            <div>
+              <div className="text-sm font-medium">테마</div>
+              <div className="text-[11px] text-fg-muted">
+                {theme === "dark" ? "어두운 테마" : "밝은 테마"}
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={toggleTheme}
+              data-testid="settings-theme-toggle"
+              data-theme={theme}
+            >
+              {theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환"}
+            </Button>
+          </div>
+        </section>
 
         <section className="flex flex-col gap-3" data-testid="settings-section-providers">
           <div className="flex items-baseline justify-between">
@@ -653,19 +698,6 @@ export function SettingsPage() {
           </div>
         </section>
 
-        <section className="flex flex-col gap-3" data-testid="settings-section-theme">
-          <h2 className="text-lg font-semibold">테마</h2>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={toggleTheme}
-            className="w-fit"
-            data-testid="settings-theme-toggle"
-            data-theme={theme}
-          >
-            {theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환"}
-          </Button>
-        </section>
       </div>
       <CodexOAuthDialog
         open={codexDialogOpen}

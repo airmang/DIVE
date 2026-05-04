@@ -37,10 +37,7 @@
     "provider_connected": "Connected",
     "theme_to_light": "Switch to light mode",
     "theme_to_dark": "Switch to dark mode",
-    "open_settings": "Open settings",
-    "language": "Language",
-    "lang_ko": "한국어",
-    "lang_en": "English"
+    "open_settings": "Open settings"
   },
   "stage": {
     "d": "Stage D",
