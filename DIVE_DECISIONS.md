@@ -541,3 +541,26 @@
   - DB 마이그레이션 v2 → v3 (append-only). 기존 테이블/인덱스 9+4 유지 + 신규 1
   - `McpClient`는 `Agent Loop`에 아직 연결되지 않음 — 5-3이 `ToolRegistry`에 MCP 도구 등록 + 권한 카드 라우팅을 붙이면서 정식 연결
   - rmcp 전환 여부는 5-6 통합 테스트에서 스트리밍 notifications 또는 OAuth 필요가 발생할 때 재검토
+
+## ADR-029: MCP 도구는 `mcp__{server}__{tool}` 네임스페이스 + MAX(default_risk, risk_hint) 병합
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 5-3)
+- 컨텍스트: 5-2의 McpClient 인프라가 만들어낸 도구 메타데이터(`McpToolInfo`)를 DIVE의 `Tool` trait에 맞춰 ToolRegistry에 정식 등록해야 함. 몇 가지 설계 질문: (a) 이름 충돌 방지(서로 다른 MCP 서버가 동일 도구 이름을 노출하는 경우 + built-in과 충돌) (b) 위험도 결정 — 서버가 힌트를 주지만 교사가 default_risk를 설정한 경우 어느 쪽을 우선? (c) 권한 카드 UX에서 "이 도구가 MCP 출처"임을 어떻게 명시? (d) Agent Loop는 도구 이름 문자열로 registry lookup하는데 모델이 `mcp__` 접두사까지 정확히 생성할 수 있는가?
+- 결정:
+  - **네임스페이스 규약**: `mcp__{server_label}__{remote_name}`. `mcp__` 접두사 + `{label}__` + 원격 도구 이름. 구분자 `__` 2자는 도구 이름에 거의 등장하지 않아 파싱 안정적. 서버 label은 UNIQUE 제약(5-2)이므로 충돌 불가.
+  - **Built-in 우선**: ToolRegistry에 동일 이름 등록은 덮어쓰기지만, built-in은 `mcp__` 접두사가 절대 없으므로 실제 충돌 발생 불가. 대신 MCP 서버가 `read_file` 같은 이름을 노출해도 `mcp__fs__read_file`로 qualified되므로 built-in `read_file`과 공존.
+  - **위험도 MAX 병합**: `MAX(default_risk, risk_hint) = 더 위험한 쪽`. 이유: (1) 안전-쪽 실수 = 교사가 default_risk=safe로 설정했는데 서버가 hint=danger이면 `danger`로 올림 → 실수로 자동 승인되는 것 방지. (2) 위험-쪽 실수 = 서버 hint=safe지만 교사가 default_risk=danger로 설정하면 `danger` 유지 → 서버의 낙관적 힌트를 신뢰하지 않음.
+  - **카드 UX에서 출처 배지**: `info` variant Badge(파스텔 보라) + 🔌 Plug 아이콘 + `MCP · {server_label}` 문구. `data-mcp-server` + `data-mcp-remote` 속성으로 Playwright·접근성 둘 다 지원. Safe/Warn/Danger 3종 카드 헤더 + ToolCallMessage 일반/차단 variant 모두 일관 적용.
+  - **모델에게 도구 이름 노출**: ToolRegistry → ToolDef 직렬화 시 `mcp__fs__read_file`이 그대로 이름으로 전달. 이름에 `_`가 들어가도 OpenAI/Anthropic 함수 호출 API 양쪽 모두 허용(검증됨). 모델이 이름을 정확히 생성할 책임은 모델·provider SDK가 진다 — DIVE는 registry lookup 실패 시 "not registered" ToolResult로 모델에게 피드백.
+  - **test_connect와 list_tools IPC 분리**: 5-2 단일 `test_connect`가 초기화 + 도구 목록 + 결과를 한꺼번에 돌려주는 것은 UI "연결 건강성 점검" 용도. 별도 `mcp_server_list_tools`는 설정 페이지 드릴다운(도구 수 확인) 용도. 두 IPC 모두 같은 `connect_and_initialize` 내부를 재사용.
+- 대안:
+  - **네임스페이스 대신 registry에 server_id 필드 추가**: lookup 시 `(name, server_id)` 쌍 필요 → Agent Loop의 ToolCallEvent payload에 server_id를 추가해야 함 → provider wire format 확장 필요 → 불필요한 복잡성.
+  - **risk_hint 우선**: 서버 제공자가 도메인 전문가라는 논리. 그러나 교사가 교실 맥락에 맞춰 default를 올렸다면 그 판단이 더 신뢰할 만함. "안전-쪽 실수"를 피하는 원칙으로 MAX 선호.
+  - **배지 아이콘으로 lucide `Server` 또는 `Cable`**: `Plug`가 "연결됨" 은유로 가장 직관적. 나중에 교체 여지.
+  - **MCP 도구를 built-in과 동일 이름으로 등록(서버 우선)**: "사내 MCP로 더 안전한 read_file을 제공하는 케이스"를 지원할 수 있으나 기본 기대가 깨짐(built-in이 없어졌다는 착각). 네임스페이스가 더 예측 가능.
+- 결과:
+  - Phase 5-4~5-6이 이 결정을 기반으로 동작: 프롬프트 도우미(5-4)는 `mcp__` 접두사를 감지해 `"MCP 도구를 직접 호출하면 서버 검증이 필요함"` 힌트를 줄 수 있고, 통합 테스트(5-6)는 `AppState`에 MCP client 캐시를 추가해 앱 시작 시 enabled 서버 자동 연결하면 됨.
+  - UI 일관성: 3종 권한 카드 + ToolCallMessage 2종 variant에 동일 출처 배지. 접근성은 Phase 6에서 `aria-label="MCP 출처 {server}"` 추가.
+  - "not registered" 실패 메시지는 모델이 실수로 `mcp__nonexistent__foo`를 생성해도 자동으로 다시 정정할 수 있게 도와줌(재귀 호출 없이 다음 턴에서 자체 수정).
+  - rmcp 전환 여부는 여전히 5-6에서 결정 (ADR-028 유지).
