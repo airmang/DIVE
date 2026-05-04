@@ -517,3 +517,27 @@
   - 기존 onboarding / project-session / settings(4개 assertion 갱신 반영) 회귀 모두 통과
   - 실제 OAuth 플로우 E2E 검증은 5-6 통합 테스트 또는 사용자 파일럿 시점에
   - `CodexProvider`는 Agent Loop와 직접 연결되지 않음 — 현재 `AppState`는 생성 시 provider 1개 고정. Codex로 스위칭은 5-6 단계에서 provider factory + `ai_assist`/`verify` 엔진 재사용 방식 재검토
+
+## ADR-028: MCP 클라이언트는 rmcp 대신 경량 직접 구현 + 도구는 권한 카드로 위임
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 5-2)
+- 컨텍스트: 명세 §8.5는 `rmcp` crate 사용을 제안. 그러나 (a) rmcp는 alpha 단계(v0.x)라 API가 유동적, (b) Windows ARM64 타겟에서 의존성(특히 SSE/WebSocket 스택) 빌드 호환 미검증, (c) DIVE가 MCP에서 실제로 호출하는 메서드는 `initialize` + `tools/list` + `tools/call` 3개뿐, (d) 스트리밍 notifications(서버 push)는 v0.3 파일럿 범위에서 불필요. 추가로 stdio/HTTP 양방향 transport 통일 추상화가 이후 권한 카드 통합(5-3)에서 재사용되므로 우리 도메인에 맞춘 직접 구현이 유지보수 친화적.
+- 결정:
+  - **JSON-RPC 2.0 직접 구현(약 220줄)**: request id 단조 증가, `result` 또는 `error` 중 하나 검증, protocol version `2024-11-05` 하드코딩. 도구 메타데이터 파싱 시 `annotations.riskLevel` 힌트를 `risk_hint: Option<String>`로 수집(5-3에서 기본 위험도와 병합).
+  - **Transport trait + 3 구현**: `HttpTransport`(reqwest POST /rpc + custom headers), `StdioTransport`(tokio subprocess line-delimited JSON), `MockTransport`(테스트·데모용 VecDeque). 각 구현이 독립적이라 단위 테스트에서 transport별 격리 가능.
+  - **DB 마이그레이션 v3 = McpServer 단일 테이블**: label UNIQUE(사용자 식별자), transport/default_risk CHECK 제약. `args`/`env`/`headers`는 JSON TEXT(쿼리 미지원이지만 우리 쿼리는 label/id만). 기존 DAO 패턴(순수 함수)과 동일.
+  - **IPC는 5개로 최소화**: add/list/remove/set_enabled/test_connect. `test_connect`는 `connect → initialize → list_tools` 3-step을 1 호출로 수행 — UI는 "연결 테스트" 버튼 하나로 서버 건강성 + 도구 수 확인 가능.
+  - **5-3으로 이어지는 계약**: `McpToolInfo { name, description, input_schema, risk_hint }`은 그대로 `Tool` trait을 감싸는 어댑터로 주입될 수 있도록 설계. `risk_hint` + `McpServerRow.default_risk` 순서로 병합(5-3 결정).
+  - **UI: stdio args는 textarea 한 줄 = 1 arg**: JSON array 요구보다 교사 친화. 서버 측에서 `serde_json::json!(arr)`로 직렬화.
+  - **실제 MCP 서버 E2E는 사용자 몫**: `npx @modelcontextprotocol/server-filesystem` 등 npm 패키지는 CI에서 spawn하지 않음(설치·격리 비용). 대신 unix `cat` 기반 stdio roundtrip 테스트로 transport 계약 자체는 검증. 실사용 서버 호환성은 파일럿에서.
+- 대안:
+  - **rmcp 그대로 채택**: alpha API 변화 리스크 + ARM64 빌드 사이드 이펙트(특히 SSE streams) + streaming notifications 미활용. 득보다 실.
+  - **JSON-RPC 2.0 대신 MCP HTTP의 향후 "Streamable HTTP" 표준 직접 구현**: 스펙이 아직 변동 중(SSE vs chunked vs WebSocket). 5-6 통합 테스트 이후 선택.
+  - **McpServer 도구를 DB ToolCall 테이블에 원격 도구 플래그로 합치기**: 위험도 병합 로직이 쿼리 경로에 스며들어 복잡도 ↑. 독립 테이블로 명확한 경계.
+  - **localhost 콜백 없는 stdio-only**: 교사가 등록하는 "학습용 MCP 서버(채점 검증 등)"는 HTTP 서버 형태가 더 일반적. 두 transport 모두 필수.
+- 결과:
+  - +24 Rust 테스트, +1 Playwright 스위트(18 assertions), Settings UI 1 섹션 신규 + 추가 form 1개
+  - DB 마이그레이션 v2 → v3 (append-only). 기존 테이블/인덱스 9+4 유지 + 신규 1
+  - `McpClient`는 `Agent Loop`에 아직 연결되지 않음 — 5-3이 `ToolRegistry`에 MCP 도구 등록 + 권한 카드 라우팅을 붙이면서 정식 연결
+  - rmcp 전환 여부는 5-6 통합 테스트에서 스트리밍 notifications 또는 OAuth 필요가 발생할 때 재검토
