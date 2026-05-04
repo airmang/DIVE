@@ -34,22 +34,22 @@ const PROVIDER_KINDS: Array<{
   ga: boolean;
   warning?: { text: string; href: string; linkLabel: string };
 }> = [
-  { kind: "anthropic", label: "Anthropic", hint: "claude-sonnet-4.5", ga: true },
-  { kind: "openai", label: "OpenAI", hint: "gpt-4o / o1", ga: true },
-  { kind: "openrouter", label: "OpenRouter", hint: "여러 모델 통합", ga: true },
+  { kind: "anthropic", label: "Anthropic", hint: "Claude 계열", ga: true },
+  { kind: "openai", label: "OpenAI", hint: "GPT 계열", ga: true },
+  { kind: "openrouter", label: "OpenRouter", hint: "여러 제공사 통합", ga: true },
   {
     kind: "opencode_zen",
     label: "opencode zen",
-    hint: "무료 OpenAI 호환 모델",
+    hint: "무료 베타",
     ga: true,
     warning: {
-      text: "⚠️ 베타 서비스 · 일부 무료 모델은 데이터 훈련에 사용될 수 있음",
+      text: "베타 서비스 · 일부 무료 모델은 데이터 훈련에 사용될 수 있습니다",
       href: "https://opencode.ai/docs/zen/",
       linkLabel: "자세히",
     },
   },
   { kind: "codex", label: "Codex (ChatGPT OAuth)", hint: "ChatGPT Plus/Pro 구독", ga: true },
-  { kind: "mock", label: "Mock (개발)", hint: "테스트·데모", ga: false },
+  { kind: "mock", label: "Mock (개발 전용)", hint: "테스트용", ga: false },
 ];
 
 interface McpServerSummary {

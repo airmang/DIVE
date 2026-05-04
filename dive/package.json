@@ -19,6 +19,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "verify:production-wire": "node scripts/verify-production-wire.mjs",
+    "verify:v4:track-a": "node scripts/verify-track-a.mjs",
     "release:smoke": "node scripts/release-gate-smoke.mjs",
     "release:smoke:preflight": "node scripts/release-gate-smoke.mjs --preflight",
     "verify:rc1-migration": "node scripts/verify-rc1-migration.mjs",

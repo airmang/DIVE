@@ -18,10 +18,10 @@ interface Props {
 }
 
 const PROVIDER_CHOICES: Array<{ kind: string; label: string; hint: string }> = [
-  { kind: "anthropic", label: "Anthropic", hint: "claude-sonnet-4.5 등" },
-  { kind: "openai", label: "OpenAI", hint: "gpt-4o, o1 등" },
-  { kind: "openrouter", label: "OpenRouter", hint: "여러 모델 통합" },
-  { kind: "opencode_zen", label: "opencode zen", hint: "무료 베타 모델" },
+  { kind: "anthropic", label: "Anthropic", hint: "Claude 계열" },
+  { kind: "openai", label: "OpenAI", hint: "GPT 계열" },
+  { kind: "openrouter", label: "OpenRouter", hint: "여러 제공사 통합" },
+  { kind: "opencode_zen", label: "opencode zen", hint: "무료 베타" },
 ];
 
 function onboardingErrorMessage(err: unknown) {
@@ -73,9 +73,7 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
       <DialogContent data-testid="onboarding-dialog" className="max-w-md">
         <DialogHeader>
           <DialogTitle>DIVE 시작하기</DialogTitle>
-          <DialogDescription>
-            학생이라면 선생님에게 받은 키를, 교사라면 직접 발급한 키를 입력하세요.
-          </DialogDescription>
+          <DialogDescription>사용할 AI 제공사를 선택하고 API 키를 입력하세요.</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
@@ -103,7 +101,7 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
             </div>
             {kind === "opencode_zen" ? (
               <p className="text-[10px] text-warn" data-testid="onb-opencode-warning">
-                ⚠️ 베타 서비스 · 일부 무료 모델은 데이터 훈련에 사용될 수 있음 (
+                베타 서비스 · 일부 무료 모델은 데이터 훈련에 사용될 수 있습니다 (
                 <a
                   href="https://opencode.ai/docs/zen/"
                   target="_blank"
