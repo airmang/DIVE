@@ -18,6 +18,7 @@ export const DialogOverlay = React.forwardRef<
       "fixed inset-0 z-50 bg-bg/80 backdrop-blur-sm",
       "data-[state=open]:animate-in data-[state=open]:fade-in-0",
       "data-[state=closed]:animate-out data-[state=closed]:fade-out-0",
+      "motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none",
       className,
     )}
     {...props}
@@ -38,6 +39,7 @@ export const DialogContent = React.forwardRef<
         "rounded-lg border bg-bg-panel p-6 text-fg",
         "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
         "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
+        "motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none",
         className,
       )}
       {...props}

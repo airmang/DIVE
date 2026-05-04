@@ -24,7 +24,13 @@ export function CardStateBadge({ state, mode, className }: CardStateBadgeProps) 
       )}
       aria-hidden
     >
-      <Icon className={cn(size, meta.iconFgClass, meta.animate && "animate-spin")} />
+      <Icon
+        className={cn(
+          size,
+          meta.iconFgClass,
+          meta.animate && "animate-spin motion-reduce:animate-none",
+        )}
+      />
     </span>
   );
 }

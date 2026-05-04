@@ -10,7 +10,7 @@ export const buttonVariants = cva(
         ghost: "bg-transparent text-fg hover:bg-bg-panel2",
         outline: "bg-transparent text-fg border hover:bg-bg-panel2",
         danger: "bg-danger text-bg hover:brightness-110 active:brightness-95",
-        link: "bg-transparent text-accent underline-offset-4 hover:underline",
+        link: "bg-transparent text-accent-active underline-offset-4 hover:underline",
       },
       size: {
         sm: "h-8 px-3 text-xs",
