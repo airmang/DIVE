@@ -651,3 +651,27 @@
   - Rust 회귀 없음(Rust 쪽에 번역 로직 0). 프론트: +3 파일(index.ts, ko.json, en.json), +1 Playwright 스위트(verify-i18n 13 assertions), 기존 23 스위트 회귀 없음 확인
   - 6-2 접근성 작업은 aria-label을 번역된 리소스에서 직접 사용 가능(이미 Sidebar에서 `t("a11y.region_sidebar")` 적용). 6-5 릴리스 README는 영어 버전도 동시 제공 가능.
   - 번들 사이즈 영향 미미(ko/en JSON 합계 ~8KB raw, gzip ~2KB)
+
+## ADR-034: 단축키는 단일 `useGlobalShortcuts` 훅으로 통합 + 폼 필드 자동 억제
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 6-2)
+- 컨텍스트: 명세 §12.2는 Ctrl+N/S/, /E/W/ /의 6개 단축키 세트를 요구. 기존 MainShell에는 Ctrl+S만 ad-hoc `useEffect`로 있었다. 추가 단축키를 같은 패턴으로 확장하면 6개의 `useEffect + keydown listener`가 MainShell에 축적되어 유지보수가 어렵다. 동시에 "사용자가 텍스트를 타이핑 중일 때 Ctrl+N이 다이얼로그를 여는" 버그가 발생하면 입문자에게 치명적이라 기본 억제가 필요하다.
+- 결정:
+  - **단일 `useGlobalShortcuts({ ... })` 훅**: 모든 단축키 등록을 한 곳에서. MainShell은 핸들러만 전달. 새 단축키 추가 시 훅 내부 switch만 확장하면 됨.
+  - **폼 필드 자동 억제**: `isTypingInFormField`로 `INPUT`/`TEXTAREA`/`SELECT`/`contentEditable` 감지. Ctrl+N·Ctrl+E·Ctrl+W는 폼 안에서 발화 시 무시(사용자가 텍스트 편집 중이라는 신호). Ctrl+S·Ctrl+,·Ctrl+/는 "저장", "설정", "도우미 열기"로 폼 안에서도 의미가 유효하므로 억제하지 않음.
+  - **모디파이어 조건**: `ctrlKey || metaKey`를 모두 수용(Windows/macOS 공통). `altKey`는 명시적으로 배제(Alt는 브라우저 메뉴 트리거로 충돌).
+  - **Shift 조합 배제**: `Ctrl+Shift+N` 등은 브라우저 기본 단축키(새 시크릿 창)와 충돌하므로 `if (e.shiftKey) return`으로 조기 종료.
+  - **대문자/소문자 둘 다 처리**: `case "n": case "N":` — Caps Lock 상태에서도 동작.
+  - **이벤트 대상은 `window`**: 컴포넌트 루트가 아닌 전역. ESLint에 경고가 없고 cleanup도 간단.
+  - **슬라이드 인 패널은 토글(open↔close)**: 다른 경로(설정·프롬프트 도우미)는 URL 이동이라 "다시 누르면 돌아옴"이 자연스럽지 않지만, 슬라이드 패널은 같은 공간에서 켜고 끄는 것이 명세 §5.4의 의도에 부합.
+- 대안:
+  - **각 단축키마다 개별 훅**(`useNewProjectShortcut`, `useCheckpointShortcut` 등): 재사용성은 좋지만 등록 순서·우선순위 제어가 어렵고 같은 keydown을 중복 처리.
+  - **전역 이벤트 버스**: pub-sub 패턴. DIVE 규모에서는 과잉 엔지니어링.
+  - **Radix `useKeyboard` 사용**: Radix는 DropdownMenu 등에 한정되어 전역 단축키에는 부적합.
+  - **IME(한글 입력) 도중 키 감지 억제**: `e.isComposing` 체크 추가 여부 — 현재는 단축키가 Ctrl 조합이라 한글 IME와 충돌 거의 없음. 만약 7월 파일럿에서 한글 입력 중 Ctrl+,가 동작 안 한다는 보고가 오면 `if (e.isComposing) return` 추가.
+- 결과:
+  - +2 파일(useGlobalShortcuts.ts, verify-a11y.mjs), +1 테스트 스위트(12 assertions)
+  - MainShell의 기존 Ctrl+S `useEffect`는 훅 호출로 대체 (-10줄 +25줄 — 순증이지만 6개 단축키 커버)
+  - 기존 23 스위트 전부 pass (회귀 없음)
+  - Toast `aria-live="polite"` 추가로 체크포인트 저장·도구 결과 등의 상태 변경이 스크린리더에 자동 통보됨
