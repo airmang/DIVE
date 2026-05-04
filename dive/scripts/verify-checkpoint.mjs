@@ -20,11 +20,29 @@ function check(name, cond, detail = "") {
 
 async function main() {
   const browser = await chromium.launch();
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    locale: "ko-KR",
+  });
   const page = await context.newPage();
 
   console.log("1. Navigate to ?demo=scenario-b (reusing state-machine demo)");
   await page.goto(`${BASE}/?demo=scenario-b`);
+  await page.waitForLoadState("domcontentloaded");
+  // Reset i18n to Korean (persist store may have been left at "en" by other suites).
+  await page.evaluate(() => {
+    const persisted = window.localStorage.getItem("dive:locale");
+    if (persisted) {
+      try {
+        const parsed = JSON.parse(persisted);
+        parsed.state.locale = "ko";
+        window.localStorage.setItem("dive:locale", JSON.stringify(parsed));
+      } catch {
+        window.localStorage.removeItem("dive:locale");
+      }
+    }
+  });
+  await page.reload();
   await page.waitForSelector('[data-testid="scenario-b-shell"]');
 
   console.log("\n2. Seed verifying card + run verify + approve → checkpoint badge");

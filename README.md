@@ -49,7 +49,10 @@
 - OS 언어가 한국어면 한국어 UI, 아니면 영어로 시작 (사이드바 하단 토글로 전환 가능)
 - 온보딩 다이얼로그 → 프로젝트 폴더 선택 → AI 프로바이더 연결(ChatGPT·Claude·OpenAI·OpenRouter 중 하나)
 
-자세한 사용법: [`docs/student-quickstart.md`](./docs/student-quickstart.md) · [`docs/teacher-manual.md`](./docs/teacher-manual.md)
+**처음 쓰나요?** → **[30분 튜토리얼 (시나리오 A)](./docs/user-guide/tutorial.md)** 로 4단계 완주.
+**문제가 생겼나요?** → [FAQ](./docs/user-guide/faq.md) · [트러블슈팅](./docs/user-guide/troubleshooting.md).
+
+자세한 사용법: [`docs/student-quickstart.md`](./docs/student-quickstart.md) · [`docs/teacher-manual.md`](./docs/teacher-manual.md) · [사용자 가이드 허브](./docs/user-guide/)
 
 ---
 

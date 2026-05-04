@@ -20,11 +20,28 @@ function check(name, cond, detail = "") {
 
 async function main() {
   const browser = await chromium.launch();
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    locale: "ko-KR",
+  });
   const page = await context.newPage();
 
   console.log("1. Navigate to ?demo=polish");
   await page.goto(`${BASE}/?demo=polish`);
+  await page.waitForLoadState("domcontentloaded");
+  await page.evaluate(() => {
+    const persisted = window.localStorage.getItem("dive:locale");
+    if (persisted) {
+      try {
+        const parsed = JSON.parse(persisted);
+        parsed.state.locale = "ko";
+        window.localStorage.setItem("dive:locale", JSON.stringify(parsed));
+      } catch {
+        window.localStorage.removeItem("dive:locale");
+      }
+    }
+  });
+  await page.reload();
   await page.waitForSelector('[data-testid="polish-demo-shell"]');
 
   console.log("\n2. Skeletons render initially");
