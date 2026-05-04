@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { hasDevDemoParam } from "../lib/dev-demo";
+import { refreshMenuRecents } from "../lib/menu-events";
 
 export interface ProjectRow {
   id: number;
@@ -122,6 +123,7 @@ interface State {
   error: string | null;
   loadAll: () => Promise<void>;
   createProject: (name: string, path: string) => Promise<ProjectRow | null>;
+  openProject: (path: string) => Promise<ProjectRow | null>;
   deleteProject: (projectId: number, deleteFolder?: boolean) => Promise<void>;
   selectProject: (projectId: number | null) => Promise<void>;
   createSession: (projectId: number, title?: string) => Promise<SessionRow | null>;
@@ -285,6 +287,54 @@ export const useProjectSessionStore = create<State>((set, get) => ({
         window.localStorage.setItem(CURRENT_PROJECT_KEY, String(row.id));
         window.localStorage.removeItem(CURRENT_SESSION_KEY);
       }
+      await refreshMenuRecents();
+      return row;
+    }),
+
+  openProject: async (path) =>
+    runStoreAction(set, async () => {
+      const api = await loadTauri();
+      const row = await withTauriOrDemoMock<ProjectRow | null>(
+        api,
+        () => api!.invoke<ProjectRow>("project_open", { path }),
+        () => {
+          const mock = loadMock();
+          const now = nowMs();
+          const existing = mock.projects.find((project) => project.path === path);
+          if (existing) {
+            const row = { ...existing, updated_at: now };
+            mock.projects = [row, ...mock.projects.filter((project) => project.id !== row.id)];
+            saveMock(mock);
+            return row;
+          }
+          const trimmed = path.replace(/[\\/]+$/, "");
+          const name = trimmed.split(/[\\/]/).pop() || "project";
+          const row: ProjectRow = {
+            id: mock.nextId++,
+            name,
+            path,
+            provider_default: null,
+            model_default: null,
+            created_at: now,
+            updated_at: now,
+          };
+          mock.projects.unshift(row);
+          saveMock(mock);
+          return row;
+        },
+      );
+      if (!row) return null;
+      set((state) => ({
+        projects: [row, ...state.projects.filter((project) => project.id !== row.id)],
+        currentProjectId: row.id,
+        sessions: [],
+        currentSessionId: null,
+      }));
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(CURRENT_PROJECT_KEY, String(row.id));
+        window.localStorage.removeItem(CURRENT_SESSION_KEY);
+      }
+      await refreshMenuRecents();
       return row;
     }),
 
@@ -316,6 +366,7 @@ export const useProjectSessionStore = create<State>((set, get) => ({
           currentSessionId: current === s.currentProjectId ? s.currentSessionId : null,
         };
       });
+      await refreshMenuRecents();
     }),
 
   selectProject: async (projectId) => {

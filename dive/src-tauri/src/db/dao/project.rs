@@ -33,6 +33,23 @@ pub fn list(conn: &Connection) -> Result<Vec<ProjectRow>, DbError> {
     Ok(rows)
 }
 
+pub fn list_recent(conn: &Connection, limit: i64) -> Result<Vec<ProjectRow>, DbError> {
+    let mut stmt = conn.prepare("SELECT id, name, path, provider_default, model_default, created_at, updated_at FROM Project ORDER BY updated_at DESC, id DESC LIMIT ?")?;
+    let rows = stmt
+        .query_map([limit], map_row)?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+pub fn touch(conn: &Connection, id: i64) -> Result<(), DbError> {
+    let now = now_ms();
+    conn.execute(
+        "UPDATE Project SET updated_at = CASE WHEN updated_at >= ? THEN updated_at + 1 ELSE ? END WHERE id = ?",
+        params![now, now, id],
+    )?;
+    Ok(())
+}
+
 pub fn update(conn: &Connection, id: i64, row: &NewProject) -> Result<(), DbError> {
     conn.execute("UPDATE Project SET name = ?, path = ?, provider_default = ?, model_default = ?, updated_at = ? WHERE id = ?", params![row.name, row.path, row.provider_default, row.model_default, now_ms(), id])?;
     Ok(())
@@ -73,5 +90,17 @@ mod tests {
     fn missing_project_returns_none() {
         let (db, _tmp) = fresh_db();
         assert!(get_by_id(db.conn(), 404).unwrap().is_none());
+    }
+
+    #[test]
+    fn list_recent_orders_by_updated_at_desc() {
+        let (db, _tmp) = fresh_db();
+        let first = insert(db.conn(), &new_project("first", "/tmp/first")).unwrap();
+        let second = insert(db.conn(), &new_project("second", "/tmp/second")).unwrap();
+        touch(db.conn(), first).unwrap();
+        let recent = list_recent(db.conn(), 1).unwrap();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].id, first);
+        assert_ne!(recent[0].id, second);
     }
 }

@@ -27,6 +27,9 @@ import { useT } from "../../i18n";
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts";
 import { useWorkmap } from "../../hooks/useWorkmap";
 import { useChatSession } from "../../hooks/useChatSession";
+import { refreshMenuRecents, useMenuEvents } from "../../lib/menu-events";
+import { pickFolder } from "../../lib/tauri-dialog";
+import { useTheme } from "../../hooks/useTheme";
 import { Button } from "../ui/button";
 import { hasDevDemoParam } from "../../lib/dev-demo";
 
@@ -48,8 +51,11 @@ export function MainShell() {
   const currentProjectId = useProjectSessionStore((s) => s.currentProjectId);
   const currentSessionId = useProjectSessionStore((s) => s.currentSessionId);
   const createSession = useProjectSessionStore((s) => s.createSession);
+  const openProject = useProjectSessionStore((s) => s.openProject);
+  const selectProject = useProjectSessionStore((s) => s.selectProject);
   const isOnboarded = useProjectSessionStore((s) => s.isOnboarded);
   const { toast } = useToast();
+  const { toggleTheme } = useTheme();
 
   useEffect(() => {
     if (!projectSessionLoaded) void loadProjectSession().catch(() => undefined);
@@ -258,6 +264,66 @@ export function MainShell() {
     window.history.pushState({}, "", url.toString());
     window.dispatchEvent(new PopStateEvent("popstate"));
   }, []);
+
+  const handleOpenProject = useCallback(async () => {
+    const picked = await pickFolder({ title: "열 프로젝트 폴더 선택" });
+    if (!picked) return;
+    try {
+      await openProject(picked);
+    } catch (err) {
+      toast({
+        variant: "error",
+        title: "프로젝트 열기 실패",
+        description: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, [openProject, toast]);
+
+  const openExternalUrl = useCallback(
+    async (url: string, title: string) => {
+      try {
+        const { openUrl } = await import("@tauri-apps/plugin-opener");
+        await openUrl(url);
+      } catch (err) {
+        toast({
+          variant: "error",
+          title,
+          description: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [toast],
+  );
+
+  useMenuEvents({
+    "menu:new-project": () => setNewProjectOpen(true),
+    "menu:open-project": () => void handleOpenProject(),
+    "menu:open-recent": (payload) => {
+      const projectId = (payload as { project_id?: number } | undefined)?.project_id;
+      if (typeof projectId !== "number") return;
+      void selectProject(projectId).then(() => refreshMenuRecents());
+    },
+    "menu:settings": openSettingsRoute,
+    "menu:toggle-theme": () => toggleTheme(),
+    "menu:help-docs": () => {
+      void openExternalUrl(
+        "https://github.com/coreelab/dive/blob/main/README.md",
+        "문서를 열 수 없습니다",
+      );
+    },
+    "menu:help-issue": () => {
+      void openExternalUrl(
+        "https://github.com/coreelab/dive/issues/new",
+        "이슈 페이지를 열 수 없습니다",
+      );
+    },
+    "menu:help-about": () =>
+      toast({
+        variant: "info",
+        title: "DIVE v1.0.0-rc.2",
+        description: "AI 코딩 작업을 카드와 세션으로 관리하는 데스크톱 앱입니다.",
+      }),
+  });
 
   useGlobalShortcuts({
     onManualCheckpoint: handleManualCheckpoint,

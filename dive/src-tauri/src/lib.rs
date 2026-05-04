@@ -8,6 +8,7 @@ pub mod dive;
 pub mod export;
 pub mod ipc;
 pub mod mcp;
+pub mod menu;
 pub mod providers;
 pub mod tools;
 
@@ -35,6 +36,12 @@ pub fn run() {
         .setup(|app| {
             let app_state = ipc::AppState::from_app_handle(app.handle())?;
             app.manage(app_state);
+
+            let recents = ipc::fetch_recent_projects_for_menu(app.handle()).unwrap_or_default();
+            let menu = menu::build_menu(app.handle(), &recents)?;
+            app.set_menu(menu)?;
+            menu::install_event_handler(app.handle());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -90,7 +97,8 @@ pub fn run() {
             ipc::mcp_server_set_enabled,
             ipc::mcp_server_test_connect,
             ipc::mcp_server_list_tools,
-            ipc::prompt_check_review
+            ipc::prompt_check_review,
+            ipc::menu_refresh_recents
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

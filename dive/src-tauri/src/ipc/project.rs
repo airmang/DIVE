@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
+
+use crate::menu::RECENT_PROJECTS_LIMIT;
 
 use crate::checkpoint::CheckpointEngine;
 use crate::db::dao::project as project_dao;
@@ -102,9 +104,18 @@ fn project_open_impl(state: &AppState, path: String) -> Result<ProjectRow, Strin
             .into_iter()
             .find(|row| Path::new(&row.path) == root)
     };
-    if let Some(row) = existing {
+    if let Some(mut row) = existing {
         ensure_dive_dir(&root)?;
         run_checkpoint_init(state, &root)?;
+        {
+            let db = state.db.lock().map_err(|e| e.to_string())?;
+            project_dao::touch(db.conn(), row.id).map_err(|e| e.to_string())?;
+            if let Some(touched) =
+                project_dao::get_by_id(db.conn(), row.id).map_err(|e| e.to_string())?
+            {
+                row = touched;
+            }
+        }
         state.swap_project_root(root)?;
         return Ok(row);
     }
@@ -158,6 +169,35 @@ pub async fn project_delete(
     delete_folder: bool,
 ) -> Result<(), String> {
     project_delete_impl(&state, project_id, delete_folder)
+}
+
+/// Fetch recent projects for native menu rendering.
+pub fn fetch_recent_projects_for_menu<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+) -> Result<Vec<(i64, String)>, String> {
+    let state = app.state::<AppState>();
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let projects = project_dao::list_recent(db.conn(), RECENT_PROJECTS_LIMIT as i64)
+        .map_err(|e| e.to_string())?;
+    Ok(projects
+        .into_iter()
+        .map(|project| {
+            let label = if project.name.trim().is_empty() {
+                project.path
+            } else {
+                project.name
+            };
+            (project.id, label)
+        })
+        .collect())
+}
+
+/// Rebuild File > Open Recent after project create/open/delete.
+#[tauri::command]
+pub fn menu_refresh_recents(app: AppHandle) -> Result<(), String> {
+    let recents = fetch_recent_projects_for_menu(&app).unwrap_or_default();
+    crate::menu::rebuild_menu_with_recents(&app, &recents).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[cfg(test)]
