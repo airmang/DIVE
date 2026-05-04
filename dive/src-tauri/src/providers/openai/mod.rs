@@ -180,9 +180,10 @@ fn to_openai_payload(req: &ChatRequest) -> Value {
 
 fn default_openai_models() -> Vec<ModelInfo> {
     models_from_pairs(&[
-        ("gpt-5.2", "GPT-5.2"),
-        ("gpt-5.2-codex", "GPT-5.2 Codex"),
-        ("gpt-5.1", "GPT-5.1"),
+        ("gpt-5.5", "GPT-5.5"),
+        ("gpt-5.5-codex", "GPT-5.5 Codex"),
+        ("gpt-5.4", "GPT-5.4"),
+        ("gpt-5.4-mini", "GPT-5.4 Mini"),
     ])
 }
 

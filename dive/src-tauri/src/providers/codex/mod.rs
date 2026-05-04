@@ -27,6 +27,21 @@ pub struct CodexProvider {
     http: reqwest::Client,
 }
 
+pub fn default_codex_models() -> Vec<ModelInfo> {
+    [
+        ("gpt-5.5-codex", "GPT-5.5 Codex"),
+        ("gpt-5.5", "GPT-5.5 (ChatGPT)"),
+        ("gpt-5.4", "GPT-5.4 (ChatGPT)"),
+        ("gpt-5.4-mini", "GPT-5.4 Mini (ChatGPT)"),
+    ]
+    .into_iter()
+    .map(|(id, display_name)| ModelInfo {
+        id: id.to_string(),
+        display_name: display_name.to_string(),
+    })
+    .collect()
+}
+
 impl CodexProvider {
     pub fn new(tokens: CodexTokens, oauth: CodexOAuth) -> Self {
         Self::with_base_url(tokens, oauth, DEFAULT_BASE_URL)
@@ -61,17 +76,7 @@ impl LlmProvider for CodexProvider {
     }
 
     fn list_models(&self) -> Vec<ModelInfo> {
-        [
-            ("gpt-5.2", "GPT-5.2 (ChatGPT)"),
-            ("gpt-5.2-codex", "GPT-5.2 Codex"),
-            ("gpt-5.1", "GPT-5.1 (ChatGPT)"),
-        ]
-        .into_iter()
-        .map(|(id, display_name)| ModelInfo {
-            id: id.to_string(),
-            display_name: display_name.to_string(),
-        })
-        .collect()
+        default_codex_models()
     }
 
     async fn chat(&self, req: ChatRequest) -> Result<BoxStream<'static, ChatEvent>, ProviderError> {

@@ -4,6 +4,23 @@ All notable changes to DIVE are documented here. Format: [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Added
+
+- DIVE v4 productization polish: native project/menu entry points, Tauri folder picker, tutorial mode, provider model selector, and per-track verification scripts.
+- Static provider model lists and persisted `selected_model` storage for connected providers.
+- `pnpm verify:v4` aggregate gate covering Tracks A-G; Track H live model refresh remains a follow-up.
+
+### Changed
+
+- Provider onboarding and Settings copy now use product-oriented tone.
+- Language and theme controls moved into Settings > General; sidebar duplicate controls removed.
+- Demo pages remain available in development but are excluded from production bundles with DEV-only lazy imports.
+- Default chat model hint copy is generic and no longer embeds concrete model IDs.
+
+### Fixed
+
+- Recent project ordering now remains deterministic when multiple updates occur in the same millisecond.
+
 ### External blockers before publish
 
 - Full Windows physical-machine / CI `tauri-driver` + NSIS installed-app smoke.

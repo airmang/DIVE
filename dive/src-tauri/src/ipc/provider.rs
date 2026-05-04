@@ -1,12 +1,21 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use tauri::State;
 
 use crate::auth;
 use crate::db::dao::provider_config as provider_dao;
 use crate::db::models::{NewProviderConfig, ProviderConfigRow};
+use crate::providers::ModelInfo;
 
-use super::AppState;
+use super::{AppState, ProviderKind, ProviderRuntime};
+
+fn selected_model_from_config(config: &Value) -> Option<String> {
+    config
+        .get("selected_model")
+        .or_else(|| config.get("model"))
+        .and_then(|value| value.as_str())
+        .map(str::to_owned)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderConfigSummary {
@@ -15,6 +24,22 @@ pub struct ProviderConfigSummary {
     pub auth_type: String,
     pub base_url: Option<String>,
     pub is_connected: bool,
+    pub selected_model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelInfoDto {
+    pub id: String,
+    pub display_name: String,
+}
+
+impl From<ModelInfo> for ModelInfoDto {
+    fn from(model: ModelInfo) -> Self {
+        Self {
+            id: model.id,
+            display_name: model.display_name,
+        }
+    }
 }
 
 #[tauri::command]
@@ -53,7 +78,7 @@ pub async fn provider_connect_impl(
                 kind: canonical_kind.clone(),
                 auth_type: "api_key".into(),
                 base_url: base_url.clone(),
-                config: Value::Object(serde_json::Map::new()),
+                config: json!({ "selected_model": model }),
             },
         )
         .map_err(|e| e.to_string())?
@@ -68,7 +93,7 @@ pub async fn provider_connect_impl(
         .swap_runtime(crate::ipc::ProviderRuntime::new(
             Some(id),
             parsed_kind,
-            model,
+            model.clone(),
             provider,
         ))
         .map_err(|e| format!("runtime: {e}"))?;
@@ -78,6 +103,7 @@ pub async fn provider_connect_impl(
         auth_type: "api_key".into(),
         base_url,
         is_connected: true,
+        selected_model: Some(model),
     })
 }
 
@@ -91,6 +117,7 @@ pub async fn provider_list(
     };
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
+        let selected_model = selected_model_from_config(&row.config);
         let is_connected = auth::load_provider_api_key(state.keyring.as_ref(), row.id)
             .map(|s| s.is_some())
             .unwrap_or(false);
@@ -100,9 +127,91 @@ pub async fn provider_list(
             auth_type: row.auth_type,
             base_url: row.base_url,
             is_connected,
+            selected_model,
         });
     }
     Ok(out)
+}
+
+#[tauri::command]
+pub async fn provider_list_models(
+    state: State<'_, AppState>,
+    provider_id: i64,
+) -> Result<Vec<ModelInfoDto>, String> {
+    provider_list_models_impl(&state, provider_id).await
+}
+
+pub async fn provider_list_models_impl(
+    state: &AppState,
+    provider_id: i64,
+) -> Result<Vec<ModelInfoDto>, String> {
+    let snap = state.runtime_snapshot();
+    if snap.config_id == Some(provider_id) {
+        return Ok(snap
+            .provider
+            .list_models()
+            .into_iter()
+            .map(Into::into)
+            .collect());
+    }
+
+    let row = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        provider_dao::get_by_id(db.conn(), provider_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("provider not found: {provider_id}"))?
+    };
+    Ok(crate::providers::models_for_kind(&row.kind)
+        .into_iter()
+        .map(Into::into)
+        .collect())
+}
+
+#[tauri::command]
+pub async fn provider_set_model(
+    state: State<'_, AppState>,
+    provider_id: i64,
+    model_id: String,
+) -> Result<(), String> {
+    provider_set_model_impl(&state, provider_id, model_id).await
+}
+
+pub async fn provider_set_model_impl(
+    state: &AppState,
+    provider_id: i64,
+    model_id: String,
+) -> Result<(), String> {
+    let trimmed = model_id.trim().to_owned();
+    if trimmed.is_empty() {
+        return Err("model_id is empty".into());
+    }
+
+    let row = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let row = provider_dao::get_by_id(db.conn(), provider_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("provider not found: {provider_id}"))?;
+        let allowed = crate::providers::models_for_kind(&row.kind);
+        if !allowed.is_empty() && !allowed.iter().any(|model| model.id == trimmed) {
+            return Err(format!("model not available for {}: {trimmed}", row.kind));
+        }
+        provider_dao::write_selected_model(db.conn(), provider_id, &trimmed)
+            .map_err(|e| e.to_string())?;
+        row
+    };
+
+    let snap = state.runtime_snapshot();
+    if snap.config_id == Some(provider_id) {
+        state
+            .swap_runtime(ProviderRuntime::new(
+                Some(provider_id),
+                ProviderKind::parse(&row.kind),
+                trimmed,
+                snap.provider,
+            ))
+            .map_err(|e| format!("runtime: {e}"))?;
+    }
+    Ok(())
 }
 
 #[tauri::command]

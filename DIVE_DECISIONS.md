@@ -1189,3 +1189,143 @@
   - `dive/src-tauri/src/dive/verify.rs`
   - `dive/src-tauri/src/db/migrations.rs`
   - `dive/src/components/workmap/CardDetailPanel.tsx`
+
+## ADR-069: 언어와 테마 설정은 Settings General을 단일 진입점으로 둔다
+
+- 일시: 2026-05-05
+- 상태: 채택 (DIVE v4 Track C)
+- 컨텍스트: 사이드바 하단의 즉시 토글은 제품 탐색 중 시선과 공간을 빼앗고, 설정 화면에도 동일한 controls가 생기면 상태 설명과 검증 surface가 중복된다.
+- 결정:
+  - 언어와 테마 선택은 `Settings > General`에서만 노출한다.
+  - 사이드바 하단 언어 스위치는 제거하고, 설정 진입 링크만 남긴다.
+  - 기존 Zustand persist/i18n/theme 상태는 유지하되 Settings 카드에서 같은 source of truth를 조작한다.
+- 대안:
+  - 사이드바와 Settings 양쪽에 중복 배치 — 입문자에게 동일 기능의 위치가 두 곳으로 보이고 QA surface가 늘어나므로 거부한다.
+  - 설정 화면만 만들고 사이드바 토글 유지 — v4 제품화의 “정리된 앱 shell” 목표와 맞지 않는다.
+- 결과:
+  - 설정 화면이 언어/테마/튜토리얼/모델 선택의 제품 단일 진입점이 됐다.
+- 참조 파일:
+  - `dive/src/components/sidebar/AppSidebar.tsx`
+  - `dive/src/pages/settings.tsx`
+  - `dive/scripts/verify-track-c.mjs`
+
+## ADR-070: 네이티브 메뉴바는 Tauri v2 메뉴와 frontend menu event bridge로 구현한다
+
+- 일시: 2026-05-05
+- 상태: 채택 (DIVE v4 Track D)
+- 컨텍스트: Windows 데스크톱 앱으로 제품화하려면 New/Open/Open Recent/Settings/Tutorial 같은 앱 진입점이 OS 메뉴와 동일한 mental model로 동작해야 한다.
+- 결정:
+  - Tauri v2 `MenuBuilder`/submenu APIs로 File/View/Help 메뉴를 구성한다.
+  - 메뉴 item id는 `menu:*` namespace로 고정하고 frontend는 Tauri event listener로 navigation/toast/action을 처리한다.
+  - `Open Recent`는 DB recent projects를 읽어 메뉴 재빌드 시 반영한다.
+- 대안:
+  - HTML 내부 메뉴만 제공 — Windows 데스크톱 앱 기대와 다르고 keyboard/menu automation 검증이 약하다.
+  - Tauri v1 API 또는 platform-specific shell 메뉴 — v2 기준 명세와 충돌하므로 거부한다.
+- 결과:
+  - 메뉴 actions가 product route와 프로젝트 생성/열기 흐름을 공유한다.
+- 참조 파일:
+  - `dive/src-tauri/src/menu.rs`
+  - `dive/src-tauri/src/lib.rs`
+  - `dive/src/hooks/use-native-menu-events.ts`
+  - `dive/scripts/verify-track-d.mjs`
+
+## ADR-071: 설명성 학습 문구는 기본 비활성 Tutorial mode로만 노출한다
+
+- 일시: 2026-05-05
+- 상태: 채택 (DIVE v4 Track E)
+- 컨텍스트: 제품 UI에서는 긴 설명 문구가 사용 흐름을 방해하지만, 입문자 튜토리얼에서는 단계별 안내가 필요하다. 안전 카피는 숨기면 안 된다.
+- 결정:
+  - `dive:ui-preferences` persisted store에 `tutorialEnabled`를 두고 기본값은 false로 한다.
+  - `LearningHint` 컴포넌트로 순수 설명/학습 보조 문구만 gating한다.
+  - 안전/권한/위험도 카피 K1~K6는 절대 `LearningHint` 뒤에 숨기지 않는다.
+  - Help 메뉴의 Tutorial action은 tutorial mode를 켜고 안내 toast를 띄운다.
+- 대안:
+  - 모든 설명 문구 제거 — 파일럿 onboarding과 교사용 시나리오에서 안내 근거가 사라진다.
+  - 안전 문구까지 tutorial mode에 종속 — 권한 카드/위험 고지의 제품 안전 계약을 깨므로 거부한다.
+- 결과:
+  - 기본 제품 화면은 간결해지고, 튜토리얼에서는 같은 화면에서 보조 설명을 복원할 수 있다.
+- 참조 파일:
+  - `dive/src/stores/ui-preferences.ts`
+  - `dive/src/components/ui/learning-hint.tsx`
+  - `dive/src/pages/settings.tsx`
+  - `dive/scripts/verify-track-e.mjs`
+
+## ADR-072: 선택 모델은 새 DB 컬럼 없이 ProviderConfig.config JSON의 `selected_model`에 저장한다
+
+- 일시: 2026-05-05
+- 상태: 채택 (DIVE v4 Track G)
+- 컨텍스트: v4는 provider별 모델 선택 UI가 필요하지만, rc.2 이후 사용자 DB를 불필요하게 마이그레이션하지 않고 기존 provider config 확장 지점으로 해결해야 한다.
+- 결정:
+  - 선택 모델은 `provider_configs.config` JSON 안의 `selected_model` key에 저장한다.
+  - 저장 시 기존 config key를 merge 보존한다.
+  - hydration은 `selected_model`을 우선 읽고, 기존 row 호환을 위해 legacy `model` key를 fallback으로 읽는다.
+  - runtime active provider가 있으면 모델 변경 시 runtime snapshot도 원자적으로 교체한다.
+- 대안:
+  - `selected_model` 전용 컬럼 추가 — v4 범위 대비 migration/rollback surface가 커진다.
+  - frontend localStorage만 사용 — backend runtime hydration과 재시작 persistence가 깨진다.
+- 결과:
+  - provider model selection이 DB와 runtime 양쪽에서 일관되며 기존 config payload를 보존한다.
+- 참조 파일:
+  - `dive/src-tauri/src/db/dao/provider_config.rs`
+  - `dive/src-tauri/src/ipc/provider.rs`
+  - `dive/src-tauri/src/ipc/mod.rs`
+  - `dive/src/components/settings/ProviderModelSelector.tsx`
+
+## ADR-073: Demo route 파일은 보존하되 production bundle에서는 DEV-only lazy import로 제외한다
+
+- 일시: 2026-05-05
+- 상태: 채택 (DIVE v4 Track F)
+- 컨텍스트: demo pages는 개발/QA fixture로 계속 필요하지만, production bundle과 사용자 route에서는 제품 앱만 노출되어야 한다.
+- 결정:
+  - demo page 파일은 삭제하지 않는다.
+  - `import.meta.env.DEV` 조건과 lazy/dynamic import를 사용해 production tree-shaking 대상에서 제외한다.
+  - production에서 `?demo=` 진입 시 product shell fallback으로 처리한다.
+- 대안:
+  - demo 파일 삭제 — QA fixture와 시각 regression reference를 잃는다.
+  - static import 유지 후 route만 숨김 — production bundle에 demo 코드가 남아 v4 목표와 충돌한다.
+- 결과:
+  - 개발 모드에서는 demo routes를 유지하고, production build에서는 demo code path가 번들에 포함되지 않는다.
+- 참조 파일:
+  - `dive/src/App.tsx`
+  - `dive/src/demo/DemoRouter.tsx`
+  - `dive/scripts/verify-track-f.mjs`
+
+## ADR-074: 프로젝트 폴더 선택은 Tauri v2 dialog directory picker를 표준으로 한다
+
+- 일시: 2026-05-05
+- 상태: 채택 (DIVE v4 Track B)
+- 컨텍스트: 입문자가 경로 문자열을 직접 입력하는 방식은 Windows UX와 오류 복구에 취약하다. 제품화된 onboarding/project creation은 OS folder picker를 기본으로 해야 한다.
+- 결정:
+  - 프로젝트 생성/온보딩은 `@tauri-apps/plugin-dialog`의 `open({ directory: true })`를 우선 사용한다.
+  - Tauri runtime이 아니거나 dialog 실패 시 수동 경로 입력 fallback을 유지한다.
+  - 선택된 폴더는 기존 project creation IPC와 같은 validation path를 통과한다.
+- 대안:
+  - 수동 입력만 유지 — 경로 오타와 Windows path UX 문제가 반복된다.
+  - backend-only picker command 작성 — Tauri v2 plugin이 제공하는 표준 surface를 중복한다.
+- 결과:
+  - 데스크톱 앱다운 폴더 선택 UX와 기존 검증 경로를 함께 유지한다.
+- 참조 파일:
+  - `dive/src/components/onboarding/OnboardingDialog.tsx`
+  - `dive/src/components/project/ProjectCreateDialog.tsx`
+  - `dive/scripts/verify-track-b.mjs`
+
+## ADR-075: UI 안내 문자열에는 구체 모델 ID를 하드코딩하지 않는다
+
+- 일시: 2026-05-05
+- 상태: 채택 (DIVE v4 Track G)
+- 컨텍스트: 모델 ID는 빠르게 바뀌며, 기본 chat hint나 toast 같은 안내 문구에 특정 ID가 박히면 문서/코드/제품 copy가 즉시 stale해진다. 반면 provider selector option value에는 실제 모델 ID가 필요하다.
+- 결정:
+  - 기본 chat chip/hint/toast/설명 copy는 “선택한 모델”, “모델 선택”처럼 generic하게 유지한다.
+  - 실제 모델 ID는 provider factory/static model list와 selector option value/display 영역에만 둔다.
+  - OpenAI/Anthropic/Codex/OpenRouter static lists는 provider module에서 중앙 관리한다.
+- 대안:
+  - 최신 모델 ID를 UI hint에 직접 표시 — 최신성 유지 비용과 Track G 불변 조건 때문에 거부한다.
+  - 모델 ID를 모두 숨김 — 사용자가 어떤 모델을 선택하는지 알 수 없으므로 selector option에는 표시해야 한다.
+- 결과:
+  - 제품 안내 문구는 모델 출시 주기에 덜 민감해지고, 선택 UI는 실제 ID 기반으로 동작한다.
+- 참조 파일:
+  - `dive/src/components/chat/ChatInput.tsx`
+  - `dive/src/components/settings/ProviderModelSelector.tsx`
+  - `dive/src-tauri/src/providers/factory.rs`
+  - `dive/scripts/verify-track-g.mjs`
+

@@ -27,6 +27,7 @@ export interface ProviderSummary {
   auth_type: string;
   base_url: string | null;
   is_connected: boolean;
+  selected_model?: string | null;
 }
 
 type TauriApi = {
@@ -526,6 +527,7 @@ export const useProjectSessionStore = create<State>((set, get) => ({
             auth_type: "api_key",
             base_url: baseUrl ?? null,
             is_connected: true,
+            selected_model: null,
           };
           mock.providers.push(row);
           saveMock(mock);

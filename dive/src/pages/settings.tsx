@@ -9,6 +9,7 @@ import { CodexOAuthDialog } from "../components/codex/CodexOAuthDialog";
 import { LOCALE_LABEL, SUPPORTED_LOCALES, useLocaleStore, type Locale } from "../i18n";
 import { LearningHint } from "../components/ui/learning-hint";
 import { useUiPreferencesStore } from "../stores/ui-preferences";
+import { ProviderModelSelector } from "../components/settings/ProviderModelSelector";
 
 type TauriApi = {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -504,6 +505,15 @@ export function SettingsPage() {
                       >
                         {connecting ? "연결 중…" : "저장 + 연결"}
                       </Button>
+                    </div>
+                  ) : null}
+                  {connected && (connected as ProviderSummary).id > 0 ? (
+                    <div className="border-t pt-2">
+                      <ProviderModelSelector
+                        providerId={(connected as ProviderSummary).id}
+                        providerKind={p.kind}
+                        selectedModel={(connected as ProviderSummary).selected_model ?? null}
+                      />
                     </div>
                   ) : null}
                 </Card>

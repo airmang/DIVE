@@ -1,17 +1,42 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::{AnthropicProvider, LlmProvider, OpenAiProvider, ProviderError};
+use super::{AnthropicProvider, LlmProvider, ModelInfo, OpenAiProvider, ProviderError};
 
 pub fn default_model_for_kind(kind: &str) -> &'static str {
     match kind {
-        "anthropic" => "claude-sonnet-4.5",
-        "openai" => "gpt-5.2",
-        "openrouter" => "openai/gpt-5.2",
+        // Cost-aware v4 defaults: flagship models stay available in the selector,
+        // but default to the general-purpose tier for first-run affordability.
+        "anthropic" => "claude-sonnet-4-6",
+        "openai" => "gpt-5.4",
+        "openrouter" => "openai/gpt-5.4",
         "opencode-zen" | "opencode_zen" => "gpt-5-nano",
-        "custom-openai" | "custom_openai" => "gpt-5.2",
-        "codex" => "gpt-5.2-codex",
+        "custom-openai" | "custom_openai" => "gpt-5.4",
+        "codex" => "gpt-5.5-codex",
         _ => "unset",
+    }
+}
+
+pub fn models_for_kind(kind: &str) -> Vec<ModelInfo> {
+    match kind {
+        "anthropic" => AnthropicProvider::new(String::new()).list_models(),
+        "openai" | "custom-openai" | "custom_openai" => {
+            OpenAiProvider::new(String::new()).list_models()
+        }
+        "openrouter" => OpenAiProvider::openrouter(String::new())
+            .list_models()
+            .into_iter()
+            .map(|mut model| {
+                model.id = format!("openai/{}", model.id);
+                model.display_name = format!("OpenAI · {}", model.display_name);
+                model
+            })
+            .collect(),
+        "opencode-zen" | "opencode_zen" => {
+            OpenAiProvider::opencode_zen(String::new()).list_models()
+        }
+        "codex" => crate::providers::codex::default_codex_models(),
+        _ => Vec::new(),
     }
 }
 
@@ -145,12 +170,26 @@ mod tests {
 
     #[test]
     fn default_models_cover_supported_kinds() {
-        assert_eq!(default_model_for_kind("anthropic"), "claude-sonnet-4.5");
-        assert_eq!(default_model_for_kind("openai"), "gpt-5.2");
-        assert_eq!(default_model_for_kind("openrouter"), "openai/gpt-5.2");
+        assert_eq!(default_model_for_kind("anthropic"), "claude-sonnet-4-6");
+        assert_eq!(default_model_for_kind("openai"), "gpt-5.4");
+        assert_eq!(default_model_for_kind("openrouter"), "openai/gpt-5.4");
         assert_eq!(default_model_for_kind("opencode_zen"), "gpt-5-nano");
         assert_eq!(default_model_for_kind("opencode-zen"), "gpt-5-nano");
+        assert_eq!(default_model_for_kind("codex"), "gpt-5.5-codex");
         assert_eq!(default_model_for_kind("unknown"), "unset");
+    }
+
+    #[test]
+    fn static_models_cover_defaults() {
+        for kind in ["anthropic", "openai", "openrouter", "opencode_zen", "codex"] {
+            let default_model = default_model_for_kind(kind);
+            assert!(
+                models_for_kind(kind)
+                    .into_iter()
+                    .any(|model| model.id == default_model),
+                "{kind} list should contain {default_model}"
+            );
+        }
     }
 
     #[test]

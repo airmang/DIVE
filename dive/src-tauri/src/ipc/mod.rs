@@ -220,7 +220,8 @@ fn hydrate_provider_runtime(
             ));
             let model = row
                 .config
-                .get("model")
+                .get("selected_model")
+                .or_else(|| row.config.get("model"))
                 .and_then(|value| value.as_str())
                 .unwrap_or_else(|| providers::default_model_for_kind(&row.kind))
                 .to_owned();
@@ -236,7 +237,8 @@ fn hydrate_provider_runtime(
         };
         let model = row
             .config
-            .get("model")
+            .get("selected_model")
+            .or_else(|| row.config.get("model"))
             .and_then(|value| value.as_str())
             .unwrap_or_else(|| providers::default_model_for_kind(&row.kind))
             .to_owned();

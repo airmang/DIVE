@@ -82,6 +82,8 @@ pub fn run() {
             ipc::session_delete,
             ipc::provider_connect,
             ipc::provider_list,
+            ipc::provider_list_models,
+            ipc::provider_set_model,
             ipc::provider_disconnect,
             ipc::provider_policy_get,
             ipc::provider_policy_set,
