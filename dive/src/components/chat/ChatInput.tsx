@@ -2,12 +2,16 @@ import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { Send, Sparkles } from "lucide-react";
 import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
+import type { AmbiguityHit, DiveStage } from "../../lib/ambiguity";
+import { AmbiguityHintList, AmbiguityUnderlay } from "../prompt-helper/AmbiguityHinter";
+import { PromptHelperPanel } from "../prompt-helper/PromptHelperPanel";
 
 interface Props {
   onSend: (text: string) => void;
   disabled?: boolean;
   modelLabel?: string;
   onPromptHelper?: () => void;
+  stage?: DiveStage | null;
   className?: string;
 }
 
@@ -19,9 +23,12 @@ export function ChatInput({
   disabled = false,
   modelLabel = "claude-sonnet-4.5",
   onPromptHelper,
+  stage = null,
   className,
 }: Props) {
   const [value, setValue] = useState("");
+  const [hits, setHits] = useState<AmbiguityHit[]>([]);
+  const [helperOpen, setHelperOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const resize = useCallback(() => {
@@ -43,6 +50,7 @@ export function ChatInput({
     if (!canSend) return;
     onSend(value);
     setValue("");
+    setHits([]);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -52,60 +60,84 @@ export function ChatInput({
     }
   };
 
+  const handleHelperButton = () => {
+    setHelperOpen((o) => !o);
+    onPromptHelper?.();
+  };
+
+  const handleInsertTemplate = (body: string) => {
+    setValue((v) => (v.length === 0 ? body : `${v}\n${body}`));
+    textareaRef.current?.focus();
+    setHelperOpen(false);
+  };
+
   return (
-    <div className={cn("flex flex-col gap-2", className)}>
-      <textarea
-        ref={textareaRef}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={handleKeyDown}
-        disabled={disabled}
-        placeholder="메시지를 입력하세요..."
-        aria-label="메시지 입력"
-        rows={1}
-        data-testid="chat-input-textarea"
-        className={cn(
-          "w-full resize-none rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg",
-          "placeholder:text-fg-muted",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
-          "disabled:cursor-not-allowed disabled:opacity-50",
-        )}
-        style={{ minHeight: `${MIN_HEIGHT_PX}px`, maxHeight: `${MAX_HEIGHT_PX}px` }}
-      />
-      <div className="flex items-center gap-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onPromptHelper}
-          disabled={disabled || !onPromptHelper}
-          aria-label="프롬프트 도우미 (준비 중)"
-          data-testid="chat-prompt-helper"
-        >
-          <Sparkles />
-          프롬프트 도우미
-        </Button>
-        <div className="flex-1" />
-        <Button
-          variant="outline"
-          size="sm"
-          disabled
-          aria-label="모델 선택 (준비 중)"
-          data-testid="chat-model-selector"
-        >
-          {modelLabel} <span aria-hidden>▾</span>
-        </Button>
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={handleSend}
-          disabled={!canSend}
-          aria-label="메시지 전송"
-          data-testid="chat-send"
-        >
-          <Send />
-          전송
-        </Button>
+    <div className={cn("flex gap-2", className)}>
+      <div className="flex flex-1 flex-col gap-2">
+        <div className="relative">
+          <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={disabled}
+            placeholder="메시지를 입력하세요..."
+            aria-label="메시지 입력"
+            rows={1}
+            data-testid="chat-input-textarea"
+            className={cn(
+              "relative w-full resize-none rounded-md border bg-bg-panel2 px-3 py-2 text-sm leading-normal text-fg",
+              "placeholder:text-fg-muted",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
+              "disabled:cursor-not-allowed disabled:opacity-50",
+            )}
+            style={{ minHeight: `${MIN_HEIGHT_PX}px`, maxHeight: `${MAX_HEIGHT_PX}px` }}
+          />
+          <AmbiguityUnderlay value={value} stage={stage} onHitsChange={setHits} />
+        </div>
+        <AmbiguityHintList hits={hits} />
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleHelperButton}
+            disabled={disabled}
+            aria-label="프롬프트 도우미"
+            aria-expanded={helperOpen}
+            data-testid="chat-prompt-helper"
+          >
+            <Sparkles />
+            프롬프트 도우미
+          </Button>
+          <div className="flex-1" />
+          <Button
+            variant="outline"
+            size="sm"
+            disabled
+            aria-label="모델 선택 (준비 중)"
+            data-testid="chat-model-selector"
+          >
+            {modelLabel} <span aria-hidden>▾</span>
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleSend}
+            disabled={!canSend}
+            aria-label="메시지 전송"
+            data-testid="chat-send"
+          >
+            <Send />
+            전송
+          </Button>
+        </div>
       </div>
+      <PromptHelperPanel
+        open={helperOpen}
+        stage={stage}
+        onClose={() => setHelperOpen(false)}
+        onInsert={handleInsertTemplate}
+      />
     </div>
   );
 }

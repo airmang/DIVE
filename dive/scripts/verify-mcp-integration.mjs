@@ -65,7 +65,9 @@ async function main() {
   check("danger card server label is grading", dangerServer === "grading", dangerServer);
 
   console.log("\n6. Approve on safe card updates last action");
-  await page.click('[data-testid="permission-card"][data-risk="safe"] [data-testid="card-approve"]');
+  await page.click(
+    '[data-testid="permission-card"][data-risk="safe"] [data-testid="card-approve"]',
+  );
   const lastAction = await page.$eval('[data-testid="last-action"]', (el) => el.textContent ?? "");
   check("approve safe recorded", lastAction.includes("approved:safe-1"), lastAction);
 
