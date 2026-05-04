@@ -2,13 +2,69 @@
 
 All notable changes to DIVE are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: [SemVer](https://semver.org/lang/ko/).
 
-## [Unreleased]
+## [Unreleased] — Phase 7 Production Wiring (rc.2 준비)
 
-### Added
+### Planned (DIVE_PLAN.md §3 Track 0)
 
-- (pending) 사용자 문서화 — 튜토리얼·FAQ·트러블슈팅 (작업 6-6)
+- Production AppState production builder + disk DB + provider hydration + 4 call site 스냅샷 전환
+- Cards persistence 레이어 (신규 `card_create` / `card_list` / `workmap_get` IPC + `useWorkmap` 훅)
+- MainShell 전면 실 IPC 와이어링 + demo data 제거
+- Silent localStorage fallback 제거 (`withTauriOrDemoMock` 리네이밍)
+- URL namespace `?route=` (product) / `?demo=` (demo) 분리
+- Onboarding Skip 재정의 (`onboarded = providers.length ≥ 1`)
+- opencode zen provider 추가 (OpenAI-compatible route 재사용, 무료 모델 `gpt-5-nano` 기본)
+- 빌트인 도구 4종 보강: `search_files` (안전) / `mkdir` (주의) / `delete_file` (위험) / `run_process` (위험)
+- Bash sandbox 하드닝 (경로 분석 + 외부 쓰기 danger 승격)
+- Checkpoint auto-trigger 전 단계 전환 (D→I / I→V / V reject / E entry) + `changed_files` 메타 + pre-restore 자동 백업
+- EventLog emission 완전성 (8종 이벤트) + PII redaction
+- V-stage 실 테스트 실행 경량 구현 (`test_command` + `run_process`)
+- Release gate 2단계 (developer `pnpm tauri:dev` / release NSIS + tauri-driver 자동 스모크 + 수동 7종)
+- rc.1 데이터 일회성 마이그레이션 모달 + localStorage cleanup
 
-## [1.0.0-rc.1] — 2026-05-04
+### Will produce
+
+- `v1.0.0-rc.2` — 실제로 동작하는 첫 NSIS 빌드
+
+## [Yanked] 1.0.0-rc.1 — 2026-05-04
+
+> **⚠️ 이 릴리스는 회수(Yanked)되었습니다.**
+
+### 회수 사유
+
+Production `AppState`가 `dev_mock()`에 와이어드되어 NSIS 빌드가 실 데이터 저장 / 실 LLM 호출 없이 데모만 구동되었습니다.
+
+### 영향받는 파일
+
+- `dive/src-tauri/src/lib.rs:29` — `let app_state = ipc::AppState::dev_mock();` (production 코드가 in-memory DB + 빈 MockProvider 사용)
+- `dive/src/components/shell/MainShell.tsx` — `DEMO_CHANGED_FILES`, `simulateToolCallCount`, `setTimeout(450)` 가짜 verify
+- `dive/src/stores/project-session.ts` — Tauri IPC 실패 시 localStorage로 silent fallback (실패 위장)
+- workmap store ↔ DB cards 테이블 sync 레이어 부재 (카드 재시작 시 소실)
+
+### 복구 방법
+
+1. v1.0.0-rc.2 이상으로 업그레이드 (Phase 7 종료 후 릴리스 예정).
+2. 기존 localStorage 데이터는 rc.2 첫 실행 시 자동 클리어 + 안내 모달 표시 ("rc.1 데이터 복구 불가, 새로 시작").
+3. API 키 재입력 + 프로젝트 신규 생성 필요.
+
+### GitHub Release 조치
+
+- Release 제목: `[YANKED] DIVE v1.0.0-rc.1`
+- Release 본문 상단에 ⚠️ 회수 공지 박스 추가
+- `.exe` asset은 삭제하지 않음 (아카이브 목적)
+
+### 참고
+
+- 상세 분석 및 복구 계획: `DIVE_PLAN.md` §0 (진단) + §0-13 (rc.1 → rc.2 마이그레이션)
+- 참조 ADR: ADR-052 (rc.1 yank 절차 + 마이그레이션)
+- 협력 교사 공지 필수: 트랙 C 2회차 진입 전 이메일 또는 매뉴얼 섹션
+
+### 원래 rc.1 산출물 (라벨만 유지, 실 동작은 rc.2부터)
+
+- 다국어 (ko/en) · 접근성 단축키 · ARIA live region · WCAG AA 대비 검증 · motion-reduce · NSIS 메타데이터 · MIT License · 공개 README · GitHub Release 워크플로우 · v1.0.0-rc.1 태그
+
+## [1.0.0-rc.1] — 2026-05-04 [SUPERSEDED BY YANKED SECTION ABOVE]
+
+> 아래 섹션은 당시 기록을 위해 보존합니다. 최종 상태는 상단 `[Yanked]` 섹션을 따릅니다.
 
 ### Added
 
@@ -73,6 +129,7 @@ v0.1 — 워크맵 + 채팅 + 권한 카드 + D 게이트. 메인 시나리오 A
 ---
 
 [Unreleased]: https://github.com/coreelab/dive/compare/v1.0.0-rc.1...HEAD
+[Yanked 1.0.0-rc.1]: https://github.com/coreelab/dive/releases/tag/v1.0.0-rc.1
 [1.0.0-rc.1]: https://github.com/coreelab/dive/releases/tag/v1.0.0-rc.1
 [0.3.0]: https://github.com/coreelab/dive/releases/tag/v0.3.0
 [0.2.0]: https://github.com/coreelab/dive/releases/tag/v0.2.0
