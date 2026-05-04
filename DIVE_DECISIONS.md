@@ -748,3 +748,32 @@
   - `LICENSE` + `README.md`(공개) + `CHANGELOG.md` + `.github/workflows/release.yml` 4 파일 신규 (+ `RALPH_README.md` 파일 이동)
   - 첫 릴리스(`v1.0.0-rc.1` 태그) 푸시 시 3곳 버전 검증 통과 후 자동으로 Windows x64/ARM64 NSIS 인스톨러 첨부된 Draft Release 생성
   - Phase 6 종료 후 사용자(총괄 연구원)가 Draft 검토 → 수동 Publish → v1.0 정식 배포
+
+## ADR-038: 사용자 문서는 tutorial/faq/troubleshooting 3분할 + i18n 로케일은 테스트 시작 시 명시 리셋
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 6-6, Phase 6 종료)
+- 컨텍스트: Phase 4에서 만든 `docs/student-quickstart.md`·`docs/teacher-manual.md`는 **파일럿 현장 배포**용(한 회차 수업 운영). v1.0 정식 배포 후 **불특정 다수 최초 사용자**가 겪는 질문은 양상이 다르다 — SmartScreen 경고·Windows 10 호환성·OAuth 콜백 실패 같은 설치 장벽이 주로 걸린다. 동시에 6-1 i18n 도입으로 locale이 Zustand persist에 저장되면서 Playwright 스위트 간 locale 누수가 발생(한 스위트가 en으로 토글한 후 다음 스위트가 ko 가정의 하드코딩된 assertion을 돌림).
+- 결정:
+  - **문서를 tutorial / faq / troubleshooting 3분할**: 사용 패턴이 다름
+    - tutorial — "처음 한 번 완주" (시간 투자 OK, 순차 읽기)
+    - faq — "내 질문 있는지 확인" (목차 기반 탐색)
+    - troubleshooting — "문제 생겼을 때" (증상으로 역검색)
+  - **tutorial은 시나리오 A("할 일 앱")에 정박**: 명세 §3.1 + 학생 quickstart와 동일 예제로 문서 간 일관성. 학생이 튜토리얼을 읽다 헷갈리면 같은 예제 기준의 scenario 1차시 지도안(`docs/scenarios/`) 참조 가능.
+  - **FAQ는 25개로 정지**: 실사용 자료 없이 가설 기반 25개가 "예상 범위" 상한. 파일럿 후 실제 질문으로 업데이트. 미래 질문 50-100개를 선불 작성하지 않음.
+  - **FAQ에 macOS·Linux·자동 업데이트·모바일 명시적 미지원** 섹션: "DIVE가 X를 지원하냐?"는 반복 질문 예방. 로드맵에서 계획하는 항목은 "v1.1+"로 프레이밍.
+  - **Troubleshooting은 "증상 → 원인 → 해결"**: 사용자가 증상으로 시작하므로 증상이 헤딩. 원인을 먼저 요구하면 "내가 원인을 모르니까 왔는데"가 된다.
+  - **i18n 로케일 누수 픽스는 테스트별 명시 리셋**: 전역 `beforeAll`로 해결하면 암묵적 전제 → 스위트별로 Korean 가정을 명시화하는 편이 유지보수 친화적. 세 스위트(checkpoint/polish/state-machine)만 MainShell 기반 → 각각 `localStorage.setItem('dive:locale', {...ko})` 주입. 나머지 스위트는 locale 독립적인 data-testid·data-attribute 기반 assertion이라 영향 없음.
+  - **Playwright `locale: 'ko-KR'` 컨텍스트 옵션 추가**: `navigator.languages`의 첫 실행 감지를 ko로 고정. localStorage 리셋과 중복 방어(persist가 이미 있어도 감지 값이 ko).
+- 대안:
+  - **i18next 같은 공식 i18n 라이브러리**: 이미 ADR-033에서 기각. 이번 작업이 과거 결정의 비용을 드러냄 — 그러나 그 비용은 "테스트 3개에 5줄 추가"로 해결 가능하므로 공식 라이브러리 채택 이유가 되지 않음.
+  - **테스트용 i18n 격리 모드**: 특정 URL 파라미터로 지역화 비활성화. 실제 사용자 경험과 괴리되어 회귀 방지 가치가 줄어듬.
+  - **FAQ를 한 파일로 유지 + 섹션 확장**: 짧을 때는 좋지만 25+ Q 이후 네비게이션 힘들어짐. 3분할이 확장 친화적.
+  - **영어 번역도 동시 제공**: Phase 6 범위에서는 한국어 전용(파일럿 대상 한국 학교). README만 영어 섹션 포함. v1.1에서 영어 튜토리얼 검토.
+  - **PDF 배포**: Windows 학교 환경에서 PDF 뷰어 부담 + 업데이트 시 파일 재배포. Markdown + GitHub 링크가 접근성 친화적.
+- 결과:
+  - +4 docs 파일(tutorial/faq/troubleshooting/user-guide README), 루트 README 링크 추가
+  - +3 수정된 verify 스크립트 (locale 강제)
+  - 최종 Playwright 26 스위트 / **392 assertions** 전부 통과 (Phase 5 종료 시 23 스위트 / 358 assertions + 6-1 i18n 13 + 6-2 a11y 12 + 6-3 contrast 9 + state-machine 1 + checkpoint 2 = +37, 실측 358→392)
+  - Rust 회귀 없음: 238 passed / 0 failed / 1 ignored 유지
+  - Phase 6 종료 — [PHASE_GATE] 선언
