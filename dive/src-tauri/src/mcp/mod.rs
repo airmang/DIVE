@@ -18,9 +18,13 @@
 pub mod client;
 pub mod dao;
 pub mod registry;
+pub mod tool_adapter;
 pub mod transport;
 
 pub use client::{InitializeResult, McpClient, McpError, McpToolInfo};
 pub use dao::{McpServerRow, NewMcpServer};
 pub use registry::{McpServerRegistry, RegistryError};
+pub use tool_adapter::{
+    is_mcp_tool, parse_qualified_tool_name, qualified_tool_name, McpToolAdapter, MCP_PREFIX,
+};
 pub use transport::{HttpTransport, MockTransport, StdioTransport, Transport, TransportKind};

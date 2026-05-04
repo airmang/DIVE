@@ -71,9 +71,7 @@ async function main() {
   check("http row shows safe risk", httpText.includes("safe"));
 
   console.log("\n6. Test connect (mock) renders result message");
-  await page.click(
-    '[data-testid="mcp-test-connect"][data-mcp-label="grading"]',
-  );
+  await page.click('[data-testid="mcp-test-connect"][data-mcp-label="grading"]');
   await page.waitForSelector('[data-testid="mcp-test-result"]');
   const testResultText = await page.$eval(
     '[data-testid="mcp-test-result"]',
@@ -96,7 +94,9 @@ async function main() {
   console.log("\n8. Reload preserves remaining server (localStorage persistence)");
   await page.reload();
   await page.waitForSelector('[data-testid="settings-section-mcp"]');
-  const gradingAfterReload = await page.$('[data-testid="mcp-server-row"][data-mcp-label="grading"]');
+  const gradingAfterReload = await page.$(
+    '[data-testid="mcp-server-row"][data-mcp-label="grading"]',
+  );
   check("grading persists across reload", gradingAfterReload !== null);
 
   console.log("\n9. Regression — other settings sections unaffected");

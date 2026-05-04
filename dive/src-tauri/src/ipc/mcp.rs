@@ -102,6 +102,23 @@ pub async fn mcp_server_test_connect(
     })
 }
 
+#[tauri::command]
+pub async fn mcp_server_list_tools(
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<Vec<McpToolInfo>, String> {
+    let row = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        mcp_dao::get(db.conn(), id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("mcp server {id} not found"))?
+    };
+    let (_client, _init, tools) = McpServerRegistry::connect_and_initialize(&row)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(tools)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

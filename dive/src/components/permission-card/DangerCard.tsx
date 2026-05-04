@@ -3,6 +3,7 @@ import { AlertOctagon, Check, Pencil, X } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { ArgsEditor } from "./ArgsEditor";
+import { McpProvenanceBadge } from "../mcp/McpProvenanceBadge";
 import type { PermissionCardProps } from "./types";
 
 export function DangerCard({ card, onApprove, onDeny }: PermissionCardProps) {
@@ -27,6 +28,7 @@ export function DangerCard({ card, onApprove, onDeny }: PermissionCardProps) {
           <div className="flex items-center gap-2 text-sm">
             <span className="font-medium text-fg">{card.toolName}</span>
             <Badge variant="danger">위험</Badge>
+            <McpProvenanceBadge name={card.toolName} />
           </div>
           <p className="text-xs text-danger">
             이 도구는 되돌리기 어려운 변경을 일으킬 수 있습니다. 인자를 확인한 뒤 승인하세요.

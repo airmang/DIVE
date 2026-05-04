@@ -4,6 +4,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { DiffViewer } from "./DiffViewer";
 import { ArgsEditor } from "./ArgsEditor";
+import { McpProvenanceBadge } from "../mcp/McpProvenanceBadge";
 import type { PermissionCardProps } from "./types";
 
 export function WarnCard({ card, onApprove, onDeny }: PermissionCardProps) {
@@ -27,6 +28,7 @@ export function WarnCard({ card, onApprove, onDeny }: PermissionCardProps) {
           <div className="flex items-center gap-2 text-sm">
             <span className="font-medium text-fg">{card.toolName}</span>
             <Badge variant="warn">주의</Badge>
+            <McpProvenanceBadge name={card.toolName} />
           </div>
           <p className="truncate font-mono text-xs text-fg-muted">{card.paramsPreview}</p>
         </div>

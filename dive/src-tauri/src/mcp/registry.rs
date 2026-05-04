@@ -1,9 +1,12 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use thiserror::Error;
 
 use super::client::{InitializeResult, McpClient, McpError, McpToolInfo};
 use super::dao::McpServerRow;
+use super::tool_adapter::McpToolAdapter;
 use super::transport::{HttpTransport, StdioTransport, TransportError};
+use crate::tools::{RiskLevel, ToolRegistry};
 
 #[derive(Debug, Error)]
 pub enum RegistryError {
@@ -11,6 +14,8 @@ pub enum RegistryError {
     NotFound(i64),
     #[error("server {label}: missing field {field}")]
     MissingField { label: String, field: &'static str },
+    #[error("invalid default_risk {value}")]
+    InvalidRisk { value: String },
     #[error("transport: {0}")]
     Transport(#[from] TransportError),
     #[error("mcp: {0}")]
@@ -88,12 +93,53 @@ impl McpServerRegistry {
         let tools = client.list_tools().await?;
         Ok((client, info, tools))
     }
+
+    pub fn default_risk_of(row: &McpServerRow) -> Result<RiskLevel, RegistryError> {
+        match row.default_risk.as_str() {
+            "safe" => Ok(RiskLevel::Safe),
+            "caution" | "warn" => Ok(RiskLevel::Warn),
+            "danger" => Ok(RiskLevel::Danger),
+            other => Err(RegistryError::InvalidRisk {
+                value: other.to_string(),
+            }),
+        }
+    }
+
+    pub fn build_adapters(
+        row: &McpServerRow,
+        client: Arc<McpClient>,
+        tools: &[McpToolInfo],
+    ) -> Result<Vec<McpToolAdapter>, RegistryError> {
+        let default_risk = Self::default_risk_of(row)?;
+        let adapters = tools
+            .iter()
+            .map(|info| {
+                McpToolAdapter::new(
+                    &row.label,
+                    info.name.clone(),
+                    info.description.clone(),
+                    info.input_schema.clone(),
+                    default_risk,
+                    info.risk_hint.as_deref(),
+                    client.clone(),
+                )
+            })
+            .collect();
+        Ok(adapters)
+    }
+
+    pub fn register_adapters(registry: &mut ToolRegistry, adapters: Vec<McpToolAdapter>) {
+        for adapter in adapters {
+            registry.register(Arc::new(adapter));
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::mcp::dao::NewMcpServer;
+    use crate::tools::Tool;
 
     #[tokio::test]
     async fn http_connect_builds_client_from_row() {
@@ -144,5 +190,90 @@ mod tests {
         assert_eq!(d.transport, "stdio");
         assert!(d.enabled);
         assert_eq!(d.default_risk, "caution");
+    }
+
+    fn row_with_risk(risk: &str) -> McpServerRow {
+        McpServerRow {
+            id: 1,
+            label: "t".into(),
+            transport: "http".into(),
+            command: None,
+            args: None,
+            env: None,
+            url: Some("http://x/rpc".into()),
+            headers: None,
+            default_risk: risk.into(),
+            enabled: true,
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    #[test]
+    fn default_risk_parses_three_variants() {
+        assert_eq!(
+            McpServerRegistry::default_risk_of(&row_with_risk("safe")).unwrap(),
+            RiskLevel::Safe
+        );
+        assert_eq!(
+            McpServerRegistry::default_risk_of(&row_with_risk("caution")).unwrap(),
+            RiskLevel::Warn
+        );
+        assert_eq!(
+            McpServerRegistry::default_risk_of(&row_with_risk("danger")).unwrap(),
+            RiskLevel::Danger
+        );
+        let err = McpServerRegistry::default_risk_of(&row_with_risk("unknown")).unwrap_err();
+        assert!(matches!(err, RegistryError::InvalidRisk { .. }));
+    }
+
+    #[tokio::test]
+    async fn build_adapters_merges_default_and_hint() {
+        use crate::mcp::transport::MockTransport;
+
+        let row = McpServerRow {
+            default_risk: "safe".into(),
+            ..row_with_risk("safe")
+        };
+        let client = Arc::new(McpClient::new(Box::new(MockTransport::new(vec![]))));
+        let tools = vec![
+            McpToolInfo {
+                name: "reader".into(),
+                description: None,
+                input_schema: serde_json::json!({}),
+                risk_hint: Some("safe".into()),
+            },
+            McpToolInfo {
+                name: "shell".into(),
+                description: None,
+                input_schema: serde_json::json!({}),
+                risk_hint: Some("danger".into()),
+            },
+        ];
+        let adapters = McpServerRegistry::build_adapters(&row, client, &tools).unwrap();
+        assert_eq!(adapters.len(), 2);
+        assert_eq!(adapters[0].name(), "mcp__t__reader");
+        assert_eq!(adapters[0].risk_level(), RiskLevel::Safe);
+        assert_eq!(adapters[1].name(), "mcp__t__shell");
+        assert_eq!(adapters[1].risk_level(), RiskLevel::Danger);
+    }
+
+    #[tokio::test]
+    async fn register_adapters_inserts_into_tool_registry() {
+        use crate::mcp::transport::MockTransport;
+
+        let row = row_with_risk("safe");
+        let client = Arc::new(McpClient::new(Box::new(MockTransport::new(vec![]))));
+        let tools = vec![McpToolInfo {
+            name: "reader".into(),
+            description: None,
+            input_schema: serde_json::json!({}),
+            risk_hint: None,
+        }];
+        let adapters = McpServerRegistry::build_adapters(&row, client, &tools).unwrap();
+        let mut registry = ToolRegistry::with_builtins();
+        McpServerRegistry::register_adapters(&mut registry, adapters);
+        assert!(registry.get("mcp__t__reader").is_some());
+        assert!(registry.get("read_file").is_some());
     }
 }

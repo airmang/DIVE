@@ -14,6 +14,7 @@ import SettingsPage from "./pages/settings";
 import TimelineDemoPage from "./pages/timeline-demo";
 import ToastDemoPage from "./pages/toast-demo";
 import PolishDemoPage from "./pages/polish-demo";
+import McpDemoPage from "./pages/mcp-demo";
 
 type Route =
   | "main"
@@ -30,7 +31,8 @@ type Route =
   | "settings"
   | "timeline"
   | "toast"
-  | "polish";
+  | "polish"
+  | "mcp";
 
 function resolveRoute(): Route {
   if (typeof window === "undefined") return "main";
@@ -50,6 +52,7 @@ function resolveRoute(): Route {
   if (demo === "timeline") return "timeline";
   if (demo === "toast") return "toast";
   if (demo === "polish") return "polish";
+  if (demo === "mcp") return "mcp";
   return "main";
 }
 
@@ -76,6 +79,7 @@ function App() {
   if (route === "timeline") return <TimelineDemoPage />;
   if (route === "toast") return <ToastDemoPage />;
   if (route === "polish") return <PolishDemoPage />;
+  if (route === "mcp") return <McpDemoPage />;
   return <MainShell />;
 }
 

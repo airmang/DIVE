@@ -4,6 +4,7 @@ import type { ToolCallMessageData } from "./types";
 import { Badge } from "../ui/badge";
 import { PermissionCard } from "../permission-card";
 import type { PermissionCardData } from "../permission-card";
+import { McpProvenanceBadge } from "../mcp/McpProvenanceBadge";
 
 const STATUS_LABEL: Record<ToolCallMessageData["status"], string> = {
   pending: "대기",
@@ -80,6 +81,7 @@ function ToolCallMessageImpl({ message, onApprove, onDeny }: Props) {
             <p className="flex items-center gap-1 text-fg">
               <span className="font-semibold">도구:</span>
               <span className="font-mono">{message.toolName}</span>
+              <McpProvenanceBadge name={message.toolName} />
             </p>
             <p className="truncate font-mono text-fg-muted">{message.paramsPreview}</p>
             {message.blockedReason ? (
@@ -114,6 +116,7 @@ function ToolCallMessageImpl({ message, onApprove, onDeny }: Props) {
           <div className="flex items-center gap-2 text-sm font-medium text-fg">
             <Wrench className="h-4 w-4 text-accent" aria-hidden />
             <span>{message.toolName}</span>
+            <McpProvenanceBadge name={message.toolName} />
           </div>
           <Badge variant={STATUS_VARIANT[message.status]}>{STATUS_LABEL[message.status]}</Badge>
         </header>
