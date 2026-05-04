@@ -1,9 +1,7 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import MainShell from "./components/shell/MainShell";
 import SettingsPage from "./pages/settings";
 import PromptHelperDemoPage from "./pages/prompt-helper-demo";
-import DemoShell from "./components/demo/DemoShell";
-import { resolveDemoRouteValue, type DemoRoute } from "./lib/demo-routes";
 import { Rc1MigrationDialog } from "./components/rc1/Rc1MigrationDialog";
 import {
   acknowledgeRc1Migration,
@@ -12,8 +10,13 @@ import {
 } from "./lib/rc1-migration";
 
 type ProductRoute = "main" | "settings" | "prompt-helper";
+type DemoRoute = string;
 
 type ResolvedRoute = { kind: "product"; route: ProductRoute } | { kind: "demo"; route: DemoRoute };
+
+const DevDemoShell = import.meta.env.DEV
+  ? lazy(() => import("./components/demo/DemoShell"))
+  : null;
 
 function resolveRoute(
   search = typeof window === "undefined" ? "" : window.location.search,
@@ -36,9 +39,8 @@ function resolveRoute(
     return { kind: "product", route: demo };
   }
 
-  const demoRoute = resolveDemoRouteValue(demo);
-  if (demoRoute) {
-    return { kind: "demo", route: demoRoute };
+  if (import.meta.env.DEV && demo) {
+    return { kind: "demo", route: demo };
   }
 
   return { kind: "product", route: "main" };
@@ -62,16 +64,20 @@ function App() {
     setRc1Migration(null);
   };
 
-  const content =
-    route.kind === "demo" ? (
-      <DemoShell route={route.route} />
-    ) : route.route === "settings" ? (
-      <SettingsPage />
-    ) : route.route === "prompt-helper" ? (
-      <PromptHelperDemoPage />
-    ) : (
-      <MainShell />
+  let content;
+  if (route.kind === "demo" && import.meta.env.DEV && DevDemoShell) {
+    content = (
+      <Suspense fallback={<MainShell />}>
+        <DevDemoShell route={route.route} />
+      </Suspense>
     );
+  } else if (route.kind === "product" && route.route === "settings") {
+    content = <SettingsPage />;
+  } else if (route.kind === "product" && route.route === "prompt-helper") {
+    content = <PromptHelperDemoPage />;
+  } else {
+    content = <MainShell />;
+  }
 
   if (rc1Migration !== null) {
     return (

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { hasRecognizedDemoRoute } from "../lib/demo-routes";
+import { hasDevDemoParam } from "../lib/dev-demo";
 
 export interface ProjectRow {
   id: number;
@@ -56,7 +56,7 @@ export function isProjectSessionDemoFallbackEnabled() {
 }
 
 function canUseDemoFallback() {
-  return projectSessionDemoFallbackEnabled || hasRecognizedDemoRoute();
+  return projectSessionDemoFallbackEnabled || hasDevDemoParam();
 }
 
 function ipcUnavailableError() {

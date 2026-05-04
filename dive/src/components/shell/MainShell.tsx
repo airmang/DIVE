@@ -28,7 +28,7 @@ import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts";
 import { useWorkmap } from "../../hooks/useWorkmap";
 import { useChatSession } from "../../hooks/useChatSession";
 import { Button } from "../ui/button";
-import { hasRecognizedDemoRoute } from "../../lib/demo-routes";
+import { hasDevDemoParam } from "../../lib/dev-demo";
 
 export function MainShell() {
   const t = useT();
@@ -55,7 +55,7 @@ export function MainShell() {
     if (!projectSessionLoaded) void loadProjectSession().catch(() => undefined);
   }, [projectSessionLoaded, loadProjectSession]);
 
-  const isDemoRoute = hasRecognizedDemoRoute();
+  const isDemoRoute = hasDevDemoParam();
 
   useEffect(() => {
     if (!projectSessionLoaded || isDemoRoute) return;
