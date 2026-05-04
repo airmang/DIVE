@@ -1,0 +1,97 @@
+{
+  "app": {
+    "name": "DIVE",
+    "tagline": "AI coding workflow for beginners"
+  },
+  "common": {
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "save": "Save",
+    "delete": "Delete",
+    "close": "Close",
+    "open": "Open",
+    "back": "Back",
+    "next": "Next",
+    "loading": "Loading…",
+    "search": "Search",
+    "settings": "Settings",
+    "retry": "Retry",
+    "optional": "(optional)",
+    "required": "(required)"
+  },
+  "sidebar": {
+    "section_projects": "Projects",
+    "section_sessions": "Sessions",
+    "new_project": "+ New project",
+    "new_session": "+ New session",
+    "empty_projects": "No projects yet",
+    "empty_sessions": "No sessions yet",
+    "select_project_first": "Select a project first",
+    "archived": "Archived",
+    "delete_project_title": "Delete project {{name}}",
+    "delete_session_title": "Delete session {{title}}",
+    "delete_project_confirm": "Delete this project? Only the .dive/ folder will be removed. (Your code is preserved.)",
+    "delete_session_confirm": "Delete this session?",
+    "current_model": "Current model",
+    "provider_not_connected": "No provider connected",
+    "provider_connected": "Connected",
+    "theme_to_light": "Switch to light mode",
+    "theme_to_dark": "Switch to dark mode",
+    "open_settings": "Open settings",
+    "language": "Language",
+    "lang_ko": "한국어",
+    "lang_en": "English"
+  },
+  "stage": {
+    "d": "Stage D",
+    "i": "Stage I",
+    "v": "Stage V",
+    "e": "Stage E",
+    "banner_all_verified": "All cards complete — Stage E: add a new card or end the session",
+    "banner_select_card": "Select a card to work on.",
+    "banner_decomposed": "Write an instruction to enter Stage I.",
+    "banner_instructed_empty": "Please write an instruction for this card.",
+    "banner_instructed": "Stage I: executing your instruction.",
+    "banner_verifying": "Stage V: verification in progress — check the results.",
+    "banner_rejected": "Card rejected — edit the instruction and try again.",
+    "banner_verified": "Verified — inspect the code or move to the next card.",
+    "banner_extended": "Extension complete (E)",
+    "gate_no_cards": "Add a card to the workmap first. (Stage D gate)",
+    "gate_no_instruction": "Please write an instruction for this card. (Stage I gate)",
+    "gate_not_verifying": "Not in verification stage. (Stage V gate)"
+  },
+  "card": {
+    "state_decomposed": "Decomposed",
+    "state_instructed": "Instructed",
+    "state_verifying": "Verifying",
+    "state_verified": "Verified",
+    "state_rejected": "Rejected",
+    "state_extended": "Extended",
+    "checkpoint_verify_pass": "[V pass]",
+    "checkpoint_extend": "[E enter]"
+  },
+  "checkpoint": {
+    "manual_saved": "Checkpoint saved",
+    "manual_label": "Manual save",
+    "manual_label_with_card": "Manual save — {{title}}"
+  },
+  "keyboard": {
+    "shortcut_new_project": "Ctrl+N — New project",
+    "shortcut_checkpoint": "Ctrl+S — Checkpoint",
+    "shortcut_prompt_helper": "Ctrl+/ — Prompt helper",
+    "shortcut_settings": "Ctrl+, — Settings",
+    "shortcut_slide_panel": "Ctrl+E — Slide-in panel",
+    "shortcut_workmap": "Ctrl+W — Workmap toggle"
+  },
+  "a11y": {
+    "region_sidebar": "Sidebar region",
+    "region_chat": "Chat region",
+    "region_workmap": "Workmap region",
+    "region_slide_panel": "Slide-in panel",
+    "live_toast": "Notification",
+    "live_stage_change": "Stage change notification"
+  },
+  "toast": {
+    "checkpoint_saved": "Checkpoint saved"
+  }
+}

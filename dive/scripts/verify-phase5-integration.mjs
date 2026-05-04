@@ -57,7 +57,11 @@ async function main() {
   await page.click('[data-testid="phase5-open-demo"][data-feature-id="mcp-tools"]');
   await page.waitForSelector('[data-testid="mcp-demo-page"]');
   const mcpProvenance = await page.$$('[data-testid="mcp-provenance"]');
-  check("mcp demo renders provenance badges", mcpProvenance.length >= 4, String(mcpProvenance.length));
+  check(
+    "mcp demo renders provenance badges",
+    mcpProvenance.length >= 4,
+    String(mcpProvenance.length),
+  );
 
   console.log("\n5. Back and navigate to prompt-helper demo");
   await page.goto(`${BASE}/?demo=phase5`);
@@ -68,25 +72,16 @@ async function main() {
   console.log("\n6. End-to-end: trigger ambiguity + prompt check from one input");
   await page.fill('[data-testid="chat-input-textarea"]', "이거 고쳐줘");
   await page.waitForSelector('[data-testid="ambiguity-hint-list"]', { timeout: 2000 });
-  const hintCount = await page.$$eval(
-    '[data-testid="ambiguity-hint"]',
-    (els) => els.length,
-  );
+  const hintCount = await page.$$eval('[data-testid="ambiguity-hint"]', (els) => els.length);
   check("local ambiguity hints detected", hintCount >= 1, String(hintCount));
 
   await page.click('[data-testid="chat-prompt-check"]');
   await page.waitForSelector('[data-testid="prompt-check-dialog"]');
   await page.click('[data-testid="prompt-check-run"]');
   await page.waitForSelector('[data-testid="prompt-issues"]');
-  const issuesRendered = await page.$$eval(
-    '[data-testid="prompt-issue"]',
-    (els) => els.length,
-  );
+  const issuesRendered = await page.$$eval('[data-testid="prompt-issue"]', (els) => els.length);
   check("AI critique issues rendered", issuesRendered >= 1, String(issuesRendered));
-  const usageText = await page.$eval(
-    '[data-testid="prompt-usage"]',
-    (el) => el.textContent ?? "",
-  );
+  const usageText = await page.$eval('[data-testid="prompt-usage"]', (el) => el.textContent ?? "");
   check("token usage displayed", /\d/.test(usageText), usageText);
   await page.keyboard.press("Escape");
 

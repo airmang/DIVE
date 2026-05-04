@@ -23,6 +23,7 @@ import { useToast } from "../toast/toast-context";
 import type { CardState, CardTileData } from "../workmap/types";
 import type { ChangedFile } from "../slide-in/types";
 import { getCardStateMeta } from "../workmap/card-state-meta";
+import { useT } from "../../i18n";
 
 const DEMO_CHANGED_FILES: ChangedFile[] = [
   {
@@ -45,6 +46,7 @@ const TRANSITION_TO_STATE: Record<CardTransitionKind, CardState> = {
 };
 
 export function MainShell() {
+  const t = useT();
   const [workmapCollapsed, setWorkmapCollapsed] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -101,51 +103,51 @@ export function MainShell() {
       if (allVerified) {
         return {
           tone: "success",
-          message: "모든 카드 완료 — E 단계: 새 카드 추가 또는 세션 종료",
+          message: t("stage.banner_all_verified"),
         };
       }
       return {
         tone: "info",
-        message: "작업할 카드를 선택하세요.",
+        message: t("stage.banner_select_card"),
       };
     }
     if (active.state === "decomposed") {
-      return { tone: "warn", message: "카드에 지시를 작성해 I 단계로 진입하세요." };
+      return { tone: "warn", message: t("stage.banner_decomposed") };
     }
     if (active.state === "instructed") {
       const hasInstruction = (active.summary ?? "").trim().length > 0;
       if (!hasInstruction) {
-        return { tone: "warn", message: "카드에 지시를 작성해 주세요." };
+        return { tone: "warn", message: t("stage.banner_instructed_empty") };
       }
-      return { tone: "info", message: "I 단계: 지시대로 작업을 진행합니다." };
+      return { tone: "info", message: t("stage.banner_instructed") };
     }
     if (active.state === "verifying") {
-      return { tone: "info", message: "V 단계: 검증 진행 중 — 결과를 확인하세요." };
+      return { tone: "info", message: t("stage.banner_verifying") };
     }
     if (active.state === "rejected") {
-      return { tone: "warn", message: "거부된 카드 — 지시를 수정해 다시 시작하세요." };
+      return { tone: "warn", message: t("stage.banner_rejected") };
     }
     if (active.state === "verified") {
-      return { tone: "success", message: "검증 완료 — 코드를 확인하거나 다음 카드로 이동하세요." };
+      return { tone: "success", message: t("stage.banner_verified") };
     }
-    return { tone: "success", message: "확장 완료 (E)" };
-  }, [cards.length, currentCard, allVerified]);
+    return { tone: "success", message: t("stage.banner_extended") };
+  }, [cards.length, currentCard, allVerified, t]);
 
   const inputBlocked = useMemo(() => {
     if (!canChat) {
-      return { reason: "먼저 워크맵에 카드를 추가하세요. (D 단계 게이트)" };
+      return { reason: t("stage.gate_no_cards") };
     }
     if (stage === "i" && currentCard) {
       const hasInstruction = (currentCard.summary ?? "").trim().length > 0;
       if (!hasInstruction) {
-        return { reason: "카드에 지시를 작성해 주세요. (I 단계 게이트)" };
+        return { reason: t("stage.gate_no_instruction") };
       }
     }
     if (stage === "v" && currentCard?.state !== "verifying") {
-      return { reason: "검증 단계가 아닙니다. (V 단계 게이트)" };
+      return { reason: t("stage.gate_not_verifying") };
     }
     return null;
-  }, [canChat, stage, currentCard]);
+  }, [canChat, stage, currentCard, t]);
 
   const handleCardClick = (card: CardTileData) => {
     if (card.state === "verified" || card.state === "extended") {
@@ -182,20 +184,23 @@ export function MainShell() {
     if (transition === "approve" || transition === "extend") {
       setCheckpointBadges((s) => ({
         ...s,
-        [cardId]: transition === "approve" ? "[V 통과]" : "[E 진입]",
+        [cardId]:
+          transition === "approve" ? t("card.checkpoint_verify_pass") : t("card.checkpoint_extend"),
       }));
     }
   };
 
   const handleManualCheckpoint = useCallback(() => {
-    const label = currentCard ? `수동 저장 — ${currentCard.title}` : "수동 저장";
+    const label = currentCard
+      ? t("checkpoint.manual_label_with_card", { title: currentCard.title })
+      : t("checkpoint.manual_label");
     setLastManualCheckpointLabel(label);
     toast({
       variant: "success",
-      title: "체크포인트 저장됨",
+      title: t("checkpoint.manual_saved"),
       description: label,
     });
-  }, [currentCard, toast]);
+  }, [currentCard, toast, t]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

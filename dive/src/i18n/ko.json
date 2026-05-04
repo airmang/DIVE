@@ -1,0 +1,97 @@
+{
+  "app": {
+    "name": "DIVE",
+    "tagline": "바이브 코딩 입문자를 위한 AI 코딩 워크플로우"
+  },
+  "common": {
+    "cancel": "취소",
+    "confirm": "확인",
+    "save": "저장",
+    "delete": "삭제",
+    "close": "닫기",
+    "open": "열기",
+    "back": "뒤로",
+    "next": "다음",
+    "loading": "불러오는 중…",
+    "search": "검색",
+    "settings": "설정",
+    "retry": "다시 시도",
+    "optional": "(선택)",
+    "required": "(필수)"
+  },
+  "sidebar": {
+    "section_projects": "프로젝트",
+    "section_sessions": "세션",
+    "new_project": "+ 새 프로젝트",
+    "new_session": "+ 새 세션",
+    "empty_projects": "프로젝트가 없습니다",
+    "empty_sessions": "세션이 없습니다",
+    "select_project_first": "프로젝트를 선택하세요",
+    "archived": "보관됨",
+    "delete_project_title": "프로젝트 {{name}} 삭제",
+    "delete_session_title": "세션 {{title}} 삭제",
+    "delete_project_confirm": "프로젝트를 삭제할까요? 폴더의 .dive/ 디렉터리만 지워집니다. (코드는 보존)",
+    "delete_session_confirm": "이 세션을 삭제할까요?",
+    "current_model": "현재 모델",
+    "provider_not_connected": "프로바이더 미연결",
+    "provider_connected": "연결됨",
+    "theme_to_light": "라이트 모드로 전환",
+    "theme_to_dark": "다크 모드로 전환",
+    "open_settings": "설정 화면 열기",
+    "language": "언어",
+    "lang_ko": "한국어",
+    "lang_en": "English"
+  },
+  "stage": {
+    "d": "D 단계",
+    "i": "I 단계",
+    "v": "V 단계",
+    "e": "E 단계",
+    "banner_all_verified": "모든 카드 완료 — E 단계: 새 카드 추가 또는 세션 종료",
+    "banner_select_card": "작업할 카드를 선택하세요.",
+    "banner_decomposed": "카드에 지시를 작성해 I 단계로 진입하세요.",
+    "banner_instructed_empty": "카드에 지시를 작성해 주세요.",
+    "banner_instructed": "I 단계: 지시대로 작업을 진행합니다.",
+    "banner_verifying": "V 단계: 검증 진행 중 — 결과를 확인하세요.",
+    "banner_rejected": "거부된 카드 — 지시를 수정해 다시 시작하세요.",
+    "banner_verified": "검증 완료 — 코드를 확인하거나 다음 카드로 이동하세요.",
+    "banner_extended": "확장 완료 (E)",
+    "gate_no_cards": "먼저 워크맵에 카드를 추가하세요. (D 단계 게이트)",
+    "gate_no_instruction": "카드에 지시를 작성해 주세요. (I 단계 게이트)",
+    "gate_not_verifying": "검증 단계가 아닙니다. (V 단계 게이트)"
+  },
+  "card": {
+    "state_decomposed": "분해됨",
+    "state_instructed": "지시됨",
+    "state_verifying": "검증 중",
+    "state_verified": "검증됨",
+    "state_rejected": "거부됨",
+    "state_extended": "확장됨",
+    "checkpoint_verify_pass": "[V 통과]",
+    "checkpoint_extend": "[E 진입]"
+  },
+  "checkpoint": {
+    "manual_saved": "체크포인트 저장됨",
+    "manual_label": "수동 저장",
+    "manual_label_with_card": "수동 저장 — {{title}}"
+  },
+  "keyboard": {
+    "shortcut_new_project": "Ctrl+N — 새 프로젝트",
+    "shortcut_checkpoint": "Ctrl+S — 체크포인트",
+    "shortcut_prompt_helper": "Ctrl+/ — 프롬프트 도우미",
+    "shortcut_settings": "Ctrl+, — 설정",
+    "shortcut_slide_panel": "Ctrl+E — 슬라이드 패널",
+    "shortcut_workmap": "Ctrl+W — 워크맵 토글"
+  },
+  "a11y": {
+    "region_sidebar": "사이드바 영역",
+    "region_chat": "채팅 영역",
+    "region_workmap": "워크맵 영역",
+    "region_slide_panel": "슬라이드 인 패널",
+    "live_toast": "알림",
+    "live_stage_change": "단계 변경 알림"
+  },
+  "toast": {
+    "checkpoint_saved": "체크포인트 저장됨"
+  }
+}

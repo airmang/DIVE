@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Moon, Plus, Sun, Trash2 } from "lucide-react";
+import { Languages, Moon, Plus, Sun, Trash2 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
@@ -10,6 +10,7 @@ import {
   selectHasConnectedProvider,
 } from "../../stores/project-session";
 import { NewProjectDialog } from "../onboarding/NewProjectDialog";
+import { useLocale, useLocaleStore, useT } from "../../i18n";
 
 interface SidebarProps {
   className?: string;
@@ -17,7 +18,11 @@ interface SidebarProps {
 
 export function Sidebar({ className }: SidebarProps) {
   const { theme, toggleTheme } = useTheme();
-  const themeSwitchLabel = theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환";
+  const t = useT();
+  const locale = useLocale();
+  const setLocale = useLocaleStore((s) => s.setLocale);
+  const themeSwitchLabel =
+    theme === "dark" ? t("sidebar.theme_to_light") : t("sidebar.theme_to_dark");
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
 
   const loaded = useProjectSessionStore((s) => s.loaded);
@@ -44,21 +49,20 @@ export function Sidebar({ className }: SidebarProps) {
   };
 
   const handleDeleteProject = async (id: number) => {
-    const ok = window.confirm(
-      "프로젝트를 삭제할까요? 폴더의 .dive/ 디렉터리만 지워집니다. (코드는 보존)",
-    );
+    const ok = window.confirm(t("sidebar.delete_project_confirm"));
     if (!ok) return;
     await deleteProject(id, false);
   };
 
   const handleDeleteSession = async (id: number) => {
-    const ok = window.confirm("이 세션을 삭제할까요?");
+    const ok = window.confirm(t("sidebar.delete_session_confirm"));
     if (!ok) return;
     await deleteSession(id);
   };
 
   const providerLabel =
-    providers.find((p) => p.is_connected)?.kind ?? (hasProvider ? "연결됨" : "프로바이더 미연결");
+    providers.find((p) => p.is_connected)?.kind ??
+    (hasProvider ? t("sidebar.provider_connected") : t("sidebar.provider_not_connected"));
 
   return (
     <aside
@@ -68,12 +72,13 @@ export function Sidebar({ className }: SidebarProps) {
         className,
       )}
       data-testid="sidebar"
+      aria-label={t("a11y.region_sidebar")}
     >
       <div className="flex items-center gap-2 px-1">
         <span className="text-xl font-bold tracking-tight text-accent">DIVE</span>
       </div>
 
-      <SidebarSection label="프로젝트">
+      <SidebarSection label={t("sidebar.section_projects")}>
         <Button
           variant="ghost"
           size="sm"
@@ -81,10 +86,11 @@ export function Sidebar({ className }: SidebarProps) {
           onClick={() => setProjectDialogOpen(true)}
           data-testid="btn-new-project"
         >
-          <Plus className="h-3.5 w-3.5" />+ 새 프로젝트
+          <Plus className="h-3.5 w-3.5" />
+          {t("sidebar.new_project")}
         </Button>
         {projects.length === 0 ? (
-          <EmptyLine text="프로젝트가 없습니다" />
+          <EmptyLine text={t("sidebar.empty_projects")} />
         ) : (
           <ul className="flex flex-col gap-0.5" data-testid="project-list">
             {projects.map((p) => (
@@ -107,7 +113,7 @@ export function Sidebar({ className }: SidebarProps) {
                   type="button"
                   onClick={() => void handleDeleteProject(p.id)}
                   className="rounded p-1 text-fg-muted hover:bg-bg-panel2 hover:text-danger"
-                  aria-label={`프로젝트 ${p.name} 삭제`}
+                  aria-label={t("sidebar.delete_project_title", { name: p.name })}
                   data-testid="project-delete"
                   data-project-id={p.id}
                 >
@@ -119,7 +125,7 @@ export function Sidebar({ className }: SidebarProps) {
         )}
       </SidebarSection>
 
-      <SidebarSection label="세션">
+      <SidebarSection label={t("sidebar.section_sessions")}>
         <Button
           variant="ghost"
           size="sm"
@@ -128,11 +134,12 @@ export function Sidebar({ className }: SidebarProps) {
           disabled={!currentProject}
           data-testid="btn-new-session"
         >
-          <Plus className="h-3.5 w-3.5" />+ 새 세션
+          <Plus className="h-3.5 w-3.5" />
+          {t("sidebar.new_session")}
         </Button>
         {currentProject ? (
           sessions.length === 0 ? (
-            <EmptyLine text="세션이 없습니다" />
+            <EmptyLine text={t("sidebar.empty_sessions")} />
           ) : (
             <ul className="flex flex-col gap-0.5" data-testid="session-list">
               {sessions.map((s) => (
@@ -151,14 +158,14 @@ export function Sidebar({ className }: SidebarProps) {
                   >
                     <div className="truncate">{s.title}</div>
                     {s.status === "archived" ? (
-                      <div className="text-[9px] text-fg-muted">보관됨</div>
+                      <div className="text-[9px] text-fg-muted">{t("sidebar.archived")}</div>
                     ) : null}
                   </button>
                   <button
                     type="button"
                     onClick={() => void handleDeleteSession(s.id)}
                     className="rounded p-1 text-fg-muted hover:bg-bg-panel2 hover:text-danger"
-                    aria-label={`세션 ${s.title} 삭제`}
+                    aria-label={t("sidebar.delete_session_title", { title: s.title })}
                     data-testid="session-delete"
                     data-session-id={s.id}
                   >
@@ -169,14 +176,14 @@ export function Sidebar({ className }: SidebarProps) {
             </ul>
           )
         ) : (
-          <EmptyLine text="프로젝트를 선택하세요" />
+          <EmptyLine text={t("sidebar.select_project_first")} />
         )}
       </SidebarSection>
 
       <div className="mt-auto flex flex-col gap-2 pt-4">
         <button
           type="button"
-          aria-label="설정 화면 열기"
+          aria-label={t("sidebar.open_settings")}
           onClick={() => {
             const url = new URL(window.location.href);
             url.searchParams.set("demo", "settings");
@@ -187,12 +194,40 @@ export function Sidebar({ className }: SidebarProps) {
           data-testid="btn-open-settings"
         >
           <Card className="px-3 py-2.5 hover:bg-bg-panel2">
-            <div className="text-xs text-fg-muted">현재 모델</div>
+            <div className="text-xs text-fg-muted">{t("sidebar.current_model")}</div>
             <div className="truncate text-sm font-medium text-fg" data-testid="provider-label">
               {providerLabel}
             </div>
           </Card>
         </button>
+
+        <div
+          role="group"
+          aria-label={t("sidebar.language")}
+          className="flex items-center gap-1 rounded-md border border-border bg-bg-panel2 p-1"
+          data-testid="language-switch"
+        >
+          <Languages className="mx-1 h-3.5 w-3.5 text-fg-muted" aria-hidden="true" />
+          {(["ko", "en"] as const).map((code) => (
+            <button
+              key={code}
+              type="button"
+              onClick={() => setLocale(code)}
+              aria-pressed={locale === code}
+              className={cn(
+                "flex-1 rounded px-2 py-1 text-xs font-medium transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                locale === code
+                  ? "bg-accent-subtle text-fg"
+                  : "text-fg-muted hover:text-fg hover:bg-bg-panel",
+              )}
+              data-testid={`lang-${code}`}
+              data-active={locale === code ? "true" : "false"}
+            >
+              {code === "ko" ? t("sidebar.lang_ko") : t("sidebar.lang_en")}
+            </button>
+          ))}
+        </div>
 
         <Button
           variant="ghost"
