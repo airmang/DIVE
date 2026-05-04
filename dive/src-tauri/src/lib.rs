@@ -31,6 +31,7 @@ fn greet(name: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_state = ipc::AppState::from_app_handle(app.handle())?;
             app.manage(app_state);
