@@ -5,6 +5,7 @@ import { WorkmapStrip } from "./WorkmapStrip";
 import { SlideInPanel } from "../slide-in/SlideInPanel";
 import { AiAssistDialog } from "../workmap/AiAssistDialog";
 import { OnboardingDialog } from "../onboarding/OnboardingDialog";
+import { NewProjectDialog } from "../onboarding/NewProjectDialog";
 import {
   CardDetailPanel,
   type CardTransitionKind,
@@ -24,6 +25,7 @@ import type { CardState, CardTileData } from "../workmap/types";
 import type { ChangedFile } from "../slide-in/types";
 import { getCardStateMeta } from "../workmap/card-state-meta";
 import { useT } from "../../i18n";
+import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts";
 
 const DEMO_CHANGED_FILES: ChangedFile[] = [
   {
@@ -51,6 +53,7 @@ export function MainShell() {
   const [aiOpen, setAiOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [verifyLogs, setVerifyLogs] = useState<Record<number, VerifyLogView | null>>({});
   const [verifyStates, setVerifyStates] = useState<Record<number, "idle" | "running" | "error">>(
     {},
@@ -90,6 +93,8 @@ export function MainShell() {
   const allVerified = useWorkmapStore(selectAllCardsVerified);
 
   const openSlideIn = useSlideInStore((s) => s.open);
+  const closeSlideIn = useSlideInStore((s) => s.close);
+  const slideInOpen = useSlideInStore((s) => s.isOpen);
 
   const stage = useMemo(
     () => inferStageFor(currentCard, cards.length, allVerified),
@@ -202,16 +207,30 @@ export function MainShell() {
     });
   }, [currentCard, toast, t]);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-        e.preventDefault();
-        handleManualCheckpoint();
+  useGlobalShortcuts({
+    onManualCheckpoint: handleManualCheckpoint,
+    onNewProject: () => setNewProjectOpen(true),
+    onOpenSettings: () => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("demo", "settings");
+      window.history.pushState({}, "", url.toString());
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    },
+    onOpenPromptHelper: () => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("demo", "prompt-helper");
+      window.history.pushState({}, "", url.toString());
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    },
+    onToggleSlidePanel: () => {
+      if (slideInOpen) {
+        closeSlideIn();
+      } else {
+        openSlideIn({ tab: "code" });
       }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [handleManualCheckpoint]);
+    },
+    onToggleWorkmap: () => setWorkmapCollapsed((c) => !c),
+  });
 
   const handleVerify = useCallback(async (cardId: number) => {
     setVerifyStates((s) => ({ ...s, [cardId]: "running" }));
@@ -245,7 +264,10 @@ export function MainShell() {
   const currentVerifyError = currentCard ? (verifyErrors[currentCard.id] ?? null) : null;
 
   return (
-    <div className="relative h-screen w-screen grid grid-cols-[280px_1fr] grid-rows-[1fr_auto] overflow-hidden bg-bg text-fg">
+    <div
+      className="relative h-screen w-screen grid grid-cols-[280px_1fr] grid-rows-[1fr_auto] overflow-hidden bg-bg text-fg"
+      data-testid="main-shell"
+    >
       <Sidebar className="row-start-1 col-start-1 min-h-0" />
       <ChatArea
         className="row-start-1 col-start-2 min-h-0 min-w-0"
@@ -286,6 +308,7 @@ export function MainShell() {
         onOpenCode={handleOpenCodeForCard}
       />
       <OnboardingDialog open={onboardingOpen} onOpenChange={setOnboardingOpen} />
+      <NewProjectDialog open={newProjectOpen} onOpenChange={setNewProjectOpen} />
       <input type="hidden" data-testid="current-stage" value={stage} />
       <input type="hidden" data-testid="current-card-id" value={currentCardId ?? ""} />
       <input
