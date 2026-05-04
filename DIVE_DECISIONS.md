@@ -698,3 +698,29 @@
   - Link 버튼 색 한 단계 어두움(라이트 모드) — 밑줄 병용으로 의미 명확
   - 전체 Playwright 25 스위트 / ~392 assertions (pre: 23/358 + 6-1/13 + 6-2/12 + 6-3/9)
   - Rust 회귀 없음 (CSS·TS 변경만)
+
+## ADR-036: NSIS 메타데이터 확정 + WebView2 bootstrapper + 버전 1.0.0-rc.1 동기화
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 6-4)
+- 컨텍스트: Phase 4-5에서 만든 Windows 빌드 가이드(`docs/windows-build-guide.md`)는 "파일럿 배포용"(비공식·내부)이었다. Phase 6 종료 시 v1.0 정식 릴리스를 향해야 하므로 (a) 인스톨러 메타데이터(publisher·copyright·category)가 Windows 설정/앱-제거 UI에서 올바르게 표시되어야 하고, (b) WebView2 미설치 PC(학교 이미지 중 LTSC)도 설치 경험이 깨지지 않아야 하며, (c) 버전 번호가 3곳(`package.json` · `Cargo.toml` · `tauri.conf.json`)에서 drift 없이 동기화되어야 한다.
+- 결정:
+  - **`webviewInstallMode: downloadBootstrapper` + `silent: true`**: 설치 중 WebView2 부재 시 약 120MB 런타임 자동 다운로드. 대안 `embedBootstrapper`는 인스톨러 +170MB로 GitHub artifact 20GB 월 한도 압박. 온라인 설치가 학교 환경 기본 가정.
+  - **`installMode: currentUser` 유지**: 명세 §11.3 + ADR-018 유지. 학생 계정만 영향 → UAC 없음. 학교 공용 PC에서 계정별 독립.
+  - **`displayLanguageSelector: true`**: NSIS 자체 "Korean/English" 선택. 앱 내부 언어(작업 6-1)와 분리된 설치 UX 선택지. 학생이 한국어로 설치해도 Student가 영어 UI를 원하면 앱 내 사이드바에서 토글.
+  - **`category: "Education"`**: Windows 메타데이터. 향후 Microsoft Store 제출 옵션(Phase 7) 시 재사용.
+  - **`publisher: "DIVE 연구진"`**: 제어판 > 앱 제거 목록에 표시됨. EV 인증서와 다른 이름이면 Windows가 경고를 더 강하게 띄우므로, 향후 EV 인증서 발급 시 발급자명을 동일 문자열로 맞춰야 함.
+  - **코드 서명은 6-5까지 연기**: Azure Trusted Signing을 주 후보로 제시하되 결정은 6-5 릴리스 직전. 그 전까지 스모크 테스트는 미서명 인스톨러 + SmartScreen 수동 우회로.
+  - **버전 `1.0.0-rc.1`**: rc.1은 "release candidate 1". 파일럿 후 회귀 없으면 `1.0.0` 승격. SemVer 엄격 준수로 향후 autoupdate(§12.6)에서 자연스러운 버전 비교.
+  - **3곳 버전 동기화 수동 + 릴리스 스크립트 대기**: 향후 `scripts/bump-version.mjs` 같은 도구로 자동화 가능하지만, Phase 6 범위에서는 수동 + 체크리스트로 커버. 자동화는 Phase 7 후보.
+- 대안:
+  - **MSI 유지 시도**: ARM64 미지원으로 탈락(§11.3 + Tauri 2 제약). NSIS 단일 번들로 양 아키텍처 커버가 유일한 해.
+  - **`embedBootstrapper`(오프라인 설치)**: 산출물 +170MB. 대역폭 제약 학교에서 유리하지만 GitHub Releases 용량 압박. 필요 시 별도 "offline-setup.exe" 아티팩트로 분리.
+  - **Tauri Updater 활성화**: v1.0 범위에서는 수동 다운로드 유지(§12.6). 자동 업데이트는 v1.1에서.
+  - **MS Store 제출**: 심사 2-3주 + 수익 공제. 학교 배포에 이득 적음 — 독립 인스톨러 유지.
+  - **package.json + Cargo.toml + tauri.conf.json 단일화(워크스페이스)**: Tauri 2.x는 각 파일을 독립적으로 읽음. `cargo workspace.version` 같은 추상화 불가.
+- 결과:
+  - 산출물 이름 변경: `DIVE_0.0.1_x64-setup.exe` → `DIVE_1.0.0-rc.1_x64-setup.exe` (GitHub artifact 이름에 자동 반영)
+  - 제어판 > 앱 제거에서 "DIVE · DIVE 연구진 · © 2026 …" 표시
+  - 회귀 없음: 모든 기존 테스트 pass (Rust fmt/check/clippy + 프론트 typecheck/lint/format/build)
+  - 6-5에서 해야 할 잔여 작업 체크리스트 명시(`docs/packaging-windows.md` §8)
