@@ -4,7 +4,8 @@ use std::sync::Arc;
 use crate::providers::ToolDef;
 
 use super::{
-    bash::Bash, edit_file::EditFile, list_dir::ListDir, read_file::ReadFile, write_file::WriteFile,
+    bash::Bash, delete_file::DeleteFile, edit_file::EditFile, list_dir::ListDir, mkdir::Mkdir,
+    read_file::ReadFile, run_process::RunProcess, search_files::SearchFiles, write_file::WriteFile,
     Tool,
 };
 
@@ -29,6 +30,10 @@ impl ToolRegistry {
         r.register(Arc::new(WriteFile));
         r.register(Arc::new(EditFile));
         r.register(Arc::new(Bash));
+        r.register(Arc::new(SearchFiles));
+        r.register(Arc::new(Mkdir));
+        r.register(Arc::new(DeleteFile));
+        r.register(Arc::new(RunProcess));
         r
     }
 
@@ -60,5 +65,34 @@ impl ToolRegistry {
 impl Default for ToolRegistry {
     fn default() -> Self {
         Self::with_builtins()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tools::RiskLevel;
+
+    #[test]
+    fn builtins_include_track0_tools_with_expected_risk() {
+        let registry = ToolRegistry::with_builtins();
+        let expected = [
+            ("read_file", RiskLevel::Safe),
+            ("list_dir", RiskLevel::Safe),
+            ("search_files", RiskLevel::Safe),
+            ("write_file", RiskLevel::Warn),
+            ("edit_file", RiskLevel::Warn),
+            ("mkdir", RiskLevel::Warn),
+            ("bash", RiskLevel::Danger),
+            ("delete_file", RiskLevel::Danger),
+            ("run_process", RiskLevel::Danger),
+        ];
+        assert_eq!(registry.list().len(), expected.len());
+        for (name, risk) in expected {
+            let tool = registry
+                .get(name)
+                .unwrap_or_else(|| panic!("missing {name}"));
+            assert_eq!(tool.risk_level(), risk, "risk mismatch for {name}");
+        }
     }
 }

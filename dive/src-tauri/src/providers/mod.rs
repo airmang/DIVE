@@ -6,6 +6,8 @@
 pub mod anthropic;
 pub mod codex;
 pub mod error;
+pub mod factory;
+#[cfg(any(test, debug_assertions, feature = "dev-mock"))]
 pub mod mock;
 pub mod openai;
 pub mod retry;
@@ -18,6 +20,8 @@ use futures::stream::BoxStream;
 pub use anthropic::AnthropicProvider;
 pub use codex::CodexProvider;
 pub use error::ProviderError;
+pub use factory::{build_provider, default_model_for_kind, health_check};
+#[cfg(any(test, debug_assertions, feature = "dev-mock"))]
 pub use mock::MockProvider;
 pub use openai::OpenAiProvider;
 pub use retry::{is_retryable, with_retry};

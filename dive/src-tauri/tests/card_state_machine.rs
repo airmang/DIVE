@@ -62,6 +62,7 @@ fn insert_card(
             state,
             verify_log: None,
             changed_files: None,
+            test_command: None,
             position: pos,
         },
     )

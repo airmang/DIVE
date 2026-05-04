@@ -218,9 +218,12 @@ pub async fn codex_oauth_refresh(state: State<'_, AppState>) -> Result<CodexAuth
 mod tests {
     use super::*;
     use crate::auth::InMemoryKeyring;
+    use once_cell::sync::Lazy;
     use std::sync::Arc;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    static TEST_LOCK: Lazy<tokio::sync::Mutex<()>> = Lazy::new(|| tokio::sync::Mutex::new(()));
 
     fn encode_id_token(account_id: &str) -> String {
         use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -251,6 +254,7 @@ mod tests {
 
     #[tokio::test]
     async fn start_then_complete_stores_tokens() {
+        let _guard = TEST_LOCK.lock().await;
         let server = MockServer::start().await;
         let id_token = encode_id_token("acct_codex_1");
         Mock::given(method("POST"))
@@ -282,6 +286,7 @@ mod tests {
 
     #[tokio::test]
     async fn complete_without_start_returns_error() {
+        let _guard = TEST_LOCK.lock().await;
         let (_db, keyring) = mk_fixtures();
         let err = complete_impl(keyring.as_ref(), "code", "state")
             .await
@@ -291,6 +296,7 @@ mod tests {
 
     #[tokio::test]
     async fn complete_with_wrong_state_is_csrf_error() {
+        let _guard = TEST_LOCK.lock().await;
         let server = MockServer::start().await;
         let (db, keyring) = mk_fixtures();
         let _ = start_impl(db.as_ref(), Some(server.uri())).await.unwrap();
@@ -302,6 +308,7 @@ mod tests {
 
     #[tokio::test]
     async fn logout_clears_tokens_and_row() {
+        let _guard = TEST_LOCK.lock().await;
         let server = MockServer::start().await;
         let id_token = encode_id_token("acct_codex_1");
         Mock::given(method("POST"))
@@ -326,6 +333,7 @@ mod tests {
 
     #[tokio::test]
     async fn refresh_rotates_stored_tokens() {
+        let _guard = TEST_LOCK.lock().await;
         let server = MockServer::start().await;
         let id_token = encode_id_token("acct_codex_1");
         Mock::given(method("POST"))

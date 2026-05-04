@@ -5,12 +5,16 @@
 
 pub mod bash;
 pub mod context;
+pub mod delete_file;
 pub mod edit_file;
 pub mod fs_guard;
 pub mod guard;
 pub mod list_dir;
+pub mod mkdir;
 pub mod read_file;
 pub mod registry;
+pub mod run_process;
+pub mod search_files;
 pub mod write_file;
 
 use async_trait::async_trait;
@@ -101,16 +105,35 @@ pub trait Tool: Send + Sync {
 /// that extracts a single representative field; tools may override.
 pub fn params_preview(tool_name: &str, args: &Value) -> String {
     match tool_name {
-        "read_file" | "write_file" | "edit_file" => args
+        "read_file" | "write_file" | "edit_file" | "delete_file" | "mkdir" => args
             .get("path")
             .and_then(|v| v.as_str())
             .map(|p| format!("path: \"{p}\""))
             .unwrap_or_else(|| args.to_string()),
-        "list_dir" => args
+        "list_dir" | "search_files" => args
             .get("path")
             .and_then(|v| v.as_str())
             .map(|p| format!("path: \"{p}\""))
             .unwrap_or_else(|| "path: \".\"".to_string()),
+        "run_process" => {
+            let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+            let argv = args
+                .get("args")
+                .and_then(|v| v.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .unwrap_or_default();
+            if argv.is_empty() {
+                format!("command: \"{command}\"")
+            } else {
+                format!("command: \"{command} {argv}\"")
+            }
+        }
         _ => {
             let s = args.to_string();
             if s.len() > 80 {
@@ -119,5 +142,48 @@ pub fn params_preview(tool_name: &str, args: &Value) -> String {
                 s
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use super::{
+        edit_file::EditFile, mkdir::Mkdir, run_process::RunProcess, search_files::SearchFiles,
+        Tool, ToolContext,
+    };
+    use serde_json::json;
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn tools_integration_chain_search_mkdir_edit_run_process() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("note.txt"), "hello old world\n").unwrap();
+        let ctx = ToolContext::new(tmp.path(), 1);
+
+        let search = SearchFiles
+            .run(json!({ "pattern": "old", "path": "." }), &ctx)
+            .await
+            .unwrap();
+        assert_eq!(search.full["matches"].as_array().unwrap().len(), 1);
+
+        Mkdir
+            .run(json!({ "path": "out", "recursive": false }), &ctx)
+            .await
+            .unwrap();
+        assert!(tmp.path().join("out").is_dir());
+
+        EditFile
+            .run(
+                json!({ "path": "note.txt", "find": "old", "replace": "new" }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        let out = RunProcess
+            .run(json!({ "command": "cat", "args": ["note.txt"] }), &ctx)
+            .await
+            .unwrap();
+        assert!(out.full["stdout"].as_str().unwrap().contains("new world"));
     }
 }

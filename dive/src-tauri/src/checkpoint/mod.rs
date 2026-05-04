@@ -19,11 +19,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use git2::{IndexAddOption, ObjectType, Repository, RepositoryInitOptions, Signature};
+use git2::{Delta, IndexAddOption, ObjectType, Oid, Repository, RepositoryInitOptions, Signature};
 use thiserror::Error;
 
 use crate::db::dao::checkpoint as checkpoint_dao;
-use crate::db::models::{CheckpointRow, NewCheckpoint};
+use crate::db::models::{CheckpointRow, CheckpointStats, NewCheckpoint};
 use crate::db::Database;
 
 pub const CHECKPOINT_DIR: &str = ".dive/git";
@@ -49,6 +49,13 @@ pub enum CheckpointError {
 pub struct CheckpointEngine {
     pub project_root: PathBuf,
     pub db: Arc<Mutex<Database>>,
+}
+
+#[derive(Debug, Clone)]
+struct CheckpointCommit {
+    sha: String,
+    changed_files: Vec<String>,
+    stats: CheckpointStats,
 }
 
 impl CheckpointEngine {
@@ -92,7 +99,7 @@ impl CheckpointEngine {
         validate_kind(kind)?;
         let repo = self.open_repo()?;
         let message = label.unwrap_or_else(|| default_label(kind));
-        let sha = self.commit_snapshot(&repo, message)?;
+        let commit = self.commit_snapshot(&repo, message)?;
         let db = self
             .db
             .lock()
@@ -102,9 +109,11 @@ impl CheckpointEngine {
             &NewCheckpoint {
                 session_id,
                 card_id,
-                git_sha: sha.clone(),
+                git_sha: commit.sha.clone(),
                 kind: kind.to_string(),
                 label: label.map(str::to_string),
+                changed_files: commit.changed_files,
+                stats: commit.stats,
             },
         )
         .map_err(|e| CheckpointError::Db(e.to_string()))?;
@@ -133,7 +142,12 @@ impl CheckpointEngine {
                 .ok_or(CheckpointError::CheckpointNotFound(checkpoint_id))?
         };
 
-        self.create_checkpoint(target.session_id, target.card_id, "auto", Some("복원 직전"))?;
+        self.create_checkpoint(
+            target.session_id,
+            target.card_id,
+            "auto-pre-restore",
+            Some("복원 직전"),
+        )?;
 
         let repo = self.open_repo()?;
         let oid = git2::Oid::from_str(&target.git_sha)?;
@@ -174,7 +188,11 @@ impl CheckpointEngine {
         Ok(repo)
     }
 
-    fn commit_snapshot(&self, repo: &Repository, message: &str) -> Result<String, CheckpointError> {
+    fn commit_snapshot(
+        &self,
+        repo: &Repository,
+        message: &str,
+    ) -> Result<CheckpointCommit, CheckpointError> {
         repo.set_workdir(&self.project_root, false)?;
         let mut index = repo.index()?;
         index.clear()?;
@@ -188,11 +206,66 @@ impl CheckpointEngine {
         let sig = Signature::now(COMMITTER_NAME, COMMITTER_EMAIL)?;
 
         let parent = repo.head().ok().and_then(|h| h.peel_to_commit().ok());
+        let parent_oid = parent.as_ref().map(|p| p.id());
         let parents: Vec<&git2::Commit> = parent.as_ref().map(|p| vec![p]).unwrap_or_default();
 
         let commit_oid =
             repo.commit(Some("HEAD"), &sig, &sig, message, &tree, parents.as_slice())?;
-        Ok(commit_oid.to_string())
+        let (changed_files, stats) = checkpoint_metadata(repo, parent_oid, commit_oid)?;
+        Ok(CheckpointCommit {
+            sha: commit_oid.to_string(),
+            changed_files,
+            stats,
+        })
+    }
+}
+
+fn checkpoint_metadata(
+    repo: &Repository,
+    parent_oid: Option<Oid>,
+    commit_oid: Oid,
+) -> Result<(Vec<String>, CheckpointStats), CheckpointError> {
+    let new_commit = repo.find_commit(commit_oid)?;
+    let new_tree = new_commit.tree()?;
+    let old_tree = parent_oid
+        .map(|oid| repo.find_commit(oid).and_then(|commit| commit.tree()))
+        .transpose()?;
+    let diff = repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), None)?;
+    let mut changed_files = Vec::new();
+    let mut stats = CheckpointStats::zero();
+
+    diff.foreach(
+        &mut |delta, _| {
+            if let Some(path) = delta
+                .new_file()
+                .path()
+                .or_else(|| delta.old_file().path())
+                .and_then(path_to_checkpoint_string)
+            {
+                changed_files.push(path);
+            }
+            match delta.status() {
+                Delta::Added => stats.added += 1,
+                Delta::Deleted => stats.removed += 1,
+                _ => stats.modified += 1,
+            }
+            true
+        },
+        None,
+        None,
+        None,
+    )?;
+    changed_files.sort();
+    changed_files.dedup();
+    Ok((changed_files, stats))
+}
+
+fn path_to_checkpoint_string(path: &Path) -> Option<String> {
+    let s = path.to_string_lossy().replace('\\', "/");
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
     }
 }
 
@@ -245,7 +318,7 @@ fn path_filter(path: &Path, _matched_spec: &[u8]) -> i32 {
 
 fn validate_kind(kind: &str) -> Result<(), CheckpointError> {
     match kind {
-        "init" | "auto" | "manual" => Ok(()),
+        "auto" | "manual" | "auto-pre-restore" => Ok(()),
         other => Err(CheckpointError::InvalidKind(other.to_string())),
     }
 }
@@ -254,6 +327,7 @@ fn default_label(kind: &str) -> &'static str {
     match kind {
         "init" => "init",
         "auto" => "자동 체크포인트",
+        "auto-pre-restore" => "복원 직전",
         "manual" => "수동 체크포인트",
         _ => "체크포인트",
     }
@@ -352,7 +426,8 @@ mod tests {
 
         let list = engine.list_checkpoints(sid).unwrap();
         assert!(
-            list.iter().any(|c| c.label.as_deref() == Some("복원 직전")),
+            list.iter()
+                .any(|c| c.kind == "auto-pre-restore" && c.label.as_deref() == Some("복원 직전")),
             "restore must auto-create a backup checkpoint, got {list:?}",
         );
     }
@@ -405,5 +480,34 @@ mod tests {
             !found.iter().any(|n| n.contains("sqlite")),
             "expected no sqlite* in snapshot, got {found:?}"
         );
+    }
+
+    #[test]
+    fn checkpoint_metadata_tracks_changed_files_and_file_stats() {
+        let (engine, tmp, sid) = engine_with_tempdir();
+        engine.init().unwrap();
+
+        std::fs::write(tmp.path().join("a.txt"), "v1").unwrap();
+        let first = engine
+            .create_checkpoint(sid, None, "manual", Some("first"))
+            .unwrap();
+        assert_eq!(first.changed_files, vec!["a.txt"]);
+        assert_eq!(first.stats.added, 1);
+
+        std::fs::write(tmp.path().join("a.txt"), "v2").unwrap();
+        std::fs::write(tmp.path().join("b.txt"), "new").unwrap();
+        let second = engine
+            .create_checkpoint(sid, None, "manual", Some("second"))
+            .unwrap();
+        assert_eq!(second.changed_files, vec!["a.txt", "b.txt"]);
+        assert_eq!(second.stats.added, 1);
+        assert_eq!(second.stats.modified, 1);
+
+        std::fs::remove_file(tmp.path().join("a.txt")).unwrap();
+        let third = engine
+            .create_checkpoint(sid, None, "manual", Some("third"))
+            .unwrap();
+        assert_eq!(third.changed_files, vec!["a.txt"]);
+        assert_eq!(third.stats.removed, 1);
     }
 }

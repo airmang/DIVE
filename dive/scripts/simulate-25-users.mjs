@@ -17,7 +17,10 @@ async function runOneUser(browser, index) {
   const t0 = Date.now();
   try {
     await page.goto(BASE);
-    await page.evaluate(() => window.localStorage.clear());
+    await page.evaluate(() => {
+      window.localStorage.clear();
+      window.localStorage.setItem("dive:rc1_migrated", "true");
+    });
     await page.reload();
     await page.waitForSelector('[data-testid="onboarding-dialog"]', { timeout: 5000 });
     const tOnboarding = Date.now() - t0;

@@ -56,6 +56,7 @@ fn fresh_env() -> (
             state: CardState::Decomposed,
             verify_log: None,
             changed_files: None,
+            test_command: None,
             position: 1,
         },
     )
@@ -134,7 +135,10 @@ async fn scenario_a_text_only_response() {
         sid,
     );
     let mut events = Vec::new();
-    let out = loop_.run(sid, "hi", &mut |e| events.push(e)).await.unwrap();
+    let out = loop_
+        .run(sid, "API키: sk-abc123", &mut |e| events.push(e))
+        .await
+        .unwrap();
     assert!(out.starts_with("stopped:"));
     assert!(events
         .iter()
@@ -149,6 +153,16 @@ async fn scenario_a_text_only_response() {
     assert_eq!(msgs[0].role, "user");
     assert_eq!(msgs[1].role, "assistant");
     assert_eq!(msgs[1].content, "hello world");
+    let logs = event_log::list_by_session(db_guard.conn(), sid).unwrap();
+    let kinds: Vec<&str> = logs.iter().map(|l| l.r#type.as_str()).collect();
+    assert!(kinds.contains(&"stage_enter"));
+    assert!(kinds.contains(&"stage_exit"));
+    assert!(kinds.contains(&"user_message"));
+    let encoded_logs = serde_json::to_string(&logs).unwrap();
+    assert!(
+        !encoded_logs.contains("sk-abc123"),
+        "EventLog must not contain raw API keys: {encoded_logs}"
+    );
 }
 
 #[tokio::test]
@@ -212,7 +226,9 @@ async fn scenario_b_tool_call_then_followup() {
     let kinds: Vec<&str> = logs.iter().map(|l| l.r#type.as_str()).collect();
     assert!(kinds.contains(&"user_message"));
     assert!(kinds.contains(&"tool_call_start"));
+    assert!(kinds.contains(&"tool_approve"));
     assert!(kinds.contains(&"tool_result"));
+    assert!(kinds.contains(&"tool_complete"));
 }
 
 #[tokio::test]

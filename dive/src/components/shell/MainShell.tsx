@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Sidebar } from "./Sidebar";
 import { ChatArea, type ChatStageBanner } from "./ChatArea";
 import { WorkmapStrip } from "./WorkmapStrip";
@@ -19,33 +19,16 @@ import {
   selectCurrentCard,
   useWorkmapStore,
 } from "../../stores/workmap";
-import { useProjectSessionStore } from "../../stores/project-session";
+import { selectHasConnectedProvider, useProjectSessionStore } from "../../stores/project-session";
 import { useToast } from "../toast/toast-context";
-import type { CardState, CardTileData } from "../workmap/types";
-import type { ChangedFile } from "../slide-in/types";
+import type { CardTileData } from "../workmap/types";
 import { getCardStateMeta } from "../workmap/card-state-meta";
 import { useT } from "../../i18n";
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts";
-
-const DEMO_CHANGED_FILES: ChangedFile[] = [
-  {
-    path: "src/App.tsx",
-    diff: {
-      path: "src/App.tsx",
-      before: "function App() {\n  return <div>old</div>;\n}\n",
-      after: "function App() {\n  return <div>new feature</div>;\n}\n",
-    },
-  },
-];
-
-const TRANSITION_TO_STATE: Record<CardTransitionKind, CardState> = {
-  enter_instruct: "instructed",
-  request_verify: "verifying",
-  approve: "verified",
-  reject: "rejected",
-  reopen_from_reject: "instructed",
-  extend: "extended",
-};
+import { useWorkmap } from "../../hooks/useWorkmap";
+import { useChatSession } from "../../hooks/useChatSession";
+import { Button } from "../ui/button";
+import { hasRecognizedDemoRoute } from "../../lib/demo-routes";
 
 export function MainShell() {
   const t = useT();
@@ -54,43 +37,47 @@ export function MainShell() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
-  const [verifyLogs, setVerifyLogs] = useState<Record<number, VerifyLogView | null>>({});
-  const [verifyStates, setVerifyStates] = useState<Record<number, "idle" | "running" | "error">>(
-    {},
-  );
-  const [verifyErrors, setVerifyErrors] = useState<Record<number, string | null>>({});
-  const [checkpointBadges, setCheckpointBadges] = useState<Record<number, string>>({});
   const [lastManualCheckpointLabel, setLastManualCheckpointLabel] = useState<string | null>(null);
+  const wasStreaming = useRef(false);
 
   const projectSessionLoaded = useProjectSessionStore((s) => s.loaded);
   const loadProjectSession = useProjectSessionStore((s) => s.loadAll);
-  const projects = useProjectSessionStore((s) => s.projects);
+  const hasConnectedProvider = useProjectSessionStore(selectHasConnectedProvider);
+  const addCardsLocal = useWorkmapStore((s) => s.addCardsLocal);
+  const setCurrentCardLocal = useWorkmapStore((s) => s.setCurrentCardLocal);
+  const currentProjectId = useProjectSessionStore((s) => s.currentProjectId);
+  const currentSessionId = useProjectSessionStore((s) => s.currentSessionId);
+  const createSession = useProjectSessionStore((s) => s.createSession);
   const isOnboarded = useProjectSessionStore((s) => s.isOnboarded);
   const { toast } = useToast();
 
   useEffect(() => {
-    if (!projectSessionLoaded) void loadProjectSession();
+    if (!projectSessionLoaded) void loadProjectSession().catch(() => undefined);
   }, [projectSessionLoaded, loadProjectSession]);
 
+  const isDemoRoute = hasRecognizedDemoRoute();
+
   useEffect(() => {
-    if (!projectSessionLoaded) return;
-    const isDemoRoute =
-      typeof window !== "undefined" && new URLSearchParams(window.location.search).has("demo");
-    if (isDemoRoute) return;
-    if (!isOnboarded() && projects.length === 0) {
+    if (!projectSessionLoaded || isDemoRoute) return;
+    if (!isOnboarded() && !hasConnectedProvider) {
       setOnboardingOpen(true);
     }
-  }, [projectSessionLoaded, projects.length, isOnboarded]);
+  }, [projectSessionLoaded, isDemoRoute, hasConnectedProvider, isOnboarded]);
 
-  const cards = useWorkmapStore((s) => s.cards);
-  const addCards = useWorkmapStore((s) => s.addCards);
+  const workmap = useWorkmap(currentSessionId);
+  const chat = useChatSession(currentSessionId);
+  const cards = workmap.cards;
   const currentCard = useWorkmapStore(selectCurrentCard);
-  const currentCardId = useWorkmapStore((s) => s.currentCardId);
-  const setCurrentCard = useWorkmapStore((s) => s.setCurrentCard);
-  const transitionCard = useWorkmapStore((s) => s.transitionCard);
-  const setInstruction = useWorkmapStore((s) => s.setInstruction);
+  const currentCardId = workmap.currentCardId;
   const canChat = useWorkmapStore(selectCanChat);
   const allVerified = useWorkmapStore(selectAllCardsVerified);
+
+  useEffect(() => {
+    if (wasStreaming.current && !chat.isStreaming) {
+      void workmap.refresh();
+    }
+    wasStreaming.current = chat.isStreaming;
+  }, [chat.isStreaming, workmap]);
 
   const openSlideIn = useSlideInStore((s) => s.open);
   const closeSlideIn = useSlideInStore((s) => s.close);
@@ -139,6 +126,9 @@ export function MainShell() {
   }, [cards.length, currentCard, allVerified, t]);
 
   const inputBlocked = useMemo(() => {
+    if (!isDemoRoute && currentSessionId === null) {
+      return { reason: "세션을 선택하거나 생성하세요." };
+    }
     if (!canChat) {
       return { reason: t("stage.gate_no_cards") };
     }
@@ -152,46 +142,88 @@ export function MainShell() {
       return { reason: t("stage.gate_not_verifying") };
     }
     return null;
-  }, [canChat, stage, currentCard, t]);
+  }, [canChat, currentSessionId, isDemoRoute, stage, currentCard, t]);
+
+  const showWorkmapError = useCallback(
+    (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      toast({
+        variant: "error",
+        title: "워크맵 저장 실패",
+        description: message,
+      });
+    },
+    [toast],
+  );
 
   const handleCardClick = (card: CardTileData) => {
-    if (card.state === "verified" || card.state === "extended") {
-      setCurrentCard(card.id);
-      openSlideIn({
-        tab: "code",
-        files: DEMO_CHANGED_FILES,
-        replaceFiles: true,
-      });
+    if (isDemoRoute) {
+      setCurrentCardLocal(card.id);
+      if (card.state === "verified" || card.state === "extended") {
+        openSlideIn({
+          tab: "code",
+          files: workmap.changedFilesFor(card.id),
+          replaceFiles: true,
+        });
+        return;
+      }
+      setDetailOpen(true);
       return;
     }
-    setCurrentCard(card.id);
-    setDetailOpen(true);
+
+    void (async () => {
+      try {
+        await workmap.setCurrentCardRemote(card.id);
+        if (card.state === "verified" || card.state === "extended") {
+          openSlideIn({
+            tab: "code",
+            files: workmap.changedFilesFor(card.id),
+            replaceFiles: true,
+          });
+          return;
+        }
+        setDetailOpen(true);
+      } catch (err) {
+        showWorkmapError(err);
+      }
+    })();
   };
 
   const handleDetailOpenChange = (open: boolean) => {
     setDetailOpen(open);
     if (!open) {
-      setCurrentCard(null);
+      void workmap.setCurrentCardRemote(null).catch(showWorkmapError);
     }
   };
 
-  const handleInstructionChange = (cardId: number, instruction: string) => {
-    setInstruction(cardId, instruction);
+  const handleInstructionChange = async (cardId: number, instruction: string) => {
+    try {
+      await workmap.updateInstructionRemote(cardId, instruction);
+    } catch (err) {
+      showWorkmapError(err);
+      throw err;
+    }
   };
 
-  const handleTransition = (
+  const handleTestCommandChange = async (cardId: number, testCommand: string) => {
+    try {
+      await workmap.updateTestCommandRemote(cardId, testCommand);
+    } catch (err) {
+      showWorkmapError(err);
+      throw err;
+    }
+  };
+
+  const handleTransition = async (
     cardId: number,
     transition: CardTransitionKind,
-    _options?: { approveForce?: boolean },
+    options?: { approveForce?: boolean },
   ) => {
-    const nextState = TRANSITION_TO_STATE[transition];
-    transitionCard(cardId, nextState);
-    if (transition === "approve" || transition === "extend") {
-      setCheckpointBadges((s) => ({
-        ...s,
-        [cardId]:
-          transition === "approve" ? t("card.checkpoint_verify_pass") : t("card.checkpoint_extend"),
-      }));
+    try {
+      await workmap.transitionCardRemote(cardId, transition, options);
+    } catch (err) {
+      showWorkmapError(err);
+      throw err;
     }
   };
 
@@ -199,26 +231,42 @@ export function MainShell() {
     const label = currentCard
       ? t("checkpoint.manual_label_with_card", { title: currentCard.title })
       : t("checkpoint.manual_label");
-    setLastManualCheckpointLabel(label);
-    toast({
-      variant: "success",
-      title: t("checkpoint.manual_saved"),
-      description: label,
-    });
-  }, [currentCard, toast, t]);
+    void (async () => {
+      try {
+        const row = await chat.createCheckpoint(currentCard?.id ?? null, label);
+        const savedLabel = row?.label ?? label;
+        setLastManualCheckpointLabel(savedLabel);
+        toast({
+          variant: "success",
+          title: t("checkpoint.manual_saved"),
+          description: savedLabel,
+        });
+      } catch (err) {
+        toast({
+          variant: "error",
+          title: "체크포인트 저장 실패",
+          description: err instanceof Error ? err.message : String(err),
+        });
+      }
+    })();
+  }, [chat, currentCard, toast, t]);
+
+  const openSettingsRoute = useCallback(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("demo");
+    url.searchParams.set("route", "settings");
+    window.history.pushState({}, "", url.toString());
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, []);
 
   useGlobalShortcuts({
     onManualCheckpoint: handleManualCheckpoint,
     onNewProject: () => setNewProjectOpen(true),
-    onOpenSettings: () => {
-      const url = new URL(window.location.href);
-      url.searchParams.set("demo", "settings");
-      window.history.pushState({}, "", url.toString());
-      window.dispatchEvent(new PopStateEvent("popstate"));
-    },
+    onOpenSettings: openSettingsRoute,
     onOpenPromptHelper: () => {
       const url = new URL(window.location.href);
-      url.searchParams.set("demo", "prompt-helper");
+      url.searchParams.delete("demo");
+      url.searchParams.set("route", "prompt-helper");
       window.history.pushState({}, "", url.toString());
       window.dispatchEvent(new PopStateEvent("popstate"));
     },
@@ -232,50 +280,115 @@ export function MainShell() {
     onToggleWorkmap: () => setWorkmapCollapsed((c) => !c),
   });
 
-  const handleVerify = useCallback(async (cardId: number) => {
-    setVerifyStates((s) => ({ ...s, [cardId]: "running" }));
-    setVerifyErrors((s) => ({ ...s, [cardId]: null }));
-    await new Promise((r) => setTimeout(r, 450));
-    const mock: VerifyLogView = {
-      intent_match: true,
-      test_result: "skipped",
-      details:
-        "[데모] 지시와 변경된 파일이 일치하는 것으로 보입니다. 실제 LLM 호출은 Tauri 런타임에서만 이루어집니다.",
-      model: "mock-claude-3-5-sonnet",
-      ran_at: Date.now(),
-    };
-    setVerifyLogs((s) => ({ ...s, [cardId]: mock }));
-    setVerifyStates((s) => ({ ...s, [cardId]: "idle" }));
-  }, []);
+  const handleVerify = useCallback(
+    async (cardId: number) => {
+      try {
+        await workmap.verifyRemote(cardId);
+      } catch (err) {
+        showWorkmapError(err);
+      }
+    },
+    [showWorkmapError, workmap],
+  );
 
-  const handleOpenCodeForCard = (_cardId: number) => {
+  const handleOpenCodeForCard = (cardId: number) => {
     openSlideIn({
       tab: "code",
-      files: DEMO_CHANGED_FILES,
+      files: workmap.changedFilesFor(cardId),
       replaceFiles: true,
     });
   };
 
   const cardStateLabel = currentCard ? getCardStateMeta(currentCard.state).label : null;
-  const currentVerifyLog = currentCard ? (verifyLogs[currentCard.id] ?? null) : null;
+  const currentVerifyLog: VerifyLogView | null = currentCard
+    ? workmap.verifyLogFor(currentCard.id)
+    : null;
   const currentVerifyState: "idle" | "running" | "error" = currentCard
-    ? (verifyStates[currentCard.id] ?? "idle")
+    ? workmap.verifyStateFor(currentCard.id)
     : "idle";
-  const currentVerifyError = currentCard ? (verifyErrors[currentCard.id] ?? null) : null;
+  const currentVerifyError = currentCard ? workmap.verifyErrorFor(currentCard.id) : null;
+
+  const handleEmptyStateAction = useCallback(() => {
+    if (currentProjectId === null) {
+      setNewProjectOpen(true);
+      return;
+    }
+    void createSession(currentProjectId);
+  }, [createSession, currentProjectId]);
+
+  const emptyState = useMemo(() => {
+    if (currentProjectId === null) {
+      return {
+        title: "프로젝트를 만들고 세션을 시작하세요",
+        description: "DIVE는 프로젝트별로 카드와 대화를 디스크 DB에 저장합니다.",
+        actionLabel: "새 프로젝트",
+        onAction: handleEmptyStateAction,
+      };
+    }
+    if (currentSessionId === null) {
+      return {
+        title: "세션을 선택하거나 생성하세요",
+        description: "세션이 선택되기 전에는 카드와 채팅을 만들지 않습니다.",
+        actionLabel: "새 세션",
+        onAction: handleEmptyStateAction,
+      };
+    }
+    return undefined;
+  }, [currentProjectId, currentSessionId, handleEmptyStateAction]);
+
+  const sendMessage = useCallback(
+    (text: string) => {
+      void chat.sendUserMessage(text, stage);
+    },
+    [chat, stage],
+  );
+
+  const showProviderSetupBanner = projectSessionLoaded && !isDemoRoute && !hasConnectedProvider;
 
   return (
     <div
       className="relative h-screen w-screen grid grid-cols-[280px_1fr] grid-rows-[1fr_auto] overflow-hidden bg-bg text-fg"
       data-testid="main-shell"
     >
+      {showProviderSetupBanner ? (
+        <div
+          role="alert"
+          data-testid="provider-required-banner"
+          className="pointer-events-none absolute left-[296px] right-4 top-4 z-30 flex items-center justify-between gap-3 rounded-lg border border-warn/50 bg-bg-panel px-4 py-3 text-sm shadow-lg"
+        >
+          <div>
+            <div className="font-semibold text-fg">API 키를 설정하세요</div>
+            <div className="text-xs text-fg-muted">
+              연결된 프로바이더가 없어 채팅과 검증을 시작할 수 없습니다.
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={openSettingsRoute}
+            data-testid="provider-banner-cta"
+            className="pointer-events-auto"
+          >
+            설정 열기
+          </Button>
+        </div>
+      ) : null}
       <Sidebar className="row-start-1 col-start-1 min-h-0" />
       <ChatArea
         className="row-start-1 col-start-2 min-h-0 min-w-0"
+        messages={chat.messages}
         cardTitle={currentCard ? currentCard.title : null}
         cardStateLabel={cardStateLabel}
         stageBanner={stageBanner}
+        onSendMessage={sendMessage}
         onOpenSlidePanel={() => openSlideIn({ tab: "code" })}
+        onApproveToolCall={(toolCallId, modifiedArgs) =>
+          void chat.approveToolCall(toolCallId, modifiedArgs)
+        }
+        onDenyToolCall={(toolCallId, reason) => void chat.denyToolCall(toolCallId, reason)}
+        inputDisabled={chat.isStreaming || (!isDemoRoute && currentSessionId === null)}
         inputBlocked={inputBlocked}
+        emptyState={emptyState}
       />
       <WorkmapStrip
         className="row-start-2 col-span-2"
@@ -290,24 +403,42 @@ export function MainShell() {
       <AiAssistDialog
         open={aiOpen}
         onOpenChange={setAiOpen}
-        onAccept={(nextCards) => addCards(nextCards)}
+        onAccept={async (nextCards) => {
+          if (isDemoRoute) {
+            addCardsLocal(nextCards);
+            return;
+          }
+          try {
+            for (const card of nextCards) {
+              await workmap.createCard(card.title, card.position);
+            }
+          } catch (err) {
+            showWorkmapError(err);
+            throw err;
+          }
+        }}
         positionStart={cards.length + 1}
+        allowDemoFallback={isDemoRoute}
       />
       <CardDetailPanel
         open={detailOpen}
         card={currentCard}
-        toolCallCount={currentCard ? simulateToolCallCount(currentCard) : 0}
+        toolCallCount={currentCard ? workmap.toolCallCountFor(currentCard.id) : 0}
         verifyLog={currentVerifyLog}
         verifyState={currentVerifyState}
         verifyError={currentVerifyError}
-        checkpointBadge={currentCard ? (checkpointBadges[currentCard.id] ?? null) : null}
         onOpenChange={handleDetailOpenChange}
         onInstructionChange={handleInstructionChange}
+        onTestCommandChange={handleTestCommandChange}
         onTransition={handleTransition}
         onVerify={handleVerify}
         onOpenCode={handleOpenCodeForCard}
       />
-      <OnboardingDialog open={onboardingOpen} onOpenChange={setOnboardingOpen} />
+      <OnboardingDialog
+        open={onboardingOpen}
+        onOpenChange={setOnboardingOpen}
+        onConnected={() => setNewProjectOpen(true)}
+      />
       <NewProjectDialog open={newProjectOpen} onOpenChange={setNewProjectOpen} />
       <input type="hidden" data-testid="current-stage" value={stage} />
       <input type="hidden" data-testid="current-card-id" value={currentCardId ?? ""} />
@@ -318,12 +449,6 @@ export function MainShell() {
       />
     </div>
   );
-}
-
-function simulateToolCallCount(card: CardTileData): number {
-  if (card.state === "decomposed") return 0;
-  if (card.state === "instructed") return 1;
-  return 2;
 }
 
 export default MainShell;

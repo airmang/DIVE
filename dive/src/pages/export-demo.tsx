@@ -71,6 +71,28 @@ const SAMPLE_RECORDS = {
       kind_label: "auto",
       label: "h:67a3c1e9b2d4f5a6",
     },
+    ...[
+      "session_start",
+      "stage_enter",
+      "card_create",
+      "card_update",
+      "tool_approve",
+      "tool_reject",
+      "tool_complete",
+      "checkpoint_create",
+      "checkpoint_restore",
+      "verify_start",
+      "verify_complete",
+      "error_occurred",
+      "stage_exit",
+      "card_delete",
+      "session_end",
+    ].map((type, index) => ({
+      kind: "event",
+      id: index + 1,
+      type,
+      payload: { source: type === "error_occurred" ? "provider" : undefined },
+    })),
   ],
   plain: [
     {
@@ -112,6 +134,28 @@ const SAMPLE_RECORDS = {
       kind_label: "auto",
       label: "[V 통과] 로그인 폼 추가",
     },
+    ...[
+      "session_start",
+      "stage_enter",
+      "card_create",
+      "card_update",
+      "tool_approve",
+      "tool_reject",
+      "tool_complete",
+      "checkpoint_create",
+      "checkpoint_restore",
+      "verify_start",
+      "verify_complete",
+      "error_occurred",
+      "stage_exit",
+      "card_delete",
+      "session_end",
+    ].map((type, index) => ({
+      kind: "event",
+      id: index + 1,
+      type,
+      payload: { source: type === "error_occurred" ? "provider" : undefined },
+    })),
   ],
 };
 
@@ -146,6 +190,7 @@ function mockPreview(options: ExportOptions): string {
       if (r.kind === "message" && !options.includeMessages) return false;
       if (r.kind === "tool_call" && !options.includeToolCalls) return false;
       if (r.kind === "checkpoint" && !options.includeCheckpoints) return false;
+      if (r.kind === "event" && !options.includeEvents) return false;
       return true;
     })
     .map((r) => JSON.stringify(r))

@@ -46,23 +46,36 @@ async function main() {
   const restoreBtn = await page.$('[data-testid="timeline-restore"]');
   check("restore button present", restoreBtn !== null);
 
-  console.log("\n5. Click restore → log receives entry");
-  await restoreBtn.click();
+  console.log("\n5. Hover auto dot → file change metadata visible");
+  await page.hover('[data-testid="timeline-dot"][data-kind="auto"]');
+  await page.waitForSelector('[data-testid="timeline-file-changes"]', { timeout: 1000 });
+  const fileChanges = await page.$eval('[data-testid="timeline-file-changes"]', (el) =>
+    el.textContent?.trim(),
+  );
+  const fileList = await page.$eval('[data-testid="timeline-file-list"]', (el) =>
+    el.textContent?.trim(),
+  );
+  check("file change count is not fixed zero", fileChanges?.includes("파일 변경 2개"));
+  check("file list tooltip includes changed file", fileList?.includes("src/LoginForm.tsx"));
+
+  console.log("\n6. Click restore → log receives entry");
+  const autoRestoreBtn = await page.$('[data-testid="timeline-restore"]');
+  await autoRestoreBtn.click();
   await page.waitForTimeout(200);
   const log = await page.$$('[data-testid="timeline-log"]');
   check("log has entry", log.length >= 1, `got ${log.length}`);
 
-  console.log("\n6. Active state updates on restore");
+  console.log("\n7. Active state updates on restore");
   const activeDots = await page.$$('[data-testid="timeline-dot"][data-active="true"]');
   check("one active dot", activeDots.length === 1, `got ${activeDots.length}`);
 
-  console.log("\n7. Add checkpoint → count goes to 4");
+  console.log("\n8. Add checkpoint → count goes to 4");
   await page.click('[data-testid="timeline-add"]');
   await page.waitForTimeout(200);
   const dotsAfter = await page.$$('[data-testid="timeline-dot"]');
   check("4 dots after add", dotsAfter.length === 4, `got ${dotsAfter.length}`);
 
-  console.log("\n8. Clear all → empty state shown");
+  console.log("\n9. Clear all → empty state shown");
   await page.click('[data-testid="timeline-clear"]');
   await page.waitForTimeout(200);
   const empty = await page.$('[data-testid="checkpoint-timeline"][data-empty="true"]');

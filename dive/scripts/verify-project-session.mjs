@@ -27,6 +27,7 @@ async function main() {
   await page.goto(BASE);
   await page.evaluate(() => {
     window.localStorage.clear();
+    window.localStorage.setItem("dive:rc1_migrated", "true");
     window.localStorage.setItem("dive:onboarded", "true");
   });
   await page.reload();

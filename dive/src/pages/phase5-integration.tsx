@@ -5,7 +5,7 @@ import { Badge } from "../components/ui/badge";
 
 interface Feature {
   id: string;
-  demo: string;
+  target: { kind: "demo" | "route"; value: string };
   title: string;
   task: string;
   checklist: string[];
@@ -14,7 +14,7 @@ interface Feature {
 const FEATURES: Feature[] = [
   {
     id: "codex",
-    demo: "settings",
+    target: { kind: "route", value: "settings" },
     title: "Codex OAuth (PKCE)",
     task: "5-1",
     checklist: [
@@ -26,7 +26,7 @@ const FEATURES: Feature[] = [
   },
   {
     id: "mcp-setup",
-    demo: "settings",
+    target: { kind: "route", value: "settings" },
     title: "MCP 서버 등록",
     task: "5-2",
     checklist: [
@@ -38,7 +38,7 @@ const FEATURES: Feature[] = [
   },
   {
     id: "mcp-tools",
-    demo: "mcp",
+    target: { kind: "demo", value: "mcp" },
     title: "MCP 도구 권한 카드",
     task: "5-3",
     checklist: [
@@ -50,7 +50,7 @@ const FEATURES: Feature[] = [
   },
   {
     id: "prompt-helper",
-    demo: "prompt-helper",
+    target: { kind: "route", value: "prompt-helper" },
     title: "프롬프트 도우미",
     task: "5-4",
     checklist: [
@@ -62,7 +62,7 @@ const FEATURES: Feature[] = [
   },
   {
     id: "prompt-check",
-    demo: "prompt-helper",
+    target: { kind: "route", value: "prompt-helper" },
     title: "보내기 전 점검",
     task: "5-5",
     checklist: [
@@ -81,9 +81,15 @@ export default function Phase5IntegrationPage() {
     setRustSummary({ passed: 238, failed: 0 });
   }, []);
 
-  const navigate = (demo: string) => {
+  const navigate = (target: Feature["target"]) => {
     const url = new URL(window.location.href);
-    url.searchParams.set("demo", demo);
+    if (target.kind === "route") {
+      url.searchParams.delete("demo");
+      url.searchParams.set("route", target.value);
+    } else {
+      url.searchParams.delete("route");
+      url.searchParams.set("demo", target.value);
+    }
     window.history.pushState({}, "", url.toString());
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
@@ -101,8 +107,8 @@ export default function Phase5IntegrationPage() {
           </div>
           <p className="text-xs text-fg-muted">
             Phase 5의 5개 산출물(Codex OAuth / MCP 클라이언트 / MCP 권한 카드 / 프롬프트 도우미 /
-            보내기 전 점검)을 데모 단위로 모아 놓은 랜딩 페이지. 각 카드의 [열기] 버튼으로 기존
-            ?demo 라우트로 이동합니다.
+            보내기 전 점검)을 데모 단위로 모아 놓은 랜딩 페이지. Product 화면은 ?route로,
+            순수 데모 화면은 ?demo로 이동합니다.
           </p>
         </header>
 
@@ -143,7 +149,7 @@ export default function Phase5IntegrationPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => navigate(f.demo)}
+                  onClick={() => navigate(f.target)}
                   data-testid="phase5-open-demo"
                   data-feature-id={f.id}
                 >

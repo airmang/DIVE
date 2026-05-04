@@ -26,6 +26,10 @@ export interface VerifyLogView {
   details: string;
   model: string;
   ran_at: number;
+  test_command?: string | null;
+  test_exit_code?: number | null;
+  test_stdout?: string | null;
+  test_stderr?: string | null;
 }
 
 interface CardDetailPanelProps {
@@ -38,6 +42,7 @@ interface CardDetailPanelProps {
   checkpointBadge?: string | null;
   onOpenChange: (open: boolean) => void;
   onInstructionChange?: (cardId: number, instruction: string) => void | Promise<void>;
+  onTestCommandChange?: (cardId: number, testCommand: string) => void | Promise<void>;
   onTransition?: (
     cardId: number,
     transition: CardTransitionKind,
@@ -57,19 +62,23 @@ export function CardDetailPanel({
   checkpointBadge = null,
   onOpenChange,
   onInstructionChange,
+  onTestCommandChange,
   onTransition,
   onVerify,
   onOpenCode,
 }: CardDetailPanelProps) {
   const [instructionDraft, setInstructionDraft] = useState("");
+  const [testCommandDraft, setTestCommandDraft] = useState("");
   const [forceApprove, setForceApprove] = useState(false);
 
   useEffect(() => {
     if (card) {
       setInstructionDraft(card.summary ?? "");
+      setTestCommandDraft(card.testCommand ?? "");
       setForceApprove(false);
     } else {
       setInstructionDraft("");
+      setTestCommandDraft("");
       setForceApprove(false);
     }
   }, [card]);
@@ -95,6 +104,9 @@ export function CardDetailPanel({
   const handleSaveInstruction = async () => {
     if (onInstructionChange) {
       await onInstructionChange(card.id, instructionDraft);
+    }
+    if (onTestCommandChange) {
+      await onTestCommandChange(card.id, testCommandDraft);
     }
   };
 
@@ -135,6 +147,8 @@ export function CardDetailPanel({
           {renderStateBody(card.state, {
             instructionDraft,
             setInstructionDraft,
+            testCommandDraft,
+            setTestCommandDraft,
             trimmedDraftLength: trimmedDraft.length,
             toolCallCount,
             verifyLog,
@@ -168,6 +182,8 @@ export function CardDetailPanel({
 interface BodyContext {
   instructionDraft: string;
   setInstructionDraft: (v: string) => void;
+  testCommandDraft: string;
+  setTestCommandDraft: (v: string) => void;
   trimmedDraftLength: number;
   toolCallCount: number;
   verifyLog: VerifyLogView | null;
@@ -203,6 +219,23 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
               ? "거부 사유를 반영해 지시를 수정한 뒤 다시 시작하세요."
               : "지시가 작성되면 I 단계로 진입합니다."}
           </p>
+          <div className="space-y-1 pt-2">
+            <label className="text-xs font-semibold text-fg-muted" htmlFor="test-command-input">
+              검증 명령 (선택)
+            </label>
+            <input
+              id="test-command-input"
+              data-testid="test-command-input"
+              value={ctx.testCommandDraft}
+              onChange={(e) => ctx.setTestCommandDraft(e.target.value)}
+              className="w-full rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg"
+              placeholder="예: pnpm test src/App.test.ts"
+            />
+            <p className="text-[11px] text-fg-muted">
+              V 단계 검증 시 프로젝트 루트에서 실행됩니다. 위험하거나 프로젝트 밖으로 나가는
+              명령은 차단됩니다.
+            </p>
+          </div>
           {state === "instructed" ? (
             <p className="text-[11px] text-fg-muted" data-testid="tool-call-count">
               도구 호출: {ctx.toolCallCount}회
@@ -241,9 +274,45 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
                     ? "통과"
                     : ctx.verifyLog.test_result === "fail"
                       ? "실패"
-                      : "실행 안 함"}
+                    : "실행 안 함"}
                 </p>
               </div>
+              {ctx.verifyLog.test_command ? (
+                <div
+                  className="space-y-2 rounded-md border border-border bg-bg-panel2 p-3"
+                  data-testid="verify-test-command"
+                >
+                  <div>
+                    <p className="text-xs font-semibold text-fg-muted">검증 명령</p>
+                    <p className="mt-0.5 break-all font-mono text-xs text-fg">
+                      {ctx.verifyLog.test_command}
+                    </p>
+                    <p className="mt-1 text-[10px] text-fg-muted">
+                      종료 코드:{" "}
+                      {ctx.verifyLog.test_exit_code === null ||
+                      ctx.verifyLog.test_exit_code === undefined
+                        ? "(없음)"
+                        : ctx.verifyLog.test_exit_code}
+                    </p>
+                  </div>
+                  {ctx.verifyLog.test_stdout ? (
+                    <pre
+                      className="max-h-32 overflow-auto rounded border border-border bg-bg-panel px-2 py-1 text-[11px] text-fg"
+                      data-testid="verify-test-stdout"
+                    >
+                      {ctx.verifyLog.test_stdout}
+                    </pre>
+                  ) : null}
+                  {ctx.verifyLog.test_stderr ? (
+                    <pre
+                      className="max-h-32 overflow-auto rounded border border-border bg-bg-panel px-2 py-1 text-[11px] text-danger"
+                      data-testid="verify-test-stderr"
+                    >
+                      {ctx.verifyLog.test_stderr}
+                    </pre>
+                  ) : null}
+                </div>
+              ) : null}
               <div
                 className="rounded-md border border-border bg-bg-panel2 p-3"
                 data-testid="verify-details"

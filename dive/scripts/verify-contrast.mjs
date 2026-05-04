@@ -121,6 +121,7 @@ async function main() {
   await page.waitForLoadState("domcontentloaded");
   await page.evaluate(() => {
     window.localStorage.clear();
+    window.localStorage.setItem("dive:rc1_migrated", "true");
     window.localStorage.setItem("dive:onboarded", "true");
     window.localStorage.setItem("dive.theme", "dark");
   });

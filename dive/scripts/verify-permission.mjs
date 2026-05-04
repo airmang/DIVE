@@ -21,6 +21,9 @@ function check(name, cond, detail = "") {
 async function main() {
   const browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await context.addInitScript(() => {
+    window.localStorage.setItem("dive:rc1_migrated", "true");
+  });
   const page = await context.newPage();
 
   console.log("1. Navigate to ?demo=permission");

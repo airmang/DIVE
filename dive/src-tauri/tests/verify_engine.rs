@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use dive_lib::db::dao::{card, project, session};
@@ -6,6 +7,13 @@ use dive_lib::dive::{TestResult, VerifyEngine, VerifyError, VerifyLog};
 use dive_lib::{ChatEvent, FinishReason, MockProvider};
 
 fn seed(card_state: CardState) -> (Arc<Mutex<dive_lib::Database>>, i64, i64) {
+    seed_with_test_command(card_state, None)
+}
+
+fn seed_with_test_command(
+    card_state: CardState,
+    test_command: Option<String>,
+) -> (Arc<Mutex<dive_lib::Database>>, i64, i64) {
     let db_file = tempfile::NamedTempFile::new().unwrap();
     let mut db = dive_lib::Database::open(db_file.path()).unwrap();
     db.migrate().unwrap();
@@ -39,11 +47,22 @@ fn seed(card_state: CardState) -> (Arc<Mutex<dive_lib::Database>>, i64, i64) {
             state: card_state,
             verify_log: None,
             changed_files: Some(serde_json::json!(["src/LoginForm.tsx", "src/App.tsx"])),
+            test_command,
             position: 1,
         },
     )
     .unwrap();
     (Arc::new(Mutex::new(db)), sid, cid)
+}
+
+#[cfg(unix)]
+fn write_executable(path: &Path, content: &str) {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::write(path, content).unwrap();
+    let mut perms = std::fs::metadata(path).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(path, perms).unwrap();
 }
 
 fn scripted_ok_response() -> Vec<ChatEvent> {
@@ -102,6 +121,76 @@ async fn verify_success_writes_verify_log() {
     let saved = row.verify_log.expect("verify_log persisted");
     let parsed = VerifyLog::from_json_str(&saved).unwrap();
     assert!(parsed.approve_eligible());
+}
+
+#[tokio::test]
+#[cfg(unix)]
+async fn verify_runs_success_test_command_and_persists_output() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bin = tmp.path().join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    write_executable(
+        &bin.join("pass.sh"),
+        "#!/bin/sh\nprintf 'ok-from-test-command'\n",
+    );
+    let (db, sid, cid) = seed_with_test_command(CardState::Verifying, Some("bin/pass.sh".into()));
+    let provider = Arc::new(MockProvider::new(vec![scripted_ok_response()]));
+    let engine =
+        VerifyEngine::new(provider, db.clone(), "mock-model".into()).with_project_root(tmp.path());
+
+    let log = engine.verify_card(sid, cid).await.unwrap();
+
+    assert_eq!(log.test_result, TestResult::Pass);
+    assert_eq!(log.test_command.as_deref(), Some("bin/pass.sh"));
+    assert_eq!(log.test_exit_code, Some(0));
+    assert_eq!(log.test_stdout.as_deref(), Some("ok-from-test-command"));
+    assert_eq!(log.test_stderr.as_deref(), Some(""));
+
+    let db = db.lock().unwrap();
+    let row = dive_lib::db::dao::card::get_by_id(db.conn(), cid)
+        .unwrap()
+        .unwrap();
+    let saved = VerifyLog::from_json_str(row.verify_log.as_deref().unwrap()).unwrap();
+    assert_eq!(saved.test_result, TestResult::Pass);
+    assert_eq!(saved.test_stdout.as_deref(), Some("ok-from-test-command"));
+}
+
+#[tokio::test]
+#[cfg(unix)]
+async fn verify_runs_failing_test_command_and_records_exit_stderr() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bin = tmp.path().join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    write_executable(
+        &bin.join("fail.sh"),
+        "#!/bin/sh\nprintf 'bad-stderr' >&2\nexit 7\n",
+    );
+    let (db, sid, cid) = seed_with_test_command(CardState::Verifying, Some("bin/fail.sh".into()));
+    let provider = Arc::new(MockProvider::new(vec![scripted_ok_response()]));
+    let engine = VerifyEngine::new(provider, db, "mock-model".into()).with_project_root(tmp.path());
+
+    let log = engine.verify_card(sid, cid).await.unwrap();
+
+    assert_eq!(log.test_result, TestResult::Fail);
+    assert_eq!(log.test_exit_code, Some(7));
+    assert_eq!(log.test_stdout.as_deref(), Some(""));
+    assert_eq!(log.test_stderr.as_deref(), Some("bad-stderr"));
+    assert!(!log.approve_eligible());
+}
+
+#[tokio::test]
+#[cfg(unix)]
+async fn verify_rejects_test_command_that_escapes_project_sandbox() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (db, sid, cid) =
+        seed_with_test_command(CardState::Verifying, Some("printf ../secret".into()));
+    let provider = Arc::new(MockProvider::new(vec![scripted_ok_response()]));
+    let engine = VerifyEngine::new(provider, db, "mock-model".into()).with_project_root(tmp.path());
+
+    let err = engine.verify_card(sid, cid).await.unwrap_err();
+
+    assert!(matches!(err, VerifyError::TestCommand(_)));
+    assert!(err.to_string().contains("project root"));
 }
 
 #[tokio::test]

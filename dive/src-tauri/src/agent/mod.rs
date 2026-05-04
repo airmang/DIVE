@@ -24,9 +24,10 @@ use futures::StreamExt;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::db::dao::{card, event_log, message, workmap};
-use crate::db::models::{NewEventLog, NewMessage};
+use crate::db::dao::{card, message, workmap};
+use crate::db::models::NewMessage;
 use crate::db::Database;
+use crate::dive::event_log as dive_event_log;
 use crate::dive::DiveStage;
 use crate::providers::{
     ChatEvent, ChatRequest, FinishReason, LlmProvider, Message as ProviderMessage, ToolCall,
@@ -79,9 +80,15 @@ impl AgentLoop {
         );
         self.log_event(
             session_id,
-            "user_message",
-            json!({ "content": user_input, "stage": self.stage.as_str() }),
+            "stage_enter",
+            json!({ "stage": self.stage.as_str(), "card_id": current_card_id }),
         )?;
+        let mut user_payload = dive_event_log::user_text_metadata(user_input);
+        if let Value::Object(map) = &mut user_payload {
+            map.insert("stage".into(), json!(self.stage.as_str()));
+            map.insert("card_id".into(), json!(current_card_id));
+        }
+        self.log_event(session_id, "user_message", user_payload)?;
 
         let mut messages = self.load_history(session_id)?;
         if let Some(prompt) = self.current_card_system_prompt(session_id)? {
@@ -125,7 +132,17 @@ impl AgentLoop {
             });
 
             let (content, tool_calls, finish_reason) =
-                self.stream_assistant(&assistant_id, request, emit).await?;
+                match self.stream_assistant(&assistant_id, request, emit).await {
+                    Ok(result) => result,
+                    Err(err) => {
+                        self.log_event(
+                            session_id,
+                            "error_occurred",
+                            dive_event_log::error_payload("provider", &err.to_string()),
+                        )?;
+                        return Err(err);
+                    }
+                };
 
             self.persist_assistant_message(session_id, current_card_id, &content, &tool_calls)?;
             emit(AgentEvent::AssistantEnd {
@@ -148,6 +165,14 @@ impl AgentLoop {
             });
 
             if tool_calls.is_empty() {
+                self.log_event(
+                    session_id,
+                    "stage_exit",
+                    json!({
+                        "stage": self.stage.as_str(),
+                        "reason": finish_reason_str(finish_reason),
+                    }),
+                )?;
                 return Ok(format!("stopped:{}", finish_reason_str(finish_reason)));
             }
 
@@ -217,13 +242,18 @@ impl AgentLoop {
                     PermissionDecision::Approved { modified_args } => {
                         emit(AgentEvent::ToolCallApproved { id: tc.id.clone() });
                         let effective_args = modified_args.unwrap_or(args_value);
+                        self.log_event(
+                            session_id,
+                            "tool_approve",
+                            json!({ "tool": tc.name, "risk": risk.as_str() }),
+                        )?;
                         let Some(tool) = tool_opt else {
                             let msg = format!("tool '{}' not registered", tc.name);
                             emit(AgentEvent::ToolResult {
                                 call_id: tc.id.clone(),
                                 success: false,
                                 summary: msg.clone(),
-                                full: json!({ "error": msg }),
+                                full: json!({ "error": msg.clone() }),
                             });
                             messages.push(ProviderMessage::Tool {
                                 content: msg,
@@ -239,12 +269,17 @@ impl AgentLoop {
                                     call_id: tc.id.clone(),
                                     success: false,
                                     summary: msg.clone(),
-                                    full: json!({ "error": msg }),
+                                    full: json!({ "error": msg.clone() }),
                                 });
                                 self.log_event(
                                     session_id,
                                     "tool_error",
-                                    json!({ "tool": tc.name, "error": msg }),
+                                    json!({ "tool": tc.name, "error": msg.clone() }),
+                                )?;
+                                self.log_event(
+                                    session_id,
+                                    "error_occurred",
+                                    dive_event_log::error_payload("tool", &msg),
                                 )?;
                                 messages.push(ProviderMessage::Tool {
                                     content: msg,
@@ -265,7 +300,16 @@ impl AgentLoop {
                             json!({
                                 "tool": tc.name,
                                 "success": out.success,
-                                "summary": out.summary,
+                                "summary": out.summary.clone(),
+                            }),
+                        )?;
+                        self.log_event(
+                            session_id,
+                            "tool_complete",
+                            json!({
+                                "tool": tc.name,
+                                "success": out.success,
+                                "summary": out.summary.clone(),
                             }),
                         )?;
                         let tool_content = out.full.to_string();
@@ -282,7 +326,12 @@ impl AgentLoop {
                         self.log_event(
                             session_id,
                             "tool_call_denied",
-                            json!({ "tool": tc.name, "reason": reason }),
+                            json!({ "tool": tc.name, "reason": reason.clone() }),
+                        )?;
+                        self.log_event(
+                            session_id,
+                            "tool_reject",
+                            json!({ "tool": tc.name, "reason": reason.clone() }),
                         )?;
                         messages.push(ProviderMessage::Tool {
                             content: format!("user denied tool call: {reason}"),
@@ -296,6 +345,11 @@ impl AgentLoop {
                 emit(AgentEvent::Done {
                     reason: "max_iterations".into(),
                 });
+                self.log_event(
+                    session_id,
+                    "error_occurred",
+                    dive_event_log::error_payload("agent_loop", "max_iterations"),
+                )?;
                 return Err(AgentError::MaxIterations(self.max_iterations));
             }
         }
@@ -303,6 +357,11 @@ impl AgentLoop {
         emit(AgentEvent::Done {
             reason: "max_iterations".into(),
         });
+        self.log_event(
+            session_id,
+            "error_occurred",
+            dive_event_log::error_payload("agent_loop", "max_iterations"),
+        )?;
         Err(AgentError::MaxIterations(self.max_iterations))
     }
 
@@ -446,14 +505,7 @@ impl AgentLoop {
             .db
             .lock()
             .map_err(|_| AgentError::Internal("db mutex poisoned".into()))?;
-        event_log::append(
-            db.conn(),
-            &NewEventLog {
-                session_id: Some(session_id),
-                r#type: kind.into(),
-                payload,
-            },
-        )?;
+        dive_event_log::append_to_conn(db.conn(), Some(session_id), kind, payload)?;
         Ok(())
     }
 
@@ -682,7 +734,7 @@ impl AgentLoopBuilder {
             cancel: self
                 .cancel
                 .unwrap_or_else(|| Arc::new(AtomicBool::new(false))),
-            model: self.model.unwrap_or_else(|| "mock-model".into()),
+            model: self.model.unwrap_or_else(|| "unset".into()),
             stage: self.stage.unwrap_or(DiveStage::D),
         })
     }

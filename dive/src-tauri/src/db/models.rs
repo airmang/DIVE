@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum CardState {
     Decomposed,
     Instructed,
@@ -112,6 +113,7 @@ pub struct NewCard {
     pub state: CardState,
     pub verify_log: Option<String>,
     pub changed_files: Option<Value>,
+    pub test_command: Option<String>,
     pub position: i64,
 }
 
@@ -124,6 +126,7 @@ pub struct CardRow {
     pub state: CardState,
     pub verify_log: Option<String>,
     pub changed_files: Option<Value>,
+    pub test_command: Option<String>,
     pub position: i64,
     pub created_at: i64,
     pub updated_at: i64,
@@ -178,12 +181,37 @@ pub struct ToolCallRow {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckpointStats {
+    pub added: u32,
+    pub removed: u32,
+    pub modified: u32,
+}
+
+impl CheckpointStats {
+    pub fn zero() -> Self {
+        Self {
+            added: 0,
+            removed: 0,
+            modified: 0,
+        }
+    }
+}
+
+impl Default for CheckpointStats {
+    fn default() -> Self {
+        Self::zero()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NewCheckpoint {
     pub session_id: i64,
     pub card_id: Option<i64>,
     pub git_sha: String,
     pub kind: String,
     pub label: Option<String>,
+    pub changed_files: Vec<String>,
+    pub stats: CheckpointStats,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -195,6 +223,8 @@ pub struct CheckpointRow {
     pub kind: String,
     pub label: Option<String>,
     pub created_at: i64,
+    pub changed_files: Vec<String>,
+    pub stats: CheckpointStats,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

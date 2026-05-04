@@ -1,7 +1,7 @@
 {
   "name": "dive",
   "private": true,
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -17,7 +17,12 @@
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "verify:production-wire": "node scripts/verify-production-wire.mjs",
+    "release:smoke": "node scripts/release-gate-smoke.mjs",
+    "release:smoke:preflight": "node scripts/release-gate-smoke.mjs --preflight",
+    "verify:rc1-migration": "node scripts/verify-rc1-migration.mjs",
+    "verify:version-sync": "node scripts/verify-version-sync.mjs 1.0.0-rc.2"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

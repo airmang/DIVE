@@ -38,6 +38,7 @@ fn env() -> (Arc<Mutex<dive_lib::Database>>, tempfile::TempDir, i64, i64) {
             state: CardState::Decomposed,
             verify_log: None,
             changed_files: None,
+            test_command: None,
             position: 1,
         },
     )
@@ -67,12 +68,16 @@ fn manual_then_auto_checkpoint_roundtrip() {
         .unwrap();
     assert_eq!(manual.git_sha.len(), 40);
     assert_eq!(manual.kind, "manual");
+    assert_eq!(manual.changed_files, vec!["main.rs"]);
+    assert_eq!(manual.stats.added, 1);
 
     std::fs::write(tmp.path().join("main.rs"), "fn main(){ println!(\"hi\"); }").unwrap();
     let auto = engine
         .create_checkpoint(sid, Some(cid), "auto", Some("[V 통과] card"))
         .unwrap();
     assert_ne!(auto.git_sha, manual.git_sha);
+    assert_eq!(auto.changed_files, vec!["main.rs"]);
+    assert_eq!(auto.stats.modified, 1);
 
     let list = engine.list_checkpoints(sid).unwrap();
     assert_eq!(list.len(), 2);
@@ -97,5 +102,7 @@ fn restore_reverts_worktree_and_autosnapshots() {
         "v1"
     );
     let list = engine.list_checkpoints(sid).unwrap();
-    assert!(list.iter().any(|c| c.label.as_deref() == Some("복원 직전")));
+    assert!(list
+        .iter()
+        .any(|c| c.kind == "auto-pre-restore" && c.label.as_deref() == Some("복원 직전")));
 }

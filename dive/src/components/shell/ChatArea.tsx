@@ -26,6 +26,12 @@ interface ChatAreaProps {
   modelLabel?: string;
   inputDisabled?: boolean;
   inputBlocked?: { reason: string } | null;
+  emptyState?: {
+    title: string;
+    description: string;
+    actionLabel?: string;
+    onAction?: () => void;
+  };
 }
 
 export function ChatArea({
@@ -42,6 +48,7 @@ export function ChatArea({
   modelLabel,
   inputDisabled,
   inputBlocked,
+  emptyState,
 }: ChatAreaProps) {
   const hasConversation = messages !== undefined && messages.length > 0;
 
@@ -108,10 +115,26 @@ export function ChatArea({
           />
         ) : (
           <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 px-6 text-center">
-            <p className="text-xl font-semibold text-fg">세션을 시작해 대화를 시작하세요</p>
-            <p className="text-sm text-fg-muted">
-              사이드바에서 <span className="font-medium text-fg">+ 새 세션</span>을 눌러 시작
+            <p className="text-xl font-semibold text-fg">
+              {emptyState?.title ?? "세션을 시작해 대화를 시작하세요"}
             </p>
+            <p className="text-sm text-fg-muted">
+              {emptyState?.description ?? (
+                <>
+                  사이드바에서 <span className="font-medium text-fg">+ 새 세션</span>을 눌러 시작
+                </>
+              )}
+            </p>
+            {emptyState?.actionLabel && emptyState.onAction ? (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={emptyState.onAction}
+                data-testid="chat-empty-cta"
+              >
+                {emptyState.actionLabel}
+              </Button>
+            ) : null}
           </div>
         )}
       </div>

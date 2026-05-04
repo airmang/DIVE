@@ -39,6 +39,22 @@ export function RestoreConfirmDialog({ open, onOpenChange, checkpointLabel, onCo
             {checkpointLabel}
           </div>
         ) : null}
+        <label className="flex items-start gap-2 rounded-md border bg-bg-panel2 p-3 text-xs text-fg-muted">
+          <input
+            type="checkbox"
+            checked
+            disabled
+            readOnly
+            aria-label="현재 상태 자동 백업 후 복원"
+            className="mt-0.5"
+          />
+          <span>
+            현재 상태 자동 백업 후 복원
+            <span className="block text-fg-subtle">
+              복원 전 `auto-pre-restore` 체크포인트가 생성됩니다.
+            </span>
+          </span>
+        </label>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} data-testid="restore-cancel">
             취소

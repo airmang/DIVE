@@ -10,6 +10,8 @@ pub enum ProviderError {
     Stream(String),
     #[error("auth: {0}")]
     Auth(String),
+    #[error("provider not configured")]
+    NotConfigured,
     #[error("unsupported: {0}")]
     Unsupported(String),
 }

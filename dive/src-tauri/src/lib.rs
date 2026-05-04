@@ -14,10 +14,13 @@ pub mod tools;
 pub use auth::{AuthError, Keyring, OsKeyring, SecretScope};
 pub use db::Database;
 pub use ipc::AppState;
+#[cfg(any(test, debug_assertions, feature = "dev-mock"))]
+pub use providers::MockProvider;
 pub use providers::{
     AnthropicProvider, ChatEvent, ChatRequest, CodexProvider, FinishReason, LlmProvider, Message,
-    MockProvider, ModelInfo, OpenAiProvider, ProviderError, ToolCall, ToolChoice, ToolDef, Usage,
+    ModelInfo, OpenAiProvider, ProviderError, ToolCall, ToolChoice, ToolDef, Usage,
 };
+use tauri::Manager;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -26,18 +29,29 @@ fn greet(name: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app_state = ipc::AppState::dev_mock();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(app_state)
+        .setup(|app| {
+            let app_state = ipc::AppState::from_app_handle(app.handle())?;
+            app.manage(app_state);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             greet,
+            ipc::message_list,
             ipc::chat_send,
             ipc::chat_cancel,
             ipc::tool_approve,
             ipc::tool_deny,
             ipc::workmap_set_current_card,
+            ipc::workmap_get,
+            ipc::card_create,
+            ipc::card_list,
+            ipc::card_delete,
+            ipc::card_reorder,
+            ipc::card_tool_call_stats,
             ipc::card_update_instruction,
+            ipc::card_update_test_command,
             ipc::card_transition,
             ipc::card_verify,
             ipc::ai_assist_cards,

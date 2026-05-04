@@ -14,17 +14,33 @@ import { useProjectSessionStore } from "../../stores/project-session";
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onConnected?: () => void;
 }
 
 const PROVIDER_CHOICES: Array<{ kind: string; label: string; hint: string }> = [
   { kind: "anthropic", label: "Anthropic", hint: "claude-sonnet-4.5 등" },
   { kind: "openai", label: "OpenAI", hint: "gpt-4o, o1 등" },
   { kind: "openrouter", label: "OpenRouter", hint: "여러 모델 통합" },
+  { kind: "opencode_zen", label: "opencode zen", hint: "무료 베타 모델" },
 ];
 
-export function OnboardingDialog({ open, onOpenChange }: Props) {
+function onboardingErrorMessage(err: unknown) {
+  const message = err instanceof Error ? err.message : String(err);
+  const lower = message.toLowerCase();
+  if (lower.includes("401") || lower.includes("unauthorized") || lower.includes("auth")) {
+    return `키가 잘못되었거나 권한이 없습니다. (${message})`;
+  }
+  if (lower.includes("timeout") || lower.includes("timed out")) {
+    return `네트워크 시간이 초과되었습니다. (${message})`;
+  }
+  if (lower.includes("network") || lower.includes("fetch")) {
+    return `네트워크 문제로 연결하지 못했습니다. (${message})`;
+  }
+  return message;
+}
+
+export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
   const connectProvider = useProjectSessionStore((s) => s.connectProvider);
-  const setOnboarded = useProjectSessionStore((s) => s.setOnboarded);
   const [kind, setKind] = useState("anthropic");
   const [apiKey, setApiKey] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -39,17 +55,16 @@ export function OnboardingDialog({ open, onOpenChange }: Props) {
     setError(null);
     try {
       await connectProvider(kind, apiKey.trim());
-      setOnboarded(true);
       onOpenChange(false);
+      onConnected?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(onboardingErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleSkip = () => {
-    setOnboarded(true);
     onOpenChange(false);
   };
 
@@ -67,7 +82,7 @@ export function OnboardingDialog({ open, onOpenChange }: Props) {
             <label className="text-xs font-medium text-fg-muted" htmlFor="onb-kind">
               프로바이더
             </label>
-            <div className="grid grid-cols-3 gap-2" data-testid="onb-provider-list">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-testid="onb-provider-list">
               {PROVIDER_CHOICES.map((p) => (
                 <button
                   key={p.kind}
@@ -86,6 +101,20 @@ export function OnboardingDialog({ open, onOpenChange }: Props) {
                 </button>
               ))}
             </div>
+            {kind === "opencode_zen" ? (
+              <p className="text-[10px] text-warn" data-testid="onb-opencode-warning">
+                ⚠️ 베타 서비스 · 일부 무료 모델은 데이터 훈련에 사용될 수 있음 (
+                <a
+                  href="https://opencode.ai/docs/zen/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline underline-offset-2"
+                >
+                  자세히
+                </a>
+                )
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-fg-muted" htmlFor="onb-api-key">

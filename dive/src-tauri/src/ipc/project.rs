@@ -45,9 +45,8 @@ fn insert_project(state: &AppState, name: String, root: &Path) -> Result<Project
         .ok_or_else(|| format!("project {id} not found after insert"))
 }
 
-#[tauri::command]
-pub async fn project_create(
-    state: State<'_, AppState>,
+fn project_create_impl(
+    state: &AppState,
     name: Option<String>,
     path: String,
 ) -> Result<ProjectRow, String> {
@@ -60,7 +59,18 @@ pub async fn project_create(
         .filter(|s| !s.is_empty())
         .map(|s| s.to_owned())
         .unwrap_or_else(|| project_name_from_path(&root));
-    insert_project(&state, resolved_name, &root)
+    let row = insert_project(state, resolved_name, &root)?;
+    state.swap_project_root(root)?;
+    Ok(row)
+}
+
+#[tauri::command]
+pub async fn project_create(
+    state: State<'_, AppState>,
+    name: Option<String>,
+    path: String,
+) -> Result<ProjectRow, String> {
+    project_create_impl(&state, name, path)
 }
 
 #[tauri::command]
@@ -80,8 +90,7 @@ pub async fn project_get(
     project_dao::get_by_id(db.conn(), project_id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub async fn project_open(state: State<'_, AppState>, path: String) -> Result<ProjectRow, String> {
+fn project_open_impl(state: &AppState, path: String) -> Result<ProjectRow, String> {
     let root = PathBuf::from(&path);
     if !root.exists() {
         return Err(format!("path does not exist: {}", root.display()));
@@ -95,16 +104,23 @@ pub async fn project_open(state: State<'_, AppState>, path: String) -> Result<Pr
     };
     if let Some(row) = existing {
         ensure_dive_dir(&root)?;
-        run_checkpoint_init(&state, &root)?;
+        run_checkpoint_init(state, &root)?;
+        state.swap_project_root(root)?;
         return Ok(row);
     }
     ensure_dive_dir(&root)?;
-    insert_project(&state, project_name_from_path(&root), &root)
+    let row = insert_project(state, project_name_from_path(&root), &root)?;
+    state.swap_project_root(root)?;
+    Ok(row)
 }
 
 #[tauri::command]
-pub async fn project_delete(
-    state: State<'_, AppState>,
+pub async fn project_open(state: State<'_, AppState>, path: String) -> Result<ProjectRow, String> {
+    project_open_impl(&state, path)
+}
+
+fn project_delete_impl(
+    state: &AppState,
     project_id: i64,
     delete_folder: bool,
 ) -> Result<(), String> {
@@ -118,6 +134,7 @@ pub async fn project_delete(
         project_dao::delete(db.conn(), project_id).map_err(|e| e.to_string())?;
     }
     let root = PathBuf::from(&row.path);
+    let was_active = state.project_root_snapshot() == root;
     if delete_folder {
         if root.exists() {
             std::fs::remove_dir_all(&root).map_err(|e| format!("remove project dir: {e}"))?;
@@ -128,7 +145,19 @@ pub async fn project_delete(
             std::fs::remove_dir_all(&dive_dir).map_err(|e| format!("remove .dive/: {e}"))?;
         }
     }
+    if was_active {
+        state.swap_project_root(PathBuf::new())?;
+    }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn project_delete(
+    state: State<'_, AppState>,
+    project_id: i64,
+    delete_folder: bool,
+) -> Result<(), String> {
+    project_delete_impl(&state, project_id, delete_folder)
 }
 
 #[cfg(test)]
@@ -159,6 +188,49 @@ mod tests {
         assert_eq!(row.name, "proj-a");
         assert!(root.join(".dive").exists());
         assert!(root.join(".dive/git/HEAD").exists());
+    }
+
+    #[test]
+    fn project_create_and_open_swap_active_project_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = mk_state(&tmp);
+        let root_a = tmp.path().join("proj-active-a");
+        let root_b = tmp.path().join("proj-active-b");
+        std::fs::create_dir_all(&root_b).unwrap();
+
+        let row_a =
+            project_create_impl(&state, Some("A".into()), root_a.to_string_lossy().into()).unwrap();
+        assert_eq!(row_a.name, "A");
+        assert_eq!(state.project_root_snapshot(), root_a);
+
+        let row_b = project_open_impl(&state, root_b.to_string_lossy().into()).unwrap();
+        assert_eq!(row_b.name, "proj-active-b");
+        assert_eq!(state.project_root_snapshot(), root_b);
+
+        let row_a_again = project_open_impl(&state, root_a.to_string_lossy().into()).unwrap();
+        assert_eq!(row_a_again.id, row_a.id);
+        assert_eq!(state.project_root_snapshot(), root_a);
+    }
+
+    #[test]
+    fn project_delete_clears_active_project_root_only_for_active_project() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = mk_state(&tmp);
+        let root_a = tmp.path().join("proj-delete-a");
+        let root_b = tmp.path().join("proj-delete-b");
+
+        let row_a =
+            project_create_impl(&state, Some("A".into()), root_a.to_string_lossy().into()).unwrap();
+        let row_b =
+            project_create_impl(&state, Some("B".into()), root_b.to_string_lossy().into()).unwrap();
+        assert_eq!(state.project_root_snapshot(), root_b);
+
+        project_delete_impl(&state, row_a.id, false).unwrap();
+        assert_eq!(state.project_root_snapshot(), root_b);
+
+        project_delete_impl(&state, row_b.id, false).unwrap();
+        assert!(state.project_root_snapshot().as_os_str().is_empty());
+        assert!(state.project_root_required().is_err());
     }
 
     #[test]

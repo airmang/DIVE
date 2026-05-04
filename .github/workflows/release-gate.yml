@@ -1,0 +1,54 @@
+name: release-gate
+
+on:
+  push:
+    tags:
+      - "v*-rc.*"
+  workflow_dispatch:
+
+jobs:
+  windows-release-gate:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: dive/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install frontend dependencies
+        working-directory: dive
+        run: pnpm install --frozen-lockfile
+      - name: Developer gate preflight
+        working-directory: dive
+        run: |
+          pnpm typecheck
+          pnpm lint
+          pnpm build
+          pnpm verify:production-wire
+      - name: Rust gate
+        working-directory: dive/src-tauri
+        run: |
+          cargo fmt --all -- --check
+          cargo test --all-targets
+          cargo clippy --all-targets -- -D warnings
+      - name: Install tauri-driver and Edge driver helper
+        run: |
+          cargo install tauri-driver --locked
+          cargo install --git https://github.com/chippers/msedgedriver-tool
+          msedgedriver-tool.exe
+          echo "$env:USERPROFILE\.cargo\bin" >> $env:GITHUB_PATH
+          $driver = Get-ChildItem -Path .,$env:USERPROFILE -Recurse -Filter msedgedriver.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $driver) { throw "msedgedriver.exe not found after msedgedriver-tool" }
+          echo $driver.Directory.FullName >> $env:GITHUB_PATH
+      - name: Build NSIS x64
+        working-directory: dive
+        run: pnpm tauri:build:x64
+      - name: Run installed-app release smoke
+        working-directory: dive
+        run: pnpm release:smoke

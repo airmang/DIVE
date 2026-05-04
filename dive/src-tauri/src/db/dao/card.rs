@@ -1,7 +1,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::db::dao::{optional_json_to_string, parse_optional_json};
-use crate::db::models::{CardRow, NewCard};
+use crate::db::models::{CardRow, CardState, NewCard};
 use crate::db::{now_ms, DbError};
 
 fn map_row(row: &rusqlite::Row<'_>) -> Result<CardRow, DbError> {
@@ -13,9 +13,10 @@ fn map_row(row: &rusqlite::Row<'_>) -> Result<CardRow, DbError> {
         state: row.get(4)?,
         verify_log: row.get(5)?,
         changed_files: parse_optional_json(row.get(6)?)?,
-        position: row.get(7)?,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
+        test_command: row.get(7)?,
+        position: row.get(8)?,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
     })
 }
 fn query_map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CardRow> {
@@ -27,21 +28,52 @@ fn query_map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CardRow> {
 pub fn insert(conn: &Connection, row: &NewCard) -> Result<i64, DbError> {
     let now = now_ms();
     let changed_files = optional_json_to_string(row.changed_files.as_ref())?;
-    conn.execute("INSERT INTO Card(session_id, title, instruction, state, verify_log, changed_files, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", params![row.session_id,row.title,row.instruction,row.state,row.verify_log,changed_files,row.position,now,now])?;
+    conn.execute("INSERT INTO Card(session_id, title, instruction, state, verify_log, changed_files, test_command, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", params![row.session_id,row.title,row.instruction,row.state,row.verify_log,changed_files,row.test_command,row.position,now,now])?;
     Ok(conn.last_insert_rowid())
 }
+
+pub fn next_position(conn: &Connection, session_id: i64) -> Result<i64, DbError> {
+    Ok(conn.query_row(
+        "SELECT COALESCE(MAX(position), 0) + 1 FROM Card WHERE session_id = ?",
+        [session_id],
+        |row| row.get(0),
+    )?)
+}
+
+pub fn create(
+    conn: &Connection,
+    session_id: i64,
+    title: &str,
+    position: Option<i64>,
+) -> Result<CardRow, DbError> {
+    let id = insert(
+        conn,
+        &NewCard {
+            session_id,
+            title: title.trim().to_owned(),
+            instruction: None,
+            state: CardState::Decomposed,
+            verify_log: None,
+            changed_files: None,
+            test_command: None,
+            position: position.unwrap_or(next_position(conn, session_id)?),
+        },
+    )?;
+    Ok(get_by_id(conn, id)?.expect("inserted card should be readable"))
+}
+
 pub fn get_by_id(conn: &Connection, id: i64) -> Result<Option<CardRow>, DbError> {
-    Ok(conn.query_row("SELECT id, session_id, title, instruction, state, verify_log, changed_files, position, created_at, updated_at FROM Card WHERE id = ?", [id], query_map_row).optional()?)
+    Ok(conn.query_row("SELECT id, session_id, title, instruction, state, verify_log, changed_files, test_command, position, created_at, updated_at FROM Card WHERE id = ?", [id], query_map_row).optional()?)
 }
 pub fn list(conn: &Connection) -> Result<Vec<CardRow>, DbError> {
-    let mut stmt=conn.prepare("SELECT id, session_id, title, instruction, state, verify_log, changed_files, position, created_at, updated_at FROM Card ORDER BY id")?;
+    let mut stmt=conn.prepare("SELECT id, session_id, title, instruction, state, verify_log, changed_files, test_command, position, created_at, updated_at FROM Card ORDER BY id")?;
     let rows = stmt
         .query_map([], query_map_row)?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
 pub fn list_by_session(conn: &Connection, session_id: i64) -> Result<Vec<CardRow>, DbError> {
-    let mut stmt=conn.prepare("SELECT id, session_id, title, instruction, state, verify_log, changed_files, position, created_at, updated_at FROM Card WHERE session_id = ? ORDER BY position, id")?;
+    let mut stmt=conn.prepare("SELECT id, session_id, title, instruction, state, verify_log, changed_files, test_command, position, created_at, updated_at FROM Card WHERE session_id = ? ORDER BY position, id")?;
     let rows = stmt
         .query_map([session_id], query_map_row)?
         .collect::<Result<Vec<_>, _>>()?;
@@ -49,11 +81,40 @@ pub fn list_by_session(conn: &Connection, session_id: i64) -> Result<Vec<CardRow
 }
 pub fn update(conn: &Connection, id: i64, row: &NewCard) -> Result<(), DbError> {
     let changed_files = optional_json_to_string(row.changed_files.as_ref())?;
-    conn.execute("UPDATE Card SET session_id = ?, title = ?, instruction = ?, state = ?, verify_log = ?, changed_files = ?, position = ?, updated_at = ? WHERE id = ?", params![row.session_id,row.title,row.instruction,row.state,row.verify_log,changed_files,row.position,now_ms(),id])?;
+    conn.execute("UPDATE Card SET session_id = ?, title = ?, instruction = ?, state = ?, verify_log = ?, changed_files = ?, test_command = ?, position = ?, updated_at = ? WHERE id = ?", params![row.session_id,row.title,row.instruction,row.state,row.verify_log,changed_files,row.test_command,row.position,now_ms(),id])?;
     Ok(())
 }
 pub fn delete(conn: &Connection, id: i64) -> Result<(), DbError> {
     conn.execute("DELETE FROM Card WHERE id = ?", [id])?;
+    Ok(())
+}
+
+pub fn delete_by_id(conn: &Connection, id: i64) -> Result<(), DbError> {
+    delete(conn, id)
+}
+
+pub fn reorder(conn: &Connection, session_id: i64, ordered_ids: &[i64]) -> Result<(), DbError> {
+    let existing = list_by_session(conn, session_id)?;
+    if existing.len() != ordered_ids.len() {
+        return Err(DbError::Sqlite(rusqlite::Error::InvalidQuery));
+    }
+    let existing_ids = existing
+        .iter()
+        .map(|c| c.id)
+        .collect::<std::collections::HashSet<_>>();
+    let ordered_set = ordered_ids
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    if existing_ids != ordered_set {
+        return Err(DbError::Sqlite(rusqlite::Error::InvalidQuery));
+    }
+    for (idx, id) in ordered_ids.iter().enumerate() {
+        conn.execute(
+            "UPDATE Card SET position = ?, updated_at = ? WHERE id = ? AND session_id = ?",
+            params![idx as i64 + 1, now_ms(), id, session_id],
+        )?;
+    }
     Ok(())
 }
 
@@ -71,6 +132,7 @@ mod tests {
             state,
             verify_log: None,
             changed_files: Some(json!(["a.rs"])),
+            test_command: None,
             position: pos,
         }
     }
@@ -89,6 +151,27 @@ mod tests {
         assert_eq!(list(db.conn()).unwrap().len(), 2);
         delete(db.conn(), id).unwrap();
         assert!(get_by_id(db.conn(), id).unwrap().is_none());
+    }
+
+    #[test]
+    fn create_uses_next_position_and_reorder_rewrites_positions() {
+        let (db, _) = fresh_db();
+        let (_, sid) = seed_project_session(db.conn());
+        let first = create(db.conn(), sid, "first", None).unwrap();
+        let second = create(db.conn(), sid, "second", None).unwrap();
+        assert_eq!(first.position, 1);
+        assert_eq!(second.position, 2);
+
+        reorder(db.conn(), sid, &[second.id, first.id]).unwrap();
+        let rows = list_by_session(db.conn(), sid).unwrap();
+        assert_eq!(
+            rows.iter().map(|c| c.id).collect::<Vec<_>>(),
+            vec![second.id, first.id]
+        );
+        assert_eq!(
+            rows.iter().map(|c| c.position).collect::<Vec<_>>(),
+            vec![1, 2]
+        );
     }
     #[test]
     fn foreign_key_rejects_missing_session() {

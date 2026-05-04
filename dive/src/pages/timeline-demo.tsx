@@ -11,6 +11,9 @@ const SEED: TimelineItem[] = [
     kind: "init",
     label: "초기 저장",
     created_at: Date.now() - 60_000 * 30,
+    file_changes: 0,
+    changed_files: [],
+    stats: { added: 0, removed: 0, modified: 0 },
   },
   {
     id: 2,
@@ -20,6 +23,9 @@ const SEED: TimelineItem[] = [
     kind: "auto",
     label: "[V 통과] 로그인 폼",
     created_at: Date.now() - 60_000 * 20,
+    file_changes: 2,
+    changed_files: ["src/LoginForm.tsx", "src/App.tsx"],
+    stats: { added: 1, removed: 0, modified: 1 },
   },
   {
     id: 3,
@@ -29,6 +35,9 @@ const SEED: TimelineItem[] = [
     kind: "manual",
     label: "수동 저장",
     created_at: Date.now() - 60_000 * 10,
+    file_changes: 1,
+    changed_files: ["src/styles.css"],
+    stats: { added: 0, removed: 0, modified: 1 },
   },
 ];
 
@@ -66,6 +75,9 @@ export function TimelineDemoPage() {
                   kind: "auto",
                   label: `auto #${s.length + 1}`,
                   created_at: Date.now(),
+                  file_changes: 1,
+                  changed_files: [`src/generated-${s.length + 1}.tsx`],
+                  stats: { added: 1, removed: 0, modified: 0 },
                 },
               ])
             }

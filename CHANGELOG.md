@@ -2,9 +2,17 @@
 
 All notable changes to DIVE are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) · Versioning: [SemVer](https://semver.org/lang/ko/).
 
-## [Unreleased] — Phase 7 Production Wiring (rc.2 준비)
+## [Unreleased]
 
-### Planned (DIVE_PLAN.md §3 Track 0)
+### External blockers before publish
+
+- Full Windows physical-machine / CI `tauri-driver` + NSIS installed-app smoke.
+- GitHub Release `v1.0.0-rc.1` UI yanked title/body update and `v1.0.0-rc.2` draft publish authority.
+- Code signing remains v1.1+/production-distribution blocker.
+
+## [1.0.0-rc.2] — 2026-05-04
+
+### Added
 
 - Production AppState production builder + disk DB + provider hydration + 4 call site 스냅샷 전환
 - Cards persistence 레이어 (신규 `card_create` / `card_list` / `workmap_get` IPC + `useWorkmap` 훅)
@@ -21,9 +29,17 @@ All notable changes to DIVE are documented here. Format: [Keep a Changelog](http
 - Release gate 2단계 (developer `pnpm tauri:dev` / release NSIS + tauri-driver 자동 스모크 + 수동 7종)
 - rc.1 데이터 일회성 마이그레이션 모달 + localStorage cleanup
 
-### Will produce
+### Verification
 
-- `v1.0.0-rc.2` — 실제로 동작하는 첫 NSIS 빌드
+- Developer production-wire gate: `node scripts/verify-production-wire.mjs`.
+- rc.1 migration gate: `node scripts/verify-rc1-migration.mjs`.
+- Release smoke preflight: `node scripts/release-gate-smoke.mjs --preflight`.
+- Full frontend/Rust gate: typecheck, lint, build, fmt, `cargo test --all-targets`, clippy.
+
+### Known external blockers
+
+- `v1.0.0-rc.2` tag/publish waits for full Windows installed-app smoke and GitHub release authority.
+- rc.1 GitHub Release UI yanked notice waits for release authority; assets must remain attached for archive purposes.
 
 ## [Yanked] 1.0.0-rc.1 — 2026-05-04
 
@@ -128,7 +144,8 @@ v0.1 — 워크맵 + 채팅 + 권한 카드 + D 게이트. 메인 시나리오 A
 
 ---
 
-[Unreleased]: https://github.com/coreelab/dive/compare/v1.0.0-rc.1...HEAD
+[Unreleased]: https://github.com/coreelab/dive/compare/v1.0.0-rc.2...HEAD
+[1.0.0-rc.2]: https://github.com/coreelab/dive/compare/v1.0.0-rc.1...v1.0.0-rc.2
 [Yanked 1.0.0-rc.1]: https://github.com/coreelab/dive/releases/tag/v1.0.0-rc.1
 [1.0.0-rc.1]: https://github.com/coreelab/dive/releases/tag/v1.0.0-rc.1
 [0.3.0]: https://github.com/coreelab/dive/releases/tag/v0.3.0

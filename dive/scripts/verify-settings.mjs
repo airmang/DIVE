@@ -21,10 +21,47 @@ function check(name, cond, detail = "") {
 async function main() {
   const browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await context.addInitScript(() => {
+    const state = { providers: [], nextId: 1, policy: { rules: {}, default: null } };
+    window.__DIVE_MOCK_TAURI__ = state;
+    window.__TAURI_INTERNALS__ = {
+      invoke: async (cmd, args = {}) => {
+        if (cmd === "project_list") return [];
+        if (cmd === "provider_list") return state.providers;
+        if (cmd === "session_list") return [];
+        if (cmd === "provider_connect") {
+          const row = {
+            id: state.nextId++,
+            kind: args.kind,
+            auth_type: "api_key",
+            base_url: args.baseUrl ?? null,
+            is_connected: true,
+          };
+          state.providers.push(row);
+          return row;
+        }
+        if (cmd === "provider_disconnect") {
+          state.providers = state.providers.filter((p) => p.id !== args.providerConfigId);
+          window.__DIVE_MOCK_TAURI__ = state;
+          return null;
+        }
+        if (cmd === "provider_policy_get") return state.policy;
+        if (cmd === "provider_policy_set") {
+          state.policy = args.policy;
+          window.__DIVE_MOCK_TAURI__ = state;
+          return null;
+        }
+        if (cmd === "codex_oauth_status") return { connected: false, account_id: null };
+        if (cmd === "mcp_server_list") return [];
+        throw new Error(`unexpected command ${cmd}`);
+      },
+    };
+    window.localStorage.setItem("dive:rc1_migrated", "true");
+  });
   const page = await context.newPage();
 
-  console.log("1. Navigate to ?demo=settings");
-  await page.goto(`${BASE}/?demo=settings`);
+  console.log("1. Navigate to ?route=settings");
+  await page.goto(`${BASE}/?route=settings`);
   await page.waitForSelector('[data-testid="settings-page"]');
 
   console.log("\n2. Three sections render");
@@ -32,10 +69,10 @@ async function main() {
   check("policy section", (await page.$('[data-testid="settings-section-policy"]')) !== null);
   check("theme section", (await page.$('[data-testid="settings-section-theme"]')) !== null);
 
-  console.log("\n3. Five provider cards");
+  console.log("\n3. Six provider cards");
   const cards = await page.$$('[data-testid="provider-card"]');
-  check("5 provider cards", cards.length === 5, `got ${cards.length}`);
-  for (const kind of ["anthropic", "openai", "openrouter", "codex", "mock"]) {
+  check("6 provider cards", cards.length === 6, `got ${cards.length}`);
+  for (const kind of ["anthropic", "openai", "openrouter", "opencode_zen", "codex", "mock"]) {
     const el = await page.$(`[data-testid="provider-card"][data-provider-kind="${kind}"]`);
     check(`${kind} card`, el !== null);
   }

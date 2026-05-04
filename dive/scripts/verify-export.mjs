@@ -77,6 +77,36 @@ async function main() {
     "plaintext user content NOT leaked when masking on",
     !preview.includes("로그인 폼 만들어줘"),
   );
+  const eventTypes = new Set(
+    preview
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .filter((record) => record.kind === "event")
+      .map((record) => record.type),
+  );
+  const requiredEventTypes = [
+    "session_start",
+    "session_end",
+    "stage_enter",
+    "stage_exit",
+    "card_create",
+    "card_update",
+    "card_delete",
+    "tool_approve",
+    "tool_reject",
+    "tool_complete",
+    "checkpoint_create",
+    "checkpoint_restore",
+    "verify_start",
+    "verify_complete",
+    "error_occurred",
+  ];
+  check(
+    "event log type set complete",
+    requiredEventTypes.every((type) => eventTypes.has(type)),
+    `${eventTypes.size} event types`,
+  );
 
   console.log("\n6. Toggle hashing off → plaintext visible");
   await page.click('[data-testid="opt-hashUserText"] input');

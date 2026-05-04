@@ -14,14 +14,15 @@ export type CardTransitionKind =
 interface WorkmapState {
   cards: CardTileData[];
   currentCardId: number | null;
-  setCards: (cards: CardTileData[]) => void;
-  addCard: (card: CardTileData) => void;
-  addCards: (cards: CardTileData[]) => void;
-  updateCard: (id: number, patch: Partial<CardTileData>) => void;
-  setCurrentCard: (id: number | null) => void;
-  transitionCard: (id: number, nextState: CardState) => void;
-  setInstruction: (id: number, instruction: string) => void;
-  clear: () => void;
+  hydrateFromRemote: (cards: CardTileData[], currentCardId: number | null) => void;
+  setCardsLocal: (cards: CardTileData[]) => void;
+  addCardLocal: (card: CardTileData) => void;
+  addCardsLocal: (cards: CardTileData[]) => void;
+  updateCardLocal: (id: number, patch: Partial<CardTileData>) => void;
+  setCurrentCardLocal: (id: number | null) => void;
+  transitionCardLocal: (id: number, nextState: CardState) => void;
+  setInstructionLocal: (id: number, instruction: string) => void;
+  clearLocal: () => void;
 }
 
 function stagesForState(state: CardState): CardTileData["stagesCompleted"] {
@@ -44,21 +45,22 @@ function stagesForState(state: CardState): CardTileData["stagesCompleted"] {
 export const useWorkmapStore = create<WorkmapState>((set) => ({
   cards: [],
   currentCardId: null,
-  setCards: (cards) => set({ cards }),
-  addCard: (card) => set((s) => ({ cards: [...s.cards, card] })),
-  addCards: (cards) => set((s) => ({ cards: [...s.cards, ...cards] })),
-  updateCard: (id, patch) =>
+  hydrateFromRemote: (cards, currentCardId) => set({ cards, currentCardId }),
+  setCardsLocal: (cards) => set({ cards }),
+  addCardLocal: (card) => set((s) => ({ cards: [...s.cards, card] })),
+  addCardsLocal: (cards) => set((s) => ({ cards: [...s.cards, ...cards] })),
+  updateCardLocal: (id, patch) =>
     set((s) => ({
       cards: s.cards.map((c) => (c.id === id ? { ...c, ...patch } : c)),
     })),
-  setCurrentCard: (id) => set({ currentCardId: id }),
-  transitionCard: (id, nextState) =>
+  setCurrentCardLocal: (id) => set({ currentCardId: id }),
+  transitionCardLocal: (id, nextState) =>
     set((s) => ({
       cards: s.cards.map((c) =>
         c.id === id ? { ...c, state: nextState, stagesCompleted: stagesForState(nextState) } : c,
       ),
     })),
-  setInstruction: (id, instruction) =>
+  setInstructionLocal: (id, instruction) =>
     set((s) => ({
       cards: s.cards.map((c) => {
         if (c.id !== id) return c;
@@ -74,7 +76,7 @@ export const useWorkmapStore = create<WorkmapState>((set) => ({
         };
       }),
     })),
-  clear: () => set({ cards: [], currentCardId: null }),
+  clearLocal: () => set({ cards: [], currentCardId: null }),
 }));
 
 export const selectCanChat = (state: WorkmapState): boolean => state.cards.length > 0;

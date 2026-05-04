@@ -23,6 +23,7 @@ async function main() {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
   await page.addInitScript(() => {
+    window.localStorage.setItem("dive:rc1_migrated", "true");
     window.localStorage.setItem("dive:onboarded", "true");
   });
   await page.goto(`${BASE}/?demo=settings`);

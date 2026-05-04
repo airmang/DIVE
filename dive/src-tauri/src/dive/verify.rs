@@ -5,15 +5,11 @@
 //!   2. Ask the provider to emit a structured `verify_result` tool call
 //!      (Anthropic `tool_use` / OpenAI `tool_choice: specific`).
 //!   3. Parse the tool arguments into `VerifyLog`.
-//!   4. Persist the log into `Card.verify_log` (spec §10.3).
-//!
-//! Test execution (`bash` tool) is intentionally **not** wired here: spec
-//! §4.4 calls for optional "execute and observe" steps but task 3-2 keeps
-//! that out-of-scope to avoid long-running verifies gating the Approve
-//! button. When a concrete test runner is introduced in Phase 4-3, it plugs
-//! into `VerifyLog.test_result` the same way the AI's self-analysis fills
-//! `intent_match`.
+//!   4. If the card has an optional `test_command`, run it through the
+//!      sandboxed `run_process` tool and fold exit/stdout/stderr into the log.
+//!   5. Persist the log into `Card.verify_log` (spec §10.3).
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use futures::StreamExt;
@@ -27,6 +23,7 @@ use crate::db::{now_ms, Database};
 use crate::providers::{
     ChatEvent, ChatRequest, FinishReason, LlmProvider, Message, ToolChoice, ToolDef,
 };
+use crate::tools::{Tool, ToolContext};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -45,6 +42,14 @@ pub struct VerifyLog {
     pub details: String,
     pub model: String,
     pub ran_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test_command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test_exit_code: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test_stdout: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test_stderr: Option<String>,
 }
 
 impl VerifyLog {
@@ -79,12 +84,15 @@ pub enum VerifyError {
     Db(String),
     #[error("no provider model configured")]
     NoModel,
+    #[error("test command error: {0}")]
+    TestCommand(String),
 }
 
 pub struct VerifyEngine {
     pub provider: Arc<dyn LlmProvider>,
     pub db: Arc<Mutex<Database>>,
     pub model: String,
+    pub project_root: Option<PathBuf>,
 }
 
 impl VerifyEngine {
@@ -93,7 +101,13 @@ impl VerifyEngine {
             provider,
             db,
             model,
+            project_root: None,
         }
+    }
+
+    pub fn with_project_root(mut self, project_root: impl Into<PathBuf>) -> Self {
+        self.project_root = Some(project_root.into());
+        self
     }
 
     pub async fn verify_card(
@@ -186,7 +200,7 @@ impl VerifyEngine {
             .get("intent_match")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let test_result = match parsed
+        let mut test_result = match parsed
             .get("test_result")
             .and_then(|v| v.as_str())
             .unwrap_or("skipped")
@@ -195,11 +209,37 @@ impl VerifyEngine {
             "fail" => TestResult::Fail,
             _ => TestResult::Skipped,
         };
-        let details = parsed
+        let mut details = parsed
             .get("details")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+        let mut test_exit_code = None;
+        let mut test_stdout = None;
+        let mut test_stderr = None;
+        let test_command = card
+            .test_command
+            .as_deref()
+            .map(str::trim)
+            .filter(|cmd| !cmd.is_empty())
+            .map(str::to_owned);
+
+        if let Some(command_text) = test_command.as_deref() {
+            let executed = self.run_test_command(card.session_id, command_text).await?;
+            test_result = if executed.success {
+                TestResult::Pass
+            } else {
+                TestResult::Fail
+            };
+            test_exit_code = Some(executed.exit_code);
+            test_stdout = Some(executed.stdout);
+            test_stderr = Some(executed.stderr);
+            details = if details.is_empty() {
+                format!("검증 명령 `{command_text}` 실행 결과: {test_result:?}")
+            } else {
+                format!("{details}\n\n검증 명령 `{command_text}` 실행 결과: {test_result:?}")
+            };
+        }
 
         let log = VerifyLog {
             intent_match,
@@ -207,6 +247,10 @@ impl VerifyEngine {
             details,
             model: self.model.clone(),
             ran_at: now_ms(),
+            test_command,
+            test_exit_code,
+            test_stdout,
+            test_stderr,
         };
 
         let db = self.db.lock().map_err(|e| VerifyError::Db(e.to_string()))?;
@@ -220,6 +264,7 @@ impl VerifyEngine {
                 state: card.state,
                 verify_log: Some(log.to_json_string()),
                 changed_files: card.changed_files.clone(),
+                test_command: card.test_command.clone(),
                 position: card.position,
             },
         )
@@ -227,6 +272,51 @@ impl VerifyEngine {
 
         Ok(log)
     }
+
+    async fn run_test_command(
+        &self,
+        session_id: i64,
+        command_text: &str,
+    ) -> Result<TestExecution, VerifyError> {
+        let project_root = self
+            .project_root
+            .clone()
+            .ok_or_else(|| VerifyError::TestCommand("project root required".into()))?;
+        let (command, args) = split_test_command(command_text)?;
+        let ctx = ToolContext::new(project_root, session_id);
+        let output = crate::tools::run_process::RunProcess
+            .run(
+                json!({
+                    "command": command,
+                    "args": args,
+                    "timeout_sec": 60,
+                }),
+                &ctx,
+            )
+            .await
+            .map_err(|e| VerifyError::TestCommand(e.to_string()))?;
+        Ok(TestExecution {
+            success: output.success,
+            exit_code: output.full["exit_code"].as_i64().unwrap_or(-1) as i32,
+            stdout: output.full["stdout"].as_str().unwrap_or("").to_owned(),
+            stderr: output.full["stderr"].as_str().unwrap_or("").to_owned(),
+        })
+    }
+}
+
+struct TestExecution {
+    success: bool,
+    exit_code: i32,
+    stdout: String,
+    stderr: String,
+}
+
+fn split_test_command(command_text: &str) -> Result<(String, Vec<String>), VerifyError> {
+    let parts: Vec<String> = command_text.split_whitespace().map(str::to_owned).collect();
+    let Some((command, args)) = parts.split_first() else {
+        return Err(VerifyError::TestCommand("empty command".into()));
+    };
+    Ok((command.clone(), args.to_vec()))
 }
 
 fn build_system_prompt() -> String {
@@ -299,6 +389,10 @@ mod tests {
             details: "ok".into(),
             model: "m".into(),
             ran_at: 0,
+            test_command: None,
+            test_exit_code: None,
+            test_stdout: None,
+            test_stderr: None,
         };
         assert!(ok.approve_eligible());
 
@@ -329,6 +423,10 @@ mod tests {
             details: "의도대로 구현됨".into(),
             model: "claude-3-5-sonnet".into(),
             ran_at: 1234,
+            test_command: None,
+            test_exit_code: None,
+            test_stdout: None,
+            test_stderr: None,
         };
         let json = log.to_json_string();
         let back = VerifyLog::from_json_str(&json).unwrap();

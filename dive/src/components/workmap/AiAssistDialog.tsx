@@ -51,59 +51,80 @@ async function fetchAssistCardsViaIpc(description: string): Promise<Draft[] | nu
   const w =
     typeof window === "undefined" ? null : (window as unknown as { __TAURI_INTERNALS__?: unknown });
   if (!w?.__TAURI_INTERNALS__) return null;
-  try {
-    const core = await import("@tauri-apps/api/core");
-    const raw = await core.invoke<BackendCard[]>("ai_assist_cards", { description });
-    if (!Array.isArray(raw) || raw.length === 0) return null;
-    return raw.map((c, idx) => ({
-      id: idx + 1,
-      title: c.title,
-      summary: c.summary,
-    }));
-  } catch {
-    return null;
+
+  const core = await import("@tauri-apps/api/core");
+  const raw = await core.invoke<BackendCard[]>("ai_assist_cards", { description });
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error("AI 카드 제안 결과가 비어 있습니다.");
   }
+  return raw.map((c, idx) => ({
+    id: idx + 1,
+    title: c.title,
+    summary: c.summary,
+  }));
 }
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAccept: (cards: CardTileData[]) => void;
+  onAccept: (cards: CardTileData[]) => void | Promise<void>;
   positionStart?: number;
+  allowDemoFallback?: boolean;
 }
 
-export function AiAssistDialog({ open, onOpenChange, onAccept, positionStart = 1 }: Props) {
+export function AiAssistDialog({
+  open,
+  onOpenChange,
+  onAccept,
+  positionStart = 1,
+  allowDemoFallback = false,
+}: Props) {
   const [input, setInput] = useState("");
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(false);
+  const [accepting, setAccepting] = useState(false);
   const [source, setSource] = useState<"mock" | "llm" | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const reset = () => {
     setInput("");
     setDrafts(null);
     setSelected(new Set());
     setLoading(false);
+    setAccepting(false);
     setSource(null);
+    setError(null);
   };
 
   const requestSuggestions = async () => {
     setLoading(true);
     setDrafts(null);
-    const fromIpc = await fetchAssistCardsViaIpc(input);
-    if (fromIpc) {
-      setDrafts(fromIpc);
-      setSelected(new Set(fromIpc.map((d) => d.id)));
-      setSource("llm");
+    setError(null);
+    try {
+      const fromIpc = await fetchAssistCardsViaIpc(input);
+      if (fromIpc) {
+        setDrafts(fromIpc);
+        setSelected(new Set(fromIpc.map((d) => d.id)));
+        setSource("llm");
+        return;
+      }
+
+      if (!allowDemoFallback) {
+        setError("AI 카드 제안 IPC를 사용할 수 없습니다. DIVE 데스크톱 앱에서 다시 시도하세요.");
+        return;
+      }
+
+      await new Promise((r) => setTimeout(r, 350));
+      const next = mockSuggestionsFor(input);
+      setDrafts(next);
+      setSelected(new Set(next.map((d) => d.id)));
+      setSource("mock");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "AI 카드 제안에 실패했습니다.");
+    } finally {
       setLoading(false);
-      return;
     }
-    await new Promise((r) => setTimeout(r, 350));
-    const next = mockSuggestionsFor(input);
-    setDrafts(next);
-    setSelected(new Set(next.map((d) => d.id)));
-    setSource("mock");
-    setLoading(false);
   };
 
   const toggle = (id: number) => {
@@ -125,20 +146,30 @@ export function AiAssistDialog({ open, onOpenChange, onAccept, positionStart = 1
       position: positionStart + idx,
     }));
 
-  const acceptSelected = () => {
+  const acceptSelected = async () => {
     if (!drafts) return;
     const picked = drafts.filter((d) => selected.has(d.id));
     if (picked.length === 0) return;
-    onAccept(buildCards(picked));
-    reset();
-    onOpenChange(false);
+    setAccepting(true);
+    try {
+      await onAccept(buildCards(picked));
+      reset();
+      onOpenChange(false);
+    } finally {
+      setAccepting(false);
+    }
   };
 
-  const acceptAll = () => {
+  const acceptAll = async () => {
     if (!drafts) return;
-    onAccept(buildCards(drafts));
-    reset();
-    onOpenChange(false);
+    setAccepting(true);
+    try {
+      await onAccept(buildCards(drafts));
+      reset();
+      onOpenChange(false);
+    } finally {
+      setAccepting(false);
+    }
   };
 
   return (
@@ -173,6 +204,14 @@ export function AiAssistDialog({ open, onOpenChange, onAccept, positionStart = 1
               placeholder="예: 간단한 할 일 앱을 만들고 싶어요"
               className="w-full resize-none rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
             />
+            {error ? (
+              <p
+                className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
+                data-testid="ai-assist-error"
+              >
+                {error}
+              </p>
+            ) : null}
             <DialogFooter>
               <Button variant="ghost" onClick={() => onOpenChange(false)}>
                 취소
@@ -228,13 +267,18 @@ export function AiAssistDialog({ open, onOpenChange, onAccept, positionStart = 1
               <Button
                 variant="outline"
                 onClick={acceptSelected}
-                disabled={selected.size === 0}
+                disabled={selected.size === 0 || accepting}
                 data-testid="ai-assist-accept-selected"
               >
                 선택 수락 ({selected.size})
               </Button>
-              <Button variant="primary" onClick={acceptAll} data-testid="ai-assist-accept-all">
-                모두 수락
+              <Button
+                variant="primary"
+                onClick={acceptAll}
+                disabled={accepting}
+                data-testid="ai-assist-accept-all"
+              >
+                {accepting ? "저장 중..." : "모두 수락"}
               </Button>
             </DialogFooter>
           </>

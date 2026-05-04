@@ -21,6 +21,9 @@ function check(name, cond, detail = "") {
 async function main() {
   const browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await context.addInitScript(() => {
+    window.localStorage.setItem("dive:rc1_migrated", "true");
+  });
   const page = await context.newPage();
 
   console.log("1. Navigate to ?demo=scenario-a");
@@ -131,6 +134,12 @@ async function main() {
   await page.waitForSelector('[data-testid="workmap-strip"]');
   const shell = await page.$('[data-testid="workmap-strip"]');
   check("default / renders MainShell", !!shell);
+
+  console.log("\n15. Unknown demo param stays product mode");
+  await page.goto(`${BASE}/?demo=unknown`);
+  await page.waitForSelector('[data-testid="main-shell"]');
+  const providerBanner = await page.$('[data-testid="provider-required-banner"]');
+  check("unknown ?demo=unknown does not enable demo fallback", providerBanner !== null);
 
   await browser.close();
 

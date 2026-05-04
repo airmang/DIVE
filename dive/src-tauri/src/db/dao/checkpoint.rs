@@ -1,7 +1,16 @@
-use crate::db::models::{CheckpointRow, NewCheckpoint};
+use crate::db::models::{CheckpointRow, CheckpointStats, NewCheckpoint};
 use crate::db::{now_ms, DbError};
 use rusqlite::{params, Connection, OptionalExtension};
-fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CheckpointRow> {
+
+fn parse_changed_files(raw: String) -> Result<Vec<String>, DbError> {
+    Ok(serde_json::from_str(&raw)?)
+}
+
+fn parse_stats(raw: String) -> Result<CheckpointStats, DbError> {
+    Ok(serde_json::from_str(&raw)?)
+}
+
+fn map_row(row: &rusqlite::Row<'_>) -> Result<CheckpointRow, DbError> {
     Ok(CheckpointRow {
         id: row.get(0)?,
         session_id: row.get(1)?,
@@ -10,26 +19,46 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CheckpointRow> {
         kind: row.get(4)?,
         label: row.get(5)?,
         created_at: row.get(6)?,
+        changed_files: parse_changed_files(row.get(7)?)?,
+        stats: parse_stats(row.get(8)?)?,
     })
 }
+
+fn query_map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CheckpointRow> {
+    map_row(row).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(7, rusqlite::types::Type::Text, Box::new(err))
+    })
+}
+
 pub fn insert(conn: &Connection, row: &NewCheckpoint) -> Result<i64, DbError> {
-    conn.execute("INSERT INTO Checkpoint(session_id, card_id, git_sha, kind, label, created_at) VALUES (?, ?, ?, ?, ?, ?)",params![row.session_id,row.card_id,row.git_sha,row.kind,row.label,now_ms()])?;
+    let changed_files = serde_json::to_string(&row.changed_files)?;
+    let stats = serde_json::to_string(&row.stats)?;
+    conn.execute(
+        "INSERT INTO Checkpoint(session_id, card_id, git_sha, kind, label, changed_files, stats, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        params![row.session_id,row.card_id,row.git_sha,row.kind,row.label,changed_files,stats,now_ms()],
+    )?;
     Ok(conn.last_insert_rowid())
 }
 pub fn get_by_id(conn: &Connection, id: i64) -> Result<Option<CheckpointRow>, DbError> {
-    Ok(conn.query_row("SELECT id, session_id, card_id, git_sha, kind, label, created_at FROM Checkpoint WHERE id = ?",[id],map_row).optional()?)
+    Ok(conn
+        .query_row(
+            "SELECT id, session_id, card_id, git_sha, kind, label, created_at, changed_files, stats FROM Checkpoint WHERE id = ?",
+            [id],
+            query_map_row,
+        )
+        .optional()?)
 }
 pub fn list(conn: &Connection) -> Result<Vec<CheckpointRow>, DbError> {
-    let mut stmt=conn.prepare("SELECT id, session_id, card_id, git_sha, kind, label, created_at FROM Checkpoint ORDER BY id")?;
+    let mut stmt=conn.prepare("SELECT id, session_id, card_id, git_sha, kind, label, created_at, changed_files, stats FROM Checkpoint ORDER BY id")?;
     let rows = stmt
-        .query_map([], map_row)?
+        .query_map([], query_map_row)?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
 pub fn list_by_session(conn: &Connection, session_id: i64) -> Result<Vec<CheckpointRow>, DbError> {
-    let mut stmt=conn.prepare("SELECT id, session_id, card_id, git_sha, kind, label, created_at FROM Checkpoint WHERE session_id = ? ORDER BY created_at, id")?;
+    let mut stmt=conn.prepare("SELECT id, session_id, card_id, git_sha, kind, label, created_at, changed_files, stats FROM Checkpoint WHERE session_id = ? ORDER BY created_at, id")?;
     let rows = stmt
-        .query_map([session_id], map_row)?
+        .query_map([session_id], query_map_row)?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
@@ -52,6 +81,8 @@ mod tests {
             git_sha: sha.into(),
             kind: "auto".into(),
             label: Some("l".into()),
+            changed_files: Vec::new(),
+            stats: CheckpointStats::zero(),
         }
     }
     #[test]

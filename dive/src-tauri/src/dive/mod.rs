@@ -5,6 +5,7 @@
 //! by stage; `state_machine::apply` validates card transitions.
 
 pub mod assist;
+pub mod event_log;
 pub mod gate;
 pub mod prompt_check;
 pub mod state_machine;

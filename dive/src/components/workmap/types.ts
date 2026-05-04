@@ -25,6 +25,7 @@ export interface CardTileData {
   id: number;
   title: string;
   summary: string | null;
+  testCommand?: string | null;
   state: CardState;
   stagesCompleted: CardDiveStages;
   position: number;

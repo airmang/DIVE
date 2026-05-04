@@ -145,9 +145,9 @@ function allDoneSeedCards(): CardTileData[] {
 
 export default function ScenarioBDemoPage() {
   const [stepsExpanded, setStepsExpanded] = useState(true);
-  const setCards = useWorkmapStore((s) => s.setCards);
-  const clear = useWorkmapStore((s) => s.clear);
-  const setCurrentCard = useWorkmapStore((s) => s.setCurrentCard);
+  const setCards = useWorkmapStore((s) => s.setCardsLocal);
+  const clear = useWorkmapStore((s) => s.clearLocal);
+  const setCurrentCard = useWorkmapStore((s) => s.setCurrentCardLocal);
   const closeSlideIn = useSlideInStore((s) => s.close);
 
   const seeds = useMemo(

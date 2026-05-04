@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { hasRecognizedDemoRoute } from "../lib/demo-routes";
 
 export interface ProjectRow {
   id: number;
@@ -43,6 +44,38 @@ const STORAGE_KEY = "dive:project-session";
 const ONBOARDED_KEY = "dive:onboarded";
 const CURRENT_PROJECT_KEY = "dive:current-project-id";
 const CURRENT_SESSION_KEY = "dive:current-session-id";
+
+let projectSessionDemoFallbackEnabled = false;
+
+export function setProjectSessionDemoFallback(enabled: boolean) {
+  projectSessionDemoFallbackEnabled = enabled;
+}
+
+export function isProjectSessionDemoFallbackEnabled() {
+  return projectSessionDemoFallbackEnabled;
+}
+
+function canUseDemoFallback() {
+  return projectSessionDemoFallbackEnabled || hasRecognizedDemoRoute();
+}
+
+function ipcUnavailableError() {
+  return new Error("Tauri IPC unavailable outside explicit demo mode");
+}
+
+function errorMessage(err: unknown) {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function setOnboardedFlag(v: boolean) {
+  if (typeof window === "undefined") return;
+  if (v) window.localStorage.setItem(ONBOARDED_KEY, "true");
+  else window.localStorage.removeItem(ONBOARDED_KEY);
+}
+
+function hasConnectedProvider(providers: ProviderSummary[]) {
+  return providers.some((p) => p.is_connected);
+}
 
 interface MockStore {
   projects: ProjectRow[];
@@ -106,17 +139,23 @@ interface State {
   isOnboarded: () => boolean;
 }
 
-async function withTauriOrMock<T>(
+async function withTauriOrDemoMock<T>(
   api: TauriApi | null,
   tauriFn: () => Promise<T>,
   mockFn: () => T,
 ): Promise<T> {
-  if (!api) return mockFn();
+  if (api) return tauriFn();
+  if (canUseDemoFallback()) return mockFn();
+  throw ipcUnavailableError();
+}
+
+async function runStoreAction<T>(set: (partial: Partial<State>) => void, action: () => Promise<T>) {
   try {
-    return await tauriFn();
+    set({ error: null });
+    return await action();
   } catch (err) {
-    console.warn("Tauri IPC failed, falling back to mock:", err);
-    return mockFn();
+    set({ error: errorMessage(err) });
+    throw err;
   }
 }
 
@@ -153,6 +192,7 @@ export const useProjectSessionStore = create<State>((set, get) => ({
         const currentSessionId = sessions.find((s) => s.id === storedSessionId)
           ? storedSessionId
           : null;
+        if (!hasConnectedProvider(providers)) setOnboardedFlag(false);
         set({
           isTauri: true,
           loaded: true,
@@ -161,11 +201,26 @@ export const useProjectSessionStore = create<State>((set, get) => ({
           sessions,
           currentProjectId,
           currentSessionId,
+          error: null,
         });
         return;
       } catch (err) {
-        set({ error: err instanceof Error ? err.message : String(err) });
+        set({ isTauri: true, loaded: true, error: errorMessage(err) });
+        throw err;
       }
+    }
+    if (!canUseDemoFallback()) {
+      set({
+        isTauri: false,
+        loaded: true,
+        projects: [],
+        sessions: [],
+        providers: [],
+        currentProjectId: null,
+        currentSessionId: null,
+        error: ipcUnavailableError().message,
+      });
+      return;
     }
     const mock = loadMock();
     const storedProjectId =
@@ -191,74 +246,77 @@ export const useProjectSessionStore = create<State>((set, get) => ({
       providers: mock.providers,
       currentProjectId,
       currentSessionId,
+      error: null,
     });
   },
 
-  createProject: async (name, path) => {
-    const api = await loadTauri();
-    const row = await withTauriOrMock<ProjectRow | null>(
-      api,
-      () => api!.invoke<ProjectRow>("project_create", { name, path }),
-      () => {
-        const mock = loadMock();
-        const id = mock.nextId++;
-        const now = nowMs();
-        const row: ProjectRow = {
-          id,
-          name,
-          path,
-          provider_default: null,
-          model_default: null,
-          created_at: now,
-          updated_at: now,
+  createProject: async (name, path) =>
+    runStoreAction(set, async () => {
+      const api = await loadTauri();
+      const row = await withTauriOrDemoMock<ProjectRow | null>(
+        api,
+        () => api!.invoke<ProjectRow>("project_create", { name, path }),
+        () => {
+          const mock = loadMock();
+          const id = mock.nextId++;
+          const now = nowMs();
+          const row: ProjectRow = {
+            id,
+            name,
+            path,
+            provider_default: null,
+            model_default: null,
+            created_at: now,
+            updated_at: now,
+          };
+          mock.projects.unshift(row);
+          saveMock(mock);
+          return row;
+        },
+      );
+      if (!row) return null;
+      set((s) => ({
+        projects: [row, ...s.projects.filter((p) => p.id !== row.id)],
+        currentProjectId: row.id,
+        sessions: [],
+        currentSessionId: null,
+      }));
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(CURRENT_PROJECT_KEY, String(row.id));
+        window.localStorage.removeItem(CURRENT_SESSION_KEY);
+      }
+      return row;
+    }),
+
+  deleteProject: async (projectId, deleteFolder = false) =>
+    runStoreAction(set, async () => {
+      const api = await loadTauri();
+      await withTauriOrDemoMock<void>(
+        api,
+        () =>
+          api!.invoke<void>("project_delete", {
+            projectId,
+            deleteFolder,
+          }),
+        () => {
+          const mock = loadMock();
+          mock.projects = mock.projects.filter((p) => p.id !== projectId);
+          mock.sessions = mock.sessions.filter((s) => s.project_id !== projectId);
+          saveMock(mock);
+        },
+      );
+      set((s) => {
+        const projects = s.projects.filter((p) => p.id !== projectId);
+        const current =
+          s.currentProjectId === projectId ? (projects[0]?.id ?? null) : s.currentProjectId;
+        return {
+          projects,
+          currentProjectId: current,
+          sessions: current === s.currentProjectId ? s.sessions : [],
+          currentSessionId: current === s.currentProjectId ? s.currentSessionId : null,
         };
-        mock.projects.unshift(row);
-        saveMock(mock);
-        return row;
-      },
-    );
-    if (!row) return null;
-    set((s) => ({
-      projects: [row, ...s.projects.filter((p) => p.id !== row.id)],
-      currentProjectId: row.id,
-      sessions: [],
-      currentSessionId: null,
-    }));
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(CURRENT_PROJECT_KEY, String(row.id));
-      window.localStorage.removeItem(CURRENT_SESSION_KEY);
-    }
-    return row;
-  },
-
-  deleteProject: async (projectId, deleteFolder = false) => {
-    const api = await loadTauri();
-    await withTauriOrMock<void>(
-      api,
-      () =>
-        api!.invoke<void>("project_delete", {
-          projectId,
-          deleteFolder,
-        }),
-      () => {
-        const mock = loadMock();
-        mock.projects = mock.projects.filter((p) => p.id !== projectId);
-        mock.sessions = mock.sessions.filter((s) => s.project_id !== projectId);
-        saveMock(mock);
-      },
-    );
-    set((s) => {
-      const projects = s.projects.filter((p) => p.id !== projectId);
-      const current =
-        s.currentProjectId === projectId ? (projects[0]?.id ?? null) : s.currentProjectId;
-      return {
-        projects,
-        currentProjectId: current,
-        sessions: current === s.currentProjectId ? s.sessions : [],
-        currentSessionId: current === s.currentProjectId ? s.currentSessionId : null,
-      };
-    });
-  },
+      });
+    }),
 
   selectProject: async (projectId) => {
     if (projectId === null) {
@@ -269,63 +327,66 @@ export const useProjectSessionStore = create<State>((set, get) => ({
       }
       return;
     }
-    const api = await loadTauri();
-    const sessions = await withTauriOrMock<SessionRow[]>(
-      api,
-      () => api!.invoke<SessionRow[]>("session_list", { projectId }),
-      () => {
-        const mock = loadMock();
-        return mock.sessions
-          .filter((s) => s.project_id === projectId)
-          .sort((a, b) => {
-            const aArch = a.status === "archived" ? 1 : 0;
-            const bArch = b.status === "archived" ? 1 : 0;
-            return aArch - bArch || b.started_at - a.started_at;
-          });
-      },
-    );
-    set({ currentProjectId: projectId, sessions, currentSessionId: null });
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(CURRENT_PROJECT_KEY, String(projectId));
-      window.localStorage.removeItem(CURRENT_SESSION_KEY);
-    }
+    await runStoreAction(set, async () => {
+      const api = await loadTauri();
+      const sessions = await withTauriOrDemoMock<SessionRow[]>(
+        api,
+        () => api!.invoke<SessionRow[]>("session_list", { projectId }),
+        () => {
+          const mock = loadMock();
+          return mock.sessions
+            .filter((s) => s.project_id === projectId)
+            .sort((a, b) => {
+              const aArch = a.status === "archived" ? 1 : 0;
+              const bArch = b.status === "archived" ? 1 : 0;
+              return aArch - bArch || b.started_at - a.started_at;
+            });
+        },
+      );
+      set({ currentProjectId: projectId, sessions, currentSessionId: null });
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(CURRENT_PROJECT_KEY, String(projectId));
+        window.localStorage.removeItem(CURRENT_SESSION_KEY);
+      }
+    });
   },
 
-  createSession: async (projectId, title) => {
-    const api = await loadTauri();
-    const row = await withTauriOrMock<SessionRow | null>(
-      api,
-      () =>
-        api!.invoke<SessionRow>("session_create", {
-          projectId,
-          title: title ?? null,
-        }),
-      () => {
-        const mock = loadMock();
-        const id = mock.nextId++;
-        const row: SessionRow = {
-          id,
-          project_id: projectId,
-          title: title && title.trim() ? title.trim() : defaultSessionTitle(),
-          started_at: nowMs(),
-          ended_at: null,
-          status: "active",
-        };
-        mock.sessions.unshift(row);
-        saveMock(mock);
-        return row;
-      },
-    );
-    if (!row) return null;
-    set((s) => ({
-      sessions: [row, ...s.sessions],
-      currentSessionId: row.id,
-    }));
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(CURRENT_SESSION_KEY, String(row.id));
-    }
-    return row;
-  },
+  createSession: async (projectId, title) =>
+    runStoreAction(set, async () => {
+      const api = await loadTauri();
+      const row = await withTauriOrDemoMock<SessionRow | null>(
+        api,
+        () =>
+          api!.invoke<SessionRow>("session_create", {
+            projectId,
+            title: title ?? null,
+          }),
+        () => {
+          const mock = loadMock();
+          const id = mock.nextId++;
+          const row: SessionRow = {
+            id,
+            project_id: projectId,
+            title: title && title.trim() ? title.trim() : defaultSessionTitle(),
+            started_at: nowMs(),
+            ended_at: null,
+            status: "active",
+          };
+          mock.sessions.unshift(row);
+          saveMock(mock);
+          return row;
+        },
+      );
+      if (!row) return null;
+      set((s) => ({
+        sessions: [row, ...s.sessions],
+        currentSessionId: row.id,
+      }));
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(CURRENT_SESSION_KEY, String(row.id));
+      }
+      return row;
+    }),
 
   selectSession: (sessionId) => {
     set({ currentSessionId: sessionId });
@@ -335,120 +396,129 @@ export const useProjectSessionStore = create<State>((set, get) => ({
     }
   },
 
-  renameSession: async (sessionId, title) => {
-    const api = await loadTauri();
-    await withTauriOrMock<void>(
-      api,
-      async () => {
-        await api!.invoke<SessionRow>("session_rename", { sessionId, title });
-      },
-      () => {
-        const mock = loadMock();
-        mock.sessions = mock.sessions.map((s) => (s.id === sessionId ? { ...s, title } : s));
-        saveMock(mock);
-      },
-    );
-    set((s) => ({
-      sessions: s.sessions.map((ss) => (ss.id === sessionId ? { ...ss, title } : ss)),
-    }));
-  },
+  renameSession: async (sessionId, title) =>
+    runStoreAction(set, async () => {
+      const api = await loadTauri();
+      await withTauriOrDemoMock<void>(
+        api,
+        async () => {
+          await api!.invoke<SessionRow>("session_rename", { sessionId, title });
+        },
+        () => {
+          const mock = loadMock();
+          mock.sessions = mock.sessions.map((s) => (s.id === sessionId ? { ...s, title } : s));
+          saveMock(mock);
+        },
+      );
+      set((s) => ({
+        sessions: s.sessions.map((ss) => (ss.id === sessionId ? { ...ss, title } : ss)),
+      }));
+    }),
 
-  archiveSession: async (sessionId) => {
-    const api = await loadTauri();
-    await withTauriOrMock<void>(
-      api,
-      () => api!.invoke<void>("session_archive", { sessionId }),
-      () => {
-        const mock = loadMock();
-        mock.sessions = mock.sessions.map((s) =>
-          s.id === sessionId ? { ...s, status: "archived", ended_at: nowMs() } : s,
-        );
-        saveMock(mock);
-      },
-    );
-    set((s) => ({
-      sessions: s.sessions.map((ss) =>
-        ss.id === sessionId ? { ...ss, status: "archived", ended_at: nowMs() } : ss,
-      ),
-      currentSessionId: s.currentSessionId === sessionId ? null : s.currentSessionId,
-    }));
-  },
+  archiveSession: async (sessionId) =>
+    runStoreAction(set, async () => {
+      const api = await loadTauri();
+      await withTauriOrDemoMock<void>(
+        api,
+        () => api!.invoke<void>("session_archive", { sessionId }),
+        () => {
+          const mock = loadMock();
+          mock.sessions = mock.sessions.map((s) =>
+            s.id === sessionId ? { ...s, status: "archived", ended_at: nowMs() } : s,
+          );
+          saveMock(mock);
+        },
+      );
+      set((s) => ({
+        sessions: s.sessions.map((ss) =>
+          ss.id === sessionId ? { ...ss, status: "archived", ended_at: nowMs() } : ss,
+        ),
+        currentSessionId: s.currentSessionId === sessionId ? null : s.currentSessionId,
+      }));
+    }),
 
-  deleteSession: async (sessionId) => {
-    const api = await loadTauri();
-    await withTauriOrMock<void>(
-      api,
-      () => api!.invoke<void>("session_delete", { sessionId }),
-      () => {
-        const mock = loadMock();
-        mock.sessions = mock.sessions.filter((s) => s.id !== sessionId);
-        saveMock(mock);
-      },
-    );
-    set((s) => ({
-      sessions: s.sessions.filter((ss) => ss.id !== sessionId),
-      currentSessionId: s.currentSessionId === sessionId ? null : s.currentSessionId,
-    }));
-  },
+  deleteSession: async (sessionId) =>
+    runStoreAction(set, async () => {
+      const api = await loadTauri();
+      await withTauriOrDemoMock<void>(
+        api,
+        () => api!.invoke<void>("session_delete", { sessionId }),
+        () => {
+          const mock = loadMock();
+          mock.sessions = mock.sessions.filter((s) => s.id !== sessionId);
+          saveMock(mock);
+        },
+      );
+      set((s) => ({
+        sessions: s.sessions.filter((ss) => ss.id !== sessionId),
+        currentSessionId: s.currentSessionId === sessionId ? null : s.currentSessionId,
+      }));
+    }),
 
-  connectProvider: async (kind, apiKey, baseUrl) => {
-    const api = await loadTauri();
-    const row = await withTauriOrMock<ProviderSummary | null>(
-      api,
-      () =>
-        api!.invoke<ProviderSummary>("provider_connect", {
-          kind,
-          apiKey,
-          baseUrl: baseUrl ?? null,
-        }),
-      () => {
-        const mock = loadMock();
-        const id = mock.nextId++;
-        const row: ProviderSummary = {
-          id,
-          kind,
-          auth_type: "api_key",
-          base_url: baseUrl ?? null,
-          is_connected: true,
-        };
-        mock.providers.push(row);
-        saveMock(mock);
-        return row;
-      },
-    );
-    if (!row) return null;
-    set((s) => ({ providers: [...s.providers, row] }));
-    return row;
-  },
+  connectProvider: async (kind, apiKey, baseUrl) =>
+    runStoreAction(set, async () => {
+      const api = await loadTauri();
+      const row = await withTauriOrDemoMock<ProviderSummary | null>(
+        api,
+        () =>
+          api!.invoke<ProviderSummary>("provider_connect", {
+            kind,
+            apiKey,
+            baseUrl: baseUrl ?? null,
+          }),
+        () => {
+          const mock = loadMock();
+          const id = mock.nextId++;
+          const row: ProviderSummary = {
+            id,
+            kind,
+            auth_type: "api_key",
+            base_url: baseUrl ?? null,
+            is_connected: true,
+          };
+          mock.providers.push(row);
+          saveMock(mock);
+          return row;
+        },
+      );
+      if (!row) return null;
+      set((s) => ({ providers: [...s.providers, row] }));
+      if (row.is_connected) setOnboardedFlag(true);
+      return row;
+    }),
 
-  disconnectProvider: async (providerId) => {
-    const api = await loadTauri();
-    await withTauriOrMock<void>(
-      api,
-      () =>
-        api!.invoke<void>("provider_disconnect", {
-          providerConfigId: providerId,
-        }),
-      () => {
-        const mock = loadMock();
-        mock.providers = mock.providers.filter((p) => p.id !== providerId);
-        saveMock(mock);
-      },
-    );
-    set((s) => ({ providers: s.providers.filter((p) => p.id !== providerId) }));
-  },
+  disconnectProvider: async (providerId) =>
+    runStoreAction(set, async () => {
+      const api = await loadTauri();
+      await withTauriOrDemoMock<void>(
+        api,
+        () =>
+          api!.invoke<void>("provider_disconnect", {
+            providerConfigId: providerId,
+          }),
+        () => {
+          const mock = loadMock();
+          mock.providers = mock.providers.filter((p) => p.id !== providerId);
+          saveMock(mock);
+        },
+      );
+      set((s) => {
+        const providers = s.providers.filter((p) => p.id !== providerId);
+        if (!hasConnectedProvider(providers)) setOnboardedFlag(false);
+        return { providers };
+      });
+    }),
 
   setOnboarded: (v) => {
-    if (typeof window !== "undefined") {
-      if (v) window.localStorage.setItem(ONBOARDED_KEY, "true");
-      else window.localStorage.removeItem(ONBOARDED_KEY);
-    }
-    void get();
+    const providers = get().providers;
+    setOnboardedFlag(v && hasConnectedProvider(providers));
   },
 
   isOnboarded: () => {
     if (typeof window === "undefined") return false;
-    return window.localStorage.getItem(ONBOARDED_KEY) === "true";
+    return (
+      window.localStorage.getItem(ONBOARDED_KEY) === "true" && hasConnectedProvider(get().providers)
+    );
   },
 }));
 

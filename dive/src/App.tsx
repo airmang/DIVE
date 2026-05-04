@@ -1,69 +1,55 @@
 import { useEffect, useState } from "react";
 import MainShell from "./components/shell/MainShell";
-import ShowcasePage from "./pages/showcase";
-import WorkmapDemoPage from "./pages/workmap-demo";
-import ChatDemoPage from "./pages/chat-demo";
-import PermissionDemoPage from "./pages/permission-demo";
-import SlideInDemoPage from "./pages/slide-in-demo";
-import ScenarioADemoPage from "./pages/scenario-a-demo";
-import ScenarioBDemoPage from "./pages/scenario-b-demo";
-import ToolGuardDemoPage from "./pages/tool-guard-demo";
-import ProvisioningDemoPage from "./pages/provisioning-demo";
-import ExportDemoPage from "./pages/export-demo";
 import SettingsPage from "./pages/settings";
-import TimelineDemoPage from "./pages/timeline-demo";
-import ToastDemoPage from "./pages/toast-demo";
-import PolishDemoPage from "./pages/polish-demo";
-import McpDemoPage from "./pages/mcp-demo";
 import PromptHelperDemoPage from "./pages/prompt-helper-demo";
-import Phase5IntegrationPage from "./pages/phase5-integration";
+import DemoShell from "./components/demo/DemoShell";
+import { resolveDemoRouteValue, type DemoRoute } from "./lib/demo-routes";
+import { Rc1MigrationDialog } from "./components/rc1/Rc1MigrationDialog";
+import {
+  acknowledgeRc1Migration,
+  runRc1Migration,
+  type Rc1MigrationResult,
+} from "./lib/rc1-migration";
 
-type Route =
-  | "main"
-  | "showcase"
-  | "workmap"
-  | "chat"
-  | "permission"
-  | "slide-in"
-  | "scenario-a"
-  | "scenario-b"
-  | "tool-guard"
-  | "provisioning"
-  | "export"
-  | "settings"
-  | "timeline"
-  | "toast"
-  | "polish"
-  | "mcp"
-  | "prompt-helper"
-  | "phase5";
+type ProductRoute = "main" | "settings" | "prompt-helper";
 
-function resolveRoute(): Route {
-  if (typeof window === "undefined") return "main";
-  const params = new URLSearchParams(window.location.search);
+type ResolvedRoute = { kind: "product"; route: ProductRoute } | { kind: "demo"; route: DemoRoute };
+
+function resolveRoute(
+  search = typeof window === "undefined" ? "" : window.location.search,
+): ResolvedRoute {
+  const params = new URLSearchParams(search);
+  const productRoute = params.get("route");
+  if (productRoute === "settings" || productRoute === "prompt-helper") {
+    return { kind: "product", route: productRoute };
+  }
+
   const demo = params.get("demo");
-  if (demo === "workmap") return "workmap";
-  if (demo === "showcase") return "showcase";
-  if (demo === "chat") return "chat";
-  if (demo === "permission") return "permission";
-  if (demo === "slide-in") return "slide-in";
-  if (demo === "scenario-a") return "scenario-a";
-  if (demo === "scenario-b") return "scenario-b";
-  if (demo === "tool-guard") return "tool-guard";
-  if (demo === "provisioning") return "provisioning";
-  if (demo === "export") return "export";
-  if (demo === "settings") return "settings";
-  if (demo === "timeline") return "timeline";
-  if (demo === "toast") return "toast";
-  if (demo === "polish") return "polish";
-  if (demo === "mcp") return "mcp";
-  if (demo === "prompt-helper") return "prompt-helper";
-  if (demo === "phase5") return "phase5";
-  return "main";
+  if (demo === "settings" || demo === "prompt-helper") {
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("demo");
+      url.searchParams.set("route", demo);
+      window.history.replaceState({}, "", url.toString());
+      console.warn("Deprecated demo URL, use ?route=...");
+    }
+    return { kind: "product", route: demo };
+  }
+
+  const demoRoute = resolveDemoRouteValue(demo);
+  if (demoRoute) {
+    return { kind: "demo", route: demoRoute };
+  }
+
+  return { kind: "product", route: "main" };
 }
 
 function App() {
-  const [route, setRoute] = useState<Route>(() => resolveRoute());
+  const [route, setRoute] = useState<ResolvedRoute>(() => resolveRoute());
+  const [rc1Migration, setRc1Migration] = useState<Rc1MigrationResult | null>(() => {
+    const result = runRc1Migration();
+    return result.needed ? result : null;
+  });
 
   useEffect(() => {
     const handler = () => setRoute(resolveRoute());
@@ -71,24 +57,31 @@ function App() {
     return () => window.removeEventListener("popstate", handler);
   }, []);
 
-  if (route === "workmap") return <WorkmapDemoPage />;
-  if (route === "showcase") return <ShowcasePage />;
-  if (route === "chat") return <ChatDemoPage />;
-  if (route === "permission") return <PermissionDemoPage />;
-  if (route === "slide-in") return <SlideInDemoPage />;
-  if (route === "scenario-a") return <ScenarioADemoPage />;
-  if (route === "scenario-b") return <ScenarioBDemoPage />;
-  if (route === "tool-guard") return <ToolGuardDemoPage />;
-  if (route === "provisioning") return <ProvisioningDemoPage />;
-  if (route === "export") return <ExportDemoPage />;
-  if (route === "settings") return <SettingsPage />;
-  if (route === "timeline") return <TimelineDemoPage />;
-  if (route === "toast") return <ToastDemoPage />;
-  if (route === "polish") return <PolishDemoPage />;
-  if (route === "mcp") return <McpDemoPage />;
-  if (route === "prompt-helper") return <PromptHelperDemoPage />;
-  if (route === "phase5") return <Phase5IntegrationPage />;
-  return <MainShell />;
+  const acknowledge = () => {
+    acknowledgeRc1Migration();
+    setRc1Migration(null);
+  };
+
+  const content =
+    route.kind === "demo" ? (
+      <DemoShell route={route.route} />
+    ) : route.route === "settings" ? (
+      <SettingsPage />
+    ) : route.route === "prompt-helper" ? (
+      <PromptHelperDemoPage />
+    ) : (
+      <MainShell />
+    );
+
+  if (rc1Migration !== null) {
+    return (
+      <div className="min-h-screen bg-bg text-fg" data-testid="rc1-migration-shell">
+        <Rc1MigrationDialog open result={rc1Migration} onAcknowledge={acknowledge} />
+      </div>
+    );
+  }
+
+  return content;
 }
 
 export default App;

@@ -61,6 +61,10 @@ export interface VerifyLogPayload {
   details: string;
   model: string;
   ran_at: number;
+  test_command?: string | null;
+  test_exit_code?: number | null;
+  test_stdout?: string | null;
+  test_stderr?: string | null;
 }
 
 export interface CheckpointRowPayload {
@@ -103,7 +107,7 @@ interface State {
   error: string | null;
 }
 
-export function useChatSession(sessionId: number) {
+export function useChatSession(sessionId: number | null) {
   const [state, setState] = useState<State>({
     messages: [],
     isStreaming: false,
@@ -115,7 +119,17 @@ export function useChatSession(sessionId: number) {
   useEffect(() => {
     let unsub: (() => void) | null = null;
     let cancelled = false;
+    setState({
+      messages: [],
+      isStreaming: false,
+      isTauri: false,
+      error: null,
+    });
     (async () => {
+      if (sessionId === null) {
+        apiRef.current = null;
+        return;
+      }
       const api = await loadTauri();
       if (cancelled) return;
       apiRef.current = api;
@@ -123,7 +137,23 @@ export function useChatSession(sessionId: number) {
         setState((s) => ({ ...s, isTauri: false }));
         return;
       }
-      setState((s) => ({ ...s, isTauri: true }));
+      try {
+        const history = await api.invoke<ChatMessage[]>("message_list", { sessionId });
+        if (cancelled) return;
+        setState((s) => ({
+          ...s,
+          messages: history,
+          isTauri: true,
+          error: null,
+        }));
+      } catch (err) {
+        if (cancelled) return;
+        setState((s) => ({
+          ...s,
+          isTauri: true,
+          error: err instanceof Error ? err.message : String(err),
+        }));
+      }
       unsub = await api.listen<Envelope>(`chat://event/${sessionId}`, (e) => {
         setState((prev) => reduce(prev, e.payload));
       });
@@ -136,6 +166,13 @@ export function useChatSession(sessionId: number) {
 
   const sendUserMessage = useCallback(
     async (text: string, stage?: "d" | "i" | "v" | "e") => {
+      if (sessionId === null) {
+        setState((s) => ({
+          ...s,
+          error: "세션을 선택하거나 생성하세요.",
+        }));
+        return;
+      }
       const api = apiRef.current;
       if (!api) {
         setState((s) => ({
@@ -163,6 +200,7 @@ export function useChatSession(sessionId: number) {
   );
 
   const cancel = useCallback(async () => {
+    if (sessionId === null) return;
     const api = apiRef.current;
     if (!api) return;
     await api.invoke<void>("chat_cancel", { sessionId });
@@ -188,6 +226,7 @@ export function useChatSession(sessionId: number) {
 
   const setCurrentCard = useCallback(
     async (cardId: number | null) => {
+      if (sessionId === null) return;
       const api = apiRef.current;
       if (!api) return;
       await api.invoke<void>("workmap_set_current_card", {
@@ -232,6 +271,7 @@ export function useChatSession(sessionId: number) {
 
   const verifyCard = useCallback(
     async (cardId: number) => {
+      if (sessionId === null) return null;
       const api = apiRef.current;
       if (!api) return null;
       return api.invoke<VerifyLogPayload>("card_verify", {
@@ -244,6 +284,7 @@ export function useChatSession(sessionId: number) {
 
   const createCheckpoint = useCallback(
     async (cardId: number | null, label?: string) => {
+      if (sessionId === null) return null;
       const api = apiRef.current;
       if (!api) return null;
       return api.invoke<CheckpointRowPayload>("checkpoint_create", {
@@ -256,6 +297,7 @@ export function useChatSession(sessionId: number) {
   );
 
   const listCheckpoints = useCallback(async () => {
+    if (sessionId === null) return [];
     const api = apiRef.current;
     if (!api) return [];
     return api.invoke<CheckpointRowPayload[]>("checkpoint_list", { sessionId });

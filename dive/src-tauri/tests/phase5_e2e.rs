@@ -74,6 +74,7 @@ async fn phase5_codex_plus_mcp_tool_end_to_end() {
             state: CardState::Decomposed,
             verify_log: None,
             changed_files: None,
+            test_command: None,
             position: 1,
         },
     )

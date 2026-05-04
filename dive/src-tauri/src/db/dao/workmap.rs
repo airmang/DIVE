@@ -152,6 +152,7 @@ mod tests {
                 state: CardState::Decomposed,
                 verify_log: None,
                 changed_files: None,
+                test_command: None,
                 position: 1,
             },
         )
@@ -176,6 +177,7 @@ mod tests {
                 state: CardState::Decomposed,
                 verify_log: None,
                 changed_files: None,
+                test_command: None,
                 position: 1,
             },
         )
@@ -201,6 +203,7 @@ mod tests {
                 state: CardState::Decomposed,
                 verify_log: None,
                 changed_files: None,
+                test_command: None,
                 position: 1,
             },
         )

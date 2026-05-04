@@ -44,6 +44,7 @@ fn seed() -> (Arc<Mutex<dive_lib::Database>>, i64) {
                     .into(),
             ),
             changed_files: Some(json!(["src/App.tsx", "src/LoginForm.tsx"])),
+            test_command: None,
             position: 1,
         },
     )

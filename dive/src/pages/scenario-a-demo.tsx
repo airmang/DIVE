@@ -88,8 +88,8 @@ function demoCards(): CardTileData[] {
 
 export default function ScenarioADemoPage() {
   const [stepsExpanded, setStepsExpanded] = useState(true);
-  const setCards = useWorkmapStore((s) => s.setCards);
-  const clear = useWorkmapStore((s) => s.clear);
+  const setCards = useWorkmapStore((s) => s.setCardsLocal);
+  const clear = useWorkmapStore((s) => s.clearLocal);
   const closeSlideIn = useSlideInStore((s) => s.close);
 
   const scenarioSeed = useMemo(() => demoCards(), []);

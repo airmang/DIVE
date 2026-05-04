@@ -27,10 +27,27 @@ interface PolicyDto {
 const SAFE_TOOLS = ["read_file", "list_dir", "search_files"];
 const WARN_TOOLS = ["write_file", "edit_file"];
 
-const PROVIDER_KINDS: Array<{ kind: string; label: string; hint: string; ga: boolean }> = [
+const PROVIDER_KINDS: Array<{
+  kind: string;
+  label: string;
+  hint: string;
+  ga: boolean;
+  warning?: { text: string; href: string; linkLabel: string };
+}> = [
   { kind: "anthropic", label: "Anthropic", hint: "claude-sonnet-4.5", ga: true },
   { kind: "openai", label: "OpenAI", hint: "gpt-4o / o1", ga: true },
   { kind: "openrouter", label: "OpenRouter", hint: "여러 모델 통합", ga: true },
+  {
+    kind: "opencode_zen",
+    label: "opencode zen",
+    hint: "무료 OpenAI 호환 모델",
+    ga: true,
+    warning: {
+      text: "⚠️ 베타 서비스 · 일부 무료 모델은 데이터 훈련에 사용될 수 있음",
+      href: "https://opencode.ai/docs/zen/",
+      linkLabel: "자세히",
+    },
+  },
   { kind: "codex", label: "Codex (ChatGPT OAuth)", hint: "ChatGPT Plus/Pro 구독", ga: true },
   { kind: "mock", label: "Mock (개발)", hint: "테스트·데모", ga: false },
 ];
@@ -87,7 +104,7 @@ export function SettingsPage() {
   const [mcpTestResult, setMcpTestResult] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!loaded) void loadAll();
+    if (!loaded) void loadAll().catch(() => undefined);
   }, [loaded, loadAll]);
 
   useEffect(() => {
@@ -285,6 +302,7 @@ export function SettingsPage() {
   const backToShell = () => {
     const url = new URL(window.location.href);
     url.searchParams.delete("demo");
+    url.searchParams.delete("route");
     window.history.pushState({}, "", url.toString());
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
@@ -344,6 +362,20 @@ export function SettingsPage() {
                         />
                       </div>
                       <div className="text-[11px] text-fg-muted">{p.hint}</div>
+                      {p.warning ? (
+                        <div className="mt-1 text-[10px] text-warn" data-testid="provider-warning">
+                          {p.warning.text} (
+                          <a
+                            href={p.warning.href}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline underline-offset-2"
+                          >
+                            {p.warning.linkLabel}
+                          </a>
+                          )
+                        </div>
+                      ) : null}
                       {isCodex && codexConnected && codexAccountId ? (
                         <div
                           className="mt-1 text-[10px] text-fg-muted"

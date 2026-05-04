@@ -40,7 +40,7 @@ export function Sidebar({ className }: SidebarProps) {
   const deleteSession = useProjectSessionStore((s) => s.deleteSession);
 
   useEffect(() => {
-    if (!loaded) void loadAll();
+    if (!loaded) void loadAll().catch(() => undefined);
   }, [loaded, loadAll]);
 
   const handleNewSession = async () => {
@@ -186,7 +186,8 @@ export function Sidebar({ className }: SidebarProps) {
           aria-label={t("sidebar.open_settings")}
           onClick={() => {
             const url = new URL(window.location.href);
-            url.searchParams.set("demo", "settings");
+            url.searchParams.delete("demo");
+            url.searchParams.set("route", "settings");
             window.history.pushState({}, "", url.toString());
             window.dispatchEvent(new PopStateEvent("popstate"));
           }}

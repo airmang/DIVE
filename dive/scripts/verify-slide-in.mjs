@@ -21,6 +21,10 @@ function check(name, cond, detail = "") {
 async function main() {
   const browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await context.addInitScript(() => {
+    window.localStorage.setItem("dive:rc1_migrated", "true");
+    window.localStorage.setItem("dive:onboarded", "true");
+  });
   const page = await context.newPage();
 
   console.log("1. Navigate to ?demo=slide-in — panel auto-opens on mount");
@@ -148,6 +152,11 @@ async function main() {
   await page.evaluate(() => window.localStorage.setItem("dive:onboarded", "true"));
   await page.reload();
   await page.waitForSelector('[data-testid="workmap-strip"]');
+  const onboarding = await page.$('[data-testid="onboarding-dialog"]');
+  if (onboarding) {
+    await page.click('[data-testid="onb-skip"]');
+    await page.waitForSelector('[data-testid="onboarding-dialog"]', { state: "detached" });
+  }
   await page.click('button[aria-label="코드와 미리보기 패널 열기"]');
   await page.waitForTimeout(350);
   const shellOpen = await page.$eval('[data-testid="slide-in-panel"]', (el) =>

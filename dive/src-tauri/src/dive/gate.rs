@@ -150,13 +150,25 @@ fn current_card(
     card::get_by_id(conn, cid)
 }
 
-/// Count tool-call rows whose backing message belongs to the given card.
+/// Count tool calls whose backing message belongs to the given card.
+/// Runtime message persistence stores OpenAI/Anthropic tool calls in
+/// `Message.tool_calls`; older/structured paths may also populate `ToolCall`.
 /// Spec §4.3: I→V transition requires at least one tool call on the card.
 pub fn card_tool_call_count(conn: &Connection, card_id: i64) -> Result<i64, DbError> {
     let msgs = message::list(conn)?;
     let mut count = 0_i64;
     for m in msgs.iter().filter(|m| m.card_id == Some(card_id)) {
-        count += tool_call::list_by_message(conn, m.id)?.len() as i64;
+        let structured_count = tool_call::list_by_message(conn, m.id)?.len() as i64;
+        if structured_count > 0 {
+            count += structured_count;
+            continue;
+        }
+        count += m
+            .tool_calls
+            .as_ref()
+            .and_then(|calls| calls.as_array())
+            .map(|calls| calls.len() as i64)
+            .unwrap_or(0);
     }
     Ok(count)
 }
@@ -182,6 +194,7 @@ mod tests {
                 state,
                 verify_log: None,
                 changed_files: None,
+                test_command: None,
                 position: pos,
             },
         )
@@ -204,6 +217,7 @@ mod tests {
                 state,
                 verify_log: None,
                 changed_files: None,
+                test_command: None,
                 position: pos,
             },
         )
@@ -436,6 +450,32 @@ mod tests {
             },
         )
         .unwrap();
+        assert_eq!(card_tool_call_count(db.conn(), cid).unwrap(), 2);
+    }
+
+    #[test]
+    fn tool_call_count_uses_message_tool_calls_json_when_rows_absent() {
+        let (db, _) = fresh_db();
+        let (_, sid) = seed_project_session(db.conn());
+        let cid = insert_card(db.conn(), sid, CardState::Instructed, 1);
+        msg_dao::insert(
+            db.conn(),
+            &NewMessage {
+                session_id: sid,
+                card_id: Some(cid),
+                role: "assistant".into(),
+                content: "m".into(),
+                tool_calls: Some(json!([
+                    {"id":"call_1","name":"read_file"},
+                    {"id":"call_2","name":"edit_file"}
+                ])),
+                usage: None,
+                provider: None,
+                model: None,
+            },
+        )
+        .unwrap();
+
         assert_eq!(card_tool_call_count(db.conn(), cid).unwrap(), 2);
     }
 }

@@ -1,5 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use serde_json::json;
 use tauri::State;
 
 use crate::db::dao::session as session_dao;
@@ -65,9 +66,17 @@ pub async fn session_create(
         .map_err(|e| e.to_string())?
     };
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    session_dao::get_by_id(db.conn(), id)
+    let row = session_dao::get_by_id(db.conn(), id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("session {id} not found after insert"))
+        .ok_or_else(|| format!("session {id} not found after insert"))?;
+    drop(db);
+    super::log_event(
+        &state,
+        Some(id),
+        "session_start",
+        json!({ "project_id": project_id, "title_len": row.title.chars().count() }),
+    )?;
+    Ok(row)
 }
 
 #[tauri::command]
@@ -137,11 +146,24 @@ pub async fn session_archive(state: State<'_, AppState>, session_id: i64) -> Res
             status: "archived".into(),
         },
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    drop(db);
+    super::log_event(
+        &state,
+        Some(session_id),
+        "session_end",
+        json!({ "reason": "archived" }),
+    )
 }
 
 #[tauri::command]
 pub async fn session_delete(state: State<'_, AppState>, session_id: i64) -> Result<(), String> {
+    super::log_event(
+        &state,
+        Some(session_id),
+        "session_end",
+        json!({ "reason": "deleted" }),
+    )?;
     let db = state.db.lock().map_err(|e| e.to_string())?;
     session_dao::delete(db.conn(), session_id).map_err(|e| e.to_string())
 }

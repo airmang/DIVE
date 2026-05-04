@@ -11,6 +11,8 @@ pub enum DbError {
         version: i64,
         source: rusqlite::Error,
     },
+    #[error("database schema version {found} is newer than this app supports ({latest})")]
+    FutureSchema { found: i64, latest: i64 },
     #[error("invalid card state: {0}")]
     InvalidCardState(String),
 }

@@ -6,6 +6,7 @@
 
 ```markdown
 ## ADR-NNN: [짧은 제목]
+
 - 일시: YYYY-MM-DD
 - 상태: 채택 / 폐기됨 / 재고 중
 - 컨텍스트: 왜 이 결정이 필요했는가
@@ -17,6 +18,7 @@
 ---
 
 ## ADR-001: 마크다운 명세서 + Ralph 루프 운영
+
 - 일시: 2026-05-03
 - 상태: 채택
 - 컨텍스트: DIVE 구현은 5월~12월 장기 프로젝트로, 단일 long-running 에이전트로는 컨텍스트 윈도우 한계에 부딪힘. 사용자(고규현)는 학교 본업과 병행해야 함.
@@ -27,6 +29,7 @@
 - 결과: 사용자는 매일 1회 진행 점검만 하면 됨. 막히면 ralph가 `[BLOCKED]` 상태로 멈추고 사용자 결정 대기.
 
 ## ADR-002: SoT 4파일 구조
+
 - 일시: 2026-05-03
 - 상태: 채택
 - 컨텍스트: ralph 루프는 매 턴 fresh context. 모든 상태가 파일에 있어야 복원 가능.
@@ -220,7 +223,7 @@
 - 상태: 채택 (작업 3-4)
 - 컨텍스트: 명세 §9.2 — "정규식 + AST 기반 매칭 (단순 문자열 매칭은 회피 쉬움)". 명세 §9.3 — "심볼릭 링크는 따라가지 않음 (canonicalize 후 검사)". 두 가지 모두 학생 PC에서 실수든 의도든 시스템 파괴를 막는 최후 방어선.
 - 결정:
-  - **블록리스트 매칭 전략**: 리터럴 substring (case-insensitive, 명세 §9.2 예시의 14 변형) + 정규식 (dd→block device, mkfs.*, curl|bash, wget|sh, iwr|iex, rm -rf 절대 경로 루트레벨). AST 파싱은 `v1.0` 이후로 연기 — bash 문법 파서 추가 복잡도 대비 이득이 낮고, 리터럴+정규식 2중화로 스펙 예시 전부 차단 가능.
+  - **블록리스트 매칭 전략**: 리터럴 substring (case-insensitive, 명세 §9.2 예시의 14 변형) + 정규식 (dd→block device, mkfs.\*, curl|bash, wget|sh, iwr|iex, rm -rf 절대 경로 루트레벨). AST 파싱은 `v1.0` 이후로 연기 — bash 문법 파서 추가 복잡도 대비 이득이 낮고, 리터럴+정규식 2중화로 스펙 예시 전부 차단 가능.
   - **`BlockReason { rule, pattern }` 구조**: UI에 매칭 규칙 이름과 패턴을 별도로 표시해 사용자가 왜 차단되었는지 즉시 이해. EventLog에도 동일 구조 저장.
   - **`Tool::validate()` trait 훅**: 도구별 사전 검증을 PermissionHook 이전에 실행. 기본 구현은 `Ok(())`, `bash` 도구만 오버라이드하여 `classify_bash_command`를 호출. 향후 신규 danger 도구가 자체 정책을 쉽게 붙일 수 있다.
   - **심볼릭 링크 거부 범위**: `reject_symlink_components(target, root)`는 **프로젝트 루트 하위** 컴포넌트만 검사. 루트 자체나 그 위 조상은 건드리지 않음 — macOS `/tmp` → `/private/tmp`, Linux `/home` 바인드 마운트 등 시스템 레벨 심볼릭 링크에 프로젝트를 두는 정당한 사용을 막지 않기 위함. 루트 하위에서 학생이 임의 심볼릭 링크로 FsGuard를 우회하는 시나리오만 차단.
@@ -777,3 +780,412 @@
   - 최종 Playwright 26 스위트 / **392 assertions** 전부 통과 (Phase 5 종료 시 23 스위트 / 358 assertions + 6-1 i18n 13 + 6-2 a11y 12 + 6-3 contrast 9 + state-machine 1 + checkpoint 2 = +37, 실측 358→392)
   - Rust 회귀 없음: 238 passed / 0 failed / 1 ignored 유지
   - Phase 6 종료 — [PHASE_GATE] 선언
+
+## ADR-039: 디스크 DB 경로와 Tauri identifier 고정 및 forward-only 마이그레이션
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-1)
+- 컨텍스트: rc.1은 in-memory DB에 머물러 재시작 후 데이터가 보존되지 않았다. rc.2부터는 설치 앱의 app-local data 경로에 단일 SQLite DB를 두고, identifier가 바뀌면 DB 위치도 바뀌므로 rc.2 이후 identifier를 불변 계약으로 고정해야 한다.
+- 결정:
+  - `tauri.conf.json` identifier는 기존 `com.coreelab.dive`를 유지한다.
+  - `AppState::from_app_handle()`는 Tauri 2 `app.path().app_local_data_dir()?` 아래 `dive.db`를 열고 부모 디렉터리를 먼저 생성한다.
+  - schema migration은 forward-only로만 수행한다. 기존 DB가 있으면 migration 전 `backups/dive-v<version>-<timestamp>.db`를 만든다.
+  - 앱이 지원하는 최신 schema보다 DB version이 높으면 open을 거부하고 원본 파일은 유지한다.
+- 대안:
+  - identifier를 rc.2에서 새 값으로 교체 — rc.1 회수 상황에서 위치 변경까지 겹치면 사용자가 문제 원인을 추적하기 어렵다.
+  - destructive migration 허용 — 파일럿 데이터 손실을 자동화하는 위험이 커서 기각.
+  - DB 경로를 사용자 선택 프로젝트 안에 둠 — 앱 설정/프로바이더/세션 메타와 프로젝트 산출물의 생명주기가 달라 기각.
+- 결과:
+  - `Database::open(path)`가 디스크 DB parent 생성, pre-migration backup, future schema refusal을 담당한다.
+  - rc.2 이후 설치 앱은 같은 identifier와 app-local data 경로를 안정적으로 재사용한다.
+  - migration 실패는 transaction rollback과 파일 백업으로 복구 가능하다.
+- 참조 파일:
+  - `dive/src-tauri/src/db/mod.rs`
+  - `dive/src-tauri/src/db/migrations.rs`
+  - `dive/src-tauri/tauri.conf.json`
+
+## ADR-040: dev_mock은 test/dev-mock 전용 cfg-gate로 격리
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-2, 7-5)
+- 컨텍스트: rc.1의 핵심 결함은 production `lib.rs`가 `AppState::dev_mock()`을 직접 사용해 in-memory DB와 빈 MockProvider로 앱을 시작한 것이다. release artifact에 MockProvider 코드/문자열이 남아 있으면 같은 결함이 재발할 수 있다.
+- 결정:
+  - `AppState::dev_mock()`은 `#[cfg(any(test, feature = "dev-mock"))]`에서만 빌드한다.
+  - MockProvider 모듈/re-export는 `#[cfg(any(test, debug_assertions, feature = "dev-mock"))]`로 제한한다.
+  - release negative guard는 기본 release artifact에서 MockProvider 관련 marker가 없는지 검사하고, `--features dev-mock` release에서는 marker가 나타나는지 positive control을 둔다.
+- 대안:
+  - runtime 환경변수로 mock/real 선택 — 실수로 production 환경변수가 잘못 들어가면 rc.1과 같은 문제가 반복된다.
+  - MockProvider를 production에 남기되 UI에서 숨김 — 보안/릴리스 검증 관점에서 충분하지 않다.
+- 결과:
+  - production entrypoint는 dev mock을 호출할 수 없다.
+  - release guard가 cfg-gating 회귀를 탐지한다.
+- 참조 파일:
+  - `dive/src-tauri/src/ipc/mod.rs`
+  - `dive/src-tauri/src/providers/mod.rs`
+  - `dive/src-tauri/scripts/verify-release-mock-guard.sh`
+
+## ADR-041: ProviderRuntime 스냅샷으로 provider/model/config를 원자적으로 교체
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-2, 7-3)
+- 컨텍스트: 기존 `AppState.provider`와 model 문자열을 별도 필드로 다루면 provider connect/disconnect 중 provider와 model이 서로 다른 시점의 값으로 보일 수 있다. Chat, Verify, AI Assist, Prompt Check는 모두 같은 runtime snapshot을 사용해야 한다.
+- 결정:
+  - `ProviderRuntime`에 `config_id`, `kind`, `model`, provider 인스턴스를 묶고 `Arc<RwLock<ProviderRuntime>>`로 보관한다.
+  - provider 미설정 상태는 `NoProviderSentinel`로 표현해 호출 시 `NotConfigured`를 반환한다.
+  - call site는 lock을 오래 잡지 않고 snapshot을 복제한 뒤 provider 호출을 수행한다.
+- 대안:
+  - provider와 model을 각각 RwLock으로 유지 — atomic swap 불가.
+  - 매 호출마다 DB에서 active provider를 다시 조회 — latency와 keyring 접근 비용이 커지고 streaming 중 일관성이 떨어진다.
+- 결과:
+  - provider connect/disconnect가 runtime 전체를 한 번에 swap한다.
+  - 네 개 provider call site가 같은 모델/설정 단위를 관찰한다.
+- 참조 파일:
+  - `dive/src-tauri/src/ipc/provider_runtime.rs`
+  - `dive/src-tauri/src/ipc/mod.rs`
+  - `dive/src-tauri/src/dive/verify.rs`
+
+## ADR-042: provider factory 패턴으로 provider kind별 생성과 기본 모델을 중앙화
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-3)
+- 컨텍스트: provider kind가 Anthropic/OpenAI/OpenRouter/opencode zen으로 늘어나면서 각 IPC call site가 base URL, default model, health check 방식을 중복해서 알면 누락과 불일치가 생긴다.
+- 결정:
+  - `providers/factory.rs`를 생성해 kind canonicalization, provider build, default model, health check를 중앙화한다.
+  - OpenAI-compatible provider는 `OpenAiProvider`를 재사용하고 base URL/model만 factory에서 주입한다.
+  - 알 수 없는 kind나 빈 API key는 factory 단계에서 거부한다.
+- 대안:
+  - provider별 생성 코드를 IPC handler에 직접 둠 — provider 추가 때 call site마다 수정해야 한다.
+  - trait object 대신 enum dispatch — provider별 streaming 구현 확장이 불편하다.
+- 결과:
+  - provider 추가 surface가 factory와 UI 목록으로 축소됐다.
+  - health check와 runtime swap이 같은 canonical kind를 공유한다.
+- 참조 파일:
+  - `dive/src-tauri/src/providers/factory.rs`
+  - `dive/src-tauri/src/providers/openai/mod.rs`
+  - `dive/src-tauri/src/ipc/provider.rs`
+
+## ADR-043: provider_connect는 health check 성공 후 DB/keyring/runtime을 원자적으로 반영
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-4)
+- 컨텍스트: API key가 틀렸는데도 provider row나 keyring secret이 저장되면 사용자는 연결 성공으로 오해하고 이후 모든 chat/verify가 실패한다. rc.2 온보딩은 실제 연결 provider 수를 신뢰해야 한다.
+- 결정:
+  - `provider_connect`는 8초 timeout health check를 먼저 수행한다.
+  - health check 실패 시 DB, keyring, runtime 모두 변경하지 않는다.
+  - 성공 시 ProviderConfig insert, keyring 저장, runtime swap을 순서대로 수행한다.
+  - disconnect 대상이 active runtime이면 `NoProviderSentinel`로 되돌린다.
+- 대안:
+  - optimistic 저장 후 첫 chat에서 검증 — onboarding 성공/실패 의미가 흐려진다.
+  - keyring 저장 후 health check — 실패 시 secret cleanup 회귀 위험이 있다.
+- 결과:
+  - 연결 실패가 UI inline error로 남고 onboarded=true가 되지 않는다.
+  - provider runtime과 DB/keyring 상태가 같은 성공 조건을 공유한다.
+- 참조 파일:
+  - `dive/src-tauri/src/ipc/provider.rs`
+  - `dive/src-tauri/src/db/dao/provider_config.rs`
+  - `dive/src/stores/project-session.ts`
+
+## ADR-044: production setup hook이 디스크 DB와 provider hydration을 소유
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-2, 7-5)
+- 컨텍스트: Tauri 앱 시작 시점에 production AppState를 구성하지 않으면 frontend가 성공해도 데이터 저장과 provider 호출은 demo 상태에 머문다. DB open, migration, provider hydration, project root hydration은 앱 생명주기 시작점에서 한 번 완료되어야 한다.
+- 결정:
+  - `lib.rs run()`은 Tauri setup hook에서 `AppState::from_app_handle(app.handle())`를 호출하고 managed state로 등록한다.
+  - builder는 app-local data DB open/migrate, provider hydration, active project root hydration을 수행한다.
+  - 초기 provider가 없으면 `NoProviderSentinel`을 등록한다.
+- 대안:
+  - 각 IPC command가 lazy-init — 첫 command 종류에 따라 초기화 순서가 달라지고 오류 위치가 분산된다.
+  - frontend가 DB 경로를 전달 — Tauri app-local data 규약을 UI가 알게 되어 경계가 흐려진다.
+- 결과:
+  - production binary가 실제 DB/provider state로 시작한다.
+  - startup failure가 setup 단계에서 드러난다.
+- 참조 파일:
+  - `dive/src-tauri/src/lib.rs`
+  - `dive/src-tauri/src/ipc/mod.rs`
+  - `dive/src-tauri/src/ipc/project.rs`
+
+## ADR-045: Cards persistence는 DB IPC와 useWorkmap sync 레이어가 단일 product 경로
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-6)
+- 컨텍스트: rc.1 workmap card는 frontend Zustand local state에만 존재했고 재시작 시 사라졌다. DIVE의 D/I/V/E 핵심 객체인 card가 DB에 저장되지 않으면 제품이 될 수 없다.
+- 결정:
+  - backend에 `card_create`, `card_list`, `card_delete`, `card_reorder`, `workmap_get` IPC를 추가한다.
+  - DAO는 session별 position append/reorder와 current_card_id snapshot을 보장한다.
+  - frontend product path는 `useWorkmap(sessionId)` 훅을 통해 IPC 성공 후 store hydrate/update한다.
+  - demo/local mutator는 `*Local` 이름으로 분리해 product 경로와 구분한다.
+- 대안:
+  - Zustand persist로 card를 localStorage에 저장 — rc.1의 silent data loss와 같은 계열의 임시방편이다.
+  - card마다 개별 IPC만 호출하고 snapshot API 생략 — session 진입 hydrate가 느리고 race가 많아진다.
+- 결과:
+  - cards/workmap/current_card_id가 SQLite에 저장되고 재시작 후 보존된다.
+  - AiAssist accept도 DB-backed card_create 경로를 사용한다.
+- 참조 파일:
+  - `dive/src-tauri/src/ipc/workmap.rs`
+  - `dive/src-tauri/src/db/dao/card.rs`
+  - `dive/src/hooks/useWorkmap.ts`
+
+## ADR-046: product MainShell은 real IPC만 사용하고 demo는 DemoShell로 격리
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-7)
+- 컨텍스트: rc.1 MainShell에는 `setTimeout`, hardcoded verify log, demo changed files가 섞여 product UI가 실제 기능처럼 보이게 했다. 제품 경로에서 mock이 성공처럼 보이면 release gate가 무의미하다.
+- 결정:
+  - MainShell product route는 `useChatSession`, `useWorkmap`, provider/project/session store의 real IPC 경로만 사용한다.
+  - demo presentation 목적의 데이터와 화면은 `DemoShell` 및 demo routes로 분리한다.
+  - product verify/chat/card state 변경은 DB/IPC 결과를 기준으로 UI를 갱신한다.
+- 대안:
+  - MainShell 내부에 `if demo` 분기 유지 — release grep과 유지보수가 어렵다.
+  - mock 실패를 toast로만 알림 — product code 안에 mock success path가 남는다.
+- 결과:
+  - product route에서 demo verify와 hardcoded changed files가 제거됐다.
+  - demo 기능은 명시적 demo namespace에서만 접근한다.
+- 참조 파일:
+  - `dive/src/components/shell/MainShell.tsx`
+  - `dive/src/components/demo/DemoShell.tsx`
+  - `dive/src/hooks/useChatSession.ts`
+
+## ADR-047: URL namespace는 product `?route=`와 demo `?demo=`로 분리
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-8)
+- 컨텍스트: 기존 demo URL과 product settings/helper route가 같은 query namespace를 공유하면 사용자가 제품 기능으로 들어간다고 생각했는데 demo mock 화면으로 이동할 수 있다.
+- 결정:
+  - product route는 `?route=settings|prompt-helper`만 사용한다.
+  - demo route는 `?demo=<demo-name>`만 사용한다.
+  - 기존 `?demo=settings|prompt-helper`는 product route로 replaceState redirect하고 warning을 남긴다.
+- 대안:
+  - path router 도입 — Tauri deep link/asset serving까지 건드려 범위가 과도하다.
+  - demo query 유지 — rc.1 혼선을 반복한다.
+- 결과:
+  - product/demo 진입점이 URL에서 구분된다.
+  - deprecated demo alias는 깨지지 않되 product path로 교정된다.
+- 참조 파일:
+  - `dive/src/App.tsx`
+  - `dive/src/components/demo/DemoShell.tsx`
+  - `dive/scripts/verify-production-wire.mjs`
+
+## ADR-048: product IPC 실패는 silent localStorage fallback 없이 실패로 노출
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-9)
+- 컨텍스트: `project-session` store가 Tauri IPC 실패 시 localStorage mock으로 성공을 위장하면 설치 앱에서 DB나 IPC가 깨져도 사용자는 저장된다고 믿는다.
+- 결정:
+  - product store는 IPC 실패를 error state/toast/banner로 노출하고 localStorage fallback을 사용하지 않는다.
+  - browser/demo 테스트용 mock은 명시적 `withTauriOrDemoMock`/test harness 안으로 제한한다.
+  - localStorage는 locale/theme/onboarded/rc1_migrated 같은 UI preference/one-time flag에만 사용한다.
+- 대안:
+  - fallback 유지 + warning console — 사용자가 console을 보지 않는다.
+  - 모든 상태를 localStorage와 DB에 이중 기록 — source of truth가 둘이 되어 merge 문제가 생긴다.
+- 결과:
+  - DB/IPC 오류가 제품 UX에서 숨겨지지 않는다.
+  - release static guard가 silent fallback 회귀를 탐지한다.
+- 참조 파일:
+  - `dive/src/stores/project-session.ts`
+  - `dive/src/hooks/useWorkmap.ts`
+  - `dive/scripts/verify-production-wire.mjs`
+
+## ADR-049: onboarded는 provider 연결 성공을 의미하고 skip은 영구 상태가 아니다
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-10)
+- 컨텍스트: rc.1 onboarding은 skip만 해도 onboarded로 취급되어 provider 없이 제품을 쓰는 것처럼 보였다. rc.2에서는 실 LLM 연결이 제품 시작 조건이다.
+- 결정:
+  - `dive:onboarded=true`는 provider_connect health check 성공 후에만 저장한다.
+  - skip은 현재 dialog만 닫고 persistent flag를 쓰지 않는다. provider banner는 유지한다.
+  - provider가 없고 onboarded가 아니면 reload 후 onboarding을 다시 연다.
+- 대안:
+  - skip도 onboarded로 유지 — 실 provider 없는 상태를 성공으로 오해하게 한다.
+  - onboarding을 강제로 닫지 못하게 함 — 수업 중 화면 탐색/설정 확인이 막힌다.
+- 결과:
+  - 연결 실패는 onboarded=false로 남고 성공 연결만 setup 완료로 간주한다.
+  - onboarding Playwright smoke가 skip/failure/success 의미를 고정한다.
+- 참조 파일:
+  - `dive/src/components/onboarding/OnboardingDialog.tsx`
+  - `dive/src/stores/project-session.ts`
+  - `dive/scripts/verify-onboarding.mjs`
+
+## ADR-050: project_root는 RwLock snapshot으로 5개 call site에 일관 적용
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-11)
+- 컨텍스트: checkpoint, timeline, tools, verify test command, project delete/create는 모두 현재 프로젝트 루트를 사용한다. 루트가 빈 값이거나 작업 중 바뀌면 외부 경로 접근이나 잘못된 프로젝트 checkpoint가 발생할 수 있다.
+- 결정:
+  - `AppState`는 `project_root: Arc<RwLock<PathBuf>>`를 갖고 helper로 snapshot/swap한다.
+  - project create/open/delete가 active project root를 관리한다.
+  - checkpoint/timeline/tool/verify 계열 call site는 명령 시작 시 project root snapshot을 얻고 빈 root를 거부한다.
+- 대안:
+  - frontend에서 project path를 매 IPC에 전달 — 신뢰 경계가 잘못된다.
+  - DB에서 매번 current project를 조회 — call 중간 변경과 빈 값 검증이 분산된다.
+- 결과:
+  - 5개 call site가 같은 root contract를 공유한다.
+  - sandbox guard와 checkpoint engine이 안정적인 root snapshot을 사용한다.
+- 참조 파일:
+  - `dive/src-tauri/src/ipc/project.rs`
+  - `dive/src-tauri/src/checkpoint/mod.rs`
+  - `dive/src-tauri/src/tools/run_process.rs`
+
+## ADR-051: release gate는 developer 정적/브라우저 gate와 Windows installed-app gate로 분리
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-12)
+- 컨텍스트: rc.1은 빌드 성공만으로 제품 동작을 검증하지 못했다. rc.2 tag 전에는 production wire 정적 검증과 실제 NSIS 설치 앱 smoke가 모두 필요하다. 단, 현재 개발 host는 macOS라 Windows installed smoke는 외부 환경 의존이다.
+- 결정:
+  - developer gate는 `verify-production-wire.mjs`, `verify-rc1-migration.mjs`, typecheck/lint/build/Rust gate로 로컬 재현 가능하게 둔다.
+  - release gate는 Windows CI/실기에서 NSIS silent install, `tauri-driver` WebDriver launch, DB 생성, restart 보존, uninstall을 검증한다.
+  - Tauri v2 공식 WebDriver 방식에 맞춰 `tauri-driver` capabilities를 사용하고 비스키마 `tauri.conf.json.webdriver` 키는 추가하지 않는다.
+- 대안:
+  - 수동 smoke만 수행 — rc.1 회귀를 자동으로 막기 어렵다.
+  - macOS bundle smoke로 대체 — target product가 Windows NSIS라 충분하지 않다.
+- 결과:
+  - 로컬 preflight는 통과 가능하고 full installed smoke는 Windows external blocker로 명시된다.
+  - `.github/workflows/release-gate.yml`이 rc tag/manual dispatch에서 release smoke를 실행한다.
+- 참조 파일:
+  - `dive/scripts/verify-production-wire.mjs`
+  - `dive/scripts/release-gate-smoke.mjs`
+  - `.github/workflows/release-gate.yml`
+
+## ADR-052: rc.1은 yanked로 보존하고 rc.2 첫 실행에서 demo localStorage를 정리
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-13)
+- 컨텍스트: rc.1은 demo build였으므로 사용자가 만든 localStorage 기반 project/session/onboarded 상태를 실제 데이터로 migration할 수 없다. 하지만 locale/theme preference는 사용자 선택값이므로 보존할 가치가 있다.
+- 결정:
+  - `CHANGELOG.md`와 GitHub Release 제목/body에서 rc.1을 yanked로 표시한다. asset은 아카이브 목적상 삭제하지 않는다.
+  - `dive:rc1_migrated` flag가 없으면 rc.1 안내 modal을 1회 표시한다.
+  - rc.1 demo data key(`dive:project-session`, `dive:current-project-id`, `dive:current-session-id`, `dive:onboarded`)는 삭제하고 locale/theme key는 보존한다.
+  - 확인 버튼을 누른 뒤에만 `dive:rc1_migrated=true`를 저장한다.
+- 대안:
+  - rc.1 localStorage를 DB로 변환 시도 — mock schema가 실제 card/session 관계를 보장하지 않아 잘못된 데이터가 생긴다.
+  - silent clear — 사용자가 데이터 손실을 버그로 오해한다.
+- 결과:
+  - rc.2 첫 실행 사용자는 데이터 복구 불가와 새 시작 필요를 명확히 안내받는다.
+  - migration modal이 onboarding보다 먼저 떠서 안내가 묻히지 않는다.
+- 참조 파일:
+  - `dive/src/lib/rc1-migration.ts`
+  - `dive/src/components/rc1/Rc1MigrationDialog.tsx`
+  - `CHANGELOG.md`
+
+## ADR-058: opencode zen은 OpenAI-compatible route 전용 provider로 통합
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-18)
+- 컨텍스트: 교육 환경에서 token 비용을 낮추기 위해 opencode zen의 무료 모델을 사용할 수 있어야 한다. 동시에 서비스가 beta이고 무료 모델 데이터 훈련 가능성이 있으므로 provider identity와 교사 안내가 필요하다.
+- 결정:
+  - provider kind `opencode_zen`을 추가하고 `OpenAiProvider::opencode_zen(api_key)`가 OpenAI-compatible `/v1` route를 사용한다.
+  - 기본 모델은 무료 tier 우선(`gpt-5-nano`)으로 둔다.
+  - Responses API/Anthropic Messages 등 opencode의 다른 protocol route는 v1.1 이후로 미룬다.
+  - 교사 매뉴얼/고지에는 무료 모델 데이터 사용 가능성을 명시한다.
+- 대안:
+  - 별도 opencode adapter 작성 — OpenAI-compatible route로 충분한 범위를 중복 구현하게 된다.
+  - v1.0에서 제외 — 파일럿 비용 0 목표와 맞지 않는다.
+- 결과:
+  - onboarding/provider factory/health check/runtime에서 opencode zen이 canonical provider로 동작한다.
+  - 실 API smoke는 노출된 테스트 key revoke/reissue 전까지 external blocker로 남는다.
+- 참조 파일:
+  - `dive/src-tauri/src/providers/openai/mod.rs`
+  - `dive/src-tauri/src/providers/factory.rs`
+  - `dive/src/components/onboarding/OnboardingDialog.tsx`
+
+## ADR-059: Track 0 built-in local tools 4종을 추가하고 web tools는 v1.1로 이월
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-19)
+- 컨텍스트: SPEC §6.3.1의 tool set 중 로컬 학습 loop에 필요한 `search_files`, `mkdir`, `delete_file`, `run_process`가 빠져 있었다. 반면 `web_search`/`web_fetch`는 API 선택, 쿼리 익명화, SSRF 방어 정책이 필요하다.
+- 결정:
+  - Track 0에는 local tool 4종만 추가한다: `search_files`(safe), `mkdir`(warn), `delete_file`(danger), `run_process`(danger).
+  - 모든 path 인자는 project_root sandbox guard를 통과해야 한다.
+  - `web_search`와 `web_fetch`는 v1.1로 이월하고 ADR에 명시한다.
+- 대안:
+  - web tools까지 즉시 구현 — 외부 API/보안 정책 미확정으로 rc.2 release risk가 커진다.
+  - local tools도 미룸 — V-stage test command와 파일 수정 loop가 제품 가치에 미달한다.
+- 결과:
+  - ToolRegistry 기본 built-ins가 Track 0 local tools를 포함한다.
+  - permission card risk mapping과 integration fixture가 신규 tool을 검증한다.
+- 참조 파일:
+  - `dive/src-tauri/src/tools/search_files.rs`
+  - `dive/src-tauri/src/tools/mkdir.rs`
+  - `dive/src-tauri/src/tools/delete_file.rs`
+  - `dive/src-tauri/src/tools/run_process.rs`
+
+## ADR-060: Bash sandbox는 다층 방어와 투명한 danger 승격으로 운영
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-20)
+- 컨텍스트: Bash는 완전 sandbox가 아니다. 그래도 교육용 제품에서 `rm -rf /`, `mkfs`, 외부 path write, 네트워크 pipe-to-shell 같은 고위험 명령은 사전에 막거나 danger로 승격해야 한다.
+- 결정:
+  - 기존 blocklist를 SPEC §9.3 기준으로 확장한다.
+  - argument path analysis로 project root 밖 write/삭제 시도를 차단하거나 danger로 승격한다.
+  - shell metacharacter/network pipe/interpreter upload 계열은 guard에서 명시적으로 분류한다.
+  - 완전 차단이 아님을 문서화하고 permission card transparency를 우선한다.
+- 대안:
+  - OS-level sandbox/container 도입 — Windows 교육 PC 배포와 Tauri 데스크톱 범위에서 과도하다.
+  - blocklist만 유지 — path escape와 redirection 위험을 잡지 못한다.
+- 결과:
+  - 위험 명령 fixture가 guard 회귀를 잡는다.
+  - 사용자에게 위험도를 숨기지 않고 승인 흐름으로 노출한다.
+- 참조 파일:
+  - `dive/src-tauri/src/tools/bash.rs`
+  - `dive/src-tauri/src/tools/guard.rs`
+  - `dive/src-tauri/tests/tool_guard.rs`
+
+## ADR-061: 체크포인트는 D/I/V/E 단계 전환 전후 자동 트리거와 changed_files 메타를 기록
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-21)
+- 컨텍스트: 사용자가 실험을 되돌리려면 수동 저장뿐 아니라 단계 전환의 의미 있는 시점마다 자동 checkpoint가 있어야 한다. 복원 직전에도 현재 상태를 잃지 않도록 backup이 필요하다.
+- 결정:
+  - D→I, I→V, V reject/reopen, E entry 등 단계 전환에 자동 checkpoint를 생성한다.
+  - checkpoint metadata에 `changed_files`와 file stats를 저장한다.
+  - restore 전에는 pre-restore 자동 backup checkpoint를 만든다.
+- 대안:
+  - 수동 checkpoint만 제공 — 입문자가 저장 시점을 놓치기 쉽다.
+  - restore 전 backup 생략 — 잘못 복원하면 현재 상태 손실이 생긴다.
+- 결과:
+  - Card transition IPC가 checkpoint engine과 연결된다.
+  - timeline/export에서 checkpoint metadata를 추적할 수 있다.
+- 참조 파일:
+  - `dive/src-tauri/src/checkpoint/mod.rs`
+  - `dive/src-tauri/src/ipc/workmap.rs`
+  - `dive/src/components/slide-in/CheckpointTimeline.tsx`
+
+## ADR-062: EventLog emission은 8종 이벤트와 PII redaction을 기준으로 완성한다
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-22)
+- 컨텍스트: 파일럿 분석과 export를 위해 project/session/card/message/tool/checkpoint/provider/verify 흐름이 누락 없이 event log에 남아야 한다. 동시에 학생 텍스트와 path는 원문 유출 없이 처리해야 한다.
+- 결정:
+  - 주요 IPC/engine path에서 8종 event category를 emission한다.
+  - user text는 hash/length 중심 metadata로 기록하고 raw content는 저장하지 않는다.
+  - export JSONL도 동일한 PII redaction 원칙을 따른다.
+- 대안:
+  - UI analytics SDK 사용 — 텔레메트리 없음 원칙과 충돌한다.
+  - raw log 저장 후 export 때만 익명화 — 로컬 DB 자체에 민감정보가 남는다.
+- 결과:
+  - EventLog DAO와 export가 같은 redaction contract를 공유한다.
+  - 파일럿 분석용 이벤트 coverage가 Track 0 범위에서 닫혔다.
+- 참조 파일:
+  - `dive/src-tauri/src/dive/event_log.rs`
+  - `dive/src-tauri/src/db/dao/event_log.rs`
+  - `dive/src-tauri/tests/export_jsonl.rs`
+
+## ADR-063: V-stage는 선택적 test_command를 run_process로 실행해 검증 로그에 저장
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 7-23)
+- 컨텍스트: V-stage가 LLM self-check만 수행하면 실제 테스트 실행 증거가 부족하다. 파일럿 2회차 전에는 카드별 간단한 test command 실행과 출력 기록이 필요하다.
+- 결정:
+  - `cards.test_command` nullable column을 추가한다.
+  - VerifyEngine은 card에 test command가 있으면 provider verdict 후 `run_process`를 project_root sandbox 안에서 실행한다.
+  - exit code/stdout/stderr/command를 VerifyLog에 저장하고 실패 exit은 test_result를 fail로 반영한다.
+- 대안:
+  - 별도 test runner subsystem 구축 — Track 0 마지막 범위에 과도하다.
+  - 사용자 수동 테스트만 요구 — evidence가 DB에 남지 않는다.
+- 결과:
+  - card detail에서 test command를 저장하고 verify 결과에서 출력 확인이 가능하다.
+  - run_process sandbox 정책과 V-stage evidence가 연결됐다.
+- 참조 파일:
+  - `dive/src-tauri/src/dive/verify.rs`
+  - `dive/src-tauri/src/db/migrations.rs`
+  - `dive/src/components/workmap/CardDetailPanel.tsx`

@@ -92,6 +92,7 @@ export default function PromptHelperDemoPage() {
           onClick={() => {
             const url = new URL(window.location.href);
             url.searchParams.delete("demo");
+            url.searchParams.delete("route");
             window.history.pushState({}, "", url.toString());
             window.dispatchEvent(new PopStateEvent("popstate"));
           }}
