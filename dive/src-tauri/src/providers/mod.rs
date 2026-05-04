@@ -4,6 +4,7 @@
 //! Codex OAuth / Custom 5종 어댑터를 정의한다. 작업 1-4 / 3-5 / 5-1에서 구현.
 
 pub mod anthropic;
+pub mod codex;
 pub mod error;
 pub mod mock;
 pub mod openai;
@@ -15,6 +16,7 @@ use async_trait::async_trait;
 use futures::stream::BoxStream;
 
 pub use anthropic::AnthropicProvider;
+pub use codex::CodexProvider;
 pub use error::ProviderError;
 pub use mock::MockProvider;
 pub use openai::OpenAiProvider;

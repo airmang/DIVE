@@ -40,12 +40,22 @@ async function main() {
     check(`${kind} card`, el !== null);
   }
 
-  console.log("\n4. Codex/Mock connect button disabled");
+  console.log("\n4. Codex is GA (5-1), Mock is disabled (dev-only)");
   const codexDisabled = await page.$eval(
     '[data-testid="provider-connect-btn"][data-provider-kind="codex"]',
     (el) => el.disabled,
   );
-  check("codex connect disabled", codexDisabled === true);
+  check("codex connect enabled (5-1)", codexDisabled === false);
+  const codexLabel = await page.$eval(
+    '[data-testid="provider-connect-btn"][data-provider-kind="codex"]',
+    (el) => el.textContent?.trim() ?? "",
+  );
+  check("codex button labelled ChatGPT 연결", codexLabel.includes("ChatGPT 연결"), codexLabel);
+  const mockDisabled = await page.$eval(
+    '[data-testid="provider-connect-btn"][data-provider-kind="mock"]',
+    (el) => el.disabled,
+  );
+  check("mock connect disabled", mockDisabled === true);
 
   console.log("\n5. Policy rows — 3 safe toggles + 2 warn locked");
   const safeRows = await page.$$('[data-testid="policy-row"]');

@@ -9,6 +9,7 @@
 //! `auth::delete_provider_api_key()`를 먼저 호출해 OS keyring 항목을 제거한다.
 //! [`InMemoryKeyring`]은 테스트·CI 전용이며 프로덕션 경로에서 사용하지 않는다.
 
+pub mod codex_oauth;
 mod error;
 pub mod openrouter_provisioning;
 mod scope;
@@ -17,11 +18,59 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Mutex;
 
+pub use codex_oauth::{CodexOAuth, CodexTokens, OAuthError, PkcePair};
 pub use error::AuthError;
 pub use openrouter_provisioning::{
     ChildKey, ChildKeySummary, OpenRouterProvisioning, ProvisioningError,
 };
 pub use scope::SecretScope;
+
+pub fn store_codex_tokens(
+    keyring: &dyn Keyring,
+    provider_config_id: i64,
+    tokens: &CodexTokens,
+) -> Result<(), AuthError> {
+    keyring.store(
+        &SecretScope::CodexAccessToken { provider_config_id },
+        &tokens.access_token,
+    )?;
+    keyring.store(
+        &SecretScope::CodexRefreshToken { provider_config_id },
+        &tokens.refresh_token,
+    )?;
+    keyring.store(
+        &SecretScope::CodexIdToken { provider_config_id },
+        &tokens.id_token,
+    )?;
+    Ok(())
+}
+
+pub fn load_codex_tokens(
+    keyring: &dyn Keyring,
+    provider_config_id: i64,
+) -> Result<Option<(String, String, String)>, AuthError> {
+    let Some(access) = keyring.load(&SecretScope::CodexAccessToken { provider_config_id })? else {
+        return Ok(None);
+    };
+    let Some(refresh) = keyring.load(&SecretScope::CodexRefreshToken { provider_config_id })?
+    else {
+        return Ok(None);
+    };
+    let id = keyring
+        .load(&SecretScope::CodexIdToken { provider_config_id })?
+        .unwrap_or_default();
+    Ok(Some((access, refresh, id)))
+}
+
+pub fn delete_codex_tokens(
+    keyring: &dyn Keyring,
+    provider_config_id: i64,
+) -> Result<(), AuthError> {
+    keyring.delete(&SecretScope::CodexAccessToken { provider_config_id })?;
+    keyring.delete(&SecretScope::CodexRefreshToken { provider_config_id })?;
+    keyring.delete(&SecretScope::CodexIdToken { provider_config_id })?;
+    Ok(())
+}
 
 /// 민감 정보를 저장·조회·삭제하는 동기 keyring 추상화.
 pub trait Keyring: Send + Sync {
@@ -254,6 +303,39 @@ mod tests {
 
         delete_provider_api_key(&keyring, 7).unwrap();
         assert_eq!(load_provider_api_key(&keyring, 7).unwrap(), None);
+    }
+
+    #[test]
+    fn codex_tokens_roundtrip_three_scopes() {
+        let keyring = InMemoryKeyring::new();
+        let tokens = CodexTokens {
+            access_token: "at-1".into(),
+            refresh_token: "rt-1".into(),
+            id_token: "id-1".into(),
+            account_id: "acct-1".into(),
+            expires_in: 3600,
+        };
+        store_codex_tokens(&keyring, 9, &tokens).unwrap();
+        let (at, rt, id) = load_codex_tokens(&keyring, 9).unwrap().unwrap();
+        assert_eq!(at, "at-1");
+        assert_eq!(rt, "rt-1");
+        assert_eq!(id, "id-1");
+        delete_codex_tokens(&keyring, 9).unwrap();
+        assert!(load_codex_tokens(&keyring, 9).unwrap().is_none());
+    }
+
+    #[test]
+    fn codex_tokens_load_returns_none_when_refresh_missing() {
+        let keyring = InMemoryKeyring::new();
+        keyring
+            .store(
+                &SecretScope::CodexAccessToken {
+                    provider_config_id: 42,
+                },
+                "only-access",
+            )
+            .unwrap();
+        assert!(load_codex_tokens(&keyring, 42).unwrap().is_none());
     }
 
     #[test]

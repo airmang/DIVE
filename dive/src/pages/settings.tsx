@@ -5,6 +5,7 @@ import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { useTheme } from "../hooks/useTheme";
 import { useProjectSessionStore, type ProviderSummary } from "../stores/project-session";
+import { CodexOAuthDialog } from "../components/codex/CodexOAuthDialog";
 
 type TauriApi = {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -30,7 +31,7 @@ const PROVIDER_KINDS: Array<{ kind: string; label: string; hint: string; ga: boo
   { kind: "anthropic", label: "Anthropic", hint: "claude-sonnet-4.5", ga: true },
   { kind: "openai", label: "OpenAI", hint: "gpt-4o / o1", ga: true },
   { kind: "openrouter", label: "OpenRouter", hint: "여러 모델 통합", ga: true },
-  { kind: "codex", label: "Codex (OAuth)", hint: "Phase 5에서 OAuth", ga: false },
+  { kind: "codex", label: "Codex (ChatGPT OAuth)", hint: "ChatGPT Plus/Pro 구독", ga: true },
   { kind: "mock", label: "Mock (개발)", hint: "테스트·데모", ga: false },
 ];
 
@@ -47,6 +48,9 @@ export function SettingsPage() {
   const [expandedKind, setExpandedKind] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [connecting, setConnecting] = useState(false);
+  const [codexDialogOpen, setCodexDialogOpen] = useState(false);
+  const [codexConnected, setCodexConnected] = useState(false);
+  const [codexAccountId, setCodexAccountId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loaded) void loadAll();
@@ -59,9 +63,19 @@ export function SettingsPage() {
         try {
           const p = await api.invoke<PolicyDto>("provider_policy_get");
           setPolicy(p);
-          return;
         } catch (err) {
           console.warn("provider_policy_get failed:", err);
+        }
+        try {
+          const st = await api.invoke<{
+            connected: boolean;
+            account_id: string | null;
+          }>("codex_oauth_status");
+          setCodexConnected(st.connected);
+          setCodexAccountId(st.account_id);
+          return;
+        } catch (err) {
+          console.warn("codex_oauth_status failed:", err);
         }
       }
       try {
@@ -69,6 +83,11 @@ export function SettingsPage() {
         if (raw) setPolicy(JSON.parse(raw) as PolicyDto);
         const raw2 = window.localStorage.getItem("dive:reset-next-session");
         if (raw2) setResetNextSession(raw2 === "true");
+        const codexMock = window.localStorage.getItem("dive:codex-connected");
+        if (codexMock === "true") {
+          setCodexConnected(true);
+          setCodexAccountId("acct_mock");
+        }
       } catch (err) {
         console.warn("settings: corrupted policy json", err);
       }
@@ -100,6 +119,10 @@ export function SettingsPage() {
   };
 
   const handleConnect = async (kind: string) => {
+    if (kind === "codex") {
+      setCodexDialogOpen(true);
+      return;
+    }
     if (!apiKeyInput.trim()) return;
     setConnecting(true);
     try {
@@ -111,7 +134,27 @@ export function SettingsPage() {
     }
   };
 
+  const handleCodexDisconnect = async () => {
+    if (!window.confirm("ChatGPT 연결을 해제할까요?")) return;
+    const api = await loadTauri();
+    if (api) {
+      try {
+        await api.invoke<void>("codex_oauth_logout");
+      } catch (err) {
+        console.warn("codex_oauth_logout failed:", err);
+      }
+    } else {
+      window.localStorage.removeItem("dive:codex-connected");
+    }
+    setCodexConnected(false);
+    setCodexAccountId(null);
+  };
+
   const handleDisconnect = async (row: ProviderSummary) => {
+    if (row.kind === "codex") {
+      await handleCodexDisconnect();
+      return;
+    }
     if (!window.confirm(`${row.kind} 연결을 해제할까요?`)) return;
     await disconnectProvider(row.id);
   };
@@ -147,7 +190,12 @@ export function SettingsPage() {
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" data-testid="provider-cards">
             {PROVIDER_KINDS.map((p) => {
-              const connected = providers.find((x) => x.kind === p.kind && x.is_connected);
+              const isCodex = p.kind === "codex";
+              const connected = isCodex
+                ? codexConnected
+                  ? { id: -1, kind: "codex", is_connected: true }
+                  : undefined
+                : providers.find((x) => x.kind === p.kind && x.is_connected);
               const expanded = expandedKind === p.kind;
               return (
                 <Card
@@ -173,12 +221,24 @@ export function SettingsPage() {
                         />
                       </div>
                       <div className="text-[11px] text-fg-muted">{p.hint}</div>
+                      {isCodex && codexConnected && codexAccountId ? (
+                        <div
+                          className="mt-1 text-[10px] text-fg-muted"
+                          data-testid="codex-account-id"
+                        >
+                          계정: <code>{codexAccountId}</code>
+                        </div>
+                      ) : null}
                     </div>
                     {connected ? (
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => void handleDisconnect(connected)}
+                        onClick={() =>
+                          void (isCodex
+                            ? handleCodexDisconnect()
+                            : handleDisconnect(connected as ProviderSummary))
+                        }
                         data-testid="provider-disconnect"
                         data-provider-kind={p.kind}
                       >
@@ -189,15 +249,19 @@ export function SettingsPage() {
                         variant="outline"
                         size="sm"
                         disabled={!p.ga}
-                        onClick={() => setExpandedKind(expanded ? null : p.kind)}
+                        onClick={() =>
+                          isCodex
+                            ? setCodexDialogOpen(true)
+                            : setExpandedKind(expanded ? null : p.kind)
+                        }
                         data-testid="provider-connect-btn"
                         data-provider-kind={p.kind}
                       >
-                        {p.ga ? "연결하기" : "준비 중"}
+                        {p.ga ? (isCodex ? "ChatGPT 연결" : "연결하기") : "준비 중"}
                       </Button>
                     )}
                   </div>
-                  {expanded && p.ga ? (
+                  {!isCodex && expanded && p.ga ? (
                     <div className="flex flex-col gap-2 border-t pt-2">
                       <Input
                         type="password"
@@ -301,6 +365,17 @@ export function SettingsPage() {
           </Button>
         </section>
       </div>
+      <CodexOAuthDialog
+        open={codexDialogOpen}
+        onOpenChange={setCodexDialogOpen}
+        onConnected={(status) => {
+          setCodexConnected(status.connected);
+          setCodexAccountId(status.account_id);
+          if (!(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) {
+            window.localStorage.setItem("dive:codex-connected", String(status.connected));
+          }
+        }}
+      />
     </div>
   );
 }

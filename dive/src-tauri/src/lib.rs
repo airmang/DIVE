@@ -15,8 +15,8 @@ pub use auth::{AuthError, Keyring, OsKeyring, SecretScope};
 pub use db::Database;
 pub use ipc::AppState;
 pub use providers::{
-    AnthropicProvider, ChatEvent, ChatRequest, FinishReason, LlmProvider, Message, MockProvider,
-    ModelInfo, OpenAiProvider, ProviderError, ToolCall, ToolChoice, ToolDef, Usage,
+    AnthropicProvider, ChatEvent, ChatRequest, CodexProvider, FinishReason, LlmProvider, Message,
+    MockProvider, ModelInfo, OpenAiProvider, ProviderError, ToolCall, ToolChoice, ToolDef, Usage,
 };
 
 #[tauri::command]
@@ -63,7 +63,12 @@ pub fn run() {
             ipc::provider_disconnect,
             ipc::provider_policy_get,
             ipc::provider_policy_set,
-            ipc::checkpoint_timeline
+            ipc::checkpoint_timeline,
+            ipc::codex_oauth_start,
+            ipc::codex_oauth_complete,
+            ipc::codex_oauth_status,
+            ipc::codex_oauth_logout,
+            ipc::codex_oauth_refresh
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

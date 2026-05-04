@@ -9,12 +9,14 @@
 //! provider secrets defaults to the OS-native backend but can be swapped
 //! (tests use `InMemoryKeyring`).
 
+pub mod codex_oauth;
 pub mod policy;
 pub mod project;
 pub mod provider;
 pub mod session;
 pub mod timeline;
 
+pub use codex_oauth::*;
 pub use policy::*;
 pub use project::*;
 pub use provider::*;
