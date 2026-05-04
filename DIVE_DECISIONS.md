@@ -586,3 +586,26 @@
   - +16 Playwright 검증, 0 신규 CI 러너, 이전 회귀 전부 유지(21 suites / 330 assertions)
   - 한국어 특화 규칙 품질은 파일럿 데이터로 튜닝 예정 — `docs/pilot-benchmarks.md`에 "모호함 감지 오탐/누락 비율" 지표 추가 여부를 5-6 통합 이후 결정
   - "보내기 전 점검"(§6.6.3, 모델 자체 비평)은 5-5에서 — 모델 호출 1회 추가 + 토큰 사용량 표시까지. 5-4는 외부 호출 0 원칙 유지
+
+## ADR-031: 보내기 전 점검은 single-tool tool_choice + 3-way 적용 + 토큰 수 즉시 표시
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 5-5)
+- 컨텍스트: §6.6.3는 "모델 호출 1회로 프롬프트 자체 비평 + 사용자가 제안을 수락·무시 선택 + 토큰 사용량 표시"를 요구. 우리는 이미 3-2 VerifyEngine과 3-2 AiAssistEngine에서 single-tool `tool_choice::Specific` 패턴을 검증했음(구조화된 응답이 `serde_json` 한 번에 역직렬화 가능). 같은 패턴을 prompt-critique에도 적용한다.
+- 결정:
+  - **단일 도구 `prompt_review`** 강제: `{issues: [{kind, span?, excerpt, suggestion}], refined_text}` 응답만 받음. span은 optional(모델이 정확한 문자 인덱스를 항상 맞추지 못함 → span 누락 시에도 issue 표시 가능).
+  - **3-way 적용 footer**: `닫기` / `제안 적용만` / `제안 적용 + 전송`. "적용만"은 사용자가 refined text를 더 다듬고 싶을 때(일반적). "적용 + 전송"은 신뢰해서 즉시 보내고 싶을 때(단축). 기본 위치는 primary 버튼에 "적용 + 전송"을 두지만, 위험도 낮은 "적용만"을 왼쪽에 두어 실수 클릭 방지.
+  - **토큰 수는 `ChatEvent::Usage` 단일 소스**: 이미 provider 어댑터에서 emit되고 있음(OpenAI/Anthropic 모두). `prompt_tokens + completion_tokens`를 합산해 `approximate_tokens`로 표면화. 가격 환산은 provider-specific이라 Phase 6로 연기.
+  - **다이얼로그 state reset on re-open**: `useEffect(!open)`으로 result/loading/error 초기화. 5-4의 PromptHelperPanel과 마찬가지로 "열 때마다 새로운 세션"을 보장.
+  - **Ctrl+Shift+Enter vs 버튼**: 키보드 사용자 + 마우스 사용자 둘 다 지원. Shift+Enter는 이미 줄바꿈이라 Ctrl/⌘을 추가로 요구. `navigator.platform` 분기 없이 `e.ctrlKey || e.metaKey`로 양 OS 동시 수용.
+  - **5-4와 5-5 분업 유지**: 5-4 정규식 감지는 항상 활성(외부 호출 0, 타자 중 실시간). 5-5 모델 비평은 명시적 행동(클릭/단축키). 둘 결과를 합치는 "smart merge" 로직은 의도적으로 없음 — 사용자가 선택하도록 둔다.
+- 대안:
+  - **ChatEvent::Done에 모델의 자유 형식 응답 파싱**: 하위호환성 좋지만 JSON 파싱 실패 위험 + 모델이 매번 포맷 안 맞춤. single-tool이 확실.
+  - **Streaming UI (타이핑하는 동안 issue들이 점점 나타남)**: UX 좋지만 구현 복잡도 ↑, 이 기능은 "클릭 후 몇 초 기다리는" 사용 패턴이므로 과잉.
+  - **Refined text가 너무 짧을 때 경고**: 현재는 그대로 표시. 실 데이터에서 "과도하게 압축된" 케이스가 보이면 6월 파일럿 이후 휴리스틱 추가.
+  - **5-4 감지 결과를 prompt에 첨부해 모델에게 전달**: 모델이 중복 감지하지 않도록. 이번 세션에선 복잡도 회피 — 모델이 혼자서 판단. 6-Phase에서 필요시 추가.
+  - **토큰 비용 $ 환산 표시**: provider별 모델별 가격 테이블 유지 부담. 숫자만 표시.
+- 결과:
+  - +7 Rust 테스트, +1 Playwright 스위트(15 assertions), UI는 ChatInput에 버튼 1개 + 단축키만 추가 (인지 부담 ↓)
+  - 5-6 통합 테스트는 이 다이얼로그를 시나리오 B(교사가 복원 드릴 연습)에 끼워 넣어 "AI 자체 비평 → 토큰 인지 → 명시적 적용"의 풀 플로우를 검증할 수 있다
+  - 실제 모델 연결은 `prompt_check_review` IPC로 즉시 가능 — provider가 어떤 것이든(1-4/3-5/5-1) 동일 trait로 주입
