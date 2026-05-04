@@ -43,9 +43,15 @@ pub fn list_recent(conn: &Connection, limit: i64) -> Result<Vec<ProjectRow>, DbE
 
 pub fn touch(conn: &Connection, id: i64) -> Result<(), DbError> {
     let now = now_ms();
+    let max_updated_at: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(updated_at), 0) FROM Project",
+        [],
+        |row| row.get(0),
+    )?;
+    let next_updated_at = now.max(max_updated_at + 1);
     conn.execute(
-        "UPDATE Project SET updated_at = CASE WHEN updated_at >= ? THEN updated_at + 1 ELSE ? END WHERE id = ?",
-        params![now, now, id],
+        "UPDATE Project SET updated_at = ? WHERE id = ?",
+        params![next_updated_at, id],
     )?;
     Ok(())
 }
