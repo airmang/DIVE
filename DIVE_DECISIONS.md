@@ -609,3 +609,23 @@
   - +7 Rust 테스트, +1 Playwright 스위트(15 assertions), UI는 ChatInput에 버튼 1개 + 단축키만 추가 (인지 부담 ↓)
   - 5-6 통합 테스트는 이 다이얼로그를 시나리오 B(교사가 복원 드릴 연습)에 끼워 넣어 "AI 자체 비평 → 토큰 인지 → 명시적 적용"의 풀 플로우를 검증할 수 있다
   - 실제 모델 연결은 `prompt_check_review` IPC로 즉시 가능 — provider가 어떤 것이든(1-4/3-5/5-1) 동일 trait로 주입
+
+## ADR-032: Phase 5 v0.3 통합은 랜딩 페이지 + Rust e2e 1건 + 23 스위트 회귀로 종결
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 5-6)
+- 컨텍스트: 5-6의 목표는 "Phase 5 모든 기능이 서로 간섭 없이 end-to-end 동작"을 증명. 하지만 (a) 실제 Codex 계정·MCP npm 패키지 의존은 ADR-025 패턴대로 사용자 실환경으로 이관, (b) 21개 기존 스위트 + 2개 신규(5-4/5-5)로 UI 회귀는 이미 커버됨. 추가로 필요한 것은 "기능들이 서로 엮인 흐름이 자동 테스트에 존재하는가"의 증명.
+- 결정:
+  - **Rust end-to-end 1건만 추가**: `tests/phase5_e2e.rs` — Codex-style MockProvider + MCP MockTransport를 AgentLoop 한 번의 실행에 결합. 이 하나의 테스트가 ① Agent Loop가 MCP 네임스페이스를 정확히 resolve한다는 것, ② MCP tools/call 응답을 ToolResult로 변환한다는 것, ③ 다음 iteration에서 모델이 결과를 소비한다는 것을 모두 보인다. 별도 시나리오 테스트 다수를 만들기보다 이 "한 줄기 플로우"가 더 강한 증명.
+  - **랜딩 페이지는 얇게**: `pages/phase5-integration.tsx`는 5개 feature 카드 + 각 demo로 링크 + Rust 통과 배너만. 실제 검증은 기존 22 스위트가 모두 돌아가는 것으로. 랜딩 자체는 13 assertion(카드 렌더 + 네비게이션 + end-to-end ambiguity→check 플로우)만 검증.
+  - **Rust 테스트 수는 하드코딩**: 랜딩 배너의 "238 passed"는 현재 세션 수치. Phase 6 CI 연동 시점에 자동 갱신 예정. 파일럿 시연 시 Rust 테스트가 더 붙을 수 있지만 배너는 "대략적 신뢰 지표"로만 취급.
+  - **`AppState`에 MCP client 캐시 도입은 연기**: 현재 테스트는 `McpServerRegistry::build_adapters`로 직접 ToolRegistry에 등록하는 방식만 검증. 실제 앱 lifecycle(시작 시 enabled 서버 자동 연결 + 종료 시 child 프로세스 정리)은 Phase 6-4 NSIS 패키징 작업과 함께 Rust main loop 구조를 재검토할 때 다룬다.
+  - **실환경 검증은 사용자 몫**: Codex OAuth, MCP npm 서버, HTTP MCP 인증은 유료/외부 계정 필요. PHASE5_HANDOFF.md에 체크리스트로 명시.
+- 대안:
+  - **여러 개의 end-to-end 테스트** (Codex-only / MCP-only / Combined): 같은 모크 인프라를 반복 설정하는 비용 vs 한 테스트가 실패해도 어느 계층인지 알 수 있는 이점. 기존 통합 테스트(`ai_assist_engine.rs`, `verify_engine.rs`, `mcp_tool_integration.rs`)가 각 계층을 이미 커버하므로 phase5_e2e는 "결합" 레이어만 검증.
+  - **Playwright로 모든 5 feature를 한 페이지에서 직접 재생**: Tauri IPC가 요구되는 Codex status / MCP test_connect 등은 브라우저 mock fallback에 의존. 랜딩 페이지에서는 네비게이션 + 기존 데모 재사용이 더 유지보수 친화적.
+  - **수동 walkthrough 문서**: 핸드오프에 체크리스트로만 남기고 자동 테스트 없음. 자동화 이득(회귀 방지) 포기.
+- 결과:
+  - +1 Rust 테스트, +1 Playwright 스위트(13 assertions), +1 데모 페이지. 전체 Rust 237 → 238, 전체 Playwright 22 → 23 스위트 / 345 → 358 assertions
+  - Phase 5 PHASE_GATE 진입 — `DIVE_NEXT.md` / `DIVE_PROGRESS.md` / `PHASE5_HANDOFF.md` 세트 업데이트
+  - Phase 6 진입 시 5-4 한국어 정규식에 영어 룰 추가, 5-5 토큰 비용 환산 UI 등 다국어·정식 릴리스 마감이 이어진다
