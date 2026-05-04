@@ -629,3 +629,25 @@
   - +1 Rust 테스트, +1 Playwright 스위트(13 assertions), +1 데모 페이지. 전체 Rust 237 → 238, 전체 Playwright 22 → 23 스위트 / 345 → 358 assertions
   - Phase 5 PHASE_GATE 진입 — `DIVE_NEXT.md` / `DIVE_PROGRESS.md` / `PHASE5_HANDOFF.md` 세트 업데이트
   - Phase 6 진입 시 5-4 한국어 정규식에 영어 룰 추가, 5-5 토큰 비용 환산 UI 등 다국어·정식 릴리스 마감이 이어진다
+
+## ADR-033: i18n은 i18next 없이 JSON + Zustand persist + useT() 커스텀 훅으로 충분
+
+- 일시: 2026-05-04
+- 상태: 채택 (작업 6-1)
+- 컨텍스트: 명세 §2.5 / §12.3는 ko-KR · en-US 2개 로케일 동등 지원만 요구. 5개 이상 로케일 확장, 복수 형태(plurals), 날짜·숫자 포맷 같은 `i18next` 본격 기능은 필요하지 않다. 동시에 기존 상태 관리는 전부 Zustand로 통일되어 있어(이론적 선택: React Context · Zustand · Redux) 언어 상태를 별도 인프라에 올릴 이유가 없다. Phase 6에서 접근성·NSIS·릴리스 작업이 이어지므로 런타임 번들 사이즈도 가볍게 유지해야 한다.
+- 결정:
+  - **커스텀 `t(key, params?)` 함수**: 점 표기(dot notation) 키 조회 + `{{name}}` 보간. 전체 엔진이 ~90줄(`dive/src/i18n/index.ts`). i18next 런타임 의존 0.
+  - **리소스는 JSON + ES module import**: `ko.json`, `en.json`을 Vite가 번들 타임에 포함. 비동기 로더 없음 — 첫 페인트에 바로 번역 사용 가능.
+  - **Zustand persist 스토어(`dive:locale`)**: 로케일 선택은 `localStorage` 자동 영속. 백엔드 왕복 없음. 첫 실행 시 `navigator.languages`로 ko/en 감지 후 저장.
+  - **Fallback chain: active locale → ko → key 자체**: 미번역 키가 UI를 깨지 않도록 한국어 폴백 후, 최종적으로 키 문자열을 그대로 반환. 테스트에서 untranslated 키 검출 용이.
+  - **Sidebar 내부 언어 전환 토글**: 별도 설정 페이지 이동 없이 사이드바 하단 `role="group"` + `aria-pressed`로 제공. 언어는 자주 바뀌는 설정이 아니므로 최소 공간(1행).
+  - **첫 번째 대상은 Sidebar + MainShell 배너**: 카드 내부 상태 라벨(`card-state-meta.ts`) 같이 테스트 케이스가 문자열에 의존하는 지점은 이번 작업에서 그대로 두고, 후속 6-2/6-3에서 `data-*` 속성 기반으로 리팩터 후 번역. 점진 전환.
+- 대안:
+  - **react-i18next 도입**: +~25KB min+gzip, 비동기 네임스페이스 로딩, Suspense 통합. 2 로케일에는 과잉.
+  - **LinguiJS (ICU 포맷)**: 빌드 타임 카탈로그 추출이 훌륭하지만, DIVE는 단순 보간 이상이 필요 없음. 빌드 파이프라인 복잡도 증가 대비 이득 적음.
+  - **전역 Context + useReducer**: Zustand를 이미 쓰고 있는데 별도 Context로 분리하면 컴포넌트 구독 방식 일관성 붕괴.
+  - **`src-tauri/src/i18n/`에 Rust side 번역도**: 현 단계 Rust는 UI 문자열을 거의 내보내지 않음(IPC 응답은 대부분 enum/번호). 필요해지면 ko/en JSON 하나를 공유하고 serde로 읽는 방식으로 확장 가능. 이번 작업에서 하드 스크리핑 대신 TypeScript 단일 소스만.
+- 결과:
+  - Rust 회귀 없음(Rust 쪽에 번역 로직 0). 프론트: +3 파일(index.ts, ko.json, en.json), +1 Playwright 스위트(verify-i18n 13 assertions), 기존 23 스위트 회귀 없음 확인
+  - 6-2 접근성 작업은 aria-label을 번역된 리소스에서 직접 사용 가능(이미 Sidebar에서 `t("a11y.region_sidebar")` 적용). 6-5 릴리스 README는 영어 버전도 동시 제공 가능.
+  - 번들 사이즈 영향 미미(ko/en JSON 합계 ~8KB raw, gzip ~2KB)
