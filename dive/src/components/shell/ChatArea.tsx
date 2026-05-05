@@ -123,7 +123,7 @@ export function ChatArea({
               {emptyState?.title ?? "세션을 시작해 대화를 시작하세요"}
             </p>
             <p className="text-sm text-fg-muted">
-              {emptyState?.description ?? "카드를 선택하고 메시지를 입력하세요"}
+              {emptyState?.description ?? "목표를 입력하거나 로드맵 단계를 선택하세요"}
             </p>
             {!emptyState?.description ? (
               <LearningHint className="text-sm">

@@ -72,7 +72,9 @@ export function WorkmapCardList({
     onAddCard?.();
   };
 
-  const addDisabledTitle = canAddCard ? undefined : "D 단계에서만 카드 추가 가능";
+  const addDisabledTitle = canAddCard
+    ? undefined
+    : "단계를 추가하려면 프로젝트와 세션을 먼저 준비하세요";
 
   return (
     <div className="relative flex h-full w-full items-center" data-testid="workmap-card-list">
@@ -97,7 +99,7 @@ export function WorkmapCardList({
         type="button"
         onClick={() => scrollBy(-SCROLL_STEP)}
         disabled={!canScrollLeft}
-        aria-label="이전 카드로 스크롤"
+        aria-label="이전 단계로 스크롤"
         data-testid="workmap-scroll-prev"
         className={cn(
           "absolute left-1 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center",
@@ -113,7 +115,7 @@ export function WorkmapCardList({
         type="button"
         onClick={() => scrollBy(SCROLL_STEP)}
         disabled={!canScrollRight}
-        aria-label="다음 카드로 스크롤"
+        aria-label="다음 단계로 스크롤"
         data-testid="workmap-scroll-next"
         className={cn(
           "absolute right-1 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center",
@@ -143,7 +145,7 @@ export function WorkmapCardList({
           type="button"
           onClick={handleAddClick}
           disabled={!canAddCard}
-          aria-label="카드 추가"
+          aria-label="단계 추가"
           title={addDisabledTitle}
           data-testid="workmap-add-card"
           data-enabled={canAddCard ? "true" : "false"}
@@ -159,11 +161,11 @@ export function WorkmapCardList({
           style={{ scrollSnapAlign: "start" }}
         >
           <Plus className={mode === "expanded" ? "h-5 w-5" : "h-4 w-4"} />
-          <span className={mode === "expanded" ? "text-sm" : "text-xs"}>카드 추가</span>
+          <span className={mode === "expanded" ? "text-sm" : "text-xs"}>단계 추가</span>
         </button>
         {!canAddCard ? (
           <LearningHint inline className="shrink-0 text-[10px]">
-            D 단계에서만 카드 추가 가능
+            단계를 추가하려면 프로젝트와 세션을 먼저 준비하세요
           </LearningHint>
         ) : null}
       </div>

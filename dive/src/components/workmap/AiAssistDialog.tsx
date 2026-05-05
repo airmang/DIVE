@@ -74,7 +74,7 @@ async function fetchAssistCardsViaIpc(description: string): Promise<Draft[] | nu
   const core = await import("@tauri-apps/api/core");
   const raw = await core.invoke<BackendCard[]>("ai_assist_cards", { description });
   if (!Array.isArray(raw) || raw.length === 0) {
-    throw new Error("AI 카드 제안 결과가 비어 있습니다.");
+    throw new Error("AI 단계 제안 결과가 비어 있습니다.");
   }
   return raw.map((c, idx) => ({
     id: idx + 1,
@@ -133,7 +133,7 @@ export function AiAssistDialog({
       }
 
       if (!allowDemoFallback) {
-        setError("AI 카드 제안 IPC를 사용할 수 없습니다. DIVE 데스크톱 앱에서 다시 시도하세요.");
+        setError("AI 단계 제안 IPC를 사용할 수 없습니다. DIVE 데스크톱 앱에서 다시 시도하세요.");
         return;
       }
 
@@ -143,7 +143,7 @@ export function AiAssistDialog({
       setSelected(new Set(next.map((d) => d.id)));
       setSource("mock");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "AI 카드 제안에 실패했습니다.");
+      setError(err instanceof Error ? err.message : "AI 단계 제안에 실패했습니다.");
     } finally {
       setLoading(false);
     }
@@ -224,7 +224,7 @@ export function AiAssistDialog({
           <DialogDescription>
             만들고 싶은 기능을 한 문장으로 적으세요.
             <LearningHint inline className="ml-1">
-              AI가 작업 카드를 제안합니다.
+              AI가 로드맵 단계를 제안합니다.
             </LearningHint>
           </DialogDescription>
         </DialogHeader>

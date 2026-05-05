@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "DIVE",
-    "tagline": "AI coding workflow for beginners"
+    "tagline": "Desktop coding agent for beginners"
   },
   "common": {
     "cancel": "Cancel",
@@ -40,44 +40,44 @@
     "open_settings": "Open settings"
   },
   "stage": {
-    "d": "Stage D",
-    "i": "Stage I",
-    "v": "Stage V",
-    "e": "Stage E",
-    "banner_all_verified": "All cards complete — Stage E: add a new card or end the session",
-    "banner_select_card": "Select a card to work on.",
-    "banner_decomposed": "Write an instruction to enter Stage I.",
-    "banner_instructed_empty": "Please write an instruction for this card.",
-    "banner_instructed": "Stage I: executing your instruction.",
-    "banner_verifying": "Stage V: verification in progress — check the results.",
-    "banner_rejected": "Card rejected — edit the instruction and try again.",
-    "banner_verified": "Verified — inspect the code or move to the next card.",
-    "banner_extended": "Extension complete (E)",
+    "d": "Plan ready",
+    "i": "Ready to run",
+    "v": "Checking",
+    "e": "Done",
+    "banner_all_verified": "All steps complete — add another step or finish the session.",
+    "banner_select_card": "Select a roadmap step to work on.",
+    "banner_decomposed": "Describe what the agent should do for this step.",
+    "banner_instructed_empty": "Describe what the agent should do for this step.",
+    "banner_instructed": "Step ready — the agent will follow your instruction.",
+    "banner_verifying": "Running checks — review the results.",
+    "banner_rejected": "Step needs changes — edit it and try again.",
+    "banner_verified": "Checked — inspect changes or move to the next step.",
+    "banner_extended": "Step complete",
     "gate_no_session": "Select or create a session first.",
     "gate_no_provider": "No provider is connected, so chat and verification cannot start.",
-    "gate_no_cards": "Add a card to the workmap first. (Stage D gate)",
-    "gate_no_instruction": "Please write an instruction for this card. (Stage I gate)",
-    "gate_not_verifying": "Not in verification stage. (Stage V gate)",
+    "gate_no_cards": "Add a step to the roadmap first.",
+    "gate_no_instruction": "Describe what the agent should do for this step.",
+    "gate_not_verifying": "Checks have not started yet.",
     "action_open_settings": "Open settings",
-    "action_add_ai_cards": "Add cards with AI",
-    "action_write_instruction": "Write instruction",
-    "action_start_verify": "Start verification"
+    "action_add_ai_cards": "Add steps with AI",
+    "action_write_instruction": "Describe step",
+    "action_start_verify": "Run check"
   },
   "workmap": {
-    "new_card_title": "New card {{index}}",
-    "add_card": "Add card",
-    "new_card_dialog_title": "Add card manually",
-    "new_card_dialog_description": "Write the {{index}}th work card in a beginner-readable form.",
+    "new_card_title": "New step {{index}}",
+    "add_card": "Add step",
+    "new_card_dialog_title": "Add step manually",
+    "new_card_dialog_description": "Write roadmap step {{index}} in a beginner-readable form.",
     "new_card_learning_hint": "Summary and acceptance criteria make later verification easier to understand.",
-    "new_card_title_label": "Card title",
-    "new_card_summary_label": "AI decomposition summary (optional)",
+    "new_card_title_label": "Step title",
+    "new_card_summary_label": "AI plan summary (optional)",
     "new_card_acceptance_label": "Acceptance criteria (optional)",
-    "new_card_instruction_label": "Initial instruction (optional)",
-    "new_card_create": "Create card",
+    "new_card_instruction_label": "Initial task (optional)",
+    "new_card_create": "Create step",
     "new_card_creating": "Creating...",
-    "new_card_title_required": "Enter a card title.",
-    "minimap_label": "Overall stage minimap",
-    "minimap_empty": "No cards yet"
+    "new_card_title_required": "Enter a step title.",
+    "minimap_label": "Overall roadmap minimap",
+    "minimap_empty": "No steps yet"
   },
   "onboarding": {
     "title": "Start DIVE",
@@ -120,20 +120,20 @@
   },
   "chat": {
     "empty_no_project_title": "Create a project and start a session",
-    "empty_no_project_description": "DIVE stores cards and conversations per project in the local database.",
+    "empty_no_project_description": "DIVE stores roadmap steps and conversations per project in the local database.",
     "empty_no_session_title": "Select or create a session",
-    "empty_no_session_description": "Cards and chat are disabled until a session is selected.",
+    "empty_no_session_description": "Roadmap and chat are disabled until a session is selected.",
     "provider_setup_title": "Set up an API key"
   },
   "card": {
-    "state_decomposed": "Decomposed",
-    "state_instructed": "Instructed",
-    "state_verifying": "Verifying",
-    "state_verified": "Verified",
+    "state_decomposed": "Planned",
+    "state_instructed": "Ready to run",
+    "state_verifying": "Checking",
+    "state_verified": "Checked",
     "state_rejected": "Rejected",
-    "state_extended": "Extended",
-    "checkpoint_verify_pass": "[V pass]",
-    "checkpoint_extend": "[E enter]"
+    "state_extended": "Done",
+    "checkpoint_verify_pass": "[check passed]",
+    "checkpoint_extend": "[done]"
   },
   "checkpoint": {
     "manual_saved": "Checkpoint saved",
@@ -146,12 +146,12 @@
     "shortcut_prompt_helper": "Ctrl+/ — Prompt helper",
     "shortcut_settings": "Ctrl+, — Settings",
     "shortcut_slide_panel": "Ctrl+E — Slide-in panel",
-    "shortcut_workmap": "Ctrl+W — Workmap toggle"
+    "shortcut_workmap": "Ctrl+W — Roadmap toggle"
   },
   "a11y": {
     "region_sidebar": "Sidebar region",
     "region_chat": "Chat region",
-    "region_workmap": "Workmap region",
+    "region_workmap": "Roadmap region",
     "region_slide_panel": "Slide-in panel",
     "live_toast": "Notification",
     "live_stage_change": "Stage change notification"
@@ -160,14 +160,14 @@
     "checkpoint_saved": "Checkpoint saved",
     "checkpoint_save_failed": "Could not save checkpoint",
     "project_open_failed": "Could not open project",
-    "workmap_save_failed": "Could not save workmap",
+    "workmap_save_failed": "Could not save roadmap",
     "tutorial_on": "Tutorial mode is on",
     "tutorial_off": "Tutorial mode is off",
     "tutorial_description": "You can change this anytime in Settings > General.",
     "docs_open_failed": "Could not open docs",
     "issue_open_failed": "Could not open issue page",
     "about_title": "DIVE v1.0.0-rc.2",
-    "about_description": "Desktop app for managing AI coding work with cards and sessions.",
+    "about_description": "Desktop app for guiding a local AI coding agent through plan, run, check, and undo flows.",
     "retry_unavailable": "No message to retry",
     "retry_unavailable_description": "DIVE could not find the last user message to resend."
   },
@@ -194,8 +194,8 @@
     },
     "verify_fail": {
       "title": "Verification failed",
-      "body": "Review the verification output and adjust the instruction or test command. Raw: {{message}}",
-      "hints": "Read stdout/stderr first.|Reject the card and make the instruction more specific if needed."
+      "body": "Review the check output and adjust the step or test command. Raw: {{message}}",
+      "hints": "Read stdout/stderr first.|Undo the step and make the task more specific if needed."
     },
     "unknown": {
       "title": "Error",
@@ -205,7 +205,7 @@
   },
   "retro": {
     "title": "Cycle retrospective",
-    "description": "Summarize the “{{title}}” card in your own words.",
+    "description": "Summarize the “{{title}}” step in your own words.",
     "learning_hint": "Short answers are fine. This becomes evidence that you can explain what you built.",
     "intent_label": "What did you intend to do?",
     "help_label": "How did AI help?",

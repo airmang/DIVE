@@ -2,7 +2,6 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import MainShell from "./components/shell/MainShell";
 import SettingsPage from "./pages/settings";
 import PromptHelperDemoPage from "./pages/prompt-helper-demo";
-import ResearchSurveyPage from "./pages/research-survey";
 import { Rc1MigrationDialog } from "./components/rc1/Rc1MigrationDialog";
 import {
   acknowledgeRc1Migration,
@@ -11,25 +10,30 @@ import {
 } from "./lib/rc1-migration";
 import { resolveDemoRouteValue, type RecognizedDemoRoute } from "./lib/dev-demo";
 
-type ProductRoute = "main" | "settings" | "prompt-helper" | "research-survey";
+type ProductRoute = "main" | "settings" | "prompt-helper";
 
 type ResolvedRoute =
   | { kind: "product"; route: ProductRoute }
-  | { kind: "demo"; route: RecognizedDemoRoute };
+  | { kind: "demo"; route: RecognizedDemoRoute }
+  | { kind: "internal"; route: "diagnostics-survey" };
 
 const DevDemoShell = import.meta.env.DEV ? lazy(() => import("./components/demo/DemoShell")) : null;
+const DevResearchSurveyPage = import.meta.env.DEV
+  ? lazy(() => import("./pages/research-survey"))
+  : null;
 
 function resolveRoute(
   search = typeof window === "undefined" ? "" : window.location.search,
 ): ResolvedRoute {
   const params = new URLSearchParams(search);
   const productRoute = params.get("route");
-  if (
-    productRoute === "settings" ||
-    productRoute === "prompt-helper" ||
-    productRoute === "research-survey"
-  ) {
+  if (productRoute === "settings" || productRoute === "prompt-helper") {
     return { kind: "product", route: productRoute };
+  }
+
+  const internalRoute = params.get("internal");
+  if (import.meta.env.DEV && internalRoute === "diagnostics-survey") {
+    return { kind: "internal", route: "diagnostics-survey" };
   }
 
   const demo = params.get("demo");
@@ -81,8 +85,12 @@ function App() {
     content = <SettingsPage />;
   } else if (route.kind === "product" && route.route === "prompt-helper") {
     content = <PromptHelperDemoPage />;
-  } else if (route.kind === "product" && route.route === "research-survey") {
-    content = <ResearchSurveyPage />;
+  } else if (route.kind === "internal" && import.meta.env.DEV && DevResearchSurveyPage) {
+    content = (
+      <Suspense fallback={<MainShell />}>
+        <DevResearchSurveyPage />
+      </Suspense>
+    );
   } else {
     content = <MainShell />;
   }

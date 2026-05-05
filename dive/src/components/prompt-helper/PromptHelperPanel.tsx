@@ -13,10 +13,10 @@ interface Props {
 }
 
 const STAGE_LABEL: Record<DiveStage, string> = {
-  D: "D · Decompose",
-  I: "I · Instruct",
-  V: "V · Verify",
-  E: "E · Extend",
+  D: "Plan",
+  I: "Step",
+  V: "Run Check",
+  E: "Continue",
 };
 
 export function PromptHelperPanel({ open, stage, onClose, onInsert }: Props) {
@@ -47,9 +47,9 @@ export function PromptHelperPanel({ open, stage, onClose, onInsert }: Props) {
           <X />
         </Button>
       </header>
-      <p className="text-[11px] text-fg-muted">현재 단계용 템플릿</p>
+      <p className="text-[11px] text-fg-muted">현재 흐름에 맞는 템플릿</p>
       <LearningHint>
-        현재 단계에 맞는 템플릿을 눌러 입력란에 삽입하세요. 대괄호 부분을 본인 작업으로 교체하면
+        현재 흐름에 맞는 템플릿을 눌러 입력란에 삽입하세요. 대괄호 부분을 작업 내용으로 교체하면
         됩니다.
       </LearningHint>
       <div className="flex flex-col gap-2" data-testid="prompt-helper-templates">
@@ -68,7 +68,7 @@ export function PromptHelperPanel({ open, stage, onClose, onInsert }: Props) {
         ))}
         {fallback ? (
           <LearningHint className="text-[10px]">
-            이 단계용 템플릿이 아직 없어 전체 라이브러리를 대신 표시합니다.
+            이 흐름에 맞는 템플릿이 아직 없어 전체 라이브러리를 대신 표시합니다.
           </LearningHint>
         ) : null}
       </div>

@@ -93,8 +93,8 @@ export function CardDetailPanel({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-[560px]" data-testid="card-detail-panel">
           <DialogHeader>
-            <DialogTitle>카드 없음</DialogTitle>
-            <DialogDescription>선택된 카드가 없습니다.</DialogDescription>
+            <DialogTitle>단계 없음</DialogTitle>
+            <DialogDescription>선택된 단계가 없습니다.</DialogDescription>
           </DialogHeader>
         </DialogContent>
       </Dialog>
@@ -144,7 +144,7 @@ export function CardDetailPanel({
             <DialogTitle>{card.title}</DialogTitle>
           </div>
           <DialogDescription>
-            {meta.label} · 카드 #{card.id}
+            {meta.label} · 단계 #{card.id}
           </DialogDescription>
         </DialogHeader>
 
@@ -156,7 +156,7 @@ export function CardDetailPanel({
             >
               {card.assistSummary ? (
                 <div>
-                  <p className="font-semibold text-fg-muted">AI 분해 요약</p>
+                  <p className="font-semibold text-fg-muted">AI 계획 요약</p>
                   <p className="mt-0.5 text-fg">{card.assistSummary}</p>
                 </div>
               ) : null}
@@ -234,7 +234,7 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
       return (
         <div className="space-y-2">
           <label className="text-xs font-semibold text-fg-muted" htmlFor="instruction-input">
-            지시 (Instruction)
+            할 일
           </label>
           <textarea
             id="instruction-input"
@@ -243,12 +243,12 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
             onChange={(e) => ctx.setInstructionDraft(e.target.value)}
             rows={4}
             className="w-full rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg"
-            placeholder="이 카드에서 AI가 해야 할 일"
+            placeholder="이 단계에서 AI가 해야 할 일"
           />
           <LearningHint>
             {state === "rejected"
-              ? "거부 사유를 반영해 지시를 수정한 뒤 다시 시작하세요."
-              : "지시가 작성되면 I 단계로 진입합니다."}
+              ? "거부 사유를 반영해 할 일을 수정한 뒤 다시 시작하세요."
+              : "할 일을 작성하면 이 단계를 실행할 수 있습니다."}
           </LearningHint>
           <div className="space-y-1 pt-2">
             <label className="text-xs font-semibold text-fg-muted" htmlFor="test-command-input">
@@ -283,7 +283,7 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
         <div className="space-y-3" data-testid="verifying-body">
           <p className="text-xs text-fg-muted">결과를 검증하세요.</p>
           <LearningHint className="text-xs">
-            AI가 지시와 코드 변경의 일치 여부를 분석합니다. 결과를 확인한 뒤 최종 승인 또는 거부를
+            AI가 요청과 코드 변경의 일치 여부를 분석합니다. 결과를 확인한 뒤 최종 승인 또는 거부를
             선택하세요.
           </LearningHint>
           {ctx.verifyLog ? (
@@ -427,7 +427,7 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
         <div className="space-y-2" data-testid="verified-body">
           <p className="text-sm text-fg">검증을 통과했습니다.</p>
           <LearningHint className="text-xs">
-            코드 결과를 확인하거나, 문제가 발견되면 다시 거부할 수 있습니다.
+            변경 사항을 확인하거나, 문제가 발견되면 다시 거부할 수 있습니다.
           </LearningHint>
           {ctx.checkpointBadge ? (
             <p
@@ -458,7 +458,7 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
     case "extended":
       return (
         <div className="space-y-2" data-testid="extended-body">
-          <p className="text-sm text-fg">E 단계 통합·확장 완료.</p>
+          <p className="text-sm text-fg">단계 완료.</p>
           <LearningHint className="text-xs">
             읽기 전용. 다음 세션에서 이어서 작업하세요.
           </LearningHint>
@@ -523,7 +523,7 @@ function renderStateFooter(state: CardState, ctx: FooterContext) {
               ctx.onClose();
             }}
           >
-            I 단계로 진입
+            실행 준비
           </Button>
         </>
       );
@@ -538,7 +538,7 @@ function renderStateFooter(state: CardState, ctx: FooterContext) {
               await ctx.onSaveInstruction();
             }}
           >
-            지시 저장
+            할 일 저장
           </Button>
           <Button
             variant="primary"
@@ -549,7 +549,7 @@ function renderStateFooter(state: CardState, ctx: FooterContext) {
               ctx.onClose();
             }}
           >
-            V 단계로 진입 (검증 시작)
+            검증 시작
           </Button>
         </>
       );
@@ -627,7 +627,7 @@ function renderStateFooter(state: CardState, ctx: FooterContext) {
               ctx.onClose();
             }}
           >
-            다시 I 단계로 진입
+            다시 실행 준비
           </Button>
         </>
       );

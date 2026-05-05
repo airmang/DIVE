@@ -92,6 +92,7 @@ function defaultMcpDraft(): McpDraft {
 }
 
 export function SettingsPage() {
+  const internalResearchEnabled = import.meta.env.DEV;
   const { theme, toggleTheme } = useTheme();
   const locale = useLocaleStore((s) => s.locale);
   const setLocale = useLocaleStore((s) => s.setLocale);
@@ -136,23 +137,28 @@ export function SettingsPage() {
         } catch (err) {
           console.warn("provider_policy_get failed:", err);
         }
-        try {
-          const research = await api.invoke<ResearchSettingsDto>("research_settings_get");
-          const localDisable = research.controls_enabled
-            ? window.localStorage.getItem("dive:research-disable-gates")
-            : null;
-          const next =
-            localDisable === null
-              ? research
-              : { ...research, disable_gates: localDisable === "true" };
-          setResearchSettings(next);
-          if (research.controls_enabled && localDisable !== null) {
-            await api.invoke<void>("research_settings_set", { settings: next });
-          } else if (!research.controls_enabled) {
-            window.localStorage.removeItem("dive:research-disable-gates");
+        if (internalResearchEnabled) {
+          try {
+            const research = await api.invoke<ResearchSettingsDto>("research_settings_get");
+            const localDisable = research.controls_enabled
+              ? window.localStorage.getItem("dive:research-disable-gates")
+              : null;
+            const next =
+              localDisable === null
+                ? research
+                : { ...research, disable_gates: localDisable === "true" };
+            setResearchSettings(next);
+            if (research.controls_enabled && localDisable !== null) {
+              await api.invoke<void>("research_settings_set", { settings: next });
+            } else if (!research.controls_enabled) {
+              window.localStorage.removeItem("dive:research-disable-gates");
+            }
+          } catch (err) {
+            console.warn("research_settings_get failed:", err);
           }
-        } catch (err) {
-          console.warn("research_settings_get failed:", err);
+        } else {
+          window.localStorage.removeItem("dive:research-disable-gates");
+          setResearchSettings({ disable_gates: false, controls_enabled: false });
         }
         try {
           const servers = await api.invoke<McpServerSummary[]>("mcp_server_list");
@@ -167,7 +173,7 @@ export function SettingsPage() {
         if (raw) setPolicy(JSON.parse(raw) as PolicyDto);
         const raw2 = window.localStorage.getItem("dive:reset-next-session");
         if (raw2) setResetNextSession(raw2 === "true");
-        const controlsEnabled = import.meta.env.DEV;
+        const controlsEnabled = internalResearchEnabled;
         const researchDisable = controlsEnabled
           ? window.localStorage.getItem("dive:research-disable-gates")
           : null;
@@ -182,7 +188,7 @@ export function SettingsPage() {
         console.warn("settings: corrupted policy json", err);
       }
     })();
-  }, []);
+  }, [internalResearchEnabled]);
 
   const handleMcpAdd = async () => {
     if (!mcpDraft.label.trim()) return;
@@ -359,9 +365,11 @@ export function SettingsPage() {
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
 
-  const openResearchSurvey = () => {
+  const openDiagnosticsSurvey = () => {
+    if (!internalResearchEnabled) return;
     const url = new URL(window.location.href);
-    url.searchParams.set("route", "research-survey");
+    url.searchParams.delete("route");
+    url.searchParams.set("internal", "diagnostics-survey");
     window.history.pushState({}, "", url.toString());
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
@@ -625,34 +633,33 @@ export function SettingsPage() {
               data-testid="policy-reset-next"
               className="h-3.5 w-3.5"
             />
-            다음 차시에 자동 승인 정책 초기화 (권장)
+            다음 세션에서 자동 승인 정책 초기화 (권장)
           </label>
         </section>
 
-        {researchSettings.controls_enabled ? (
-          <section className="flex flex-col gap-3" data-testid="settings-section-research">
+        {internalResearchEnabled && researchSettings.controls_enabled ? (
+          <section className="flex flex-col gap-3" data-testid="settings-section-diagnostics">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">연구 전용 설정</h2>
+              <h2 className="text-lg font-semibold">Internal diagnostics</h2>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={openResearchSurvey}
-                data-testid="settings-open-research-survey"
+                onClick={openDiagnosticsSurvey}
+                data-testid="settings-open-diagnostics-survey"
               >
-                설문 열기
+                진단 설문 열기
               </Button>
             </div>
             <div className="rounded-md border border-warn/50 bg-bg-panel px-3 py-2.5">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="text-sm font-medium">D/I/V/E 게이트 ablation</div>
+                  <div className="text-sm font-medium">Internal gate diagnostics</div>
                   <div className="mt-1 text-[11px] text-fg-muted">
-                    대조군 실험에서만 사용하세요. 켜면 채팅 실행 전 게이트를 우회하고 EventLog에{" "}
+                    내부 진단 세션에서만 사용하세요. 켜면 채팅 실행 전 게이트를 우회하고 EventLog에{" "}
                     <code>gate_bypassed</code>를 남깁니다.
                   </div>
                   <LearningHint className="mt-2 text-xs">
-                    교실 실사용 기본값은 OFF입니다. 이 옵션은 연구 동의와 실험 설계가 있을 때만
-                    켜세요.
+                    기본값은 OFF입니다. 이 옵션은 내부 검증이 필요할 때만 켜세요.
                   </LearningHint>
                 </div>
                 <label className="inline-flex cursor-pointer items-center gap-2 text-xs">

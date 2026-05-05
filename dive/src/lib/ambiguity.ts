@@ -24,12 +24,12 @@ const RULES: RegexRule[] = [
   {
     kind: "pronoun",
     pattern: /(이거|그거|저거|이것|그것|저것|그걸|이걸)/gu,
-    suggestion: "지시 대명사 대신 구체적인 이름(파일명/함수명/카드 제목)으로 바꿔 주세요.",
+    suggestion: "지시 대명사 대신 구체적인 이름(파일명/함수명/단계 제목)으로 바꿔 주세요.",
   },
   {
     kind: "ambiguous_time",
     pattern: /(저번|지난번|방금|아까)\s*(거|것|대화|코드|파일)?/gu,
-    suggestion: '언제·어느 시점의 것인지 명시해 주세요 — 예: "카드 3번" 또는 "직전 메시지".',
+    suggestion: '언제·어느 시점의 것인지 명시해 주세요 — 예: "3번 단계" 또는 "직전 메시지".',
   },
   {
     kind: "vague_subject",

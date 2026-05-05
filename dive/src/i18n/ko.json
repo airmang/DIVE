@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "DIVE",
-    "tagline": "바이브 코딩 입문자를 위한 AI 코딩 워크플로우"
+    "tagline": "초심자를 위한 데스크톱 코딩 에이전트"
   },
   "common": {
     "cancel": "취소",
@@ -40,44 +40,44 @@
     "open_settings": "설정 화면 열기"
   },
   "stage": {
-    "d": "D 단계",
-    "i": "I 단계",
-    "v": "V 단계",
-    "e": "E 단계",
-    "banner_all_verified": "모든 카드 완료 — E 단계: 새 카드 추가 또는 세션 종료",
-    "banner_select_card": "작업할 카드를 선택하세요.",
-    "banner_decomposed": "카드에 지시를 작성해 I 단계로 진입하세요.",
-    "banner_instructed_empty": "카드에 지시를 작성해 주세요.",
-    "banner_instructed": "I 단계: 지시대로 작업을 진행합니다.",
-    "banner_verifying": "V 단계: 검증 진행 중 — 결과를 확인하세요.",
-    "banner_rejected": "거부된 카드 — 지시를 수정해 다시 시작하세요.",
-    "banner_verified": "검증 완료 — 코드를 확인하거나 다음 카드로 이동하세요.",
-    "banner_extended": "확장 완료 (E)",
+    "d": "계획 준비",
+    "i": "실행 준비",
+    "v": "검증 중",
+    "e": "완료",
+    "banner_all_verified": "모든 단계 완료 — 새 단계를 추가하거나 세션을 마무리하세요.",
+    "banner_select_card": "작업할 로드맵 단계를 선택하세요.",
+    "banner_decomposed": "이 단계에서 에이전트가 할 일을 적어 주세요.",
+    "banner_instructed_empty": "이 단계에서 에이전트가 할 일을 적어 주세요.",
+    "banner_instructed": "단계 실행 준비 완료 — 에이전트가 지시에 따라 작업합니다.",
+    "banner_verifying": "검증 중 — 결과를 확인하세요.",
+    "banner_rejected": "수정이 필요한 단계 — 내용을 다듬어 다시 시작하세요.",
+    "banner_verified": "검증 완료 — 변경 사항을 확인하거나 다음 단계로 이동하세요.",
+    "banner_extended": "단계 완료",
     "gate_no_session": "세션을 선택하거나 생성하세요.",
     "gate_no_provider": "연결된 프로바이더가 없어 채팅과 검증을 시작할 수 없습니다.",
-    "gate_no_cards": "먼저 워크맵에 카드를 추가하세요. (D 단계 게이트)",
-    "gate_no_instruction": "카드에 지시를 작성해 주세요. (I 단계 게이트)",
-    "gate_not_verifying": "검증 단계가 아닙니다. (V 단계 게이트)",
+    "gate_no_cards": "먼저 로드맵에 단계를 추가하세요.",
+    "gate_no_instruction": "이 단계에서 에이전트가 할 일을 적어 주세요.",
+    "gate_not_verifying": "아직 검증을 시작하지 않았습니다.",
     "action_open_settings": "설정 열기",
-    "action_add_ai_cards": "AI로 카드 추가",
-    "action_write_instruction": "지시 작성",
+    "action_add_ai_cards": "AI로 단계 추가",
+    "action_write_instruction": "할 일 적기",
     "action_start_verify": "검증 시작"
   },
   "workmap": {
-    "new_card_title": "새 카드 {{index}}",
-    "add_card": "카드 추가",
-    "new_card_dialog_title": "카드 직접 추가",
-    "new_card_dialog_description": "{{index}}번째 작업 카드를 초심자가 이해할 수 있게 직접 작성합니다.",
+    "new_card_title": "새 단계 {{index}}",
+    "add_card": "단계 추가",
+    "new_card_dialog_title": "단계 직접 추가",
+    "new_card_dialog_description": "{{index}}번째 로드맵 단계를 초심자가 이해할 수 있게 작성합니다.",
     "new_card_learning_hint": "요약과 완료 기준을 적어 두면 나중에 검증 근거를 확인하기 쉽습니다.",
-    "new_card_title_label": "카드 제목",
-    "new_card_summary_label": "AI 분해 요약 (선택)",
+    "new_card_title_label": "단계 제목",
+    "new_card_summary_label": "AI 계획 요약 (선택)",
     "new_card_acceptance_label": "완료 기준 (선택)",
-    "new_card_instruction_label": "처음 지시문 (선택)",
-    "new_card_create": "카드 만들기",
+    "new_card_instruction_label": "처음 할 일 (선택)",
+    "new_card_create": "단계 만들기",
     "new_card_creating": "만드는 중...",
-    "new_card_title_required": "카드 제목을 입력하세요.",
-    "minimap_label": "전체 단계 미니맵",
-    "minimap_empty": "아직 카드 없음"
+    "new_card_title_required": "단계 제목을 입력하세요.",
+    "minimap_label": "전체 로드맵 미니맵",
+    "minimap_empty": "아직 단계 없음"
   },
   "onboarding": {
     "title": "DIVE 시작하기",
@@ -120,20 +120,20 @@
   },
   "chat": {
     "empty_no_project_title": "프로젝트를 만들고 세션을 시작하세요",
-    "empty_no_project_description": "DIVE는 프로젝트별로 카드와 대화를 디스크 DB에 저장합니다.",
+    "empty_no_project_description": "DIVE는 프로젝트별로 로드맵 단계와 대화를 로컬 DB에 저장합니다.",
     "empty_no_session_title": "세션을 선택하거나 생성하세요",
-    "empty_no_session_description": "세션이 선택되기 전에는 카드와 채팅을 만들지 않습니다.",
+    "empty_no_session_description": "세션이 선택되기 전에는 로드맵과 채팅을 만들지 않습니다.",
     "provider_setup_title": "API 키를 설정하세요"
   },
   "card": {
-    "state_decomposed": "분해됨",
-    "state_instructed": "지시됨",
+    "state_decomposed": "계획됨",
+    "state_instructed": "실행 준비",
     "state_verifying": "검증 중",
     "state_verified": "검증됨",
     "state_rejected": "거부됨",
-    "state_extended": "확장됨",
-    "checkpoint_verify_pass": "[V 통과]",
-    "checkpoint_extend": "[E 진입]"
+    "state_extended": "완료",
+    "checkpoint_verify_pass": "[검증 통과]",
+    "checkpoint_extend": "[완료]"
   },
   "checkpoint": {
     "manual_saved": "체크포인트 저장됨",
@@ -146,12 +146,12 @@
     "shortcut_prompt_helper": "Ctrl+/ — 프롬프트 도우미",
     "shortcut_settings": "Ctrl+, — 설정",
     "shortcut_slide_panel": "Ctrl+E — 슬라이드 패널",
-    "shortcut_workmap": "Ctrl+W — 워크맵 토글"
+    "shortcut_workmap": "Ctrl+W — 로드맵 토글"
   },
   "a11y": {
     "region_sidebar": "사이드바 영역",
     "region_chat": "채팅 영역",
-    "region_workmap": "워크맵 영역",
+    "region_workmap": "로드맵 영역",
     "region_slide_panel": "슬라이드 인 패널",
     "live_toast": "알림",
     "live_stage_change": "단계 변경 알림"
@@ -160,14 +160,14 @@
     "checkpoint_saved": "체크포인트 저장됨",
     "checkpoint_save_failed": "체크포인트 저장 실패",
     "project_open_failed": "프로젝트 열기 실패",
-    "workmap_save_failed": "워크맵 저장 실패",
+    "workmap_save_failed": "로드맵 저장 실패",
     "tutorial_on": "튜토리얼 모드를 켰습니다",
     "tutorial_off": "튜토리얼 모드를 껐습니다",
     "tutorial_description": "Settings > 일반에서 언제든 바꿀 수 있습니다.",
     "docs_open_failed": "문서를 열 수 없습니다",
     "issue_open_failed": "이슈 페이지를 열 수 없습니다",
     "about_title": "DIVE v1.0.0-rc.2",
-    "about_description": "AI 코딩 작업을 카드와 세션으로 관리하는 데스크톱 앱입니다.",
+    "about_description": "초심자가 로컬 AI 코딩 에이전트를 계획, 실행, 검증, 되돌리기 흐름으로 조종하는 데스크톱 앱입니다.",
     "retry_unavailable": "다시 시도할 메시지가 없습니다",
     "retry_unavailable_description": "마지막 사용자 메시지를 찾을 수 없어 자동 재시도를 실행하지 않았습니다."
   },
@@ -184,7 +184,7 @@
     },
     "network": {
       "title": "네트워크 오류",
-      "body": "네트워크 연결이나 학교/회사 방화벽을 확인하세요. 원문: {{message}}",
+      "body": "네트워크 연결이나 조직 방화벽을 확인하세요. 원문: {{message}}",
       "hints": "인터넷 연결을 확인하세요.|프록시/VPN 환경이면 관리자에게 API 도메인 허용을 요청하세요."
     },
     "tool_blocked": {
@@ -195,7 +195,7 @@
     "verify_fail": {
       "title": "검증 실패",
       "body": "검증 결과를 확인하고 지시나 테스트 명령을 수정하세요. 원문: {{message}}",
-      "hints": "stdout/stderr를 먼저 읽으세요.|필요하면 카드를 거부하고 지시를 더 구체화하세요."
+      "hints": "stdout/stderr를 먼저 읽으세요.|필요하면 단계를 되돌리고 할 일을 더 구체화하세요."
     },
     "unknown": {
       "title": "오류",
@@ -205,7 +205,7 @@
   },
   "retro": {
     "title": "사이클 회고",
-    "description": "“{{title}}” 카드를 마치며 방금 만든 내용을 자기 말로 정리해 보세요.",
+    "description": "“{{title}}” 단계를 마치며 방금 만든 내용을 자기 말로 정리해 보세요.",
     "learning_hint": "짧게 적어도 됩니다. 나중에 내가 무엇을 만들었는지 설명하는 근거가 됩니다.",
     "intent_label": "무엇을 의도했나요?",
     "help_label": "AI가 어떻게 도왔나요?",

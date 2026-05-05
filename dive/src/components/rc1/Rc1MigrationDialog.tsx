@@ -29,7 +29,7 @@ export function Rc1MigrationDialog({ open, result, onAcknowledge }: Props) {
         <DialogHeader>
           <DialogTitle>DIVE v1.0.0-rc.1은 데모 빌드였습니다</DialogTitle>
           <DialogDescription>
-            실제 데이터 저장 기능 없이 화면만 구동되는 상태였기에, 이전 세션·프로젝트·카드 데이터는
+            실제 데이터 저장 기능 없이 화면만 구동되는 상태였기에, 이전 세션·프로젝트·단계 데이터는
             복구할 수 없습니다.
           </DialogDescription>
         </DialogHeader>
@@ -46,7 +46,7 @@ export function Rc1MigrationDialog({ open, result, onAcknowledge }: Props) {
               <p data-testid="rc1-preserved-keys">보존: {result.preservedKeys.join(", ")}</p>
             ) : null}
           </div>
-          <p className="text-xs text-fg-muted">불편을 끼쳐 죄송합니다. — DIVE 연구진</p>
+          <p className="text-xs text-fg-muted">불편을 끼쳐 죄송합니다. — DIVE 팀</p>
         </div>
 
         <DialogFooter>

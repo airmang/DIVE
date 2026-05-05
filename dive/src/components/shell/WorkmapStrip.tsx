@@ -57,7 +57,7 @@ export function WorkmapStrip({
     <section
       data-testid="workmap-strip"
       data-collapsed={collapsed ? "true" : "false"}
-      aria-label="워크맵"
+      aria-label="로드맵"
       className={cn(
         "flex flex-col overflow-hidden border-t bg-bg-panel",
         "transition-[height] duration-200 ease-out motion-reduce:transition-none",
@@ -67,7 +67,7 @@ export function WorkmapStrip({
     >
       <header className="flex h-10 shrink-0 items-center gap-3 px-4">
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-bold text-fg">워크맵</h2>
+          <h2 className="text-sm font-bold text-fg">로드맵</h2>
           <span className="text-xs text-fg-muted" data-testid="workmap-progress-label">
             {completed}/{total} · {progressPercent}%
           </span>
@@ -79,7 +79,7 @@ export function WorkmapStrip({
           aria-valuenow={progressPercent}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-label="워크맵 진행률"
+          aria-label="로드맵 진행률"
         >
           <div
             className="h-full rounded-full bg-accent transition-[width] duration-200 ease-out"
@@ -93,16 +93,16 @@ export function WorkmapStrip({
             size="sm"
             onClick={handleHeaderAdd}
             disabled={!canAddCard}
-            aria-label={canAddCard ? "카드 추가" : "카드 추가 (D 단계에서만 가능)"}
+            aria-label={canAddCard ? "단계 추가" : "단계 추가"}
           >
             <Plus />
-            카드 추가
+            단계 추가
           </Button>
           <Button
             variant="ghost"
             size="icon"
             onClick={onToggle}
-            aria-label={collapsed ? "워크맵 펼치기" : "워크맵 접기"}
+            aria-label={collapsed ? "로드맵 펼치기" : "로드맵 접기"}
             aria-expanded={!collapsed}
             aria-controls="workmap-body"
             data-testid="workmap-toggle"
@@ -122,7 +122,7 @@ export function WorkmapStrip({
           aria-label={t("workmap.minimap_label")}
         >
           <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fg-muted">
-            DIVE
+            Roadmap
           </span>
           <div
             className="grid flex-1 gap-1"
@@ -172,7 +172,7 @@ export function WorkmapStrip({
         {cards.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3">
             <p className="text-sm text-fg-muted">
-              아직 카드가 없습니다. D 단계에서 작업을 분해해 카드를 만드세요.
+              아직 단계가 없습니다. 목표를 작은 로드맵 단계로 나눠 보세요.
             </p>
             {onRequestAiAssist ? (
               <Button

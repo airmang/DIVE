@@ -10,8 +10,8 @@ export interface PromptTemplate {
 export const PROMPT_TEMPLATES: PromptTemplate[] = [
   {
     id: "d-decompose",
-    title: "기능을 작게 분해",
-    body: "[기능]을 만들고 싶어. 작은 단위(카드 3~5개)로 분해해줘.",
+    title: "목표를 단계로 나누기",
+    body: "[기능]을 만들고 싶어. 초심자가 따라갈 수 있는 로드맵 단계 3~5개로 나눠줘.",
     stages: ["D"],
   },
   {
@@ -22,8 +22,8 @@ export const PROMPT_TEMPLATES: PromptTemplate[] = [
   },
   {
     id: "i-focus-card",
-    title: "현재 카드만 작업",
-    body: "[현재 카드]만 작업해줘. 다른 부분은 건드리지 마.",
+    title: "현재 단계만 작업",
+    body: "[현재 단계]만 작업해줘. 다른 부분은 건드리지 마.",
     stages: ["I"],
   },
   {
@@ -35,7 +35,7 @@ export const PROMPT_TEMPLATES: PromptTemplate[] = [
   {
     id: "v-verify-how",
     title: "검증 방법 물어보기",
-    body: "이 카드의 동작을 어떻게 검증할 수 있어? 테스트 케이스 3개로 알려줘.",
+    body: "이 단계의 동작을 어떻게 검증할 수 있어? 테스트 케이스 3개로 알려줘.",
     stages: ["V"],
   },
   {
