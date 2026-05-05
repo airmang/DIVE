@@ -9,6 +9,7 @@ import {
 } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
+import { LearningHint } from "../ui/learning-hint";
 import type { DiveStage } from "../../lib/ambiguity";
 
 type TauriApi = {
@@ -103,7 +104,10 @@ export function PromptCheckDialog({
         <DialogHeader>
           <DialogTitle>보내기 전 점검</DialogTitle>
           <DialogDescription>
-            AI가 프롬프트 자체를 비평합니다. 모델 호출 1회가 소비됩니다.
+            AI가 프롬프트의 모호함을 점검합니다.
+            <LearningHint inline className="ml-1">
+              모델 호출 1회가 소비됩니다.
+            </LearningHint>
           </DialogDescription>
         </DialogHeader>
 

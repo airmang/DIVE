@@ -15,32 +15,34 @@ import PolishDemoPage from "../../pages/polish-demo";
 import McpDemoPage from "../../pages/mcp-demo";
 import Phase5IntegrationPage from "../../pages/phase5-integration";
 import { setProjectSessionDemoFallback } from "../../stores/project-session";
-import type { DemoRoute } from "../../lib/demo-routes";
+import { resolveDemoRouteValue } from "../../lib/demo-routes";
 
 interface DemoShellProps {
-  route: DemoRoute;
+  route: string;
 }
 
 export function DemoShell({ route }: DemoShellProps) {
+  const demoRoute = resolveDemoRouteValue(route) ?? "showcase";
+
   useEffect(() => {
     setProjectSessionDemoFallback(true);
     return () => setProjectSessionDemoFallback(false);
   }, []);
 
-  if (route === "workmap-demo") return <WorkmapDemoPage />;
-  if (route === "chat-demo") return <ChatDemoPage />;
-  if (route === "permission-demo") return <PermissionDemoPage />;
-  if (route === "slide-in-demo") return <SlideInDemoPage />;
-  if (route === "scenario-a-demo") return <ScenarioADemoPage />;
-  if (route === "scenario-b-demo") return <ScenarioBDemoPage />;
-  if (route === "tool-guard-demo") return <ToolGuardDemoPage />;
-  if (route === "provisioning-demo") return <ProvisioningDemoPage />;
-  if (route === "timeline-demo") return <TimelineDemoPage />;
-  if (route === "toast-demo") return <ToastDemoPage />;
-  if (route === "polish-demo") return <PolishDemoPage />;
-  if (route === "export-demo") return <ExportDemoPage />;
-  if (route === "phase5-integration") return <Phase5IntegrationPage />;
-  if (route === "mcp-demo") return <McpDemoPage />;
+  if (demoRoute === "workmap-demo") return <WorkmapDemoPage />;
+  if (demoRoute === "chat-demo") return <ChatDemoPage />;
+  if (demoRoute === "permission-demo") return <PermissionDemoPage />;
+  if (demoRoute === "slide-in-demo") return <SlideInDemoPage />;
+  if (demoRoute === "scenario-a-demo") return <ScenarioADemoPage />;
+  if (demoRoute === "scenario-b-demo") return <ScenarioBDemoPage />;
+  if (demoRoute === "tool-guard-demo") return <ToolGuardDemoPage />;
+  if (demoRoute === "provisioning-demo") return <ProvisioningDemoPage />;
+  if (demoRoute === "timeline-demo") return <TimelineDemoPage />;
+  if (demoRoute === "toast-demo") return <ToastDemoPage />;
+  if (demoRoute === "polish-demo") return <PolishDemoPage />;
+  if (demoRoute === "export-demo") return <ExportDemoPage />;
+  if (demoRoute === "phase5-integration") return <Phase5IntegrationPage />;
+  if (demoRoute === "mcp-demo") return <McpDemoPage />;
   return <ShowcasePage />;
 }
 

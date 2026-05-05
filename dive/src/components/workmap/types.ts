@@ -25,6 +25,10 @@ export interface CardTileData {
   id: number;
   title: string;
   summary: string | null;
+  assistSummary?: string | null;
+  acceptanceCriteria?: string | null;
+  retrospective?: string | null;
+  changeSummary?: string | null;
   testCommand?: string | null;
   state: CardState;
   stagesCompleted: CardDiveStages;

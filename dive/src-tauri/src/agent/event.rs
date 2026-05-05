@@ -26,6 +26,12 @@ pub enum AgentEvent {
         id: String,
         content: String,
     },
+    Reasoning {
+        id: String,
+        text: String,
+        tool_call_id: String,
+        created_at: i64,
+    },
     ToolCallStart {
         id: String,
         tool: String,

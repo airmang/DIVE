@@ -37,10 +37,7 @@
     "provider_connected": "Connected",
     "theme_to_light": "Switch to light mode",
     "theme_to_dark": "Switch to dark mode",
-    "open_settings": "Open settings",
-    "language": "Language",
-    "lang_ko": "한국어",
-    "lang_en": "English"
+    "open_settings": "Open settings"
   },
   "stage": {
     "d": "Stage D",
@@ -56,9 +53,77 @@
     "banner_rejected": "Card rejected — edit the instruction and try again.",
     "banner_verified": "Verified — inspect the code or move to the next card.",
     "banner_extended": "Extension complete (E)",
+    "gate_no_session": "Select or create a session first.",
+    "gate_no_provider": "No provider is connected, so chat and verification cannot start.",
     "gate_no_cards": "Add a card to the workmap first. (Stage D gate)",
     "gate_no_instruction": "Please write an instruction for this card. (Stage I gate)",
-    "gate_not_verifying": "Not in verification stage. (Stage V gate)"
+    "gate_not_verifying": "Not in verification stage. (Stage V gate)",
+    "action_open_settings": "Open settings",
+    "action_add_ai_cards": "Add cards with AI",
+    "action_write_instruction": "Write instruction",
+    "action_start_verify": "Start verification"
+  },
+  "workmap": {
+    "new_card_title": "New card {{index}}",
+    "add_card": "Add card",
+    "new_card_dialog_title": "Add card manually",
+    "new_card_dialog_description": "Write the {{index}}th work card in a beginner-readable form.",
+    "new_card_learning_hint": "Summary and acceptance criteria make later verification easier to understand.",
+    "new_card_title_label": "Card title",
+    "new_card_summary_label": "AI decomposition summary (optional)",
+    "new_card_acceptance_label": "Acceptance criteria (optional)",
+    "new_card_instruction_label": "Initial instruction (optional)",
+    "new_card_create": "Create card",
+    "new_card_creating": "Creating...",
+    "new_card_title_required": "Enter a card title.",
+    "minimap_label": "Overall stage minimap",
+    "minimap_empty": "No cards yet"
+  },
+  "onboarding": {
+    "title": "Start DIVE",
+    "description": "Choose an AI provider and enter an API key.",
+    "provider_label": "Provider",
+    "api_key_label": "API key",
+    "connect": "Connect",
+    "connecting": "Connecting…",
+    "skip": "Set up later",
+    "api_key_required": "Enter an API key.",
+    "key_link": "Get an API key",
+    "opencode_warning": "Beta service · some free models may use data for training",
+    "details": "Details",
+    "provider_anthropic_hint": "Claude models",
+    "provider_openai_hint": "GPT models",
+    "provider_openrouter_hint": "Many providers in one place",
+    "provider_opencode_zen_hint": "Free beta",
+    "error_unauthorized": "The key is invalid or lacks permission. ({{message}})",
+    "error_timeout": "The network request timed out. ({{message}})",
+    "error_network": "Could not connect because of a network problem. ({{message}})"
+  },
+  "new_project": {
+    "title": "New project",
+    "description": "Choose the folder to work in. DIVE will create `.dive/` inside it.",
+    "folder_label": "Project folder",
+    "name_label": "Name (optional)",
+    "browse": "Browse",
+    "browse_aria": "Browse for folder",
+    "browse_placeholder": "Use Browse to choose",
+    "manual_placeholder": "/Users/you/Projects/my-app",
+    "browse_unavailable": "The folder picker is available in the desktop app.",
+    "name_placeholder": "Project name",
+    "create": "Create project",
+    "creating": "Creating…",
+    "path_required": "Choose a project folder.",
+    "pick_title": "Choose project folder"
+  },
+  "project": {
+    "open_pick_title": "Choose project folder to open"
+  },
+  "chat": {
+    "empty_no_project_title": "Create a project and start a session",
+    "empty_no_project_description": "DIVE stores cards and conversations per project in the local database.",
+    "empty_no_session_title": "Select or create a session",
+    "empty_no_session_description": "Cards and chat are disabled until a session is selected.",
+    "provider_setup_title": "Set up an API key"
   },
   "card": {
     "state_decomposed": "Decomposed",
@@ -92,6 +157,61 @@
     "live_stage_change": "Stage change notification"
   },
   "toast": {
-    "checkpoint_saved": "Checkpoint saved"
+    "checkpoint_saved": "Checkpoint saved",
+    "checkpoint_save_failed": "Could not save checkpoint",
+    "project_open_failed": "Could not open project",
+    "workmap_save_failed": "Could not save workmap",
+    "tutorial_on": "Tutorial mode is on",
+    "tutorial_off": "Tutorial mode is off",
+    "tutorial_description": "You can change this anytime in Settings > General.",
+    "docs_open_failed": "Could not open docs",
+    "issue_open_failed": "Could not open issue page",
+    "about_title": "DIVE v1.0.0-rc.2",
+    "about_description": "Desktop app for managing AI coding work with cards and sessions.",
+    "retry_unavailable": "No message to retry",
+    "retry_unavailable_description": "DIVE could not find the last user message to resend."
+  },
+  "error": {
+    "auth": {
+      "title": "Authentication error",
+      "body": "Check your API key or login permission. Raw: {{message}}",
+      "hints": "Verify the key is correct.|Reconnect the provider in Settings."
+    },
+    "rate_limit": {
+      "title": "Rate limit reached",
+      "body": "The provider rate limit was reached. Raw: {{message}}",
+      "hints": "Wait and retry.|Split the task into smaller steps if needed."
+    },
+    "network": {
+      "title": "Network error",
+      "body": "Check your network connection or firewall. Raw: {{message}}",
+      "hints": "Confirm internet access.|If behind a proxy/VPN, ask an admin to allow the API domains."
+    },
+    "tool_blocked": {
+      "title": "Blocked by safety policy",
+      "body": "DIVE blocked a risky or out-of-project operation. Raw: {{message}}",
+      "hints": "Make sure the command stays inside the project folder.|Break risky commands into safer smaller steps."
+    },
+    "verify_fail": {
+      "title": "Verification failed",
+      "body": "Review the verification output and adjust the instruction or test command. Raw: {{message}}",
+      "hints": "Read stdout/stderr first.|Reject the card and make the instruction more specific if needed."
+    },
+    "unknown": {
+      "title": "Error",
+      "body": "{{message}}",
+      "hints": "Read the raw message and retry."
+    }
+  },
+  "retro": {
+    "title": "Cycle retrospective",
+    "description": "Summarize the “{{title}}” card in your own words.",
+    "learning_hint": "Short answers are fine. This becomes evidence that you can explain what you built.",
+    "intent_label": "What did you intend to do?",
+    "help_label": "How did AI help?",
+    "next_label": "What would you do differently next time?",
+    "skip": "Skip",
+    "save": "Save retrospective",
+    "saving": "Saving..."
   }
 }

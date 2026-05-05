@@ -23,6 +23,24 @@
 
 ---
 
+## 제품화 v4 업데이트
+
+v1.0.0-rc.2 이후 제품화 v4는 데모/개발 surface를 사용자 제품 흐름에서 분리하고, Windows 데스크톱 앱에 필요한 기본 진입점을 보강합니다.
+
+- **Settings > General 단일 설정 허브** — 언어, 테마, 튜토리얼 모드, 연결된 프로바이더 모델 선택을 한 곳에서 조정
+- **네이티브 메뉴바** — File/New/Open/Open Recent, View/Settings/Theme, Help/Tutorial 진입점 제공
+- **프로젝트 폴더 선택기** — Tauri v2 dialog 기반 폴더 선택을 기본으로 하고 수동 입력 fallback 유지
+- **튜토리얼 모드** — 기본 제품 UI는 간결하게 유지하고, 입문자 설명은 명시적으로 켰을 때만 표시
+- **개발 전용 demo route** — `?demo=` 페이지는 개발 모드에서만 로드되며 production bundle에서는 제외
+
+### v4 스크린샷 갱신 체크리스트
+
+릴리스 노트/배포 페이지에 스크린샷을 갱신할 때는 다음 화면을 기준으로 캡처합니다. 기존 와이어프레임 이미지는 계속 `images/`에 보존합니다.
+
+- Settings > General: 언어, 테마, 튜토리얼 모드, provider model selector
+- Native menu: File > New/Open/Open Recent, View > Settings/Theme, Help > Tutorial
+- Project creation/onboarding: 폴더 선택 dialog 진입점
+
 ## 설치 (Windows)
 
 **Windows 10 22H2 이상** 또는 **Windows 11** 필요.
@@ -48,7 +66,7 @@
 
 ### 3. 첫 실행
 
-- OS 언어가 한국어면 한국어 UI, 아니면 영어로 시작 (사이드바 하단 토글로 전환 가능)
+- OS 언어가 한국어면 한국어 UI, 아니면 영어로 시작 (Settings > General에서 전환 가능)
 - 온보딩 다이얼로그 → 프로젝트 폴더 선택 → AI 프로바이더 연결(ChatGPT·Claude·OpenAI·OpenRouter 중 하나)
 
 **처음 쓰나요?** → **[30분 튜토리얼 (시나리오 A)](./docs/user-guide/tutorial.md)** 로 4단계 완주.
@@ -96,8 +114,8 @@ pnpm tauri:build:x64  # Windows x64 NSIS
 ### 검증 체크
 
 ```bash
-cd dive/src-tauri && cargo test --all-targets           # Rust (238+ tests)
-cd dive/src-tauri && cargo clippy --all-targets -- -D warnings
+cd dive/src-tauri && cargo test --features dev-mock --all-targets # Rust tests
+cd dive/src-tauri && cargo clippy --features dev-mock --all-targets -- -D warnings
 cd dive && pnpm typecheck && pnpm lint && pnpm build
 cd dive && pnpm dev                                      # 한 터미널
 node dive/scripts/verify-i18n.mjs                        # 다른 터미널 (여러 스위트)
@@ -114,7 +132,7 @@ node dive/scripts/verify-i18n.mjs                        # 다른 터미널 (여
 - **개인정보 보호** — 기본 로컬 우선, 프로젝트 폴더 외부 접근 차단, 텔레메트리 없음 (§9.4)
 
 전체 명세: [`DIVE_SPEC.md`](./DIVE_SPEC.md) (1600+ 라인)
-의사결정 기록: [`DIVE_DECISIONS.md`](./DIVE_DECISIONS.md) (58 ADR)
+의사결정 기록: [`DIVE_DECISIONS.md`](./DIVE_DECISIONS.md) (66 ADR, 최신 ADR-076)
 
 ---
 
@@ -142,7 +160,7 @@ node dive/scripts/verify-i18n.mjs                        # 다른 터미널 (여
 | 2026-05      | **v1.0-rc.2** | **Production wiring · disk DB · cards persistence · release gate** 🟡 |
 | 2026-11 ~ 12 | **v1.0**      | **파일럿 검증 후 정식 배포**                                          |
 
-Phase별 상세는 [`DIVE_PROGRESS.md`](./DIVE_PROGRESS.md) 참조.
+Phase별 상세는 [`DIVE_PROGRESS.md`](./docs/internal/DIVE_PROGRESS.md) 참조.
 
 ---
 
@@ -160,4 +178,4 @@ Phase별 상세는 [`DIVE_PROGRESS.md`](./DIVE_PROGRESS.md) 참조.
 - 보안 취약점 제보: 별도 이슈 대신 연구진에게 직접 연락
 - 파일럿 참여 문의: 광교고 고규현 (총괄)
 
-프로젝트 내부 운영(ralph 자동 구현 루프)은 [`RALPH_README.md`](./RALPH_README.md) 참조.
+프로젝트 내부 운영(ralph 자동 구현 루프)은 [`RALPH_README.md`](./docs/internal/RALPH_README.md) 참조.

@@ -6,6 +6,7 @@ import { ToolCallMessage } from "./ToolCallMessage";
 import { ToolResultMessage } from "./ToolResultMessage";
 import { SystemMessage } from "./SystemMessage";
 import { ErrorMessage } from "./ErrorMessage";
+import { ReasoningCard } from "./ReasoningCard";
 
 interface Props {
   messages: ChatMessage[];
@@ -79,6 +80,8 @@ function MessageListImpl({
               );
             case "assistant":
               return <AssistantMessage key={msg.id} message={msg} />;
+            case "reasoning":
+              return <ReasoningCard key={msg.id} message={msg} />;
             case "tool_call":
               return (
                 <ToolCallMessage

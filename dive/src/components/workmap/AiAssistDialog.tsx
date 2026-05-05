@@ -9,12 +9,16 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Button } from "../ui/button";
+import { LearningHint } from "../ui/learning-hint";
 import type { CardState, CardTileData } from "./types";
 
 interface Draft {
   id: number;
   title: string;
   summary: string;
+  rationale?: string | null;
+  priority?: "must" | "should" | "nice" | string | null;
+  estimated_steps?: number | null;
 }
 
 function mockSuggestionsFor(_input: string): Draft[] {
@@ -23,21 +27,33 @@ function mockSuggestionsFor(_input: string): Draft[] {
       id: 1,
       title: "할 일 입력 폼",
       summary: "입력란과 추가 버튼 + 키보드 Enter 제출",
+      rationale: "사용자가 새 항목을 만들 수 있어야 목록 기능을 시작할 수 있습니다.",
+      priority: "must",
+      estimated_steps: 2,
     },
     {
       id: 2,
       title: "할 일 목록 렌더",
       summary: "배열 상태 + 빈 상태 UI",
+      rationale: "입력된 항목을 화면에 보여줘야 앱의 핵심 결과를 확인할 수 있습니다.",
+      priority: "must",
+      estimated_steps: 2,
     },
     {
       id: 3,
       title: "체크/삭제 인터랙션",
       summary: "각 항목에 완료 토글 + 삭제 버튼",
+      rationale: "목록 항목을 관리하는 기본 상호작용을 완성합니다.",
+      priority: "should",
+      estimated_steps: 3,
     },
     {
       id: 4,
       title: "localStorage 영속화",
       summary: "페이지 새로고침 후에도 유지",
+      rationale: "새로고침 후에도 결과가 남아야 완성도를 체감할 수 있습니다.",
+      priority: "nice",
+      estimated_steps: 2,
     },
   ];
 }
@@ -45,6 +61,9 @@ function mockSuggestionsFor(_input: string): Draft[] {
 interface BackendCard {
   title: string;
   summary: string;
+  rationale?: string | null;
+  priority?: string | null;
+  estimated_steps?: number | null;
 }
 
 async function fetchAssistCardsViaIpc(description: string): Promise<Draft[] | null> {
@@ -61,6 +80,9 @@ async function fetchAssistCardsViaIpc(description: string): Promise<Draft[] | nu
     id: idx + 1,
     title: c.title,
     summary: c.summary,
+    rationale: c.rationale ?? null,
+    priority: c.priority ?? null,
+    estimated_steps: c.estimated_steps ?? null,
   }));
 }
 
@@ -141,10 +163,21 @@ export function AiAssistDialog({
       id: Date.now() + idx,
       title: d.title,
       summary: d.summary,
+      assistSummary: d.summary,
+      acceptanceCriteria: buildAcceptanceCriteria(d),
       state: "decomposed" satisfies CardState,
       stagesCompleted: { d: true, i: false, v: false, e: false },
       position: positionStart + idx,
     }));
+
+  function buildAcceptanceCriteria(d: Draft): string | null {
+    const lines = [
+      d.rationale ? `분해 이유: ${d.rationale}` : null,
+      d.priority ? `우선순위: ${d.priority}` : null,
+      d.estimated_steps ? `예상 단계: ${d.estimated_steps}` : null,
+    ].filter(Boolean);
+    return lines.length > 0 ? lines.join("\n") : null;
+  }
 
   const acceptSelected = async () => {
     if (!drafts) return;
@@ -189,7 +222,10 @@ export function AiAssistDialog({
         <DialogHeader>
           <DialogTitle>AI 도움 받기</DialogTitle>
           <DialogDescription>
-            만들고 싶은 기능을 한 문장으로 설명하면 AI가 작업 카드를 제안합니다.
+            만들고 싶은 기능을 한 문장으로 적으세요.
+            <LearningHint inline className="ml-1">
+              AI가 작업 카드를 제안합니다.
+            </LearningHint>
           </DialogDescription>
         </DialogHeader>
 
@@ -253,6 +289,17 @@ export function AiAssistDialog({
                         <div className="flex-1">
                           <p className="text-sm font-medium text-fg">{d.title}</p>
                           <p className="mt-0.5 text-xs text-fg-muted">{d.summary}</p>
+                          {d.rationale || d.priority || d.estimated_steps ? (
+                            <p className="mt-1 text-[11px] text-fg-muted">
+                              {[
+                                d.priority ? `우선순위 ${d.priority}` : null,
+                                d.estimated_steps ? `예상 ${d.estimated_steps}단계` : null,
+                                d.rationale ?? null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </p>
+                          ) : null}
                         </div>
                       </label>
                     </li>

@@ -35,6 +35,8 @@ jobs:
 
       - run: pnpm format:check
 
+      - run: pnpm verify:v4
+
   rust-check:
     name: rust (fmt + check)
     runs-on: ubuntu-latest
@@ -69,7 +71,11 @@ jobs:
 
       - run: cargo fmt --all -- --check
 
-      - run: cargo check --all-targets
+      - run: cargo clippy --features dev-mock --all-targets -- -D warnings
+
+      - run: cargo test --features dev-mock --all-targets
+
+      - run: cargo check --release
 
   build-windows:
     name: build ${{ matrix.label }}

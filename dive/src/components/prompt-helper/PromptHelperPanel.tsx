@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
+import { LearningHint } from "../ui/learning-hint";
 import type { DiveStage } from "../../lib/ambiguity";
 import { templatesForStage, PROMPT_TEMPLATES } from "../../lib/prompt-templates";
 
@@ -46,10 +47,11 @@ export function PromptHelperPanel({ open, stage, onClose, onInsert }: Props) {
           <X />
         </Button>
       </header>
-      <p className="text-[11px] text-fg-muted">
+      <p className="text-[11px] text-fg-muted">현재 단계용 템플릿</p>
+      <LearningHint>
         현재 단계에 맞는 템플릿을 눌러 입력란에 삽입하세요. 대괄호 부분을 본인 작업으로 교체하면
         됩니다.
-      </p>
+      </LearningHint>
       <div className="flex flex-col gap-2" data-testid="prompt-helper-templates">
         {list.map((t) => (
           <button
@@ -65,9 +67,9 @@ export function PromptHelperPanel({ open, stage, onClose, onInsert }: Props) {
           </button>
         ))}
         {fallback ? (
-          <div className="text-[10px] text-fg-muted" data-testid="prompt-helper-fallback">
+          <LearningHint className="text-[10px]">
             이 단계용 템플릿이 아직 없어 전체 라이브러리를 대신 표시합니다.
-          </div>
+          </LearningHint>
         ) : null}
       </div>
     </aside>

@@ -10,6 +10,8 @@ import {
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { useProjectSessionStore } from "../../stores/project-session";
+import { useT } from "../../i18n";
+import { classifyError } from "../../lib/error-classify";
 
 interface Props {
   open: boolean;
@@ -17,29 +19,31 @@ interface Props {
   onConnected?: () => void;
 }
 
-const PROVIDER_CHOICES: Array<{ kind: string; label: string; hint: string }> = [
-  { kind: "anthropic", label: "Anthropic", hint: "claude-sonnet-4.5 등" },
-  { kind: "openai", label: "OpenAI", hint: "gpt-4o, o1 등" },
-  { kind: "openrouter", label: "OpenRouter", hint: "여러 모델 통합" },
-  { kind: "opencode_zen", label: "opencode zen", hint: "무료 베타 모델" },
+const PROVIDER_LINKS: Record<string, string> = {
+  anthropic: "https://console.anthropic.com/settings/keys",
+  openai: "https://platform.openai.com/api-keys",
+  openrouter: "https://openrouter.ai/keys",
+  opencode_zen: "https://opencode.ai/docs/zen/",
+};
+
+const PROVIDER_CHOICES: Array<{ kind: string; label: string; hintKey: string }> = [
+  { kind: "anthropic", label: "Anthropic", hintKey: "onboarding.provider_anthropic_hint" },
+  { kind: "openai", label: "OpenAI", hintKey: "onboarding.provider_openai_hint" },
+  { kind: "openrouter", label: "OpenRouter", hintKey: "onboarding.provider_openrouter_hint" },
+  {
+    kind: "opencode_zen",
+    label: "opencode zen",
+    hintKey: "onboarding.provider_opencode_zen_hint",
+  },
 ];
 
-function onboardingErrorMessage(err: unknown) {
-  const message = err instanceof Error ? err.message : String(err);
-  const lower = message.toLowerCase();
-  if (lower.includes("401") || lower.includes("unauthorized") || lower.includes("auth")) {
-    return `키가 잘못되었거나 권한이 없습니다. (${message})`;
-  }
-  if (lower.includes("timeout") || lower.includes("timed out")) {
-    return `네트워크 시간이 초과되었습니다. (${message})`;
-  }
-  if (lower.includes("network") || lower.includes("fetch")) {
-    return `네트워크 문제로 연결하지 못했습니다. (${message})`;
-  }
-  return message;
+function onboardingErrorMessage(err: unknown, t: ReturnType<typeof useT>) {
+  const classified = classifyError(err);
+  return t(classified.bodyKey, { message: classified.rawMessage });
 }
 
 export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
+  const t = useT();
   const connectProvider = useProjectSessionStore((s) => s.connectProvider);
   const [kind, setKind] = useState("anthropic");
   const [apiKey, setApiKey] = useState("");
@@ -48,7 +52,7 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
 
   const handleConnect = async () => {
     if (!apiKey.trim()) {
-      setError("API 키를 입력하세요.");
+      setError(t("onboarding.api_key_required"));
       return;
     }
     setSubmitting(true);
@@ -58,7 +62,7 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
       onOpenChange(false);
       onConnected?.();
     } catch (err) {
-      setError(onboardingErrorMessage(err));
+      setError(onboardingErrorMessage(err, t));
     } finally {
       setSubmitting(false);
     }
@@ -72,15 +76,13 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent data-testid="onboarding-dialog" className="max-w-md">
         <DialogHeader>
-          <DialogTitle>DIVE 시작하기</DialogTitle>
-          <DialogDescription>
-            학생이라면 선생님에게 받은 키를, 교사라면 직접 발급한 키를 입력하세요.
-          </DialogDescription>
+          <DialogTitle>{t("onboarding.title")}</DialogTitle>
+          <DialogDescription>{t("onboarding.description")}</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-fg-muted" htmlFor="onb-kind">
-              프로바이더
+              {t("onboarding.provider_label")}
             </label>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-testid="onb-provider-list">
               {PROVIDER_CHOICES.map((p) => (
@@ -97,20 +99,29 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
                   }
                 >
                   <div className="text-sm font-medium text-fg">{p.label}</div>
-                  <div className="text-[10px] text-fg-muted">{p.hint}</div>
+                  <div className="text-[10px] text-fg-muted">{t(p.hintKey)}</div>
                 </button>
               ))}
             </div>
+            <a
+              href={PROVIDER_LINKS[kind]}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[10px] text-accent underline underline-offset-2"
+              data-testid="onb-key-link"
+            >
+              {t("onboarding.key_link")}
+            </a>
             {kind === "opencode_zen" ? (
               <p className="text-[10px] text-warn" data-testid="onb-opencode-warning">
-                ⚠️ 베타 서비스 · 일부 무료 모델은 데이터 훈련에 사용될 수 있음 (
+                {t("onboarding.opencode_warning")} (
                 <a
                   href="https://opencode.ai/docs/zen/"
                   target="_blank"
                   rel="noreferrer"
                   className="underline underline-offset-2"
                 >
-                  자세히
+                  {t("onboarding.details")}
                 </a>
                 )
               </p>
@@ -118,7 +129,7 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-fg-muted" htmlFor="onb-api-key">
-              API 키
+              {t("onboarding.api_key_label")}
             </label>
             <Input
               id="onb-api-key"
@@ -139,10 +150,10 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={handleSkip} data-testid="onb-skip" disabled={submitting}>
-            나중에 설정
+            {t("onboarding.skip")}
           </Button>
           <Button onClick={handleConnect} data-testid="onb-connect" disabled={submitting}>
-            {submitting ? "연결 중…" : "연결하기"}
+            {submitting ? t("onboarding.connecting") : t("onboarding.connect")}
           </Button>
         </DialogFooter>
       </DialogContent>

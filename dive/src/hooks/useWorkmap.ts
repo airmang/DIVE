@@ -13,6 +13,10 @@ interface CardRow {
   session_id: number;
   title: string;
   instruction: string | null;
+  assist_summary?: string | null;
+  acceptance_criteria?: string | null;
+  retrospective?: string | null;
+  change_summary?: string | null;
   state: CardState;
   verify_log: string | null;
   changed_files: unknown | null;
@@ -59,6 +63,10 @@ function toTile(row: CardRow): CardTileData {
     id: row.id,
     title: row.title,
     summary: row.instruction,
+    assistSummary: row.assist_summary ?? null,
+    acceptanceCriteria: row.acceptance_criteria ?? null,
+    retrospective: row.retrospective ?? null,
+    changeSummary: row.change_summary ?? null,
     testCommand: row.test_command,
     state: row.state,
     stagesCompleted: stagesForState(row.state),
@@ -184,14 +192,26 @@ export function useWorkmap(sessionId: number | null) {
   }, [api, sessionId]);
 
   const createCard = useCallback(
-    async (title: string, position?: number | null) => {
+    async (
+      title: string,
+      position?: number | null,
+      metadata?: {
+        summary?: string | null;
+        acceptanceCriteria?: string | null;
+        instructionSeed?: string | null;
+      },
+    ) => {
       const activeApi = requireApi();
-      await activeApi.invoke<CardRow>("card_create", {
+      const row = await activeApi.invoke<CardRow>("card_create", {
         sessionId,
         title,
         position: position ?? null,
+        summary: metadata?.summary ?? null,
+        acceptanceCriteria: metadata?.acceptanceCriteria ?? null,
+        instructionSeed: metadata?.instructionSeed ?? null,
       });
       await refresh();
+      return row;
     },
     [refresh, requireApi, sessionId],
   );
@@ -221,6 +241,15 @@ export function useWorkmap(sessionId: number | null) {
         cardId,
         testCommand: testCommand.trim().length > 0 ? testCommand : null,
       });
+      await refresh();
+    },
+    [refresh, requireApi],
+  );
+
+  const saveRetrospectiveRemote = useCallback(
+    async (cardId: number, retrospective: string) => {
+      const activeApi = requireApi();
+      await activeApi.invoke<void>("card_save_retrospective", { cardId, retrospective });
       await refresh();
     },
     [refresh, requireApi],
@@ -294,6 +323,7 @@ export function useWorkmap(sessionId: number | null) {
     setCurrentCardRemote,
     updateInstructionRemote,
     updateTestCommandRemote,
+    saveRetrospectiveRemote,
     transitionCardRemote,
     verifyRemote,
     deleteCard,

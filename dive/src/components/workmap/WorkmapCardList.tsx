@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "../../lib/utils";
+import { LearningHint } from "../ui/learning-hint";
 import { CardTile } from "./CardTile";
 import type { CardTileData, CardTileMode, WorkmapCardListProps } from "./types";
 
@@ -160,6 +161,11 @@ export function WorkmapCardList({
           <Plus className={mode === "expanded" ? "h-5 w-5" : "h-4 w-4"} />
           <span className={mode === "expanded" ? "text-sm" : "text-xs"}>카드 추가</span>
         </button>
+        {!canAddCard ? (
+          <LearningHint inline className="shrink-0 text-[10px]">
+            D 단계에서만 카드 추가 가능
+          </LearningHint>
+        ) : null}
       </div>
     </div>
   );

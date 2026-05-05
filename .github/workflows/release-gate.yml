@@ -35,8 +35,10 @@ jobs:
         working-directory: dive/src-tauri
         run: |
           cargo fmt --all -- --check
-          cargo test --all-targets
-          cargo clippy --all-targets -- -D warnings
+          cargo test --features dev-mock --all-targets
+          cargo clippy --features dev-mock --all-targets -- -D warnings
+          cargo check --release
+          ./scripts/verify-release-mock-guard.sh
       - name: Install tauri-driver and Edge driver helper
         run: |
           cargo install tauri-driver --locked

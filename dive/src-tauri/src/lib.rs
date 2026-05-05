@@ -8,13 +8,14 @@ pub mod dive;
 pub mod export;
 pub mod ipc;
 pub mod mcp;
+pub mod menu;
 pub mod providers;
 pub mod tools;
 
 pub use auth::{AuthError, Keyring, OsKeyring, SecretScope};
 pub use db::Database;
 pub use ipc::AppState;
-#[cfg(any(test, debug_assertions, feature = "dev-mock"))]
+#[cfg(any(test, feature = "dev-mock"))]
 pub use providers::MockProvider;
 pub use providers::{
     AnthropicProvider, ChatEvent, ChatRequest, CodexProvider, FinishReason, LlmProvider, Message,
@@ -31,9 +32,16 @@ fn greet(name: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_state = ipc::AppState::from_app_handle(app.handle())?;
             app.manage(app_state);
+
+            let recents = ipc::fetch_recent_projects_for_menu(app.handle()).unwrap_or_default();
+            let menu = menu::build_menu(app.handle(), &recents)?;
+            app.set_menu(menu)?;
+            menu::install_event_handler(app.handle());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -52,6 +60,7 @@ pub fn run() {
             ipc::card_tool_call_stats,
             ipc::card_update_instruction,
             ipc::card_update_test_command,
+            ipc::card_save_retrospective,
             ipc::card_transition,
             ipc::card_verify,
             ipc::ai_assist_cards,
@@ -66,6 +75,7 @@ pub fn run() {
             ipc::project_list,
             ipc::project_get,
             ipc::project_open,
+            ipc::project_select,
             ipc::project_delete,
             ipc::session_create,
             ipc::session_list,
@@ -74,9 +84,13 @@ pub fn run() {
             ipc::session_delete,
             ipc::provider_connect,
             ipc::provider_list,
+            ipc::provider_list_models,
+            ipc::provider_set_model,
             ipc::provider_disconnect,
             ipc::provider_policy_get,
             ipc::provider_policy_set,
+            ipc::research_settings_get,
+            ipc::research_settings_set,
             ipc::checkpoint_timeline,
             ipc::codex_oauth_start,
             ipc::codex_oauth_complete,
@@ -89,7 +103,8 @@ pub fn run() {
             ipc::mcp_server_set_enabled,
             ipc::mcp_server_test_connect,
             ipc::mcp_server_list_tools,
-            ipc::prompt_check_review
+            ipc::prompt_check_review,
+            ipc::menu_refresh_recents
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

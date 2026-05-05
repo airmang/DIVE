@@ -6,6 +6,10 @@ import { Input } from "../components/ui/input";
 import { useTheme } from "../hooks/useTheme";
 import { useProjectSessionStore, type ProviderSummary } from "../stores/project-session";
 import { CodexOAuthDialog } from "../components/codex/CodexOAuthDialog";
+import { LOCALE_LABEL, SUPPORTED_LOCALES, useLocaleStore, type Locale } from "../i18n";
+import { LearningHint } from "../components/ui/learning-hint";
+import { useUiPreferencesStore } from "../stores/ui-preferences";
+import { ProviderModelSelector } from "../components/settings/ProviderModelSelector";
 
 type TauriApi = {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -24,6 +28,11 @@ interface PolicyDto {
   default?: string | null;
 }
 
+interface ResearchSettingsDto {
+  disable_gates: boolean;
+  controls_enabled: boolean;
+}
+
 const SAFE_TOOLS = ["read_file", "list_dir", "search_files"];
 const WARN_TOOLS = ["write_file", "edit_file"];
 
@@ -34,22 +43,22 @@ const PROVIDER_KINDS: Array<{
   ga: boolean;
   warning?: { text: string; href: string; linkLabel: string };
 }> = [
-  { kind: "anthropic", label: "Anthropic", hint: "claude-sonnet-4.5", ga: true },
-  { kind: "openai", label: "OpenAI", hint: "gpt-4o / o1", ga: true },
-  { kind: "openrouter", label: "OpenRouter", hint: "여러 모델 통합", ga: true },
+  { kind: "anthropic", label: "Anthropic", hint: "Claude 계열", ga: true },
+  { kind: "openai", label: "OpenAI", hint: "GPT 계열", ga: true },
+  { kind: "openrouter", label: "OpenRouter", hint: "여러 제공사 통합", ga: true },
   {
     kind: "opencode_zen",
     label: "opencode zen",
-    hint: "무료 OpenAI 호환 모델",
+    hint: "무료 베타",
     ga: true,
     warning: {
-      text: "⚠️ 베타 서비스 · 일부 무료 모델은 데이터 훈련에 사용될 수 있음",
+      text: "베타 서비스 · 일부 무료 모델은 데이터 훈련에 사용될 수 있습니다",
       href: "https://opencode.ai/docs/zen/",
       linkLabel: "자세히",
     },
   },
   { kind: "codex", label: "Codex (ChatGPT OAuth)", hint: "ChatGPT Plus/Pro 구독", ga: true },
-  { kind: "mock", label: "Mock (개발)", hint: "테스트·데모", ga: false },
+  { kind: "mock", label: "Mock (개발 전용)", hint: "테스트용", ga: false },
 ];
 
 interface McpServerSummary {
@@ -84,6 +93,10 @@ function defaultMcpDraft(): McpDraft {
 
 export function SettingsPage() {
   const { theme, toggleTheme } = useTheme();
+  const locale = useLocaleStore((s) => s.locale);
+  const setLocale = useLocaleStore((s) => s.setLocale);
+  const tutorialEnabled = useUiPreferencesStore((s) => s.tutorialEnabled);
+  const setTutorialEnabled = useUiPreferencesStore((s) => s.setTutorialEnabled);
   const loaded = useProjectSessionStore((s) => s.loaded);
   const loadAll = useProjectSessionStore((s) => s.loadAll);
   const providers = useProjectSessionStore((s) => s.providers);
@@ -91,20 +104,26 @@ export function SettingsPage() {
   const disconnectProvider = useProjectSessionStore((s) => s.disconnectProvider);
 
   const [policy, setPolicy] = useState<PolicyDto>({ rules: {}, default: null });
+  const [researchSettings, setResearchSettings] = useState<ResearchSettingsDto>({
+    disable_gates: false,
+    controls_enabled: false,
+  });
   const [resetNextSession, setResetNextSession] = useState(true);
   const [expandedKind, setExpandedKind] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [codexDialogOpen, setCodexDialogOpen] = useState(false);
-  const [codexConnected, setCodexConnected] = useState(false);
-  const [codexAccountId, setCodexAccountId] = useState<string | null>(null);
   const [mcpServers, setMcpServers] = useState<McpServerSummary[]>([]);
   const [mcpDraft, setMcpDraft] = useState<McpDraft>(defaultMcpDraft());
   const [mcpBusy, setMcpBusy] = useState(false);
   const [mcpTestResult, setMcpTestResult] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!loaded) void loadAll().catch(() => undefined);
+    if (!loaded) {
+      void loadAll().catch((err) => {
+        console.warn("settings loadAll failed:", err);
+      });
+    }
   }, [loaded, loadAll]);
 
   useEffect(() => {
@@ -118,14 +137,22 @@ export function SettingsPage() {
           console.warn("provider_policy_get failed:", err);
         }
         try {
-          const st = await api.invoke<{
-            connected: boolean;
-            account_id: string | null;
-          }>("codex_oauth_status");
-          setCodexConnected(st.connected);
-          setCodexAccountId(st.account_id);
+          const research = await api.invoke<ResearchSettingsDto>("research_settings_get");
+          const localDisable = research.controls_enabled
+            ? window.localStorage.getItem("dive:research-disable-gates")
+            : null;
+          const next =
+            localDisable === null
+              ? research
+              : { ...research, disable_gates: localDisable === "true" };
+          setResearchSettings(next);
+          if (research.controls_enabled && localDisable !== null) {
+            await api.invoke<void>("research_settings_set", { settings: next });
+          } else if (!research.controls_enabled) {
+            window.localStorage.removeItem("dive:research-disable-gates");
+          }
         } catch (err) {
-          console.warn("codex_oauth_status failed:", err);
+          console.warn("research_settings_get failed:", err);
         }
         try {
           const servers = await api.invoke<McpServerSummary[]>("mcp_server_list");
@@ -140,11 +167,15 @@ export function SettingsPage() {
         if (raw) setPolicy(JSON.parse(raw) as PolicyDto);
         const raw2 = window.localStorage.getItem("dive:reset-next-session");
         if (raw2) setResetNextSession(raw2 === "true");
-        const codexMock = window.localStorage.getItem("dive:codex-connected");
-        if (codexMock === "true") {
-          setCodexConnected(true);
-          setCodexAccountId("acct_mock");
-        }
+        const controlsEnabled = import.meta.env.DEV;
+        const researchDisable = controlsEnabled
+          ? window.localStorage.getItem("dive:research-disable-gates")
+          : null;
+        setResearchSettings({
+          controls_enabled: controlsEnabled,
+          disable_gates: controlsEnabled && researchDisable === "true",
+        });
+        if (!controlsEnabled) window.localStorage.removeItem("dive:research-disable-gates");
         const mcpMock = window.localStorage.getItem("dive:mcp-servers");
         if (mcpMock) setMcpServers(JSON.parse(mcpMock) as McpServerSummary[]);
       } catch (err) {
@@ -247,6 +278,25 @@ export function SettingsPage() {
     }
   };
 
+  const persistResearchSettings = async (next: ResearchSettingsDto) => {
+    if (!next.controls_enabled) {
+      const disabled = { disable_gates: false, controls_enabled: false };
+      setResearchSettings(disabled);
+      window.localStorage.removeItem("dive:research-disable-gates");
+      return;
+    }
+    setResearchSettings(next);
+    window.localStorage.setItem("dive:research-disable-gates", String(next.disable_gates));
+    const api = await loadTauri();
+    if (api) {
+      try {
+        await api.invoke<void>("research_settings_set", { settings: next });
+      } catch (err) {
+        console.warn("research_settings_set failed:", err);
+      }
+    }
+  };
+
   const toggleToolPolicy = async (tool: string) => {
     const current = policy.rules[tool];
     const next: PolicyDto = {
@@ -284,10 +334,12 @@ export function SettingsPage() {
         console.warn("codex_oauth_logout failed:", err);
       }
     } else {
-      window.localStorage.removeItem("dive:codex-connected");
+      const row = providers.find((provider) => provider.kind === "codex" && provider.is_connected);
+      if (row) await disconnectProvider(row.id);
     }
-    setCodexConnected(false);
-    setCodexAccountId(null);
+    await loadAll().catch((err) =>
+      console.warn("settings loadAll after codex logout failed:", err),
+    );
   };
 
   const handleDisconnect = async (row: ProviderSummary) => {
@@ -307,6 +359,13 @@ export function SettingsPage() {
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
 
+  const openResearchSurvey = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("route", "research-survey");
+    window.history.pushState({}, "", url.toString());
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  };
+
   return (
     <div
       className="min-h-screen w-screen overflow-y-auto bg-bg px-8 py-6 text-fg"
@@ -322,6 +381,66 @@ export function SettingsPage() {
           <div />
         </div>
 
+        <section className="flex flex-col gap-3" data-testid="settings-section-general">
+          <h2 className="text-lg font-semibold">일반</h2>
+
+          <div className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2.5">
+            <div>
+              <div className="text-sm font-medium">언어</div>
+              <div className="text-[11px] text-fg-muted">앱 인터페이스 언어</div>
+            </div>
+            <select
+              value={locale}
+              onChange={(e) => setLocale(e.target.value as Locale)}
+              className="rounded-md border bg-bg px-2 py-1 text-sm"
+              data-testid="settings-locale-select"
+              aria-label="언어 선택"
+            >
+              {SUPPORTED_LOCALES.map((code) => (
+                <option key={code} value={code}>
+                  {LOCALE_LABEL[code]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2.5">
+            <div>
+              <div className="text-sm font-medium">테마</div>
+              <div className="text-[11px] text-fg-muted">
+                {theme === "dark" ? "어두운 테마" : "밝은 테마"}
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={toggleTheme}
+              data-testid="settings-theme-toggle"
+              data-theme={theme}
+            >
+              {theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환"}
+            </Button>
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2.5">
+            <div>
+              <div className="text-sm font-medium">튜토리얼 모드</div>
+              <div className="text-[11px] text-fg-muted">
+                단계별 상세 설명을 표시합니다. 익숙해지면 끄세요.
+              </div>
+            </div>
+            <label className="inline-flex cursor-pointer items-center">
+              <input
+                type="checkbox"
+                checked={tutorialEnabled}
+                onChange={(e) => setTutorialEnabled(e.target.checked)}
+                data-testid="settings-tutorial-toggle"
+                className="h-4 w-4"
+              />
+            </label>
+          </div>
+        </section>
+
         <section className="flex flex-col gap-3" data-testid="settings-section-providers">
           <div className="flex items-baseline justify-between">
             <h2 className="text-lg font-semibold">프로바이더</h2>
@@ -332,11 +451,8 @@ export function SettingsPage() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" data-testid="provider-cards">
             {PROVIDER_KINDS.map((p) => {
               const isCodex = p.kind === "codex";
-              const connected = isCodex
-                ? codexConnected
-                  ? { id: -1, kind: "codex", is_connected: true }
-                  : undefined
-                : providers.find((x) => x.kind === p.kind && x.is_connected);
+              const connected = providers.find((x) => x.kind === p.kind && x.is_connected);
+              const codexAccountId = isCodex ? connected?.account_id : null;
               const expanded = expandedKind === p.kind;
               return (
                 <Card
@@ -376,7 +492,7 @@ export function SettingsPage() {
                           )
                         </div>
                       ) : null}
-                      {isCodex && codexConnected && codexAccountId ? (
+                      {isCodex && connected && codexAccountId ? (
                         <div
                           className="mt-1 text-[10px] text-fg-muted"
                           data-testid="codex-account-id"
@@ -390,9 +506,7 @@ export function SettingsPage() {
                         variant="outline"
                         size="sm"
                         onClick={() =>
-                          void (isCodex
-                            ? handleCodexDisconnect()
-                            : handleDisconnect(connected as ProviderSummary))
+                          void (isCodex ? handleCodexDisconnect() : handleDisconnect(connected))
                         }
                         data-testid="provider-disconnect"
                         data-provider-kind={p.kind}
@@ -439,6 +553,15 @@ export function SettingsPage() {
                       </Button>
                     </div>
                   ) : null}
+                  {connected ? (
+                    <div className="border-t pt-2">
+                      <ProviderModelSelector
+                        providerId={connected.id}
+                        providerKind={p.kind}
+                        selectedModel={connected.selected_model ?? null}
+                      />
+                    </div>
+                  ) : null}
                 </Card>
               );
             })}
@@ -447,10 +570,10 @@ export function SettingsPage() {
 
         <section className="flex flex-col gap-3" data-testid="settings-section-policy">
           <h2 className="text-lg font-semibold">자동 승인 정책</h2>
-          <p className="text-xs text-fg-muted">
-            안전(Safe) 도구에 한해 자동 승인을 허용할 수 있습니다. 주의(Warn)·위험(Danger) 도구는
-            항상 수동 승인이 필요합니다.
-          </p>
+          <p className="text-xs text-fg-muted">Safe 도구만 자동 승인할 수 있습니다.</p>
+          <LearningHint className="text-xs">
+            주의(Warn)·위험(Danger) 도구는 항상 수동 승인이 필요합니다.
+          </LearningHint>
           <div className="flex flex-col gap-2" data-testid="policy-tool-list">
             {SAFE_TOOLS.map((tool) => {
               const on = policy.rules[tool] === "always";
@@ -506,12 +629,58 @@ export function SettingsPage() {
           </label>
         </section>
 
+        {researchSettings.controls_enabled ? (
+          <section className="flex flex-col gap-3" data-testid="settings-section-research">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">연구 전용 설정</h2>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={openResearchSurvey}
+                data-testid="settings-open-research-survey"
+              >
+                설문 열기
+              </Button>
+            </div>
+            <div className="rounded-md border border-warn/50 bg-bg-panel px-3 py-2.5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-sm font-medium">D/I/V/E 게이트 ablation</div>
+                  <div className="mt-1 text-[11px] text-fg-muted">
+                    대조군 실험에서만 사용하세요. 켜면 채팅 실행 전 게이트를 우회하고 EventLog에{" "}
+                    <code>gate_bypassed</code>를 남깁니다.
+                  </div>
+                  <LearningHint className="mt-2 text-xs">
+                    교실 실사용 기본값은 OFF입니다. 이 옵션은 연구 동의와 실험 설계가 있을 때만
+                    켜세요.
+                  </LearningHint>
+                </div>
+                <label className="inline-flex cursor-pointer items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={researchSettings.disable_gates}
+                    onChange={(e) =>
+                      void persistResearchSettings({
+                        ...researchSettings,
+                        disable_gates: e.target.checked,
+                      })
+                    }
+                    data-testid="settings-research-disable-gates"
+                    className="h-4 w-4"
+                  />
+                  게이트 우회
+                </label>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
         <section className="flex flex-col gap-3" data-testid="settings-section-mcp">
           <div className="flex items-baseline justify-between">
             <h2 className="text-lg font-semibold">MCP 서버</h2>
-            <span className="text-xs text-fg-muted">
+            <LearningHint inline className="text-xs">
               Model Context Protocol 서버 등록 · 도구는 권한 카드로 라우팅됩니다 (5-3에서 확장).
-            </span>
+            </LearningHint>
           </div>
           <div className="flex flex-col gap-2" data-testid="mcp-server-list">
             {mcpServers.length === 0 ? (
@@ -652,30 +821,21 @@ export function SettingsPage() {
             </div>
           </div>
         </section>
-
-        <section className="flex flex-col gap-3" data-testid="settings-section-theme">
-          <h2 className="text-lg font-semibold">테마</h2>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={toggleTheme}
-            className="w-fit"
-            data-testid="settings-theme-toggle"
-            data-theme={theme}
-          >
-            {theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환"}
-          </Button>
-        </section>
       </div>
       <CodexOAuthDialog
         open={codexDialogOpen}
         onOpenChange={setCodexDialogOpen}
         onConnected={(status) => {
-          setCodexConnected(status.connected);
-          setCodexAccountId(status.account_id);
-          if (!(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) {
-            window.localStorage.setItem("dive:codex-connected", String(status.connected));
-          }
+          void (async () => {
+            const api = await loadTauri();
+            if (!api && status.connected) {
+              await connectProvider("codex", "mock-codex-oauth");
+              return;
+            }
+            await loadAll();
+          })().catch((err) => {
+            console.warn("settings loadAll after codex oauth failed:", err);
+          });
         }}
       />
     </div>

@@ -4,7 +4,23 @@ AI 코딩 교육용 데스크톱 앱. Tauri 2.x + React 18 + TypeScript 5 + Vite
 
 명세: 리포지토리 루트의 [`DIVE_SPEC.md`](../DIVE_SPEC.md).
 
-현재 버전 **0.0.1** — Phase 1 부트스트랩. 빈 창 + §11.6 디렉터리 골격만 존재하며, 도메인 로직·디자인 토큰은 다음 작업부터 채워진다.
+현재 버전 **1.0.0-rc.2** — production AppState, disk DB, provider runtime, DIVE gate, Settings, native menu, and v4 productization checks are active.
+
+## 제품화 v4 주요 surface
+
+- `Settings > General`이 언어, 테마, 튜토리얼 모드, 연결된 provider model selector의 단일 제품 진입점이다.
+- File/View/Help 네이티브 메뉴는 Tauri v2 메뉴 API를 사용하며 frontend `menu:*` event bridge와 연결된다.
+- 프로젝트 생성/온보딩은 Tauri v2 dialog folder picker를 우선 사용하고, runtime이 없을 때 수동 경로 입력 fallback을 유지한다.
+- `?demo=` route는 개발 모드에서만 lazy-load된다. Production build에서는 demo page 파일을 보존하되 bundle에서 제외하고 product shell로 fallback한다.
+- Provider model selection은 `provider_configs.config.selected_model`에 저장되며 기존 config key와 legacy `model` fallback을 보존한다.
+
+### v4 스크린샷/문서 갱신 기준
+
+실제 릴리스 스크린샷을 교체할 때는 다음 세 장면을 우선 캡처한다. 이 README는 이미 해당 제품 surface를 설명하며, binary release 전 이미지 asset 교체 여부만 확인하면 된다.
+
+1. Settings > General: 언어, 테마, 튜토리얼 모드, provider model selector
+2. Native menu: File > New/Open/Open Recent 및 Help > Tutorial
+3. Project creation/onboarding: 폴더 선택 dialog 진입점
 
 ---
 
@@ -40,6 +56,8 @@ pnpm tauri:dev      # 데스크톱 창 실행 (hot reload)
 ```bash
 pnpm typecheck       # tsc --noEmit
 pnpm lint            # ESLint 9
+pnpm build           # Vite production build
+pnpm verify:v4       # DIVE v4 productization Tracks A-G
 pnpm format:check    # Prettier
 pnpm format          # Prettier 자동 수정
 ```
@@ -49,12 +67,16 @@ Rust 쪽:
 ```bash
 cd src-tauri
 cargo fmt --all -- --check
-cargo check --all-targets
+cargo check --release
+cargo test --features dev-mock --all-targets
+cargo clippy --features dev-mock --all-targets -- -D warnings
 ```
 
 ## 빌드
 
 ### macOS / Linux (로컬 검증용)
+
+상세 체크리스트는 [`../docs/dev-shell-verification.md`](../docs/dev-shell-verification.md)를 함께 확인하세요.
 
 ```bash
 pnpm build           # Vite 번들만
@@ -128,7 +150,7 @@ dive/
 └── vite.config.ts
 ```
 
-Phase 1 부트스트랩 시점의 Rust 서브모듈들은 모두 `//!` 모듈 docstring만 담은 placeholder이며, 어느 작업에서 실제 구현되는지 각 `mod.rs`에 표시되어 있다. `lib.rs`의 `#![allow(dead_code)]`는 placeholder 모듈이 채워질 때까지 임시로 유지된다.
+현재 Rust backend는 disk DB, provider runtime, native menu, checkpoints, event log, and IPC command surfaces를 포함한다. 개발 전용 demo route와 production product route는 Vite/Tauri 빌드에서 분리된다.
 
 ---
 
@@ -154,4 +176,4 @@ v1.0 정식 배포를 위한 EV 코드 서명 인증서 도입은 **Phase 6 (202
 
 ## 라이선스
 
-미정 (명세 §14.1, Phase 6에서 확정).
+MIT (루트 `LICENSE` 참조).

@@ -53,6 +53,10 @@ fn fresh_env() -> (
             session_id,
             title: "test card".into(),
             instruction: None,
+            assist_summary: None,
+            acceptance_criteria: None,
+            retrospective: None,
+            change_summary: None,
             state: CardState::Decomposed,
             verify_log: None,
             changed_files: None,
@@ -679,5 +683,43 @@ async fn scenario_i_d_gate_blocks_empty_workmap() {
             AgentEvent::Error { retryable: false, message } if message.contains("카드")
         )),
         "expected Error event with guidance"
+    );
+}
+
+#[tokio::test]
+async fn research_ablation_bypasses_d_gate_and_logs_event() {
+    let (db, _db_file, root, sid) = fresh_env_no_cards();
+    let mock = Arc::new(MockProvider::new(vec![vec![
+        ChatEvent::TextDelta("allowed".into()),
+        ChatEvent::Done {
+            finish_reason: FinishReason::Stop,
+        },
+    ]]));
+    let loop_ = AgentLoop::builder()
+        .provider(mock.clone())
+        .registry(Arc::new(ToolRegistry::with_builtins()))
+        .permission(Arc::new(AlwaysApproveHook))
+        .db(db.clone())
+        .tool_ctx(ToolContext::new(root.path(), sid))
+        .model("mock-model")
+        .cancel(Arc::new(AtomicBool::new(false)))
+        .max_iterations(5)
+        .disable_gates(true)
+        .build()
+        .unwrap();
+
+    let mut events = Vec::new();
+    let result = loop_.run(sid, "hi", &mut |e| events.push(e)).await;
+    assert!(result.unwrap().starts_with("stopped:"));
+    assert_eq!(
+        mock.request_count(),
+        1,
+        "provider should be called in ablation"
+    );
+    let db_guard = db.lock().unwrap();
+    let logs = event_log::list_by_session(db_guard.conn(), sid).unwrap();
+    assert!(
+        logs.iter().any(|row| row.r#type == "gate_bypassed"),
+        "ablation must be traceable in EventLog"
     );
 }

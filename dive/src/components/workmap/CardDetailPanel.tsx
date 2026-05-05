@@ -8,9 +8,13 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Button } from "../ui/button";
+import { LearningHint } from "../ui/learning-hint";
 import { CardStateBadge } from "./CardStateBadge";
 import { getCardStateMeta } from "./card-state-meta";
 import type { CardState, CardTileData } from "./types";
+import { useT } from "../../i18n";
+import { classifyError } from "../../lib/error-classify";
+import { explainTestCommand } from "../../lib/test-command-help";
 
 export type CardTransitionKind =
   | "enter_instruct"
@@ -67,6 +71,7 @@ export function CardDetailPanel({
   onVerify,
   onOpenCode,
 }: CardDetailPanelProps) {
+  const t = useT();
   const [instructionDraft, setInstructionDraft] = useState("");
   const [testCommandDraft, setTestCommandDraft] = useState("");
   const [forceApprove, setForceApprove] = useState(false);
@@ -99,7 +104,7 @@ export function CardDetailPanel({
   const meta = getCardStateMeta(card.state);
   const trimmedDraft = instructionDraft.trim();
   const instructionNonEmpty = trimmedDraft.length > 0;
-  const approveEligible = !!verifyLog && verifyLog.intent_match && verifyLog.test_result !== "fail";
+  const approveEligible = !!verifyLog && verifyLog.intent_match && verifyLog.test_result === "pass";
 
   const handleSaveInstruction = async () => {
     if (onInstructionChange) {
@@ -144,6 +149,25 @@ export function CardDetailPanel({
         </DialogHeader>
 
         <div className="space-y-4">
+          {(card.assistSummary || card.acceptanceCriteria) && (
+            <div
+              className="space-y-2 rounded-md border border-border bg-bg-panel2 p-3 text-xs"
+              data-testid="card-assist-metadata"
+            >
+              {card.assistSummary ? (
+                <div>
+                  <p className="font-semibold text-fg-muted">AI 분해 요약</p>
+                  <p className="mt-0.5 text-fg">{card.assistSummary}</p>
+                </div>
+              ) : null}
+              {card.acceptanceCriteria ? (
+                <div>
+                  <p className="font-semibold text-fg-muted">완료 기준</p>
+                  <p className="mt-0.5 whitespace-pre-wrap text-fg">{card.acceptanceCriteria}</p>
+                </div>
+              ) : null}
+            </div>
+          )}
           {renderStateBody(card.state, {
             instructionDraft,
             setInstructionDraft,
@@ -158,6 +182,9 @@ export function CardDetailPanel({
             forceApprove,
             setForceApprove,
             checkpointBadge,
+            changeSummary: card.changeSummary ?? null,
+            retrospective: card.retrospective ?? null,
+            t,
           })}
         </div>
 
@@ -168,6 +195,7 @@ export function CardDetailPanel({
             verifyLog,
             approveEligible,
             forceApprove,
+            t,
             onSaveInstruction: handleSaveInstruction,
             onTransition: handleTransition,
             onOpenCode: onOpenCode ? () => onOpenCode(card.id) : undefined,
@@ -193,6 +221,9 @@ interface BodyContext {
   forceApprove: boolean;
   setForceApprove: (v: boolean) => void;
   checkpointBadge: string | null;
+  changeSummary: string | null;
+  retrospective: string | null;
+  t: ReturnType<typeof useT>;
 }
 
 function renderStateBody(state: CardState, ctx: BodyContext) {
@@ -212,13 +243,13 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
             onChange={(e) => ctx.setInstructionDraft(e.target.value)}
             rows={4}
             className="w-full rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg"
-            placeholder="이 카드에서 AI에게 시킬 일을 구체적으로 적으세요"
+            placeholder="이 카드에서 AI가 해야 할 일"
           />
-          <p className="text-[11px] text-fg-muted">
+          <LearningHint>
             {state === "rejected"
               ? "거부 사유를 반영해 지시를 수정한 뒤 다시 시작하세요."
               : "지시가 작성되면 I 단계로 진입합니다."}
-          </p>
+          </LearningHint>
           <div className="space-y-1 pt-2">
             <label className="text-xs font-semibold text-fg-muted" htmlFor="test-command-input">
               검증 명령 (선택)
@@ -232,14 +263,17 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
               placeholder="예: pnpm test src/App.test.ts"
             />
             <p className="text-[11px] text-fg-muted">
-              V 단계 검증 시 프로젝트 루트에서 실행됩니다. 위험하거나 프로젝트 밖으로 나가는
-              명령은 차단됩니다.
+              검증 명령은 프로젝트 루트에서 실행되며, 위험한 명령은 차단됩니다.
             </p>
           </div>
           {state === "instructed" ? (
             <p className="text-[11px] text-fg-muted" data-testid="tool-call-count">
               도구 호출: {ctx.toolCallCount}회
-              {ctx.toolCallCount === 0 ? " · 도구 호출 1회 이상 후 검증 시작 가능" : ""}
+              {ctx.toolCallCount === 0 ? (
+                <LearningHint inline className="ml-1">
+                  · 도구 호출 1회 이상 후 검증 시작 가능
+                </LearningHint>
+              ) : null}
             </p>
           ) : null}
         </div>
@@ -247,10 +281,11 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
     case "verifying":
       return (
         <div className="space-y-3" data-testid="verifying-body">
-          <p className="text-xs text-fg-muted">
+          <p className="text-xs text-fg-muted">결과를 검증하세요.</p>
+          <LearningHint className="text-xs">
             AI가 지시와 코드 변경의 일치 여부를 분석합니다. 결과를 확인한 뒤 최종 승인 또는 거부를
             선택하세요.
-          </p>
+          </LearningHint>
           {ctx.verifyLog ? (
             <div className="space-y-2" data-testid="verify-log">
               <div
@@ -274,7 +309,7 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
                     ? "통과"
                     : ctx.verifyLog.test_result === "fail"
                       ? "실패"
-                    : "실행 안 함"}
+                      : "실행 안 함"}
                 </p>
               </div>
               {ctx.verifyLog.test_command ? (
@@ -293,6 +328,9 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
                       ctx.verifyLog.test_exit_code === undefined
                         ? "(없음)"
                         : ctx.verifyLog.test_exit_code}
+                    </p>
+                    <p className="mt-1 text-[11px] text-fg-muted" data-testid="verify-command-help">
+                      {explainTestCommand(ctx.verifyLog.test_command)}
                     </p>
                   </div>
                   {ctx.verifyLog.test_stdout ? (
@@ -313,6 +351,15 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
                   ) : null}
                 </div>
               ) : null}
+              {ctx.verifyLog.test_result === "skipped" ? (
+                <div
+                  className="rounded-md border border-warn/40 bg-warn/10 p-3 text-xs text-warn"
+                  data-testid="verify-skipped-warning"
+                >
+                  실제 테스트 명령이 실행되지 않았습니다. 최종 승인은 가능하지만, 검증 근거가
+                  약하므로 직접 확인하거나 검증 명령을 추가하세요.
+                </div>
+              ) : null}
               <div
                 className="rounded-md border border-border bg-bg-panel2 p-3"
                 data-testid="verify-details"
@@ -326,7 +373,7 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
                 </p>
               </div>
 
-              {!(ctx.verifyLog.intent_match && ctx.verifyLog.test_result !== "fail") ? (
+              {!(ctx.verifyLog.intent_match && ctx.verifyLog.test_result === "pass") ? (
                 <label
                   className="flex cursor-pointer items-start gap-2 rounded-md border border-warn/40 bg-warn/10 p-2 text-xs"
                   data-testid="force-approve-toggle"
@@ -348,7 +395,8 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
               className="rounded-md border border-dashed border-border bg-bg-panel2 p-3 text-xs text-fg-muted"
               data-testid="verify-empty"
             >
-              아직 검증이 실행되지 않았습니다. [검증 실행] 버튼을 눌러 시작하세요.
+              <div>아직 검증 결과가 없습니다.</div>
+              <LearningHint>[검증 실행] 버튼을 눌러 시작하세요.</LearningHint>
             </div>
           )}
 
@@ -358,9 +406,7 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
             </p>
           ) : null}
           {ctx.verifyState === "error" && ctx.verifyError ? (
-            <p className="text-xs text-danger" data-testid="verify-error">
-              검증 실패: {ctx.verifyError}
-            </p>
+            <VerifyErrorMessage message={ctx.verifyError} t={ctx.t} />
           ) : null}
 
           <Button
@@ -380,9 +426,9 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
       return (
         <div className="space-y-2" data-testid="verified-body">
           <p className="text-sm text-fg">검증을 통과했습니다.</p>
-          <p className="text-xs text-fg-muted">
+          <LearningHint className="text-xs">
             코드 결과를 확인하거나, 문제가 발견되면 다시 거부할 수 있습니다.
-          </p>
+          </LearningHint>
           {ctx.checkpointBadge ? (
             <p
               className="inline-flex items-center gap-1 rounded-md border border-success/40 bg-success/10 px-2 py-0.5 text-[11px] font-medium text-success"
@@ -391,13 +437,31 @@ function renderStateBody(state: CardState, ctx: BodyContext) {
               체크포인트 기록됨 · {ctx.checkpointBadge}
             </p>
           ) : null}
+          {ctx.changeSummary ? (
+            <p
+              className="rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-fg"
+              data-testid="card-change-summary"
+            >
+              {ctx.changeSummary}
+            </p>
+          ) : null}
+          {ctx.retrospective ? (
+            <p
+              className="whitespace-pre-wrap rounded-md border border-border bg-bg-panel2 px-3 py-2 text-xs text-fg-muted"
+              data-testid="card-retrospective"
+            >
+              {ctx.retrospective}
+            </p>
+          ) : null}
         </div>
       );
     case "extended":
       return (
         <div className="space-y-2" data-testid="extended-body">
           <p className="text-sm text-fg">E 단계 통합·확장 완료.</p>
-          <p className="text-xs text-fg-muted">읽기 전용. 다음 세션에서 이어서 작업하세요.</p>
+          <LearningHint className="text-xs">
+            읽기 전용. 다음 세션에서 이어서 작업하세요.
+          </LearningHint>
         </div>
       );
   }
@@ -409,10 +473,36 @@ interface FooterContext {
   verifyLog: VerifyLogView | null;
   approveEligible: boolean;
   forceApprove: boolean;
+  t: ReturnType<typeof useT>;
   onSaveInstruction: () => Promise<void>;
   onTransition: (t: CardTransitionKind, options?: { approveForce?: boolean }) => Promise<void>;
   onOpenCode?: () => void;
   onClose: () => void;
+}
+
+function VerifyErrorMessage({ message, t }: { message: string; t: ReturnType<typeof useT> }) {
+  const classified = classifyError(message);
+  const hints = t(classified.hintsKey)
+    .split("|")
+    .map((hint) => hint.trim())
+    .filter(Boolean);
+  return (
+    <div
+      className="rounded-md border border-danger/40 bg-danger/10 p-3 text-xs text-danger"
+      data-testid="verify-error"
+      role="alert"
+    >
+      <p className="font-semibold">{t(classified.titleKey)}</p>
+      <p className="mt-0.5 text-fg">{t(classified.bodyKey, { message: classified.rawMessage })}</p>
+      {hints.length > 0 ? (
+        <ul className="mt-1 list-disc space-y-0.5 pl-4 text-fg-muted">
+          {hints.map((hint) => (
+            <li key={hint}>{hint}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
 }
 
 function renderStateFooter(state: CardState, ctx: FooterContext) {

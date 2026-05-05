@@ -17,6 +17,7 @@ export interface TerminalLine {
 export interface SlideInOpenArgs {
   tab?: SlideInTab;
   files?: ChangedFile[];
+  changeSummary?: string | null;
   previewUrl?: string | null;
   replaceFiles?: boolean;
 }

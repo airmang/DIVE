@@ -1,12 +1,16 @@
-use std::sync::Mutex;
-
-use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::agent::{AutoApprove, AutoApprovePolicy};
 
 use super::AppState;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResearchSettingsDto {
+    pub disable_gates: bool,
+    #[serde(default)]
+    pub controls_enabled: bool,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AutoApprovePolicyDto {
@@ -53,25 +57,60 @@ fn mode_from_string(s: &str) -> Option<AutoApprove> {
     }
 }
 
-static POLICY_STORE: Lazy<Mutex<AutoApprovePolicyDto>> =
-    Lazy::new(|| Mutex::new(AutoApprovePolicyDto::default()));
+pub fn research_controls_enabled() -> bool {
+    cfg!(debug_assertions)
+        || truthy_env("DIVE_RESEARCH_CONTROLS")
+        || truthy_env("DIVE_RESEARCH_ABLATION_GATES")
+}
+
+fn truthy_env(name: &str) -> bool {
+    std::env::var(name)
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "on" | "ON"))
+        .unwrap_or(false)
+}
 
 #[tauri::command]
 pub async fn provider_policy_get(
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<AutoApprovePolicyDto, String> {
-    let guard = POLICY_STORE.lock().map_err(|e| e.to_string())?;
-    Ok(guard.clone())
+    let guard = state.auto_policy.read().map_err(|e| e.to_string())?;
+    Ok(AutoApprovePolicyDto::from_policy(&guard))
 }
 
 #[tauri::command]
 pub async fn provider_policy_set(
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
     policy: AutoApprovePolicyDto,
 ) -> Result<(), String> {
-    let mut guard = POLICY_STORE.lock().map_err(|e| e.to_string())?;
-    *guard = policy;
+    let mut guard = state.auto_policy.write().map_err(|e| e.to_string())?;
+    *guard = policy.to_policy();
     Ok(())
+}
+
+#[tauri::command]
+pub async fn research_settings_get(
+    state: State<'_, AppState>,
+) -> Result<ResearchSettingsDto, String> {
+    let controls_enabled = research_controls_enabled();
+    if !controls_enabled {
+        state.set_research_gates_disabled(false)?;
+    }
+    Ok(ResearchSettingsDto {
+        disable_gates: controls_enabled && state.research_gates_disabled()?,
+        controls_enabled,
+    })
+}
+
+#[tauri::command]
+pub async fn research_settings_set(
+    state: State<'_, AppState>,
+    settings: ResearchSettingsDto,
+) -> Result<(), String> {
+    let controls_enabled = research_controls_enabled();
+    if !controls_enabled && settings.disable_gates {
+        return Err("research controls are disabled in this build/session".into());
+    }
+    state.set_research_gates_disabled(settings.disable_gates)
 }
 
 #[cfg(test)]
@@ -92,6 +131,18 @@ mod tests {
         assert_eq!(dto2.rules.get("read_file"), Some(&"always".to_string()));
         assert_eq!(dto2.rules.get("write_file"), Some(&"never".to_string()));
         assert_eq!(dto2.default, Some("never".into()));
+    }
+
+    #[test]
+    fn research_settings_dto_roundtrip_shape() {
+        let dto = ResearchSettingsDto {
+            disable_gates: true,
+            controls_enabled: true,
+        };
+        let encoded = serde_json::to_string(&dto).unwrap();
+        assert!(encoded.contains("disable_gates"));
+        let decoded: ResearchSettingsDto = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, dto);
     }
 
     #[test]

@@ -8,6 +8,7 @@ export type ChatRole = "user" | "assistant" | "system" | "tool";
 export type ChatMessageKind =
   | "user"
   | "assistant"
+  | "reasoning"
   | "tool_call"
   | "tool_result"
   | "system"
@@ -30,6 +31,12 @@ export interface AssistantMessageData extends BaseMessage {
   content: string;
   /** True while `TextDelta` events still arriving; false after `End`. */
   streaming: boolean;
+}
+
+export interface ReasoningMessageData extends BaseMessage {
+  kind: "reasoning";
+  text: string;
+  toolCallId: string;
 }
 
 export interface ToolCallMessageData extends BaseMessage {
@@ -75,6 +82,7 @@ export interface ErrorMessageData extends BaseMessage {
 export type ChatMessage =
   | UserMessageData
   | AssistantMessageData
+  | ReasoningMessageData
   | ToolCallMessageData
   | ToolResultMessageData
   | SystemMessageData

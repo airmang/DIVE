@@ -15,6 +15,14 @@ function read(rel) {
   return fs.readFileSync(path.join(repo, rel), "utf8");
 }
 
+function readFirst(...rels) {
+  const found = rels.find((rel) => fs.existsSync(path.join(repo, rel)));
+  if (!found) {
+    throw new Error(`none of these files exist: ${rels.join(", ")}`);
+  }
+  return read(found);
+}
+
 function check(name, cond, detail = "") {
   if (cond) {
     pass++;
@@ -60,6 +68,8 @@ const requiredIds = [
   ...Array.from({ length: 6 }, (_, i) => 58 + i),
 ];
 const realAdrIds = Array.from(decisions.matchAll(/^## ADR-(\d{3}):/gm)).map((m) => Number(m[1]));
+const adrCount = realAdrIds.length;
+const latestAdrId = Math.max(...realAdrIds);
 check(
   "Track 0 ADR count",
   requiredIds.every((id) => realAdrIds.includes(id)),
@@ -80,7 +90,7 @@ for (const id of requiredIds) {
 
 console.log("\n3. README / progress / changelog markers");
 const readme = read("README.md");
-const progress = read("DIVE_PROGRESS.md");
+const progress = readFirst("DIVE_PROGRESS.md", "docs/internal/DIVE_PROGRESS.md");
 const changelog = read("CHANGELOG.md");
 check(
   "README old v1.0 2026-11~12 completed Phase 6 row removed",
@@ -91,7 +101,12 @@ check(
   "README mentions rc.2 production wiring",
   /rc\.2.*production wiring|production wiring.*rc\.2|실 동작/i.test(readme),
 );
-check("README ADR count updated", /\(58 ADR\)/.test(readme));
+check(
+  "README ADR count updated",
+  readme.includes(`(${adrCount} ADR`) &&
+    readme.includes(`ADR-${String(latestAdrId).padStart(3, "0")}`),
+  `expected=${adrCount} ADR, latest=ADR-${String(latestAdrId).padStart(3, "0")}`,
+);
 check("DIVE_PROGRESS Phase 7 exists", /## Phase 7 .*Production Wiring/.test(progress));
 check(
   "DIVE_PROGRESS Phase 6 yanked note",

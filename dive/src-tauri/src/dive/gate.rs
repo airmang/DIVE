@@ -128,6 +128,9 @@ impl DiveGateEngine {
         session_id: i64,
         stage: DiveStage,
     ) -> Result<GateDecision, DbError> {
+        if gates_disabled_for_research() {
+            return Ok(GateDecision::Allow);
+        }
         match stage {
             DiveStage::D => Self::check_stage_d(conn, session_id),
             DiveStage::I => Self::check_stage_i(conn, session_id),
@@ -135,6 +138,12 @@ impl DiveGateEngine {
             DiveStage::E => Self::check_stage_e(conn, session_id),
         }
     }
+}
+
+pub fn gates_disabled_for_research() -> bool {
+    std::env::var("DIVE_RESEARCH_ABLATION_GATES")
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "on" | "ON"))
+        .unwrap_or(false)
 }
 
 fn current_card(
@@ -191,6 +200,10 @@ mod tests {
                 session_id: sid,
                 title: format!("c{pos}"),
                 instruction: None,
+                assist_summary: None,
+                acceptance_criteria: None,
+                retrospective: None,
+                change_summary: None,
                 state,
                 verify_log: None,
                 changed_files: None,
@@ -214,6 +227,10 @@ mod tests {
                 session_id: sid,
                 title: format!("c{pos}"),
                 instruction: instruction.map(str::to_string),
+                assist_summary: None,
+                acceptance_criteria: None,
+                retrospective: None,
+                change_summary: None,
                 state,
                 verify_log: None,
                 changed_files: None,

@@ -23,7 +23,7 @@ const MAX_HEIGHT_PX = 200;
 export function ChatInput({
   onSend,
   disabled = false,
-  modelLabel = "claude-sonnet-4.5",
+  modelLabel = "모델 선택",
   onPromptHelper,
   stage = null,
   className,

@@ -107,8 +107,8 @@ export default function Phase5IntegrationPage() {
           </div>
           <p className="text-xs text-fg-muted">
             Phase 5의 5개 산출물(Codex OAuth / MCP 클라이언트 / MCP 권한 카드 / 프롬프트 도우미 /
-            보내기 전 점검)을 데모 단위로 모아 놓은 랜딩 페이지. Product 화면은 ?route로,
-            순수 데모 화면은 ?demo로 이동합니다.
+            보내기 전 점검)을 데모 단위로 모아 놓은 랜딩 페이지. Product 화면은 ?route로, 순수 데모
+            화면은 ?demo로 이동합니다.
           </p>
         </header>
 

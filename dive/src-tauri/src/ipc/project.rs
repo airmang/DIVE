@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
+
+use crate::menu::RECENT_PROJECTS_LIMIT;
 
 use crate::checkpoint::CheckpointEngine;
 use crate::db::dao::project as project_dao;
@@ -102,9 +104,18 @@ fn project_open_impl(state: &AppState, path: String) -> Result<ProjectRow, Strin
             .into_iter()
             .find(|row| Path::new(&row.path) == root)
     };
-    if let Some(row) = existing {
+    if let Some(mut row) = existing {
         ensure_dive_dir(&root)?;
         run_checkpoint_init(state, &root)?;
+        {
+            let db = state.db.lock().map_err(|e| e.to_string())?;
+            project_dao::touch(db.conn(), row.id).map_err(|e| e.to_string())?;
+            if let Some(touched) =
+                project_dao::get_by_id(db.conn(), row.id).map_err(|e| e.to_string())?
+            {
+                row = touched;
+            }
+        }
         state.swap_project_root(root)?;
         return Ok(row);
     }
@@ -117,6 +128,38 @@ fn project_open_impl(state: &AppState, path: String) -> Result<ProjectRow, Strin
 #[tauri::command]
 pub async fn project_open(state: State<'_, AppState>, path: String) -> Result<ProjectRow, String> {
     project_open_impl(&state, path)
+}
+
+fn project_select_impl(state: &AppState, project_id: i64) -> Result<ProjectRow, String> {
+    let row = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        project_dao::get_by_id(db.conn(), project_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("project {project_id} not found"))?
+    };
+    let root = PathBuf::from(&row.path);
+    if !root.exists() {
+        return Err(format!("path does not exist: {}", root.display()));
+    }
+    ensure_dive_dir(&root)?;
+    run_checkpoint_init(state, &root)?;
+    {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        project_dao::touch(db.conn(), row.id).map_err(|e| e.to_string())?;
+    }
+    state.swap_project_root(root)?;
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    project_dao::get_by_id(db.conn(), row.id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("project {project_id} not found after select"))
+}
+
+#[tauri::command]
+pub async fn project_select(
+    state: State<'_, AppState>,
+    project_id: i64,
+) -> Result<ProjectRow, String> {
+    project_select_impl(&state, project_id)
 }
 
 fn project_delete_impl(
@@ -158,6 +201,35 @@ pub async fn project_delete(
     delete_folder: bool,
 ) -> Result<(), String> {
     project_delete_impl(&state, project_id, delete_folder)
+}
+
+/// Fetch recent projects for native menu rendering.
+pub fn fetch_recent_projects_for_menu<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+) -> Result<Vec<(i64, String)>, String> {
+    let state = app.state::<AppState>();
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let projects = project_dao::list_recent(db.conn(), RECENT_PROJECTS_LIMIT as i64)
+        .map_err(|e| e.to_string())?;
+    Ok(projects
+        .into_iter()
+        .map(|project| {
+            let label = if project.name.trim().is_empty() {
+                project.path
+            } else {
+                project.name
+            };
+            (project.id, label)
+        })
+        .collect())
+}
+
+/// Rebuild File > Open Recent after project create/open/delete.
+#[tauri::command]
+pub fn menu_refresh_recents(app: AppHandle) -> Result<(), String> {
+    let recents = fetch_recent_projects_for_menu(&app).unwrap_or_default();
+    crate::menu::rebuild_menu_with_recents(&app, &recents).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -210,6 +282,28 @@ mod tests {
         let row_a_again = project_open_impl(&state, root_a.to_string_lossy().into()).unwrap();
         assert_eq!(row_a_again.id, row_a.id);
         assert_eq!(state.project_root_snapshot(), root_a);
+    }
+
+    #[test]
+    fn project_select_swaps_active_project_root_for_existing_project() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = mk_state(&tmp);
+        let root_a = tmp.path().join("proj-select-a");
+        let root_b = tmp.path().join("proj-select-b");
+
+        let row_a =
+            project_create_impl(&state, Some("A".into()), root_a.to_string_lossy().into()).unwrap();
+        let row_b =
+            project_create_impl(&state, Some("B".into()), root_b.to_string_lossy().into()).unwrap();
+        assert_eq!(state.project_root_snapshot(), root_b);
+
+        let selected = project_select_impl(&state, row_a.id).unwrap();
+        assert_eq!(selected.id, row_a.id);
+        assert_eq!(state.project_root_snapshot(), root_a);
+
+        let selected_b = project_select_impl(&state, row_b.id).unwrap();
+        assert_eq!(selected_b.id, row_b.id);
+        assert_eq!(state.project_root_snapshot(), root_b);
     }
 
     #[test]

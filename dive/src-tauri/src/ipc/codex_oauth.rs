@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use crate::db::dao::provider_config as provider_dao;
 use crate::db::models::NewProviderConfig;
 use crate::db::Database;
 
-use super::AppState;
+use super::{AppState, ProviderKind, ProviderRuntime};
 
 #[derive(Debug, Clone)]
 struct PendingFlow {
@@ -49,10 +49,56 @@ fn ensure_codex_row(db: &Mutex<Database>) -> Result<i64, String> {
             kind: "codex".into(),
             auth_type: "oauth".into(),
             base_url: None,
-            config: serde_json::Value::Object(serde_json::Map::new()),
+            config: serde_json::json!({
+                "selected_model": crate::providers::default_model_for_kind("codex")
+            }),
         },
     )
     .map_err(|e| e.to_string())
+}
+
+fn selected_model_for_codex_row(
+    state: &AppState,
+    provider_config_id: i64,
+) -> Result<String, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let row = provider_dao::get_by_id(db.conn(), provider_config_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("codex provider not found: {provider_config_id}"))?;
+    Ok(row
+        .config
+        .get("selected_model")
+        .or_else(|| row.config.get("model"))
+        .and_then(|value| value.as_str())
+        .unwrap_or_else(|| crate::providers::default_model_for_kind("codex"))
+        .to_owned())
+}
+
+fn activate_codex_runtime(state: &AppState, provider_config_id: i64) -> Result<(), String> {
+    let (access_token, refresh_token, id_token) =
+        auth::load_codex_tokens(state.keyring.as_ref(), provider_config_id)
+            .map_err(|e| format!("keyring: {e}"))?
+            .ok_or_else(|| "codex tokens missing after OAuth".to_string())?;
+    let account_id = auth::codex_oauth::decode_account_id(&id_token).map_err(|e| e.to_string())?;
+    let model = selected_model_for_codex_row(state, provider_config_id)?;
+    let provider = Arc::new(crate::providers::CodexProvider::new(
+        auth::CodexTokens {
+            access_token,
+            refresh_token,
+            id_token,
+            account_id,
+            expires_in: 0,
+        },
+        CodexOAuth::new(),
+    ));
+    state
+        .swap_runtime(ProviderRuntime::new(
+            Some(provider_config_id),
+            ProviderKind::Codex,
+            model,
+            provider,
+        ))
+        .map_err(|e| format!("runtime: {e}"))
 }
 
 fn codex_provider_id(db: &Mutex<Database>) -> Result<Option<i64>, String> {
@@ -196,7 +242,11 @@ pub async fn codex_oauth_complete(
     code: String,
     received_state: String,
 ) -> Result<CodexAuthStatus, String> {
-    complete_impl(state.keyring.as_ref(), &code, &received_state).await
+    let status = complete_impl(state.keyring.as_ref(), &code, &received_state).await?;
+    if let Some(provider_config_id) = status.provider_config_id {
+        activate_codex_runtime(&state, provider_config_id)?;
+    }
+    Ok(status)
 }
 
 #[tauri::command]
@@ -206,12 +256,22 @@ pub async fn codex_oauth_status(state: State<'_, AppState>) -> Result<CodexAuthS
 
 #[tauri::command]
 pub async fn codex_oauth_logout(state: State<'_, AppState>) -> Result<(), String> {
-    logout_impl(state.db.as_ref(), state.keyring.as_ref())
+    logout_impl(state.db.as_ref(), state.keyring.as_ref())?;
+    if state.runtime_snapshot().kind == ProviderKind::Codex {
+        state
+            .swap_runtime(ProviderRuntime::none())
+            .map_err(|e| format!("runtime: {e}"))?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn codex_oauth_refresh(state: State<'_, AppState>) -> Result<CodexAuthStatus, String> {
-    refresh_impl(state.db.as_ref(), state.keyring.as_ref(), None).await
+    let status = refresh_impl(state.db.as_ref(), state.keyring.as_ref(), None).await?;
+    if let Some(provider_config_id) = status.provider_config_id {
+        activate_codex_runtime(&state, provider_config_id)?;
+    }
+    Ok(status)
 }
 
 #[cfg(test)]

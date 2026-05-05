@@ -2,6 +2,7 @@ use crate::db::dao::{json_to_string, parse_json};
 use crate::db::models::{NewProviderConfig, ProviderConfigRow};
 use crate::db::DbError;
 use rusqlite::{params, Connection, OptionalExtension};
+use serde_json::Value;
 fn map_row(row: &rusqlite::Row<'_>) -> Result<ProviderConfigRow, DbError> {
     Ok(ProviderConfigRow {
         id: row.get(0)?,
@@ -53,6 +54,29 @@ pub fn delete(conn: &Connection, id: i64) -> Result<(), DbError> {
     conn.execute("DELETE FROM ProviderConfig WHERE id = ?", [id])?;
     Ok(())
 }
+pub fn read_selected_model(conn: &Connection, id: i64) -> Result<Option<String>, DbError> {
+    let Some(row) = get_by_id(conn, id)? else {
+        return Ok(None);
+    };
+    Ok(row
+        .config
+        .get("selected_model")
+        .or_else(|| row.config.get("model"))
+        .and_then(|value| value.as_str())
+        .map(str::to_owned))
+}
+pub fn write_selected_model(conn: &Connection, id: i64, model: &str) -> Result<(), DbError> {
+    let Some(row) = get_by_id(conn, id)? else {
+        return Ok(());
+    };
+    let mut config = row.config.as_object().cloned().unwrap_or_default();
+    config.insert("selected_model".to_owned(), Value::String(model.to_owned()));
+    conn.execute(
+        "UPDATE ProviderConfig SET config = ? WHERE id = ?",
+        params![json_to_string(&Value::Object(config))?, id],
+    )?;
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -85,5 +109,38 @@ mod tests {
         let mut row = pc("openai");
         row.auth_type = "password".into();
         assert!(insert(db.conn(), &row).is_err());
+    }
+    #[test]
+    fn selected_model_preserves_other_config_keys() {
+        let (db, _) = fresh_db();
+        let id = insert(db.conn(), &pc("openai")).unwrap();
+        write_selected_model(db.conn(), id, "gpt-5.5").unwrap();
+
+        let row = get_by_id(db.conn(), id).unwrap().unwrap();
+        assert_eq!(row.config["models"], json!(["a"]));
+        assert_eq!(row.config["selected_model"], json!("gpt-5.5"));
+        assert_eq!(
+            read_selected_model(db.conn(), id).unwrap(),
+            Some("gpt-5.5".to_owned())
+        );
+    }
+    #[test]
+    fn selected_model_reads_legacy_model_key() {
+        let (db, _) = fresh_db();
+        let id = insert(
+            db.conn(),
+            &NewProviderConfig {
+                kind: "openai".into(),
+                auth_type: "api_key".into(),
+                base_url: None,
+                config: json!({"model":"gpt-5.2"}),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            read_selected_model(db.conn(), id).unwrap(),
+            Some("gpt-5.2".to_owned())
+        );
     }
 }

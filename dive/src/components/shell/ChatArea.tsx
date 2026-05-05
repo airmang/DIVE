@@ -1,9 +1,11 @@
 import { AlertCircle, Code, Eye } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
+import { LearningHint } from "../ui/learning-hint";
 import { ChatInput } from "../chat/ChatInput";
 import { MessageList } from "../chat/MessageList";
 import type { ChatMessage } from "../chat/types";
+import type { DiveStage } from "../../lib/ambiguity";
 
 export type ChatStageBannerTone = "info" | "warn" | "success";
 
@@ -25,7 +27,8 @@ interface ChatAreaProps {
   onDenyToolCall?: (toolCallId: string, reason?: string) => void;
   modelLabel?: string;
   inputDisabled?: boolean;
-  inputBlocked?: { reason: string } | null;
+  inputBlocked?: { reason: string; actionLabel?: string; onAction?: () => void } | null;
+  stage?: DiveStage | null;
   emptyState?: {
     title: string;
     description: string;
@@ -48,6 +51,7 @@ export function ChatArea({
   modelLabel,
   inputDisabled,
   inputBlocked,
+  stage,
   emptyState,
 }: ChatAreaProps) {
   const hasConversation = messages !== undefined && messages.length > 0;
@@ -119,12 +123,15 @@ export function ChatArea({
               {emptyState?.title ?? "세션을 시작해 대화를 시작하세요"}
             </p>
             <p className="text-sm text-fg-muted">
-              {emptyState?.description ?? (
+              {emptyState?.description ?? "카드를 선택하고 메시지를 입력하세요"}
+            </p>
+            {!emptyState?.description ? (
+              <LearningHint className="text-sm">
                 <>
                   사이드바에서 <span className="font-medium text-fg">+ 새 세션</span>을 눌러 시작
                 </>
-              )}
-            </p>
+              </LearningHint>
+            ) : null}
             {emptyState?.actionLabel && emptyState.onAction ? (
               <Button
                 variant="primary"
@@ -148,6 +155,16 @@ export function ChatArea({
           >
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             <span className="flex-1 text-fg">{inputBlocked.reason}</span>
+            {inputBlocked.actionLabel && inputBlocked.onAction ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={inputBlocked.onAction}
+                data-testid="chat-input-blocked-action"
+              >
+                {inputBlocked.actionLabel}
+              </Button>
+            ) : null}
           </div>
         ) : null}
         {onSendMessage ? (
@@ -155,12 +172,14 @@ export function ChatArea({
             onSend={onSendMessage}
             disabled={inputDisabled || !!inputBlocked}
             modelLabel={modelLabel}
+            stage={stage}
           />
         ) : (
           <ChatInput
             onSend={() => {}}
             disabled={inputDisabled || !!inputBlocked}
             modelLabel={modelLabel}
+            stage={stage}
           />
         )}
       </footer>

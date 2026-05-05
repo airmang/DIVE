@@ -14,7 +14,8 @@ pub use error::AgentError;
 pub use event::{AgentEvent, DiffPreview};
 pub use permission::{
     AlwaysApproveHook, AlwaysDenyHook, AutoApprove, AutoApprovePolicy, AwaitUserHook,
-    PendingApprovals, PermissionDecision, PermissionHook, PolicyHook, SafeOnlyHook,
+    PendingApprovals, PermissionDecision, PermissionHook, PolicyAwareHook, PolicyHook,
+    SafeOnlyHook,
 };
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -36,6 +37,19 @@ use crate::tools::{params_preview, RiskLevel, ToolContext, ToolRegistry};
 
 const DEFAULT_MAX_ITERATIONS: u32 = 10;
 
+fn changed_paths_from_tool_result(tool_name: &str, full: &Value) -> Vec<String> {
+    if !matches!(
+        tool_name,
+        "write_file" | "edit_file" | "delete_file" | "mkdir"
+    ) {
+        return Vec::new();
+    }
+    full.get("path")
+        .and_then(Value::as_str)
+        .map(|path| vec![path.to_owned()])
+        .unwrap_or_default()
+}
+
 pub struct AgentLoop {
     pub provider: Arc<dyn LlmProvider>,
     pub registry: Arc<ToolRegistry>,
@@ -46,6 +60,7 @@ pub struct AgentLoop {
     pub cancel: Arc<AtomicBool>,
     pub model: String,
     pub stage: DiveStage,
+    pub disable_gates: bool,
 }
 
 pub struct AgentOutcome {
@@ -194,6 +209,18 @@ impl AgentLoop {
                     });
                 let preview = params_preview(&tc.name, &args_value);
                 let diff_preview = self.build_diff_preview(&tc.name, &args_value).await;
+                let reasoning_text = reasoning_summary(&tc.name, &preview);
+                emit(AgentEvent::Reasoning {
+                    id: Uuid::new_v4().to_string(),
+                    text: reasoning_text.clone(),
+                    tool_call_id: tc.id.clone(),
+                    created_at: crate::db::now_ms(),
+                });
+                self.log_event(
+                    session_id,
+                    "reasoning",
+                    json!({ "tool": tc.name, "tool_call_id": tc.id, "text": reasoning_text }),
+                )?;
                 emit(AgentEvent::ToolCallStart {
                     id: tc.id.clone(),
                     tool: tc.name.clone(),
@@ -294,6 +321,7 @@ impl AgentLoop {
                             summary: out.summary.clone(),
                             full: out.full.clone(),
                         });
+                        self.record_changed_files(session_id, &tc.name, &out.full)?;
                         self.log_event(
                             session_id,
                             "tool_result",
@@ -554,6 +582,17 @@ impl AgentLoop {
         session_id: i64,
         emit: &mut (dyn FnMut(AgentEvent) + Send),
     ) -> Result<(), AgentError> {
+        if self.disable_gates || crate::dive::gates_disabled_for_research() {
+            self.log_event(
+                session_id,
+                "gate_bypassed",
+                json!({
+                    "stage": self.stage.as_str(),
+                    "reason": "research_ablation"
+                }),
+            )?;
+            return Ok(());
+        }
         let db = self
             .db
             .lock()
@@ -584,6 +623,37 @@ impl AgentLoop {
             return Ok(None);
         };
         Ok(wm.current_card_id)
+    }
+
+    fn record_changed_files(
+        &self,
+        session_id: i64,
+        tool_name: &str,
+        full: &Value,
+    ) -> Result<(), AgentError> {
+        let Some(card_id) = self.current_card_id(session_id)? else {
+            return Ok(());
+        };
+        let paths = changed_paths_from_tool_result(tool_name, full);
+        if paths.is_empty() {
+            return Ok(());
+        }
+        let db = self
+            .db
+            .lock()
+            .map_err(|_| AgentError::Internal("db mutex poisoned".into()))?;
+        let merged = card::append_changed_files(db.conn(), card_id, &paths)?;
+        drop(db);
+        self.log_event(
+            session_id,
+            "card_changed_files",
+            json!({
+                "card_id": card_id,
+                "paths": paths,
+                "total": merged.len(),
+            }),
+        )?;
+        Ok(())
     }
 
     fn current_card_system_prompt(&self, session_id: i64) -> Result<Option<String>, AgentError> {
@@ -670,6 +740,20 @@ fn finish_reason_str(fr: FinishReason) -> &'static str {
     }
 }
 
+fn reasoning_summary(tool_name: &str, preview: &str) -> String {
+    let action = match tool_name {
+        "read_file" | "list_dir" => "현재 코드를 이해하기 위해",
+        "write_file" | "edit_file" | "delete_file" | "mkdir" => "카드 지시를 구현하기 위해",
+        "bash" => "결과를 검증하거나 필요한 정보를 확인하기 위해",
+        _ => "다음 단계를 진행하기 위해",
+    };
+    if preview.trim().is_empty() {
+        format!("AI가 {action} `{tool_name}` 도구를 사용하려고 합니다.")
+    } else {
+        format!("AI가 {action} `{tool_name}` 도구를 사용하려고 합니다: {preview}")
+    }
+}
+
 #[derive(Default)]
 pub struct AgentLoopBuilder {
     provider: Option<Arc<dyn LlmProvider>>,
@@ -681,6 +765,7 @@ pub struct AgentLoopBuilder {
     cancel: Option<Arc<AtomicBool>>,
     model: Option<String>,
     stage: Option<DiveStage>,
+    disable_gates: bool,
 }
 
 impl AgentLoopBuilder {
@@ -720,6 +805,10 @@ impl AgentLoopBuilder {
         self.stage = Some(s);
         self
     }
+    pub fn disable_gates(mut self, disabled: bool) -> Self {
+        self.disable_gates = disabled;
+        self
+    }
 
     pub fn build(self) -> Result<AgentLoop, String> {
         Ok(AgentLoop {
@@ -736,6 +825,32 @@ impl AgentLoopBuilder {
                 .unwrap_or_else(|| Arc::new(AtomicBool::new(false))),
             model: self.model.unwrap_or_else(|| "unset".into()),
             stage: self.stage.unwrap_or(DiveStage::D),
+            disable_gates: self.disable_gates,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn changed_paths_extracts_only_mutating_file_tools() {
+        assert_eq!(
+            changed_paths_from_tool_result("write_file", &json!({"path": "src/App.tsx"})),
+            vec!["src/App.tsx"]
+        );
+        assert!(
+            changed_paths_from_tool_result("read_file", &json!({"path": "src/App.tsx"})).is_empty()
+        );
+        assert!(changed_paths_from_tool_result("bash", &json!({"stdout": "changed"})).is_empty());
+    }
+
+    #[test]
+    fn reasoning_summary_explains_tool_intent() {
+        let text = reasoning_summary("edit_file", "src/App.tsx");
+        assert!(text.contains("카드 지시를 구현"));
+        assert!(text.contains("edit_file"));
+        assert!(text.contains("src/App.tsx"));
     }
 }
