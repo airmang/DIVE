@@ -15,7 +15,7 @@ pub mod tools;
 pub use auth::{AuthError, Keyring, OsKeyring, SecretScope};
 pub use db::Database;
 pub use ipc::AppState;
-#[cfg(any(test, debug_assertions, feature = "dev-mock"))]
+#[cfg(any(test, feature = "dev-mock"))]
 pub use providers::MockProvider;
 pub use providers::{
     AnthropicProvider, ChatEvent, ChatRequest, CodexProvider, FinishReason, LlmProvider, Message,
@@ -60,6 +60,7 @@ pub fn run() {
             ipc::card_tool_call_stats,
             ipc::card_update_instruction,
             ipc::card_update_test_command,
+            ipc::card_save_retrospective,
             ipc::card_transition,
             ipc::card_verify,
             ipc::ai_assist_cards,
@@ -74,6 +75,7 @@ pub fn run() {
             ipc::project_list,
             ipc::project_get,
             ipc::project_open,
+            ipc::project_select,
             ipc::project_delete,
             ipc::session_create,
             ipc::session_list,
@@ -87,6 +89,8 @@ pub fn run() {
             ipc::provider_disconnect,
             ipc::provider_policy_get,
             ipc::provider_policy_set,
+            ipc::research_settings_get,
+            ipc::research_settings_set,
             ipc::checkpoint_timeline,
             ipc::codex_oauth_start,
             ipc::codex_oauth_complete,

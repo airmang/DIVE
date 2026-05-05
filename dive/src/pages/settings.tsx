@@ -28,6 +28,10 @@ interface PolicyDto {
   default?: string | null;
 }
 
+interface ResearchSettingsDto {
+  disable_gates: boolean;
+}
+
 const SAFE_TOOLS = ["read_file", "list_dir", "search_files"];
 const WARN_TOOLS = ["write_file", "edit_file"];
 
@@ -99,6 +103,9 @@ export function SettingsPage() {
   const disconnectProvider = useProjectSessionStore((s) => s.disconnectProvider);
 
   const [policy, setPolicy] = useState<PolicyDto>({ rules: {}, default: null });
+  const [researchSettings, setResearchSettings] = useState<ResearchSettingsDto>({
+    disable_gates: false,
+  });
   const [resetNextSession, setResetNextSession] = useState(true);
   const [expandedKind, setExpandedKind] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
@@ -112,7 +119,11 @@ export function SettingsPage() {
   const [mcpTestResult, setMcpTestResult] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!loaded) void loadAll().catch(() => undefined);
+    if (!loaded) {
+      void loadAll().catch((err) => {
+        console.warn("settings loadAll failed:", err);
+      });
+    }
   }, [loaded, loadAll]);
 
   useEffect(() => {
@@ -124,6 +135,18 @@ export function SettingsPage() {
           setPolicy(p);
         } catch (err) {
           console.warn("provider_policy_get failed:", err);
+        }
+        try {
+          const research = await api.invoke<ResearchSettingsDto>("research_settings_get");
+          const localDisable = window.localStorage.getItem("dive:research-disable-gates");
+          const next =
+            localDisable === null ? research : { disable_gates: localDisable === "true" };
+          setResearchSettings(next);
+          if (localDisable !== null) {
+            await api.invoke<void>("research_settings_set", { settings: next });
+          }
+        } catch (err) {
+          console.warn("research_settings_get failed:", err);
         }
         try {
           const st = await api.invoke<{
@@ -148,6 +171,8 @@ export function SettingsPage() {
         if (raw) setPolicy(JSON.parse(raw) as PolicyDto);
         const raw2 = window.localStorage.getItem("dive:reset-next-session");
         if (raw2) setResetNextSession(raw2 === "true");
+        const researchDisable = window.localStorage.getItem("dive:research-disable-gates");
+        if (researchDisable) setResearchSettings({ disable_gates: researchDisable === "true" });
         const codexMock = window.localStorage.getItem("dive:codex-connected");
         if (codexMock === "true") {
           setCodexConnected(true);
@@ -255,6 +280,19 @@ export function SettingsPage() {
     }
   };
 
+  const persistResearchSettings = async (next: ResearchSettingsDto) => {
+    setResearchSettings(next);
+    window.localStorage.setItem("dive:research-disable-gates", String(next.disable_gates));
+    const api = await loadTauri();
+    if (api) {
+      try {
+        await api.invoke<void>("research_settings_set", { settings: next });
+      } catch (err) {
+        console.warn("research_settings_set failed:", err);
+      }
+    }
+  };
+
   const toggleToolPolicy = async (tool: string) => {
     const current = policy.rules[tool];
     const next: PolicyDto = {
@@ -311,6 +349,13 @@ export function SettingsPage() {
     const url = new URL(window.location.href);
     url.searchParams.delete("demo");
     url.searchParams.delete("route");
+    window.history.pushState({}, "", url.toString());
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  };
+
+  const openResearchSurvey = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("route", "research-survey");
     window.history.pushState({}, "", url.toString());
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
@@ -583,6 +628,47 @@ export function SettingsPage() {
           </label>
         </section>
 
+        <section className="flex flex-col gap-3" data-testid="settings-section-research">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">연구 전용 설정</h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={openResearchSurvey}
+              data-testid="settings-open-research-survey"
+            >
+              설문 열기
+            </Button>
+          </div>
+          <div className="rounded-md border border-warn/50 bg-bg-panel px-3 py-2.5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-sm font-medium">D/I/V/E 게이트 ablation</div>
+                <div className="mt-1 text-[11px] text-fg-muted">
+                  대조군 실험에서만 사용하세요. 켜면 채팅 실행 전 게이트를 우회하고 EventLog에{" "}
+                  <code>gate_bypassed</code>를 남깁니다.
+                </div>
+                <LearningHint className="mt-2 text-xs">
+                  교실 실사용 기본값은 OFF입니다. 이 옵션은 연구 동의와 실험 설계가 있을 때만
+                  켜세요.
+                </LearningHint>
+              </div>
+              <label className="inline-flex cursor-pointer items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={researchSettings.disable_gates}
+                  onChange={(e) =>
+                    void persistResearchSettings({ disable_gates: e.target.checked })
+                  }
+                  data-testid="settings-research-disable-gates"
+                  className="h-4 w-4"
+                />
+                게이트 우회
+              </label>
+            </div>
+          </div>
+        </section>
+
         <section className="flex flex-col gap-3" data-testid="settings-section-mcp">
           <div className="flex items-baseline justify-between">
             <h2 className="text-lg font-semibold">MCP 서버</h2>
@@ -729,7 +815,6 @@ export function SettingsPage() {
             </div>
           </div>
         </section>
-
       </div>
       <CodexOAuthDialog
         open={codexDialogOpen}

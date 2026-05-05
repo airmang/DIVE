@@ -18,6 +18,9 @@ use crate::providers::{ChatEvent, ChatRequest, LlmProvider, Message, ToolChoice,
 pub struct AssistedCard {
     pub title: String,
     pub summary: String,
+    pub rationale: Option<String>,
+    pub priority: Option<String>,
+    pub estimated_steps: Option<u32>,
 }
 
 #[derive(Debug, Error)]
@@ -116,7 +119,25 @@ impl AiAssistEngine {
                     .and_then(|s| s.as_str())
                     .unwrap_or("")
                     .to_string();
-                Some(AssistedCard { title, summary })
+                let rationale = v
+                    .get("rationale")
+                    .and_then(|s| s.as_str())
+                    .map(str::to_string);
+                let priority = v
+                    .get("priority")
+                    .and_then(|s| s.as_str())
+                    .map(str::to_string);
+                let estimated_steps = v
+                    .get("estimated_steps")
+                    .and_then(|n| n.as_u64())
+                    .and_then(|n| u32::try_from(n).ok());
+                Some(AssistedCard {
+                    title,
+                    summary,
+                    rationale,
+                    priority,
+                    estimated_steps,
+                })
             })
             .collect();
         Ok(cards)
@@ -128,6 +149,9 @@ fn build_system_prompt() -> String {
 3~6개의 작은 카드로 분해합니다. 각 카드는:\n\
 - 한국어로 20자 이내의 제목\n\
 - 한국어로 한 문장의 요약(80자 이내)\n\
+- 왜 이 카드가 필요한지 한 문장 rationale\n\
+- 우선순위 must/should/nice 중 하나\n\
+- 초심자 기준 예상 구현 단계 수\n\
 반드시 `assist_cards` 도구만 호출하세요."
         .to_string()
 }
@@ -144,9 +168,12 @@ fn assist_schema() -> Value {
                     "type": "object",
                     "properties": {
                         "title": { "type": "string" },
-                        "summary": { "type": "string" }
+                        "summary": { "type": "string" },
+                        "rationale": { "type": "string" },
+                        "priority": { "type": "string", "enum": ["must", "should", "nice"] },
+                        "estimated_steps": { "type": "integer", "minimum": 1, "maximum": 12 }
                     },
-                    "required": ["title", "summary"]
+                    "required": ["title", "summary", "rationale", "priority", "estimated_steps"]
                 }
             }
         },

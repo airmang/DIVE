@@ -157,7 +157,7 @@ pnpm release:smoke
 | 6   | 재시작 보존             | 앱 종료→재실행 후 동일 프로젝트/session/card/message가 보존됨                          | [ ] Pass / [ ] Fail               |             |
 | 7   | 제거/데이터 정책        | 제어판/NSIS 제거 성공. 사용자 데이터 보존/삭제 정책 관찰 결과를 기록                   | [ ] Pass / [ ] Fail               |             |
 
-자동 스모크만 통과하고 수동 7종이 누락되면 릴리스는 블록된다. Windows 실기, 코드 서명, GitHub publish는 Track 0에서 외부 blocker로 남길 수 있지만, blocker 목록과 우회/후속 일정을 `DIVE_NEXT.md` 및 릴리스 노트에 명시한다.
+자동 스모크만 통과하고 수동 7종이 누락되면 릴리스는 블록된다. Windows 실기, 코드 서명, GitHub publish는 Track 0에서 외부 blocker로 남길 수 있지만, blocker 목록과 우회/후속 일정을 `internal/DIVE_NEXT.md` 및 릴리스 노트에 명시한다.
 
 ## 8. 체크리스트 — 6-5 릴리스 직전
 

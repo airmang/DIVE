@@ -3,6 +3,7 @@ import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { WorkmapCardList } from "../workmap/WorkmapCardList";
 import type { CardTileData } from "../workmap/types";
+import { useT } from "../../i18n";
 
 interface WorkmapStripProps {
   className?: string;
@@ -28,6 +29,7 @@ export function WorkmapStrip({
   onCardClick,
   onRequestAiAssist,
 }: WorkmapStripProps) {
+  const t = useT();
   const height = collapsed ? COLLAPSED_HEIGHT : EXPANDED_HEIGHT;
   const mode = collapsed ? "collapsed" : "expanded";
 
@@ -109,6 +111,55 @@ export function WorkmapStrip({
           </Button>
         </div>
       </header>
+
+      {cards.length > 0 ? (
+        <div
+          className={cn(
+            "flex shrink-0 items-center gap-2 border-t border-border/60 px-4 py-1.5",
+            collapsed && "hidden",
+          )}
+          data-testid="workmap-minimap"
+          aria-label={t("workmap.minimap_label")}
+        >
+          <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fg-muted">
+            DIVE
+          </span>
+          <div
+            className="grid flex-1 gap-1"
+            style={{ gridTemplateColumns: `repeat(${total}, 1fr)` }}
+          >
+            {cards.map((card) => {
+              const doneStages = [
+                card.stagesCompleted.d,
+                card.stagesCompleted.i,
+                card.stagesCompleted.v,
+                card.stagesCompleted.e,
+              ].filter(Boolean).length;
+              return (
+                <button
+                  key={card.id}
+                  type="button"
+                  className="group flex min-w-0 flex-col gap-0.5 rounded px-1 py-0.5 text-left hover:bg-bg-panel2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => onCardClick?.(card)}
+                  title={`${card.position}. ${card.title}`}
+                  data-testid="workmap-minimap-card"
+                  data-state={card.state}
+                >
+                  <span className="h-1 overflow-hidden rounded-full bg-bg-panel2">
+                    <span
+                      className="block h-full rounded-full bg-accent transition-[width] duration-200"
+                      style={{ width: `${(doneStages / 4) * 100}%` }}
+                    />
+                  </span>
+                  <span className="truncate text-[10px] text-fg-muted group-hover:text-fg">
+                    {card.position}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       <div
         id="workmap-body"

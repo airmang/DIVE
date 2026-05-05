@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { hasDevDemoParam } from "../lib/dev-demo";
+import { hasRecognizedDemoRoute } from "../lib/dev-demo";
 import { refreshMenuRecents } from "../lib/menu-events";
 
 export interface ProjectRow {
@@ -58,7 +58,7 @@ export function isProjectSessionDemoFallbackEnabled() {
 }
 
 function canUseDemoFallback() {
-  return projectSessionDemoFallbackEnabled || hasDevDemoParam();
+  return projectSessionDemoFallbackEnabled || (import.meta.env.DEV && hasRecognizedDemoRoute());
 }
 
 function ipcUnavailableError() {
@@ -186,8 +186,16 @@ export const useProjectSessionStore = create<State>((set, get) => ({
         const currentProjectId = projects.find((p) => p.id === storedProjectId)
           ? storedProjectId
           : (projects[0]?.id ?? null);
+        let orderedProjects = projects;
         let sessions: SessionRow[] = [];
         if (currentProjectId !== null) {
+          const selectedProject = await api.invoke<ProjectRow>("project_select", {
+            projectId: currentProjectId,
+          });
+          orderedProjects = [
+            selectedProject,
+            ...projects.filter((project) => project.id !== selectedProject.id),
+          ];
           sessions = await api.invoke<SessionRow[]>("session_list", {
             projectId: currentProjectId,
           });
@@ -199,7 +207,7 @@ export const useProjectSessionStore = create<State>((set, get) => ({
         set({
           isTauri: true,
           loaded: true,
-          projects,
+          projects: orderedProjects,
           providers,
           sessions,
           currentProjectId,
@@ -381,6 +389,15 @@ export const useProjectSessionStore = create<State>((set, get) => ({
     }
     await runStoreAction(set, async () => {
       const api = await loadTauri();
+      const selectedProject = await withTauriOrDemoMock<ProjectRow | null>(
+        api,
+        () => api!.invoke<ProjectRow>("project_select", { projectId }),
+        () => {
+          const mock = loadMock();
+          return mock.projects.find((project) => project.id === projectId) ?? null;
+        },
+      );
+      if (!selectedProject) throw new Error(`project ${projectId} not found`);
       const sessions = await withTauriOrDemoMock<SessionRow[]>(
         api,
         () => api!.invoke<SessionRow[]>("session_list", { projectId }),
@@ -395,7 +412,15 @@ export const useProjectSessionStore = create<State>((set, get) => ({
             });
         },
       );
-      set({ currentProjectId: projectId, sessions, currentSessionId: null });
+      set((state) => ({
+        projects: [
+          selectedProject,
+          ...state.projects.filter((project) => project.id !== selectedProject.id),
+        ],
+        currentProjectId: projectId,
+        sessions,
+        currentSessionId: null,
+      }));
       if (typeof window !== "undefined") {
         window.localStorage.setItem(CURRENT_PROJECT_KEY, String(projectId));
         window.localStorage.removeItem(CURRENT_SESSION_KEY);

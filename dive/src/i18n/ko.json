@@ -53,9 +53,77 @@
     "banner_rejected": "거부된 카드 — 지시를 수정해 다시 시작하세요.",
     "banner_verified": "검증 완료 — 코드를 확인하거나 다음 카드로 이동하세요.",
     "banner_extended": "확장 완료 (E)",
+    "gate_no_session": "세션을 선택하거나 생성하세요.",
+    "gate_no_provider": "연결된 프로바이더가 없어 채팅과 검증을 시작할 수 없습니다.",
     "gate_no_cards": "먼저 워크맵에 카드를 추가하세요. (D 단계 게이트)",
     "gate_no_instruction": "카드에 지시를 작성해 주세요. (I 단계 게이트)",
-    "gate_not_verifying": "검증 단계가 아닙니다. (V 단계 게이트)"
+    "gate_not_verifying": "검증 단계가 아닙니다. (V 단계 게이트)",
+    "action_open_settings": "설정 열기",
+    "action_add_ai_cards": "AI로 카드 추가",
+    "action_write_instruction": "지시 작성",
+    "action_start_verify": "검증 시작"
+  },
+  "workmap": {
+    "new_card_title": "새 카드 {{index}}",
+    "add_card": "카드 추가",
+    "new_card_dialog_title": "카드 직접 추가",
+    "new_card_dialog_description": "{{index}}번째 작업 카드를 초심자가 이해할 수 있게 직접 작성합니다.",
+    "new_card_learning_hint": "요약과 완료 기준을 적어 두면 나중에 검증 근거를 확인하기 쉽습니다.",
+    "new_card_title_label": "카드 제목",
+    "new_card_summary_label": "AI 분해 요약 (선택)",
+    "new_card_acceptance_label": "완료 기준 (선택)",
+    "new_card_instruction_label": "처음 지시문 (선택)",
+    "new_card_create": "카드 만들기",
+    "new_card_creating": "만드는 중...",
+    "new_card_title_required": "카드 제목을 입력하세요.",
+    "minimap_label": "전체 단계 미니맵",
+    "minimap_empty": "아직 카드 없음"
+  },
+  "onboarding": {
+    "title": "DIVE 시작하기",
+    "description": "사용할 AI 제공사를 선택하고 API 키를 입력하세요.",
+    "provider_label": "프로바이더",
+    "api_key_label": "API 키",
+    "connect": "연결하기",
+    "connecting": "연결 중…",
+    "skip": "나중에 설정",
+    "api_key_required": "API 키를 입력하세요.",
+    "key_link": "키 발급 링크",
+    "opencode_warning": "베타 서비스 · 일부 무료 모델은 데이터 훈련에 사용될 수 있습니다",
+    "details": "자세히",
+    "provider_anthropic_hint": "Claude 계열",
+    "provider_openai_hint": "GPT 계열",
+    "provider_openrouter_hint": "여러 제공사 통합",
+    "provider_opencode_zen_hint": "무료 베타",
+    "error_unauthorized": "키가 잘못되었거나 권한이 없습니다. ({{message}})",
+    "error_timeout": "네트워크 시간이 초과되었습니다. ({{message}})",
+    "error_network": "네트워크 문제로 연결하지 못했습니다. ({{message}})"
+  },
+  "new_project": {
+    "title": "새 프로젝트",
+    "description": "작업할 폴더를 선택하세요. 선택한 폴더에 `.dive/`가 자동 생성됩니다.",
+    "folder_label": "프로젝트 폴더",
+    "name_label": "이름 (선택)",
+    "browse": "찾아보기",
+    "browse_aria": "폴더 찾아보기",
+    "browse_placeholder": "찾아보기를 눌러 선택",
+    "manual_placeholder": "/Users/you/Projects/my-app",
+    "browse_unavailable": "데스크톱 앱에서 폴더 선택창을 사용할 수 있습니다.",
+    "name_placeholder": "프로젝트 이름",
+    "create": "프로젝트 생성",
+    "creating": "생성 중…",
+    "path_required": "프로젝트 폴더를 선택하세요.",
+    "pick_title": "프로젝트 폴더 선택"
+  },
+  "project": {
+    "open_pick_title": "열 프로젝트 폴더 선택"
+  },
+  "chat": {
+    "empty_no_project_title": "프로젝트를 만들고 세션을 시작하세요",
+    "empty_no_project_description": "DIVE는 프로젝트별로 카드와 대화를 디스크 DB에 저장합니다.",
+    "empty_no_session_title": "세션을 선택하거나 생성하세요",
+    "empty_no_session_description": "세션이 선택되기 전에는 카드와 채팅을 만들지 않습니다.",
+    "provider_setup_title": "API 키를 설정하세요"
   },
   "card": {
     "state_decomposed": "분해됨",
@@ -89,6 +157,61 @@
     "live_stage_change": "단계 변경 알림"
   },
   "toast": {
-    "checkpoint_saved": "체크포인트 저장됨"
+    "checkpoint_saved": "체크포인트 저장됨",
+    "checkpoint_save_failed": "체크포인트 저장 실패",
+    "project_open_failed": "프로젝트 열기 실패",
+    "workmap_save_failed": "워크맵 저장 실패",
+    "tutorial_on": "튜토리얼 모드를 켰습니다",
+    "tutorial_off": "튜토리얼 모드를 껐습니다",
+    "tutorial_description": "Settings > 일반에서 언제든 바꿀 수 있습니다.",
+    "docs_open_failed": "문서를 열 수 없습니다",
+    "issue_open_failed": "이슈 페이지를 열 수 없습니다",
+    "about_title": "DIVE v1.0.0-rc.2",
+    "about_description": "AI 코딩 작업을 카드와 세션으로 관리하는 데스크톱 앱입니다.",
+    "retry_unavailable": "다시 시도할 메시지가 없습니다",
+    "retry_unavailable_description": "마지막 사용자 메시지를 찾을 수 없어 자동 재시도를 실행하지 않았습니다."
+  },
+  "error": {
+    "auth": {
+      "title": "인증 오류",
+      "body": "API 키나 로그인 권한을 확인하세요. 원문: {{message}}",
+      "hints": "키가 올바른지 확인하세요.|Settings에서 프로바이더를 다시 연결하세요."
+    },
+    "rate_limit": {
+      "title": "요청 한도 초과",
+      "body": "프로바이더 요청 한도에 도달했습니다. 원문: {{message}}",
+      "hints": "잠시 기다린 뒤 다시 시도하세요.|필요하면 더 작은 작업 단위로 나누세요."
+    },
+    "network": {
+      "title": "네트워크 오류",
+      "body": "네트워크 연결이나 학교/회사 방화벽을 확인하세요. 원문: {{message}}",
+      "hints": "인터넷 연결을 확인하세요.|프록시/VPN 환경이면 관리자에게 API 도메인 허용을 요청하세요."
+    },
+    "tool_blocked": {
+      "title": "안전 정책으로 차단됨",
+      "body": "DIVE가 위험하거나 프로젝트 밖으로 나가는 작업을 막았습니다. 원문: {{message}}",
+      "hints": "명령이 프로젝트 폴더 안에서만 동작하는지 확인하세요.|위험 명령은 더 안전한 작은 단계로 나누세요."
+    },
+    "verify_fail": {
+      "title": "검증 실패",
+      "body": "검증 결과를 확인하고 지시나 테스트 명령을 수정하세요. 원문: {{message}}",
+      "hints": "stdout/stderr를 먼저 읽으세요.|필요하면 카드를 거부하고 지시를 더 구체화하세요."
+    },
+    "unknown": {
+      "title": "오류",
+      "body": "{{message}}",
+      "hints": "원문 메시지를 확인하고 다시 시도하세요."
+    }
+  },
+  "retro": {
+    "title": "사이클 회고",
+    "description": "“{{title}}” 카드를 마치며 방금 만든 내용을 자기 말로 정리해 보세요.",
+    "learning_hint": "짧게 적어도 됩니다. 나중에 내가 무엇을 만들었는지 설명하는 근거가 됩니다.",
+    "intent_label": "무엇을 의도했나요?",
+    "help_label": "AI가 어떻게 도왔나요?",
+    "next_label": "다음에는 무엇을 다르게 해보고 싶나요?",
+    "skip": "건너뛰기",
+    "save": "회고 저장",
+    "saving": "저장 중..."
   }
 }

@@ -38,6 +38,10 @@ fn seed() -> (Arc<Mutex<dive_lib::Database>>, i64) {
             session_id: sid,
             title: "로그인 폼 추가".into(),
             instruction: Some("LoginForm 컴포넌트에 이메일/비밀번호 input 추가".into()),
+            assist_summary: None,
+            acceptance_criteria: None,
+            retrospective: None,
+            change_summary: None,
             state: CardState::Verified,
             verify_log: Some(
                 r#"{"intent_match":true,"test_result":"skipped","details":"ok","model":"m","ran_at":1}"#
@@ -133,6 +137,7 @@ fn hashing_is_on_by_default_and_off_with_flag() {
             &ExportOptions {
                 hash_user_text: false,
                 hash_file_paths: false,
+                hash_ids: false,
                 ..ExportOptions::default()
             },
             "fixed-salt",
@@ -152,6 +157,49 @@ fn hashing_is_on_by_default_and_off_with_flag() {
         unmasked.contains("src/App.tsx"),
         "file path must pass through when off"
     );
+}
+
+#[test]
+fn default_export_hashes_database_ids_and_pii_patterns() {
+    let (db, sid) = seed();
+    {
+        let db_guard = db.lock().unwrap();
+        event_log::insert(
+            db_guard.conn(),
+            &NewEventLog {
+                session_id: Some(sid),
+                r#type: "student_note".into(),
+                payload: json!({
+                    "email": "student@example.edu",
+                    "phone": "010-1234-5678",
+                    "path": "src/private.ts"
+                }),
+            },
+        )
+        .unwrap();
+    }
+
+    let engine = ExportEngine::new(db);
+    let out = engine
+        .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+        .unwrap();
+
+    assert!(
+        !out.contains(r#""session_id":1"#),
+        "raw session id must be hashed by default: {out}"
+    );
+    assert!(
+        !out.contains(r#""id":1"#),
+        "raw record ids must be hashed by default: {out}"
+    );
+    assert!(
+        out.contains("id:session:"),
+        "hashed session id missing: {out}"
+    );
+    assert!(out.contains("id:card:"), "hashed card id missing: {out}");
+    assert!(!out.contains("student@example.edu"), "email must be masked");
+    assert!(!out.contains("010-1234-5678"), "phone must be masked");
+    assert!(!out.contains("src/private.ts"), "path must be masked");
 }
 
 #[test]

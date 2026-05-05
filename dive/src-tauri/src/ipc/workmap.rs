@@ -25,22 +25,58 @@ fn ensure_title(title: String) -> Result<String, String> {
     Ok(title)
 }
 
+fn normalize_optional_text(value: Option<String>) -> Option<String> {
+    value
+        .map(|text| text.trim().to_owned())
+        .filter(|text| !text.is_empty())
+}
+
 pub fn card_create_impl(
     state: &AppState,
     session_id: i64,
     title: String,
     position: Option<i64>,
+    summary: Option<String>,
+    acceptance_criteria: Option<String>,
+    instruction_seed: Option<String>,
 ) -> Result<CardRow, String> {
     let title = ensure_title(title)?;
     let row = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
-        card_dao::create(db.conn(), session_id, &title, position).map_err(|e| e.to_string())?
+        let id = card_dao::insert(
+            db.conn(),
+            &crate::db::models::NewCard {
+                session_id,
+                title,
+                instruction: normalize_optional_text(instruction_seed),
+                assist_summary: normalize_optional_text(summary),
+                acceptance_criteria: normalize_optional_text(acceptance_criteria),
+                retrospective: None,
+                change_summary: None,
+                state: crate::db::models::CardState::Decomposed,
+                verify_log: None,
+                changed_files: None,
+                test_command: None,
+                position: position.unwrap_or(
+                    card_dao::next_position(db.conn(), session_id).map_err(|e| e.to_string())?,
+                ),
+            },
+        )
+        .map_err(|e| e.to_string())?;
+        card_dao::get_by_id(db.conn(), id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("card {id} not found after insert"))?
     };
     super::log_event(
         state,
         Some(session_id),
         "card_create",
-        json!({ "card_id": row.id, "position": row.position }),
+        json!({
+            "card_id": row.id,
+            "position": row.position,
+            "has_assist_summary": row.assist_summary.is_some(),
+            "has_acceptance_criteria": row.acceptance_criteria.is_some(),
+        }),
     )?;
     Ok(row)
 }
@@ -112,8 +148,19 @@ pub async fn card_create(
     session_id: i64,
     title: String,
     position: Option<i64>,
+    summary: Option<String>,
+    acceptance_criteria: Option<String>,
+    instruction_seed: Option<String>,
 ) -> Result<CardRow, String> {
-    card_create_impl(&state, session_id, title, position)
+    card_create_impl(
+        &state,
+        session_id,
+        title,
+        position,
+        summary,
+        acceptance_criteria,
+        instruction_seed,
+    )
 }
 
 #[tauri::command]
@@ -202,8 +249,10 @@ mod tests {
     fn card_create_list_reorder_delete_and_workmap_snapshot() {
         let state = mk_state();
         let session_id = seed_session(&state);
-        let first = card_create_impl(&state, session_id, "first".into(), None).unwrap();
-        let second = card_create_impl(&state, session_id, "second".into(), None).unwrap();
+        let first =
+            card_create_impl(&state, session_id, "first".into(), None, None, None, None).unwrap();
+        let second =
+            card_create_impl(&state, session_id, "second".into(), None, None, None, None).unwrap();
         assert_eq!(card_list_impl(&state, session_id).unwrap().len(), 2);
         assert_eq!(second.position, 2);
 
@@ -234,15 +283,43 @@ mod tests {
     fn card_create_rejects_blank_title() {
         let state = mk_state();
         let session_id = seed_session(&state);
-        let err = card_create_impl(&state, session_id, "   ".into(), None).unwrap_err();
+        let err =
+            card_create_impl(&state, session_id, "   ".into(), None, None, None, None).unwrap_err();
         assert!(err.contains("title"));
+    }
+
+    #[test]
+    fn card_create_persists_assist_metadata_without_instruction_gate_fill() {
+        let state = mk_state();
+        let session_id = seed_session(&state);
+        let card = card_create_impl(
+            &state,
+            session_id,
+            "todo input".into(),
+            None,
+            Some("입력창과 추가 버튼을 만든다".into()),
+            Some("빈 입력은 막고 Enter로 추가된다".into()),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(
+            card.assist_summary.as_deref(),
+            Some("입력창과 추가 버튼을 만든다")
+        );
+        assert_eq!(
+            card.acceptance_criteria.as_deref(),
+            Some("빈 입력은 막고 Enter로 추가된다")
+        );
+        assert_eq!(card.instruction, None);
     }
 
     #[test]
     fn card_tool_call_stats_counts_rows_for_card_messages() {
         let state = mk_state();
         let session_id = seed_session(&state);
-        let card = card_create_impl(&state, session_id, "card".into(), None).unwrap();
+        let card =
+            card_create_impl(&state, session_id, "card".into(), None, None, None, None).unwrap();
         let db = state.db.lock().unwrap();
         let message_id = message_dao::insert(
             db.conn(),

@@ -30,7 +30,8 @@
     "release:smoke": "node scripts/release-gate-smoke.mjs",
     "release:smoke:preflight": "node scripts/release-gate-smoke.mjs --preflight",
     "verify:rc1-migration": "node scripts/verify-rc1-migration.mjs",
-    "verify:version-sync": "node scripts/verify-version-sync.mjs 1.0.0-rc.2"
+    "verify:version-sync": "node scripts/verify-version-sync.mjs 1.0.0-rc.2",
+    "research:retrospective": "node scripts/analyze-retrospective.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

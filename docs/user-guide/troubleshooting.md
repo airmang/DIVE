@@ -51,7 +51,7 @@
 - **해결**:
   1. 브라우저 주소창에서 콜백 URL의 **`code=` 파라미터** 전체 복사
   2. DIVE 창의 "코드 직접 붙여넣기" 입력란에 붙여넣기 → 완료
-  - 상세: 명세 §7.4 + `PHASE5_HANDOFF.md`
+  - 상세: 명세 §7.4 + `../internal/PHASE5_HANDOFF.md`
 
 ### 증상: "프로바이더 미연결"이 사라지지 않음
 
@@ -180,4 +180,4 @@ pnpm tauri:dev   # 자세한 tracing DEBUG 레벨 로그
 - **모바일 지원 없음** → 데스크톱 전용 설계
 - **IME 한글 입력 중 단축키 충돌** → v1.1 해결 예정
 - **교사 대시보드 없음** → 익명화 export로 사후 분석 대체
-- **실시간 Codex OAuth 검증** → 실 계정 기준 수동 스모크 테스트 필요 (§PHASE5_HANDOFF.md)
+- **실시간 Codex OAuth 검증** → 실 계정 기준 수동 스모크 테스트 필요 (§../internal/PHASE5_HANDOFF.md)

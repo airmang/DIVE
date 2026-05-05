@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -168,6 +168,48 @@ impl AwaitUserHook {
 #[async_trait]
 impl PermissionHook for AwaitUserHook {
     async fn intercept(&self, call: &ToolCall, risk: RiskLevel) -> PermissionDecision {
+        if self.auto_approve_safe && matches!(risk, RiskLevel::Safe) {
+            return PermissionDecision::approved();
+        }
+        let rx = self.pending.register(&call.id);
+        match rx.await {
+            Ok(decision) => decision,
+            Err(_) => PermissionDecision::denied("approval channel closed"),
+        }
+    }
+}
+
+/// Runtime hook used by the product app: the Settings policy can approve or
+/// deny safe/warn tools immediately, while unmatched calls still go through the
+/// normal user approval queue. Danger tools are never auto-approved by policy.
+pub struct PolicyAwareHook {
+    pub pending: PendingApprovals,
+    pub policy: Arc<RwLock<AutoApprovePolicy>>,
+    pub auto_approve_safe: bool,
+}
+
+impl PolicyAwareHook {
+    pub fn new(
+        pending: PendingApprovals,
+        policy: Arc<RwLock<AutoApprovePolicy>>,
+        auto_approve_safe: bool,
+    ) -> Self {
+        Self {
+            pending,
+            policy,
+            auto_approve_safe,
+        }
+    }
+}
+
+#[async_trait]
+impl PermissionHook for PolicyAwareHook {
+    async fn intercept(&self, call: &ToolCall, risk: RiskLevel) -> PermissionDecision {
+        if let Ok(policy) = self.policy.read() {
+            if let Some(decision) = policy.decide(&call.name, risk) {
+                return decision;
+            }
+        }
         if self.auto_approve_safe && matches!(risk, RiskLevel::Safe) {
             return PermissionDecision::approved();
         }

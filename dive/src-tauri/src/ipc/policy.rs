@@ -1,12 +1,14 @@
-use std::sync::Mutex;
-
-use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::agent::{AutoApprove, AutoApprovePolicy};
 
 use super::AppState;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResearchSettingsDto {
+    pub disable_gates: bool,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AutoApprovePolicyDto {
@@ -53,25 +55,39 @@ fn mode_from_string(s: &str) -> Option<AutoApprove> {
     }
 }
 
-static POLICY_STORE: Lazy<Mutex<AutoApprovePolicyDto>> =
-    Lazy::new(|| Mutex::new(AutoApprovePolicyDto::default()));
-
 #[tauri::command]
 pub async fn provider_policy_get(
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<AutoApprovePolicyDto, String> {
-    let guard = POLICY_STORE.lock().map_err(|e| e.to_string())?;
-    Ok(guard.clone())
+    let guard = state.auto_policy.read().map_err(|e| e.to_string())?;
+    Ok(AutoApprovePolicyDto::from_policy(&guard))
 }
 
 #[tauri::command]
 pub async fn provider_policy_set(
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
     policy: AutoApprovePolicyDto,
 ) -> Result<(), String> {
-    let mut guard = POLICY_STORE.lock().map_err(|e| e.to_string())?;
-    *guard = policy;
+    let mut guard = state.auto_policy.write().map_err(|e| e.to_string())?;
+    *guard = policy.to_policy();
     Ok(())
+}
+
+#[tauri::command]
+pub async fn research_settings_get(
+    state: State<'_, AppState>,
+) -> Result<ResearchSettingsDto, String> {
+    Ok(ResearchSettingsDto {
+        disable_gates: state.research_gates_disabled()?,
+    })
+}
+
+#[tauri::command]
+pub async fn research_settings_set(
+    state: State<'_, AppState>,
+    settings: ResearchSettingsDto,
+) -> Result<(), String> {
+    state.set_research_gates_disabled(settings.disable_gates)
 }
 
 #[cfg(test)]
@@ -92,6 +108,17 @@ mod tests {
         assert_eq!(dto2.rules.get("read_file"), Some(&"always".to_string()));
         assert_eq!(dto2.rules.get("write_file"), Some(&"never".to_string()));
         assert_eq!(dto2.default, Some("never".into()));
+    }
+
+    #[test]
+    fn research_settings_dto_roundtrip_shape() {
+        let dto = ResearchSettingsDto {
+            disable_gates: true,
+        };
+        let encoded = serde_json::to_string(&dto).unwrap();
+        assert!(encoded.contains("disable_gates"));
+        let decoded: ResearchSettingsDto = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, dto);
     }
 
     #[test]

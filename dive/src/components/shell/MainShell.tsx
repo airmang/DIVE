@@ -4,6 +4,8 @@ import { ChatArea, type ChatStageBanner } from "./ChatArea";
 import { WorkmapStrip } from "./WorkmapStrip";
 import { SlideInPanel } from "../slide-in/SlideInPanel";
 import { AiAssistDialog } from "../workmap/AiAssistDialog";
+import { NewCardDialog, type NewCardDraft } from "../workmap/NewCardDialog";
+import { RetroDialog } from "../workmap/RetroDialog";
 import { OnboardingDialog } from "../onboarding/OnboardingDialog";
 import { NewProjectDialog } from "../onboarding/NewProjectDialog";
 import {
@@ -31,14 +33,17 @@ import { refreshMenuRecents, useMenuEvents } from "../../lib/menu-events";
 import { pickFolder } from "../../lib/tauri-dialog";
 import { useTheme } from "../../hooks/useTheme";
 import { Button } from "../ui/button";
-import { hasDevDemoParam } from "../../lib/dev-demo";
+import { hasRecognizedDemoRoute } from "../../lib/dev-demo";
 import { useUiPreferencesStore } from "../../stores/ui-preferences";
+import type { DiveStage as PromptDiveStage } from "../../lib/ambiguity";
 
 export function MainShell() {
   const t = useT();
   const [workmapCollapsed, setWorkmapCollapsed] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [newCardOpen, setNewCardOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [retroCard, setRetroCard] = useState<CardTileData | null>(null);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [lastManualCheckpointLabel, setLastManualCheckpointLabel] = useState<string | null>(null);
@@ -47,6 +52,7 @@ export function MainShell() {
   const projectSessionLoaded = useProjectSessionStore((s) => s.loaded);
   const loadProjectSession = useProjectSessionStore((s) => s.loadAll);
   const hasConnectedProvider = useProjectSessionStore(selectHasConnectedProvider);
+  const addCardLocal = useWorkmapStore((s) => s.addCardLocal);
   const addCardsLocal = useWorkmapStore((s) => s.addCardsLocal);
   const setCurrentCardLocal = useWorkmapStore((s) => s.setCurrentCardLocal);
   const currentProjectId = useProjectSessionStore((s) => s.currentProjectId);
@@ -59,10 +65,14 @@ export function MainShell() {
   const { toggleTheme } = useTheme();
 
   useEffect(() => {
-    if (!projectSessionLoaded) void loadProjectSession().catch(() => undefined);
+    if (!projectSessionLoaded) {
+      void loadProjectSession().catch((err) => {
+        console.warn("project session load failed:", err);
+      });
+    }
   }, [projectSessionLoaded, loadProjectSession]);
 
-  const isDemoRoute = hasDevDemoParam();
+  const isDemoRoute = import.meta.env.DEV && hasRecognizedDemoRoute();
 
   useEffect(() => {
     if (!projectSessionLoaded || isDemoRoute) return;
@@ -94,6 +104,7 @@ export function MainShell() {
     () => inferStageFor(currentCard, cards.length, allVerified),
     [currentCard, cards.length, allVerified],
   );
+  const canAddCard = isDemoRoute || currentSessionId !== null;
 
   const stageBanner = useMemo<ChatStageBanner | null>(() => {
     if (cards.length === 0) return null;
@@ -132,35 +143,16 @@ export function MainShell() {
     return { tone: "success", message: t("stage.banner_extended") };
   }, [cards.length, currentCard, allVerified, t]);
 
-  const inputBlocked = useMemo(() => {
-    if (!isDemoRoute && currentSessionId === null) {
-      return { reason: "세션을 선택하거나 생성하세요." };
-    }
-    if (!canChat) {
-      return { reason: t("stage.gate_no_cards") };
-    }
-    if (stage === "i" && currentCard) {
-      const hasInstruction = (currentCard.summary ?? "").trim().length > 0;
-      if (!hasInstruction) {
-        return { reason: t("stage.gate_no_instruction") };
-      }
-    }
-    if (stage === "v" && currentCard?.state !== "verifying") {
-      return { reason: t("stage.gate_not_verifying") };
-    }
-    return null;
-  }, [canChat, currentSessionId, isDemoRoute, stage, currentCard, t]);
-
   const showWorkmapError = useCallback(
     (err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
       toast({
         variant: "error",
-        title: "워크맵 저장 실패",
+        title: t("toast.workmap_save_failed"),
         description: message,
       });
     },
-    [toast],
+    [toast, t],
   );
 
   const handleCardClick = (card: CardTileData) => {
@@ -170,6 +162,7 @@ export function MainShell() {
         openSlideIn({
           tab: "code",
           files: workmap.changedFilesFor(card.id),
+          changeSummary: card.changeSummary ?? null,
           replaceFiles: true,
         });
         return;
@@ -185,6 +178,7 @@ export function MainShell() {
           openSlideIn({
             tab: "code",
             files: workmap.changedFilesFor(card.id),
+            changeSummary: card.changeSummary ?? null,
             replaceFiles: true,
           });
           return;
@@ -199,6 +193,10 @@ export function MainShell() {
   const handleDetailOpenChange = (open: boolean) => {
     setDetailOpen(open);
     if (!open) {
+      if (isDemoRoute) {
+        setCurrentCardLocal(null);
+        return;
+      }
       void workmap.setCurrentCardRemote(null).catch(showWorkmapError);
     }
   };
@@ -228,6 +226,10 @@ export function MainShell() {
   ) => {
     try {
       await workmap.transitionCardRemote(cardId, transition, options);
+      if (transition === "approve" || transition === "extend") {
+        const card = cards.find((candidate) => candidate.id === cardId);
+        if (card) setRetroCard(card);
+      }
     } catch (err) {
       showWorkmapError(err);
       throw err;
@@ -251,7 +253,7 @@ export function MainShell() {
       } catch (err) {
         toast({
           variant: "error",
-          title: "체크포인트 저장 실패",
+          title: t("toast.checkpoint_save_failed"),
           description: err instanceof Error ? err.message : String(err),
         });
       }
@@ -267,18 +269,18 @@ export function MainShell() {
   }, []);
 
   const handleOpenProject = useCallback(async () => {
-    const picked = await pickFolder({ title: "열 프로젝트 폴더 선택" });
+    const picked = await pickFolder({ title: t("project.open_pick_title") });
     if (!picked) return;
     try {
       await openProject(picked);
     } catch (err) {
       toast({
         variant: "error",
-        title: "프로젝트 열기 실패",
+        title: t("toast.project_open_failed"),
         description: err instanceof Error ? err.message : String(err),
       });
     }
-  }, [openProject, toast]);
+  }, [openProject, toast, t]);
 
   const openExternalUrl = useCallback(
     async (url: string, title: string) => {
@@ -312,27 +314,27 @@ export function MainShell() {
       setTutorialEnabled(nextEnabled);
       toast({
         variant: "info",
-        title: nextEnabled ? "튜토리얼 모드를 켰습니다" : "튜토리얼 모드를 껐습니다",
-        description: "Settings > 일반에서 언제든 바꿀 수 있습니다.",
+        title: nextEnabled ? t("toast.tutorial_on") : t("toast.tutorial_off"),
+        description: t("toast.tutorial_description"),
       });
     },
     "menu:help-docs": () => {
       void openExternalUrl(
         "https://github.com/coreelab/dive/blob/main/README.md",
-        "문서를 열 수 없습니다",
+        t("toast.docs_open_failed"),
       );
     },
     "menu:help-issue": () => {
       void openExternalUrl(
         "https://github.com/coreelab/dive/issues/new",
-        "이슈 페이지를 열 수 없습니다",
+        t("toast.issue_open_failed"),
       );
     },
     "menu:help-about": () =>
       toast({
         variant: "info",
-        title: "DIVE v1.0.0-rc.2",
-        description: "AI 코딩 작업을 카드와 세션으로 관리하는 데스크톱 앱입니다.",
+        title: t("toast.about_title"),
+        description: t("toast.about_description"),
       }),
   });
 
@@ -369,12 +371,49 @@ export function MainShell() {
   );
 
   const handleOpenCodeForCard = (cardId: number) => {
+    const card = cards.find((candidate) => candidate.id === cardId);
     openSlideIn({
       tab: "code",
       files: workmap.changedFilesFor(cardId),
+      changeSummary: card?.changeSummary ?? null,
       replaceFiles: true,
     });
   };
+
+  const handleManualAddCard = useCallback(
+    async (draft: NewCardDraft) => {
+      const position = cards.length + 1;
+      if (isDemoRoute) {
+        const nextId = Math.max(0, ...cards.map((card) => card.id)) + 1;
+        addCardLocal({
+          id: nextId,
+          title: draft.title,
+          summary: draft.instructionSeed,
+          assistSummary: draft.summary,
+          acceptanceCriteria: draft.acceptanceCriteria,
+          state: "decomposed",
+          stagesCompleted: { d: true, i: false, v: false, e: false },
+          position,
+        });
+        setCurrentCardLocal(nextId);
+        setDetailOpen(true);
+        return;
+      }
+      try {
+        const row = await workmap.createCard(draft.title, position, {
+          summary: draft.summary,
+          acceptanceCriteria: draft.acceptanceCriteria,
+          instructionSeed: draft.instructionSeed,
+        });
+        await workmap.setCurrentCardRemote(row.id);
+        setDetailOpen(true);
+      } catch (err) {
+        showWorkmapError(err);
+        throw err;
+      }
+    },
+    [addCardLocal, cards, isDemoRoute, setCurrentCardLocal, showWorkmapError, workmap],
+  );
 
   const cardStateLabel = currentCard ? getCardStateMeta(currentCard.state).label : null;
   const currentVerifyLog: VerifyLogView | null = currentCard
@@ -384,7 +423,6 @@ export function MainShell() {
     ? workmap.verifyStateFor(currentCard.id)
     : "idle";
   const currentVerifyError = currentCard ? workmap.verifyErrorFor(currentCard.id) : null;
-
   const handleEmptyStateAction = useCallback(() => {
     if (currentProjectId === null) {
       setNewProjectOpen(true);
@@ -392,26 +430,82 @@ export function MainShell() {
     }
     void createSession(currentProjectId);
   }, [createSession, currentProjectId]);
+  const promptStage = stage.toUpperCase() as PromptDiveStage;
+
+  const inputBlocked = useMemo(() => {
+    if (!isDemoRoute && !hasConnectedProvider) {
+      return {
+        reason: t("stage.gate_no_provider"),
+        actionLabel: t("stage.action_open_settings"),
+        onAction: openSettingsRoute,
+      };
+    }
+    if (!isDemoRoute && currentSessionId === null) {
+      return {
+        reason: t("stage.gate_no_session"),
+        actionLabel:
+          currentProjectId === null ? t("sidebar.new_project") : t("sidebar.new_session"),
+        onAction: handleEmptyStateAction,
+      };
+    }
+    if (!canChat) {
+      return {
+        reason: t("stage.gate_no_cards"),
+        actionLabel: t("stage.action_add_ai_cards"),
+        onAction: () => setAiOpen(true),
+      };
+    }
+    if (stage === "i" && currentCard) {
+      const hasInstruction = (currentCard.summary ?? "").trim().length > 0;
+      if (!hasInstruction) {
+        return {
+          reason: t("stage.gate_no_instruction"),
+          actionLabel: t("stage.action_write_instruction"),
+          onAction: () => setDetailOpen(true),
+        };
+      }
+    }
+    if (stage === "v" && currentCard?.state !== "verifying") {
+      return {
+        reason: t("stage.gate_not_verifying"),
+        actionLabel: t("stage.action_start_verify"),
+        onAction: currentCard ? () => void handleVerify(currentCard.id) : undefined,
+      };
+    }
+    return null;
+  }, [
+    canChat,
+    currentCard,
+    currentProjectId,
+    currentSessionId,
+    handleEmptyStateAction,
+    handleVerify,
+    hasConnectedProvider,
+    isDemoRoute,
+    openSettingsRoute,
+    stage,
+    t,
+  ]);
 
   const emptyState = useMemo(() => {
     if (currentProjectId === null) {
       return {
-        title: "프로젝트를 만들고 세션을 시작하세요",
-        description: "DIVE는 프로젝트별로 카드와 대화를 디스크 DB에 저장합니다.",
-        actionLabel: "새 프로젝트",
+        title: t("chat.empty_no_project_title"),
+        description: t("chat.empty_no_project_description"),
+        actionLabel: t("sidebar.new_project"),
         onAction: handleEmptyStateAction,
       };
     }
     if (currentSessionId === null) {
       return {
-        title: "세션을 선택하거나 생성하세요",
-        description: "세션이 선택되기 전에는 카드와 채팅을 만들지 않습니다.",
-        actionLabel: "새 세션",
+        title: t("chat.empty_no_session_title"),
+        description: t("chat.empty_no_session_description"),
+        actionLabel: t("sidebar.new_session"),
         onAction: handleEmptyStateAction,
       };
     }
     return undefined;
-  }, [currentProjectId, currentSessionId, handleEmptyStateAction]);
+  }, [currentProjectId, currentSessionId, handleEmptyStateAction, t]);
 
   const sendMessage = useCallback(
     (text: string) => {
@@ -419,6 +513,19 @@ export function MainShell() {
     },
     [chat, stage],
   );
+
+  const handleRetryError = useCallback(() => {
+    const lastUser = [...chat.messages].reverse().find((message) => message.kind === "user");
+    if (lastUser?.kind === "user") {
+      void chat.sendUserMessage(lastUser.content, stage);
+      return;
+    }
+    toast({
+      variant: "error",
+      title: t("toast.retry_unavailable"),
+      description: t("toast.retry_unavailable_description"),
+    });
+  }, [chat, stage, toast, t]);
 
   const showProviderSetupBanner = projectSessionLoaded && !isDemoRoute && !hasConnectedProvider;
 
@@ -434,10 +541,8 @@ export function MainShell() {
           className="pointer-events-none absolute left-[296px] right-4 top-4 z-30 flex items-center justify-between gap-3 rounded-lg border border-warn/50 bg-bg-panel px-4 py-3 text-sm shadow-lg"
         >
           <div>
-            <div className="font-semibold text-fg">API 키를 설정하세요</div>
-            <div className="text-xs text-fg-muted">
-              연결된 프로바이더가 없어 채팅과 검증을 시작할 수 없습니다.
-            </div>
+            <div className="font-semibold text-fg">{t("chat.provider_setup_title")}</div>
+            <div className="text-xs text-fg-muted">{t("stage.gate_no_provider")}</div>
           </div>
           <Button
             size="sm"
@@ -446,7 +551,7 @@ export function MainShell() {
             data-testid="provider-banner-cta"
             className="pointer-events-auto"
           >
-            설정 열기
+            {t("stage.action_open_settings")}
           </Button>
         </div>
       ) : null}
@@ -459,12 +564,14 @@ export function MainShell() {
         stageBanner={stageBanner}
         onSendMessage={sendMessage}
         onOpenSlidePanel={() => openSlideIn({ tab: "code" })}
+        onRetryError={handleRetryError}
         onApproveToolCall={(toolCallId, modifiedArgs) =>
           void chat.approveToolCall(toolCallId, modifiedArgs)
         }
         onDenyToolCall={(toolCallId, reason) => void chat.denyToolCall(toolCallId, reason)}
         inputDisabled={chat.isStreaming || (!isDemoRoute && currentSessionId === null)}
         inputBlocked={inputBlocked}
+        stage={promptStage}
         emptyState={emptyState}
       />
       <WorkmapStrip
@@ -472,11 +579,18 @@ export function MainShell() {
         collapsed={workmapCollapsed}
         onToggle={() => setWorkmapCollapsed((c) => !c)}
         cards={cards}
-        canAddCard={canChat}
+        canAddCard={canAddCard}
+        onAddCard={() => setNewCardOpen(true)}
         onCardClick={handleCardClick}
         onRequestAiAssist={() => setAiOpen(true)}
       />
       <SlideInPanel />
+      <NewCardDialog
+        open={newCardOpen}
+        onOpenChange={setNewCardOpen}
+        position={cards.length + 1}
+        onCreate={handleManualAddCard}
+      />
       <AiAssistDialog
         open={aiOpen}
         onOpenChange={setAiOpen}
@@ -487,7 +601,10 @@ export function MainShell() {
           }
           try {
             for (const card of nextCards) {
-              await workmap.createCard(card.title, card.position);
+              await workmap.createCard(card.title, card.position, {
+                summary: card.assistSummary ?? card.summary,
+                acceptanceCriteria: card.acceptanceCriteria ?? null,
+              });
             }
           } catch (err) {
             showWorkmapError(err);
@@ -517,6 +634,17 @@ export function MainShell() {
         onConnected={() => setNewProjectOpen(true)}
       />
       <NewProjectDialog open={newProjectOpen} onOpenChange={setNewProjectOpen} />
+      <RetroDialog
+        open={retroCard !== null}
+        cardTitle={retroCard?.title ?? ""}
+        onOpenChange={(open) => {
+          if (!open) setRetroCard(null);
+        }}
+        onSave={async (content) => {
+          if (!retroCard) return;
+          await workmap.saveRetrospectiveRemote(retroCard.id, content);
+        }}
+      />
       <input type="hidden" data-testid="current-stage" value={stage} />
       <input type="hidden" data-testid="current-card-id" value={currentCardId ?? ""} />
       <input

@@ -114,8 +114,8 @@ pnpm tauri:build:x64  # Windows x64 NSIS
 ### 검증 체크
 
 ```bash
-cd dive/src-tauri && cargo test --all-targets           # Rust (238+ tests)
-cd dive/src-tauri && cargo clippy --all-targets -- -D warnings
+cd dive/src-tauri && cargo test --features dev-mock --all-targets # Rust tests
+cd dive/src-tauri && cargo clippy --features dev-mock --all-targets -- -D warnings
 cd dive && pnpm typecheck && pnpm lint && pnpm build
 cd dive && pnpm dev                                      # 한 터미널
 node dive/scripts/verify-i18n.mjs                        # 다른 터미널 (여러 스위트)
@@ -132,7 +132,7 @@ node dive/scripts/verify-i18n.mjs                        # 다른 터미널 (여
 - **개인정보 보호** — 기본 로컬 우선, 프로젝트 폴더 외부 접근 차단, 텔레메트리 없음 (§9.4)
 
 전체 명세: [`DIVE_SPEC.md`](./DIVE_SPEC.md) (1600+ 라인)
-의사결정 기록: [`DIVE_DECISIONS.md`](./DIVE_DECISIONS.md) (75 ADR)
+의사결정 기록: [`DIVE_DECISIONS.md`](./DIVE_DECISIONS.md) (66 ADR, 최신 ADR-076)
 
 ---
 
@@ -160,7 +160,7 @@ node dive/scripts/verify-i18n.mjs                        # 다른 터미널 (여
 | 2026-05      | **v1.0-rc.2** | **Production wiring · disk DB · cards persistence · release gate** 🟡 |
 | 2026-11 ~ 12 | **v1.0**      | **파일럿 검증 후 정식 배포**                                          |
 
-Phase별 상세는 [`DIVE_PROGRESS.md`](./DIVE_PROGRESS.md) 참조.
+Phase별 상세는 [`DIVE_PROGRESS.md`](./docs/internal/DIVE_PROGRESS.md) 참조.
 
 ---
 
@@ -178,4 +178,4 @@ Phase별 상세는 [`DIVE_PROGRESS.md`](./DIVE_PROGRESS.md) 참조.
 - 보안 취약점 제보: 별도 이슈 대신 연구진에게 직접 연락
 - 파일럿 참여 문의: 광교고 고규현 (총괄)
 
-프로젝트 내부 운영(ralph 자동 구현 루프)은 [`RALPH_README.md`](./RALPH_README.md) 참조.
+프로젝트 내부 운영(ralph 자동 구현 루프)은 [`RALPH_README.md`](./docs/internal/RALPH_README.md) 참조.

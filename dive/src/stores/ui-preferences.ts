@@ -9,7 +9,7 @@ interface UiPreferencesStore {
 export const useUiPreferencesStore = create<UiPreferencesStore>()(
   persist(
     (set) => ({
-      tutorialEnabled: false,
+      tutorialEnabled: true,
       setTutorialEnabled: (tutorialEnabled) => set({ tutorialEnabled }),
     }),
     { name: "dive:ui-preferences" },

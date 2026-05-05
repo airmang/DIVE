@@ -7,9 +7,11 @@
 //! type without a heavyweight schema.
 //!
 //! Anonymization:
-//! - Every sensitive string (user message body, file paths, tool call
-//!   arguments/results) is replaced with a 16-character SHA-256 prefix
+//! - Every sensitive string (user message body, file paths, PII-shaped
+//!   tool/event payloads) is replaced with a 16-character SHA-256 prefix
 //!   when the corresponding `hash_*` option is on.
+//! - Numeric session/card/message/tool/checkpoint/event IDs are hashed by
+//!   default so classroom exports do not leak source database identifiers.
 //! - The salt is a fresh random value generated at the start of each
 //!   export run — not a per-session constant. Cross-export correlation of
 //!   "is this the same user text?" is therefore impossible unless the
@@ -24,25 +26,39 @@
 //!   consumed by the pilot analysis scripts. Adding fields is safe;
 //!   removing/renaming requires a migration note.
 
-use rusqlite::{params, OptionalExtension};
+use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use uuid::Uuid;
 
 use crate::db::Database;
 
+pub mod anonymize;
+
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportOptions {
+    #[serde(default = "default_true")]
     pub include_messages: bool,
+    #[serde(default = "default_true")]
     pub include_tool_calls: bool,
+    #[serde(default = "default_true")]
     pub include_verify_logs: bool,
+    #[serde(default = "default_true")]
     pub include_checkpoints: bool,
+    #[serde(default = "default_true")]
     pub include_events: bool,
+    #[serde(default = "default_true")]
     pub hash_user_text: bool,
+    #[serde(default = "default_true")]
     pub hash_file_paths: bool,
+    #[serde(default = "default_true")]
+    pub hash_ids: bool,
 }
 
 impl Default for ExportOptions {
@@ -55,6 +71,7 @@ impl Default for ExportOptions {
             include_events: true,
             hash_user_text: true,
             hash_file_paths: true,
+            hash_ids: true,
         }
     }
 }
@@ -121,8 +138,8 @@ impl ExportEngine {
             &mut out,
             json!({
                 "kind": "session_meta",
-                "session_id": session_id,
-                "title": maybe_hash(options.hash_user_text, &title, salt),
+                "session_id": anonymize::maybe_hash_id(options.hash_ids, "session", session_id, salt),
+                "title": anonymize::maybe_hash_text(options.hash_user_text, &title, salt),
                 "status": status,
                 "started_at": started_at,
                 "ended_at": ended_at,
@@ -131,7 +148,7 @@ impl ExportEngine {
 
         let mut stmt = conn
             .prepare(
-                "SELECT id, title, instruction, state, verify_log, changed_files, position, created_at, updated_at FROM Card WHERE session_id = ? ORDER BY position, id"
+                "SELECT id, title, instruction, state, verify_log, changed_files, position, created_at, updated_at, retrospective, change_summary FROM Card WHERE session_id = ? ORDER BY position, id"
             )
             .map_err(|e| ExportError::Db(e.to_string()))?;
         let rows = stmt
@@ -146,15 +163,24 @@ impl ExportEngine {
                     position: row.get(6)?,
                     created_at: row.get(7)?,
                     updated_at: row.get(8)?,
+                    retrospective: row.get::<_, Option<String>>(9)?,
+                    change_summary: row.get::<_, Option<String>>(10)?,
                 })
             })
             .map_err(|e| ExportError::Db(e.to_string()))?;
         for row in rows {
             let c = row.map_err(|e| ExportError::Db(e.to_string()))?;
             let verify_log_json = if options.include_verify_logs {
-                c.verify_log
-                    .as_ref()
-                    .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                c.verify_log.as_ref().and_then(|s| {
+                    serde_json::from_str::<Value>(s).ok().map(|value| {
+                        anonymize::anonymize_value(
+                            &value,
+                            options.hash_user_text,
+                            options.hash_file_paths,
+                            salt,
+                        )
+                    })
+                })
             } else {
                 None
             };
@@ -163,19 +189,26 @@ impl ExportEngine {
                 .as_ref()
                 .and_then(|s| serde_json::from_str::<Value>(s).ok());
             let changed_files_emit = match changed_files_json {
-                Some(v) => hash_paths_in_value(&v, options.hash_file_paths, salt),
+                Some(v) => anonymize::anonymize_value(
+                    &v,
+                    options.hash_user_text,
+                    options.hash_file_paths,
+                    salt,
+                ),
                 None => Value::Null,
             };
             write_record(
                 &mut out,
                 json!({
                     "kind": "card",
-                    "id": c.id,
-                    "title": maybe_hash(options.hash_user_text, &c.title, salt),
-                    "instruction": c.instruction.as_ref().map(|s| maybe_hash(options.hash_user_text, s, salt)),
+                    "id": anonymize::maybe_hash_id(options.hash_ids, "card", c.id, salt),
+                    "title": anonymize::maybe_hash_text(options.hash_user_text, &c.title, salt),
+                    "instruction": c.instruction.as_ref().map(|s| anonymize::maybe_hash_text(options.hash_user_text, s, salt)),
                     "state": c.state,
                     "verify_log": verify_log_json,
                     "changed_files": changed_files_emit,
+                    "retrospective": c.retrospective.as_ref().map(|s| anonymize::maybe_hash_text(options.hash_user_text, s, salt)),
+                    "change_summary": c.change_summary.as_ref().map(|s| anonymize::maybe_hash_text(options.hash_user_text, s, salt)),
                     "position": c.position,
                     "created_at": c.created_at,
                     "updated_at": c.updated_at,
@@ -208,19 +241,29 @@ impl ExportEngine {
                 let m = row.map_err(|e| ExportError::Db(e.to_string()))?;
                 let hash_for_role = m.role == "user";
                 let content_emit = if hash_for_role && options.hash_user_text {
-                    maybe_hash(true, &m.content, salt)
+                    anonymize::maybe_hash_text(true, &m.content, salt)
                 } else {
                     Value::String(m.content.clone())
                 };
+                let tool_calls_emit = m.tool_calls.and_then(|s| {
+                    serde_json::from_str::<Value>(&s).ok().map(|value| {
+                        anonymize::anonymize_value(
+                            &value,
+                            options.hash_user_text,
+                            options.hash_file_paths,
+                            salt,
+                        )
+                    })
+                });
                 write_record(
                     &mut out,
                     json!({
                         "kind": "message",
-                        "id": m.id,
-                        "card_id": m.card_id,
+                        "id": anonymize::maybe_hash_id(options.hash_ids, "message", m.id, salt),
+                        "card_id": m.card_id.map(|id| anonymize::maybe_hash_id(options.hash_ids, "card", id, salt)),
                         "role": m.role,
                         "content": content_emit,
-                        "tool_calls": m.tool_calls.and_then(|s| serde_json::from_str::<Value>(&s).ok()),
+                        "tool_calls": tool_calls_emit,
                         "usage": m.usage_json.and_then(|s| serde_json::from_str::<Value>(&s).ok()),
                         "provider": m.provider,
                         "model": m.model,
@@ -262,11 +305,11 @@ impl ExportEngine {
                     &mut out,
                     json!({
                         "kind": "tool_call",
-                        "id": t.id,
-                        "message_id": t.message_id,
+                        "id": anonymize::maybe_hash_id(options.hash_ids, "tool_call", t.id, salt),
+                        "message_id": anonymize::maybe_hash_id(options.hash_ids, "message", t.message_id, salt),
                         "name": t.name,
-                        "input": hash_paths_in_value(&input_json, options.hash_file_paths, salt),
-                        "output": hash_paths_in_value(&output_json, options.hash_file_paths, salt),
+                        "input": anonymize::anonymize_value(&input_json, options.hash_user_text, options.hash_file_paths, salt),
+                        "output": anonymize::anonymize_value(&output_json, options.hash_user_text, options.hash_file_paths, salt),
                         "approved": t.approved,
                         "risk_level": t.risk_level,
                         "created_at": t.created_at,
@@ -300,11 +343,11 @@ impl ExportEngine {
                     &mut out,
                     json!({
                         "kind": "checkpoint",
-                        "id": id,
-                        "card_id": card_id,
+                        "id": anonymize::maybe_hash_id(options.hash_ids, "checkpoint", id, salt),
+                        "card_id": card_id.map(|id| anonymize::maybe_hash_id(options.hash_ids, "card", id, salt)),
                         "git_sha": git_sha,
                         "kind_label": kind,
-                        "label": label.as_ref().map(|s| maybe_hash(options.hash_user_text, s, salt)),
+                        "label": label.as_ref().map(|s| anonymize::maybe_hash_text(options.hash_user_text, s, salt)),
                         "created_at": created_at,
                     }),
                 )?;
@@ -330,21 +373,29 @@ impl ExportEngine {
             for row in rows {
                 let (id, ty, payload, created_at) =
                     row.map_err(|e| ExportError::Db(e.to_string()))?;
-                let payload_json = serde_json::from_str::<Value>(&payload).unwrap_or(Value::Null);
+                let payload_json = serde_json::from_str::<Value>(&payload)
+                    .map(|value| {
+                        anonymize::anonymize_value(
+                            &value,
+                            options.hash_user_text,
+                            options.hash_file_paths,
+                            salt,
+                        )
+                    })
+                    .unwrap_or(Value::Null);
                 write_record(
                     &mut out,
                     json!({
                         "kind": "event",
-                        "id": id,
+                        "id": anonymize::maybe_hash_id(options.hash_ids, "event", id, salt),
                         "type": ty,
-                        "payload": hash_paths_in_value(&payload_json, options.hash_file_paths, salt),
+                        "payload": payload_json,
                         "created_at": created_at,
                     }),
                 )?;
             }
         }
 
-        let _ = params![session_id];
         Ok(out)
     }
 }
@@ -360,77 +411,6 @@ fn fresh_salt() -> String {
     Uuid::new_v4().to_string()
 }
 
-fn hash_with_salt(input: &str, salt: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(salt.as_bytes());
-    hasher.update(b":");
-    hasher.update(input.as_bytes());
-    let digest = hasher.finalize();
-    let hex = format!("{:x}", digest);
-    hex[..16].to_string()
-}
-
-fn maybe_hash(enabled: bool, input: &str, salt: &str) -> Value {
-    if enabled {
-        Value::String(format!("h:{}", hash_with_salt(input, salt)))
-    } else {
-        Value::String(input.to_string())
-    }
-}
-
-fn hash_paths_in_value(value: &Value, enabled: bool, salt: &str) -> Value {
-    if !enabled {
-        return value.clone();
-    }
-    match value {
-        Value::Object(map) => {
-            let mut out = serde_json::Map::new();
-            for (k, v) in map {
-                if looks_like_path_key(k) {
-                    out.insert(k.clone(), hash_string_like(v, salt));
-                } else {
-                    out.insert(k.clone(), hash_paths_in_value(v, enabled, salt));
-                }
-            }
-            Value::Object(out)
-        }
-        Value::Array(arr) => Value::Array(
-            arr.iter()
-                .map(|v| hash_paths_in_value(v, enabled, salt))
-                .collect(),
-        ),
-        Value::String(s) if looks_like_path_value(s) => {
-            Value::String(format!("p:{}", hash_with_salt(s, salt)))
-        }
-        other => other.clone(),
-    }
-}
-
-fn hash_string_like(value: &Value, salt: &str) -> Value {
-    match value {
-        Value::String(s) => Value::String(format!("p:{}", hash_with_salt(s, salt))),
-        other => other.clone(),
-    }
-}
-
-fn looks_like_path_key(key: &str) -> bool {
-    matches!(
-        key,
-        "path" | "file" | "filename" | "file_path" | "target_path"
-    )
-}
-
-fn looks_like_path_value(s: &str) -> bool {
-    let has_sep = s.contains('/') || s.contains('\\');
-    let ext = [
-        ".rs", ".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".java", ".c", ".cpp", ".h", ".json",
-        ".toml", ".md", ".html", ".css", ".scss", ".svg",
-    ]
-    .iter()
-    .any(|e| s.ends_with(e));
-    has_sep && ext
-}
-
 #[derive(Debug)]
 struct CardEmit {
     id: i64,
@@ -439,6 +419,8 @@ struct CardEmit {
     state: String,
     verify_log: Option<String>,
     changed_files: Option<String>,
+    retrospective: Option<String>,
+    change_summary: Option<String>,
     position: i64,
     created_at: i64,
     updated_at: i64,
@@ -474,46 +456,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hash_is_stable_for_same_salt() {
-        let a = hash_with_salt("hello", "salt");
-        let b = hash_with_salt("hello", "salt");
-        assert_eq!(a, b);
-        assert_eq!(a.len(), 16);
-    }
-
-    #[test]
-    fn hash_differs_across_salts() {
-        let a = hash_with_salt("hello", "salt-a");
-        let b = hash_with_salt("hello", "salt-b");
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn path_detector_identifies_filenames() {
-        assert!(looks_like_path_value("src/App.tsx"));
-        assert!(looks_like_path_value("C:\\Users\\x\\a.rs"));
-        assert!(!looks_like_path_value("hello world"));
-        assert!(!looks_like_path_value(".rs"));
-    }
-
-    #[test]
-    fn hash_paths_in_value_masks_path_shaped_strings() {
-        let salt = "s";
-        let v = json!({
-            "path": "src/a.tsx",
-            "count": 3,
-            "nested": { "file": "b.rs" },
-            "items": ["src/c.ts", "plain"]
-        });
-        let out = hash_paths_in_value(&v, true, salt);
-        assert!(out["path"].as_str().unwrap().starts_with("p:"));
-        assert!(out["nested"]["file"].as_str().unwrap().starts_with("p:"));
-        assert!(out["items"][0].as_str().unwrap().starts_with("p:"));
-        assert_eq!(out["items"][1], Value::String("plain".into()));
-        assert_eq!(out["count"], json!(3));
-    }
-
-    #[test]
     fn default_options_enable_everything() {
         let o = ExportOptions::default();
         assert!(o.include_messages);
@@ -523,5 +465,6 @@ mod tests {
         assert!(o.include_events);
         assert!(o.hash_user_text);
         assert!(o.hash_file_paths);
+        assert!(o.hash_ids);
     }
 }

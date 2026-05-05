@@ -12,6 +12,7 @@ interface SlideInState {
   isOpen: boolean;
   activeTab: SlideInTab;
   changedFiles: ChangedFile[];
+  changeSummary: string | null;
   selectedFilePath: string | null;
   previewUrl: string | null;
   terminalLines: TerminalLine[];
@@ -32,6 +33,7 @@ export const useSlideInStore = create<SlideInState>((set) => ({
   isOpen: false,
   activeTab: "code",
   changedFiles: [],
+  changeSummary: null,
   selectedFilePath: null,
   previewUrl: null,
   terminalLines: [],
@@ -47,6 +49,12 @@ export const useSlideInStore = create<SlideInState>((set) => ({
         isOpen: true,
         activeTab: args?.tab ?? prev.activeTab,
         changedFiles: files,
+        changeSummary:
+          args?.changeSummary !== undefined
+            ? args.changeSummary
+            : args?.replaceFiles
+              ? null
+              : prev.changeSummary,
         selectedFilePath:
           prev.selectedFilePath && files.some((f) => f.path === prev.selectedFilePath)
             ? prev.selectedFilePath

@@ -123,7 +123,8 @@ export function ProviderModelSelector({ providerId, providerKind, selectedModel 
   };
 
   if (loading) return <div className="text-xs text-fg-muted">모델 로드 중…</div>;
-  if (options.length === 0) return <div className="text-xs text-fg-muted">사용 가능한 모델 없음</div>;
+  if (options.length === 0)
+    return <div className="text-xs text-fg-muted">사용 가능한 모델 없음</div>;
 
   return (
     <div className="flex items-center gap-2" data-testid="provider-model-selector">

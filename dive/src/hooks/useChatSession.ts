@@ -24,6 +24,13 @@ type AgentEvent =
   | { type: "assistant_delta"; id: string; delta: string }
   | { type: "assistant_end"; id: string; content: string }
   | {
+      type: "reasoning";
+      id: string;
+      text: string;
+      tool_call_id: string;
+      created_at: number;
+    }
+  | {
       type: "tool_call_start";
       id: string;
       tool: string;
@@ -362,6 +369,21 @@ function reduce(prev: State, evt: AgentEvent): State {
             ? { ...m, content: evt.content, streaming: false }
             : m,
         ),
+      };
+    }
+    case "reasoning": {
+      return {
+        ...prev,
+        messages: [
+          ...prev.messages,
+          {
+            id: evt.id,
+            kind: "reasoning",
+            createdAt: evt.created_at,
+            text: evt.text,
+            toolCallId: evt.tool_call_id,
+          },
+        ],
       };
     }
     case "tool_call_start": {

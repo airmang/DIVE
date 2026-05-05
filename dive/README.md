@@ -67,14 +67,16 @@ Rust 쪽:
 ```bash
 cd src-tauri
 cargo fmt --all -- --check
-cargo check --all-targets
-cargo test --all-targets
-cargo clippy --all-targets -- -D warnings
+cargo check --release
+cargo test --features dev-mock --all-targets
+cargo clippy --features dev-mock --all-targets -- -D warnings
 ```
 
 ## 빌드
 
 ### macOS / Linux (로컬 검증용)
+
+상세 체크리스트는 [`../docs/dev-shell-verification.md`](../docs/dev-shell-verification.md)를 함께 확인하세요.
 
 ```bash
 pnpm build           # Vite 번들만

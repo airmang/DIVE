@@ -22,6 +22,7 @@ interface ExportOptions {
   includeEvents: boolean;
   hashUserText: boolean;
   hashFilePaths: boolean;
+  hashIds: boolean;
 }
 
 const SESSIONS = [
@@ -34,13 +35,13 @@ const SAMPLE_RECORDS = {
   masked: [
     {
       kind: "session_meta",
-      session_id: 1,
+      session_id: "id:session:7a3c1e9b2d4f5a6c",
       title: "h:7a3c1e9b2d4f5a6c",
       status: "active",
     },
     {
       kind: "card",
-      id: 1,
+      id: "id:card:b2d4f5a67a3c1e9b",
       title: "h:b2d4f5a67a3c1e9b",
       state: "verified",
       instruction: "h:c1e9b7a3b2d4f5a6",
@@ -48,26 +49,26 @@ const SAMPLE_RECORDS = {
     },
     {
       kind: "message",
-      id: 1,
+      id: "id:message:4f5a67a3c1e9b2d4",
       role: "user",
       content: "h:4f5a67a3c1e9b2d4",
     },
     {
       kind: "message",
-      id: 2,
+      id: "id:message:67a3c1e9b2d4f5a6",
       role: "assistant",
       content: "의도에 맞춰 LoginForm 컴포넌트를 추가하겠습니다.",
     },
     {
       kind: "tool_call",
-      id: 1,
+      id: "id:tool_call:a67a3c1e9b2d4f5a",
       name: "read_file",
       input: { path: "p:a67a3c1e9b2d4f5a" },
       approved: true,
     },
     {
       kind: "checkpoint",
-      id: 1,
+      id: "id:checkpoint:67a3c1e9b2d4f5a6",
       kind_label: "auto",
       label: "h:67a3c1e9b2d4f5a6",
     },
@@ -89,7 +90,7 @@ const SAMPLE_RECORDS = {
       "session_end",
     ].map((type, index) => ({
       kind: "event",
-      id: index + 1,
+      id: `id:event:${String(index + 1).padStart(16, "0")}`,
       type,
       payload: { source: type === "error_occurred" ? "provider" : undefined },
     })),
@@ -175,6 +176,7 @@ async function tryIpcExport(sessionId: number, options: ExportOptions): Promise<
         include_events: options.includeEvents,
         hash_user_text: options.hashUserText,
         hash_file_paths: options.hashFilePaths,
+        hash_ids: options.hashIds,
       },
     });
   } catch {
@@ -184,7 +186,9 @@ async function tryIpcExport(sessionId: number, options: ExportOptions): Promise<
 
 function mockPreview(options: ExportOptions): string {
   const source =
-    options.hashUserText || options.hashFilePaths ? SAMPLE_RECORDS.masked : SAMPLE_RECORDS.plain;
+    options.hashUserText || options.hashFilePaths || options.hashIds
+      ? SAMPLE_RECORDS.masked
+      : SAMPLE_RECORDS.plain;
   return source
     .filter((r) => {
       if (r.kind === "message" && !options.includeMessages) return false;
@@ -207,6 +211,7 @@ export default function ExportDemoPage() {
     includeEvents: true,
     hashUserText: true,
     hashFilePaths: true,
+    hashIds: true,
   });
   const [preview, setPreview] = useState<string | null>(null);
   const [source, setSource] = useState<"ipc" | "mock" | null>(null);
@@ -303,6 +308,7 @@ export default function ExportDemoPage() {
                 ["includeEvents", "이벤트 로그 포함"],
                 ["hashUserText", "사용자 텍스트 해시 마스킹"],
                 ["hashFilePaths", "파일 경로 해시 마스킹"],
+                ["hashIds", "세션/카드/메시지 ID 해시 마스킹"],
               ] as const
             ).map(([key, label]) => (
               <label

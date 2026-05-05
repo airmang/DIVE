@@ -12,6 +12,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { useProjectSessionStore } from "../../stores/project-session";
 import { isTauriEnv, pickFolder } from "../../lib/tauri-dialog";
+import { useT } from "../../i18n";
 
 interface Props {
   open: boolean;
@@ -19,6 +20,7 @@ interface Props {
 }
 
 export function NewProjectDialog({ open, onOpenChange }: Props) {
+  const t = useT();
   const createProject = useProjectSessionStore((s) => s.createProject);
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
@@ -30,7 +32,7 @@ export function NewProjectDialog({ open, onOpenChange }: Props) {
     setPicking(true);
     setError(null);
     try {
-      const picked = await pickFolder({ title: "프로젝트 폴더 선택" });
+      const picked = await pickFolder({ title: t("new_project.pick_title") });
       if (picked) {
         setPath(picked);
         if (!name.trim()) {
@@ -47,7 +49,7 @@ export function NewProjectDialog({ open, onOpenChange }: Props) {
   const handleCreate = async () => {
     const trimmedPath = path.trim();
     if (!trimmedPath) {
-      setError("프로젝트 폴더를 선택하세요.");
+      setError(t("new_project.path_required"));
       return;
     }
     setSubmitting(true);
@@ -72,15 +74,13 @@ export function NewProjectDialog({ open, onOpenChange }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent data-testid="new-project-dialog" className="max-w-md">
         <DialogHeader>
-          <DialogTitle>새 프로젝트</DialogTitle>
-          <DialogDescription>
-            작업할 폴더를 선택하세요. 선택한 폴더에 `.dive/`가 자동 생성됩니다.
-          </DialogDescription>
+          <DialogTitle>{t("new_project.title")}</DialogTitle>
+          <DialogDescription>{t("new_project.description")}</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-fg-muted" htmlFor="np-path">
-              프로젝트 폴더
+              {t("new_project.folder_label")}
             </label>
             <div className="flex gap-2">
               <Input
@@ -88,7 +88,11 @@ export function NewProjectDialog({ open, onOpenChange }: Props) {
                 data-testid="np-path"
                 value={path}
                 onChange={(e) => setPath(e.target.value)}
-                placeholder={browseSupported ? "찾아보기를 눌러 선택" : "/Users/you/Projects/my-app"}
+                placeholder={
+                  browseSupported
+                    ? t("new_project.browse_placeholder")
+                    : t("new_project.manual_placeholder")
+                }
                 spellCheck={false}
                 autoComplete="off"
               />
@@ -98,28 +102,28 @@ export function NewProjectDialog({ open, onOpenChange }: Props) {
                 onClick={() => void handleBrowse()}
                 disabled={picking || !browseSupported}
                 data-testid="np-browse"
-                aria-label="폴더 찾아보기"
+                aria-label={t("new_project.browse_aria")}
               >
                 <FolderOpen className="h-4 w-4" />
-                <span className="ml-1.5">찾아보기</span>
+                <span className="ml-1.5">{t("new_project.browse")}</span>
               </Button>
             </div>
             {!browseSupported ? (
               <p className="text-[10px] text-fg-muted" data-testid="np-browse-unavailable">
-                데스크톱 앱에서 폴더 선택창을 사용할 수 있습니다.
+                {t("new_project.browse_unavailable")}
               </p>
             ) : null}
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-fg-muted" htmlFor="np-name">
-              이름 (선택)
+              {t("new_project.name_label")}
             </label>
             <Input
               id="np-name"
               data-testid="np-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={path ? inferName(path) : "프로젝트 이름"}
+              placeholder={path ? inferName(path) : t("new_project.name_placeholder")}
             />
           </div>
           {error ? (
@@ -135,14 +139,14 @@ export function NewProjectDialog({ open, onOpenChange }: Props) {
             disabled={submitting}
             data-testid="np-cancel"
           >
-            취소
+            {t("common.cancel")}
           </Button>
           <Button
             onClick={() => void handleCreate()}
             disabled={submitting || !path.trim()}
             data-testid="np-create"
           >
-            {submitting ? "생성 중…" : "프로젝트 생성"}
+            {submitting ? t("new_project.creating") : t("new_project.create")}
           </Button>
         </DialogFooter>
       </DialogContent>

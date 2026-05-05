@@ -10,9 +10,10 @@ const MIGRATIONS: &[(i64, MigrationFn)] = &[
     (3, migration_v3),
     (4, migration_v4),
     (5, migration_v5),
+    (6, migration_v6),
 ];
 
-pub const LATEST_SCHEMA_VERSION: i64 = 5;
+pub const LATEST_SCHEMA_VERSION: i64 = 6;
 
 pub fn migrate(conn: &mut Connection) -> Result<(), DbError> {
     migrate_with_migrations(conn, MIGRATIONS)
@@ -148,6 +149,25 @@ fn migration_v5(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     Ok(())
 }
 
+fn migration_v6(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    for (column, ty) in [
+        ("assist_summary", "TEXT"),
+        ("acceptance_criteria", "TEXT"),
+        ("retrospective", "TEXT"),
+        ("change_summary", "TEXT"),
+    ] {
+        let exists: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('Card') WHERE name = ?",
+            [column],
+            |row| row.get(0),
+        )?;
+        if exists == 0 {
+            tx.execute_batch(&format!("ALTER TABLE Card ADD COLUMN {column} {ty}"))?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use rusqlite::Transaction;
@@ -245,6 +265,20 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_col, 1);
+    }
+
+    #[test]
+    fn migration_v6_adds_beginner_explanation_columns() {
+        let (db, _tmp) = fresh_db();
+        let cols: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('Card') WHERE name IN ('assist_summary','acceptance_criteria','retrospective','change_summary')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(cols, 4);
     }
 
     #[test]

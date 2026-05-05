@@ -39,7 +39,8 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::agent::{
-    AgentEvent, AgentLoop, AwaitUserHook, PendingApprovals, PermissionDecision, PermissionHook,
+    AgentEvent, AgentLoop, AutoApprovePolicy, PendingApprovals, PermissionDecision, PermissionHook,
+    PolicyAwareHook,
 };
 use crate::auth::{self, Keyring, OsKeyring};
 use crate::db::dao::{
@@ -79,6 +80,8 @@ pub struct AppState {
     pub runtime: Arc<RwLock<ProviderRuntime>>,
     pub registry: Arc<ToolRegistry>,
     pub permission: Arc<dyn PermissionHook>,
+    pub auto_policy: Arc<RwLock<AutoApprovePolicy>>,
+    pub research_gates_disabled: Arc<RwLock<bool>>,
     pub pending_approvals: PendingApprovals,
     pub project_root: Arc<RwLock<PathBuf>>,
     pub cancels: Arc<Mutex<HashMap<i64, Arc<AtomicBool>>>>,
@@ -93,8 +96,12 @@ impl AppState {
         model: String,
     ) -> Self {
         let pending = PendingApprovals::new();
-        let permission: Arc<dyn PermissionHook> =
-            Arc::new(AwaitUserHook::new(pending.clone(), true));
+        let auto_policy = Arc::new(RwLock::new(AutoApprovePolicy::default()));
+        let permission: Arc<dyn PermissionHook> = Arc::new(PolicyAwareHook::new(
+            pending.clone(),
+            auto_policy.clone(),
+            true,
+        ));
         let kind = ProviderKind::parse(provider.id());
         let runtime = ProviderRuntime::new(None, kind, model, provider);
         Self {
@@ -102,6 +109,8 @@ impl AppState {
             runtime: Arc::new(RwLock::new(runtime)),
             registry: Arc::new(ToolRegistry::with_builtins()),
             permission,
+            auto_policy,
+            research_gates_disabled: Arc::new(RwLock::new(false)),
             pending_approvals: pending,
             project_root: Arc::new(RwLock::new(project_root)),
             cancels: Arc::new(Mutex::new(HashMap::new())),
@@ -140,13 +149,19 @@ impl AppState {
         keyring: Arc<dyn Keyring>,
     ) -> Self {
         let pending = PendingApprovals::new();
-        let permission: Arc<dyn PermissionHook> =
-            Arc::new(AwaitUserHook::new(pending.clone(), true));
+        let auto_policy = Arc::new(RwLock::new(AutoApprovePolicy::default()));
+        let permission: Arc<dyn PermissionHook> = Arc::new(PolicyAwareHook::new(
+            pending.clone(),
+            auto_policy.clone(),
+            true,
+        ));
         Self {
             db: Arc::new(Mutex::new(db)),
             runtime: Arc::new(RwLock::new(runtime)),
             registry: Arc::new(ToolRegistry::with_builtins()),
             permission,
+            auto_policy,
+            research_gates_disabled: Arc::new(RwLock::new(false)),
             pending_approvals: pending,
             project_root: Arc::new(RwLock::new(project_root)),
             cancels: Arc::new(Mutex::new(HashMap::new())),
@@ -190,6 +205,22 @@ impl AppState {
     pub fn swap_project_root(&self, next: PathBuf) -> Result<(), String> {
         let mut root = self.project_root.write().map_err(|e| e.to_string())?;
         *root = next;
+        Ok(())
+    }
+
+    pub fn research_gates_disabled(&self) -> Result<bool, String> {
+        self.research_gates_disabled
+            .read()
+            .map(|value| *value)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn set_research_gates_disabled(&self, disabled: bool) -> Result<(), String> {
+        let mut value = self
+            .research_gates_disabled
+            .write()
+            .map_err(|e| e.to_string())?;
+        *value = disabled;
         Ok(())
     }
 }
@@ -322,6 +353,10 @@ mod tests {
                 session_id,
                 title: title.into(),
                 instruction: Some("instruction".into()),
+                assist_summary: None,
+                acceptance_criteria: None,
+                retrospective: None,
+                change_summary: None,
                 state: card_state,
                 verify_log: None,
                 changed_files: None,
@@ -610,6 +645,7 @@ pub async fn chat_send(
         return Err(msg);
     }
     let project_root = state.project_root_required()?;
+    let disable_gates = state.research_gates_disabled()?;
     let cancel = Arc::new(AtomicBool::new(false));
     {
         let mut guard = state.cancels.lock().map_err(|e| e.to_string())?;
@@ -624,6 +660,7 @@ pub async fn chat_send(
         .model(snap.model)
         .cancel(cancel)
         .stage(stage)
+        .disable_gates(disable_gates)
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -757,6 +794,10 @@ pub fn card_update_instruction_impl(
                 session_id: existing.session_id,
                 title: existing.title.clone(),
                 instruction: Some(instruction),
+                assist_summary: existing.assist_summary.clone(),
+                acceptance_criteria: existing.acceptance_criteria.clone(),
+                retrospective: existing.retrospective.clone(),
+                change_summary: existing.change_summary.clone(),
                 state: next_state,
                 verify_log: existing.verify_log.clone(),
                 changed_files: existing.changed_files.clone(),
@@ -803,6 +844,10 @@ pub fn card_update_test_command_impl(
                 session_id: existing.session_id,
                 title: existing.title,
                 instruction: existing.instruction,
+                assist_summary: existing.assist_summary,
+                acceptance_criteria: existing.acceptance_criteria,
+                retrospective: existing.retrospective,
+                change_summary: existing.change_summary,
                 state: existing.state,
                 verify_log: existing.verify_log,
                 changed_files: existing.changed_files,
@@ -851,6 +896,14 @@ pub fn card_transition_no_checkpoint_impl(
     }
 
     let next = apply_transition(existing.state, transition).map_err(|e| e.to_string())?;
+    let change_summary = if matches!(next, CardState::Verified | CardState::Extended) {
+        existing
+            .change_summary
+            .clone()
+            .or_else(|| summarize_changed_files(&existing.changed_files))
+    } else {
+        existing.change_summary.clone()
+    };
     card_dao::update(
         db.conn(),
         card_id,
@@ -858,6 +911,10 @@ pub fn card_transition_no_checkpoint_impl(
             session_id: existing.session_id,
             title: existing.title,
             instruction: existing.instruction,
+            assist_summary: existing.assist_summary,
+            acceptance_criteria: existing.acceptance_criteria,
+            retrospective: existing.retrospective,
+            change_summary,
             state: next,
             verify_log: existing.verify_log,
             changed_files: existing.changed_files,
@@ -867,6 +924,86 @@ pub fn card_transition_no_checkpoint_impl(
     )
     .map_err(|e| e.to_string())?;
     Ok(next)
+}
+
+fn summarize_changed_files(changed_files: &Option<Value>) -> Option<String> {
+    let files = changed_files.as_ref()?.as_array()?;
+    let mut paths = files
+        .iter()
+        .filter_map(|item| {
+            item.as_str()
+                .or_else(|| item.get("path").and_then(|path| path.as_str()))
+        })
+        .take(3)
+        .collect::<Vec<_>>();
+    if paths.is_empty() {
+        return None;
+    }
+    paths.sort_unstable();
+    let suffix = if files.len() > paths.len() {
+        format!(" 외 {}개", files.len() - paths.len())
+    } else {
+        String::new()
+    };
+    Some(format!("변경 파일: {}{}", paths.join(", "), suffix))
+}
+
+#[tauri::command]
+pub async fn card_save_retrospective(
+    state: State<'_, AppState>,
+    card_id: i64,
+    retrospective: String,
+) -> Result<(), String> {
+    card_save_retrospective_impl(&state, card_id, retrospective)
+}
+
+pub fn card_save_retrospective_impl(
+    state: &AppState,
+    card_id: i64,
+    retrospective: String,
+) -> Result<(), String> {
+    let normalized = retrospective.trim().to_string();
+    let content = if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    };
+    let session_id = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let existing = card_dao::get_by_id(db.conn(), card_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("card {card_id} not found"))?;
+        card_dao::update(
+            db.conn(),
+            card_id,
+            &NewCard {
+                session_id: existing.session_id,
+                title: existing.title,
+                instruction: existing.instruction,
+                assist_summary: existing.assist_summary,
+                acceptance_criteria: existing.acceptance_criteria,
+                retrospective: content.clone(),
+                change_summary: existing.change_summary,
+                state: existing.state,
+                verify_log: existing.verify_log,
+                changed_files: existing.changed_files,
+                test_command: existing.test_command,
+                position: existing.position,
+            },
+        )
+        .map_err(|e| e.to_string())?;
+        existing.session_id
+    };
+    log_event(
+        state,
+        Some(session_id),
+        "card_update",
+        serde_json::json!({
+            "card_id": card_id,
+            "action": "retrospective",
+            "retrospective_len": content.as_ref().map(|s| s.chars().count()).unwrap_or(0),
+        }),
+    )
 }
 
 #[tauri::command]

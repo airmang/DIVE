@@ -2,28 +2,33 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import MainShell from "./components/shell/MainShell";
 import SettingsPage from "./pages/settings";
 import PromptHelperDemoPage from "./pages/prompt-helper-demo";
+import ResearchSurveyPage from "./pages/research-survey";
 import { Rc1MigrationDialog } from "./components/rc1/Rc1MigrationDialog";
 import {
   acknowledgeRc1Migration,
   runRc1Migration,
   type Rc1MigrationResult,
 } from "./lib/rc1-migration";
+import { resolveDemoRouteValue, type RecognizedDemoRoute } from "./lib/dev-demo";
 
-type ProductRoute = "main" | "settings" | "prompt-helper";
-type DemoRoute = string;
+type ProductRoute = "main" | "settings" | "prompt-helper" | "research-survey";
 
-type ResolvedRoute = { kind: "product"; route: ProductRoute } | { kind: "demo"; route: DemoRoute };
+type ResolvedRoute =
+  | { kind: "product"; route: ProductRoute }
+  | { kind: "demo"; route: RecognizedDemoRoute };
 
-const DevDemoShell = import.meta.env.DEV
-  ? lazy(() => import("./components/demo/DemoShell"))
-  : null;
+const DevDemoShell = import.meta.env.DEV ? lazy(() => import("./components/demo/DemoShell")) : null;
 
 function resolveRoute(
   search = typeof window === "undefined" ? "" : window.location.search,
 ): ResolvedRoute {
   const params = new URLSearchParams(search);
   const productRoute = params.get("route");
-  if (productRoute === "settings" || productRoute === "prompt-helper") {
+  if (
+    productRoute === "settings" ||
+    productRoute === "prompt-helper" ||
+    productRoute === "research-survey"
+  ) {
     return { kind: "product", route: productRoute };
   }
 
@@ -39,8 +44,9 @@ function resolveRoute(
     return { kind: "product", route: demo };
   }
 
-  if (import.meta.env.DEV && demo) {
-    return { kind: "demo", route: demo };
+  if (import.meta.env.DEV) {
+    const resolvedDemo = resolveDemoRouteValue(demo);
+    if (resolvedDemo) return { kind: "demo", route: resolvedDemo };
   }
 
   return { kind: "product", route: "main" };
@@ -75,6 +81,8 @@ function App() {
     content = <SettingsPage />;
   } else if (route.kind === "product" && route.route === "prompt-helper") {
     content = <PromptHelperDemoPage />;
+  } else if (route.kind === "product" && route.route === "research-survey") {
+    content = <ResearchSurveyPage />;
   } else {
     content = <MainShell />;
   }

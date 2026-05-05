@@ -47,8 +47,8 @@ const checks = [
   {
     name: "General section appears before Providers section",
     ok: (() => {
-      const gi = settings.indexOf('settings-section-general');
-      const pi = settings.indexOf('settings-section-providers');
+      const gi = settings.indexOf("settings-section-general");
+      const pi = settings.indexOf("settings-section-providers");
       return gi > 0 && pi > 0 && gi < pi;
     })(),
   },

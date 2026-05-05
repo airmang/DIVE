@@ -24,9 +24,8 @@ check("production exposes message_list IPC", lib.includes("ipc::message_list"));
 const providers = read("dive/src-tauri/src/providers/mod.rs");
 check(
   "MockProvider re-export is cfg gated",
-  /#\[cfg\(any\(test, debug_assertions, feature = "dev-mock"\)\)\][\s\S]{0,120}MockProvider/.test(
-    providers,
-  ),
+  /#\[cfg\(any\(test, feature = "dev-mock"\)\)\][\s\S]{0,120}MockProvider/.test(providers) &&
+    !/debug_assertions[\s\S]{0,120}MockProvider/.test(providers),
 );
 
 const mainShell = read("dive/src/components/shell/MainShell.tsx");

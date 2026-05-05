@@ -51,8 +51,10 @@ fn cards_persist_through_create_list_update_transition_reorder_snapshot() {
     let state = mk_state();
     let session_id = seed_session(&state);
 
-    let first = card_create_impl(&state, session_id, "first".into(), None).unwrap();
-    let second = card_create_impl(&state, session_id, "second".into(), None).unwrap();
+    let first =
+        card_create_impl(&state, session_id, "first".into(), None, None, None, None).unwrap();
+    let second =
+        card_create_impl(&state, session_id, "second".into(), None, None, None, None).unwrap();
     assert_eq!(first.state, CardState::Decomposed);
     assert_eq!(second.position, 2);
 

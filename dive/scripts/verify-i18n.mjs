@@ -84,10 +84,7 @@ async function main() {
   await page.waitForSelector('[data-testid="settings-locale-select"]');
   await page.selectOption('[data-testid="settings-locale-select"]', "en");
   await page.waitForTimeout(200);
-  const enSelected = await page.$eval(
-    '[data-testid="settings-locale-select"]',
-    (el) => el.value,
-  );
+  const enSelected = await page.$eval('[data-testid="settings-locale-select"]', (el) => el.value);
   check("en selected after change", enSelected === "en");
   await page.evaluate(() => {
     const url = new URL(window.location.href);
@@ -119,10 +116,7 @@ async function main() {
     window.dispatchEvent(new PopStateEvent("popstate"));
   });
   await page.waitForSelector('[data-testid="settings-locale-select"]');
-  const enSelected2 = await page.$eval(
-    '[data-testid="settings-locale-select"]',
-    (el) => el.value,
-  );
+  const enSelected2 = await page.$eval('[data-testid="settings-locale-select"]', (el) => el.value);
   check("en still selected after reload", enSelected2 === "en");
 
   console.log("\n7. Switching back to Korean works");

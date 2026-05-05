@@ -95,7 +95,6 @@ async function runSuite(page, themeName) {
       3,
     );
   }
-
 }
 
 async function main() {

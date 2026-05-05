@@ -5,6 +5,7 @@ import { cn } from "../../lib/utils";
 
 export function CodeTab() {
   const files = useSlideInStore((s) => s.changedFiles);
+  const changeSummary = useSlideInStore((s) => s.changeSummary);
   const selected = useSlideInStore((s) => s.selectedFilePath);
   const setSelected = useSlideInStore((s) => s.setSelectedFile);
 
@@ -20,11 +21,18 @@ export function CodeTab() {
 
   if (sortedFiles.length === 0) {
     return (
-      <div
-        className="flex h-full items-center justify-center p-6 text-center"
-        data-testid="code-tab-empty"
-      >
-        <p className="text-sm text-fg-muted">변경된 파일이 없습니다.</p>
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+        {changeSummary ? (
+          <p
+            className="rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-fg"
+            data-testid="change-summary"
+          >
+            {changeSummary}
+          </p>
+        ) : null}
+        <div data-testid="code-tab-empty">
+          <p className="text-sm text-fg-muted">변경된 파일이 없습니다.</p>
+        </div>
       </div>
     );
   }
@@ -67,6 +75,14 @@ export function CodeTab() {
         </ul>
       </aside>
       <div className="min-w-0 flex-1 overflow-auto p-3">
+        {changeSummary ? (
+          <p
+            className="mb-3 rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-fg"
+            data-testid="change-summary"
+          >
+            {changeSummary}
+          </p>
+        ) : null}
         {current ? <DiffViewer diff={current.diff} /> : null}
       </div>
     </div>
