@@ -10,8 +10,8 @@ function usage() {
     [
       "Usage: node scripts/analyze-retrospective.mjs <export.jsonl...> [--markdown <out.md>] [--json <out.json>]",
       "",
-      "Reads anonymized DIVE JSONL exports and summarizes Card.retrospective records",
-      "without attempting to de-anonymize students or sessions.",
+      "Reads DIVE JSONL exports and summarizes Card.retrospective records or",
+      "default-safe Card.retrospective_metrics without attempting to de-anonymize students or sessions.",
     ].join("\n"),
   );
 }
@@ -53,6 +53,21 @@ function textValue(value) {
   return value.trim();
 }
 
+function metricsValue(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value;
+}
+
+function metricNumber(metrics, key) {
+  const value = metrics?.[key];
+  return Number.isFinite(value) ? value : 0;
+}
+
+function metricSentiment(metrics) {
+  const value = metrics?.sentiment_bucket;
+  return value === "positive" || value === "negative" || value === "neutral" ? value : "neutral";
+}
+
 function tokenizeKoreanish(text) {
   return text
     .toLowerCase()
@@ -88,12 +103,15 @@ function summarize(files) {
       totalCards += 1;
       if (record.state === "verified" || record.state === "extended") verifiedCards += 1;
       const retrospective = textValue(record.retrospective);
-      if (!retrospective) continue;
+      const metrics = metricsValue(record.retrospective_metrics);
+      if (!retrospective && !metrics) continue;
       retrospectiveCount += 1;
-      const tone = sentiment(retrospective);
+      const tone = retrospective ? sentiment(retrospective) : metricSentiment(metrics);
       sentimentCounts[tone] += 1;
-      for (const token of tokenizeKoreanish(retrospective)) {
-        keywordCounts.set(token, (keywordCounts.get(token) ?? 0) + 1);
+      if (retrospective) {
+        for (const token of tokenizeKoreanish(retrospective)) {
+          keywordCounts.set(token, (keywordCounts.get(token) ?? 0) + 1);
+        }
       }
       cards.push({
         source: file,
@@ -101,7 +119,10 @@ function summarize(files) {
         cardId: record.id ?? null,
         state: record.state,
         sentiment: tone,
-        retrospectiveLength: retrospective.length,
+        retrospectiveLength: retrospective
+          ? retrospective.length
+          : metricNumber(metrics, "char_count"),
+        retrospectiveSource: retrospective ? "raw_text" : "derived_metrics",
       });
     }
     sessions.push({ source: file, sessionId, totalCards, verifiedCards, retrospectiveCount });

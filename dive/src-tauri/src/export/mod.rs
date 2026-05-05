@@ -12,6 +12,9 @@
 //!   when the corresponding `hash_*` option is on.
 //! - Numeric session/card/message/tool/checkpoint/event IDs are hashed by
 //!   default so classroom exports do not leak source database identifiers.
+//! - Card retrospectives keep the raw text under the same `hash_user_text`
+//!   contract, but also emit non-identifying `retrospective_metrics` so
+//!   default anonymized exports remain useful for aggregate research.
 //! - The salt is a fresh random value generated at the start of each
 //!   export run — not a per-session constant. Cross-export correlation of
 //!   "is this the same user text?" is therefore impossible unless the
@@ -208,6 +211,7 @@ impl ExportEngine {
                     "verify_log": verify_log_json,
                     "changed_files": changed_files_emit,
                     "retrospective": c.retrospective.as_ref().map(|s| anonymize::maybe_hash_text(options.hash_user_text, s, salt)),
+                    "retrospective_metrics": c.retrospective.as_ref().map(|s| retrospective_metrics(s)),
                     "change_summary": c.change_summary.as_ref().map(|s| anonymize::maybe_hash_text(options.hash_user_text, s, salt)),
                     "position": c.position,
                     "created_at": c.created_at,
@@ -409,6 +413,46 @@ fn write_record(out: &mut String, v: Value) -> Result<(), ExportError> {
 
 fn fresh_salt() -> String {
     Uuid::new_v4().to_string()
+}
+
+fn retrospective_metrics(text: &str) -> Value {
+    let lower = text.to_lowercase();
+    let positive_count = count_terms(
+        &lower,
+        &["이해", "성공", "쉽", "도움", "검증", "완성", "명확", "좋"],
+    );
+    let negative_count = count_terms(
+        &lower,
+        &[
+            "어렵", "헷갈", "실패", "오류", "막힘", "불안", "느림", "복잡",
+        ],
+    );
+    let sentiment_bucket = if positive_count > negative_count {
+        "positive"
+    } else if negative_count > positive_count {
+        "negative"
+    } else {
+        "neutral"
+    };
+    json!({
+        "schema_version": 1,
+        "char_count": text.chars().count(),
+        "word_count": text.split_whitespace().filter(|token| !token.is_empty()).count(),
+        "line_count": text.lines().filter(|line| !line.trim().is_empty()).count().max(1),
+        "question_count": text.chars().filter(|ch| matches!(ch, '?' | '？')).count(),
+        "sentiment_bucket": sentiment_bucket,
+        "mentions_verification": contains_any(&lower, &["검증", "테스트", "확인", "통과", "test", "lint", "typecheck", "cargo", "pnpm"]),
+        "mentions_error": contains_any(&lower, &["오류", "에러", "실패", "막힘", "error", "fail", "failed"]),
+        "mentions_next_step": contains_any(&lower, &["다음", "개선", "추가", "나중", "next", "improve", "todo"]),
+    })
+}
+
+fn count_terms(text: &str, terms: &[&str]) -> usize {
+    terms.iter().filter(|term| text.contains(**term)).count()
+}
+
+fn contains_any(text: &str, terms: &[&str]) -> bool {
+    terms.iter().any(|term| text.contains(term))
 }
 
 #[derive(Debug)]

@@ -25,6 +25,7 @@ pub struct ProviderConfigSummary {
     pub base_url: Option<String>,
     pub is_connected: bool,
     pub selected_model: Option<String>,
+    pub account_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,6 +105,7 @@ pub async fn provider_connect_impl(
         base_url,
         is_connected: true,
         selected_model: Some(model),
+        account_id: None,
     })
 }
 
@@ -111,6 +113,10 @@ pub async fn provider_connect_impl(
 pub async fn provider_list(
     state: State<'_, AppState>,
 ) -> Result<Vec<ProviderConfigSummary>, String> {
+    provider_list_impl(&state)
+}
+
+pub fn provider_list_impl(state: &AppState) -> Result<Vec<ProviderConfigSummary>, String> {
     let rows: Vec<ProviderConfigRow> = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         provider_dao::list(db.conn()).map_err(|e| e.to_string())?
@@ -118,9 +124,8 @@ pub async fn provider_list(
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
         let selected_model = selected_model_from_config(&row.config);
-        let is_connected = auth::load_provider_api_key(state.keyring.as_ref(), row.id)
-            .map(|s| s.is_some())
-            .unwrap_or(false);
+        let (is_connected, account_id) =
+            connection_summary(state.keyring.as_ref(), row.id, &row.kind);
         out.push(ProviderConfigSummary {
             id: row.id,
             kind: row.kind,
@@ -128,9 +133,34 @@ pub async fn provider_list(
             base_url: row.base_url,
             is_connected,
             selected_model,
+            account_id,
         });
     }
     Ok(out)
+}
+
+fn connection_summary(
+    keyring: &dyn auth::Keyring,
+    provider_config_id: i64,
+    kind: &str,
+) -> (bool, Option<String>) {
+    if kind == "codex" {
+        let Ok(Some((_access, _refresh, id_token))) =
+            auth::load_codex_tokens(keyring, provider_config_id)
+        else {
+            return (false, None);
+        };
+        let account_id = if id_token.is_empty() {
+            None
+        } else {
+            auth::codex_oauth::decode_account_id(&id_token).ok()
+        };
+        return (true, account_id);
+    }
+    let is_connected = auth::load_provider_api_key(keyring, provider_config_id)
+        .map(|s| s.is_some())
+        .unwrap_or(false);
+    (is_connected, None)
 }
 
 #[tauri::command]
@@ -226,8 +256,19 @@ pub async fn provider_disconnect_impl(
     state: &AppState,
     provider_config_id: i64,
 ) -> Result<(), String> {
-    auth::delete_provider_api_key(state.keyring.as_ref(), provider_config_id)
-        .map_err(|e| format!("keyring: {e}"))?;
+    let kind = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        provider_dao::get_by_id(db.conn(), provider_config_id)
+            .map_err(|e| e.to_string())?
+            .map(|row| row.kind)
+    };
+    if kind.as_deref() == Some("codex") {
+        auth::delete_codex_tokens(state.keyring.as_ref(), provider_config_id)
+            .map_err(|e| format!("keyring: {e}"))?;
+    } else {
+        auth::delete_provider_api_key(state.keyring.as_ref(), provider_config_id)
+            .map_err(|e| format!("keyring: {e}"))?;
+    }
     let db = state.db.lock().map_err(|e| e.to_string())?;
     provider_dao::delete(db.conn(), provider_config_id).map_err(|e| e.to_string())?;
     drop(db);
@@ -248,6 +289,21 @@ mod tests {
     use std::sync::Arc;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn encode_id_token(account_id: &str) -> String {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine as _;
+        let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"none"}"#);
+        let payload_json = serde_json::json!({
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id": account_id,
+            },
+            "sub": "user_1",
+        });
+        let payload = URL_SAFE_NO_PAD.encode(payload_json.to_string());
+        let signature = URL_SAFE_NO_PAD.encode("sig");
+        format!("{header}.{payload}.{signature}")
+    }
 
     fn mk_state() -> AppState {
         let mut db = Database::open_in_memory().unwrap();
@@ -281,6 +337,45 @@ mod tests {
         assert!(auth::load_provider_api_key(state.keyring.as_ref(), id)
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn provider_list_reports_codex_oauth_tokens_as_connected() {
+        let state = mk_state();
+        let id = {
+            let db = state.db.lock().unwrap();
+            provider_dao::insert(
+                db.conn(),
+                &NewProviderConfig {
+                    kind: "codex".into(),
+                    auth_type: "oauth".into(),
+                    base_url: None,
+                    config: json!({ "selected_model": "gpt-5.5-codex" }),
+                },
+            )
+            .unwrap()
+        };
+        auth::store_codex_tokens(
+            state.keyring.as_ref(),
+            id,
+            &auth::CodexTokens {
+                access_token: "at".into(),
+                refresh_token: "rt".into(),
+                id_token: encode_id_token("acct_codex_provider_list"),
+                account_id: "acct_codex_provider_list".into(),
+                expires_in: 3600,
+            },
+        )
+        .unwrap();
+
+        let rows = provider_list_impl(&state).unwrap();
+        let codex = rows.iter().find(|row| row.id == id).unwrap();
+        assert!(codex.is_connected);
+        assert_eq!(
+            codex.account_id.as_deref(),
+            Some("acct_codex_provider_list")
+        );
+        assert_eq!(codex.selected_model.as_deref(), Some("gpt-5.5-codex"));
     }
 
     #[tokio::test]

@@ -8,6 +8,8 @@ use super::AppState;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ResearchSettingsDto {
     pub disable_gates: bool,
+    #[serde(default)]
+    pub controls_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -55,6 +57,18 @@ fn mode_from_string(s: &str) -> Option<AutoApprove> {
     }
 }
 
+pub fn research_controls_enabled() -> bool {
+    cfg!(debug_assertions)
+        || truthy_env("DIVE_RESEARCH_CONTROLS")
+        || truthy_env("DIVE_RESEARCH_ABLATION_GATES")
+}
+
+fn truthy_env(name: &str) -> bool {
+    std::env::var(name)
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "on" | "ON"))
+        .unwrap_or(false)
+}
+
 #[tauri::command]
 pub async fn provider_policy_get(
     state: State<'_, AppState>,
@@ -77,8 +91,13 @@ pub async fn provider_policy_set(
 pub async fn research_settings_get(
     state: State<'_, AppState>,
 ) -> Result<ResearchSettingsDto, String> {
+    let controls_enabled = research_controls_enabled();
+    if !controls_enabled {
+        state.set_research_gates_disabled(false)?;
+    }
     Ok(ResearchSettingsDto {
-        disable_gates: state.research_gates_disabled()?,
+        disable_gates: controls_enabled && state.research_gates_disabled()?,
+        controls_enabled,
     })
 }
 
@@ -87,6 +106,10 @@ pub async fn research_settings_set(
     state: State<'_, AppState>,
     settings: ResearchSettingsDto,
 ) -> Result<(), String> {
+    let controls_enabled = research_controls_enabled();
+    if !controls_enabled && settings.disable_gates {
+        return Err("research controls are disabled in this build/session".into());
+    }
     state.set_research_gates_disabled(settings.disable_gates)
 }
 
@@ -114,6 +137,7 @@ mod tests {
     fn research_settings_dto_roundtrip_shape() {
         let dto = ResearchSettingsDto {
             disable_gates: true,
+            controls_enabled: true,
         };
         let encoded = serde_json::to_string(&dto).unwrap();
         assert!(encoded.contains("disable_gates"));

@@ -40,7 +40,7 @@ fn seed() -> (Arc<Mutex<dive_lib::Database>>, i64) {
             instruction: Some("LoginForm 컴포넌트에 이메일/비밀번호 input 추가".into()),
             assist_summary: None,
             acceptance_criteria: None,
-            retrospective: None,
+            retrospective: Some("테스트를 확인했고 다음에는 오류 처리를 개선".into()),
             change_summary: None,
             state: CardState::Verified,
             verify_log: Some(
@@ -148,14 +148,56 @@ fn hashing_is_on_by_default_and_off_with_flag() {
         !masked.contains("학생-42가 개인적으로"),
         "user text must be masked"
     );
+    assert!(
+        !masked.contains("테스트를 확인했고"),
+        "retrospective raw text must be masked"
+    );
     assert!(!masked.contains("src/App.tsx"), "file path must be masked");
     assert!(
         unmasked.contains("학생-42가 개인적으로"),
         "user text must pass through when off"
     );
     assert!(
+        unmasked.contains("테스트를 확인했고"),
+        "retrospective text must pass through when user text hashing is off"
+    );
+    assert!(
         unmasked.contains("src/App.tsx"),
         "file path must pass through when off"
+    );
+}
+
+#[test]
+fn default_export_emits_retrospective_metrics_without_raw_text() {
+    let (db, sid) = seed();
+    let engine = ExportEngine::new(db);
+    let out = engine
+        .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+        .unwrap();
+    assert!(
+        !out.contains("테스트를 확인했고"),
+        "default export must not leak raw retrospective text"
+    );
+
+    let records = lines(&out);
+    let card = records
+        .iter()
+        .find(|record| record["kind"] == "card")
+        .expect("card record");
+    assert!(
+        card["retrospective"]
+            .as_str()
+            .is_some_and(|value| value.starts_with("h:")),
+        "retrospective should be hashed by default: {card:?}"
+    );
+    let metrics = &card["retrospective_metrics"];
+    assert_eq!(metrics["schema_version"], 1);
+    assert_eq!(metrics["mentions_verification"], true);
+    assert_eq!(metrics["mentions_error"], true);
+    assert_eq!(metrics["mentions_next_step"], true);
+    assert!(
+        metrics["char_count"].as_u64().unwrap_or_default() > 0,
+        "metrics must preserve aggregate size without raw text: {metrics:?}"
     );
 }
 

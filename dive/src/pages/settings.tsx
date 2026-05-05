@@ -30,6 +30,7 @@ interface PolicyDto {
 
 interface ResearchSettingsDto {
   disable_gates: boolean;
+  controls_enabled: boolean;
 }
 
 const SAFE_TOOLS = ["read_file", "list_dir", "search_files"];
@@ -105,14 +106,13 @@ export function SettingsPage() {
   const [policy, setPolicy] = useState<PolicyDto>({ rules: {}, default: null });
   const [researchSettings, setResearchSettings] = useState<ResearchSettingsDto>({
     disable_gates: false,
+    controls_enabled: false,
   });
   const [resetNextSession, setResetNextSession] = useState(true);
   const [expandedKind, setExpandedKind] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [codexDialogOpen, setCodexDialogOpen] = useState(false);
-  const [codexConnected, setCodexConnected] = useState(false);
-  const [codexAccountId, setCodexAccountId] = useState<string | null>(null);
   const [mcpServers, setMcpServers] = useState<McpServerSummary[]>([]);
   const [mcpDraft, setMcpDraft] = useState<McpDraft>(defaultMcpDraft());
   const [mcpBusy, setMcpBusy] = useState(false);
@@ -138,25 +138,21 @@ export function SettingsPage() {
         }
         try {
           const research = await api.invoke<ResearchSettingsDto>("research_settings_get");
-          const localDisable = window.localStorage.getItem("dive:research-disable-gates");
+          const localDisable = research.controls_enabled
+            ? window.localStorage.getItem("dive:research-disable-gates")
+            : null;
           const next =
-            localDisable === null ? research : { disable_gates: localDisable === "true" };
+            localDisable === null
+              ? research
+              : { ...research, disable_gates: localDisable === "true" };
           setResearchSettings(next);
-          if (localDisable !== null) {
+          if (research.controls_enabled && localDisable !== null) {
             await api.invoke<void>("research_settings_set", { settings: next });
+          } else if (!research.controls_enabled) {
+            window.localStorage.removeItem("dive:research-disable-gates");
           }
         } catch (err) {
           console.warn("research_settings_get failed:", err);
-        }
-        try {
-          const st = await api.invoke<{
-            connected: boolean;
-            account_id: string | null;
-          }>("codex_oauth_status");
-          setCodexConnected(st.connected);
-          setCodexAccountId(st.account_id);
-        } catch (err) {
-          console.warn("codex_oauth_status failed:", err);
         }
         try {
           const servers = await api.invoke<McpServerSummary[]>("mcp_server_list");
@@ -171,13 +167,15 @@ export function SettingsPage() {
         if (raw) setPolicy(JSON.parse(raw) as PolicyDto);
         const raw2 = window.localStorage.getItem("dive:reset-next-session");
         if (raw2) setResetNextSession(raw2 === "true");
-        const researchDisable = window.localStorage.getItem("dive:research-disable-gates");
-        if (researchDisable) setResearchSettings({ disable_gates: researchDisable === "true" });
-        const codexMock = window.localStorage.getItem("dive:codex-connected");
-        if (codexMock === "true") {
-          setCodexConnected(true);
-          setCodexAccountId("acct_mock");
-        }
+        const controlsEnabled = import.meta.env.DEV;
+        const researchDisable = controlsEnabled
+          ? window.localStorage.getItem("dive:research-disable-gates")
+          : null;
+        setResearchSettings({
+          controls_enabled: controlsEnabled,
+          disable_gates: controlsEnabled && researchDisable === "true",
+        });
+        if (!controlsEnabled) window.localStorage.removeItem("dive:research-disable-gates");
         const mcpMock = window.localStorage.getItem("dive:mcp-servers");
         if (mcpMock) setMcpServers(JSON.parse(mcpMock) as McpServerSummary[]);
       } catch (err) {
@@ -281,6 +279,12 @@ export function SettingsPage() {
   };
 
   const persistResearchSettings = async (next: ResearchSettingsDto) => {
+    if (!next.controls_enabled) {
+      const disabled = { disable_gates: false, controls_enabled: false };
+      setResearchSettings(disabled);
+      window.localStorage.removeItem("dive:research-disable-gates");
+      return;
+    }
     setResearchSettings(next);
     window.localStorage.setItem("dive:research-disable-gates", String(next.disable_gates));
     const api = await loadTauri();
@@ -330,10 +334,12 @@ export function SettingsPage() {
         console.warn("codex_oauth_logout failed:", err);
       }
     } else {
-      window.localStorage.removeItem("dive:codex-connected");
+      const row = providers.find((provider) => provider.kind === "codex" && provider.is_connected);
+      if (row) await disconnectProvider(row.id);
     }
-    setCodexConnected(false);
-    setCodexAccountId(null);
+    await loadAll().catch((err) =>
+      console.warn("settings loadAll after codex logout failed:", err),
+    );
   };
 
   const handleDisconnect = async (row: ProviderSummary) => {
@@ -445,11 +451,8 @@ export function SettingsPage() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" data-testid="provider-cards">
             {PROVIDER_KINDS.map((p) => {
               const isCodex = p.kind === "codex";
-              const connected = isCodex
-                ? codexConnected
-                  ? { id: -1, kind: "codex", is_connected: true }
-                  : undefined
-                : providers.find((x) => x.kind === p.kind && x.is_connected);
+              const connected = providers.find((x) => x.kind === p.kind && x.is_connected);
+              const codexAccountId = isCodex ? connected?.account_id : null;
               const expanded = expandedKind === p.kind;
               return (
                 <Card
@@ -489,7 +492,7 @@ export function SettingsPage() {
                           )
                         </div>
                       ) : null}
-                      {isCodex && codexConnected && codexAccountId ? (
+                      {isCodex && connected && codexAccountId ? (
                         <div
                           className="mt-1 text-[10px] text-fg-muted"
                           data-testid="codex-account-id"
@@ -503,9 +506,7 @@ export function SettingsPage() {
                         variant="outline"
                         size="sm"
                         onClick={() =>
-                          void (isCodex
-                            ? handleCodexDisconnect()
-                            : handleDisconnect(connected as ProviderSummary))
+                          void (isCodex ? handleCodexDisconnect() : handleDisconnect(connected))
                         }
                         data-testid="provider-disconnect"
                         data-provider-kind={p.kind}
@@ -552,12 +553,12 @@ export function SettingsPage() {
                       </Button>
                     </div>
                   ) : null}
-                  {connected && (connected as ProviderSummary).id > 0 ? (
+                  {connected ? (
                     <div className="border-t pt-2">
                       <ProviderModelSelector
-                        providerId={(connected as ProviderSummary).id}
+                        providerId={connected.id}
                         providerKind={p.kind}
-                        selectedModel={(connected as ProviderSummary).selected_model ?? null}
+                        selectedModel={connected.selected_model ?? null}
                       />
                     </div>
                   ) : null}
@@ -628,46 +629,51 @@ export function SettingsPage() {
           </label>
         </section>
 
-        <section className="flex flex-col gap-3" data-testid="settings-section-research">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">연구 전용 설정</h2>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={openResearchSurvey}
-              data-testid="settings-open-research-survey"
-            >
-              설문 열기
-            </Button>
-          </div>
-          <div className="rounded-md border border-warn/50 bg-bg-panel px-3 py-2.5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="text-sm font-medium">D/I/V/E 게이트 ablation</div>
-                <div className="mt-1 text-[11px] text-fg-muted">
-                  대조군 실험에서만 사용하세요. 켜면 채팅 실행 전 게이트를 우회하고 EventLog에{" "}
-                  <code>gate_bypassed</code>를 남깁니다.
-                </div>
-                <LearningHint className="mt-2 text-xs">
-                  교실 실사용 기본값은 OFF입니다. 이 옵션은 연구 동의와 실험 설계가 있을 때만
-                  켜세요.
-                </LearningHint>
-              </div>
-              <label className="inline-flex cursor-pointer items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={researchSettings.disable_gates}
-                  onChange={(e) =>
-                    void persistResearchSettings({ disable_gates: e.target.checked })
-                  }
-                  data-testid="settings-research-disable-gates"
-                  className="h-4 w-4"
-                />
-                게이트 우회
-              </label>
+        {researchSettings.controls_enabled ? (
+          <section className="flex flex-col gap-3" data-testid="settings-section-research">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">연구 전용 설정</h2>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={openResearchSurvey}
+                data-testid="settings-open-research-survey"
+              >
+                설문 열기
+              </Button>
             </div>
-          </div>
-        </section>
+            <div className="rounded-md border border-warn/50 bg-bg-panel px-3 py-2.5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-sm font-medium">D/I/V/E 게이트 ablation</div>
+                  <div className="mt-1 text-[11px] text-fg-muted">
+                    대조군 실험에서만 사용하세요. 켜면 채팅 실행 전 게이트를 우회하고 EventLog에{" "}
+                    <code>gate_bypassed</code>를 남깁니다.
+                  </div>
+                  <LearningHint className="mt-2 text-xs">
+                    교실 실사용 기본값은 OFF입니다. 이 옵션은 연구 동의와 실험 설계가 있을 때만
+                    켜세요.
+                  </LearningHint>
+                </div>
+                <label className="inline-flex cursor-pointer items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={researchSettings.disable_gates}
+                    onChange={(e) =>
+                      void persistResearchSettings({
+                        ...researchSettings,
+                        disable_gates: e.target.checked,
+                      })
+                    }
+                    data-testid="settings-research-disable-gates"
+                    className="h-4 w-4"
+                  />
+                  게이트 우회
+                </label>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         <section className="flex flex-col gap-3" data-testid="settings-section-mcp">
           <div className="flex items-baseline justify-between">
@@ -820,11 +826,16 @@ export function SettingsPage() {
         open={codexDialogOpen}
         onOpenChange={setCodexDialogOpen}
         onConnected={(status) => {
-          setCodexConnected(status.connected);
-          setCodexAccountId(status.account_id);
-          if (!(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) {
-            window.localStorage.setItem("dive:codex-connected", String(status.connected));
-          }
+          void (async () => {
+            const api = await loadTauri();
+            if (!api && status.connected) {
+              await connectProvider("codex", "mock-codex-oauth");
+              return;
+            }
+            await loadAll();
+          })().catch((err) => {
+            console.warn("settings loadAll after codex oauth failed:", err);
+          });
         }}
       />
     </div>

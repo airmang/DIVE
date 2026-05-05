@@ -23,15 +23,7 @@ pub fn models_for_kind(kind: &str) -> Vec<ModelInfo> {
         "openai" | "custom-openai" | "custom_openai" => {
             OpenAiProvider::new(String::new()).list_models()
         }
-        "openrouter" => OpenAiProvider::openrouter(String::new())
-            .list_models()
-            .into_iter()
-            .map(|mut model| {
-                model.id = format!("openai/{}", model.id);
-                model.display_name = format!("OpenAI · {}", model.display_name);
-                model
-            })
-            .collect(),
+        "openrouter" => OpenAiProvider::openrouter(String::new()).list_models(),
         "opencode-zen" | "opencode_zen" => {
             OpenAiProvider::opencode_zen(String::new()).list_models()
         }
@@ -190,6 +182,17 @@ mod tests {
                 "{kind} list should contain {default_model}"
             );
         }
+    }
+
+    #[test]
+    fn openrouter_models_use_openrouter_ids() {
+        let ids = models_for_kind("openrouter")
+            .into_iter()
+            .map(|model| model.id)
+            .collect::<Vec<_>>();
+        assert!(ids.iter().all(|id| id.starts_with("openai/")));
+        assert!(ids.iter().any(|id| id == "openai/gpt-5.3-codex"));
+        assert!(!ids.iter().any(|id| id == "openai/gpt-5.5-codex"));
     }
 
     #[test]

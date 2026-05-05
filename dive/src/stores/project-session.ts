@@ -28,6 +28,7 @@ export interface ProviderSummary {
   base_url: string | null;
   is_connected: boolean;
   selected_model?: string | null;
+  account_id?: string | null;
 }
 
 type TauriApi = {

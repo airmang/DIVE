@@ -645,7 +645,7 @@ pub async fn chat_send(
         return Err(msg);
     }
     let project_root = state.project_root_required()?;
-    let disable_gates = state.research_gates_disabled()?;
+    let disable_gates = policy::research_controls_enabled() && state.research_gates_disabled()?;
     let cancel = Arc::new(AtomicBool::new(false));
     {
         let mut guard = state.cancels.lock().map_err(|e| e.to_string())?;

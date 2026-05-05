@@ -35,9 +35,9 @@ function fallbackModels(providerKind: string): ModelInfo[] {
   if (providerKind === "openrouter") {
     return [
       { id: "openai/gpt-5.5", display_name: "OpenAI · GPT-5.5" },
+      { id: "openai/gpt-5.3-codex", display_name: "OpenAI · GPT-5.3 Codex" },
       { id: "openai/gpt-5.4", display_name: "OpenAI · GPT-5.4" },
-      { id: "anthropic/claude-opus-4-7", display_name: "Anthropic · Claude Opus 4.7" },
-      { id: "anthropic/claude-sonnet-4-6", display_name: "Anthropic · Claude Sonnet 4.6" },
+      { id: "openai/gpt-5.4-mini", display_name: "OpenAI · GPT-5.4 Mini" },
     ];
   }
   if (providerKind === "opencode_zen" || providerKind === "opencode-zen") {
