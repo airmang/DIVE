@@ -11,6 +11,7 @@ import {
 import { cn } from "../../lib/utils";
 import type { RoadmapProgress, RoadmapStep, RoadmapStepStatus } from "../../features/roadmap";
 import { Button } from "../ui/button";
+import { RecoveryPanel, type RecoveryPanelProps } from "./RecoveryPanel";
 
 interface RoadmapPanelProps {
   className?: string;
@@ -23,6 +24,7 @@ interface RoadmapPanelProps {
   onSelectStep: (stepId: number) => void;
   onAddStep: () => void;
   onStartPlanning: (goal?: string) => void;
+  recovery: RecoveryPanelProps;
 }
 
 const STATUS_LABEL: Record<RoadmapStepStatus, string> = {
@@ -90,6 +92,7 @@ export function RoadmapPanel({
   onSelectStep,
   onAddStep,
   onStartPlanning,
+  recovery,
 }: RoadmapPanelProps) {
   const [goalDraft, setGoalDraft] = useState("");
   const activeStep = steps.find((step) => step.id === activeStepId) ?? steps[0] ?? null;
@@ -204,6 +207,8 @@ export function RoadmapPanel({
           </div>
         )}
       </section>
+
+      <RecoveryPanel {...recovery} />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         {hasSteps ? (

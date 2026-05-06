@@ -79,9 +79,16 @@ export interface CheckpointRowPayload {
   session_id: number;
   card_id: number | null;
   git_sha: string;
-  kind: "init" | "auto" | "manual";
+  kind: "init" | "auto" | "manual" | string;
   label: string | null;
   created_at: number;
+  changed_files?: string[];
+  file_changes?: number;
+  stats?: {
+    added: number;
+    removed: number;
+    modified: number;
+  };
 }
 
 type TauriApi = {

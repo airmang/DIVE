@@ -18,14 +18,31 @@ import { useT } from "../../i18n";
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts";
 import { useRoadmap, type RoadmapStepAction } from "../../features/roadmap";
 import type { PlanDraft } from "../../features/planning";
-import { useChatSession } from "../../hooks/useChatSession";
+import { useChatSession, type CheckpointRowPayload } from "../../hooks/useChatSession";
 import { refreshMenuRecents, useMenuEvents } from "../../lib/menu-events";
 import { pickFolder } from "../../lib/tauri-dialog";
 import { useTheme } from "../../hooks/useTheme";
 import { hasRecognizedDemoRoute } from "../../lib/dev-demo";
 import { useUiPreferencesStore } from "../../stores/ui-preferences";
 import type { DiveStage as PromptDiveStage } from "../../lib/ambiguity";
+import type { RecoveryCheckpointItem, FailedStepRecovery } from "./RecoveryPanel";
 import { useProductShellDialogs } from "./useProductShellDialogs";
+
+function checkpointToRecoveryItem(row: CheckpointRowPayload): RecoveryCheckpointItem {
+  return {
+    id: row.id,
+    label: row.label,
+    kind: row.kind,
+    createdAt: row.created_at,
+    changedFiles: row.changed_files ?? [],
+  };
+}
+
+function compactFailureReason(reason: string): string {
+  const trimmed = reason.trim();
+  if (trimmed.length <= 220) return trimmed;
+  return `${trimmed.slice(0, 217)}...`;
+}
 
 function roadmapActionForLegacyTransition(transition: CardTransitionKind): RoadmapStepAction {
   switch (transition) {
@@ -51,6 +68,10 @@ export function useProductShellController() {
   const [lastManualCheckpointLabel, setLastManualCheckpointLabel] = useState<string | null>(null);
   const [planningGoalSeed, setPlanningGoalSeed] = useState("");
   const [planDraft, setPlanDraft] = useState<PlanDraft | null>(null);
+  const [checkpoints, setCheckpoints] = useState<CheckpointRowPayload[]>([]);
+  const [checkpointsLoading, setCheckpointsLoading] = useState(false);
+  const [checkpointsError, setCheckpointsError] = useState<string | null>(null);
+  const [restoringCheckpointId, setRestoringCheckpointId] = useState<number | null>(null);
   const wasStreaming = useRef(false);
 
   const projectSessionLoaded = useProjectSessionStore((s) => s.loaded);
@@ -87,6 +108,25 @@ export function useProductShellController() {
 
   const roadmapModel = useRoadmap(currentSessionId);
   const chat = useChatSession(currentSessionId);
+  const listCheckpoints = chat.listCheckpoints;
+  const refreshCheckpoints = useCallback(async () => {
+    if (currentSessionId === null) {
+      setCheckpoints([]);
+      setCheckpointsError(null);
+      return;
+    }
+    setCheckpointsLoading(true);
+    try {
+      const rows = await listCheckpoints();
+      setCheckpoints(rows);
+      setCheckpointsError(null);
+    } catch (err) {
+      setCheckpointsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCheckpointsLoading(false);
+    }
+  }, [currentSessionId, listCheckpoints]);
+
   const cards = roadmapModel.workmapCompat.cards;
   const currentCard = useWorkmapStore(selectCurrentCard);
   const currentCardId = roadmapModel.activeStepId;
@@ -94,11 +134,16 @@ export function useProductShellController() {
   const allVerified = useWorkmapStore(selectAllCardsVerified);
 
   useEffect(() => {
+    void refreshCheckpoints();
+  }, [refreshCheckpoints]);
+
+  useEffect(() => {
     if (wasStreaming.current && !chat.isStreaming) {
       void roadmapModel.refresh();
+      void refreshCheckpoints();
     }
     wasStreaming.current = chat.isStreaming;
-  }, [chat.isStreaming, roadmapModel]);
+  }, [chat.isStreaming, refreshCheckpoints, roadmapModel]);
 
   const openSlideIn = useSlideInStore((s) => s.open);
   const closeSlideIn = useSlideInStore((s) => s.close);
@@ -256,6 +301,7 @@ export function useProductShellController() {
         const row = await chat.createCheckpoint(currentCard?.id ?? null, label);
         const savedLabel = row?.label ?? label;
         setLastManualCheckpointLabel(savedLabel);
+        void refreshCheckpoints();
         toast({
           variant: "success",
           title: t("checkpoint.manual_saved"),
@@ -269,7 +315,7 @@ export function useProductShellController() {
         });
       }
     })();
-  }, [chat, currentCard, toast, t]);
+  }, [chat, currentCard, refreshCheckpoints, toast, t]);
 
   const openSettingsRoute = useCallback(() => {
     const url = new URL(window.location.href);
@@ -618,6 +664,88 @@ export function useProductShellController() {
     [addCardsLocal, cards, dialogs, isDemoRoute, roadmapModel, setCurrentCardLocal, toast],
   );
 
+  const recoveryCheckpoints = useMemo(
+    () => checkpoints.map(checkpointToRecoveryItem),
+    [checkpoints],
+  );
+
+  const handleRestoreCheckpoint = useCallback(
+    async (checkpointId: number) => {
+      setRestoringCheckpointId(checkpointId);
+      try {
+        await chat.restoreCheckpoint(checkpointId);
+        toast({
+          variant: "success",
+          title: "Checkpoint restored",
+          description: "DIVE restored the project and saved a pre-restore backup.",
+        });
+        await roadmapModel.refresh();
+        await refreshCheckpoints();
+      } catch (err) {
+        toast({
+          variant: "error",
+          title: "Restore unavailable",
+          description: err instanceof Error ? err.message : String(err),
+        });
+      } finally {
+        setRestoringCheckpointId(null);
+      }
+    },
+    [chat, refreshCheckpoints, roadmapModel, toast],
+  );
+
+  const handleExplainRecovery = useCallback(
+    (reason: string) => {
+      const stepTitle = currentCard?.title ?? "the current step";
+      void chat.sendUserMessage(
+        `Explain this failure for ${stepTitle} in beginner-friendly language and suggest the safest next action:\n${reason}`,
+        stage,
+      );
+    },
+    [chat, currentCard, stage],
+  );
+
+  const handleRetryRecovery = useCallback(() => {
+    if (currentCard && (currentVerifyLog || currentVerifyState === "error")) {
+      void handleVerify(currentCard.id);
+      return;
+    }
+    handleRetryError();
+  }, [currentCard, currentVerifyLog, currentVerifyState, handleRetryError, handleVerify]);
+
+  const handleAdjustPlanRecovery = useCallback(
+    (reason: string) => {
+      const stepTitle = currentCard?.title ?? "current step";
+      openPlanInterview(`Adjust the plan for ${stepTitle}. Problem to solve: ${reason}`);
+    },
+    [currentCard, openPlanInterview],
+  );
+
+  const lastToolFailure = [...chat.messages]
+    .reverse()
+    .find((message) => message.kind === "tool_result" && !message.success);
+  const verifyFailureReason =
+    currentVerifyError ??
+    (currentVerifyLog && !(currentVerifyLog.intent_match && currentVerifyLog.test_result === "pass")
+      ? currentVerifyLog.details || `Verification did not pass (${currentVerifyLog.test_result}).`
+      : null);
+  const rejectedReason =
+    currentCard?.state === "rejected" ? "This step was marked as needing changes." : null;
+  const failureReason =
+    verifyFailureReason ??
+    rejectedReason ??
+    (lastToolFailure?.kind === "tool_result" ? lastToolFailure.summary : null);
+  const failedStepRecovery: FailedStepRecovery | null =
+    currentCard && failureReason
+      ? {
+          stepTitle: currentCard.title,
+          reason: compactFailureReason(failureReason),
+          onExplainError: () => handleExplainRecovery(failureReason),
+          onRetry: handleRetryRecovery,
+          onAdjustPlan: () => handleAdjustPlanRecovery(failureReason),
+        }
+      : null;
+
   const showProviderSetupBanner = projectSessionLoaded && !isDemoRoute && !hasConnectedProvider;
 
   return {
@@ -655,6 +783,17 @@ export function useProductShellController() {
       onAddStep: () => dialogs.setNewCardOpen(true),
       onSelectStep: handleStepSelect,
       onStartPlanning: openPlanInterview,
+      recovery: {
+        sessionAvailable: currentSessionId !== null,
+        checkpoints: recoveryCheckpoints,
+        loading: checkpointsLoading,
+        error: checkpointsError,
+        restoringCheckpointId,
+        failedStep: failedStepRecovery,
+        onRefresh: () => void refreshCheckpoints(),
+        onCreateCheckpoint: handleManualCheckpoint,
+        onRestoreCheckpoint: (checkpointId: number) => void handleRestoreCheckpoint(checkpointId),
+      },
     },
     modals: {
       planInterview: {
