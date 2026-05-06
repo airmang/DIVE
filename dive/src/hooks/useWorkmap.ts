@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkmapStore } from "../stores/workmap";
 import type { CardState, CardTileData } from "../components/workmap/types";
-import type { CardTransitionKind, VerifyLogView } from "../components/workmap/CardDetailPanel";
+import type { CardTransitionKind } from "../stores/workmap";
+import type { VerifyLogView } from "../components/workmap/types";
 import type { ChangedFile } from "../components/slide-in/types";
 
 type TauriApi = {

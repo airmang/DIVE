@@ -64,22 +64,6 @@
     "action_start_verify": "검증 시작",
     "action_draft_plan": "계획 작성"
   },
-  "workmap": {
-    "new_card_title": "새 단계 {{index}}",
-    "add_card": "단계 추가",
-    "new_card_dialog_title": "단계 직접 추가",
-    "new_card_dialog_description": "{{index}}번째 로드맵 단계를 초심자가 이해할 수 있게 작성합니다.",
-    "new_card_learning_hint": "요약과 완료 기준을 적어 두면 나중에 검증 근거를 확인하기 쉽습니다.",
-    "new_card_title_label": "단계 제목",
-    "new_card_summary_label": "AI 계획 요약 (선택)",
-    "new_card_acceptance_label": "완료 기준 (선택)",
-    "new_card_instruction_label": "처음 할 일 (선택)",
-    "new_card_create": "단계 만들기",
-    "new_card_creating": "만드는 중...",
-    "new_card_title_required": "단계 제목을 입력하세요.",
-    "minimap_label": "전체 로드맵 미니맵",
-    "minimap_empty": "아직 단계 없음"
-  },
   "onboarding": {
     "title": "AI 연결하기",
     "description": "프로젝트 폴더를 선택한 뒤, DIVE가 계획·코딩·검증에 사용할 AI를 연결하세요.",
@@ -140,62 +124,62 @@
   },
   "roadmap": {
     "title": "로드맵",
-    "no_steps": "아직 단계 없음",
-    "remaining": "{{count}}개 남음",
-    "show_all": "전체 보기",
-    "compact": "간단히",
     "progress": "진행률",
     "progress_aria": "로드맵 진행률",
     "current_step": "현재 단계",
     "current_step_fallback": "현재 단계",
     "step_number": "{{position}}단계",
     "next_action_label": "다음 할 일",
-    "empty_title": "만들고 싶은 것을 설명하세요.",
-    "empty_description": "채팅에 목표를 설명하면 DIVE가 검토 가능한 로드맵 단계로 바꿔 줍니다.",
-    "planning_no_files_changed": "아직 파일을 바꾸지 않았습니다 — 계획 모드는 계획을 승인하기 전까지 맥락만 읽습니다.",
-    "goal_placeholder": "예: README에 Windows 테스트 섹션을 추가하고 싶어요",
-    "draft_plan": "계획 작성",
-    "plan": "계획",
-    "add_step": "단계 추가",
-    "status": {
+    "status_v2": {
       "planned": "계획됨",
-      "ready": "실행 준비",
-      "working": "작업 중",
-      "checking": "검증 중",
+      "in_progress": "진행 중",
+      "review": "검토 중",
       "done": "완료",
-      "needs_changes": "수정 필요",
-      "integrated": "반영됨"
+      "shipped": "반영됨"
     },
-    "next_action": {
-      "no_steps": "채팅에 만들고 싶은 것을 설명하면 로드맵을 만들 수 있습니다.",
-      "pick_step": "다음에 할 일을 보려면 단계를 선택하세요.",
-      "planned": "에이전트가 안전하게 작업할 수 있도록 세부 내용을 더 적어 주세요.",
-      "ready": "준비되면 채팅에서 이 단계를 시작하세요.",
-      "working": "대화를 이어가거나 최근 에이전트 출력을 확인하세요.",
-      "checking": "검증을 실행하고 근거를 확인한 뒤 완료로 넘기세요.",
-      "needs_changes": "수정을 요청한 뒤 이 단계를 다시 검증하세요.",
-      "done": "변경 사항을 확인한 뒤 다음 단계로 이동하거나 반영하세요.",
-      "integrated": "다른 단계를 선택하거나 다음 목표를 설명하세요."
+    "next_action_v2": {
+      "no_steps": "채팅에 목표를 설명하면 로드맵이 생성됩니다.",
+      "pick_step": "단계를 선택하면 자세한 내용을 볼 수 있습니다.",
+      "planned": "시작 대기 중입니다. 에이전트가 곧 작업을 시작합니다.",
+      "in_progress": "에이전트가 이 단계를 작업 중입니다.",
+      "review": "결과를 확인한 뒤 채팅에서 승인하거나 수정을 요청하세요.",
+      "done": "승인되었습니다. 다음 단계로 이동하세요.",
+      "shipped": "반영이 끝났습니다. 더 할 일이 없습니다."
+    },
+    "overall_status": {
+      "in_progress": "진행 중",
+      "done": "완료",
+      "halted": "중단됨"
+    },
+    "goal_label": "목표",
+    "summary_counts": "{{completed}} / {{total}} 완료",
+    "empty_v2_title": "아직 계획이 없습니다",
+    "empty_v2_description": "채팅에서 계획을 승인하면 여기에 로드맵이 표시됩니다.",
+    "step_badge_review_rejected": "수정 요청됨",
+    "step_detail": {
+      "title": "단계 상세",
+      "close": "닫기",
+      "read_only_note": "읽기 전용입니다. 수정은 채팅에서 진행하세요.",
+      "go_to_chat": "채팅으로 이동",
+      "go_to_chat_hint": "검토, 수정, 승인은 모두 채팅에서 이루어집니다.",
+      "section_goal": "목표",
+      "section_acceptance_criteria": "완료 기준",
+      "section_instruction": "에이전트에게 전달한 지시",
+      "section_timeline": "진행 내역",
+      "section_changed_files": "변경된 파일",
+      "section_verification": "검증 결과",
+      "section_retrospective": "회고"
+    },
+    "chat_actions": {
+      "plan_approve": "계획 승인",
+      "plan_request_changes": "수정 요청",
+      "step_approve": "채팅에서 승인",
+      "step_request_changes": "채팅에서 수정 요청",
+      "step_approve_message_seed": "{{position}}단계 승인: {{title}}",
+      "step_request_changes_message_seed": "{{position}}단계 수정 요청: {{title}} — "
     }
   },
   "planning": {
-    "interview_title": "프로젝트 계획하기",
-    "interview_description": "자연어로 목표를 적으면 DIVE가 최대 3개의 질문을 묻고 승인할 수 있는 계획을 작성합니다.",
-    "goal_label": "무엇을 만들고 싶나요?",
-    "goal_placeholder": "예: 작은 습관 기록 앱을 만들고 싶어요",
-    "quick_questions": "짧은 질문 {{count}}개",
-    "goal_required": "먼저 만들고 싶은 것을 설명하세요.",
-    "draft_plan": "계획 작성",
-    "review_title": "계획 검토",
-    "review_description": "이 계획을 승인하면 로드맵 단계가 만들어집니다. 파일이나 단계를 만들지 않고 수정하려면 취소하거나 뒤로 가세요.",
-    "goal_heading": "목표",
-    "mvp_heading": "MVP",
-    "non_goals_heading": "하지 않을 일",
-    "success_heading": "성공 기준",
-    "roadmap_steps_heading": "로드맵 단계",
-    "no_draft": "아직 준비된 계획 초안이 없습니다.",
-    "creating_steps": "단계 생성 중...",
-    "approve_create_roadmap": "승인하고 로드맵 만들기",
     "roadmap_created_title": "로드맵 생성됨",
     "roadmap_created_description": "{{count}}개 단계가 검토 준비되었습니다.",
     "adjust_goal_seed": "{{title}} 계획을 조정하세요. 해결할 문제: {{reason}}",
@@ -274,15 +258,6 @@
           "instruction_seed": "{{safety}} MVP를 검증하고 결과를 요약하세요: {{goal}}"
         }
       }
-    },
-    "floating": {
-      "aria_label": "계획 미리보기 카드",
-      "title": "계획 미리보기",
-      "step_count": "단계 {{count}}개",
-      "success_count": "성공 기준 {{count}}개",
-      "accept": "이대로 진행",
-      "review": "자세히 보기",
-      "request_changes": "수정 요청"
     },
     "request_changes_seed": "계획의 일부를 바꿨으면 합니다. 목표: {{goal}}. 어떤 부분을 다시 생각해볼지 제안해 주세요."
   },
@@ -392,17 +367,6 @@
       "body": "{{message}}",
       "hints": "원문 메시지를 확인하고 다시 시도하세요."
     }
-  },
-  "retro": {
-    "title": "사이클 회고",
-    "description": "“{{title}}” 단계를 마치며 방금 만든 내용을 자기 말로 정리해 보세요.",
-    "learning_hint": "짧게 적어도 됩니다. 나중에 내가 무엇을 만들었는지 설명하는 근거가 됩니다.",
-    "intent_label": "무엇을 의도했나요?",
-    "help_label": "AI가 어떻게 도왔나요?",
-    "next_label": "다음에는 무엇을 다르게 해보고 싶나요?",
-    "skip": "건너뛰기",
-    "save": "회고 저장",
-    "saving": "저장 중..."
   },
   "topbar": {
     "recovery_trigger_aria": "되돌리기 패널 열기",

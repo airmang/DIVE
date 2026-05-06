@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { useWorkmap } from "../../hooks/useWorkmap";
-import type { CardState, CardTileData } from "../../components/workmap/types";
-import type { CardTransitionKind } from "../../components/workmap/CardDetailPanel";
+import type { CardTileData } from "../../components/workmap/types";
+import type { CardTransitionKind } from "../../stores/workmap";
+import { cardStateToRoadmapStatus } from "./statusMapping";
 import type {
   RoadmapModel,
   RoadmapProgress,
@@ -13,54 +14,26 @@ import type {
 
 const STATUS_PROGRESS: Record<RoadmapStepStatus, RoadmapStepProgress> = {
   planned: { ratio: 0.25, completedUnits: 1, totalUnits: 4 },
-  ready: { ratio: 0.5, completedUnits: 2, totalUnits: 4 },
-  working: { ratio: 0.5, completedUnits: 2, totalUnits: 4 },
-  checking: { ratio: 0.5, completedUnits: 2, totalUnits: 4 },
-  needs_changes: { ratio: 0.5, completedUnits: 2, totalUnits: 4 },
+  in_progress: { ratio: 0.5, completedUnits: 2, totalUnits: 4 },
+  review: { ratio: 0.5, completedUnits: 2, totalUnits: 4 },
   done: { ratio: 0.75, completedUnits: 3, totalUnits: 4 },
-  integrated: { ratio: 1, completedUnits: 4, totalUnits: 4 },
+  shipped: { ratio: 1, completedUnits: 4, totalUnits: 4 },
 };
-
-export function mapCardStateToRoadmapStatus(
-  state: CardState,
-  options: { isActive?: boolean } = {},
-): RoadmapStepStatus {
-  switch (state) {
-    case "decomposed":
-      return "planned";
-    case "instructed":
-      return options.isActive ? "working" : "ready";
-    case "verifying":
-      return "checking";
-    case "verified":
-      return "done";
-    case "rejected":
-      return "needs_changes";
-    case "extended":
-      return "integrated";
-  }
-}
 
 export function transitionForRoadmapAction(action: RoadmapStepAction): CardTransitionKind {
   switch (action) {
-    case "prepare":
-      return "enter_instruct";
-    case "request_check":
-      return "request_verify";
     case "approve":
       return "approve";
     case "request_changes":
       return "reject";
     case "reopen":
       return "reopen_from_reject";
-    case "integrate":
-      return "extend";
   }
 }
 
 function toRoadmapStep(card: CardTileData, activeStepId: number | null): RoadmapStep {
   const isActive = activeStepId === card.id;
-  const status = mapCardStateToRoadmapStatus(card.state, { isActive });
+  const status = cardStateToRoadmapStatus(card.state);
   const progress = STATUS_PROGRESS[status];
   return {
     id: card.id,
@@ -73,9 +46,10 @@ function toRoadmapStep(card: CardTileData, activeStepId: number | null): Roadmap
     changeSummary: card.changeSummary ?? null,
     testCommand: card.testCommand ?? null,
     status,
+    wasRejected: card.state === "rejected",
     progress,
     isActive,
-    isComplete: status === "done" || status === "integrated",
+    isComplete: status === "done" || status === "shipped",
     hasChanges: Boolean(card.changeSummary),
   };
 }
@@ -83,9 +57,9 @@ function toRoadmapStep(card: CardTileData, activeStepId: number | null): Roadmap
 function calculateProgress(steps: RoadmapStep[]): RoadmapProgress {
   const total = steps.length;
   const completed = steps.filter(
-    (step) => step.status === "done" || step.status === "integrated",
+    (step) => step.status === "done" || step.status === "shipped",
   ).length;
-  const integrated = steps.filter((step) => step.status === "integrated").length;
+  const integrated = steps.filter((step) => step.status === "shipped").length;
   const percent =
     total > 0
       ? Math.round((steps.reduce((sum, step) => sum + step.progress.ratio, 0) / total) * 100)

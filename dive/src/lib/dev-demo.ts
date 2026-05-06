@@ -1,6 +1,5 @@
 export type RecognizedDemoRoute =
   | "showcase"
-  | "workmap-demo"
   | "chat-demo"
   | "permission-demo"
   | "slide-in-demo"
@@ -17,8 +16,6 @@ export type RecognizedDemoRoute =
 
 const DEMO_ROUTE_ALIASES: Record<string, RecognizedDemoRoute> = {
   showcase: "showcase",
-  workmap: "workmap-demo",
-  "workmap-demo": "workmap-demo",
   chat: "chat-demo",
   "chat-demo": "chat-demo",
   permission: "permission-demo",

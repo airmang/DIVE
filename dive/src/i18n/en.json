@@ -64,22 +64,6 @@
     "action_start_verify": "Run check",
     "action_draft_plan": "Draft a plan"
   },
-  "workmap": {
-    "new_card_title": "New step {{index}}",
-    "add_card": "Add step",
-    "new_card_dialog_title": "Add step manually",
-    "new_card_dialog_description": "Write roadmap step {{index}} in a beginner-readable form.",
-    "new_card_learning_hint": "Summary and acceptance criteria make later verification easier to understand.",
-    "new_card_title_label": "Step title",
-    "new_card_summary_label": "AI plan summary (optional)",
-    "new_card_acceptance_label": "Acceptance criteria (optional)",
-    "new_card_instruction_label": "Initial task (optional)",
-    "new_card_create": "Create step",
-    "new_card_creating": "Creating...",
-    "new_card_title_required": "Enter a step title.",
-    "minimap_label": "Overall roadmap minimap",
-    "minimap_empty": "No steps yet"
-  },
   "onboarding": {
     "title": "Connect your AI assistant",
     "description": "After choosing a project folder, connect the AI assistant DIVE uses to plan, build, and check work.",
@@ -140,62 +124,62 @@
   },
   "roadmap": {
     "title": "Roadmap",
-    "no_steps": "No steps yet",
-    "remaining": "{{count}} remaining",
-    "show_all": "Show all",
-    "compact": "Compact",
     "progress": "Progress",
     "progress_aria": "Roadmap progress",
     "current_step": "Current step",
     "current_step_fallback": "current step",
     "step_number": "Step {{position}}",
     "next_action_label": "Next action",
-    "empty_title": "Describe what you want to build.",
-    "empty_description": "Use chat to explain your goal. DIVE can turn it into Roadmap steps you can review.",
-    "planning_no_files_changed": "No files changed yet — planning mode only reads context until you approve a plan.",
-    "goal_placeholder": "I want to build...",
-    "draft_plan": "Draft plan",
-    "plan": "Plan",
-    "add_step": "Add Step",
-    "status": {
+    "status_v2": {
       "planned": "Planned",
-      "ready": "Ready",
-      "working": "Working",
-      "checking": "Checking",
+      "in_progress": "In progress",
+      "review": "Review",
       "done": "Done",
-      "needs_changes": "Needs changes",
-      "integrated": "Integrated"
+      "shipped": "Shipped"
     },
-    "next_action": {
-      "no_steps": "Describe what you want to build in chat to create your roadmap.",
-      "pick_step": "Pick a step to see what to do next.",
-      "planned": "Add enough detail so the agent can work safely.",
-      "ready": "Start this step from chat when you are ready.",
-      "working": "Continue the conversation or review the latest agent output.",
-      "checking": "Run Check and review the evidence before marking it done.",
-      "needs_changes": "Ask for fixes, then check this step again.",
-      "done": "Review changes, then move to the next step or integrate.",
-      "integrated": "Choose another step or describe the next goal."
+    "next_action_v2": {
+      "no_steps": "Describe your goal in chat to generate a roadmap.",
+      "pick_step": "Select a step to see its details.",
+      "planned": "Waiting to start. The agent will pick this up next.",
+      "in_progress": "The agent is working on this step.",
+      "review": "Review the results, then approve or request changes in chat.",
+      "done": "Approved. Move on to the next step.",
+      "shipped": "Integrated. No further action needed."
+    },
+    "overall_status": {
+      "in_progress": "In progress",
+      "done": "Complete",
+      "halted": "Halted"
+    },
+    "goal_label": "Goal",
+    "summary_counts": "{{completed}} / {{total}} done",
+    "empty_v2_title": "No plan yet",
+    "empty_v2_description": "Approve a plan in chat to see your roadmap here.",
+    "step_badge_review_rejected": "Changes requested",
+    "step_detail": {
+      "title": "Step details",
+      "close": "Close",
+      "read_only_note": "Read only. Make changes from chat.",
+      "go_to_chat": "Open chat",
+      "go_to_chat_hint": "Reviews, edits, and approvals happen in chat.",
+      "section_goal": "Goal",
+      "section_acceptance_criteria": "Acceptance criteria",
+      "section_instruction": "Instruction to the agent",
+      "section_timeline": "Timeline",
+      "section_changed_files": "Changed files",
+      "section_verification": "Verification",
+      "section_retrospective": "Retrospective"
+    },
+    "chat_actions": {
+      "plan_approve": "Approve plan",
+      "plan_request_changes": "Request changes",
+      "step_approve": "Approve in chat",
+      "step_request_changes": "Request changes in chat",
+      "step_approve_message_seed": "Approve Step {{position}}: {{title}}",
+      "step_request_changes_message_seed": "Request changes on Step {{position}}: {{title}} — "
     }
   },
   "planning": {
-    "interview_title": "Plan your project",
-    "interview_description": "Start with a natural-language goal. DIVE asks at most 3 questions, then drafts a plan for your approval.",
-    "goal_label": "What do you want to build?",
-    "goal_placeholder": "I want to build a small habit tracker...",
-    "quick_questions": "{{count}} quick questions",
-    "goal_required": "Describe what you want to build first.",
-    "draft_plan": "Draft plan",
-    "review_title": "Review the plan",
-    "review_description": "Approving this plan creates Roadmap steps. Cancel or go back to change it without creating files or steps.",
-    "goal_heading": "Goal",
-    "mvp_heading": "MVP",
-    "non_goals_heading": "Non-goals",
-    "success_heading": "Success criteria",
-    "roadmap_steps_heading": "Roadmap steps",
-    "no_draft": "No plan draft is ready yet.",
-    "creating_steps": "Creating steps...",
-    "approve_create_roadmap": "Approve and create Roadmap",
     "roadmap_created_title": "Roadmap created",
     "roadmap_created_description": "{{count}} steps are ready for review.",
     "adjust_goal_seed": "Adjust the plan for {{title}}. Problem to solve: {{reason}}",
@@ -274,15 +258,6 @@
           "instruction_seed": "{{safety}} Verify the MVP and summarize the result for: {{goal}}"
         }
       }
-    },
-    "floating": {
-      "aria_label": "Plan preview card",
-      "title": "Plan preview",
-      "step_count": "{{count}} steps",
-      "success_count": "{{count}} success criteria",
-      "accept": "Proceed with this plan",
-      "review": "Review details",
-      "request_changes": "Request changes"
     },
     "request_changes_seed": "I'd like to change part of the plan. Goal: {{goal}}. Please suggest which parts to reconsider."
   },
@@ -392,17 +367,6 @@
       "body": "{{message}}",
       "hints": "Read the raw message and retry."
     }
-  },
-  "retro": {
-    "title": "Cycle retrospective",
-    "description": "Summarize the “{{title}}” step in your own words.",
-    "learning_hint": "Short answers are fine. This becomes evidence that you can explain what you built.",
-    "intent_label": "What did you intend to do?",
-    "help_label": "How did AI help?",
-    "next_label": "What would you do differently next time?",
-    "skip": "Skip",
-    "save": "Save retrospective",
-    "saving": "Saving..."
   },
   "topbar": {
     "recovery_trigger_aria": "Open recovery panel",

@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Send, Sparkles, ClipboardCheck } from "lucide-react";
 import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
@@ -6,6 +6,7 @@ import type { AmbiguityHit, DiveStage } from "../../lib/ambiguity";
 import { AmbiguityHintList, AmbiguityUnderlay } from "../prompt-helper/AmbiguityHinter";
 import { PromptHelperPanel } from "../prompt-helper/PromptHelperPanel";
 import { PromptCheckDialog, type PromptCheckResult } from "../prompt-helper/PromptCheckDialog";
+import { useChatComposerStore } from "../../stores/chatComposer";
 import { useT } from "../../i18n";
 
 interface Props {
@@ -50,6 +51,27 @@ export function ChatInput({
   useLayoutEffect(() => {
     resize();
   }, [value, resize]);
+
+  const composerPending = useChatComposerStore((s) => s.pending);
+  const consumeComposer = useChatComposerStore((s) => s.consume);
+  useEffect(() => {
+    if (!composerPending) return;
+    const { seed, focus } = composerPending;
+    consumeComposer();
+    if (seed.length > 0) {
+      setValue(seed);
+      setHits([]);
+    }
+    if (focus) {
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        const end = el.value.length;
+        el.setSelectionRange(end, end);
+      });
+    }
+  }, [composerPending, consumeComposer]);
 
   const canSend = value.trim().length > 0 && !disabled;
   const canCheck = value.trim().length > 0 && !disabled;

@@ -49,3 +49,15 @@ export interface WorkmapCardListProps {
   onAddCard?: () => void;
   onCardClick?: (card: CardTileData) => void;
 }
+
+export interface VerifyLogView {
+  intent_match: boolean;
+  test_result: "pass" | "fail" | "skipped";
+  details: string;
+  model: string;
+  ran_at: number;
+  test_command?: string | null;
+  test_exit_code?: number | null;
+  test_stdout?: string | null;
+  test_stderr?: string | null;
+}

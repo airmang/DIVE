@@ -4,8 +4,6 @@ export { CardTileCollapsed } from "./CardTileCollapsed";
 export { CardStateBadge } from "./CardStateBadge";
 export { DiveProgress } from "./DiveProgress";
 export { WorkmapCardList } from "./WorkmapCardList";
-export { CardDetailPanel } from "./CardDetailPanel";
-export type { CardTransitionKind, VerifyLogView } from "./CardDetailPanel";
 export { CARD_STATE_META, getCardStateMeta } from "./card-state-meta";
 export type { StateColorToken } from "./card-state-meta";
 export type {
@@ -14,5 +12,7 @@ export type {
   CardTileData,
   CardTileMode,
   CardTileProps,
+  VerifyLogView,
   WorkmapCardListProps,
 } from "./types";
+export type { CardTransitionKind } from "../../stores/workmap";

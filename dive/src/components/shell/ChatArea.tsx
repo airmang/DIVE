@@ -25,6 +25,11 @@ interface ChatAreaProps {
   onRetryError?: (id: string) => void;
   onApproveToolCall?: (toolCallId: string, modifiedArgs?: unknown) => void;
   onDenyToolCall?: (toolCallId: string, reason?: string) => void;
+  planApproval?: {
+    activeMessageId: string | null;
+    onApprove: () => void;
+    onRequestChanges: () => void;
+  };
   modelLabel?: string;
   inputDisabled?: boolean;
   inputBlocked?: { reason: string; actionLabel?: string; onAction?: () => void } | null;
@@ -48,6 +53,7 @@ export function ChatArea({
   onRetryError,
   onApproveToolCall,
   onDenyToolCall,
+  planApproval,
   modelLabel,
   inputDisabled,
   inputBlocked,
@@ -116,6 +122,7 @@ export function ChatArea({
             onRetryError={onRetryError}
             onApproveToolCall={onApproveToolCall}
             onDenyToolCall={onDenyToolCall}
+            planApproval={planApproval}
           />
         ) : (
           <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 px-6 text-center">

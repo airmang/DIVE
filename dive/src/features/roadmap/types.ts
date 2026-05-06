@@ -1,24 +1,28 @@
-import type { CardTileData } from "../../components/workmap/types";
-import type { CardTransitionKind, VerifyLogView } from "../../components/workmap/CardDetailPanel";
+import type { CardTileData, VerifyLogView } from "../../components/workmap/types";
+import type { CardTransitionKind } from "../../stores/workmap";
 import type { ChangedFile } from "../../components/slide-in/types";
-import type { NewCardDraft } from "../../components/workmap/NewCardDialog";
 
-export type RoadmapStepStatus =
-  | "planned"
-  | "ready"
-  | "working"
-  | "checking"
-  | "done"
-  | "needs_changes"
-  | "integrated";
+/**
+ * User-facing Roadmap step status (redesign §3.5).
+ *
+ * Five values only. Internal `CardState` (decomposed/instructed/verifying/...)
+ * is an implementation detail and MUST NOT leak into the UI surface.
+ *
+ *   planned      — not started yet
+ *   in_progress  — AI working or awaiting user input
+ *   review       — verification results ready; user decides approve/request_changes
+ *   done         — verified and approved
+ *   shipped      — integrated / final
+ */
+export type RoadmapStepStatus = "planned" | "in_progress" | "review" | "done" | "shipped";
 
-export type RoadmapStepAction =
-  | "prepare"
-  | "request_check"
-  | "approve"
-  | "request_changes"
-  | "reopen"
-  | "integrate";
+/**
+ * Actions a chat handler can issue against a roadmap step. Kept to the
+ * Must-Have set (approve / request_changes / reopen) per redesign §9.1.
+ * Deeper transitions (prepare/check/integrate) are orchestrated by the
+ * agent runtime, not by explicit user UI, so they are no longer exposed.
+ */
+export type RoadmapStepAction = "approve" | "request_changes" | "reopen";
 
 export interface RoadmapStepProgress {
   ratio: number;
@@ -37,6 +41,13 @@ export interface RoadmapStep {
   changeSummary: string | null;
   testCommand: string | null;
   status: RoadmapStepStatus;
+  /**
+   * True when `status === "review"` was reached via a prior rejection
+   * (internal `CardState === "rejected"`), as opposed to entering review
+   * normally from `verifying`. UI uses this to show a "changes requested"
+   * sub-badge without re-exposing the internal card state.
+   */
+  wasRejected: boolean;
   progress: RoadmapStepProgress;
   isActive: boolean;
   isComplete: boolean;
@@ -49,8 +60,6 @@ export interface RoadmapProgress {
   integrated: number;
   percent: number;
 }
-
-export type RoadmapStepCreateDraft = NewCardDraft;
 
 export interface RoadmapModel {
   steps: RoadmapStep[];

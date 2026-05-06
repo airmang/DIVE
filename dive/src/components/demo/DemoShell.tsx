@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import ShowcasePage from "../../pages/showcase";
-import WorkmapDemoPage from "../../pages/workmap-demo";
 import ChatDemoPage from "../../pages/chat-demo";
 import PermissionDemoPage from "../../pages/permission-demo";
 import SlideInDemoPage from "../../pages/slide-in-demo";
@@ -29,7 +28,6 @@ export function DemoShell({ route }: DemoShellProps) {
     return () => setProjectSessionDemoFallback(false);
   }, []);
 
-  if (demoRoute === "workmap-demo") return <WorkmapDemoPage />;
   if (demoRoute === "chat-demo") return <ChatDemoPage />;
   if (demoRoute === "permission-demo") return <PermissionDemoPage />;
   if (demoRoute === "slide-in-demo") return <SlideInDemoPage />;

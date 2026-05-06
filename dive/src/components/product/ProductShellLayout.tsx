@@ -6,6 +6,7 @@ import { ProjectRail } from "./ProjectRail";
 import { RoadmapHost } from "./RoadmapHost";
 import { TopBar } from "./TopBar";
 import { RecoverySlideIn } from "./RecoverySlideIn";
+import { StepDetailSlideIn } from "./StepDetailSlideIn";
 
 interface ProductShellLayoutProps {
   shell: ProductShellController;
@@ -32,16 +33,14 @@ export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
         <ProjectRail />
       </div>
       <div className="row-start-2 col-start-2 min-h-0">
-        <ConversationPanel
-          conversation={shell.conversation}
-          planDraftFloating={shell.planDraftFloating}
-        />
+        <ConversationPanel conversation={shell.conversation} />
       </div>
       <div className="row-start-2 col-start-3 min-h-0">
         <RoadmapHost roadmap={shell.roadmap} />
       </div>
       <ActionDock />
       <ProductModalHost modals={shell.modals} />
+      <StepDetailSlideIn {...shell.stepDetail} />
       <RecoverySlideIn
         open={shell.recovery.open}
         onOpenChange={shell.recovery.onOpenChange}
