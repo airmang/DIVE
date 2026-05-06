@@ -2,7 +2,7 @@ import { memo } from "react";
 import { Ban, Wrench } from "lucide-react";
 import type { ToolCallMessageData } from "./types";
 import { Badge } from "../ui/badge";
-import { PermissionCard } from "../permission-card";
+import { PermissionCard, RawDetails } from "../permission-card";
 import type { PermissionCardData } from "../permission-card";
 import { McpProvenanceBadge } from "../mcp/McpProvenanceBadge";
 
@@ -122,7 +122,25 @@ function ToolCallMessageImpl({ message, onApprove, onDeny }: Props) {
         </header>
         <p className="mt-1 truncate font-mono text-xs text-fg-muted">{message.paramsPreview}</p>
         {message.deniedReason ? (
-          <p className="mt-1 text-xs text-danger">사유: {message.deniedReason}</p>
+          <div className="mt-2 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
+            <p className="font-semibold">DIVE did not run this.</p>
+            <p>{message.deniedReason}</p>
+            {message.deniedReason.includes("plan-first") ? (
+              <p className="mt-1 text-fg-muted">
+                This is expected during planning: file changes and commands wait until you approve a
+                plan.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        {message.args !== undefined ? (
+          <div className="mt-2">
+            <RawDetails
+              label="Show details"
+              value={{ preview: message.paramsPreview, args: message.args }}
+              testId="tool-call-details"
+            />
+          </div>
         ) : null}
       </div>
     </article>

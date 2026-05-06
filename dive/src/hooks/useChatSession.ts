@@ -434,13 +434,17 @@ function reduce(prev: State, evt: AgentEvent): State {
       };
     }
     case "tool_result": {
+      const toolCall = prev.messages.find((m) => m.id === evt.call_id && m.kind === "tool_call") as
+        | ToolCallMessageData
+        | undefined;
       const m: ToolResultMessageData = {
         id: `tr-${evt.call_id}`,
         kind: "tool_result",
         createdAt: Date.now(),
-        toolName: "result",
+        toolName: toolCall?.toolName ?? "tool",
         success: evt.success,
         summary: evt.summary,
+        full: evt.full,
       };
       return { ...prev, messages: [...prev.messages, m] };
     }

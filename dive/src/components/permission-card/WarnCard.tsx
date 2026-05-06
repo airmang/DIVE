@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { AlertTriangle, Check, Pencil, X } from "lucide-react";
-import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { DiffViewer } from "./DiffViewer";
 import { ArgsEditor } from "./ArgsEditor";
+import { CommandExplainer } from "./CommandExplainer";
+import { explainTool } from "./explain";
 import { McpProvenanceBadge } from "../mcp/McpProvenanceBadge";
+import { PatchPreviewPanel } from "./PatchPreviewPanel";
+import { PermissionSummary } from "./PermissionSummary";
+import { RawDetails } from "./RawDetails";
 import type { PermissionCardProps } from "./types";
 
 export function WarnCard({ card, onApprove, onDeny }: PermissionCardProps) {
@@ -12,6 +15,7 @@ export function WarnCard({ card, onApprove, onDeny }: PermissionCardProps) {
   const [denyingWithReason, setDenyingWithReason] = useState(false);
   const [denyReason, setDenyReason] = useState("");
   const [modifiedArgs, setModifiedArgs] = useState<unknown | null>(card.args);
+  const explanation = explainTool(card.toolName, card.risk, card.args);
 
   const canApprove = !editing || modifiedArgs !== null;
 
@@ -26,19 +30,21 @@ export function WarnCard({ card, onApprove, onDeny }: PermissionCardProps) {
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" aria-hidden />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-sm">
-            <span className="font-medium text-fg">{card.toolName}</span>
-            <Badge variant="warn">주의</Badge>
+            <span className="font-medium text-fg">Review before DIVE changes anything</span>
             <McpProvenanceBadge name={card.toolName} />
           </div>
-          <p className="truncate font-mono text-xs text-fg-muted">{card.paramsPreview}</p>
+          <p className="text-xs text-fg-muted">
+            Nothing is applied until you choose Allow. Deny is always safe.
+          </p>
         </div>
       </div>
 
-      {card.diffPreview ? (
-        <div className="p-3">
-          <DiffViewer diff={card.diffPreview} />
-        </div>
-      ) : null}
+      <div className="space-y-3 px-3 py-3">
+        <PermissionSummary toolName={card.toolName} risk={card.risk} explanation={explanation} />
+        <CommandExplainer explanation={explanation} />
+        <PatchPreviewPanel diff={card.diffPreview} expected={explanation.patchPreviewExpected} />
+        <RawDetails label="Show details" value={{ preview: card.paramsPreview, args: card.args }} />
+      </div>
 
       {editing ? (
         <div className="border-t px-3 py-2">
@@ -48,19 +54,19 @@ export function WarnCard({ card, onApprove, onDeny }: PermissionCardProps) {
 
       {denyingWithReason ? (
         <div className="border-t px-3 py-2">
-          <label className="text-xs text-fg-muted">거부 사유 (선택)</label>
+          <label className="text-xs text-fg-muted">Why deny? (optional)</label>
           <textarea
             value={denyReason}
             onChange={(e) => setDenyReason(e.target.value)}
             rows={2}
-            aria-label="거부 사유"
+            aria-label="Deny reason"
             data-testid="deny-reason"
             className="mt-1 w-full resize-y rounded-md border bg-bg-panel2 px-3 py-2 text-xs text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
           />
         </div>
       ) : null}
 
-      <footer className="flex items-center justify-between gap-2 border-t bg-bg-panel2/30 px-3 py-2">
+      <footer className="flex flex-wrap items-center justify-between gap-2 border-t bg-bg-panel2/30 px-3 py-2">
         <Button
           size="sm"
           variant="ghost"
@@ -68,9 +74,9 @@ export function WarnCard({ card, onApprove, onDeny }: PermissionCardProps) {
           onClick={() => setEditing((v) => !v)}
         >
           <Pencil />
-          {editing ? "수정 취소" : "수정"}
+          {editing ? "Stop editing request" : "Edit request"}
         </Button>
-        <div className="flex gap-1">
+        <div className="flex flex-wrap gap-1">
           {denyingWithReason ? (
             <Button
               size="sm"
@@ -79,7 +85,7 @@ export function WarnCard({ card, onApprove, onDeny }: PermissionCardProps) {
               onClick={() => onDeny(card.toolCallId, denyReason.trim() || undefined)}
             >
               <X />
-              거부 확정
+              Confirm deny
             </Button>
           ) : (
             <>
@@ -89,7 +95,7 @@ export function WarnCard({ card, onApprove, onDeny }: PermissionCardProps) {
                 data-testid="card-deny-with-reason"
                 onClick={() => setDenyingWithReason(true)}
               >
-                사유 남기기
+                Add reason
               </Button>
               <Button
                 size="sm"
@@ -98,7 +104,7 @@ export function WarnCard({ card, onApprove, onDeny }: PermissionCardProps) {
                 onClick={() => onDeny(card.toolCallId)}
               >
                 <X />
-                거부
+                Deny
               </Button>
             </>
           )}
@@ -112,7 +118,7 @@ export function WarnCard({ card, onApprove, onDeny }: PermissionCardProps) {
             }
           >
             <Check />
-            승인
+            Allow this change
           </Button>
         </div>
       </footer>

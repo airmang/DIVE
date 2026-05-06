@@ -66,6 +66,7 @@ export interface ToolResultMessageData extends BaseMessage {
   toolName: string;
   success: boolean;
   summary: string;
+  full?: unknown;
 }
 
 export interface SystemMessageData extends BaseMessage {

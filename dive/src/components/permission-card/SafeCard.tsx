@@ -1,38 +1,40 @@
 import { Check, ShieldCheck, X } from "lucide-react";
-import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { McpProvenanceBadge } from "../mcp/McpProvenanceBadge";
+import { explainTool } from "./explain";
+import { PermissionSummary } from "./PermissionSummary";
+import { RawDetails } from "./RawDetails";
 import type { PermissionCardProps } from "./types";
 
 export function SafeCard({ card, onApprove, onDeny }: PermissionCardProps) {
+  const explanation = explainTool(card.toolName, card.risk, card.args);
+
   return (
     <div
-      className="flex w-full items-center justify-between gap-3 rounded-md border border-info/40 bg-info/5 px-3 py-2"
+      className="w-full overflow-hidden rounded-md border border-info/40 bg-info/5"
       data-testid="permission-card"
       data-risk="safe"
       data-tool-call-id={card.toolCallId}
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <ShieldCheck className="h-4 w-4 shrink-0 text-info" aria-hidden />
+      <div className="flex items-start gap-2 border-b border-info/30 bg-info/10 px-3 py-2">
+        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-info" aria-hidden />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-sm">
-            <span className="font-medium text-fg">{card.toolName}</span>
-            <Badge variant="info">안전</Badge>
+            <span className="font-medium text-fg">Quick safety check</span>
             <McpProvenanceBadge name={card.toolName} />
           </div>
-          <p className="truncate font-mono text-xs text-fg-muted">{card.paramsPreview}</p>
+          <p className="text-xs text-fg-muted">
+            This request should only read information. You still stay in control.
+          </p>
         </div>
       </div>
-      <div className="flex shrink-0 gap-1">
-        <Button
-          size="sm"
-          variant="primary"
-          data-testid="card-approve"
-          onClick={() => onApprove(card.toolCallId)}
-        >
-          <Check />
-          승인
-        </Button>
+
+      <div className="space-y-3 px-3 py-3">
+        <PermissionSummary toolName={card.toolName} risk={card.risk} explanation={explanation} />
+        <RawDetails label="Show details" value={{ preview: card.paramsPreview, args: card.args }} />
+      </div>
+
+      <footer className="flex items-center justify-end gap-2 border-t bg-bg-panel2/30 px-3 py-2">
         <Button
           size="sm"
           variant="ghost"
@@ -40,8 +42,18 @@ export function SafeCard({ card, onApprove, onDeny }: PermissionCardProps) {
           onClick={() => onDeny(card.toolCallId)}
         >
           <X />
+          Deny
         </Button>
-      </div>
+        <Button
+          size="sm"
+          variant="primary"
+          data-testid="card-approve"
+          onClick={() => onApprove(card.toolCallId)}
+        >
+          <Check />
+          Allow read
+        </Button>
+      </footer>
     </div>
   );
 }
