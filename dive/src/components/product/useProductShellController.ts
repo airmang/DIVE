@@ -100,11 +100,18 @@ export function useProductShellController() {
   const isDemoRoute = import.meta.env.DEV && hasRecognizedDemoRoute();
 
   useEffect(() => {
-    if (!projectSessionLoaded || isDemoRoute) return;
+    if (!projectSessionLoaded || isDemoRoute || currentProjectId === null) return;
     if (!isOnboarded() && !hasConnectedProvider) {
       dialogs.setOnboardingOpen(true);
     }
-  }, [projectSessionLoaded, isDemoRoute, hasConnectedProvider, isOnboarded, dialogs]);
+  }, [
+    projectSessionLoaded,
+    isDemoRoute,
+    currentProjectId,
+    hasConnectedProvider,
+    isOnboarded,
+    dialogs,
+  ]);
 
   const roadmapModel = useRoadmap(currentSessionId);
   const chat = useChatSession(currentSessionId);
@@ -498,6 +505,13 @@ export function useProductShellController() {
   const promptStage = stage.toUpperCase() as PromptDiveStage;
 
   const inputBlocked = useMemo(() => {
+    if (!isDemoRoute && currentProjectId === null) {
+      return {
+        reason: t("stage.gate_no_session"),
+        actionLabel: t("sidebar.new_project"),
+        onAction: handleEmptyStateAction,
+      };
+    }
     if (!isDemoRoute && !hasConnectedProvider) {
       return {
         reason: t("stage.gate_no_provider"),
@@ -508,15 +522,14 @@ export function useProductShellController() {
     if (!isDemoRoute && currentSessionId === null) {
       return {
         reason: t("stage.gate_no_session"),
-        actionLabel:
-          currentProjectId === null ? t("sidebar.new_project") : t("sidebar.new_session"),
+        actionLabel: t("sidebar.new_session"),
         onAction: handleEmptyStateAction,
       };
     }
     if (!canChat) {
       return {
         reason: t("stage.gate_no_cards"),
-        actionLabel: "Draft a plan",
+        actionLabel: t("stage.action_draft_plan"),
         onAction: () => {
           setPlanningGoalSeed("");
           setPlanDraft(null);
@@ -746,7 +759,8 @@ export function useProductShellController() {
         }
       : null;
 
-  const showProviderSetupBanner = projectSessionLoaded && !isDemoRoute && !hasConnectedProvider;
+  const showProviderSetupBanner =
+    projectSessionLoaded && !isDemoRoute && currentProjectId !== null && !hasConnectedProvider;
 
   return {
     providerBanner: {
@@ -858,7 +872,13 @@ export function useProductShellController() {
       onboarding: {
         open: dialogs.onboardingOpen,
         onOpenChange: dialogs.setOnboardingOpen,
-        onConnected: () => dialogs.setNewProjectOpen(true),
+        onConnected: () => {
+          if (currentProjectId === null) {
+            dialogs.setNewProjectOpen(true);
+            return;
+          }
+          if (currentSessionId === null) void createSession(currentProjectId);
+        },
       },
       newProject: {
         open: dialogs.newProjectOpen,

@@ -41,6 +41,22 @@ Existing workmap/card state remains available as internal implementation vocabul
 
 ---
 
+
+## Product vs internal tooling
+
+Product-facing work should present DIVE as a beginner desktop UI for controlling a local coding agent. The first-run path is:
+
+1. Choose a project folder.
+2. Connect an AI assistant.
+3. Describe a goal.
+4. Review a plan.
+5. Follow the Roadmap.
+6. Execute one step at a time with approvals, checks, and Recovery/Undo.
+
+Research, classroom, teacher/student, D/I/V/E, card, and workmap language may remain in internal docs, dev-only demo routes, Rust/database state, tests, and adapters. It should not be the primary copy in the production product route or release screenshots.
+
+---
+
 ## Development
 
 ```bash

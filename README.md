@@ -23,13 +23,14 @@
 DIVE의 제품 UI는 일반 사용자가 이해하기 쉬운 용어를 우선합니다.
 
 1. **프로젝트 열기** — 작업할 로컬 폴더를 선택합니다.
-2. **목표 입력** — 만들고 싶은 기능이나 수정하고 싶은 문제를 자연어로 설명합니다.
-3. **계획 검토** — AI가 제안한 계획과 범위를 확인합니다.
-4. **로드맵** — 작업을 작은 단계로 보고 현재 위치를 파악합니다.
-5. **단계별 실행** — 에이전트가 한 단계씩 작업하고 필요한 도구 권한을 요청합니다.
-6. **변경 사항 확인** — 패치와 영향을 확인합니다.
-7. **검증 실행** — 테스트/명령 결과를 확인합니다.
-8. **되돌리기** — 체크포인트로 안전하게 복구합니다.
+2. **AI 연결** — DIVE가 사용할 AI 도우미를 연결합니다.
+3. **목표 입력** — 만들고 싶은 기능이나 수정하고 싶은 문제를 자연어로 설명합니다.
+4. **계획 검토** — AI가 제안한 계획과 범위를 확인합니다.
+5. **로드맵** — 작업을 작은 단계로 보고 현재 위치를 파악합니다.
+6. **단계별 실행** — 에이전트가 한 단계씩 작업하고 필요한 도구 권한을 요청합니다.
+7. **변경 사항 확인** — 패치와 영향을 확인합니다.
+8. **검증 실행** — 테스트/명령 결과를 확인합니다.
+9. **되돌리기** — 체크포인트로 안전하게 복구합니다.
 
 내부적으로는 기존 상태 모델과 안전 게이트를 보존하지만, 일반 제품 화면에서는 Plan, Roadmap, Step, Changes, Run Check, Undo 같은 제품 용어를 사용합니다.
 
@@ -38,7 +39,7 @@ DIVE의 제품 UI는 일반 사용자가 이해하기 쉬운 용어를 우선합
 ## 핵심 기능
 
 - **초심자용 데스크톱 UI** — 터미널 중심 흐름 대신 채팅, 계획, 로드맵, 변경 확인으로 진행
-- **AI 프로바이더 연결** — Anthropic · OpenAI · OpenRouter · ChatGPT OAuth · Custom OpenAI-compatible · MCP 서버
+- **AI 연결** — Anthropic · OpenAI · OpenRouter · ChatGPT OAuth · Custom OpenAI-compatible · MCP 서버
 - **권한 요청** — 도구 실행 전 위험도와 변경 미리보기를 확인하고 승인/거부
 - **자동 체크포인트** — 중요한 단계 전후로 저장하고 필요하면 되돌리기
 - **프롬프트 도우미** — 모호한 요청을 더 구체적인 작업 지시로 다듬기
@@ -72,10 +73,27 @@ DIVE의 제품 UI는 일반 사용자가 이해하기 쉬운 용어를 우선합
 ### 3. 첫 실행
 
 - OS 언어가 한국어면 한국어 UI, 아니면 영어로 시작합니다. Settings > General에서 전환할 수 있습니다.
-- 온보딩에서 프로젝트 폴더를 선택하고 AI 프로바이더를 연결합니다.
+- 온보딩에서 프로젝트 폴더를 선택하고 AI 도우미를 연결합니다.
 - 이후 채팅에 목표를 적고 계획/로드맵/권한/변경 사항을 확인하며 진행합니다.
 
 사용자 가이드: [튜토리얼](./docs/user-guide/tutorial.md) · [FAQ](./docs/user-guide/faq.md) · [트러블슈팅](./docs/user-guide/troubleshooting.md)
+
+---
+
+
+## Product UX Refactor QA checklist
+
+Phase 8 release screenshots and smoke notes should show the beginner product path, not internal research tooling:
+
+- Choose a local project folder.
+- Connect an AI assistant from Settings / AI Connection.
+- Describe a goal in natural language.
+- Answer the short Deep Interview questions.
+- Review and approve the plan.
+- Follow the Roadmap and run one step at a time.
+- Review permissions, changed files, checks, and Recovery & Undo.
+
+Internal research, diagnostics, classroom, teacher/student, and D/I/V/E state-machine material belongs in `docs/internal/` or dev-only routes, not product screenshots or the first-run user path.
 
 ---
 

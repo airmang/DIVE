@@ -33,8 +33,8 @@
     "delete_project_confirm": "프로젝트를 삭제할까요? 폴더의 .dive/ 디렉터리만 지워집니다. (코드는 보존)",
     "delete_session_confirm": "이 세션을 삭제할까요?",
     "current_model": "현재 모델",
-    "provider_not_connected": "프로바이더 미연결",
-    "provider_connected": "연결됨",
+    "provider_not_connected": "AI 미연결",
+    "provider_connected": "AI 연결됨",
     "theme_to_light": "라이트 모드로 전환",
     "theme_to_dark": "다크 모드로 전환",
     "open_settings": "설정 화면 열기"
@@ -53,15 +53,16 @@
     "banner_rejected": "수정이 필요한 단계 — 내용을 다듬어 다시 시작하세요.",
     "banner_verified": "검증 완료 — 변경 사항을 확인하거나 다음 단계로 이동하세요.",
     "banner_extended": "단계 완료",
-    "gate_no_session": "세션을 선택하거나 생성하세요.",
-    "gate_no_provider": "연결된 프로바이더가 없어 채팅과 검증을 시작할 수 없습니다.",
-    "gate_no_cards": "먼저 로드맵에 단계를 추가하세요.",
+    "gate_no_session": "목표를 설명하기 전에 프로젝트를 선택하고 세션을 시작하세요.",
+    "gate_no_provider": "계획, 로드맵 생성, 단계 실행을 시작하려면 AI를 연결하세요.",
+    "gate_no_cards": "단계 실행 전에 목표를 설명하고 계획을 작성하세요.",
     "gate_no_instruction": "이 단계에서 에이전트가 할 일을 적어 주세요.",
     "gate_not_verifying": "아직 검증을 시작하지 않았습니다.",
-    "action_open_settings": "설정 열기",
+    "action_open_settings": "AI 연결",
     "action_add_ai_cards": "AI로 단계 추가",
     "action_write_instruction": "할 일 적기",
-    "action_start_verify": "검증 시작"
+    "action_start_verify": "검증 시작",
+    "action_draft_plan": "계획 작성"
   },
   "workmap": {
     "new_card_title": "새 단계 {{index}}",
@@ -80,15 +81,15 @@
     "minimap_empty": "아직 단계 없음"
   },
   "onboarding": {
-    "title": "DIVE 시작하기",
-    "description": "사용할 AI 제공사를 선택하고 API 키를 입력하세요.",
-    "provider_label": "프로바이더",
+    "title": "AI 연결하기",
+    "description": "프로젝트 폴더를 선택한 뒤, DIVE가 계획·코딩·검증에 사용할 AI를 연결하세요.",
+    "provider_label": "AI 연결",
     "api_key_label": "API 키",
-    "connect": "연결하기",
+    "connect": "AI 연결",
     "connecting": "연결 중…",
-    "skip": "나중에 설정",
+    "skip": "나중에 연결",
     "api_key_required": "API 키를 입력하세요.",
-    "key_link": "키 발급 링크",
+    "key_link": "API 키 받기",
     "opencode_warning": "베타 서비스 · 일부 무료 모델은 데이터 훈련에 사용될 수 있습니다",
     "details": "자세히",
     "provider_anthropic_hint": "Claude 계열",
@@ -119,11 +120,11 @@
     "open_pick_title": "열 프로젝트 폴더 선택"
   },
   "chat": {
-    "empty_no_project_title": "프로젝트를 만들고 세션을 시작하세요",
-    "empty_no_project_description": "DIVE는 프로젝트별로 로드맵 단계와 대화를 로컬 DB에 저장합니다.",
-    "empty_no_session_title": "세션을 선택하거나 생성하세요",
-    "empty_no_session_description": "세션이 선택되기 전에는 로드맵과 채팅을 만들지 않습니다.",
-    "provider_setup_title": "API 키를 설정하세요"
+    "empty_no_project_title": "프로젝트 폴더를 선택하세요",
+    "empty_no_project_description": "DIVE가 계획을 세우고 로드맵을 만들며 단계별 코딩을 실행할 로컬 폴더를 선택하세요.",
+    "empty_no_session_title": "작업 세션을 시작하세요",
+    "empty_no_session_description": "AI 연결이 준비되면 목표를 설명하고 계획과 로드맵을 만들 수 있습니다.",
+    "provider_setup_title": "계속하려면 AI를 연결하세요"
   },
   "card": {
     "state_decomposed": "계획됨",
