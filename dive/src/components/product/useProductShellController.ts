@@ -17,6 +17,7 @@ import { getCardStateMeta } from "../workmap/card-state-meta";
 import { useT } from "../../i18n";
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts";
 import { useRoadmap, type RoadmapStepAction } from "../../features/roadmap";
+import type { PlanDraft } from "../../features/planning";
 import { useChatSession } from "../../hooks/useChatSession";
 import { refreshMenuRecents, useMenuEvents } from "../../lib/menu-events";
 import { pickFolder } from "../../lib/tauri-dialog";
@@ -48,6 +49,8 @@ export function useProductShellController() {
   const [roadmapCompact, setRoadmapCompact] = useState(false);
   const dialogs = useProductShellDialogs();
   const [lastManualCheckpointLabel, setLastManualCheckpointLabel] = useState<string | null>(null);
+  const [planningGoalSeed, setPlanningGoalSeed] = useState("");
+  const [planDraft, setPlanDraft] = useState<PlanDraft | null>(null);
   const wasStreaming = useRef(false);
 
   const projectSessionLoaded = useProjectSessionStore((s) => s.loaded);
@@ -467,8 +470,12 @@ export function useProductShellController() {
     if (!canChat) {
       return {
         reason: t("stage.gate_no_cards"),
-        actionLabel: t("stage.action_add_ai_cards"),
-        onAction: () => dialogs.setAiOpen(true),
+        actionLabel: "Draft a plan",
+        onAction: () => {
+          setPlanningGoalSeed("");
+          setPlanDraft(null);
+          dialogs.setPlanInterviewOpen(true);
+        },
       };
     }
     if (stage === "i" && currentCard) {
@@ -544,6 +551,73 @@ export function useProductShellController() {
     });
   }, [chat, stage, toast, t]);
 
+  const openPlanInterview = useCallback(
+    (goal?: string) => {
+      setPlanningGoalSeed(goal?.trim() ?? "");
+      setPlanDraft(null);
+      dialogs.setPlanInterviewOpen(true);
+    },
+    [dialogs],
+  );
+
+  const handlePlanDraft = useCallback(
+    (draft: PlanDraft) => {
+      setPlanDraft(draft);
+      dialogs.setPlanInterviewOpen(false);
+      dialogs.setPlanReviewOpen(true);
+    },
+    [dialogs],
+  );
+
+  const closePlanReview = useCallback(
+    (open: boolean) => {
+      dialogs.setPlanReviewOpen(open);
+      if (!open) setPlanDraft(null);
+    },
+    [dialogs],
+  );
+
+  const acceptPlanDraft = useCallback(
+    async (draft: PlanDraft) => {
+      const startPosition = cards.length + 1;
+      if (isDemoRoute) {
+        const firstId = Math.max(0, ...cards.map((card) => card.id)) + 1;
+        addCardsLocal(
+          draft.steps.map((step, index) => ({
+            id: firstId + index,
+            title: step.title,
+            summary: step.instructionSeed,
+            assistSummary: step.summary,
+            acceptanceCriteria: step.acceptanceCriteria.join("\n"),
+            state: "decomposed" as const,
+            stagesCompleted: { d: true, i: false, v: false, e: false },
+            position: startPosition + index,
+          })),
+        );
+        setCurrentCardLocal(firstId);
+      } else {
+        let firstCreatedId: number | null = null;
+        for (const [index, step] of draft.steps.entries()) {
+          const row = await roadmapModel.createStep(step.title, startPosition + index, {
+            summary: step.summary,
+            acceptanceCriteria: step.acceptanceCriteria.join("\n"),
+            instructionSeed: step.instructionSeed,
+          });
+          firstCreatedId ??= row.id;
+        }
+        if (firstCreatedId !== null) await roadmapModel.selectStep(firstCreatedId);
+      }
+      dialogs.setPlanReviewOpen(false);
+      setPlanDraft(null);
+      toast({
+        variant: "success",
+        title: "Roadmap created",
+        description: `${draft.steps.length} steps are ready for review.`,
+      });
+    },
+    [addCardsLocal, cards, dialogs, isDemoRoute, roadmapModel, setCurrentCardLocal, toast],
+  );
+
   const showProviderSetupBanner = projectSessionLoaded && !isDemoRoute && !hasConnectedProvider;
 
   return {
@@ -580,9 +654,25 @@ export function useProductShellController() {
       canAddStep,
       onAddStep: () => dialogs.setNewCardOpen(true),
       onSelectStep: handleStepSelect,
-      onRequestAiAssist: () => dialogs.setAiOpen(true),
+      onStartPlanning: openPlanInterview,
     },
     modals: {
+      planInterview: {
+        open: dialogs.planInterviewOpen,
+        initialGoal: planningGoalSeed,
+        onOpenChange: dialogs.setPlanInterviewOpen,
+        onPlanDraft: handlePlanDraft,
+      },
+      planReview: {
+        open: dialogs.planReviewOpen,
+        draft: planDraft,
+        onOpenChange: closePlanReview,
+        onBack: () => {
+          dialogs.setPlanReviewOpen(false);
+          dialogs.setPlanInterviewOpen(true);
+        },
+        onAccept: acceptPlanDraft,
+      },
       newCard: {
         open: dialogs.newCardOpen,
         onOpenChange: dialogs.setNewCardOpen,

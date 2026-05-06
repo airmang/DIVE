@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -21,7 +22,7 @@ interface RoadmapPanelProps {
   onToggleCompact: () => void;
   onSelectStep: (stepId: number) => void;
   onAddStep: () => void;
-  onRequestAiAssist: () => void;
+  onStartPlanning: (goal?: string) => void;
 }
 
 const STATUS_LABEL: Record<RoadmapStepStatus, string> = {
@@ -88,10 +89,12 @@ export function RoadmapPanel({
   onToggleCompact,
   onSelectStep,
   onAddStep,
-  onRequestAiAssist,
+  onStartPlanning,
 }: RoadmapPanelProps) {
+  const [goalDraft, setGoalDraft] = useState("");
   const activeStep = steps.find((step) => step.id === activeStepId) ?? steps[0] ?? null;
   const hasSteps = steps.length > 0;
+  const startPlanning = () => onStartPlanning(goalDraft);
 
   return (
     <aside
@@ -174,15 +177,23 @@ export function RoadmapPanel({
             <p className="mt-1 text-xs text-fg-muted">
               Use chat to explain your goal. DIVE can turn it into Roadmap steps you can review.
             </p>
+            <textarea
+              value={goalDraft}
+              onChange={(event) => setGoalDraft(event.target.value)}
+              rows={3}
+              className="mt-3 w-full rounded-md border bg-bg-panel2 px-3 py-2 text-xs text-fg placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              placeholder="I want to build..."
+              data-testid="roadmap-goal-draft"
+            />
             <Button
               className="mt-3"
               size="sm"
               variant="primary"
-              onClick={onRequestAiAssist}
-              data-testid="roadmap-empty-ai-assist"
+              onClick={startPlanning}
+              data-testid="roadmap-empty-start-planning"
             >
               <Sparkles />
-              Suggest steps
+              Draft plan
             </Button>
           </div>
         )}
@@ -244,9 +255,14 @@ export function RoadmapPanel({
 
       <footer className="shrink-0 border-t p-3">
         <div className="grid grid-cols-2 gap-2">
-          <Button variant="primary" size="sm" onClick={onRequestAiAssist}>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => onStartPlanning()}
+            data-testid="roadmap-start-planning"
+          >
             <Sparkles />
-            Suggest
+            Plan
           </Button>
           <Button variant="outline" size="sm" onClick={onAddStep} disabled={!canAddStep}>
             <Plus />

@@ -8,6 +8,8 @@ export function useProductShellDialogs() {
   const [retroCard, setRetroCard] = useState<CardTileData | null>(null);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [planInterviewOpen, setPlanInterviewOpen] = useState(false);
+  const [planReviewOpen, setPlanReviewOpen] = useState(false);
 
   return useMemo(
     () => ({
@@ -23,7 +25,20 @@ export function useProductShellDialogs() {
       setOnboardingOpen,
       newProjectOpen,
       setNewProjectOpen,
+      planInterviewOpen,
+      setPlanInterviewOpen,
+      planReviewOpen,
+      setPlanReviewOpen,
     }),
-    [aiOpen, detailOpen, newCardOpen, newProjectOpen, onboardingOpen, retroCard],
+    [
+      aiOpen,
+      detailOpen,
+      newCardOpen,
+      newProjectOpen,
+      onboardingOpen,
+      planInterviewOpen,
+      planReviewOpen,
+      retroCard,
+    ],
   );
 }
