@@ -383,78 +383,22 @@ export function SettingsPage() {
         <div className="flex items-center justify-between">
           <Button variant="ghost" size="sm" onClick={backToShell} data-testid="settings-back">
             <ArrowLeft className="h-4 w-4" />
-            뒤로
+            Back
           </Button>
-          <h1 className="text-2xl font-bold">설정</h1>
+          <h1 className="text-2xl font-bold">Settings</h1>
           <div />
         </div>
 
-        <section className="flex flex-col gap-3" data-testid="settings-section-general">
-          <h2 className="text-lg font-semibold">일반</h2>
-
-          <div className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2.5">
-            <div>
-              <div className="text-sm font-medium">언어</div>
-              <div className="text-[11px] text-fg-muted">앱 인터페이스 언어</div>
-            </div>
-            <select
-              value={locale}
-              onChange={(e) => setLocale(e.target.value as Locale)}
-              className="rounded-md border bg-bg px-2 py-1 text-sm"
-              data-testid="settings-locale-select"
-              aria-label="언어 선택"
-            >
-              {SUPPORTED_LOCALES.map((code) => (
-                <option key={code} value={code}>
-                  {LOCALE_LABEL[code]}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2.5">
-            <div>
-              <div className="text-sm font-medium">테마</div>
-              <div className="text-[11px] text-fg-muted">
-                {theme === "dark" ? "어두운 테마" : "밝은 테마"}
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={toggleTheme}
-              data-testid="settings-theme-toggle"
-              data-theme={theme}
-            >
-              {theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환"}
-            </Button>
-          </div>
-
-          <div className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2.5">
-            <div>
-              <div className="text-sm font-medium">튜토리얼 모드</div>
-              <div className="text-[11px] text-fg-muted">
-                단계별 상세 설명을 표시합니다. 익숙해지면 끄세요.
-              </div>
-            </div>
-            <label className="inline-flex cursor-pointer items-center">
-              <input
-                type="checkbox"
-                checked={tutorialEnabled}
-                onChange={(e) => setTutorialEnabled(e.target.checked)}
-                data-testid="settings-tutorial-toggle"
-                className="h-4 w-4"
-              />
-            </label>
-          </div>
-        </section>
-
-        <section className="flex flex-col gap-3" data-testid="settings-section-providers">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-lg font-semibold">프로바이더</h2>
-            <span className="text-xs text-fg-muted">
-              API 키는 OS 자격 증명 저장소(Keyring)에 보관됩니다.
-            </span>
+        <section className="flex flex-col gap-3" data-testid="settings-section-ai-connection">
+          <div className="rounded-lg border border-accent/40 bg-accent/10 px-4 py-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">
+              1 · AI Connection
+            </p>
+            <h2 className="mt-1 text-xl font-bold text-fg">Connect DIVE to an AI assistant</h2>
+            <p className="mt-1 text-sm text-fg-muted">
+              Pick the AI connection DIVE uses for planning, coding, and checks. API keys are stored
+              in the OS keychain.
+            </p>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" data-testid="provider-cards">
             {PROVIDER_KINDS.map((p) => {
@@ -482,7 +426,7 @@ export function SettingsPage() {
                           }
                           data-testid="provider-dot"
                           data-connected={connected ? "true" : "false"}
-                          aria-label={connected ? "연결됨" : "미연결"}
+                          aria-label={connected ? "AI connection active" : "AI connection missing"}
                         />
                       </div>
                       <div className="text-[11px] text-fg-muted">{p.hint}</div>
@@ -505,7 +449,7 @@ export function SettingsPage() {
                           className="mt-1 text-[10px] text-fg-muted"
                           data-testid="codex-account-id"
                         >
-                          계정: <code>{codexAccountId}</code>
+                          Account: <code>{codexAccountId}</code>
                         </div>
                       ) : null}
                     </div>
@@ -519,7 +463,7 @@ export function SettingsPage() {
                         data-testid="provider-disconnect"
                         data-provider-kind={p.kind}
                       >
-                        해제
+                        Disconnect
                       </Button>
                     ) : (
                       <Button
@@ -534,7 +478,7 @@ export function SettingsPage() {
                         data-testid="provider-connect-btn"
                         data-provider-kind={p.kind}
                       >
-                        {p.ga ? (isCodex ? "ChatGPT 연결" : "연결하기") : "준비 중"}
+                        {p.ga ? (isCodex ? "Connect ChatGPT" : "Connect") : "Coming soon"}
                       </Button>
                     )}
                   </div>
@@ -542,7 +486,7 @@ export function SettingsPage() {
                     <div className="flex flex-col gap-2 border-t pt-2">
                       <Input
                         type="password"
-                        placeholder="sk-..."
+                        placeholder="Paste API key"
                         value={apiKeyInput}
                         onChange={(e) => setApiKeyInput(e.target.value)}
                         spellCheck={false}
@@ -557,7 +501,7 @@ export function SettingsPage() {
                         data-testid="provider-submit"
                         data-provider-kind={p.kind}
                       >
-                        {connecting ? "연결 중…" : "저장 + 연결"}
+                        {connecting ? "Connecting…" : "Save and connect"}
                       </Button>
                     </div>
                   ) : null}
@@ -576,53 +520,103 @@ export function SettingsPage() {
           </div>
         </section>
 
-        <section className="flex flex-col gap-3" data-testid="settings-section-policy">
-          <h2 className="text-lg font-semibold">자동 승인 정책</h2>
-          <p className="text-xs text-fg-muted">Safe 도구만 자동 승인할 수 있습니다.</p>
-          <LearningHint className="text-xs">
-            주의(Warn)·위험(Danger) 도구는 항상 수동 승인이 필요합니다.
-          </LearningHint>
-          <div className="flex flex-col gap-2" data-testid="policy-tool-list">
-            {SAFE_TOOLS.map((tool) => {
-              const on = policy.rules[tool] === "always";
-              return (
-                <label
-                  key={tool}
-                  className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2"
-                  data-testid="policy-row"
-                  data-tool={tool}
-                >
-                  <div>
-                    <div className="text-sm font-medium">{tool}</div>
-                    <div className="text-[10px] text-fg-muted">Safe · 자동 승인 가능</div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={on}
-                    onChange={() => void toggleToolPolicy(tool)}
-                    data-testid="policy-toggle"
-                    data-tool={tool}
-                    className="h-4 w-4"
-                  />
-                </label>
-              );
-            })}
-            {WARN_TOOLS.map((tool) => (
-              <div
-                key={tool}
-                className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2 opacity-60"
-                data-testid="policy-row-locked"
-                data-tool={tool}
-              >
-                <div>
-                  <div className="text-sm font-medium">{tool}</div>
-                  <div className="text-[10px] text-fg-muted">Warn · 항상 수동 승인</div>
-                </div>
-                <input type="checkbox" disabled className="h-4 w-4" />
-              </div>
-            ))}
+        <section className="flex flex-col gap-3" data-testid="settings-section-app">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-fg-muted">
+              2 · App Settings
+            </p>
+            <h2 className="text-lg font-semibold">App Settings</h2>
+            <p className="text-xs text-fg-muted">Change how DIVE looks and guides you.</p>
           </div>
-          <label className="flex items-center gap-2 text-xs">
+
+          <div className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2.5">
+            <div>
+              <div className="text-sm font-medium">Language</div>
+              <div className="text-[11px] text-fg-muted">Choose the app interface language.</div>
+            </div>
+            <select
+              value={locale}
+              onChange={(e) => setLocale(e.target.value as Locale)}
+              className="rounded-md border bg-bg px-2 py-1 text-sm"
+              data-testid="settings-locale-select"
+              aria-label="Choose language"
+            >
+              {SUPPORTED_LOCALES.map((code) => (
+                <option key={code} value={code}>
+                  {LOCALE_LABEL[code]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2.5">
+            <div>
+              <div className="text-sm font-medium">Theme</div>
+              <div className="text-[11px] text-fg-muted">
+                {theme === "dark" ? "Dark theme" : "Light theme"}
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={toggleTheme}
+              data-testid="settings-theme-toggle"
+              data-theme={theme}
+            >
+              {theme === "dark" ? "Switch to light" : "Switch to dark"}
+            </Button>
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2.5">
+            <div>
+              <div className="text-sm font-medium">Guided help</div>
+              <div className="text-[11px] text-fg-muted">
+                Show step-by-step explanations while you learn DIVE.
+              </div>
+            </div>
+            <label className="inline-flex cursor-pointer items-center">
+              <input
+                type="checkbox"
+                checked={tutorialEnabled}
+                onChange={(e) => setTutorialEnabled(e.target.checked)}
+                data-testid="settings-tutorial-toggle"
+                className="h-4 w-4"
+              />
+            </label>
+          </div>
+        </section>
+
+        <section className="flex flex-col gap-3" data-testid="settings-section-safety">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-fg-muted">
+              3 · Safety
+            </p>
+            <h2 className="text-lg font-semibold">Safety</h2>
+            <p className="text-xs text-fg-muted">
+              DIVE asks before changing files, running commands, or undoing work.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-md border bg-bg-panel px-3 py-3 text-xs">
+              <div className="text-sm font-semibold text-fg">You stay in control</div>
+              <p className="mt-1 text-fg-muted">
+                File edits and commands wait for an approval card before they run.
+              </p>
+            </div>
+            <div className="rounded-md border bg-bg-panel px-3 py-3 text-xs">
+              <div className="text-sm font-semibold text-fg">Unsafe patterns are blocked</div>
+              <p className="mt-1 text-fg-muted">
+                Some dangerous commands cannot run even if someone clicks approve.
+              </p>
+            </div>
+            <div className="rounded-md border bg-bg-panel px-3 py-3 text-xs">
+              <div className="text-sm font-semibold text-fg">Undo is available</div>
+              <p className="mt-1 text-fg-muted">
+                Use Recovery & Undo in the main app to return to a saved checkpoint.
+              </p>
+            </div>
+          </div>
+          <label className="flex items-start gap-2 rounded-md border bg-bg-panel px-3 py-2.5 text-xs">
             <input
               type="checkbox"
               checked={resetNextSession}
@@ -631,36 +625,266 @@ export function SettingsPage() {
                 window.localStorage.setItem("dive:reset-next-session", String(e.target.checked));
               }}
               data-testid="policy-reset-next"
-              className="h-3.5 w-3.5"
+              className="mt-0.5 h-3.5 w-3.5"
             />
-            다음 세션에서 자동 승인 정책 초기화 (권장)
+            <span>
+              <span className="block text-sm font-medium text-fg">
+                Reset approval shortcuts next session
+              </span>
+              <span className="block text-fg-muted">
+                Recommended: forget advanced auto-approval shortcuts when a new session starts.
+              </span>
+            </span>
           </label>
         </section>
 
-        {internalResearchEnabled && researchSettings.controls_enabled ? (
-          <section className="flex flex-col gap-3" data-testid="settings-section-diagnostics">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Internal diagnostics</h2>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={openDiagnosticsSurvey}
-                data-testid="settings-open-diagnostics-survey"
-              >
-                진단 설문 열기
-              </Button>
+        <section className="flex flex-col gap-3" data-testid="settings-section-advanced">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-fg-muted">
+              4 · Advanced
+            </p>
+            <h2 className="text-lg font-semibold">Advanced</h2>
+            <p className="text-xs text-fg-muted">
+              Optional tools for experienced users. You can ignore this section at first.
+            </p>
+          </div>
+
+          <details
+            className="rounded-md border bg-bg-panel px-3 py-3"
+            data-testid="settings-section-policy"
+          >
+            <summary className="cursor-pointer text-sm font-semibold text-fg">
+              Automatic safe-read approvals
+            </summary>
+            <p className="mt-2 text-xs text-fg-muted">
+              Advanced shortcut: only safe read tools can be auto-approved. File edits and commands
+              still require manual approval.
+            </p>
+            <LearningHint className="mt-2 text-xs">
+              Warning and danger tools always stay manual.
+            </LearningHint>
+            <div className="mt-3 flex flex-col gap-2" data-testid="policy-tool-list">
+              {SAFE_TOOLS.map((tool) => {
+                const on = policy.rules[tool] === "always";
+                return (
+                  <label
+                    key={tool}
+                    className="flex items-center justify-between rounded-md border bg-bg px-3 py-2"
+                    data-testid="policy-row"
+                    data-tool={tool}
+                  >
+                    <div>
+                      <div className="text-sm font-medium">{tool}</div>
+                      <div className="text-[10px] text-fg-muted">
+                        Safe read · auto-approval allowed
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() => void toggleToolPolicy(tool)}
+                      data-testid="policy-toggle"
+                      data-tool={tool}
+                      className="h-4 w-4"
+                    />
+                  </label>
+                );
+              })}
+              {WARN_TOOLS.map((tool) => (
+                <div
+                  key={tool}
+                  className="flex items-center justify-between rounded-md border bg-bg px-3 py-2 opacity-60"
+                  data-testid="policy-row-locked"
+                  data-tool={tool}
+                >
+                  <div>
+                    <div className="text-sm font-medium">{tool}</div>
+                    <div className="text-[10px] text-fg-muted">Changes files · always manual</div>
+                  </div>
+                  <input type="checkbox" disabled className="h-4 w-4" />
+                </div>
+              ))}
             </div>
-            <div className="rounded-md border border-warn/50 bg-bg-panel px-3 py-2.5">
-              <div className="flex items-start justify-between gap-4">
+          </details>
+
+          <details
+            className="rounded-md border bg-bg-panel px-3 py-3"
+            data-testid="settings-section-mcp"
+          >
+            <summary className="cursor-pointer text-sm font-semibold text-fg">
+              MCP servers for extra tools
+            </summary>
+            <LearningHint className="mt-2 text-xs">
+              Model Context Protocol servers add advanced tools. Tool calls still route through
+              permission cards.
+            </LearningHint>
+            <div className="mt-3 flex flex-col gap-2" data-testid="mcp-server-list">
+              {mcpServers.length === 0 ? (
+                <div
+                  className="rounded-md border border-dashed bg-bg px-3 py-6 text-center text-xs text-fg-muted"
+                  data-testid="mcp-empty"
+                >
+                  No MCP servers added.
+                </div>
+              ) : (
+                mcpServers.map((s) => (
+                  <div
+                    key={s.id}
+                    className="flex items-center justify-between rounded-md border bg-bg px-3 py-2"
+                    data-testid="mcp-server-row"
+                    data-mcp-label={s.label}
+                  >
+                    <div>
+                      <div className="text-sm font-medium">
+                        <code>{s.label}</code>
+                      </div>
+                      <div className="text-[10px] text-fg-muted">
+                        {s.transport === "stdio"
+                          ? `stdio · ${s.command ?? "-"}`
+                          : `http · ${s.url ?? "-"}`}{" "}
+                        · default risk: {s.default_risk}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleMcpTestConnect(s.id)}
+                        data-testid="mcp-test-connect"
+                        data-mcp-label={s.label}
+                      >
+                        Test
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleMcpRemove(s.id)}
+                        data-testid="mcp-remove"
+                        data-mcp-label={s.label}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            {mcpTestResult ? (
+              <div
+                className="mt-3 rounded-md border bg-bg px-3 py-2 text-xs"
+                data-testid="mcp-test-result"
+              >
+                {mcpTestResult}
+              </div>
+            ) : null}
+            <div
+              className="mt-3 flex flex-col gap-2 rounded-md border border-dashed bg-bg p-3"
+              data-testid="mcp-form"
+            >
+              <div className="text-xs font-medium">Add MCP server</div>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  placeholder="Label, e.g. filesystem"
+                  value={mcpDraft.label}
+                  onChange={(e) => setMcpDraft({ ...mcpDraft, label: e.target.value })}
+                  data-testid="mcp-label"
+                />
+                <select
+                  value={mcpDraft.transport}
+                  onChange={(e) =>
+                    setMcpDraft({
+                      ...mcpDraft,
+                      transport: e.target.value as "stdio" | "http",
+                    })
+                  }
+                  className="rounded-md border bg-bg px-2 py-1 text-sm"
+                  data-testid="mcp-transport"
+                >
+                  <option value="stdio">stdio</option>
+                  <option value="http">http</option>
+                </select>
+              </div>
+              {mcpDraft.transport === "stdio" ? (
+                <>
+                  <Input
+                    placeholder="command, e.g. npx"
+                    value={mcpDraft.command}
+                    onChange={(e) => setMcpDraft({ ...mcpDraft, command: e.target.value })}
+                    data-testid="mcp-command"
+                  />
+                  <textarea
+                    placeholder="args, one per line"
+                    value={mcpDraft.argsText}
+                    onChange={(e) => setMcpDraft({ ...mcpDraft, argsText: e.target.value })}
+                    className="min-h-[60px] rounded-md border bg-bg px-2 py-1 text-sm"
+                    data-testid="mcp-args"
+                    spellCheck={false}
+                  />
+                </>
+              ) : (
+                <Input
+                  placeholder="URL, e.g. https://example.com/rpc"
+                  value={mcpDraft.url}
+                  onChange={(e) => setMcpDraft({ ...mcpDraft, url: e.target.value })}
+                  data-testid="mcp-url"
+                />
+              )}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-fg-muted">Default risk:</span>
+                <select
+                  value={mcpDraft.defaultRisk}
+                  onChange={(e) =>
+                    setMcpDraft({
+                      ...mcpDraft,
+                      defaultRisk: e.target.value as McpDraft["defaultRisk"],
+                    })
+                  }
+                  className="rounded-md border bg-bg px-2 py-1 text-sm"
+                  data-testid="mcp-default-risk"
+                >
+                  <option value="safe">safe</option>
+                  <option value="caution">caution</option>
+                  <option value="danger">danger</option>
+                </select>
+                <Button
+                  size="sm"
+                  onClick={() => void handleMcpAdd()}
+                  disabled={mcpBusy || !mcpDraft.label.trim()}
+                  data-testid="mcp-add-submit"
+                >
+                  {mcpBusy ? "Adding…" : "Add"}
+                </Button>
+              </div>
+            </div>
+          </details>
+
+          {internalResearchEnabled && researchSettings.controls_enabled ? (
+            <details
+              className="rounded-md border border-warn/50 bg-bg-panel px-3 py-3"
+              data-testid="settings-section-diagnostics"
+            >
+              <summary className="cursor-pointer text-sm font-semibold text-warn">
+                Internal diagnostics
+              </summary>
+              <div className="mt-3 flex items-start justify-between gap-4 rounded-md border border-warn/40 bg-bg px-3 py-2.5">
                 <div>
                   <div className="text-sm font-medium">Internal gate diagnostics</div>
                   <div className="mt-1 text-[11px] text-fg-muted">
-                    내부 진단 세션에서만 사용하세요. 켜면 채팅 실행 전 게이트를 우회하고 EventLog에{" "}
-                    <code>gate_bypassed</code>를 남깁니다.
+                    Use only for internal diagnostic sessions. When enabled, DIVE bypasses chat
+                    gates and records <code>gate_bypassed</code> in EventLog.
                   </div>
                   <LearningHint className="mt-2 text-xs">
-                    기본값은 OFF입니다. 이 옵션은 내부 검증이 필요할 때만 켜세요.
+                    Default is OFF. This option is available only in internal/dev builds.
                   </LearningHint>
+                  <Button
+                    className="mt-3"
+                    variant="outline"
+                    size="sm"
+                    onClick={openDiagnosticsSurvey}
+                    data-testid="settings-open-diagnostics-survey"
+                  >
+                    Open diagnostics survey
+                  </Button>
                 </div>
                 <label className="inline-flex cursor-pointer items-center gap-2 text-xs">
                   <input
@@ -675,158 +899,11 @@ export function SettingsPage() {
                     data-testid="settings-research-disable-gates"
                     className="h-4 w-4"
                   />
-                  게이트 우회
+                  Bypass gates
                 </label>
               </div>
-            </div>
-          </section>
-        ) : null}
-
-        <section className="flex flex-col gap-3" data-testid="settings-section-mcp">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-lg font-semibold">MCP 서버</h2>
-            <LearningHint inline className="text-xs">
-              Model Context Protocol 서버 등록 · 도구는 권한 카드로 라우팅됩니다 (5-3에서 확장).
-            </LearningHint>
-          </div>
-          <div className="flex flex-col gap-2" data-testid="mcp-server-list">
-            {mcpServers.length === 0 ? (
-              <div
-                className="rounded-md border border-dashed bg-bg-panel px-3 py-6 text-center text-xs text-fg-muted"
-                data-testid="mcp-empty"
-              >
-                등록된 MCP 서버가 없습니다.
-              </div>
-            ) : (
-              mcpServers.map((s) => (
-                <div
-                  key={s.id}
-                  className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2"
-                  data-testid="mcp-server-row"
-                  data-mcp-label={s.label}
-                >
-                  <div>
-                    <div className="text-sm font-medium">
-                      <code>{s.label}</code>
-                    </div>
-                    <div className="text-[10px] text-fg-muted">
-                      {s.transport === "stdio"
-                        ? `stdio · ${s.command ?? "-"}`
-                        : `http · ${s.url ?? "-"}`}{" "}
-                      · 기본 위험도: {s.default_risk}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleMcpTestConnect(s.id)}
-                      data-testid="mcp-test-connect"
-                      data-mcp-label={s.label}
-                    >
-                      테스트
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleMcpRemove(s.id)}
-                      data-testid="mcp-remove"
-                      data-mcp-label={s.label}
-                    >
-                      삭제
-                    </Button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-          {mcpTestResult ? (
-            <div
-              className="rounded-md border bg-bg-panel px-3 py-2 text-xs"
-              data-testid="mcp-test-result"
-            >
-              {mcpTestResult}
-            </div>
+            </details>
           ) : null}
-          <div
-            className="flex flex-col gap-2 rounded-md border border-dashed bg-bg-panel p-3"
-            data-testid="mcp-form"
-          >
-            <div className="text-xs font-medium">+ 새 MCP 서버</div>
-            <div className="grid grid-cols-2 gap-2">
-              <Input
-                placeholder="라벨 (예: filesystem)"
-                value={mcpDraft.label}
-                onChange={(e) => setMcpDraft({ ...mcpDraft, label: e.target.value })}
-                data-testid="mcp-label"
-              />
-              <select
-                value={mcpDraft.transport}
-                onChange={(e) =>
-                  setMcpDraft({
-                    ...mcpDraft,
-                    transport: e.target.value as "stdio" | "http",
-                  })
-                }
-                className="rounded-md border bg-bg px-2 py-1 text-sm"
-                data-testid="mcp-transport"
-              >
-                <option value="stdio">stdio</option>
-                <option value="http">http</option>
-              </select>
-            </div>
-            {mcpDraft.transport === "stdio" ? (
-              <>
-                <Input
-                  placeholder="command (예: npx)"
-                  value={mcpDraft.command}
-                  onChange={(e) => setMcpDraft({ ...mcpDraft, command: e.target.value })}
-                  data-testid="mcp-command"
-                />
-                <textarea
-                  placeholder="args, 한 줄에 하나 (예: @modelcontextprotocol/server-filesystem)"
-                  value={mcpDraft.argsText}
-                  onChange={(e) => setMcpDraft({ ...mcpDraft, argsText: e.target.value })}
-                  className="min-h-[60px] rounded-md border bg-bg px-2 py-1 text-sm"
-                  data-testid="mcp-args"
-                  spellCheck={false}
-                />
-              </>
-            ) : (
-              <Input
-                placeholder="URL (예: https://example.com/rpc)"
-                value={mcpDraft.url}
-                onChange={(e) => setMcpDraft({ ...mcpDraft, url: e.target.value })}
-                data-testid="mcp-url"
-              />
-            )}
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-fg-muted">기본 위험도:</span>
-              <select
-                value={mcpDraft.defaultRisk}
-                onChange={(e) =>
-                  setMcpDraft({
-                    ...mcpDraft,
-                    defaultRisk: e.target.value as McpDraft["defaultRisk"],
-                  })
-                }
-                className="rounded-md border bg-bg px-2 py-1 text-sm"
-                data-testid="mcp-default-risk"
-              >
-                <option value="safe">safe</option>
-                <option value="caution">caution</option>
-                <option value="danger">danger</option>
-              </select>
-              <Button
-                size="sm"
-                onClick={() => void handleMcpAdd()}
-                disabled={mcpBusy || !mcpDraft.label.trim()}
-                data-testid="mcp-add-submit"
-              >
-                {mcpBusy ? "추가 중…" : "추가"}
-              </Button>
-            </div>
-          </div>
         </section>
       </div>
       <CodexOAuthDialog
