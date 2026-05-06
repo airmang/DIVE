@@ -16,7 +16,7 @@ import type { CardTileData } from "../workmap/types";
 import { getCardStateMeta } from "../workmap/card-state-meta";
 import { useT } from "../../i18n";
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts";
-import { useWorkmap } from "../../hooks/useWorkmap";
+import { useRoadmap, type RoadmapStepAction } from "../../features/roadmap";
 import { useChatSession } from "../../hooks/useChatSession";
 import { refreshMenuRecents, useMenuEvents } from "../../lib/menu-events";
 import { pickFolder } from "../../lib/tauri-dialog";
@@ -25,6 +25,23 @@ import { hasRecognizedDemoRoute } from "../../lib/dev-demo";
 import { useUiPreferencesStore } from "../../stores/ui-preferences";
 import type { DiveStage as PromptDiveStage } from "../../lib/ambiguity";
 import { useProductShellDialogs } from "./useProductShellDialogs";
+
+function roadmapActionForLegacyTransition(transition: CardTransitionKind): RoadmapStepAction {
+  switch (transition) {
+    case "enter_instruct":
+      return "prepare";
+    case "request_verify":
+      return "request_check";
+    case "approve":
+      return "approve";
+    case "reject":
+      return "request_changes";
+    case "reopen_from_reject":
+      return "reopen";
+    case "extend":
+      return "integrate";
+  }
+}
 
 export function useProductShellController() {
   const t = useT();
@@ -65,20 +82,20 @@ export function useProductShellController() {
     }
   }, [projectSessionLoaded, isDemoRoute, hasConnectedProvider, isOnboarded, dialogs]);
 
-  const workmap = useWorkmap(currentSessionId);
+  const roadmapModel = useRoadmap(currentSessionId);
   const chat = useChatSession(currentSessionId);
-  const cards = workmap.cards;
+  const cards = roadmapModel.workmapCompat.cards;
   const currentCard = useWorkmapStore(selectCurrentCard);
-  const currentCardId = workmap.currentCardId;
+  const currentCardId = roadmapModel.activeStepId;
   const canChat = useWorkmapStore(selectCanChat);
   const allVerified = useWorkmapStore(selectAllCardsVerified);
 
   useEffect(() => {
     if (wasStreaming.current && !chat.isStreaming) {
-      void workmap.refresh();
+      void roadmapModel.refresh();
     }
     wasStreaming.current = chat.isStreaming;
-  }, [chat.isStreaming, workmap]);
+  }, [chat.isStreaming, roadmapModel]);
 
   const openSlideIn = useSlideInStore((s) => s.open);
   const closeSlideIn = useSlideInStore((s) => s.close);
@@ -88,7 +105,7 @@ export function useProductShellController() {
     () => inferStageFor(currentCard, cards.length, allVerified),
     [currentCard, cards.length, allVerified],
   );
-  const canAddCard = isDemoRoute || currentSessionId !== null;
+  const canAddStep = isDemoRoute || currentSessionId !== null;
 
   const stageBanner = useMemo<ChatStageBanner | null>(() => {
     if (cards.length === 0) return null;
@@ -139,13 +156,16 @@ export function useProductShellController() {
     [toast, t],
   );
 
-  const handleCardClick = (card: CardTileData) => {
+  const handleStepSelect = (stepId: number) => {
+    const card = cards.find((candidate) => candidate.id === stepId);
+    if (!card) return;
+
     if (isDemoRoute) {
       setCurrentCardLocal(card.id);
       if (card.state === "verified" || card.state === "extended") {
         openSlideIn({
           tab: "code",
-          files: workmap.changedFilesFor(card.id),
+          files: roadmapModel.changedFilesForStep(card.id),
           changeSummary: card.changeSummary ?? null,
           replaceFiles: true,
         });
@@ -157,11 +177,11 @@ export function useProductShellController() {
 
     void (async () => {
       try {
-        await workmap.setCurrentCardRemote(card.id);
+        await roadmapModel.selectStep(card.id);
         if (card.state === "verified" || card.state === "extended") {
           openSlideIn({
             tab: "code",
-            files: workmap.changedFilesFor(card.id),
+            files: roadmapModel.changedFilesForStep(card.id),
             changeSummary: card.changeSummary ?? null,
             replaceFiles: true,
           });
@@ -181,13 +201,13 @@ export function useProductShellController() {
         setCurrentCardLocal(null);
         return;
       }
-      void workmap.setCurrentCardRemote(null).catch(showWorkmapError);
+      void roadmapModel.selectStep(null).catch(showWorkmapError);
     }
   };
 
   const handleInstructionChange = async (cardId: number, instruction: string) => {
     try {
-      await workmap.updateInstructionRemote(cardId, instruction);
+      await roadmapModel.updateStepInstruction(cardId, instruction);
     } catch (err) {
       showWorkmapError(err);
       throw err;
@@ -196,7 +216,7 @@ export function useProductShellController() {
 
   const handleTestCommandChange = async (cardId: number, testCommand: string) => {
     try {
-      await workmap.updateTestCommandRemote(cardId, testCommand);
+      await roadmapModel.updateStepTestCommand(cardId, testCommand);
     } catch (err) {
       showWorkmapError(err);
       throw err;
@@ -209,7 +229,11 @@ export function useProductShellController() {
     options?: { approveForce?: boolean },
   ) => {
     try {
-      await workmap.transitionCardRemote(cardId, transition, options);
+      await roadmapModel.transitionStep(
+        cardId,
+        roadmapActionForLegacyTransition(transition),
+        options,
+      );
       if (transition === "approve" || transition === "extend") {
         const card = cards.find((candidate) => candidate.id === cardId);
         if (card) dialogs.setRetroCard(card);
@@ -346,19 +370,19 @@ export function useProductShellController() {
   const handleVerify = useCallback(
     async (cardId: number) => {
       try {
-        await workmap.verifyRemote(cardId);
+        await roadmapModel.verifyStep(cardId);
       } catch (err) {
         showWorkmapError(err);
       }
     },
-    [showWorkmapError, workmap],
+    [showWorkmapError, roadmapModel],
   );
 
   const handleOpenCodeForCard = (cardId: number) => {
     const card = cards.find((candidate) => candidate.id === cardId);
     openSlideIn({
       tab: "code",
-      files: workmap.changedFilesFor(cardId),
+      files: roadmapModel.changedFilesForStep(cardId),
       changeSummary: card?.changeSummary ?? null,
       replaceFiles: true,
     });
@@ -384,29 +408,37 @@ export function useProductShellController() {
         return;
       }
       try {
-        const row = await workmap.createCard(draft.title, position, {
+        const row = await roadmapModel.createStep(draft.title, position, {
           summary: draft.summary,
           acceptanceCriteria: draft.acceptanceCriteria,
           instructionSeed: draft.instructionSeed,
         });
-        await workmap.setCurrentCardRemote(row.id);
+        await roadmapModel.selectStep(row.id);
         dialogs.setDetailOpen(true);
       } catch (err) {
         showWorkmapError(err);
         throw err;
       }
     },
-    [addCardLocal, cards, dialogs, isDemoRoute, setCurrentCardLocal, showWorkmapError, workmap],
+    [
+      addCardLocal,
+      cards,
+      dialogs,
+      isDemoRoute,
+      roadmapModel,
+      setCurrentCardLocal,
+      showWorkmapError,
+    ],
   );
 
   const cardStateLabel = currentCard ? getCardStateMeta(currentCard.state).label : null;
   const currentVerifyLog: VerifyLogView | null = currentCard
-    ? workmap.verifyLogFor(currentCard.id)
+    ? roadmapModel.verifyLogForStep(currentCard.id)
     : null;
   const currentVerifyState: "idle" | "running" | "error" = currentCard
-    ? workmap.verifyStateFor(currentCard.id)
+    ? roadmapModel.verifyStateForStep(currentCard.id)
     : "idle";
-  const currentVerifyError = currentCard ? workmap.verifyErrorFor(currentCard.id) : null;
+  const currentVerifyError = currentCard ? roadmapModel.verifyErrorForStep(currentCard.id) : null;
   const handleEmptyStateAction = useCallback(() => {
     if (currentProjectId === null) {
       dialogs.setNewProjectOpen(true);
@@ -542,10 +574,13 @@ export function useProductShellController() {
     roadmap: {
       collapsed: workmapCollapsed,
       onToggle: () => setWorkmapCollapsed((c) => !c),
-      cards,
-      canAddCard,
-      onAddCard: () => dialogs.setNewCardOpen(true),
-      onCardClick: handleCardClick,
+      steps: roadmapModel.steps,
+      activeStepId: roadmapModel.activeStepId,
+      progress: roadmapModel.progress,
+      legacyCards: cards,
+      canAddStep,
+      onAddStep: () => dialogs.setNewCardOpen(true),
+      selectStep: handleStepSelect,
       onRequestAiAssist: () => dialogs.setAiOpen(true),
     },
     modals: {
@@ -565,7 +600,7 @@ export function useProductShellController() {
           }
           try {
             for (const card of nextCards) {
-              await workmap.createCard(card.title, card.position, {
+              await roadmapModel.createStep(card.title, card.position, {
                 summary: card.assistSummary ?? card.summary,
                 acceptanceCriteria: card.acceptanceCriteria ?? null,
               });
@@ -581,7 +616,7 @@ export function useProductShellController() {
       cardDetail: {
         open: dialogs.detailOpen,
         card: currentCard,
-        toolCallCount: currentCard ? workmap.toolCallCountFor(currentCard.id) : 0,
+        toolCallCount: currentCard ? roadmapModel.toolCallCountForStep(currentCard.id) : 0,
         verifyLog: currentVerifyLog,
         verifyState: currentVerifyState,
         verifyError: currentVerifyError,
@@ -609,7 +644,7 @@ export function useProductShellController() {
         },
         onSave: async (content: string) => {
           if (!dialogs.retroCard) return;
-          await workmap.saveRetrospectiveRemote(dialogs.retroCard.id, content);
+          await roadmapModel.saveStepRetrospective(dialogs.retroCard.id, content);
         },
       },
     },
