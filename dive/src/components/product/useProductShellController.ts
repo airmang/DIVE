@@ -45,7 +45,7 @@ function roadmapActionForLegacyTransition(transition: CardTransitionKind): Roadm
 
 export function useProductShellController() {
   const t = useT();
-  const [workmapCollapsed, setWorkmapCollapsed] = useState(false);
+  const [roadmapCompact, setRoadmapCompact] = useState(false);
   const dialogs = useProductShellDialogs();
   const [lastManualCheckpointLabel, setLastManualCheckpointLabel] = useState<string | null>(null);
   const wasStreaming = useRef(false);
@@ -364,7 +364,7 @@ export function useProductShellController() {
         openSlideIn({ tab: "code" });
       }
     },
-    onToggleWorkmap: () => setWorkmapCollapsed((c) => !c),
+    onToggleWorkmap: () => setRoadmapCompact((c) => !c),
   });
 
   const handleVerify = useCallback(
@@ -572,15 +572,14 @@ export function useProductShellController() {
       emptyState,
     },
     roadmap: {
-      collapsed: workmapCollapsed,
-      onToggle: () => setWorkmapCollapsed((c) => !c),
+      compact: roadmapCompact,
+      onToggleCompact: () => setRoadmapCompact((c) => !c),
       steps: roadmapModel.steps,
       activeStepId: roadmapModel.activeStepId,
       progress: roadmapModel.progress,
-      legacyCards: cards,
       canAddStep,
       onAddStep: () => dialogs.setNewCardOpen(true),
-      selectStep: handleStepSelect,
+      onSelectStep: handleStepSelect,
       onRequestAiAssist: () => dialogs.setAiOpen(true),
     },
     modals: {

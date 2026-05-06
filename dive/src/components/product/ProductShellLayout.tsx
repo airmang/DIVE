@@ -13,7 +13,7 @@ interface ProductShellLayoutProps {
 export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
   return (
     <div
-      className="relative h-screen w-screen grid grid-cols-[280px_1fr] grid-rows-[1fr_auto] overflow-hidden bg-bg text-fg"
+      className="relative h-screen w-screen grid grid-cols-[280px_minmax(0,1fr)_360px] grid-rows-[1fr] overflow-hidden bg-bg text-fg"
       data-testid="main-shell"
     >
       <ProviderSetupBanner {...shell.providerBanner} />
