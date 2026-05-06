@@ -6,6 +6,7 @@ import type { AmbiguityHit, DiveStage } from "../../lib/ambiguity";
 import { AmbiguityHintList, AmbiguityUnderlay } from "../prompt-helper/AmbiguityHinter";
 import { PromptHelperPanel } from "../prompt-helper/PromptHelperPanel";
 import { PromptCheckDialog, type PromptCheckResult } from "../prompt-helper/PromptCheckDialog";
+import { useT } from "../../i18n";
 
 interface Props {
   onSend: (text: string) => void;
@@ -23,17 +24,19 @@ const MAX_HEIGHT_PX = 200;
 export function ChatInput({
   onSend,
   disabled = false,
-  modelLabel = "모델 선택",
+  modelLabel,
   onPromptHelper,
   stage = null,
   className,
   promptCheckMock,
 }: Props) {
+  const t = useT();
   const [value, setValue] = useState("");
   const [hits, setHits] = useState<AmbiguityHit[]>([]);
   const [helperOpen, setHelperOpen] = useState(false);
   const [checkOpen, setCheckOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const resolvedModelLabel = modelLabel ?? t("chat.input.model_select_default_label");
 
   const resize = useCallback(() => {
     const el = textareaRef.current;
@@ -103,8 +106,8 @@ export function ChatInput({
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={disabled}
-            placeholder="메시지를 입력하세요..."
-            aria-label="메시지 입력"
+            placeholder={t("chat.input.placeholder")}
+            aria-label={t("chat.input.aria_label")}
             rows={1}
             data-testid="chat-input-textarea"
             className={cn(
@@ -124,44 +127,44 @@ export function ChatInput({
             size="sm"
             onClick={handleHelperButton}
             disabled={disabled}
-            aria-label="프롬프트 도우미"
+            aria-label={t("chat.input.prompt_helper_aria")}
             aria-expanded={helperOpen}
             data-testid="chat-prompt-helper"
           >
             <Sparkles />
-            도우미
+            {t("chat.input.prompt_helper_label")}
           </Button>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setCheckOpen(true)}
             disabled={!canCheck}
-            aria-label="보내기 전 점검 (Ctrl+Shift+Enter)"
+            aria-label={t("chat.input.pre_send_check_aria")}
             data-testid="chat-prompt-check"
           >
             <ClipboardCheck />
-            점검
+            {t("chat.input.pre_send_check_label")}
           </Button>
           <div className="flex-1" />
           <Button
             variant="outline"
             size="sm"
             disabled
-            aria-label="모델 선택 (준비 중)"
+            aria-label={t("chat.input.model_select_aria")}
             data-testid="chat-model-selector"
           >
-            {modelLabel} <span aria-hidden>▾</span>
+            {resolvedModelLabel} <span aria-hidden>▾</span>
           </Button>
           <Button
             variant="primary"
             size="sm"
             onClick={handleSend}
             disabled={!canSend}
-            aria-label="메시지 전송"
+            aria-label={t("chat.input.send_aria")}
             data-testid="chat-send"
           >
             <Send />
-            전송
+            {t("chat.input.send_label")}
           </Button>
         </div>
       </div>

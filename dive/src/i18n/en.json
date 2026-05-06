@@ -124,7 +124,19 @@
     "empty_no_project_description": "Pick the local folder where DIVE will plan, create a roadmap, and run step-by-step coding work.",
     "empty_no_session_title": "Start a work session",
     "empty_no_session_description": "After your AI connection is ready, describe a goal so DIVE can draft a plan and roadmap.",
-    "provider_setup_title": "Connect AI to continue"
+    "provider_setup_title": "Connect AI to continue",
+    "input": {
+      "placeholder": "Type a message...",
+      "aria_label": "Message input",
+      "prompt_helper_aria": "Prompt helper",
+      "prompt_helper_label": "Helper",
+      "pre_send_check_aria": "Pre-send check (Ctrl+Shift+Enter)",
+      "pre_send_check_label": "Check",
+      "model_select_aria": "Model picker (coming soon)",
+      "model_select_default_label": "Pick model",
+      "send_aria": "Send message",
+      "send_label": "Send"
+    }
   },
   "roadmap": {
     "title": "Roadmap",
@@ -203,7 +215,76 @@
       "balanced_mvp": "Balanced MVP",
       "explore_options_first": "Explore options first",
       "not_sure": "Not sure"
-    }
+    },
+    "draft": {
+      "focus": {
+        "user_can_add_and_see_data": "user can add and see data",
+        "data_is_saved": "data is saved",
+        "looks_polished": "it looks polished",
+        "not_sure": "the core behavior works first"
+      },
+      "safety": {
+        "tiny_safe_steps": "Keep this step very small and ask before risky changes.",
+        "explore_options_first": "Compare the simplest options before changing files.",
+        "balanced_mvp": "Prefer the smallest useful MVP change and verify it.",
+        "not_sure": "Make the smallest reversible change that moves the goal forward."
+      },
+      "mvp": {
+        "script_or_tool": "A small working tool for: {{goal}}. It should prove that {{focus}}.",
+        "desktop_app": "A minimal desktop experience for: {{goal}}. It should prove that {{focus}}.",
+        "web_app": "A minimal app screen for: {{goal}}. It should prove that {{focus}}.",
+        "not_sure": "A minimal, safe first version of: {{goal}}. It should prove the core behavior before polish."
+      },
+      "non_goals": {
+        "unrelated_screens": "Do not redesign unrelated screens.",
+        "new_dependencies": "Do not add new dependencies unless the user approves.",
+        "backend_or_fs": "Do not change backend or filesystem behavior unless the step explicitly requires it."
+      },
+      "success_criteria": {
+        "beginner_describes": "A beginner can describe the outcome in one sentence.",
+        "mvp_check_command": "The MVP can be checked with a concrete command or manual smoke test.",
+        "next_step_obvious": "The next step is obvious after the first version works."
+      },
+      "steps": {
+        "1": {
+          "title": "Confirm the smallest useful version",
+          "summary": "Turn the goal into a tiny MVP: {{mvp}}",
+          "acceptance": {
+            "target_user_clear": "The target user and first useful outcome are clear.",
+            "open_questions_listed": "Open questions are listed before implementation."
+          },
+          "instruction_seed": "{{safety}} Clarify the smallest useful version of: {{goal}}"
+        },
+        "2": {
+          "title": "Implement the first visible path",
+          "summary": "Build only the UI or code path needed for the MVP.",
+          "acceptance": {
+            "happy_path_works": "The main happy path works end-to-end.",
+            "unrelated_untouched": "No unrelated files or features are changed."
+          },
+          "instruction_seed": "{{safety}} Implement the first visible path for: {{goal}}"
+        },
+        "3": {
+          "title": "Check and explain the result",
+          "summary": "Run the smallest useful checks and explain what changed.",
+          "acceptance": {
+            "checks_pass_or_explained": "Relevant checks pass or failures are clearly explained.",
+            "user_sees_diff": "The user can see what changed and what remains."
+          },
+          "instruction_seed": "{{safety}} Verify the MVP and summarize the result for: {{goal}}"
+        }
+      }
+    },
+    "floating": {
+      "aria_label": "Plan preview card",
+      "title": "Plan preview",
+      "step_count": "{{count}} steps",
+      "success_count": "{{count}} success criteria",
+      "accept": "Proceed with this plan",
+      "review": "Review details",
+      "request_changes": "Request changes"
+    },
+    "request_changes_seed": "I'd like to change part of the plan. Goal: {{goal}}. Please suggest which parts to reconsider."
   },
   "recovery": {
     "title": "Recovery & Undo",
@@ -322,5 +403,13 @@
     "skip": "Skip",
     "save": "Save retrospective",
     "saving": "Saving..."
+  },
+  "topbar": {
+    "recovery_trigger_aria": "Open recovery panel",
+    "recovery_trigger_label": "Undo",
+    "recovery_trigger_count": "{{count}}",
+    "project_fallback": "No project",
+    "recovery_slide_title": "Recovery & Undo",
+    "recovery_slide_close_aria": "Close recovery panel"
   }
 }

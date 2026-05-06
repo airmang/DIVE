@@ -124,7 +124,19 @@
     "empty_no_project_description": "DIVE가 계획을 세우고 로드맵을 만들며 단계별 코딩을 실행할 로컬 폴더를 선택하세요.",
     "empty_no_session_title": "작업 세션을 시작하세요",
     "empty_no_session_description": "AI 연결이 준비되면 목표를 설명하고 계획과 로드맵을 만들 수 있습니다.",
-    "provider_setup_title": "계속하려면 AI를 연결하세요"
+    "provider_setup_title": "계속하려면 AI를 연결하세요",
+    "input": {
+      "placeholder": "메시지를 입력하세요...",
+      "aria_label": "메시지 입력",
+      "prompt_helper_aria": "프롬프트 도우미",
+      "prompt_helper_label": "도우미",
+      "pre_send_check_aria": "보내기 전 점검 (Ctrl+Shift+Enter)",
+      "pre_send_check_label": "점검",
+      "model_select_aria": "모델 선택 (준비 중)",
+      "model_select_default_label": "모델 선택",
+      "send_aria": "메시지 전송",
+      "send_label": "전송"
+    }
   },
   "roadmap": {
     "title": "로드맵",
@@ -203,7 +215,76 @@
       "balanced_mvp": "균형 잡힌 MVP",
       "explore_options_first": "선택지 먼저 비교",
       "not_sure": "잘 모르겠음"
-    }
+    },
+    "draft": {
+      "focus": {
+        "user_can_add_and_see_data": "사용자가 데이터를 추가하고 볼 수 있음",
+        "data_is_saved": "데이터가 저장됨",
+        "looks_polished": "보기 좋게 다듬어짐",
+        "not_sure": "핵심 동작이 먼저 확인됨"
+      },
+      "safety": {
+        "tiny_safe_steps": "이 단계를 아주 작게 유지하고 위험한 변경 전에는 먼저 물어보세요.",
+        "explore_options_first": "파일을 바꾸기 전에 가장 단순한 선택지를 비교하세요.",
+        "balanced_mvp": "가장 작은 유용한 MVP 변경을 우선하고 검증하세요.",
+        "not_sure": "목표에 가까워지는 가장 작고 되돌릴 수 있는 변경을 하세요."
+      },
+      "mvp": {
+        "script_or_tool": "{{goal}}을 위한 작게 동작하는 도구입니다. 첫 버전에서는 {{focus}}을 확인합니다.",
+        "desktop_app": "{{goal}}을 위한 최소 데스크톱 경험입니다. 첫 버전에서는 {{focus}}을 확인합니다.",
+        "web_app": "{{goal}}을 위한 최소 앱 화면입니다. 첫 버전에서는 {{focus}}을 확인합니다.",
+        "not_sure": "{{goal}}의 핵심 동작을 안전하게 확인하는 최소 첫 버전입니다."
+      },
+      "non_goals": {
+        "unrelated_screens": "관련 없는 화면을 다시 설계하지 않습니다.",
+        "new_dependencies": "사용자 승인 없이 새 의존성을 추가하지 않습니다.",
+        "backend_or_fs": "단계가 명시적으로 요구하지 않으면 백엔드나 파일시스템 동작을 바꾸지 않습니다."
+      },
+      "success_criteria": {
+        "beginner_describes": "초심자가 결과를 한 문장으로 설명할 수 있습니다.",
+        "mvp_check_command": "MVP를 구체적인 명령이나 수동 smoke test로 확인할 수 있습니다.",
+        "next_step_obvious": "첫 버전이 동작한 뒤 다음 단계가 명확합니다."
+      },
+      "steps": {
+        "1": {
+          "title": "가장 작은 유용한 버전 확인",
+          "summary": "목표를 작은 MVP로 정리합니다: {{mvp}}",
+          "acceptance": {
+            "target_user_clear": "대상 사용자와 첫 번째 유용한 결과가 명확합니다.",
+            "open_questions_listed": "구현 전에 열린 질문이 정리됩니다."
+          },
+          "instruction_seed": "{{safety}} 다음 목표의 가장 작은 유용한 버전을 명확히 하세요: {{goal}}"
+        },
+        "2": {
+          "title": "첫 번째 보이는 경로 구현",
+          "summary": "MVP에 필요한 UI 또는 코드 경로만 구현합니다.",
+          "acceptance": {
+            "happy_path_works": "주요 성공 경로가 처음부터 끝까지 동작합니다.",
+            "unrelated_untouched": "관련 없는 파일이나 기능은 변경하지 않습니다."
+          },
+          "instruction_seed": "{{safety}} 다음 목표의 첫 번째 보이는 경로를 구현하세요: {{goal}}"
+        },
+        "3": {
+          "title": "결과 검증 및 설명",
+          "summary": "가장 작은 유용한 검증을 실행하고 변경 내용을 설명합니다.",
+          "acceptance": {
+            "checks_pass_or_explained": "관련 검증이 통과하거나 실패 이유가 명확히 설명됩니다.",
+            "user_sees_diff": "사용자가 무엇이 바뀌었고 무엇이 남았는지 볼 수 있습니다."
+          },
+          "instruction_seed": "{{safety}} MVP를 검증하고 결과를 요약하세요: {{goal}}"
+        }
+      }
+    },
+    "floating": {
+      "aria_label": "계획 미리보기 카드",
+      "title": "계획 미리보기",
+      "step_count": "단계 {{count}}개",
+      "success_count": "성공 기준 {{count}}개",
+      "accept": "이대로 진행",
+      "review": "자세히 보기",
+      "request_changes": "수정 요청"
+    },
+    "request_changes_seed": "계획의 일부를 바꿨으면 합니다. 목표: {{goal}}. 어떤 부분을 다시 생각해볼지 제안해 주세요."
   },
   "recovery": {
     "title": "복구 및 되돌리기",
@@ -322,5 +403,13 @@
     "skip": "건너뛰기",
     "save": "회고 저장",
     "saving": "저장 중..."
+  },
+  "topbar": {
+    "recovery_trigger_aria": "되돌리기 패널 열기",
+    "recovery_trigger_label": "되돌리기",
+    "recovery_trigger_count": "{{count}}건",
+    "project_fallback": "프로젝트 없음",
+    "recovery_slide_title": "복구 및 되돌리기",
+    "recovery_slide_close_aria": "복구 패널 닫기"
   }
 }

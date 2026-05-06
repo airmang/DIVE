@@ -8,6 +8,7 @@ import type {
   ToolResultMessageData,
   UserMessageData,
 } from "../components/chat/types";
+import { useLocaleStore } from "../i18n";
 
 /**
  * Mirror of `AgentEvent` (Rust src-tauri/src/agent/event.rs). Variants match
@@ -121,7 +122,10 @@ interface State {
   error: string | null;
 }
 
-export function useChatSession(sessionId: number | null) {
+export function useChatSession(
+  sessionId: number | null,
+  onAgentEvent?: (event: AgentEvent) => void,
+) {
   const [state, setState] = useState<State>({
     messages: [],
     isStreaming: false,
@@ -129,6 +133,10 @@ export function useChatSession(sessionId: number | null) {
     error: null,
   });
   const apiRef = useRef<TauriApi | null>(null);
+  const onAgentEventRef = useRef<typeof onAgentEvent>(onAgentEvent);
+  useEffect(() => {
+    onAgentEventRef.current = onAgentEvent;
+  }, [onAgentEvent]);
 
   useEffect(() => {
     let unsub: (() => void) | null = null;
@@ -169,7 +177,9 @@ export function useChatSession(sessionId: number | null) {
         }));
       }
       unsub = await api.listen<Envelope>(`chat://event/${sessionId}`, (e) => {
-        setState((prev) => reduce(prev, e.payload));
+        const payload = e.payload;
+        onAgentEventRef.current?.(payload);
+        setState((prev) => reduce(prev, payload));
       });
     })();
     return () => {
@@ -183,6 +193,7 @@ export function useChatSession(sessionId: number | null) {
       text: string,
       stage?: "d" | "i" | "v" | "e",
       runMode?: "interview" | "plan" | "build" | "verify",
+      planAccepted?: boolean,
     ) => {
       if (sessionId === null) {
         setState((s) => ({
@@ -206,6 +217,8 @@ export function useChatSession(sessionId: number | null) {
           text,
           stage: stage ?? null,
           runMode: runMode ?? null,
+          locale: useLocaleStore.getState().locale,
+          planAccepted: planAccepted ?? null,
         });
       } catch (err) {
         setState((s) => ({

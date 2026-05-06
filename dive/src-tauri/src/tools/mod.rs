@@ -7,6 +7,7 @@ pub mod bash;
 pub mod context;
 pub mod delete_file;
 pub mod edit_file;
+pub mod emit_plan_draft;
 pub mod fs_guard;
 pub mod guard;
 pub mod list_dir;

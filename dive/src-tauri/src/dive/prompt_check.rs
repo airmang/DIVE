@@ -57,6 +57,7 @@ impl PromptCheckEngine {
         &self,
         prompt_text: &str,
         stage_hint: Option<&str>,
+        locale: Option<&str>,
     ) -> Result<PromptCheckResult, PromptCheckError> {
         if self.model.is_empty() {
             return Err(PromptCheckError::NoModel);
@@ -73,6 +74,7 @@ impl PromptCheckEngine {
             parameters: review_schema(),
         };
 
+        let locale_code = normalize_locale(locale);
         let stage_line = stage_hint
             .map(|s| format!("현재 DIVE 단계: {s}\n"))
             .unwrap_or_default();
@@ -80,7 +82,7 @@ impl PromptCheckEngine {
             model: self.model.clone(),
             messages: vec![
                 Message::System {
-                    content: build_system_prompt(),
+                    content: build_system_prompt(&locale_code),
                 },
                 Message::User {
                     content: format!(
@@ -181,14 +183,30 @@ impl PromptCheckEngine {
     }
 }
 
-fn build_system_prompt() -> String {
-    "당신은 DIVE의 '보내기 전 점검' 도우미입니다. 학생/교사가 AI에게 보낼 프롬프트를 \
+fn normalize_locale(raw: Option<&str>) -> String {
+    match raw {
+        Some(value) => {
+            let lower = value.trim().to_ascii_lowercase();
+            if lower.is_empty() {
+                "ko".to_string()
+            } else {
+                lower
+            }
+        }
+        None => "ko".to_string(),
+    }
+}
+
+fn build_system_prompt(locale: &str) -> String {
+    format!(
+        "당신은 DIVE의 '보내기 전 점검' 도우미입니다. 학생/교사가 AI에게 보낼 프롬프트를 \
 분석해 모호한 표현을 찾아 보완 제안을 제공합니다.\n\
 - 지시 대명사(이거/그거), 주어 생략, 모호한 수량·시점, 대상 누락을 중점적으로 봅니다.\n\
 - 각 issue는 excerpt(원문 발췌)와 suggestion(보완)로 구성합니다.\n\
 - refined_text는 모호함을 해소한 더 명확한 재작성 버전입니다. 짧게 유지합니다.\n\
+- 현재 사용자 언어: {locale}. issue의 모든 텍스트(excerpt/suggestion)와 refined_text는 반드시 그 언어로 작성하세요.\n\
 - 반드시 `prompt_review` 도구만 호출하세요."
-        .to_string()
+    )
 }
 
 fn review_schema() -> Value {

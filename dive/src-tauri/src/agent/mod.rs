@@ -61,6 +61,7 @@ pub struct AgentLoop {
     pub model: String,
     pub stage: DiveStage,
     pub disable_gates: bool,
+    pub locale: Option<String>,
 }
 
 pub struct AgentOutcome {
@@ -108,6 +109,14 @@ impl AgentLoop {
         let mut messages = self.load_history(session_id)?;
         if let Some(prompt) = self.current_card_system_prompt(session_id)? {
             messages.insert(0, ProviderMessage::System { content: prompt });
+        }
+        if let Some(locale_hint) = self.locale_system_prompt() {
+            messages.insert(
+                0,
+                ProviderMessage::System {
+                    content: locale_hint,
+                },
+            );
         }
         if let Some(last) = messages.last() {
             if !matches!(last, ProviderMessage::User { .. }) {
@@ -170,14 +179,16 @@ impl AgentLoop {
                 json!({ "finish_reason": finish_reason_str(finish_reason) }),
             )?;
 
-            messages.push(ProviderMessage::Assistant {
-                content: content.clone(),
-                tool_calls: if tool_calls.is_empty() {
-                    None
-                } else {
-                    Some(tool_calls.clone())
-                },
-            });
+            if !content.is_empty() || !tool_calls.is_empty() {
+                messages.push(ProviderMessage::Assistant {
+                    content: content.clone(),
+                    tool_calls: if tool_calls.is_empty() {
+                        None
+                    } else {
+                        Some(tool_calls.clone())
+                    },
+                });
+            }
 
             if tool_calls.is_empty() {
                 self.log_event(
@@ -681,6 +692,16 @@ impl AgentLoop {
         }
     }
 
+    fn locale_system_prompt(&self) -> Option<String> {
+        let locale = self.locale.as_ref()?.trim();
+        if locale.is_empty() {
+            return None;
+        }
+        Some(format!(
+            "현재 사용자 언어: {locale}. 모든 응답(설명, 질문, 요약)은 반드시 그 언어로 작성하세요."
+        ))
+    }
+
     async fn build_diff_preview(&self, tool_name: &str, args: &Value) -> Option<DiffPreview> {
         let path = args.get("path")?.as_str()?.to_string();
         match tool_name {
@@ -766,6 +787,7 @@ pub struct AgentLoopBuilder {
     model: Option<String>,
     stage: Option<DiveStage>,
     disable_gates: bool,
+    locale: Option<String>,
 }
 
 impl AgentLoopBuilder {
@@ -809,6 +831,12 @@ impl AgentLoopBuilder {
         self.disable_gates = disabled;
         self
     }
+    pub fn locale(mut self, locale: Option<String>) -> Self {
+        self.locale = locale
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        self
+    }
 
     pub fn build(self) -> Result<AgentLoop, String> {
         Ok(AgentLoop {
@@ -826,6 +854,7 @@ impl AgentLoopBuilder {
             model: self.model.unwrap_or_else(|| "unset".into()),
             stage: self.stage.unwrap_or(DiveStage::D),
             disable_gates: self.disable_gates,
+            locale: self.locale,
         })
     }
 }

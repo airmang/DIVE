@@ -6,5 +6,9 @@ interface RoadmapHostProps {
 }
 
 export function RoadmapHost({ roadmap }: RoadmapHostProps) {
-  return <RoadmapPanel className="row-start-1 col-start-3 min-h-0" {...roadmap} />;
+  if (!roadmap.visible) {
+    return <div data-testid="roadmap-host-hidden" aria-hidden hidden />;
+  }
+  const { visible: _visible, ...panelProps } = roadmap;
+  return <RoadmapPanel className="h-full min-h-0" {...panelProps} />;
 }

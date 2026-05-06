@@ -32,7 +32,7 @@ async fn review_parses_issues_and_refined_text() {
         r#"[{"kind":"pronoun","excerpt":"이거","suggestion":"대상을 구체적으로"}]"#,
     )]));
     let engine = PromptCheckEngine::new(provider, "mock-model".into());
-    let result = engine.review("이거 바꿔줘", Some("I")).await.unwrap();
+    let result = engine.review("이거 바꿔줘", Some("I"), None).await.unwrap();
     assert_eq!(result.issues.len(), 1);
     assert_eq!(result.issues[0].kind, "pronoun");
     assert_eq!(result.issues[0].excerpt, "이거");
@@ -47,7 +47,7 @@ async fn review_parses_issues_and_refined_text() {
 async fn review_empty_prompt_errors() {
     let provider = Arc::new(MockProvider::new(vec![]));
     let engine = PromptCheckEngine::new(provider, "mock-model".into());
-    let err = engine.review("   ", None).await.unwrap_err();
+    let err = engine.review("   ", None, None).await.unwrap_err();
     assert!(matches!(err, PromptCheckError::EmptyPrompt));
 }
 
@@ -55,7 +55,7 @@ async fn review_empty_prompt_errors() {
 async fn review_without_model_errors() {
     let provider = Arc::new(MockProvider::new(vec![]));
     let engine = PromptCheckEngine::new(provider, String::new());
-    let err = engine.review("hi", None).await.unwrap_err();
+    let err = engine.review("hi", None, None).await.unwrap_err();
     assert!(matches!(err, PromptCheckError::NoModel));
 }
 
@@ -68,7 +68,7 @@ async fn review_without_tool_call_errors() {
         },
     ]]));
     let engine = PromptCheckEngine::new(provider, "mock-model".into());
-    let err = engine.review("이거 바꿔줘", None).await.unwrap_err();
+    let err = engine.review("이거 바꿔줘", None, None).await.unwrap_err();
     assert!(matches!(err, PromptCheckError::NoToolCall));
 }
 
@@ -79,7 +79,7 @@ async fn review_includes_span_when_provided() {
         r#"[{"kind":"pronoun","span":[0,2],"excerpt":"이거","suggestion":"x"}]"#,
     )]));
     let engine = PromptCheckEngine::new(provider, "mock-model".into());
-    let result = engine.review("이거 바꿔줘", None).await.unwrap();
+    let result = engine.review("이거 바꿔줘", None, None).await.unwrap();
     assert_eq!(result.issues[0].span, Some([0, 2]));
 }
 
@@ -91,9 +91,17 @@ async fn review_handles_empty_issues_array() {
     )]));
     let engine = PromptCheckEngine::new(provider, "mock-model".into());
     let result = engine
-        .review("App.tsx 의 title을 '안녕'으로 설정", None)
+        .review("App.tsx 의 title을 '안녕'으로 설정", None, None)
         .await
         .unwrap();
     assert_eq!(result.issues.len(), 0);
     assert_eq!(result.refined_text, "이미 명확합니다");
+}
+
+#[tokio::test]
+async fn review_accepts_locale_hint_without_error() {
+    let provider = Arc::new(MockProvider::new(vec![ok_response("refined", "[]")]));
+    let engine = PromptCheckEngine::new(provider, "mock-model".into());
+    let result = engine.review("do it", None, Some("en")).await.unwrap();
+    assert_eq!(result.refined_text, "refined");
 }

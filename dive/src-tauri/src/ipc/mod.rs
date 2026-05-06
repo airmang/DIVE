@@ -626,7 +626,10 @@ fn log_error_event(
     )
 }
 
-fn run_mode_for_stage(stage: DiveStage) -> AgentRunMode {
+fn run_mode_for_stage(stage: DiveStage, plan_accepted: bool) -> AgentRunMode {
+    if !plan_accepted {
+        return AgentRunMode::Plan;
+    }
     match stage {
         DiveStage::D => AgentRunMode::Plan,
         DiveStage::I | DiveStage::E => AgentRunMode::Build,
@@ -634,7 +637,25 @@ fn run_mode_for_stage(stage: DiveStage) -> AgentRunMode {
     }
 }
 
+fn run_mode_strictness(mode: AgentRunMode) -> u8 {
+    match mode {
+        AgentRunMode::Interview => 0,
+        AgentRunMode::Plan => 1,
+        AgentRunMode::Verify => 2,
+        AgentRunMode::Build => 3,
+    }
+}
+
+fn safest_run_mode(backend: AgentRunMode, requested: AgentRunMode) -> AgentRunMode {
+    if run_mode_strictness(requested) <= run_mode_strictness(backend) {
+        requested
+    } else {
+        backend
+    }
+}
+
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn chat_send(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -642,15 +663,20 @@ pub async fn chat_send(
     text: String,
     stage: Option<String>,
     run_mode: Option<String>,
+    locale: Option<String>,
+    plan_accepted: Option<bool>,
 ) -> Result<(), String> {
     let stage = stage
         .as_deref()
         .and_then(DiveStage::parse)
         .unwrap_or(DiveStage::D);
-    let run_mode = run_mode
-        .as_deref()
-        .and_then(AgentRunMode::parse)
-        .unwrap_or_else(|| run_mode_for_stage(stage));
+    let plan_accepted = plan_accepted.unwrap_or(false);
+    let backend_run_mode = run_mode_for_stage(stage, plan_accepted);
+    let requested_run_mode = run_mode.as_deref().and_then(AgentRunMode::parse);
+    let run_mode = match requested_run_mode {
+        Some(requested) => safest_run_mode(backend_run_mode, requested),
+        None => backend_run_mode,
+    };
     let snap = state.runtime_snapshot();
     if snap.kind.is_none() {
         let msg = crate::providers::ProviderError::NotConfigured.to_string();
@@ -677,6 +703,7 @@ pub async fn chat_send(
         .cancel(cancel)
         .stage(stage)
         .disable_gates(disable_gates)
+        .locale(locale)
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -1221,6 +1248,7 @@ pub async fn prompt_check_review(
     state: State<'_, AppState>,
     text: String,
     stage: Option<String>,
+    locale: Option<String>,
 ) -> Result<crate::dive::PromptCheckResult, String> {
     let snap = state.runtime_snapshot();
     if snap.kind.is_none() {
@@ -1228,7 +1256,7 @@ pub async fn prompt_check_review(
     }
     let engine = crate::dive::PromptCheckEngine::new(snap.provider, snap.model);
     engine
-        .review(&text, stage.as_deref())
+        .review(&text, stage.as_deref(), locale.as_deref())
         .await
         .map_err(|e| e.to_string())
 }

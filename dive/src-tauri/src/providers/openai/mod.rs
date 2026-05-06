@@ -110,7 +110,13 @@ fn to_openai_payload(req: &ChatRequest) -> Value {
                 content,
                 tool_calls,
             } => {
-                let mut msg = json!({ "role": "assistant", "content": content });
+                let has_tool_calls = tool_calls.as_ref().is_some_and(|t| !t.is_empty());
+                let content_value = if has_tool_calls && content.is_empty() {
+                    Value::Null
+                } else {
+                    Value::String(content.clone())
+                };
+                let mut msg = json!({ "role": "assistant", "content": content_value });
                 if let Some(calls) = tool_calls {
                     msg["tool_calls"] = Value::Array(
                         calls
@@ -315,6 +321,7 @@ mod tests {
         };
 
         let body = to_openai_payload(&req);
+        assert_eq!(body["messages"][0]["content"], Value::Null);
         assert_eq!(
             body["messages"][0]["tool_calls"][0],
             json!({
@@ -328,5 +335,49 @@ mod tests {
         );
         assert_eq!(body["messages"][1]["role"], json!("tool"));
         assert_eq!(body["messages"][1]["tool_call_id"], json!("call_1"));
+    }
+
+    #[test]
+    fn assistant_with_content_and_tool_calls_preserves_content() {
+        let req = ChatRequest {
+            model: "m".into(),
+            messages: vec![Message::Assistant {
+                content: "thinking".into(),
+                tool_calls: Some(vec![ToolCall {
+                    id: "c1".into(),
+                    name: "x".into(),
+                    arguments: "{}".into(),
+                }]),
+            }],
+            tools: None,
+            tool_choice: None,
+            temperature: None,
+            max_tokens: None,
+            stream: true,
+        };
+
+        let body = to_openai_payload(&req);
+        assert_eq!(body["messages"][0]["content"], json!("thinking"));
+        assert!(body["messages"][0]["tool_calls"].is_array());
+    }
+
+    #[test]
+    fn assistant_without_tool_calls_keeps_empty_string_content() {
+        let req = ChatRequest {
+            model: "m".into(),
+            messages: vec![Message::Assistant {
+                content: "".into(),
+                tool_calls: None,
+            }],
+            tools: None,
+            tool_choice: None,
+            temperature: None,
+            max_tokens: None,
+            stream: true,
+        };
+
+        let body = to_openai_payload(&req);
+        assert_eq!(body["messages"][0]["content"], json!(""));
+        assert!(body["messages"][0].get("tool_calls").is_none());
     }
 }

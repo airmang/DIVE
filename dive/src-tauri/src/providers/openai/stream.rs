@@ -9,6 +9,13 @@ use crate::providers::{sse::SseEvent, ChatEvent, FinishReason, ProviderError};
 struct OpenAiState {
     tool_ids: HashMap<u32, String>,
     ended_tools: HashSet<String>,
+    /// Track whether we have already emitted a `Done` event for this stream so
+    /// the `[DONE]` sentinel fallback does not produce a duplicate.
+    done_emitted: bool,
+    /// Track whether we have observed any tool_call chunks so the `[DONE]`
+    /// fallback can emit `ToolCalls` instead of `Stop` when the provider
+    /// forgot to send `finish_reason`.
+    saw_tool_call: bool,
 }
 
 pub fn parse_openai_events<S>(events: S) -> impl Stream<Item = ChatEvent>
@@ -28,7 +35,32 @@ where
 
 fn handle_event(state: &mut OpenAiState, data: &str) -> Vec<ChatEvent> {
     if data.trim() == "[DONE]" {
-        return Vec::new();
+        // Some OpenAI-compatible servers (e.g. certain self-hosted gateways)
+        // send `[DONE]` without ever producing a `finish_reason`. Without a
+        // fallback the caller would block on a stream that never emits
+        // `ChatEvent::Done`, which breaks prompt_check and the assistant
+        // loop downstream. Emit a synthetic terminator in that case.
+        if state.done_emitted {
+            return Vec::new();
+        }
+        state.done_emitted = true;
+        let finish_reason = if state.saw_tool_call {
+            FinishReason::ToolCalls
+        } else {
+            FinishReason::Stop
+        };
+        let mut output = Vec::new();
+        if finish_reason == FinishReason::ToolCalls {
+            let mut ids = state.tool_ids.values().cloned().collect::<Vec<_>>();
+            ids.sort();
+            for id in ids {
+                if state.ended_tools.insert(id.clone()) {
+                    output.push(ChatEvent::ToolCallEnd { id });
+                }
+            }
+        }
+        output.push(ChatEvent::Done { finish_reason });
+        return output;
     }
 
     let parsed = serde_json::from_str::<Chunk>(data);
@@ -45,6 +77,7 @@ fn handle_event(state: &mut OpenAiState, data: &str) -> Vec<ChatEvent> {
         }
 
         for tool_call in choice.delta.tool_calls.unwrap_or_default() {
+            state.saw_tool_call = true;
             if let Some(id) = tool_call.id {
                 if let Some(function) = &tool_call.function {
                     if let Some(name) = &function.name {
@@ -81,6 +114,7 @@ fn handle_event(state: &mut OpenAiState, data: &str) -> Vec<ChatEvent> {
                 }
             }
             output.push(ChatEvent::Done { finish_reason });
+            state.done_emitted = true;
         }
     }
 
@@ -232,6 +266,115 @@ mod tests {
                 ChatEvent::Usage {
                     prompt_tokens: 7,
                     completion_tokens: 9
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn bare_done_with_no_finish_reason_emits_stop_fallback() {
+        let events = collect(vec![
+            event(serde_json::json!({
+                "choices":[{"delta":{"content":"hi"},"finish_reason":null}],
+                "usage":null
+            })),
+            Ok(SseEvent {
+                event: "message".into(),
+                data: "[DONE]".into(),
+                id: String::new(),
+            }),
+        ])
+        .await;
+
+        assert_eq!(
+            events,
+            vec![
+                ChatEvent::TextDelta("hi".into()),
+                ChatEvent::Done {
+                    finish_reason: FinishReason::Stop,
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn empty_chunk_then_bare_done_still_terminates() {
+        let events = collect(vec![
+            event(serde_json::json!({
+                "choices":[{"delta":{},"finish_reason":null}],
+                "usage":null
+            })),
+            Ok(SseEvent {
+                event: "message".into(),
+                data: "[DONE]".into(),
+                id: String::new(),
+            }),
+        ])
+        .await;
+
+        assert_eq!(
+            events,
+            vec![ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn done_after_finish_reason_does_not_duplicate() {
+        let events = collect(vec![
+            event(serde_json::json!({
+                "choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}],
+                "usage":null
+            })),
+            Ok(SseEvent {
+                event: "message".into(),
+                data: "[DONE]".into(),
+                id: String::new(),
+            }),
+        ])
+        .await;
+
+        assert_eq!(
+            events,
+            vec![
+                ChatEvent::TextDelta("ok".into()),
+                ChatEvent::Done {
+                    finish_reason: FinishReason::Stop,
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn bare_done_after_tool_call_chunks_uses_tool_calls_finish() {
+        let events = collect(vec![
+            event(serde_json::json!({
+                "choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"x","arguments":"{}"}}]},"finish_reason":null}],
+                "usage":null
+            })),
+            Ok(SseEvent {
+                event: "message".into(),
+                data: "[DONE]".into(),
+                id: String::new(),
+            }),
+        ])
+        .await;
+
+        assert_eq!(
+            events,
+            vec![
+                ChatEvent::ToolCallStart {
+                    id: "c1".into(),
+                    name: "x".into(),
+                },
+                ChatEvent::ToolCallDelta {
+                    id: "c1".into(),
+                    arguments_delta: "{}".into(),
+                },
+                ChatEvent::ToolCallEnd { id: "c1".into() },
+                ChatEvent::Done {
+                    finish_reason: FinishReason::ToolCalls,
                 },
             ]
         );

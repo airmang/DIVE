@@ -6,7 +6,6 @@ import { useSlideInStore } from "../../stores/slideIn";
 import {
   inferStageFor,
   selectAllCardsVerified,
-  selectCanChat,
   selectCurrentCard,
   useWorkmapStore,
 } from "../../stores/workmap";
@@ -18,6 +17,7 @@ import { useT } from "../../i18n";
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts";
 import { useRoadmap, type RoadmapStepAction } from "../../features/roadmap";
 import type { PlanDraft } from "../../features/planning";
+import { usePlanInterviewLLM } from "../../features/planning/usePlanInterviewLLM";
 import { useChatSession, type CheckpointRowPayload } from "../../hooks/useChatSession";
 import { refreshMenuRecents, useMenuEvents } from "../../lib/menu-events";
 import { pickFolder } from "../../lib/tauri-dialog";
@@ -66,8 +66,8 @@ export function useProductShellController() {
   const [roadmapCompact, setRoadmapCompact] = useState(false);
   const dialogs = useProductShellDialogs();
   const [lastManualCheckpointLabel, setLastManualCheckpointLabel] = useState<string | null>(null);
-  const [planningGoalSeed, setPlanningGoalSeed] = useState("");
   const [planDraft, setPlanDraft] = useState<PlanDraft | null>(null);
+  const [planAccepted, setPlanAccepted] = useState(false);
   const [checkpoints, setCheckpoints] = useState<CheckpointRowPayload[]>([]);
   const [checkpointsLoading, setCheckpointsLoading] = useState(false);
   const [checkpointsError, setCheckpointsError] = useState<string | null>(null);
@@ -82,6 +82,9 @@ export function useProductShellController() {
   const setCurrentCardLocal = useWorkmapStore((s) => s.setCurrentCardLocal);
   const currentProjectId = useProjectSessionStore((s) => s.currentProjectId);
   const currentSessionId = useProjectSessionStore((s) => s.currentSessionId);
+  const currentProjectName = useProjectSessionStore(
+    (s) => s.projects.find((p) => p.id === s.currentProjectId)?.name ?? null,
+  );
   const createSession = useProjectSessionStore((s) => s.createSession);
   const openProject = useProjectSessionStore((s) => s.openProject);
   const selectProject = useProjectSessionStore((s) => s.selectProject);
@@ -114,7 +117,13 @@ export function useProductShellController() {
   ]);
 
   const roadmapModel = useRoadmap(currentSessionId);
-  const chat = useChatSession(currentSessionId);
+  const planInterviewObserver = usePlanInterviewLLM({
+    onPlanDraft: (draft) => {
+      setPlanDraft(draft);
+      setPlanAccepted(false);
+    },
+  });
+  const chat = useChatSession(currentSessionId, planInterviewObserver);
   const listCheckpoints = chat.listCheckpoints;
   const refreshCheckpoints = useCallback(async () => {
     if (currentSessionId === null) {
@@ -137,7 +146,6 @@ export function useProductShellController() {
   const cards = roadmapModel.workmapCompat.cards;
   const currentCard = useWorkmapStore(selectCurrentCard);
   const currentCardId = roadmapModel.activeStepId;
-  const canChat = useWorkmapStore(selectCanChat);
   const allVerified = useWorkmapStore(selectAllCardsVerified);
 
   useEffect(() => {
@@ -526,17 +534,6 @@ export function useProductShellController() {
         onAction: handleEmptyStateAction,
       };
     }
-    if (!canChat) {
-      return {
-        reason: t("stage.gate_no_cards"),
-        actionLabel: t("stage.action_draft_plan"),
-        onAction: () => {
-          setPlanningGoalSeed("");
-          setPlanDraft(null);
-          dialogs.setPlanInterviewOpen(true);
-        },
-      };
-    }
     if (stage === "i" && currentCard) {
       const hasInstruction = (currentCard.summary ?? "").trim().length > 0;
       if (!hasInstruction) {
@@ -556,7 +553,6 @@ export function useProductShellController() {
     }
     return null;
   }, [
-    canChat,
     currentCard,
     currentProjectId,
     currentSessionId,
@@ -592,15 +588,15 @@ export function useProductShellController() {
 
   const sendMessage = useCallback(
     (text: string) => {
-      void chat.sendUserMessage(text, stage);
+      void chat.sendUserMessage(text, stage, undefined, planAccepted);
     },
-    [chat, stage],
+    [chat, stage, planAccepted],
   );
 
   const handleRetryError = useCallback(() => {
     const lastUser = [...chat.messages].reverse().find((message) => message.kind === "user");
     if (lastUser?.kind === "user") {
-      void chat.sendUserMessage(lastUser.content, stage);
+      void chat.sendUserMessage(lastUser.content, stage, undefined, planAccepted);
       return;
     }
     toast({
@@ -608,30 +604,22 @@ export function useProductShellController() {
       title: t("toast.retry_unavailable"),
       description: t("toast.retry_unavailable_description"),
     });
-  }, [chat, stage, toast, t]);
+  }, [chat, stage, planAccepted, toast, t]);
 
   const openPlanInterview = useCallback(
     (goal?: string) => {
-      setPlanningGoalSeed(goal?.trim() ?? "");
-      setPlanDraft(null);
-      dialogs.setPlanInterviewOpen(true);
+      const trimmed = goal?.trim() ?? "";
+      if (trimmed.length > 0) {
+        void chat.sendUserMessage(trimmed, stage, undefined, false);
+      }
+      setPlanAccepted(false);
     },
-    [dialogs],
-  );
-
-  const handlePlanDraft = useCallback(
-    (draft: PlanDraft) => {
-      setPlanDraft(draft);
-      dialogs.setPlanInterviewOpen(false);
-      dialogs.setPlanReviewOpen(true);
-    },
-    [dialogs],
+    [chat, stage],
   );
 
   const closePlanReview = useCallback(
     (open: boolean) => {
       dialogs.setPlanReviewOpen(open);
-      if (!open) setPlanDraft(null);
     },
     [dialogs],
   );
@@ -667,7 +655,7 @@ export function useProductShellController() {
         if (firstCreatedId !== null) await roadmapModel.selectStep(firstCreatedId);
       }
       dialogs.setPlanReviewOpen(false);
-      setPlanDraft(null);
+      setPlanAccepted(true);
       toast({
         variant: "success",
         title: t("planning.roadmap_created_title"),
@@ -676,6 +664,25 @@ export function useProductShellController() {
     },
     [addCardsLocal, cards, dialogs, isDemoRoute, roadmapModel, setCurrentCardLocal, t, toast],
   );
+
+  const handleAcceptPlanFromFloating = useCallback(() => {
+    if (planDraft) void acceptPlanDraft(planDraft);
+  }, [planDraft, acceptPlanDraft]);
+
+  const handleOpenPlanReview = useCallback(() => {
+    if (planDraft) dialogs.setPlanReviewOpen(true);
+  }, [planDraft, dialogs]);
+
+  const handleRequestPlanChanges = useCallback(() => {
+    if (!planDraft) return;
+    void chat.sendUserMessage(
+      t("planning.request_changes_seed", { goal: planDraft.goal }),
+      stage,
+      undefined,
+      false,
+    );
+    setPlanAccepted(false);
+  }, [planDraft, chat, stage, t]);
 
   const recoveryCheckpoints = useMemo(
     () => checkpoints.map(checkpointToRecoveryItem),
@@ -713,9 +720,11 @@ export function useProductShellController() {
       void chat.sendUserMessage(
         t("recovery.explain_failure_prompt", { title: stepTitle, reason }),
         stage,
+        undefined,
+        planAccepted,
       );
     },
-    [chat, currentCard, stage, t],
+    [chat, currentCard, stage, planAccepted, t],
   );
 
   const handleRetryRecovery = useCallback(() => {
@@ -763,6 +772,7 @@ export function useProductShellController() {
     projectSessionLoaded && !isDemoRoute && currentProjectId !== null && !hasConnectedProvider;
 
   return {
+    projectName: currentProjectName,
     providerBanner: {
       show: showProviderSetupBanner,
       title: t("chat.provider_setup_title"),
@@ -787,7 +797,15 @@ export function useProductShellController() {
       stage: promptStage,
       emptyState,
     },
+    planDraftFloating: {
+      draft: planDraft,
+      planAccepted,
+      onOpenReview: handleOpenPlanReview,
+      onAccept: handleAcceptPlanFromFloating,
+      onRequestChanges: handleRequestPlanChanges,
+    },
     roadmap: {
+      visible: roadmapModel.steps.length > 0 || (planDraft !== null && planAccepted),
       compact: roadmapCompact,
       onToggleCompact: () => setRoadmapCompact((c) => !c),
       steps: roadmapModel.steps,
@@ -797,7 +815,11 @@ export function useProductShellController() {
       onAddStep: () => dialogs.setNewCardOpen(true),
       onSelectStep: handleStepSelect,
       onStartPlanning: openPlanInterview,
-      recovery: {
+    },
+    recovery: {
+      open: dialogs.recoveryOpen,
+      onOpenChange: dialogs.setRecoveryOpen,
+      panel: {
         sessionAvailable: currentSessionId !== null,
         checkpoints: recoveryCheckpoints,
         loading: checkpointsLoading,
@@ -808,21 +830,16 @@ export function useProductShellController() {
         onCreateCheckpoint: handleManualCheckpoint,
         onRestoreCheckpoint: (checkpointId: number) => void handleRestoreCheckpoint(checkpointId),
       },
+      checkpointCount: recoveryCheckpoints.length,
+      hasFailedStep: failedStepRecovery !== null,
     },
     modals: {
-      planInterview: {
-        open: dialogs.planInterviewOpen,
-        initialGoal: planningGoalSeed,
-        onOpenChange: dialogs.setPlanInterviewOpen,
-        onPlanDraft: handlePlanDraft,
-      },
       planReview: {
         open: dialogs.planReviewOpen,
         draft: planDraft,
         onOpenChange: closePlanReview,
         onBack: () => {
           dialogs.setPlanReviewOpen(false);
-          dialogs.setPlanInterviewOpen(true);
         },
         onAccept: acceptPlanDraft,
       },

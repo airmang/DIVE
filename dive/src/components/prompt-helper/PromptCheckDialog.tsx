@@ -11,6 +11,7 @@ import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { LearningHint } from "../ui/learning-hint";
 import type { DiveStage } from "../../lib/ambiguity";
+import { useLocale } from "../../i18n";
 
 type TauriApi = {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -54,6 +55,7 @@ export function PromptCheckDialog({
   onApply,
   mockResult,
 }: Props) {
+  const locale = useLocale();
   const [result, setResult] = useState<PromptCheckResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,6 +78,7 @@ export function PromptCheckDialog({
         const r = await api.invoke<PromptCheckResult>("prompt_check_review", {
           text: initialText,
           stage: stage ?? null,
+          locale,
         });
         setResult(r);
       } else if (mockResult) {

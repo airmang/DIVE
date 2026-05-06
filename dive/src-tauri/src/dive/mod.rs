@@ -7,6 +7,7 @@
 pub mod assist;
 pub mod event_log;
 pub mod gate;
+pub mod plan_interview;
 pub mod prompt_check;
 pub mod state_machine;
 pub mod verify;
@@ -14,6 +15,10 @@ pub mod verify;
 pub use assist::{AiAssistEngine, AssistError, AssistedCard};
 pub use gate::{
     card_tool_call_count, gates_disabled_for_research, DiveGateEngine, DiveStage, GateDecision,
+};
+pub use plan_interview::{
+    build_system_prompt as build_plan_interview_system_prompt, plan_interview_tool,
+    EMIT_PLAN_DRAFT_TOOL_NAME,
 };
 pub use prompt_check::{PromptCheckEngine, PromptCheckError, PromptCheckResult, PromptIssue};
 pub use state_machine::{apply as apply_transition, CardTransition, TransitionError};
