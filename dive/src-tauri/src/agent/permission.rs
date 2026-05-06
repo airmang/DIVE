@@ -36,6 +36,75 @@ pub trait PermissionHook: Send + Sync {
     async fn intercept(&self, call: &ToolCall, risk: RiskLevel) -> PermissionDecision;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentRunMode {
+    Interview,
+    Plan,
+    Build,
+    Verify,
+}
+
+impl AgentRunMode {
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "interview" => Some(Self::Interview),
+            "plan" | "planning" => Some(Self::Plan),
+            "build" | "execute" => Some(Self::Build),
+            "verify" | "check" => Some(Self::Verify),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Interview => "interview",
+            Self::Plan => "plan",
+            Self::Build => "build",
+            Self::Verify => "verify",
+        }
+    }
+
+    fn denies_pre_plan_mutation(self, tool_name: &str, risk: RiskLevel) -> Option<String> {
+        if !matches!(self, Self::Interview | Self::Plan) {
+            return None;
+        }
+        let mutating_tool = matches!(
+            tool_name,
+            "write_file" | "edit_file" | "delete_file" | "mkdir" | "bash" | "run_process"
+        );
+        if mutating_tool || !matches!(risk, RiskLevel::Safe) {
+            Some(format!(
+                "plan-first mode '{}' blocks mutating tool '{tool_name}' until the plan is approved",
+                self.as_str()
+            ))
+        } else {
+            None
+        }
+    }
+}
+
+pub struct RunModePermissionHook {
+    pub mode: AgentRunMode,
+    pub inner: Arc<dyn PermissionHook>,
+}
+
+impl RunModePermissionHook {
+    pub fn new(mode: AgentRunMode, inner: Arc<dyn PermissionHook>) -> Self {
+        Self { mode, inner }
+    }
+}
+
+#[async_trait]
+impl PermissionHook for RunModePermissionHook {
+    async fn intercept(&self, call: &ToolCall, risk: RiskLevel) -> PermissionDecision {
+        if let Some(reason) = self.mode.denies_pre_plan_mutation(&call.name, risk) {
+            return PermissionDecision::denied(reason);
+        }
+        self.inner.intercept(call, risk).await
+    }
+}
+
 /// Spec §8.3 auto-approve policy. MVP supports `Always` / `Never` per tool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -218,5 +287,47 @@ impl PermissionHook for PolicyAwareHook {
             Ok(decision) => decision,
             Err(_) => PermissionDecision::denied("approval channel closed"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+
+    fn call(name: &str) -> ToolCall {
+        ToolCall {
+            id: format!("{name}-1"),
+            name: name.to_string(),
+            arguments: "{}".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn plan_mode_allows_safe_read_tool() {
+        let hook = RunModePermissionHook::new(AgentRunMode::Plan, Arc::new(AlwaysApproveHook));
+        let decision = hook.intercept(&call("read_file"), RiskLevel::Safe).await;
+        assert!(matches!(decision, PermissionDecision::Approved { .. }));
+    }
+
+    #[tokio::test]
+    async fn plan_mode_denies_mutating_write_tool() {
+        let hook = RunModePermissionHook::new(AgentRunMode::Plan, Arc::new(AlwaysApproveHook));
+        let decision = hook.intercept(&call("write_file"), RiskLevel::Warn).await;
+        match decision {
+            PermissionDecision::Denied(reason) => {
+                assert!(reason.contains("plan"));
+                assert!(reason.contains("write_file"));
+            }
+            other => panic!("expected denial, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn build_mode_delegates_mutating_tool_to_inner_hook() {
+        let hook = RunModePermissionHook::new(AgentRunMode::Build, Arc::new(AlwaysApproveHook));
+        let decision = hook.intercept(&call("write_file"), RiskLevel::Warn).await;
+        assert!(matches!(decision, PermissionDecision::Approved { .. }));
     }
 }

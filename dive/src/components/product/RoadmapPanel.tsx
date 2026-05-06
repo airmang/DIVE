@@ -177,6 +177,12 @@ export function RoadmapPanel({
             <p className="mt-1 text-xs text-fg-muted">
               Use chat to explain your goal. DIVE can turn it into Roadmap steps you can review.
             </p>
+            <p
+              className="mt-2 rounded-md border border-info/40 bg-info/10 px-3 py-2 text-xs text-fg"
+              data-testid="planning-no-files-changed"
+            >
+              No files changed yet — planning mode only reads context until you approve a plan.
+            </p>
             <textarea
               value={goalDraft}
               onChange={(event) => setGoalDraft(event.target.value)}

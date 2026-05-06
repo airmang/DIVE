@@ -172,7 +172,11 @@ export function useChatSession(sessionId: number | null) {
   }, [sessionId]);
 
   const sendUserMessage = useCallback(
-    async (text: string, stage?: "d" | "i" | "v" | "e") => {
+    async (
+      text: string,
+      stage?: "d" | "i" | "v" | "e",
+      runMode?: "interview" | "plan" | "build" | "verify",
+    ) => {
       if (sessionId === null) {
         setState((s) => ({
           ...s,
@@ -194,6 +198,7 @@ export function useChatSession(sessionId: number | null) {
           sessionId,
           text,
           stage: stage ?? null,
+          runMode: runMode ?? null,
         });
       } catch (err) {
         setState((s) => ({

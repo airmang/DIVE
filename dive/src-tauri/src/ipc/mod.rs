@@ -39,8 +39,8 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::agent::{
-    AgentEvent, AgentLoop, AutoApprovePolicy, PendingApprovals, PermissionDecision, PermissionHook,
-    PolicyAwareHook,
+    AgentEvent, AgentLoop, AgentRunMode, AutoApprovePolicy, PendingApprovals, PermissionDecision,
+    PermissionHook, PolicyAwareHook, RunModePermissionHook,
 };
 use crate::auth::{self, Keyring, OsKeyring};
 use crate::db::dao::{
@@ -626,6 +626,14 @@ fn log_error_event(
     )
 }
 
+fn run_mode_for_stage(stage: DiveStage) -> AgentRunMode {
+    match stage {
+        DiveStage::D => AgentRunMode::Plan,
+        DiveStage::I | DiveStage::E => AgentRunMode::Build,
+        DiveStage::V => AgentRunMode::Verify,
+    }
+}
+
 #[tauri::command]
 pub async fn chat_send(
     app: AppHandle,
@@ -633,11 +641,16 @@ pub async fn chat_send(
     session_id: i64,
     text: String,
     stage: Option<String>,
+    run_mode: Option<String>,
 ) -> Result<(), String> {
     let stage = stage
         .as_deref()
         .and_then(DiveStage::parse)
         .unwrap_or(DiveStage::D);
+    let run_mode = run_mode
+        .as_deref()
+        .and_then(AgentRunMode::parse)
+        .unwrap_or_else(|| run_mode_for_stage(stage));
     let snap = state.runtime_snapshot();
     if snap.kind.is_none() {
         let msg = crate::providers::ProviderError::NotConfigured.to_string();
@@ -654,7 +667,10 @@ pub async fn chat_send(
     let loop_ = AgentLoop::builder()
         .provider(snap.provider)
         .registry(state.registry.clone())
-        .permission(state.permission.clone())
+        .permission(Arc::new(RunModePermissionHook::new(
+            run_mode,
+            state.permission.clone(),
+        )))
         .db(state.db.clone())
         .tool_ctx(ToolContext::new(project_root, session_id))
         .model(snap.model)

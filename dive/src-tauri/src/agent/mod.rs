@@ -13,9 +13,9 @@ pub mod permission;
 pub use error::AgentError;
 pub use event::{AgentEvent, DiffPreview};
 pub use permission::{
-    AlwaysApproveHook, AlwaysDenyHook, AutoApprove, AutoApprovePolicy, AwaitUserHook,
+    AgentRunMode, AlwaysApproveHook, AlwaysDenyHook, AutoApprove, AutoApprovePolicy, AwaitUserHook,
     PendingApprovals, PermissionDecision, PermissionHook, PolicyAwareHook, PolicyHook,
-    SafeOnlyHook,
+    RunModePermissionHook, SafeOnlyHook,
 };
 
 use std::sync::atomic::{AtomicBool, Ordering};
