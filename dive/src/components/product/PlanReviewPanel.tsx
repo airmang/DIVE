@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { Button } from "../ui/button";
+import { useT } from "../../i18n";
 
 interface PlanReviewPanelProps {
   open: boolean;
@@ -25,6 +26,7 @@ export function PlanReviewPanel({
   onBack,
   onAccept,
 }: PlanReviewPanelProps) {
+  const t = useT();
   const [accepting, setAccepting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,32 +50,29 @@ export function PlanReviewPanel({
         data-testid="plan-review-panel"
       >
         <DialogHeader>
-          <DialogTitle>Review the plan</DialogTitle>
-          <DialogDescription>
-            Approving this plan creates Roadmap steps. Cancel or go back to change it without
-            creating files or steps.
-          </DialogDescription>
+          <DialogTitle>{t("planning.review_title")}</DialogTitle>
+          <DialogDescription>{t("planning.review_description")}</DialogDescription>
         </DialogHeader>
 
         {draft ? (
           <div className="space-y-5">
             <section className="rounded-lg border bg-bg/50 p-4">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-fg-muted">
-                Goal
+                {t("planning.goal_heading")}
               </div>
               <p className="mt-2 text-sm font-medium text-fg">{draft.goal}</p>
             </section>
 
             <section className="rounded-lg border bg-bg/50 p-4">
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-fg-muted">
-                MVP
+                {t("planning.mvp_heading")}
               </div>
               <p className="mt-2 text-sm text-fg-muted">{draft.mvp}</p>
             </section>
 
             <section className="grid gap-4 md:grid-cols-2">
               <div className="rounded-lg border bg-bg/50 p-4">
-                <h3 className="text-sm font-semibold">Non-goals</h3>
+                <h3 className="text-sm font-semibold">{t("planning.non_goals_heading")}</h3>
                 <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-fg-muted">
                   {draft.nonGoals.map((item) => (
                     <li key={item}>{item}</li>
@@ -81,7 +80,7 @@ export function PlanReviewPanel({
                 </ul>
               </div>
               <div className="rounded-lg border bg-bg/50 p-4">
-                <h3 className="text-sm font-semibold">Success criteria</h3>
+                <h3 className="text-sm font-semibold">{t("planning.success_heading")}</h3>
                 <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-fg-muted">
                   {draft.successCriteria.map((item) => (
                     <li key={item}>{item}</li>
@@ -91,11 +90,13 @@ export function PlanReviewPanel({
             </section>
 
             <section className="rounded-lg border bg-bg/50 p-4">
-              <h3 className="text-sm font-semibold">Roadmap steps</h3>
+              <h3 className="text-sm font-semibold">{t("planning.roadmap_steps_heading")}</h3>
               <ol className="mt-3 space-y-3" data-testid="plan-review-steps">
                 {draft.steps.map((step, index) => (
                   <li key={`${step.title}-${index}`} className="rounded-md border bg-bg-panel p-3">
-                    <div className="text-[11px] font-semibold text-fg-muted">Step {index + 1}</div>
+                    <div className="text-[11px] font-semibold text-fg-muted">
+                      {t("roadmap.step_number", { position: index + 1 })}
+                    </div>
                     <div className="mt-1 text-sm font-semibold text-fg">{step.title}</div>
                     <p className="mt-1 text-xs text-fg-muted">{step.summary}</p>
                     <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-fg-muted">
@@ -111,15 +112,15 @@ export function PlanReviewPanel({
             {error ? <p className="text-sm text-danger">{error}</p> : null}
           </div>
         ) : (
-          <p className="text-sm text-fg-muted">No plan draft is ready yet.</p>
+          <p className="text-sm text-fg-muted">{t("planning.no_draft")}</p>
         )}
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={accepting}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button variant="outline" onClick={onBack} disabled={accepting}>
-            Back
+            {t("common.back")}
           </Button>
           <Button
             variant="primary"
@@ -127,7 +128,7 @@ export function PlanReviewPanel({
             disabled={!draft || accepting}
             data-testid="plan-review-accept"
           >
-            {accepting ? "Creating steps..." : "Approve and create Roadmap"}
+            {accepting ? t("planning.creating_steps") : t("planning.approve_create_roadmap")}
           </Button>
         </DialogFooter>
       </DialogContent>

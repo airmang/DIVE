@@ -2,6 +2,7 @@ export interface ProjectBriefAnswer {
   questionId: string;
   question: string;
   answer: string;
+  answerId?: string;
 }
 
 export interface ProjectBrief {

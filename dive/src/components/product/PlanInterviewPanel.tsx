@@ -15,6 +15,7 @@ import {
 } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
+import { useLocale, useT } from "../../i18n";
 
 interface PlanInterviewPanelProps {
   open: boolean;
@@ -31,6 +32,8 @@ export function PlanInterviewPanel({
   onOpenChange,
   onPlanDraft,
 }: PlanInterviewPanelProps) {
+  const t = useT();
+  const locale = useLocale();
   const [goal, setGoal] = useState(initialGoal);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +42,7 @@ export function PlanInterviewPanel({
     if (!open) return;
     setGoal(initialGoal);
     setAnswers(
-      Object.fromEntries(QUESTIONS.map((question) => [question.id, "Not sure"])) as Record<
+      Object.fromEntries(QUESTIONS.map((question) => [question.id, "not_sure"])) as Record<
         string,
         string
       >,
@@ -49,37 +52,37 @@ export function PlanInterviewPanel({
 
   const trimmedGoal = goal.trim();
   const canContinue = trimmedGoal.length > 0;
-  const questionCountLabel = useMemo(() => `${QUESTIONS.length} quick questions`, []);
+  const questionCountLabel = useMemo(
+    () => t("planning.quick_questions", { count: QUESTIONS.length }),
+    [t],
+  );
 
   const handleContinue = () => {
     if (!canContinue) {
-      setError("Describe what you want to build first.");
+      setError(t("planning.goal_required"));
       return;
     }
-    const brief = createProjectBrief(trimmedGoal, answers);
-    onPlanDraft(buildPlanDraft(brief));
+    const brief = createProjectBrief(trimmedGoal, answers, locale);
+    onPlanDraft(buildPlanDraft(brief, locale));
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl" data-testid="plan-interview-panel">
         <DialogHeader>
-          <DialogTitle>Plan your project</DialogTitle>
-          <DialogDescription>
-            Start with a natural-language goal. DIVE asks at most 3 questions, then drafts a plan
-            for your approval.
-          </DialogDescription>
+          <DialogTitle>{t("planning.interview_title")}</DialogTitle>
+          <DialogDescription>{t("planning.interview_description")}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <label className="block space-y-2">
-            <span className="text-sm font-semibold">What do you want to build?</span>
+            <span className="text-sm font-semibold">{t("planning.goal_label")}</span>
             <textarea
               value={goal}
               onChange={(event) => setGoal(event.target.value)}
               rows={3}
               className="w-full rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              placeholder="I want to build a small habit tracker..."
+              placeholder={t("planning.goal_placeholder")}
               data-testid="plan-goal-input"
             />
           </label>
@@ -96,11 +99,11 @@ export function PlanInterviewPanel({
                   data-testid="plan-interview-question"
                 >
                   <legend className="px-1 text-sm font-semibold text-fg">
-                    {question.question}
+                    {t(question.question)}
                   </legend>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {question.choices.map((choice) => {
-                      const selected = (answers[question.id] ?? "Not sure") === choice;
+                      const selected = (answers[question.id] ?? "not_sure") === choice;
                       return (
                         <button
                           key={choice}
@@ -116,7 +119,7 @@ export function PlanInterviewPanel({
                           )}
                           aria-pressed={selected}
                         >
-                          {choice}
+                          {t(`planning.choices.${choice}`)}
                         </button>
                       );
                     })}
@@ -131,10 +134,10 @@ export function PlanInterviewPanel({
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button variant="primary" onClick={handleContinue} data-testid="plan-interview-continue">
-            Draft plan
+            {t("planning.draft_plan")}
           </Button>
         </DialogFooter>
       </DialogContent>

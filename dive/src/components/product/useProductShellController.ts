@@ -670,11 +670,11 @@ export function useProductShellController() {
       setPlanDraft(null);
       toast({
         variant: "success",
-        title: "Roadmap created",
-        description: `${draft.steps.length} steps are ready for review.`,
+        title: t("planning.roadmap_created_title"),
+        description: t("planning.roadmap_created_description", { count: draft.steps.length }),
       });
     },
-    [addCardsLocal, cards, dialogs, isDemoRoute, roadmapModel, setCurrentCardLocal, toast],
+    [addCardsLocal, cards, dialogs, isDemoRoute, roadmapModel, setCurrentCardLocal, t, toast],
   );
 
   const recoveryCheckpoints = useMemo(
@@ -689,33 +689,33 @@ export function useProductShellController() {
         await chat.restoreCheckpoint(checkpointId);
         toast({
           variant: "success",
-          title: "Checkpoint restored",
-          description: "DIVE restored the project and saved a pre-restore backup.",
+          title: t("recovery.restore_success_title"),
+          description: t("recovery.restore_success_description"),
         });
         await roadmapModel.refresh();
         await refreshCheckpoints();
       } catch (err) {
         toast({
           variant: "error",
-          title: "Restore unavailable",
+          title: t("recovery.restore_unavailable_title"),
           description: err instanceof Error ? err.message : String(err),
         });
       } finally {
         setRestoringCheckpointId(null);
       }
     },
-    [chat, refreshCheckpoints, roadmapModel, toast],
+    [chat, refreshCheckpoints, roadmapModel, t, toast],
   );
 
   const handleExplainRecovery = useCallback(
     (reason: string) => {
-      const stepTitle = currentCard?.title ?? "the current step";
+      const stepTitle = currentCard?.title ?? t("roadmap.current_step_fallback");
       void chat.sendUserMessage(
-        `Explain this failure for ${stepTitle} in beginner-friendly language and suggest the safest next action:\n${reason}`,
+        t("recovery.explain_failure_prompt", { title: stepTitle, reason }),
         stage,
       );
     },
-    [chat, currentCard, stage],
+    [chat, currentCard, stage, t],
   );
 
   const handleRetryRecovery = useCallback(() => {
@@ -728,10 +728,10 @@ export function useProductShellController() {
 
   const handleAdjustPlanRecovery = useCallback(
     (reason: string) => {
-      const stepTitle = currentCard?.title ?? "current step";
-      openPlanInterview(`Adjust the plan for ${stepTitle}. Problem to solve: ${reason}`);
+      const stepTitle = currentCard?.title ?? t("roadmap.current_step_fallback");
+      openPlanInterview(t("planning.adjust_goal_seed", { title: stepTitle, reason }));
     },
-    [currentCard, openPlanInterview],
+    [currentCard, openPlanInterview, t],
   );
 
   const lastToolFailure = [...chat.messages]
@@ -740,10 +740,10 @@ export function useProductShellController() {
   const verifyFailureReason =
     currentVerifyError ??
     (currentVerifyLog && !(currentVerifyLog.intent_match && currentVerifyLog.test_result === "pass")
-      ? currentVerifyLog.details || `Verification did not pass (${currentVerifyLog.test_result}).`
+      ? currentVerifyLog.details ||
+        t("recovery.verify_did_not_pass", { result: currentVerifyLog.test_result })
       : null);
-  const rejectedReason =
-    currentCard?.state === "rejected" ? "This step was marked as needing changes." : null;
+  const rejectedReason = currentCard?.state === "rejected" ? t("recovery.rejected_reason") : null;
   const failureReason =
     verifyFailureReason ??
     rejectedReason ??

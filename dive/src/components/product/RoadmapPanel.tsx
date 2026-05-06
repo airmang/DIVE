@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import type { RoadmapProgress, RoadmapStep, RoadmapStepStatus } from "../../features/roadmap";
+import { useT } from "../../i18n";
 import { Button } from "../ui/button";
 import { RecoveryPanel, type RecoveryPanelProps } from "./RecoveryPanel";
 
@@ -26,16 +27,6 @@ interface RoadmapPanelProps {
   onStartPlanning: (goal?: string) => void;
   recovery: RecoveryPanelProps;
 }
-
-const STATUS_LABEL: Record<RoadmapStepStatus, string> = {
-  planned: "Planned",
-  ready: "Ready",
-  working: "Working",
-  checking: "Checking",
-  done: "Done",
-  needs_changes: "Needs changes",
-  integrated: "Integrated",
-};
 
 const STATUS_CLASS: Record<RoadmapStepStatus, string> = {
   planned: "border-border bg-bg-panel2 text-fg-muted",
@@ -54,31 +45,16 @@ function statusIcon(status: RoadmapStepStatus) {
   return <Circle aria-hidden />;
 }
 
-function nextActionFor(step: RoadmapStep | null, hasSteps: boolean): string {
-  if (!hasSteps) return "Describe what you want to build in chat to create your roadmap.";
-  if (!step) return "Pick a step to see what to do next.";
-  switch (step.status) {
-    case "planned":
-      return "Add enough detail so the agent can work safely.";
-    case "ready":
-      return "Start this step from chat when you are ready.";
-    case "working":
-      return "Continue the conversation or review the latest agent output.";
-    case "checking":
-      return "Run Check and review the evidence before marking it done.";
-    case "needs_changes":
-      return "Ask for fixes, then check this step again.";
-    case "done":
-      return "Review changes, then move to the next step or integrate.";
-    case "integrated":
-      return "Choose another step or describe the next goal.";
-  }
+function nextActionKey(step: RoadmapStep | null, hasSteps: boolean): string {
+  if (!hasSteps) return "roadmap.next_action.no_steps";
+  if (!step) return "roadmap.next_action.pick_step";
+  return `roadmap.next_action.${step.status}`;
 }
 
-function remainingLabel(progress: RoadmapProgress) {
+function remainingLabel(progress: RoadmapProgress, t: ReturnType<typeof useT>) {
   const remaining = Math.max(0, progress.total - progress.completed);
-  if (progress.total === 0) return "No steps yet";
-  return `${remaining} remaining`;
+  if (progress.total === 0) return t("roadmap.no_steps");
+  return t("roadmap.remaining", { count: remaining });
 }
 
 export function RoadmapPanel({
@@ -94,6 +70,7 @@ export function RoadmapPanel({
   onStartPlanning,
   recovery,
 }: RoadmapPanelProps) {
+  const t = useT();
   const [goalDraft, setGoalDraft] = useState("");
   const activeStep = steps.find((step) => step.id === activeStepId) ?? steps[0] ?? null;
   const hasSteps = steps.length > 0;
@@ -102,7 +79,7 @@ export function RoadmapPanel({
   return (
     <aside
       className={cn("flex h-full min-h-0 flex-col border-l bg-bg-panel text-fg", className)}
-      aria-label="Roadmap"
+      aria-label={t("roadmap.title")}
       data-testid="roadmap-panel"
       data-roadmap-active-step-id={activeStepId ?? ""}
       data-roadmap-progress={progress.percent}
@@ -113,24 +90,24 @@ export function RoadmapPanel({
           <div>
             <div className="flex items-center gap-2">
               <ListChecks className="h-4 w-4 text-accent" aria-hidden />
-              <h2 className="text-base font-bold">Roadmap</h2>
+              <h2 className="text-base font-bold">{t("roadmap.title")}</h2>
             </div>
-            <p className="mt-1 text-xs text-fg-muted">{remainingLabel(progress)}</p>
+            <p className="mt-1 text-xs text-fg-muted">{remainingLabel(progress, t)}</p>
           </div>
           <Button variant="ghost" size="sm" onClick={onToggleCompact}>
-            {compact ? "Show all" : "Compact"}
+            {compact ? t("roadmap.show_all") : t("roadmap.compact")}
           </Button>
         </div>
 
         <div className="mt-4">
           <div className="flex items-center justify-between text-xs">
-            <span className="font-medium text-fg-muted">Progress</span>
+            <span className="font-medium text-fg-muted">{t("roadmap.progress")}</span>
             <span className="font-semibold">{progress.percent}%</span>
           </div>
           <div
             className="mt-2 h-2 overflow-hidden rounded-full bg-bg-panel2"
             role="progressbar"
-            aria-label="Roadmap progress"
+            aria-label={t("roadmap.progress_aria")}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={progress.percent}
@@ -145,14 +122,14 @@ export function RoadmapPanel({
 
       <section className="shrink-0 border-b px-4 py-4" data-testid="roadmap-current-step">
         <div className="text-xs font-semibold uppercase tracking-[0.16em] text-fg-muted">
-          Current step
+          {t("roadmap.current_step")}
         </div>
         {activeStep ? (
           <div className="mt-3 rounded-lg border border-accent/50 bg-accent/10 p-3 shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-[11px] font-semibold text-fg-muted">
-                  Step {activeStep.position}
+                  {t("roadmap.step_number", { position: activeStep.position })}
                 </div>
                 <h3 className="mt-0.5 truncate text-sm font-bold text-fg">{activeStep.title}</h3>
               </div>
@@ -163,35 +140,33 @@ export function RoadmapPanel({
                 )}
               >
                 <span className="h-3 w-3">{statusIcon(activeStep.status)}</span>
-                {STATUS_LABEL[activeStep.status]}
+                {t(`roadmap.status.${activeStep.status}`)}
               </span>
             </div>
             {activeStep.description ? (
               <p className="mt-2 line-clamp-3 text-xs text-fg-muted">{activeStep.description}</p>
             ) : null}
             <div className="mt-3 rounded-md border border-border/70 bg-bg/70 px-3 py-2 text-xs">
-              <div className="font-semibold text-fg">Next action</div>
-              <p className="mt-1 text-fg-muted">{nextActionFor(activeStep, hasSteps)}</p>
+              <div className="font-semibold text-fg">{t("roadmap.next_action_label")}</div>
+              <p className="mt-1 text-fg-muted">{t(nextActionKey(activeStep, hasSteps))}</p>
             </div>
           </div>
         ) : (
           <div className="mt-3 rounded-lg border border-dashed border-border bg-bg/60 p-4 text-sm">
-            <div className="font-semibold">Describe what you want to build.</div>
-            <p className="mt-1 text-xs text-fg-muted">
-              Use chat to explain your goal. DIVE can turn it into Roadmap steps you can review.
-            </p>
+            <div className="font-semibold">{t("roadmap.empty_title")}</div>
+            <p className="mt-1 text-xs text-fg-muted">{t("roadmap.empty_description")}</p>
             <p
               className="mt-2 rounded-md border border-info/40 bg-info/10 px-3 py-2 text-xs text-fg"
               data-testid="planning-no-files-changed"
             >
-              No files changed yet — planning mode only reads context until you approve a plan.
+              {t("roadmap.planning_no_files_changed")}
             </p>
             <textarea
               value={goalDraft}
               onChange={(event) => setGoalDraft(event.target.value)}
               rows={3}
               className="mt-3 w-full rounded-md border bg-bg-panel2 px-3 py-2 text-xs text-fg placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              placeholder="I want to build..."
+              placeholder={t("roadmap.goal_placeholder")}
               data-testid="roadmap-goal-draft"
             />
             <Button
@@ -202,7 +177,7 @@ export function RoadmapPanel({
               data-testid="roadmap-empty-start-planning"
             >
               <Sparkles />
-              Draft plan
+              {t("roadmap.draft_plan")}
             </Button>
           </div>
         )}
@@ -231,7 +206,7 @@ export function RoadmapPanel({
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="text-[11px] font-semibold text-fg-muted">
-                          Step {step.position}
+                          {t("roadmap.step_number", { position: step.position })}
                         </div>
                         <div className="mt-0.5 truncate text-sm font-semibold text-fg">
                           {step.title}
@@ -244,7 +219,7 @@ export function RoadmapPanel({
                         )}
                       >
                         <span className="h-3 w-3">{statusIcon(step.status)}</span>
-                        {STATUS_LABEL[step.status]}
+                        {t(`roadmap.status.${step.status}`)}
                       </span>
                     </div>
                     {step.description ? (
@@ -273,11 +248,11 @@ export function RoadmapPanel({
             data-testid="roadmap-start-planning"
           >
             <Sparkles />
-            Plan
+            {t("roadmap.plan")}
           </Button>
           <Button variant="outline" size="sm" onClick={onAddStep} disabled={!canAddStep}>
             <Plus />
-            Add Step
+            {t("roadmap.add_step")}
           </Button>
         </div>
       </footer>

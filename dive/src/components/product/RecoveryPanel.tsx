@@ -3,6 +3,7 @@ import { AlertTriangle, History, LifeBuoy, RotateCcw, ShieldCheck } from "lucide
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { cn } from "../../lib/utils";
+import { useLocale, useT } from "../../i18n";
 
 export interface RecoveryCheckpointItem {
   id: number;
@@ -32,19 +33,19 @@ export interface RecoveryPanelProps {
   onRestoreCheckpoint: (checkpointId: number) => void;
 }
 
-function formatTime(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return "Unknown time";
-  return new Date(ms).toLocaleString();
+function formatTime(ms: number, locale: string): string {
+  if (!Number.isFinite(ms) || ms <= 0) return "";
+  return new Date(ms).toLocaleString(locale);
 }
 
-function checkpointTitle(item: RecoveryCheckpointItem): string {
-  return item.label?.trim() || `${item.kind} checkpoint ${item.id}`;
+function checkpointTitle(item: RecoveryCheckpointItem, t: ReturnType<typeof useT>): string {
+  return item.label?.trim() || t("recovery.checkpoint_title", { kind: item.kind, id: item.id });
 }
 
-function changedFilesCopy(files: string[]): string {
-  if (files.length === 0) return "File details unavailable";
+function changedFilesCopy(files: string[], t: ReturnType<typeof useT>): string {
+  if (files.length === 0) return t("recovery.file_details_unavailable");
   const shown = files.slice(0, 2).join(", ");
-  return files.length > 2 ? `${shown} and ${files.length - 2} more` : shown;
+  return files.length > 2 ? t("recovery.changed_files_more", { files: shown, count: files.length - 2 }) : shown;
 }
 
 export function RecoveryPanel({
@@ -58,6 +59,8 @@ export function RecoveryPanel({
   onCreateCheckpoint,
   onRestoreCheckpoint,
 }: RecoveryPanelProps) {
+  const t = useT();
+  const locale = useLocale();
   const [confirmRestoreId, setConfirmRestoreId] = useState<number | null>(null);
   const sorted = useMemo(
     () => [...checkpoints].sort((a, b) => b.createdAt - a.createdAt),
@@ -79,14 +82,12 @@ export function RecoveryPanel({
         <div>
           <div className="flex items-center gap-2">
             <LifeBuoy className="h-4 w-4 text-accent" aria-hidden />
-            <h2 className="text-sm font-bold text-fg">Recovery & Undo</h2>
+            <h2 className="text-sm font-bold text-fg">{t("recovery.title")}</h2>
           </div>
-          <p className="mt-1 text-xs text-fg-muted">
-            Save a safe point or undo to an earlier checkpoint if a step goes wrong.
-          </p>
+          <p className="mt-1 text-xs text-fg-muted">{t("recovery.description")}</p>
         </div>
         <Badge variant={undoAvailable ? "success" : "outline"}>
-          {undoAvailable ? "Undo available" : "No undo yet"}
+          {undoAvailable ? t("recovery.undo_available") : t("recovery.no_undo_yet")}
         </Badge>
       </div>
 
@@ -98,20 +99,20 @@ export function RecoveryPanel({
           <div className="flex items-start gap-2">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-hidden />
             <div className="min-w-0 flex-1">
-              <p className="font-semibold text-fg">This step needs recovery</p>
+              <p className="font-semibold text-fg">{t("recovery.failed_title")}</p>
               <p className="mt-0.5 text-fg-muted">{failedStep.stepTitle}</p>
               <p className="mt-1 line-clamp-3 text-danger">{failedStep.reason}</p>
             </div>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <Button size="sm" variant="outline" onClick={failedStep.onExplainError}>
-              Explain error
+              {t("recovery.explain_error")}
             </Button>
             <Button size="sm" variant="outline" onClick={failedStep.onRetry}>
-              Retry
+              {t("common.retry")}
             </Button>
             <Button size="sm" variant="outline" onClick={failedStep.onAdjustPlan}>
-              Adjust plan
+              {t("recovery.adjust_plan")}
             </Button>
             <Button
               size="sm"
@@ -120,7 +121,7 @@ export function RecoveryPanel({
               onClick={() => latest && setConfirmRestoreId(latest.id)}
               data-testid="failed-step-undo"
             >
-              Undo
+              {t("recovery.undo")}
             </Button>
           </div>
         </div>
@@ -129,19 +130,19 @@ export function RecoveryPanel({
       <div className="mt-3 rounded-lg border bg-bg/70 p-3 text-xs" data-testid="last-change-card">
         <div className="flex items-center gap-2 font-semibold text-fg">
           <History className="h-4 w-4 text-fg-muted" aria-hidden />
-          Last change
+          {t("recovery.last_change")}
         </div>
         {latest ? (
           <div className="mt-2 space-y-1 text-fg-muted">
-            <p className="font-medium text-fg">{checkpointTitle(latest)}</p>
-            <p>{formatTime(latest.createdAt)}</p>
-            <p>{changedFilesCopy(latest.changedFiles)}</p>
+            <p className="font-medium text-fg">{checkpointTitle(latest, t)}</p>
+            <p>{formatTime(latest.createdAt, locale)}</p>
+            <p>{changedFilesCopy(latest.changedFiles, t)}</p>
           </div>
         ) : (
           <p className="mt-2 text-fg-muted">
             {sessionAvailable
-              ? "No checkpoints found yet. Save a recovery point before risky work."
-              : "Open a project session to enable recovery."}
+              ? t("recovery.no_checkpoints")
+              : t("recovery.open_session")}
           </p>
         )}
       </div>
@@ -151,7 +152,7 @@ export function RecoveryPanel({
           className="mt-3 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn"
           data-testid="recovery-error"
         >
-          Recovery is unavailable right now: <span className="text-fg">{error}</span>
+          {t("recovery.unavailable")} <span className="text-fg">{error}</span>
         </div>
       ) : null}
 
@@ -160,14 +161,13 @@ export function RecoveryPanel({
           className="mt-3 rounded-lg border border-danger/40 bg-danger/10 p-3 text-xs"
           data-testid="restore-confirm-inline"
         >
-          <p className="font-semibold text-danger">Restore this checkpoint?</p>
+          <p className="font-semibold text-danger">{t("recovery.restore_confirm_title")}</p>
           <p className="mt-1 text-fg-muted">
-            DIVE will ask the backend to restore {checkpointTitle(confirmTarget)}. The checkpoint
-            system creates a pre-restore backup first, but files in your project will change.
+            {t("recovery.restore_confirm_body", { checkpoint: checkpointTitle(confirmTarget, t) })}
           </p>
           <div className="mt-3 flex gap-2">
             <Button size="sm" variant="ghost" onClick={() => setConfirmRestoreId(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               size="sm"
@@ -179,7 +179,9 @@ export function RecoveryPanel({
               }}
               data-testid="restore-confirm-inline-action"
             >
-              {restoringCheckpointId === confirmTarget.id ? "Restoring..." : "Restore checkpoint"}
+              {restoringCheckpointId === confirmTarget.id
+                ? t("recovery.restoring")
+                : t("recovery.restore_checkpoint")}
             </Button>
           </div>
         </div>
@@ -194,7 +196,7 @@ export function RecoveryPanel({
           data-testid="recovery-save-point"
         >
           <ShieldCheck />
-          Save recovery point
+          {t("recovery.save_point")}
         </Button>
         <Button
           size="sm"
@@ -204,7 +206,7 @@ export function RecoveryPanel({
           data-testid="recovery-refresh"
         >
           <RotateCcw className={cn(loading && "animate-spin")} />
-          Refresh
+          {t("recovery.refresh")}
         </Button>
       </div>
 
@@ -214,10 +216,10 @@ export function RecoveryPanel({
             <li key={item.id} className="rounded-md border bg-bg px-3 py-2 text-xs">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate font-medium text-fg">{checkpointTitle(item)}</p>
-                  <p className="mt-0.5 text-fg-muted">{formatTime(item.createdAt)}</p>
+                  <p className="truncate font-medium text-fg">{checkpointTitle(item, t)}</p>
+                  <p className="mt-0.5 text-fg-muted">{formatTime(item.createdAt, locale)}</p>
                   <p className="mt-0.5 truncate text-fg-subtle">
-                    {changedFilesCopy(item.changedFiles)}
+                    {changedFilesCopy(item.changedFiles, t)}
                   </p>
                 </div>
                 <Button
@@ -228,7 +230,7 @@ export function RecoveryPanel({
                   data-testid="recovery-restore"
                   data-checkpoint-id={item.id}
                 >
-                  Undo
+                  {t("recovery.undo")}
                 </Button>
               </div>
             </li>
