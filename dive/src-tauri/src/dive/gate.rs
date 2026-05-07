@@ -45,7 +45,14 @@ pub enum GateDecision {
 pub struct DiveGateEngine;
 
 impl DiveGateEngine {
-    pub fn check_stage_d(conn: &Connection, session_id: i64) -> Result<GateDecision, DbError> {
+    pub fn check_stage_d(
+        conn: &Connection,
+        session_id: i64,
+        plan_accepted: bool,
+    ) -> Result<GateDecision, DbError> {
+        if !plan_accepted {
+            return Ok(GateDecision::Allow);
+        }
         let cards = card::list_by_session(conn, session_id)?;
         if cards.is_empty() {
             Ok(GateDecision::Block {
@@ -127,12 +134,13 @@ impl DiveGateEngine {
         conn: &Connection,
         session_id: i64,
         stage: DiveStage,
+        plan_accepted: bool,
     ) -> Result<GateDecision, DbError> {
         if gates_disabled_for_research() {
             return Ok(GateDecision::Allow);
         }
         match stage {
-            DiveStage::D => Self::check_stage_d(conn, session_id),
+            DiveStage::D => Self::check_stage_d(conn, session_id, plan_accepted),
             DiveStage::I => Self::check_stage_i(conn, session_id),
             DiveStage::V => Self::check_stage_v(conn, session_id),
             DiveStage::E => Self::check_stage_e(conn, session_id),
@@ -242,10 +250,10 @@ mod tests {
     }
 
     #[test]
-    fn d_blocks_when_no_cards() {
+    fn d_blocks_when_no_cards_after_plan_accepted() {
         let (db, _) = fresh_db();
         let (_, sid) = seed_project_session(db.conn());
-        let decision = DiveGateEngine::check_stage_d(db.conn(), sid).unwrap();
+        let decision = DiveGateEngine::check_stage_d(db.conn(), sid, true).unwrap();
         assert!(matches!(
             decision,
             GateDecision::Block {
@@ -256,12 +264,22 @@ mod tests {
     }
 
     #[test]
+    fn d_allows_when_plan_not_yet_accepted_even_with_no_cards() {
+        let (db, _) = fresh_db();
+        let (_, sid) = seed_project_session(db.conn());
+        assert_eq!(
+            DiveGateEngine::check_stage_d(db.conn(), sid, false).unwrap(),
+            GateDecision::Allow
+        );
+    }
+
+    #[test]
     fn d_allows_with_at_least_one_card() {
         let (db, _) = fresh_db();
         let (_, sid) = seed_project_session(db.conn());
         insert_card(db.conn(), sid, CardState::Decomposed, 1);
         assert_eq!(
-            DiveGateEngine::check_stage_d(db.conn(), sid).unwrap(),
+            DiveGateEngine::check_stage_d(db.conn(), sid, true).unwrap(),
             GateDecision::Allow
         );
     }
@@ -414,7 +432,7 @@ mod tests {
     fn check_dispatches_to_right_stage() {
         let (db, _) = fresh_db();
         let (_, sid) = seed_project_session(db.conn());
-        let d = DiveGateEngine::check(db.conn(), sid, DiveStage::D).unwrap();
+        let d = DiveGateEngine::check(db.conn(), sid, DiveStage::D, true).unwrap();
         assert!(matches!(
             d,
             GateDecision::Block {

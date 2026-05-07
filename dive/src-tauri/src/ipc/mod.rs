@@ -703,6 +703,7 @@ pub async fn chat_send(
         .cancel(cancel)
         .stage(stage)
         .disable_gates(disable_gates)
+        .plan_accepted(plan_accepted)
         .locale(locale)
         .build()
         .map_err(|e| e.to_string())?;

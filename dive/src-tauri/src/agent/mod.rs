@@ -61,6 +61,7 @@ pub struct AgentLoop {
     pub model: String,
     pub stage: DiveStage,
     pub disable_gates: bool,
+    pub plan_accepted: bool,
     pub locale: Option<String>,
 }
 
@@ -608,7 +609,12 @@ impl AgentLoop {
             .db
             .lock()
             .map_err(|_| AgentError::Internal("db mutex poisoned".into()))?;
-        let decision = crate::dive::DiveGateEngine::check(db.conn(), session_id, self.stage)?;
+        let decision = crate::dive::DiveGateEngine::check(
+            db.conn(),
+            session_id,
+            self.stage,
+            self.plan_accepted,
+        )?;
         drop(db);
         match decision {
             crate::dive::GateDecision::Allow => Ok(()),
@@ -787,6 +793,7 @@ pub struct AgentLoopBuilder {
     model: Option<String>,
     stage: Option<DiveStage>,
     disable_gates: bool,
+    plan_accepted: bool,
     locale: Option<String>,
 }
 
@@ -831,6 +838,10 @@ impl AgentLoopBuilder {
         self.disable_gates = disabled;
         self
     }
+    pub fn plan_accepted(mut self, accepted: bool) -> Self {
+        self.plan_accepted = accepted;
+        self
+    }
     pub fn locale(mut self, locale: Option<String>) -> Self {
         self.locale = locale
             .map(|s| s.trim().to_string())
@@ -854,6 +865,7 @@ impl AgentLoopBuilder {
             model: self.model.unwrap_or_else(|| "unset".into()),
             stage: self.stage.unwrap_or(DiveStage::D),
             disable_gates: self.disable_gates,
+            plan_accepted: self.plan_accepted,
             locale: self.locale,
         })
     }

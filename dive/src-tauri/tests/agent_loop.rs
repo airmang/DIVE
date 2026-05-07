@@ -667,6 +667,7 @@ async fn scenario_i_d_gate_blocks_empty_workmap() {
         .model("mock-model")
         .cancel(Arc::new(AtomicBool::new(false)))
         .max_iterations(5)
+        .plan_accepted(true)
         .build()
         .unwrap();
 
@@ -684,6 +685,38 @@ async fn scenario_i_d_gate_blocks_empty_workmap() {
         )),
         "expected Error event with guidance"
     );
+}
+
+#[tokio::test]
+async fn d_gate_allows_empty_workmap_before_plan_accepted() {
+    let (db, _db_file, root, sid) = fresh_env_no_cards();
+    let mock = Arc::new(MockProvider::new(vec![vec![
+        ChatEvent::TextDelta("hello".into()),
+        ChatEvent::Done {
+            finish_reason: FinishReason::Stop,
+        },
+    ]]));
+    let loop_ = AgentLoop::builder()
+        .provider(mock.clone())
+        .registry(Arc::new(ToolRegistry::with_builtins()))
+        .permission(Arc::new(AlwaysApproveHook))
+        .db(db)
+        .tool_ctx(ToolContext::new(root.path(), sid))
+        .model("mock-model")
+        .cancel(Arc::new(AtomicBool::new(false)))
+        .max_iterations(5)
+        .build()
+        .unwrap();
+
+    let mut events = Vec::new();
+    let result = loop_
+        .run(sid, "I want to build a calculator", &mut |e| events.push(e))
+        .await;
+    assert!(
+        result.is_ok(),
+        "D gate must let the first plan-mode message through when plan_accepted is false, got {result:?}"
+    );
+    assert!(mock.request_count() >= 1, "provider should have been called");
 }
 
 #[tokio::test]
