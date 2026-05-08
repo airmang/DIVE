@@ -205,11 +205,10 @@ fn openrouter_models() -> Vec<ModelInfo> {
 
 fn opencode_zen_models() -> Vec<ModelInfo> {
     models_from_pairs(&[
-        ("gpt-5-nano", "GPT-5 Nano"),
-        ("kimi-k2", "Kimi K2"),
-        ("qwen3-coder", "Qwen3 Coder"),
-        ("glm-4.6", "GLM-4.6"),
-        ("gpt-oss-120b", "GPT OSS 120B"),
+        ("big-pickle", "Big Pickle"),
+        ("minimax-m2.5-free", "MiniMax M2.5 Free"),
+        ("ling-2.6-flash", "Ling 2.6 Flash Free"),
+        ("hy3-preview-free", "Hy3 Preview Free"),
     ])
 }
 
@@ -241,11 +240,10 @@ mod tests {
                 .map(|m| m.id)
                 .collect::<Vec<_>>(),
             vec![
-                "gpt-5-nano",
-                "kimi-k2",
-                "qwen3-coder",
-                "glm-4.6",
-                "gpt-oss-120b"
+                "big-pickle",
+                "minimax-m2.5-free",
+                "ling-2.6-flash",
+                "hy3-preview-free"
             ]
         );
     }

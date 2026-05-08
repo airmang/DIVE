@@ -20,7 +20,9 @@ use futures::stream::BoxStream;
 pub use anthropic::AnthropicProvider;
 pub use codex::CodexProvider;
 pub use error::ProviderError;
-pub use factory::{build_provider, default_model_for_kind, health_check, models_for_kind};
+pub use factory::{
+    build_provider, default_model_for_kind, health_check, models_for_kind, normalize_model_for_kind,
+};
 #[cfg(any(test, feature = "dev-mock"))]
 pub use mock::MockProvider;
 pub use openai::OpenAiProvider;

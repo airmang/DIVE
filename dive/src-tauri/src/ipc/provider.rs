@@ -17,6 +17,10 @@ fn selected_model_from_config(config: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
+fn selected_model_for_kind(kind: &str, config: &Value) -> String {
+    crate::providers::normalize_model_for_kind(kind, selected_model_from_config(config).as_deref())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderConfigSummary {
     pub id: i64,
@@ -123,7 +127,7 @@ pub fn provider_list_impl(state: &AppState) -> Result<Vec<ProviderConfigSummary>
     };
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
-        let selected_model = selected_model_from_config(&row.config);
+        let selected_model = Some(selected_model_for_kind(&row.kind, &row.config));
         let (is_connected, account_id) =
             connection_summary(state.keyring.as_ref(), row.id, &row.kind);
         out.push(ProviderConfigSummary {
@@ -376,6 +380,28 @@ mod tests {
             Some("acct_codex_provider_list")
         );
         assert_eq!(codex.selected_model.as_deref(), Some("gpt-5.5-codex"));
+    }
+
+    #[test]
+    fn provider_list_normalizes_retired_opencode_zen_model() {
+        let state = mk_state();
+        let id = {
+            let db = state.db.lock().unwrap();
+            provider_dao::insert(
+                db.conn(),
+                &NewProviderConfig {
+                    kind: "opencode_zen".into(),
+                    auth_type: "api_key".into(),
+                    base_url: None,
+                    config: json!({ "selected_model": "gpt-5-nano" }),
+                },
+            )
+            .unwrap()
+        };
+
+        let rows = provider_list_impl(&state).unwrap();
+        let opencode = rows.iter().find(|row| row.id == id).unwrap();
+        assert_eq!(opencode.selected_model.as_deref(), Some("big-pickle"));
     }
 
     #[tokio::test]

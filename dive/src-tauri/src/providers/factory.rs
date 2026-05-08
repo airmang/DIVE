@@ -10,7 +10,7 @@ pub fn default_model_for_kind(kind: &str) -> &'static str {
         "anthropic" => "claude-sonnet-4-6",
         "openai" => "gpt-5.4",
         "openrouter" => "openai/gpt-5.4",
-        "opencode-zen" | "opencode_zen" => "gpt-5-nano",
+        "opencode-zen" | "opencode_zen" => "big-pickle",
         "custom-openai" | "custom_openai" => "gpt-5.4",
         "codex" => "gpt-5.5-codex",
         _ => "unset",
@@ -30,6 +30,17 @@ pub fn models_for_kind(kind: &str) -> Vec<ModelInfo> {
         "codex" => crate::providers::codex::default_codex_models(),
         _ => Vec::new(),
     }
+}
+
+pub fn normalize_model_for_kind(kind: &str, selected: Option<&str>) -> String {
+    let selected = selected.map(str::trim).filter(|model| !model.is_empty());
+    let models = models_for_kind(kind);
+    if let Some(model) = selected {
+        if models.is_empty() || models.iter().any(|candidate| candidate.id == model) {
+            return model.to_owned();
+        }
+    }
+    default_model_for_kind(kind).to_owned()
 }
 
 pub fn build_provider(
@@ -165,8 +176,8 @@ mod tests {
         assert_eq!(default_model_for_kind("anthropic"), "claude-sonnet-4-6");
         assert_eq!(default_model_for_kind("openai"), "gpt-5.4");
         assert_eq!(default_model_for_kind("openrouter"), "openai/gpt-5.4");
-        assert_eq!(default_model_for_kind("opencode_zen"), "gpt-5-nano");
-        assert_eq!(default_model_for_kind("opencode-zen"), "gpt-5-nano");
+        assert_eq!(default_model_for_kind("opencode_zen"), "big-pickle");
+        assert_eq!(default_model_for_kind("opencode-zen"), "big-pickle");
         assert_eq!(default_model_for_kind("codex"), "gpt-5.5-codex");
         assert_eq!(default_model_for_kind("unknown"), "unset");
     }
@@ -211,10 +222,22 @@ mod tests {
     fn build_provider_supports_opencode_zen_aliases() {
         let provider = build_provider("opencode_zen", "sk-test", None).unwrap();
         assert_eq!(provider.id(), "opencode_zen");
-        assert_eq!(provider.list_models()[0].id, "gpt-5-nano");
+        assert_eq!(provider.list_models()[0].id, "big-pickle");
 
         let legacy = build_provider("opencode-zen", "sk-test", None).unwrap();
         assert_eq!(legacy.id(), "opencode_zen");
+    }
+
+    #[test]
+    fn normalize_model_for_kind_replaces_retired_opencode_model() {
+        assert_eq!(
+            normalize_model_for_kind("opencode_zen", Some("gpt-5-nano")),
+            "big-pickle"
+        );
+        assert_eq!(
+            normalize_model_for_kind("opencode_zen", Some("hy3-preview-free")),
+            "hy3-preview-free"
+        );
     }
 
     #[tokio::test]

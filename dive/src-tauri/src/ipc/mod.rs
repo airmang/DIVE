@@ -249,13 +249,13 @@ fn hydrate_provider_runtime(
                 tokens,
                 auth::CodexOAuth::new(),
             ));
-            let model = row
-                .config
-                .get("selected_model")
-                .or_else(|| row.config.get("model"))
-                .and_then(|value| value.as_str())
-                .unwrap_or_else(|| providers::default_model_for_kind(&row.kind))
-                .to_owned();
+            let model = providers::normalize_model_for_kind(
+                &row.kind,
+                row.config
+                    .get("selected_model")
+                    .or_else(|| row.config.get("model"))
+                    .and_then(|value| value.as_str()),
+            );
             return Ok(ProviderRuntime::new(
                 Some(row.id),
                 ProviderKind::parse(&row.kind),
@@ -266,13 +266,13 @@ fn hydrate_provider_runtime(
         let Some(api_key) = auth::load_provider_api_key(keyring, row.id)? else {
             continue;
         };
-        let model = row
-            .config
-            .get("selected_model")
-            .or_else(|| row.config.get("model"))
-            .and_then(|value| value.as_str())
-            .unwrap_or_else(|| providers::default_model_for_kind(&row.kind))
-            .to_owned();
+        let model = providers::normalize_model_for_kind(
+            &row.kind,
+            row.config
+                .get("selected_model")
+                .or_else(|| row.config.get("model"))
+                .and_then(|value| value.as_str()),
+        );
         let provider = match providers::build_provider(&row.kind, &api_key, row.base_url.as_deref())
         {
             Ok(provider) => provider,

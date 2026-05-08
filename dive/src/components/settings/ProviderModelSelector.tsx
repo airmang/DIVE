@@ -42,11 +42,10 @@ function fallbackModels(providerKind: string): ModelInfo[] {
   }
   if (providerKind === "opencode_zen" || providerKind === "opencode-zen") {
     return [
-      { id: "gpt-5-nano", display_name: "GPT-5 Nano" },
-      { id: "kimi-k2", display_name: "Kimi K2" },
-      { id: "qwen3-coder", display_name: "Qwen3 Coder" },
-      { id: "glm-4.6", display_name: "GLM-4.6" },
-      { id: "gpt-oss-120b", display_name: "GPT OSS 120B" },
+      { id: "big-pickle", display_name: "Big Pickle" },
+      { id: "minimax-m2.5-free", display_name: "MiniMax M2.5 Free" },
+      { id: "ling-2.6-flash", display_name: "Ling 2.6 Flash Free" },
+      { id: "hy3-preview-free", display_name: "Hy3 Preview Free" },
     ];
   }
   return [
