@@ -45,7 +45,9 @@ function checkpointTitle(item: RecoveryCheckpointItem, t: ReturnType<typeof useT
 function changedFilesCopy(files: string[], t: ReturnType<typeof useT>): string {
   if (files.length === 0) return t("recovery.file_details_unavailable");
   const shown = files.slice(0, 2).join(", ");
-  return files.length > 2 ? t("recovery.changed_files_more", { files: shown, count: files.length - 2 }) : shown;
+  return files.length > 2
+    ? t("recovery.changed_files_more", { files: shown, count: files.length - 2 })
+    : shown;
 }
 
 export function RecoveryPanel({
@@ -140,9 +142,7 @@ export function RecoveryPanel({
           </div>
         ) : (
           <p className="mt-2 text-fg-muted">
-            {sessionAvailable
-              ? t("recovery.no_checkpoints")
-              : t("recovery.open_session")}
+            {sessionAvailable ? t("recovery.no_checkpoints") : t("recovery.open_session")}
           </p>
         )}
       </div>

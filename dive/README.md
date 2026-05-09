@@ -41,7 +41,6 @@ Existing workmap/card state remains available as internal implementation vocabul
 
 ---
 
-
 ## Product vs internal tooling
 
 Product-facing work should present DIVE as a beginner desktop UI for controlling a local coding agent. The first-run path is:

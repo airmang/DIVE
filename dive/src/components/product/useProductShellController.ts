@@ -27,6 +27,22 @@ import type { DiveStage as PromptDiveStage } from "../../lib/ambiguity";
 import type { RecoveryCheckpointItem, FailedStepRecovery } from "./RecoveryPanel";
 import { useProductShellDialogs } from "./useProductShellDialogs";
 
+const ONBOARDING_DISMISSED_PROJECT_KEY = "dive:onboarding-dismissed-project-id";
+
+function readDismissedOnboardingProjectId(): number | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.sessionStorage.getItem(ONBOARDING_DISMISSED_PROJECT_KEY);
+  if (!raw) return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function writeDismissedOnboardingProjectId(projectId: number | null) {
+  if (typeof window === "undefined") return;
+  if (projectId === null) window.sessionStorage.removeItem(ONBOARDING_DISMISSED_PROJECT_KEY);
+  else window.sessionStorage.setItem(ONBOARDING_DISMISSED_PROJECT_KEY, String(projectId));
+}
+
 function checkpointToRecoveryItem(row: CheckpointRowPayload): RecoveryCheckpointItem {
   return {
     id: row.id,
@@ -65,12 +81,20 @@ export function useProductShellController() {
   const currentProjectName = useProjectSessionStore(
     (s) => s.projects.find((p) => p.id === s.currentProjectId)?.name ?? null,
   );
+  const currentSessionTitle = useProjectSessionStore((s) =>
+    s.currentSessionId === null
+      ? null
+      : (s.sessions.find((session) => session.id === s.currentSessionId)?.title ?? null),
+  );
   const createSession = useProjectSessionStore((s) => s.createSession);
   const openProject = useProjectSessionStore((s) => s.openProject);
   const selectProject = useProjectSessionStore((s) => s.selectProject);
   const isOnboarded = useProjectSessionStore((s) => s.isOnboarded);
   const { toast } = useToast();
   const { toggleTheme } = useTheme();
+  const [dismissedOnboardingProjectId, setDismissedOnboardingProjectId] = useState<number | null>(
+    readDismissedOnboardingProjectId,
+  );
 
   useEffect(() => {
     if (!projectSessionLoaded) {
@@ -83,7 +107,14 @@ export function useProductShellController() {
   const isDemoRoute = import.meta.env.DEV && hasRecognizedDemoRoute();
 
   useEffect(() => {
+    if (!hasConnectedProvider) return;
+    writeDismissedOnboardingProjectId(null);
+    setDismissedOnboardingProjectId(null);
+  }, [hasConnectedProvider]);
+
+  useEffect(() => {
     if (!projectSessionLoaded || isDemoRoute || currentProjectId === null) return;
+    if (dismissedOnboardingProjectId === currentProjectId) return;
     if (!isOnboarded() && !hasConnectedProvider) {
       dialogs.setOnboardingOpen(true);
     }
@@ -91,9 +122,10 @@ export function useProductShellController() {
     projectSessionLoaded,
     isDemoRoute,
     currentProjectId,
+    dismissedOnboardingProjectId,
     hasConnectedProvider,
     isOnboarded,
-    dialogs,
+    dialogs.setOnboardingOpen,
   ]);
 
   const roadmapModel = useRoadmap(currentSessionId);
@@ -228,6 +260,17 @@ export function useProductShellController() {
       void roadmapModel.selectStep(null).catch(showWorkmapError);
     }
   };
+
+  const handleOnboardingOpenChange = useCallback(
+    (open: boolean) => {
+      dialogs.setOnboardingOpen(open);
+      if (!open && currentProjectId !== null && !hasConnectedProvider) {
+        writeDismissedOnboardingProjectId(currentProjectId);
+        setDismissedOnboardingProjectId(currentProjectId);
+      }
+    },
+    [currentProjectId, dialogs.setOnboardingOpen, hasConnectedProvider],
+  );
 
   const pushChatComposerSeed = useChatComposerStore((s) => s.pushSeed);
   const requestChatFocus = useChatComposerStore((s) => s.requestFocus);
@@ -690,6 +733,7 @@ export function useProductShellController() {
     conversation: {
       messages: chat.messages,
       cardTitle: currentCard ? currentCard.title : null,
+      sessionTitle: currentSessionTitle,
       cardStateLabel,
       stageBanner,
       onSendMessage: sendMessage,
@@ -754,7 +798,7 @@ export function useProductShellController() {
     modals: {
       onboarding: {
         open: dialogs.onboardingOpen,
-        onOpenChange: dialogs.setOnboardingOpen,
+        onOpenChange: handleOnboardingOpenChange,
         onConnected: () => {
           if (currentProjectId === null) {
             dialogs.setNewProjectOpen(true);

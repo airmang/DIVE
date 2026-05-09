@@ -71,7 +71,7 @@ const checks = [
   {
     name: "ChatInput default label has no concrete model ID",
     path: "dive/src/components/chat/ChatInput.tsx",
-    pattern: /modelLabel = "(?!.*(?:gpt-|claude-))/,
+    pattern: /model_select_default_label/,
   },
   {
     name: "No legacy claude-sonnet-4.5 in factory",

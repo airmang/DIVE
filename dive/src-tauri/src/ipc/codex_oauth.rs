@@ -74,6 +74,31 @@ fn selected_model_for_codex_row(
         .to_owned())
 }
 
+fn mark_codex_connected(
+    state: &AppState,
+    provider_config_id: i64,
+    account_id: &str,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let row = provider_dao::get_by_id(db.conn(), provider_config_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("codex provider not found: {provider_config_id}"))?;
+    let mut config = row.config.as_object().cloned().unwrap_or_default();
+    config.insert("oauth_connected".to_owned(), serde_json::json!(true));
+    config.insert("account_id".to_owned(), serde_json::json!(account_id));
+    provider_dao::update(
+        db.conn(),
+        provider_config_id,
+        &NewProviderConfig {
+            kind: row.kind,
+            auth_type: row.auth_type,
+            base_url: row.base_url,
+            config: serde_json::Value::Object(config),
+        },
+    )
+    .map_err(|e| e.to_string())
+}
+
 fn activate_codex_runtime(state: &AppState, provider_config_id: i64) -> Result<(), String> {
     let (access_token, refresh_token, id_token) =
         auth::load_codex_tokens(state.keyring.as_ref(), provider_config_id)
@@ -244,6 +269,9 @@ pub async fn codex_oauth_complete(
 ) -> Result<CodexAuthStatus, String> {
     let status = complete_impl(state.keyring.as_ref(), &code, &received_state).await?;
     if let Some(provider_config_id) = status.provider_config_id {
+        if let Some(account_id) = status.account_id.as_deref() {
+            mark_codex_connected(&state, provider_config_id, account_id)?;
+        }
         activate_codex_runtime(&state, provider_config_id)?;
     }
     Ok(status)

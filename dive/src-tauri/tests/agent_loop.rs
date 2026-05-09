@@ -716,7 +716,10 @@ async fn d_gate_allows_empty_workmap_before_plan_accepted() {
         result.is_ok(),
         "D gate must let the first plan-mode message through when plan_accepted is false, got {result:?}"
     );
-    assert!(mock.request_count() >= 1, "provider should have been called");
+    assert!(
+        mock.request_count() >= 1,
+        "provider should have been called"
+    );
 }
 
 #[tokio::test]

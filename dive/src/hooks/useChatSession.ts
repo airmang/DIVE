@@ -126,6 +126,7 @@ export function useChatSession(
   sessionId: number | null,
   onAgentEvent?: (event: AgentEvent) => void,
 ) {
+  const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [state, setState] = useState<State>({
     messages: [],
     isStreaming: false,
@@ -138,9 +139,43 @@ export function useChatSession(
     onAgentEventRef.current = onAgentEvent;
   }, [onAgentEvent]);
 
+  const clearStallTimer = useCallback(() => {
+    if (stallTimerRef.current) {
+      clearTimeout(stallTimerRef.current);
+      stallTimerRef.current = null;
+    }
+  }, []);
+
+  const appendErrorMessage = useCallback((message: string, retryable = true) => {
+    const m: ErrorMessageData = {
+      id: `err-${Date.now()}`,
+      kind: "error",
+      createdAt: Date.now(),
+      message,
+      retryable,
+    };
+    setState((s) => ({
+      ...s,
+      messages: [...s.messages, m],
+      isStreaming: false,
+      error: message,
+    }));
+  }, []);
+
+  const armStallTimer = useCallback(() => {
+    clearStallTimer();
+    stallTimerRef.current = setTimeout(() => {
+      appendErrorMessage(
+        "AI 응답이 일정 시간 동안 진행되지 않았습니다. 네트워크나 모델 상태를 확인한 뒤 다시 시도하세요.",
+        true,
+      );
+    }, 45000);
+  }, [appendErrorMessage, clearStallTimer]);
+
   useEffect(() => {
     let unsub: (() => void) | null = null;
     let cancelled = false;
+    clearStallTimer();
     setState({
       messages: [],
       isStreaming: false,
@@ -178,15 +213,25 @@ export function useChatSession(
       }
       unsub = await api.listen<Envelope>(`chat://event/${sessionId}`, (e) => {
         const payload = e.payload;
+        if (
+          payload.type === "done" ||
+          payload.type === "error" ||
+          payload.type === "tool_call_start"
+        ) {
+          clearStallTimer();
+        } else {
+          armStallTimer();
+        }
         onAgentEventRef.current?.(payload);
         setState((prev) => reduce(prev, payload));
       });
     })();
     return () => {
       cancelled = true;
+      clearStallTimer();
       if (unsub) unsub();
     };
-  }, [sessionId]);
+  }, [armStallTimer, clearStallTimer, sessionId]);
 
   const sendUserMessage = useCallback(
     async (
@@ -204,12 +249,10 @@ export function useChatSession(
       }
       const api = apiRef.current;
       if (!api) {
-        setState((s) => ({
-          ...s,
-          error: "Tauri IPC unavailable — run `pnpm tauri:dev`",
-        }));
+        appendErrorMessage("Tauri IPC unavailable — run `pnpm tauri:dev`", true);
         return;
       }
+      armStallTimer();
       setState((s) => ({ ...s, isStreaming: true, error: null }));
       try {
         await api.invoke<void>("chat_send", {
@@ -221,14 +264,11 @@ export function useChatSession(
           planAccepted: planAccepted ?? null,
         });
       } catch (err) {
-        setState((s) => ({
-          ...s,
-          isStreaming: false,
-          error: err instanceof Error ? err.message : String(err),
-        }));
+        clearStallTimer();
+        appendErrorMessage(err instanceof Error ? err.message : String(err), true);
       }
     },
-    [sessionId],
+    [appendErrorMessage, armStallTimer, clearStallTimer, sessionId],
   );
 
   const cancel = useCallback(async () => {

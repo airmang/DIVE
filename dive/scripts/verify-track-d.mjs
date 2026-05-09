@@ -94,13 +94,13 @@ const checks = [
     pattern: /export async function refreshMenuRecents/,
   },
   {
-    name: "MainShell subscribes to menu events",
-    path: "dive/src/components/shell/MainShell.tsx",
+    name: "Product shell controller subscribes to menu events",
+    path: "dive/src/components/product/useProductShellController.ts",
     pattern: /useMenuEvents\(/,
   },
   {
-    name: "MainShell handles open project",
-    path: "dive/src/components/shell/MainShell.tsx",
+    name: "Product shell controller handles open project",
+    path: "dive/src/components/product/useProductShellController.ts",
     pattern: /handleOpenProject/,
   },
   {

@@ -13,10 +13,10 @@ import type {
 } from "./types";
 
 const STATUS_PROGRESS: Record<RoadmapStepStatus, RoadmapStepProgress> = {
-  planned: { ratio: 0.25, completedUnits: 1, totalUnits: 4 },
-  in_progress: { ratio: 0.5, completedUnits: 2, totalUnits: 4 },
+  planned: { ratio: 0, completedUnits: 0, totalUnits: 4 },
+  in_progress: { ratio: 0.25, completedUnits: 1, totalUnits: 4 },
   review: { ratio: 0.5, completedUnits: 2, totalUnits: 4 },
-  done: { ratio: 0.75, completedUnits: 3, totalUnits: 4 },
+  done: { ratio: 1, completedUnits: 4, totalUnits: 4 },
   shipped: { ratio: 1, completedUnits: 4, totalUnits: 4 },
 };
 

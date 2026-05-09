@@ -37,12 +37,18 @@ if (!/menu:help-tutorial/.test(menu)) {
   console.log("[OK] Native Help menu has tutorial toggle item");
 }
 
-const mainShell = readFileSync(repoPath("dive/src/components/shell/MainShell.tsx"), "utf8");
-if (!/menu:help-tutorial/.test(mainShell) || !/setTutorialEnabled/.test(mainShell)) {
-  console.error("[FAIL] MainShell missing help tutorial handler");
+const productShellController = readFileSync(
+  repoPath("dive/src/components/product/useProductShellController.ts"),
+  "utf8",
+);
+if (
+  !/menu:help-tutorial/.test(productShellController) ||
+  !/setTutorialEnabled/.test(productShellController)
+) {
+  console.error("[FAIL] Product shell controller missing help tutorial handler");
   failed++;
 } else {
-  console.log("[OK] MainShell handles help tutorial menu event");
+  console.log("[OK] Product shell controller handles help tutorial menu event");
 }
 
 const grepOutput = execSync("grep -RIn --include='*.tsx' '<LearningHint' dive/src || true", {

@@ -28,16 +28,22 @@ check(
     !/debug_assertions[\s\S]{0,120}MockProvider/.test(providers),
 );
 
-const mainShell = read("dive/src/components/shell/MainShell.tsx");
-check("MainShell uses useWorkmap real wiring", mainShell.includes("useWorkmap("));
-check("MainShell has no DEMO_CHANGED_FILES", !mainShell.includes("DEMO_CHANGED_FILES"));
+const productShellController = read("dive/src/components/product/useProductShellController.ts");
 check(
-  "MainShell uses recognized demo route predicate",
-  mainShell.includes("hasRecognizedDemoRoute"),
+  "Product shell controller uses real roadmap wiring",
+  productShellController.includes("useRoadmap(currentSessionId)"),
 );
 check(
-  "MainShell has no simulate timeout verify",
-  !/setTimeout\s*\(\s*\(\)\s*=>[\s\S]{0,160}verify/i.test(mainShell),
+  "Product shell controller has no DEMO_CHANGED_FILES",
+  !productShellController.includes("DEMO_CHANGED_FILES"),
+);
+check(
+  "Product shell controller uses recognized demo route predicate",
+  productShellController.includes("hasRecognizedDemoRoute"),
+);
+check(
+  "Product shell controller has no simulate timeout verify",
+  !/setTimeout\s*\(\s*\(\)\s*=>[\s\S]{0,160}verify/i.test(productShellController),
 );
 
 const projectSession = read("dive/src/stores/project-session.ts");
@@ -68,12 +74,12 @@ check(
 const app = read("dive/src/App.tsx");
 check("App resolves only recognized demo routes", app.includes("resolveDemoRouteValue(demo)"));
 
-const aiAssistDialog = read("dive/src/components/workmap/AiAssistDialog.tsx");
+const planInterview = read("dive/src/features/planning/usePlanInterviewLLM.ts");
 check(
-  "AiAssistDialog does not silently mock fallback on IPC failure",
-  aiAssistDialog.includes("allowDemoFallback") &&
-    !aiAssistDialog.includes(`catch {\n    return null;`) &&
-    aiAssistDialog.includes("AI 카드 제안에 실패했습니다"),
+  "Plan interview uses real emit_plan_draft tool results",
+  planInterview.includes('start.tool === "emit_plan_draft"') &&
+    planInterview.includes("decodePlanDraftFromLlm") &&
+    !planInterview.includes("mockPlanDraft"),
 );
 
 check(

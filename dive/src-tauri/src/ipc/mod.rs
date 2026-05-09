@@ -33,6 +33,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -47,7 +48,7 @@ use crate::db::dao::{
     card as card_dao, message as message_dao, project as project_dao,
     provider_config as provider_dao, workmap as workmap_dao,
 };
-use crate::db::models::{CardState, CheckpointRow, MessageRow, NewCard};
+use crate::db::models::{CardState, CheckpointRow, MessageRow, NewCard, ProviderConfigRow};
 use crate::db::Database;
 use crate::dive::event_log as dive_event_log;
 use crate::dive::{apply_transition, CardTransition, DiveStage};
@@ -133,7 +134,7 @@ impl AppState {
         db.migrate()?;
 
         let keyring: Arc<dyn Keyring> = Arc::new(OsKeyring::new());
-        let runtime = hydrate_provider_runtime(&db, keyring.as_ref())?;
+        let runtime = ProviderRuntime::none();
         let project_root = project_dao::list(db.conn())?
             .last()
             .map(|project| PathBuf::from(&project.path))
@@ -187,6 +188,38 @@ impl AppState {
         Ok(())
     }
 
+    pub async fn ensure_provider_runtime(&self) -> Result<ProviderRuntime, String> {
+        let current = self.runtime_snapshot();
+        if !current.kind.is_none() {
+            return Ok(current);
+        }
+
+        let db = self.db.clone();
+        let keyring = self.keyring.clone();
+        let hydrate = tauri::async_runtime::spawn_blocking(move || {
+            let rows = {
+                let db = db.lock().map_err(|e| e.to_string())?;
+                provider_dao::list(db.conn()).map_err(|e| e.to_string())?
+            };
+            hydrate_provider_runtime_from_rows(rows, keyring.as_ref()).map_err(|e| e.to_string())
+        });
+        let next = match tokio::time::timeout(Duration::from_secs(8), hydrate).await {
+            Ok(result) => result.map_err(|e| format!("provider runtime task failed: {e}"))??,
+            Err(_) => {
+                return Err(
+                    "AI 연결 정보를 불러오는 중 시간이 초과되었습니다. 설정에서 연결 상태를 확인한 뒤 다시 시도하세요."
+                        .into(),
+                );
+            }
+        };
+        if next.kind.is_none() {
+            return Ok(next);
+        }
+        self.swap_runtime(next.clone())
+            .map_err(|e| format!("runtime: {e}"))?;
+        Ok(next)
+    }
+
     pub fn project_root_snapshot(&self) -> PathBuf {
         self.project_root
             .read()
@@ -230,6 +263,13 @@ fn hydrate_provider_runtime(
     keyring: &dyn Keyring,
 ) -> Result<ProviderRuntime, AppStateError> {
     let rows = provider_dao::list(db.conn())?;
+    hydrate_provider_runtime_from_rows(rows, keyring)
+}
+
+fn hydrate_provider_runtime_from_rows(
+    rows: Vec<ProviderConfigRow>,
+    keyring: &dyn Keyring,
+) -> Result<ProviderRuntime, AppStateError> {
     for row in rows.into_iter().rev() {
         if row.kind == "codex" {
             let Some((access_token, refresh_token, id_token)) =
@@ -677,7 +717,7 @@ pub async fn chat_send(
         Some(requested) => safest_run_mode(backend_run_mode, requested),
         None => backend_run_mode,
     };
-    let snap = state.runtime_snapshot();
+    let snap = state.ensure_provider_runtime().await?;
     if snap.kind.is_none() {
         let msg = crate::providers::ProviderError::NotConfigured.to_string();
         let _ = log_error_event(&state, Some(session_id), "provider", &msg);
@@ -1180,7 +1220,7 @@ pub async fn card_verify(
     session_id: i64,
     card_id: i64,
 ) -> Result<crate::dive::VerifyLog, String> {
-    let snap = state.runtime_snapshot();
+    let snap = state.ensure_provider_runtime().await?;
     if snap.kind.is_none() {
         let msg = crate::providers::ProviderError::NotConfigured.to_string();
         let _ = log_error_event(&state, Some(session_id), "provider", &msg);
@@ -1233,7 +1273,7 @@ pub async fn ai_assist_cards(
     state: State<'_, AppState>,
     description: String,
 ) -> Result<Vec<crate::dive::AssistedCard>, String> {
-    let snap = state.runtime_snapshot();
+    let snap = state.ensure_provider_runtime().await?;
     if snap.kind.is_none() {
         return Err(crate::providers::ProviderError::NotConfigured.to_string());
     }
@@ -1251,7 +1291,7 @@ pub async fn prompt_check_review(
     stage: Option<String>,
     locale: Option<String>,
 ) -> Result<crate::dive::PromptCheckResult, String> {
-    let snap = state.runtime_snapshot();
+    let snap = state.ensure_provider_runtime().await?;
     if snap.kind.is_none() {
         return Err(crate::providers::ProviderError::NotConfigured.to_string());
     }

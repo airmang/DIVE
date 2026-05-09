@@ -22,9 +22,7 @@ function toStringArray(value: unknown): string[] {
 
 function toLlmSteps(value: unknown): LlmStep[] {
   if (!Array.isArray(value)) return [];
-  return value.filter(
-    (v): v is LlmStep => typeof v === "object" && v !== null,
-  ) as LlmStep[];
+  return value.filter((v): v is LlmStep => typeof v === "object" && v !== null) as LlmStep[];
 }
 
 export function decodePlanDraftFromLlm(raw: unknown): PlanDraft | null {

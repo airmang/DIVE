@@ -6,7 +6,7 @@ import { Input } from "../components/ui/input";
 import { useTheme } from "../hooks/useTheme";
 import { useProjectSessionStore, type ProviderSummary } from "../stores/project-session";
 import { CodexOAuthDialog } from "../components/codex/CodexOAuthDialog";
-import { LOCALE_LABEL, SUPPORTED_LOCALES, useLocaleStore, type Locale } from "../i18n";
+import { LOCALE_LABEL, SUPPORTED_LOCALES, useLocaleStore, useT, type Locale } from "../i18n";
 import { LearningHint } from "../components/ui/learning-hint";
 import { useUiPreferencesStore } from "../stores/ui-preferences";
 import { ProviderModelSelector } from "../components/settings/ProviderModelSelector";
@@ -39,26 +39,41 @@ const WARN_TOOLS = ["write_file", "edit_file"];
 const PROVIDER_KINDS: Array<{
   kind: string;
   label: string;
-  hint: string;
+  hintKey: string;
   ga: boolean;
-  warning?: { text: string; href: string; linkLabel: string };
+  warning?: { textKey: string; href: string; linkLabelKey: string };
 }> = [
-  { kind: "anthropic", label: "Anthropic", hint: "Claude 계열", ga: true },
-  { kind: "openai", label: "OpenAI", hint: "GPT 계열", ga: true },
-  { kind: "openrouter", label: "OpenRouter", hint: "여러 제공사 통합", ga: true },
+  {
+    kind: "anthropic",
+    label: "Anthropic",
+    hintKey: "onboarding.provider_anthropic_hint",
+    ga: true,
+  },
+  { kind: "openai", label: "OpenAI", hintKey: "onboarding.provider_openai_hint", ga: true },
+  {
+    kind: "openrouter",
+    label: "OpenRouter",
+    hintKey: "onboarding.provider_openrouter_hint",
+    ga: true,
+  },
   {
     kind: "opencode_zen",
     label: "opencode zen",
-    hint: "무료 베타",
+    hintKey: "onboarding.provider_opencode_zen_hint",
     ga: true,
     warning: {
-      text: "베타 서비스 · 일부 무료 모델은 데이터 훈련에 사용될 수 있습니다",
+      textKey: "onboarding.opencode_warning",
       href: "https://opencode.ai/docs/zen/",
-      linkLabel: "자세히",
+      linkLabelKey: "onboarding.details",
     },
   },
-  { kind: "codex", label: "Codex (ChatGPT OAuth)", hint: "ChatGPT Plus/Pro 구독", ga: true },
-  { kind: "mock", label: "Mock (개발 전용)", hint: "테스트용", ga: false },
+  {
+    kind: "codex",
+    label: "Codex (ChatGPT OAuth)",
+    hintKey: "settings.provider_codex_hint",
+    ga: true,
+  },
+  { kind: "mock", label: "Mock (개발 전용)", hintKey: "settings.provider_mock_hint", ga: false },
 ];
 
 interface McpServerSummary {
@@ -92,6 +107,7 @@ function defaultMcpDraft(): McpDraft {
 }
 
 export function SettingsPage() {
+  const t = useT();
   const internalResearchEnabled = import.meta.env.DEV;
   const { theme, toggleTheme } = useTheme();
   const locale = useLocaleStore((s) => s.locale);
@@ -383,22 +399,85 @@ export function SettingsPage() {
         <div className="flex items-center justify-between">
           <Button variant="ghost" size="sm" onClick={backToShell} data-testid="settings-back">
             <ArrowLeft className="h-4 w-4" />
-            Back
+            {t("common.back")}
           </Button>
-          <h1 className="text-2xl font-bold">Settings</h1>
+          <h1 className="text-2xl font-bold">{t("common.settings")}</h1>
           <div />
         </div>
 
-        <section className="flex flex-col gap-3" data-testid="settings-section-ai-connection">
+        <section className="flex flex-col gap-3" data-testid="settings-section-general">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-fg-muted">
+              1 · {t("settings.general_eyebrow")}
+            </p>
+            <h2 className="text-lg font-semibold">{t("settings.general_title")}</h2>
+            <p className="text-xs text-fg-muted">{t("settings.general_description")}</p>
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2.5">
+            <div>
+              <div className="text-sm font-medium">{t("settings.language_title")}</div>
+              <div className="text-[11px] text-fg-muted">{t("settings.language_description")}</div>
+            </div>
+            <select
+              value={locale}
+              onChange={(e) => setLocale(e.target.value as Locale)}
+              className="rounded-md border bg-bg px-2 py-1 text-sm"
+              data-testid="settings-locale-select"
+              aria-label={t("settings.language_aria")}
+            >
+              {SUPPORTED_LOCALES.map((code) => (
+                <option key={code} value={code}>
+                  {LOCALE_LABEL[code]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2.5">
+            <div>
+              <div className="text-sm font-medium">{t("settings.theme_title")}</div>
+              <div className="text-[11px] text-fg-muted">
+                {theme === "dark" ? t("settings.theme_dark") : t("settings.theme_light")}
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={toggleTheme}
+              data-testid="settings-theme-toggle"
+              data-theme={theme}
+            >
+              {theme === "dark" ? t("settings.theme_to_light") : t("settings.theme_to_dark")}
+            </Button>
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2.5">
+            <div>
+              <div className="text-sm font-medium">{t("settings.guided_help_title")}</div>
+              <div className="text-[11px] text-fg-muted">
+                {t("settings.guided_help_description")}
+              </div>
+            </div>
+            <label className="inline-flex cursor-pointer items-center">
+              <input
+                type="checkbox"
+                checked={tutorialEnabled}
+                onChange={(e) => setTutorialEnabled(e.target.checked)}
+                data-testid="settings-tutorial-toggle"
+                className="h-4 w-4"
+              />
+            </label>
+          </div>
+        </section>
+
+        <section className="flex flex-col gap-3" data-testid="settings-section-providers">
           <div className="rounded-lg border border-accent/40 bg-accent/10 px-4 py-3">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">
-              1 · AI Connection
+              2 · {t("settings.ai_connection_eyebrow")}
             </p>
-            <h2 className="mt-1 text-xl font-bold text-fg">Connect DIVE to an AI assistant</h2>
-            <p className="mt-1 text-sm text-fg-muted">
-              Pick the AI connection DIVE uses for planning, coding, and checks. API keys are stored
-              in the OS keychain.
-            </p>
+            <h2 className="mt-1 text-xl font-bold text-fg">{t("settings.ai_connection_title")}</h2>
+            <p className="mt-1 text-sm text-fg-muted">{t("settings.ai_connection_description")}</p>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" data-testid="provider-cards">
             {PROVIDER_KINDS.map((p) => {
@@ -429,17 +508,17 @@ export function SettingsPage() {
                           aria-label={connected ? "AI connection active" : "AI connection missing"}
                         />
                       </div>
-                      <div className="text-[11px] text-fg-muted">{p.hint}</div>
+                      <div className="text-[11px] text-fg-muted">{t(p.hintKey)}</div>
                       {p.warning ? (
                         <div className="mt-1 text-[10px] text-warn" data-testid="provider-warning">
-                          {p.warning.text} (
+                          {t(p.warning.textKey)} (
                           <a
                             href={p.warning.href}
                             target="_blank"
                             rel="noreferrer"
                             className="underline underline-offset-2"
                           >
-                            {p.warning.linkLabel}
+                            {t(p.warning.linkLabelKey)}
                           </a>
                           )
                         </div>
@@ -449,7 +528,7 @@ export function SettingsPage() {
                           className="mt-1 text-[10px] text-fg-muted"
                           data-testid="codex-account-id"
                         >
-                          Account: <code>{codexAccountId}</code>
+                          {t("settings.account_label")}: <code>{codexAccountId}</code>
                         </div>
                       ) : null}
                     </div>
@@ -463,7 +542,7 @@ export function SettingsPage() {
                         data-testid="provider-disconnect"
                         data-provider-kind={p.kind}
                       >
-                        Disconnect
+                        {t("settings.disconnect")}
                       </Button>
                     ) : (
                       <Button
@@ -478,7 +557,11 @@ export function SettingsPage() {
                         data-testid="provider-connect-btn"
                         data-provider-kind={p.kind}
                       >
-                        {p.ga ? (isCodex ? "Connect ChatGPT" : "Connect") : "Coming soon"}
+                        {p.ga
+                          ? isCodex
+                            ? t("settings.connect_chatgpt")
+                            : t("settings.connect")
+                          : t("settings.coming_soon")}
                       </Button>
                     )}
                   </div>
@@ -486,7 +569,7 @@ export function SettingsPage() {
                     <div className="flex flex-col gap-2 border-t pt-2">
                       <Input
                         type="password"
-                        placeholder="Paste API key"
+                        placeholder={t("settings.api_key_placeholder")}
                         value={apiKeyInput}
                         onChange={(e) => setApiKeyInput(e.target.value)}
                         spellCheck={false}
@@ -501,7 +584,7 @@ export function SettingsPage() {
                         data-testid="provider-submit"
                         data-provider-kind={p.kind}
                       >
-                        {connecting ? "Connecting…" : "Save and connect"}
+                        {connecting ? t("settings.connecting") : t("settings.save_and_connect")}
                       </Button>
                     </div>
                   ) : null}
@@ -520,100 +603,30 @@ export function SettingsPage() {
           </div>
         </section>
 
-        <section className="flex flex-col gap-3" data-testid="settings-section-app">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-fg-muted">
-              2 · App Settings
-            </p>
-            <h2 className="text-lg font-semibold">App Settings</h2>
-            <p className="text-xs text-fg-muted">Change how DIVE looks and guides you.</p>
-          </div>
-
-          <div className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2.5">
-            <div>
-              <div className="text-sm font-medium">Language</div>
-              <div className="text-[11px] text-fg-muted">Choose the app interface language.</div>
-            </div>
-            <select
-              value={locale}
-              onChange={(e) => setLocale(e.target.value as Locale)}
-              className="rounded-md border bg-bg px-2 py-1 text-sm"
-              data-testid="settings-locale-select"
-              aria-label="Choose language"
-            >
-              {SUPPORTED_LOCALES.map((code) => (
-                <option key={code} value={code}>
-                  {LOCALE_LABEL[code]}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2.5">
-            <div>
-              <div className="text-sm font-medium">Theme</div>
-              <div className="text-[11px] text-fg-muted">
-                {theme === "dark" ? "Dark theme" : "Light theme"}
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={toggleTheme}
-              data-testid="settings-theme-toggle"
-              data-theme={theme}
-            >
-              {theme === "dark" ? "Switch to light" : "Switch to dark"}
-            </Button>
-          </div>
-
-          <div className="flex items-center justify-between rounded-md border bg-bg-panel px-3 py-2.5">
-            <div>
-              <div className="text-sm font-medium">Guided help</div>
-              <div className="text-[11px] text-fg-muted">
-                Show step-by-step explanations while you learn DIVE.
-              </div>
-            </div>
-            <label className="inline-flex cursor-pointer items-center">
-              <input
-                type="checkbox"
-                checked={tutorialEnabled}
-                onChange={(e) => setTutorialEnabled(e.target.checked)}
-                data-testid="settings-tutorial-toggle"
-                className="h-4 w-4"
-              />
-            </label>
-          </div>
-        </section>
-
         <section className="flex flex-col gap-3" data-testid="settings-section-safety">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-fg-muted">
-              3 · Safety
+              3 · {t("settings.safety_eyebrow")}
             </p>
-            <h2 className="text-lg font-semibold">Safety</h2>
-            <p className="text-xs text-fg-muted">
-              DIVE asks before changing files, running commands, or undoing work.
-            </p>
+            <h2 className="text-lg font-semibold">{t("settings.safety_title")}</h2>
+            <p className="text-xs text-fg-muted">{t("settings.safety_description")}</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-md border bg-bg-panel px-3 py-3 text-xs">
-              <div className="text-sm font-semibold text-fg">You stay in control</div>
-              <p className="mt-1 text-fg-muted">
-                File edits and commands wait for an approval card before they run.
-              </p>
+              <div className="text-sm font-semibold text-fg">
+                {t("settings.safety_control_title")}
+              </div>
+              <p className="mt-1 text-fg-muted">{t("settings.safety_control_description")}</p>
             </div>
             <div className="rounded-md border bg-bg-panel px-3 py-3 text-xs">
-              <div className="text-sm font-semibold text-fg">Unsafe patterns are blocked</div>
-              <p className="mt-1 text-fg-muted">
-                Some dangerous commands cannot run even if someone clicks approve.
-              </p>
+              <div className="text-sm font-semibold text-fg">
+                {t("settings.safety_blocked_title")}
+              </div>
+              <p className="mt-1 text-fg-muted">{t("settings.safety_blocked_description")}</p>
             </div>
             <div className="rounded-md border bg-bg-panel px-3 py-3 text-xs">
-              <div className="text-sm font-semibold text-fg">Undo is available</div>
-              <p className="mt-1 text-fg-muted">
-                Use Recovery & Undo in the main app to return to a saved checkpoint.
-              </p>
+              <div className="text-sm font-semibold text-fg">{t("settings.safety_undo_title")}</div>
+              <p className="mt-1 text-fg-muted">{t("settings.safety_undo_description")}</p>
             </div>
           </div>
           <label className="flex items-start gap-2 rounded-md border bg-bg-panel px-3 py-2.5 text-xs">
@@ -629,10 +642,10 @@ export function SettingsPage() {
             />
             <span>
               <span className="block text-sm font-medium text-fg">
-                Reset approval shortcuts next session
+                {t("settings.reset_approvals_title")}
               </span>
               <span className="block text-fg-muted">
-                Recommended: forget advanced auto-approval shortcuts when a new session starts.
+                {t("settings.reset_approvals_description")}
               </span>
             </span>
           </label>
@@ -641,12 +654,10 @@ export function SettingsPage() {
         <section className="flex flex-col gap-3" data-testid="settings-section-advanced">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-fg-muted">
-              4 · Advanced
+              4 · {t("settings.advanced_eyebrow")}
             </p>
-            <h2 className="text-lg font-semibold">Advanced</h2>
-            <p className="text-xs text-fg-muted">
-              Optional tools for experienced users. You can ignore this section at first.
-            </p>
+            <h2 className="text-lg font-semibold">{t("settings.advanced_title")}</h2>
+            <p className="text-xs text-fg-muted">{t("settings.advanced_description")}</p>
           </div>
 
           <details
@@ -654,15 +665,10 @@ export function SettingsPage() {
             data-testid="settings-section-policy"
           >
             <summary className="cursor-pointer text-sm font-semibold text-fg">
-              Automatic safe-read approvals
+              {t("settings.auto_approval_title")}
             </summary>
-            <p className="mt-2 text-xs text-fg-muted">
-              Advanced shortcut: only safe read tools can be auto-approved. File edits and commands
-              still require manual approval.
-            </p>
-            <LearningHint className="mt-2 text-xs">
-              Warning and danger tools always stay manual.
-            </LearningHint>
+            <p className="mt-2 text-xs text-fg-muted">{t("settings.auto_approval_description")}</p>
+            <LearningHint className="mt-2 text-xs">{t("settings.auto_approval_hint")}</LearningHint>
             <div className="mt-3 flex flex-col gap-2" data-testid="policy-tool-list">
               {SAFE_TOOLS.map((tool) => {
                 const on = policy.rules[tool] === "always";
@@ -676,7 +682,7 @@ export function SettingsPage() {
                     <div>
                       <div className="text-sm font-medium">{tool}</div>
                       <div className="text-[10px] text-fg-muted">
-                        Safe read · auto-approval allowed
+                        {t("settings.safe_read_auto_allowed")}
                       </div>
                     </div>
                     <input
@@ -699,7 +705,9 @@ export function SettingsPage() {
                 >
                   <div>
                     <div className="text-sm font-medium">{tool}</div>
-                    <div className="text-[10px] text-fg-muted">Changes files · always manual</div>
+                    <div className="text-[10px] text-fg-muted">
+                      {t("settings.file_changes_always_manual")}
+                    </div>
                   </div>
                   <input type="checkbox" disabled className="h-4 w-4" />
                 </div>
@@ -712,19 +720,16 @@ export function SettingsPage() {
             data-testid="settings-section-mcp"
           >
             <summary className="cursor-pointer text-sm font-semibold text-fg">
-              MCP servers for extra tools
+              {t("settings.mcp_title")}
             </summary>
-            <LearningHint className="mt-2 text-xs">
-              Model Context Protocol servers add advanced tools. Tool calls still route through
-              permission cards.
-            </LearningHint>
+            <LearningHint className="mt-2 text-xs">{t("settings.mcp_hint")}</LearningHint>
             <div className="mt-3 flex flex-col gap-2" data-testid="mcp-server-list">
               {mcpServers.length === 0 ? (
                 <div
                   className="rounded-md border border-dashed bg-bg px-3 py-6 text-center text-xs text-fg-muted"
                   data-testid="mcp-empty"
                 >
-                  No MCP servers added.
+                  {t("settings.mcp_empty")}
                 </div>
               ) : (
                 mcpServers.map((s) => (
@@ -753,7 +758,7 @@ export function SettingsPage() {
                         data-testid="mcp-test-connect"
                         data-mcp-label={s.label}
                       >
-                        Test
+                        {t("settings.mcp_test")}
                       </Button>
                       <Button
                         variant="outline"
@@ -762,7 +767,7 @@ export function SettingsPage() {
                         data-testid="mcp-remove"
                         data-mcp-label={s.label}
                       >
-                        Remove
+                        {t("settings.mcp_remove")}
                       </Button>
                     </div>
                   </div>
@@ -781,7 +786,7 @@ export function SettingsPage() {
               className="mt-3 flex flex-col gap-2 rounded-md border border-dashed bg-bg p-3"
               data-testid="mcp-form"
             >
-              <div className="text-xs font-medium">Add MCP server</div>
+              <div className="text-xs font-medium">{t("settings.mcp_add_title")}</div>
               <div className="grid grid-cols-2 gap-2">
                 <Input
                   placeholder="Label, e.g. filesystem"
@@ -830,7 +835,7 @@ export function SettingsPage() {
                 />
               )}
               <div className="flex items-center gap-2">
-                <span className="text-[11px] text-fg-muted">Default risk:</span>
+                <span className="text-[11px] text-fg-muted">{t("settings.mcp_default_risk")}</span>
                 <select
                   value={mcpDraft.defaultRisk}
                   onChange={(e) =>
@@ -852,7 +857,7 @@ export function SettingsPage() {
                   disabled={mcpBusy || !mcpDraft.label.trim()}
                   data-testid="mcp-add-submit"
                 >
-                  {mcpBusy ? "Adding…" : "Add"}
+                  {mcpBusy ? t("settings.mcp_adding") : t("settings.mcp_add")}
                 </Button>
               </div>
             </div>

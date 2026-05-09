@@ -117,19 +117,36 @@ pub async fn provider_connect_impl(
 pub async fn provider_list(
     state: State<'_, AppState>,
 ) -> Result<Vec<ProviderConfigSummary>, String> {
-    provider_list_impl(&state)
+    let rows = provider_rows(&state)?;
+    Ok(summaries_from_rows(rows, ConnectionCheck::ConfiguredOnly))
 }
 
 pub fn provider_list_impl(state: &AppState) -> Result<Vec<ProviderConfigSummary>, String> {
-    let rows: Vec<ProviderConfigRow> = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        provider_dao::list(db.conn()).map_err(|e| e.to_string())?
-    };
+    let rows = provider_rows(state)?;
+    Ok(summaries_from_rows(
+        rows,
+        ConnectionCheck::VerifySecrets(state.keyring.as_ref()),
+    ))
+}
+
+fn provider_rows(state: &AppState) -> Result<Vec<ProviderConfigRow>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    provider_dao::list(db.conn()).map_err(|e| e.to_string())
+}
+
+enum ConnectionCheck<'a> {
+    ConfiguredOnly,
+    VerifySecrets(&'a dyn auth::Keyring),
+}
+
+fn summaries_from_rows(
+    rows: Vec<ProviderConfigRow>,
+    check: ConnectionCheck<'_>,
+) -> Vec<ProviderConfigSummary> {
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
         let selected_model = Some(selected_model_for_kind(&row.kind, &row.config));
-        let (is_connected, account_id) =
-            connection_summary(state.keyring.as_ref(), row.id, &row.kind);
+        let (is_connected, account_id) = connection_summary(&row, &check);
         out.push(ProviderConfigSummary {
             id: row.id,
             kind: row.kind,
@@ -140,31 +157,51 @@ pub fn provider_list_impl(state: &AppState) -> Result<Vec<ProviderConfigSummary>
             account_id,
         });
     }
-    Ok(out)
+    out
 }
 
 fn connection_summary(
-    keyring: &dyn auth::Keyring,
-    provider_config_id: i64,
-    kind: &str,
+    row: &ProviderConfigRow,
+    check: &ConnectionCheck<'_>,
 ) -> (bool, Option<String>) {
-    if kind == "codex" {
-        let Ok(Some((_access, _refresh, id_token))) =
-            auth::load_codex_tokens(keyring, provider_config_id)
-        else {
-            return (false, None);
-        };
-        let account_id = if id_token.is_empty() {
-            None
-        } else {
-            auth::codex_oauth::decode_account_id(&id_token).ok()
-        };
-        return (true, account_id);
+    let account_id = row
+        .config
+        .get("account_id")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+
+    if matches!(check, ConnectionCheck::ConfiguredOnly) {
+        if row.kind == "codex" {
+            let is_connected = row
+                .config
+                .get("oauth_connected")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            return (is_connected, account_id);
+        }
+        return (row.auth_type == "api_key", account_id);
     }
-    let is_connected = auth::load_provider_api_key(keyring, provider_config_id)
-        .map(|s| s.is_some())
+
+    let ConnectionCheck::VerifySecrets(keyring) = check else {
+        unreachable!("configured-only branch returned above")
+    };
+    if row.kind == "codex" {
+        let is_connected = auth::load_codex_tokens(*keyring, row.id)
+            .map(|tokens| tokens.is_some())
+            .unwrap_or(false);
+        return (is_connected, account_id);
+    }
+
+    let is_connected = auth::load_provider_api_key(*keyring, row.id)
+        .map(|secret| {
+            secret
+                .as_deref()
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false)
+        })
         .unwrap_or(false);
-    (is_connected, None)
+    (is_connected, account_id)
 }
 
 #[tauri::command]
@@ -354,7 +391,11 @@ mod tests {
                     kind: "codex".into(),
                     auth_type: "oauth".into(),
                     base_url: None,
-                    config: json!({ "selected_model": "gpt-5.5-codex" }),
+                    config: json!({
+                        "selected_model": "gpt-5.5-codex",
+                        "oauth_connected": true,
+                        "account_id": "acct_codex_provider_list",
+                    }),
                 },
             )
             .unwrap()
@@ -402,6 +443,33 @@ mod tests {
         let rows = provider_list_impl(&state).unwrap();
         let opencode = rows.iter().find(|row| row.id == id).unwrap();
         assert_eq!(opencode.selected_model.as_deref(), Some("big-pickle"));
+    }
+
+    #[test]
+    fn provider_list_requires_api_key_secret_to_be_connected() {
+        let state = mk_state();
+        let id = {
+            let db = state.db.lock().unwrap();
+            provider_dao::insert(
+                db.conn(),
+                &NewProviderConfig {
+                    kind: "opencode_zen".into(),
+                    auth_type: "api_key".into(),
+                    base_url: None,
+                    config: json!({ "selected_model": "minimax-m2.5-free" }),
+                },
+            )
+            .unwrap()
+        };
+
+        let rows = provider_list_impl(&state).unwrap();
+        let opencode = rows.iter().find(|row| row.id == id).unwrap();
+        assert!(!opencode.is_connected);
+
+        auth::upsert_provider_api_key(state.keyring.as_ref(), id, "sk-test").unwrap();
+        let rows = provider_list_impl(&state).unwrap();
+        let opencode = rows.iter().find(|row| row.id == id).unwrap();
+        assert!(opencode.is_connected);
     }
 
     #[tokio::test]

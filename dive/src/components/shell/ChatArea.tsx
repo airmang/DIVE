@@ -18,6 +18,7 @@ interface ChatAreaProps {
   className?: string;
   messages?: ChatMessage[];
   cardTitle?: string | null;
+  sessionTitle?: string | null;
   cardStateLabel?: string | null;
   stageBanner?: ChatStageBanner | null;
   onSendMessage?: (text: string) => void;
@@ -46,6 +47,7 @@ export function ChatArea({
   className,
   messages,
   cardTitle,
+  sessionTitle,
   cardStateLabel,
   stageBanner,
   onSendMessage,
@@ -73,7 +75,7 @@ export function ChatArea({
         <div className="flex items-baseline gap-3">
           <h1 className="text-lg font-bold text-fg">대화</h1>
           <span className="text-xs text-fg-muted" data-testid="chat-card-title">
-            {cardTitle ?? "세션 없음"}
+            {cardTitle ?? sessionTitle ?? "세션 없음"}
           </span>
           {cardStateLabel ? (
             <span

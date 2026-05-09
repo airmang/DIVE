@@ -38,6 +38,16 @@ export interface PromptCheckResult {
   approximate_tokens: number;
 }
 
+function friendlyPromptCheckError(error: string): string {
+  if (error.includes("tool_choice") || error.toLowerCase().includes("tool choice")) {
+    return "현재 선택한 모델이 보내기 전 점검 방식과 맞지 않습니다. 다른 모델을 선택하거나, 이 점검 없이 바로 전송해 주세요.";
+  }
+  if (error.toLowerCase().includes("not configured")) {
+    return "AI 연결이 아직 설정되지 않았습니다. 설정에서 AI 도우미를 먼저 연결해 주세요.";
+  }
+  return error;
+}
+
 interface Props {
   open: boolean;
   initialText: string;
@@ -91,7 +101,7 @@ export function PromptCheckDialog({
         });
       }
     } catch (err) {
-      setError(String(err));
+      setError(friendlyPromptCheckError(String(err)));
     } finally {
       setLoading(false);
     }
