@@ -6,6 +6,19 @@ All notable changes to DIVE are documented here. Format: [Keep a Changelog](http
 
 ### Added
 
+- Phase 9 / v0.3 plan-first workspace flow:
+  - End-to-end plan-first path: project entry → Socratic interview → plan draft + mermaid approval → Roadmap (Step DAG) → per-step execution. v0.2's bottom workmap strip is absorbed into the right Roadmap panel.
+  - SQLite v7 migration adds four entities — `Interview`, `Plan`, `Step`, `StepSessionMapping` — plus indexes; the existing `Card` / `Workmap` / `Session` / `Message` / `Checkpoint` / `EventLog` tables are unchanged (ADR-081).
+  - At plan approval time, portable artifacts are exported under `.dive/plan.json`, `.dive/plan.md`, and `.dive/flow.mmd`; SQLite remains the runtime source of truth and wins on conflict (ADR-080).
+  - Tauri IPC commands for the Plan/Interview lifecycle: `workspace_plan_status`, `workspace_plan_start_interview`, `workspace_plan_save_interview_answer`, `workspace_plan_submit_interview`, `workspace_plan_generate_draft`, `workspace_plan_approve`, `workspace_plan_discard_plan`, `workspace_plan_list_steps`, `workspace_plan_step_mappings`.
+  - Tauri IPC commands for Step DAG operations: `roadmap_step_open`, `roadmap_step_update_state`.
+  - 3-pane product shell grid (sidebar · chat · Roadmap right panel) with new components: `SocraticInterviewPanel`, `PlanDraftApprovalScreen`, `MermaidDiagram`, `RoadmapGraph`. `PlanDraftInlineActions` is removed in favor of the dedicated approval screen.
+  - Frontend hooks: `usePlan`, `usePlanInterviewLLM`, `usePlanRoadmap` derive Step status (planned / blocked / ready / in_progress / review / done / shipped) from `Step` rows merged with `StepSessionMapping` rows.
+  - `chat_send` accepts `step_id`, `run_mode` (Interview / Plan / Build), and `plan_accepted`; `RunModePermissionHook` gates mutating tools so only `run_mode = Build` with an approved plan and a valid step can mutate (ADR-083).
+  - `Step` ↔ `Card` is an optional 1:1 mapping via `StepSessionMapping`; opening a ready step creates the mapping and seeds the implementation session (ADR-082).
+  - ADRs added: ADR-080 (SQLite as runtime SoT, `.dive/*` as approval-time export), ADR-081 (Card unchanged, plan metadata in new `Step` table), ADR-082 (`Step` ↔ `Card` optional 1:1 via `StepSessionMapping`), ADR-083 (Interview → Plan → Step → Card 4-layer split with run_mode gates).
+  - `mermaid` ^11.12.1 added to `dive/package.json` for plan flow diagram preview.
+  - 2026-05-10 close-out verification on local: `cargo fmt --check`, `cargo clippy --all-targets --features dev-mock -D warnings`, `cargo test --features dev-mock --all-targets` (all 0 failed), `pnpm typecheck`, `pnpm lint --max-warnings 0`, `pnpm build` — all clean. See `docs/internal/DIVE_NEXT.md` for evidence.
 - DIVE v4 productization polish: native project/menu entry points, Tauri folder picker, tutorial mode, provider model selector, and per-track verification scripts.
 - Static provider model lists and persisted `selected_model` storage for connected providers.
 - `pnpm verify:v4` aggregate gate covering Tracks A-G; Track H live model refresh remains a follow-up.
