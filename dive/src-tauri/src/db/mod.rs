@@ -116,6 +116,19 @@ pub(crate) mod tests {
         (db, tmp)
     }
 
+    pub(crate) fn seed_project(conn: &rusqlite::Connection) -> i64 {
+        crate::db::dao::project::insert(
+            conn,
+            &crate::db::models::NewProject {
+                name: "Project".into(),
+                path: "/tmp/project".into(),
+                provider_default: None,
+                model_default: None,
+            },
+        )
+        .unwrap()
+    }
+
     pub(crate) fn seed_project_session(conn: &rusqlite::Connection) -> (i64, i64) {
         let project_id = crate::db::dao::project::insert(
             conn,

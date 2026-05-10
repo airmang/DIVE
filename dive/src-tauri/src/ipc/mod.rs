@@ -18,6 +18,7 @@ pub mod provider_runtime;
 pub mod session;
 pub mod timeline;
 pub mod workmap;
+pub mod workspace_plan;
 
 pub use codex_oauth::*;
 pub use mcp::*;
@@ -28,6 +29,7 @@ pub use provider_runtime::*;
 pub use session::*;
 pub use timeline::*;
 pub use workmap::*;
+pub use workspace_plan::*;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -41,12 +43,13 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::agent::{
     AgentEvent, AgentLoop, AgentRunMode, AutoApprovePolicy, PendingApprovals, PermissionDecision,
-    PermissionHook, PolicyAwareHook, RunModePermissionHook,
+    PermissionHook, PolicyAwareHook, RunModePermissionHook, StepContext,
 };
 use crate::auth::{self, Keyring, OsKeyring};
 use crate::db::dao::{
-    card as card_dao, message as message_dao, project as project_dao,
-    provider_config as provider_dao, workmap as workmap_dao,
+    card as card_dao, message as message_dao, plan as plan_dao, project as project_dao,
+    provider_config as provider_dao, step as step_dao, step_session_mapping as mapping_dao,
+    workmap as workmap_dao,
 };
 use crate::db::models::{CardState, CheckpointRow, MessageRow, NewCard, ProviderConfigRow};
 use crate::db::Database;
@@ -705,13 +708,20 @@ pub async fn chat_send(
     run_mode: Option<String>,
     locale: Option<String>,
     plan_accepted: Option<bool>,
+    step_id: Option<i64>,
 ) -> Result<(), String> {
     let stage = stage
         .as_deref()
         .and_then(DiveStage::parse)
         .unwrap_or(DiveStage::D);
-    let plan_accepted = plan_accepted.unwrap_or(false);
-    let backend_run_mode = run_mode_for_stage(stage, plan_accepted);
+    let requested_plan_accepted = plan_accepted.unwrap_or(false);
+    let step_context = load_active_step_context(&state, session_id, step_id)?;
+    let effective_plan_accepted = requested_plan_accepted
+        || step_context
+            .as_ref()
+            .map(|ctx| ctx.plan_approved)
+            .unwrap_or(false);
+    let backend_run_mode = run_mode_for_stage(stage, effective_plan_accepted);
     let requested_run_mode = run_mode.as_deref().and_then(AgentRunMode::parse);
     let run_mode = match requested_run_mode {
         Some(requested) => safest_run_mode(backend_run_mode, requested),
@@ -733,18 +743,21 @@ pub async fn chat_send(
     let loop_ = AgentLoop::builder()
         .provider(snap.provider)
         .registry(state.registry.clone())
-        .permission(Arc::new(RunModePermissionHook::new(
-            run_mode,
-            state.permission.clone(),
-        )))
+        .permission(Arc::new(
+            RunModePermissionHook::new(run_mode, state.permission.clone())
+                .with_plan_accepted(effective_plan_accepted)
+                .with_active_step_id(step_context.as_ref().map(|ctx| ctx.context.step_id)),
+        ))
         .db(state.db.clone())
         .tool_ctx(ToolContext::new(project_root, session_id))
         .model(snap.model)
         .cancel(cancel)
         .stage(stage)
+        .run_mode(run_mode)
         .disable_gates(disable_gates)
-        .plan_accepted(plan_accepted)
+        .plan_accepted(effective_plan_accepted)
         .locale(locale)
+        .step_context(step_context.map(|ctx| ctx.context))
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -771,6 +784,59 @@ pub async fn chat_send(
             let _ = log_error_event(&state, Some(session_id), "agent_loop", &message);
             Err(message)
         }
+    }
+}
+
+struct LoadedStepContext {
+    context: StepContext,
+    plan_approved: bool,
+}
+
+fn load_active_step_context(
+    state: &AppState,
+    session_id: i64,
+    step_id: Option<i64>,
+) -> Result<Option<LoadedStepContext>, String> {
+    let Some(step_id) = step_id else {
+        return Ok(None);
+    };
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let step = step_dao::get_by_id(db.conn(), step_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("step {step_id} not found"))?;
+    let mapping = mapping_dao::get_by_step(db.conn(), step_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("step {step_id} has no active session mapping"))?;
+    if mapping.session_id != Some(session_id) {
+        return Err(format!(
+            "step {step_id} is not active in session {session_id}"
+        ));
+    }
+    let plan = plan_dao::get_by_id(db.conn(), step.plan_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("plan {} not found", step.plan_id))?;
+    Ok(Some(LoadedStepContext {
+        context: StepContext {
+            step_id: step.id,
+            title: step.title,
+            instruction_seed: step.instruction_seed,
+            acceptance_criteria: join_json_strings(step.acceptance_criteria.as_ref(), "\n"),
+            expected_files: join_json_strings(step.expected_files.as_ref(), ", "),
+        },
+        plan_approved: plan.status == "approved",
+    }))
+}
+
+fn join_json_strings(value: Option<&Value>, separator: &str) -> Option<String> {
+    let items = value?
+        .as_array()?
+        .iter()
+        .filter_map(|item| item.as_str())
+        .collect::<Vec<_>>();
+    if items.is_empty() {
+        None
+    } else {
+        Some(items.join(separator))
     }
 }
 

@@ -1,86 +1,111 @@
 import { useCallback, useEffect, useRef } from "react";
-import type { PlanDraft } from "./types";
+import type { LlmPlanDraftPayload, PlanDraftInput, StepDraftInput } from "./types";
 
-interface LlmPlanDraftPayload {
-  goal?: unknown;
-  mvp?: unknown;
-  non_goals?: unknown;
-  steps?: unknown;
-  success_criteria?: unknown;
-  risks?: unknown;
+interface AssistantEndEvent {
+  type: "assistant_end";
+  content: string;
 }
 
-interface LlmStep {
-  name?: unknown;
-  intent?: unknown;
+type ObservedEvent = AssistantEndEvent | { type: string };
+
+interface UsePlanInterviewLlmArgs {
+  onPlanDraft: (payload: LlmPlanDraftPayload) => void;
 }
 
-function toStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
 }
 
-function toLlmSteps(value: unknown): LlmStep[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((v): v is LlmStep => typeof v === "object" && v !== null) as LlmStep[];
+function optionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
-export function decodePlanDraftFromLlm(raw: unknown): PlanDraft | null {
+function optionalNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function decodeStep(raw: unknown, index: number): StepDraftInput | null {
   if (typeof raw !== "object" || raw === null) return null;
-  const source = raw as LlmPlanDraftPayload;
-  const goal = typeof source.goal === "string" ? source.goal.trim() : "";
-  const mvp = typeof source.mvp === "string" ? source.mvp.trim() : "";
-  if (!goal || !mvp) return null;
-  const rawSteps = toLlmSteps(source.steps);
-  const steps = rawSteps
-    .map((step) => {
-      const title = typeof step.name === "string" ? step.name.trim() : "";
-      const intent = typeof step.intent === "string" ? step.intent.trim() : "";
-      if (!title || !intent) return null;
-      return {
-        title,
-        summary: intent,
-        acceptanceCriteria: [] as string[],
-        instructionSeed: intent,
-      };
-    })
-    .filter((step): step is NonNullable<typeof step> => step !== null);
-  if (steps.length === 0) return null;
+  const source = raw as Record<string, unknown>;
+  const title = optionalString(source.title);
+  const summary = optionalString(source.summary);
+  const instructionSeed = optionalString(source.instruction_seed ?? source.instructionSeed);
+  if (!title || !summary || !instructionSeed) return null;
   return {
-    goal,
-    mvp,
-    nonGoals: toStringArray(source.non_goals),
-    steps,
-    successCriteria: toStringArray(source.success_criteria),
-    brief: {
-      goal,
-      answers: [],
-      createdAt: Date.now(),
-    },
+    stepId: optionalString(source.step_id ?? source.stepId) ?? `step-${String(index + 1).padStart(3, "0")}`,
+    title,
+    summary,
+    instructionSeed,
+    expectedFiles: stringArray(source.expected_files ?? source.expectedFiles),
+    acceptanceCriteria: stringArray(source.acceptance_criteria ?? source.acceptanceCriteria),
+    verificationCommand: optionalString(source.verification_command ?? source.verificationCommand),
+    verificationType: optionalString(source.verification_type ?? source.verificationType),
+    dependencies: stringArray(source.dependencies),
+    parallelGroup: optionalNumber(source.parallel_group ?? source.parallelGroup),
+    position: index + 1,
   };
 }
 
-interface ToolCallStartEvent {
-  type: "tool_call_start";
-  id: string;
-  tool: string;
+export function decodeWorkspacePlanDraftFromLlm(raw: unknown): LlmPlanDraftPayload | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const source = raw as Record<string, unknown>;
+  const payload = (source.plan_draft ?? source) as Record<string, unknown>;
+  const planInputRaw = payload.plan_input ?? payload.planInput;
+  if (typeof planInputRaw !== "object" || planInputRaw === null) return null;
+  const planSource = planInputRaw as Record<string, unknown>;
+  const goal = optionalString(planSource.goal);
+  const intentSummary =
+    optionalString(payload.intent_summary ?? payload.intentSummary) ??
+    optionalString(planSource.intent_summary ?? planSource.intentSummary);
+  if (!goal || !intentSummary) return null;
+  const steps = Array.isArray(planSource.steps)
+    ? planSource.steps
+        .map((step, index) => decodeStep(step, index))
+        .filter((step): step is StepDraftInput => step !== null)
+    : [];
+  if (steps.length === 0) return null;
+  const planInput: PlanDraftInput = {
+    goal,
+    intentSummary,
+    scope: stringArray(planSource.scope),
+    nonGoals: stringArray(planSource.non_goals ?? planSource.nonGoals),
+    constraints: stringArray(planSource.constraints),
+    acceptanceCriteria: stringArray(
+      planSource.acceptance_criteria ?? planSource.acceptanceCriteria,
+    ),
+    steps,
+  };
+  return {
+    intentSummary,
+    unresolvedQuestions: stringArray(
+      payload.unresolved_questions ?? payload.unresolvedQuestions,
+    ),
+    planInput,
+  };
 }
 
-interface ToolResultEvent {
-  type: "tool_result";
-  call_id: string;
-  success: boolean;
-  full: unknown;
-}
-
-type ObservedEvent = ToolCallStartEvent | ToolResultEvent | { type: string };
-
-interface UsePlanInterviewLlmArgs {
-  onPlanDraft: (draft: PlanDraft) => void;
+function parseAssistantJson(content: string): unknown | null {
+  const trimmed = content.trim();
+  if (!trimmed) return null;
+  const fence = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  const source = fence ? fence[1].trim() : trimmed;
+  try {
+    return JSON.parse(source);
+  } catch {
+    const first = source.indexOf("{");
+    const last = source.lastIndexOf("}");
+    if (first === -1 || last <= first) return null;
+    try {
+      return JSON.parse(source.slice(first, last + 1));
+    } catch {
+      return null;
+    }
+  }
 }
 
 export function usePlanInterviewLLM({ onPlanDraft }: UsePlanInterviewLlmArgs) {
-  const pendingCallsRef = useRef<Set<string>>(new Set());
   const lastHandlerRef = useRef(onPlanDraft);
 
   useEffect(() => {
@@ -88,21 +113,8 @@ export function usePlanInterviewLLM({ onPlanDraft }: UsePlanInterviewLlmArgs) {
   }, [onPlanDraft]);
 
   return useCallback((event: ObservedEvent) => {
-    if (event.type === "tool_call_start") {
-      const start = event as ToolCallStartEvent;
-      if (start.tool === "emit_plan_draft") {
-        pendingCallsRef.current.add(start.id);
-      }
-      return;
-    }
-    if (event.type === "tool_result") {
-      const result = event as ToolResultEvent;
-      if (!pendingCallsRef.current.delete(result.call_id)) return;
-      if (!result.success) return;
-      const full = result.full;
-      if (typeof full !== "object" || full === null) return;
-      const draftPayload = (full as { plan_draft?: unknown }).plan_draft;
-      const draft = decodePlanDraftFromLlm(draftPayload);
+    if (event.type === "assistant_end") {
+      const draft = decodeWorkspacePlanDraftFromLlm(parseAssistantJson((event as AssistantEndEvent).content));
       if (draft) {
         lastHandlerRef.current(draft);
       }

@@ -233,89 +233,62 @@
       "step_request_changes": "Request changes in chat",
       "step_approve_message_seed": "Approve Step {{position}}: {{title}}",
       "step_request_changes_message_seed": "Request changes on Step {{position}}: {{title}} — "
+    },
+    "plan_graph": {
+      "summary": "{{total}} steps · {{ready}} ready · {{blocked}} blocked",
+      "waiting_for": "Waiting for {{deps}}",
+      "resume": "Resume",
+      "status": {
+        "blocked": "Blocked",
+        "ready": "Ready",
+        "in_progress": "In progress",
+        "done": "Done",
+        "shipped": "Shipped"
+      }
     }
   },
   "planning": {
-    "roadmap_created_title": "Roadmap created",
-    "roadmap_created_description": "{{count}} steps are ready for review.",
-    "adjust_goal_seed": "Adjust the plan for {{title}}. Problem to solve: {{reason}}",
-    "questions": {
-      "product_shape": "What are you trying to build first?",
-      "mvp_focus": "What should the first version prove?",
-      "risk_level": "How cautious should the agent be?"
+    "interview": {
+      "title": "Plan interview",
+      "goal_hint": "Describe what you want to build in natural language.",
+      "answer_hint": "Answer the latest question. DIVE will ask for specifics when needed.",
+      "goal_placeholder": "I want to build...",
+      "answer_placeholder": "Type your answer...",
+      "start": "Start",
+      "send_answer": "Send",
+      "complete": "Finish interview",
+      "question_fallback": "Latest interview question",
+      "submit_prompt": "[INTERVIEW_SUBMIT]\nGoal: {{goal}}\nSummarize the interview and return only JSON with intent_summary, unresolved_questions, and a workspace_plan_generate_draft-compatible plan_input.",
+      "adjust_failure_seed": "Re-open the plan interview for {{title}}. The issue to resolve is: {{reason}}",
+      "vague_answer_error": "Please be more specific about the audience, scope, success criteria, or constraints.",
+      "start_failed_title": "Could not start interview",
+      "save_failed_title": "Could not save answer",
+      "draft_ready_title": "Plan draft ready",
+      "draft_ready_description": "Review the generated plan before approving it.",
+      "draft_failed_title": "Could not create plan draft"
     },
-    "choices": {
-      "web_app": "Web app",
-      "desktop_app": "Desktop app",
-      "script_or_tool": "Script or tool",
-      "user_can_add_and_see_data": "User can add and see data",
-      "data_is_saved": "Data is saved",
-      "looks_polished": "It looks polished",
-      "tiny_safe_steps": "Tiny safe steps",
-      "balanced_mvp": "Balanced MVP",
-      "explore_options_first": "Explore options first",
-      "not_sure": "Not sure"
-    },
-    "draft": {
-      "focus": {
-        "user_can_add_and_see_data": "user can add and see data",
-        "data_is_saved": "data is saved",
-        "looks_polished": "it looks polished",
-        "not_sure": "the core behavior works first"
-      },
-      "safety": {
-        "tiny_safe_steps": "Keep this step very small and ask before risky changes.",
-        "explore_options_first": "Compare the simplest options before changing files.",
-        "balanced_mvp": "Prefer the smallest useful MVP change and verify it.",
-        "not_sure": "Make the smallest reversible change that moves the goal forward."
-      },
-      "mvp": {
-        "script_or_tool": "A small working tool for: {{goal}}. It should prove that {{focus}}.",
-        "desktop_app": "A minimal desktop experience for: {{goal}}. It should prove that {{focus}}.",
-        "web_app": "A minimal app screen for: {{goal}}. It should prove that {{focus}}.",
-        "not_sure": "A minimal, safe first version of: {{goal}}. It should prove the core behavior before polish."
-      },
-      "non_goals": {
-        "unrelated_screens": "Do not redesign unrelated screens.",
-        "new_dependencies": "Do not add new dependencies unless the user approves.",
-        "backend_or_fs": "Do not change backend or filesystem behavior unless the step explicitly requires it."
-      },
-      "success_criteria": {
-        "beginner_describes": "A beginner can describe the outcome in one sentence.",
-        "mvp_check_command": "The MVP can be checked with a concrete command or manual smoke test.",
-        "next_step_obvious": "The next step is obvious after the first version works."
-      },
-      "steps": {
-        "1": {
-          "title": "Confirm the smallest useful version",
-          "summary": "Turn the goal into a tiny MVP: {{mvp}}",
-          "acceptance": {
-            "target_user_clear": "The target user and first useful outcome are clear.",
-            "open_questions_listed": "Open questions are listed before implementation."
-          },
-          "instruction_seed": "{{safety}} Clarify the smallest useful version of: {{goal}}"
-        },
-        "2": {
-          "title": "Implement the first visible path",
-          "summary": "Build only the UI or code path needed for the MVP.",
-          "acceptance": {
-            "happy_path_works": "The main happy path works end-to-end.",
-            "unrelated_untouched": "No unrelated files or features are changed."
-          },
-          "instruction_seed": "{{safety}} Implement the first visible path for: {{goal}}"
-        },
-        "3": {
-          "title": "Check and explain the result",
-          "summary": "Run the smallest useful checks and explain what changed.",
-          "acceptance": {
-            "checks_pass_or_explained": "Relevant checks pass or failures are clearly explained.",
-            "user_sees_diff": "The user can see what changed and what remains."
-          },
-          "instruction_seed": "{{safety}} Verify the MVP and summarize the result for: {{goal}}"
-        }
-      }
-    },
-    "request_changes_seed": "I'd like to change part of the plan. Goal: {{goal}}. Please suggest which parts to reconsider."
+    "approval": {
+      "title": "Plan draft",
+      "approve": "Approve",
+      "discard": "Discard",
+      "goal": "Goal",
+      "intent_summary": "Intent summary",
+      "scope": "Scope",
+      "non_goals": "Non-goals",
+      "constraints": "Constraints",
+      "acceptance_criteria": "Acceptance criteria",
+      "steps": "Steps",
+      "step_dag": "Step DAG",
+      "interview_context": "Interview context",
+      "unresolved_questions": "Unresolved questions",
+      "none": "None",
+      "request_changes": "Request changes",
+      "request_changes_placeholder": "Describe what should change in this draft...",
+      "unresolved_warning": "These items are unresolved — consider answering before approving",
+      "revision_prompt": "[INTERVIEW_SUBMIT]\nRegenerate the current workspace plan draft using this user feedback:\n{{feedback}}\n\nCurrent draft JSON:\n{{draft}}\n\nReturn only JSON with intent_summary, unresolved_questions, and plan_input.",
+      "approve_failed_title": "Could not approve plan",
+      "discard_failed_title": "Could not discard plan"
+    }
   },
   "recovery": {
     "title": "Recovery & Undo",

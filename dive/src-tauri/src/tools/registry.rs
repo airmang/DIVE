@@ -87,7 +87,7 @@ mod tests {
             ("bash", RiskLevel::Danger),
             ("delete_file", RiskLevel::Danger),
             ("run_process", RiskLevel::Danger),
-            ("emit_plan_draft", RiskLevel::Safe),
+            ("emit_workspace_plan_draft", RiskLevel::Safe),
         ];
         assert_eq!(registry.list().len(), expected.len());
         for (name, risk) in expected {

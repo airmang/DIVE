@@ -65,21 +65,38 @@ impl AgentRunMode {
         }
     }
 
-    fn denies_pre_plan_mutation(self, tool_name: &str, risk: RiskLevel) -> Option<String> {
-        if !matches!(self, Self::Interview | Self::Plan) {
-            return None;
-        }
+    fn denies_pre_plan_mutation(
+        self,
+        tool_name: &str,
+        risk: RiskLevel,
+        plan_accepted: bool,
+        active_step_id: Option<i64>,
+    ) -> Option<String> {
         let mutating_tool = matches!(
             tool_name,
             "write_file" | "edit_file" | "delete_file" | "mkdir" | "bash" | "run_process"
         );
-        if mutating_tool || !matches!(risk, RiskLevel::Safe) {
-            Some(format!(
-                "plan-first mode '{}' blocks mutating tool '{tool_name}' until the plan is approved",
-                self.as_str()
-            ))
-        } else {
-            None
+        match self {
+            Self::Interview | Self::Plan => {
+                if mutating_tool || !matches!(risk, RiskLevel::Safe) {
+                    Some(format!(
+                        "plan-first mode '{}' blocks mutating tool '{tool_name}' until the plan is approved",
+                        self.as_str()
+                    ))
+                } else {
+                    None
+                }
+            }
+            Self::Build => {
+                if mutating_tool && (!plan_accepted || active_step_id.is_none()) {
+                    Some(format!(
+                        "build mode blocks mutating tool '{tool_name}' until an approved plan with an active step is present"
+                    ))
+                } else {
+                    None
+                }
+            }
+            Self::Verify => None,
         }
     }
 }
@@ -87,18 +104,40 @@ impl AgentRunMode {
 pub struct RunModePermissionHook {
     pub mode: AgentRunMode,
     pub inner: Arc<dyn PermissionHook>,
+    pub plan_accepted: bool,
+    pub active_step_id: Option<i64>,
 }
 
 impl RunModePermissionHook {
     pub fn new(mode: AgentRunMode, inner: Arc<dyn PermissionHook>) -> Self {
-        Self { mode, inner }
+        Self {
+            mode,
+            inner,
+            plan_accepted: false,
+            active_step_id: None,
+        }
+    }
+
+    pub fn with_plan_accepted(mut self, accepted: bool) -> Self {
+        self.plan_accepted = accepted;
+        self
+    }
+
+    pub fn with_active_step_id(mut self, step_id: Option<i64>) -> Self {
+        self.active_step_id = step_id;
+        self
     }
 }
 
 #[async_trait]
 impl PermissionHook for RunModePermissionHook {
     async fn intercept(&self, call: &ToolCall, risk: RiskLevel) -> PermissionDecision {
-        if let Some(reason) = self.mode.denies_pre_plan_mutation(&call.name, risk) {
+        if let Some(reason) = self.mode.denies_pre_plan_mutation(
+            &call.name,
+            risk,
+            self.plan_accepted,
+            self.active_step_id,
+        ) {
             return PermissionDecision::denied(reason);
         }
         self.inner.intercept(call, risk).await
@@ -325,8 +364,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_mode_delegates_mutating_tool_to_inner_hook() {
+    async fn build_mode_denies_mutating_tool_without_approved_plan_and_step() {
         let hook = RunModePermissionHook::new(AgentRunMode::Build, Arc::new(AlwaysApproveHook));
+        let decision = hook.intercept(&call("write_file"), RiskLevel::Warn).await;
+        match decision {
+            PermissionDecision::Denied(reason) => {
+                assert!(reason.contains("build mode"));
+                assert!(reason.contains("write_file"));
+            }
+            other => panic!("expected denial, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn build_mode_allows_mutating_tool_with_approved_plan_and_step() {
+        let hook = RunModePermissionHook::new(AgentRunMode::Build, Arc::new(AlwaysApproveHook))
+            .with_plan_accepted(true)
+            .with_active_step_id(Some(1));
         let decision = hook.intercept(&call("write_file"), RiskLevel::Warn).await;
         assert!(matches!(decision, PermissionDecision::Approved { .. }));
     }

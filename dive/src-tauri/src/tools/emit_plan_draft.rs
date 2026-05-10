@@ -13,7 +13,7 @@ impl Tool for EmitPlanDraftTool {
     }
 
     fn description(&self) -> &str {
-        "Emit a structured PlanDraft for the user to review. Call only when you have gathered enough context."
+        "Emit a submitted interview summary and structured workspace plan draft for review."
     }
 
     fn input_schema(&self) -> Value {
@@ -25,23 +25,30 @@ impl Tool for EmitPlanDraftTool {
     }
 
     fn validate(&self, input: &Value) -> Result<(), ToolError> {
-        let goal = input
+        let intent_summary = input
+            .get("intent_summary")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .unwrap_or("");
+        if intent_summary.is_empty() {
+            return Err(ToolError::InvalidInput(
+                "intent_summary must be non-empty".into(),
+            ));
+        }
+        let plan_input = input
+            .get("plan_input")
+            .ok_or_else(|| ToolError::InvalidInput("plan_input must be provided".to_string()))?;
+        let goal = plan_input
             .get("goal")
             .and_then(|v| v.as_str())
             .map(str::trim)
             .unwrap_or("");
         if goal.is_empty() {
-            return Err(ToolError::InvalidInput("goal must be non-empty".into()));
+            return Err(ToolError::InvalidInput(
+                "plan_input.goal must be non-empty".into(),
+            ));
         }
-        let mvp = input
-            .get("mvp")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .unwrap_or("");
-        if mvp.is_empty() {
-            return Err(ToolError::InvalidInput("mvp must be non-empty".into()));
-        }
-        let steps = input
+        let steps = plan_input
             .get("steps")
             .and_then(|v| v.as_array())
             .map(|arr| arr.len())
@@ -74,10 +81,25 @@ mod tests {
         let out = tool
             .run(
                 json!({
-                    "goal": "Build todo app",
-                    "mvp": "List items in memory",
-                    "steps": [{"name": "ui", "intent": "render list"}],
-                    "success_criteria": ["user can add items"]
+                    "intent_summary": "Build a small todo app",
+                    "unresolved_questions": [],
+                    "plan_input": {
+                        "goal": "Build todo app",
+                        "intent_summary": "Build a small todo app",
+                        "scope": ["List items in memory"],
+                        "non_goals": [],
+                        "constraints": [],
+                        "acceptance_criteria": ["user can add items"],
+                        "steps": [{
+                            "step_id": "step-001",
+                            "title": "UI",
+                            "summary": "Render list",
+                            "instruction_seed": "Render list",
+                            "expected_files": ["src/App.tsx"],
+                            "acceptance_criteria": ["List is visible"],
+                            "dependencies": []
+                        }]
+                    }
                 }),
                 &ctx,
             )
@@ -85,7 +107,7 @@ mod tests {
             .unwrap();
         assert!(out.success);
         assert_eq!(
-            out.full["plan_draft"]["goal"].as_str(),
+            out.full["plan_draft"]["plan_input"]["goal"].as_str(),
             Some("Build todo app")
         );
     }
@@ -94,7 +116,11 @@ mod tests {
     fn validate_rejects_missing_goal() {
         let tool = EmitPlanDraftTool;
         let err = tool
-            .validate(&json!({"mvp": "x", "steps": [{"name":"a","intent":"b"}]}))
+            .validate(&json!({
+                "intent_summary": "x",
+                "unresolved_questions": [],
+                "plan_input": {"steps": [{"title":"a"}]}
+            }))
             .unwrap_err();
         assert!(matches!(err, ToolError::InvalidInput(_)));
     }
@@ -103,7 +129,11 @@ mod tests {
     fn validate_rejects_empty_steps() {
         let tool = EmitPlanDraftTool;
         let err = tool
-            .validate(&json!({"goal": "g", "mvp": "m", "steps": []}))
+            .validate(&json!({
+                "intent_summary": "x",
+                "unresolved_questions": [],
+                "plan_input": {"goal": "g", "steps": []}
+            }))
             .unwrap_err();
         assert!(matches!(err, ToolError::InvalidInput(_)));
     }

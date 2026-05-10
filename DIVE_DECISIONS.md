@@ -1350,3 +1350,98 @@
   - `dive/src-tauri/src/ipc/policy.rs`
   - `dive/src/pages/settings.tsx`
   - `docs/research-ablation.md`
+
+## ADR-080: SQLite는 runtime SoT, `.dive/plan.json`은 승인 시점 portable export
+
+- 일시: 2026-05-09
+- 상태: 채택 (Phase 9 — Plan-first 흐름 도입의 기반)
+- 컨텍스트: v0.3 Plan-first 흐름에서 사용자의 의도(Interview), 승인된 계획(Plan), 작업 단위(Step), 실행 매핑(StepSessionMapping)을 어디에 진실되게 보관할지 결정해야 한다. 후보는 (a) `.dive/plan.json`을 1차 진실로 두는 안, (b) SQLite를 1차 진실로 두는 안, (c) 둘을 동등하게 두고 양방향 동기화하는 안.
+- 결정:
+  - SQLite의 `Plan`/`Step`/`StepSessionMapping`/`Interview` 테이블이 runtime SoT다.
+  - `.dive/plan.json`/`plan.md`/`flow.mmd`는 `Plan.status = approved` 시점에 SQLite로부터 결정론적으로 생성되는 portable export(snapshot)다.
+  - 앱 시작 시 `.dive/plan.json`이 존재하지만 SQLite Plan이 없으면 import(복원)한다 — 프로젝트 폴더 이동·백업 시나리오 보호.
+  - SQLite와 파일이 동시에 존재하고 충돌하면 SQLite가 우선이며, 파일은 다음 export 시 덮어써진다.
+  - 사용자 직접 파일 편집은 비지원. 편집은 IPC를 거친다.
+- 대안 검토:
+  - (a) 파일 1차 — git diff/PR 친화적이지만, 동시 쓰기·인덱싱·참조무결성을 SQLite로 강제하기 어렵고 ADR-008/010/011과 충돌.
+  - (c) 양방향 동기화 — 충돌 해결과 lock 정책이 복잡해져 입문자 보호 원칙과 어긋난다.
+- 결과:
+  - Phase 9 데이터 모델(Interview/Plan/Step/StepSessionMapping)이 ADR-008(rusqlite 0.32) + ADR-010(append-only migration) 위에서 일관된다.
+  - 외부 도구·연구자는 `.dive/plan.json`만 읽으면 plan을 portable하게 분석할 수 있다.
+- 참조 파일:
+  - `dive/src-tauri/src/db/schema.rs` (CREATE_INTERVIEW/PLAN/STEP/STEP_SESSION_MAPPING)
+  - `dive/src-tauri/src/db/migrations.rs` (migration_v7)
+  - `dive/src-tauri/src/workspace_plan/artifacts.rs` (export 생성)
+  - `docs/internal/DIVE_NEXT_PHASE9_PLAN.md`
+  - `DIVE_SPEC.md` §4.1.1, §4.1.6, §10.2
+
+## ADR-081: Card 테이블은 변경하지 않고 별도 Step 테이블로 계획 메타데이터 분리
+
+- 일시: 2026-05-09
+- 상태: 채택 (Phase 9)
+- 컨텍스트: Plan-first 흐름에서 "계획 단위(Step)"가 새로 도입되어야 한다. 후보는 (a) 기존 `Card`에 plan metadata 컬럼들(`instruction_seed`, `expected_files`, `acceptance_criteria`, `verification_*`, `dependencies`, `parallel_group`)을 추가하는 안, (b) 별도 `Step` 테이블을 만들고 Card는 실행 단위로 유지하는 안. Card는 D/I/V/E state machine, gate, 272줄의 DAO 테스트 + 128줄의 state machine 테스트 + gate 통합 테스트에 깊이 결합되어 있다.
+- 결정:
+  - `Card` 테이블의 컬럼·DAO·state machine·gate는 변경하지 않는다.
+  - `Step` 테이블을 신규로 만들고, plan metadata(instruction_seed/expected_files/acceptance_criteria/verification/dependencies/parallel_group/position)를 거기에만 보관한다.
+  - Step ↔ Card 연결은 `StepSessionMapping`이 담당(별 ADR-082 참조).
+  - 마이그레이션은 ADR-010의 append-only 원칙에 따라 `migration_v7`으로 추가한다.
+- 대안 검토:
+  - (a) Card 확장 — 기존 게이트·테스트 회귀 위험이 크고, "실행 단위(Card)"와 "계획 단위(Step)"의 의미가 한 테이블에 섞여 책임 경계가 흐려진다.
+- 결과:
+  - Phase 9 도입에서 Card 회귀 0건이 가능. 기존 v0.2 게이트·테스트는 수정 없이 통과.
+  - 계획 변경(`Step` 추가·dependency 변경)이 실행 상태(`Card.state`)에 영향을 주지 않으므로 Plan 편집이 안전.
+- 참조 파일:
+  - `dive/src-tauri/src/db/schema.rs` (CREATE_STEP)
+  - `dive/src-tauri/src/db/dao/card.rs` (변경 없음)
+  - `dive/src-tauri/src/db/dao/step.rs` (신규)
+  - `dive/src-tauri/src/dive/state_machine.rs` (변경 없음)
+  - `DIVE_SPEC.md` §4.2.1, §10.2
+
+## ADR-082: Step ↔ Card는 `StepSessionMapping`을 통한 선택적 1:1 매핑
+
+- 일시: 2026-05-09
+- 상태: 채택 (Phase 9)
+- 컨텍스트: Step(계획 단위)과 Card(실행 단위)의 관계 모델이 필요하다. 후보는 (a) `Card.step_id` FK 직접 추가, (b) Step ↔ Card 1:N(한 Step이 여러 Card 생성), (c) `StepSessionMapping`이라는 매핑 테이블에 Step ↔ Session ↔ Card를 함께 저장하는 안.
+- 결정:
+  - `StepSessionMapping(step_id UNIQUE, session_id NULL FK, card_id NULL FK, status, ...)` 테이블로 매핑을 외재화한다.
+  - 매핑은 **Step당 0..1**(선택적). Step Open 전에는 매핑 없음(Plan만 존재), Open 시 Session/Card 생성 또는 재사용 후 매핑 row가 만들어진다.
+  - `status`는 `planned/blocked/ready/in_progress/review/done/shipped` 중 하나로, Roadmap 시각화의 1차 입력이다.
+  - `Card`/`Session` 테이블은 변경하지 않는다(ADR-081과 일관).
+- 대안 검토:
+  - (a) `Card.step_id` FK 직접 — Card 테이블 변경 회귀를 부르고, Step Open 전 "계획만 있는 상태"를 표현하기 어렵다.
+  - (b) 1:N 매핑 — Step 단위의 검증 evidence/checkpoint/user_decision을 어디에 둘지 모호. 또한 v0.3 권장 경로는 "Step당 1 Session" 단순 모델이며, 1:N은 미래(병렬 분기) 검토 사안.
+- 결과:
+  - Step 단위 통합 정보(checkpoint_ids, verification_evidence, user_decision)를 매핑 row 한 곳에 모아 Roadmap이 단일 row 조회로 상태를 도출 가능.
+  - "Plan만 만들고 아직 실행 안 함" 상태를 자연스럽게 표현(매핑 row 부재).
+  - 미래에 1:N으로 확장이 필요하면 `step_id`의 UNIQUE만 풀고 N row를 허용하면 됨.
+- 참조 파일:
+  - `dive/src-tauri/src/db/schema.rs` (CREATE_STEP_SESSION_MAPPING)
+  - `dive/src-tauri/src/db/dao/step_session_mapping.rs`
+  - `dive/src-tauri/src/ipc/workspace_plan.rs` (`workspace_plan_step_open`)
+  - `dive/src/features/roadmap/usePlanRoadmap.ts` (`derivePlanRoadmapSteps`)
+  - `DIVE_SPEC.md` §4.1.4, §10.2
+
+## ADR-083: Interview → Plan → Step → Card 책임 분리 (4계층 흐름)
+
+- 일시: 2026-05-09
+- 상태: 채택 (Phase 9)
+- 컨텍스트: Plan-first 흐름의 각 단계가 어떤 데이터에 무슨 책임을 갖는지를 명확히 해야 코드/UI/IPC가 일관된다. 책임이 흐려지면 "어디서 mutating 도구를 차단할지", "Roadmap 상태는 누구로부터 유도되는지", "사용자 의도 변경은 어디까지 전파되는지"가 모호해진다.
+- 결정:
+  - **Interview** (project당 0..1) — 사용자 의도의 외화(소크라테스식 Q&A). 산출물은 `intent_summary`, `unresolved_questions`. mutating 도구 차단(`run_mode = Interview`).
+  - **Plan** (project당 0..1) — 승인된 계획 메타(goal/scope/non_goals/constraints/acceptance_criteria). draft 동안 mutating 차단(`run_mode = Plan`), approved 시 Build 게이트 해제 + portable export 생성.
+  - **Step** (plan당 N) — 계획 단위. instruction_seed/expected_files/verification/dependencies/parallel_group을 보관. 실행 상태는 보관하지 않음(ADR-082의 매핑이 책임).
+  - **Card** (session당 N) — 실행 단위. D/I/V/E state machine, instruction, verify_log, changed_files. Step의 instruction_seed가 카드 분해의 초안이 되지만, Card 자체는 Step을 모름(매핑이 외재화).
+  - 이 계층의 각 경계에서만 게이트가 작동한다(ADR-076의 ablation flag와 호환).
+- 대안 검토:
+  - 3계층(Plan → Step → Card, Interview를 Plan 안에 흡수) — 의도 파악 단계가 Plan과 한 곳에 섞이면, "의도가 바뀌면 Plan을 폐기해야 하는가"의 의사결정 경계가 흐려진다. Interview를 분리하면 폐기·재시작이 깔끔.
+  - Step 안에 Card 직접 임베드 — Card의 D/I/V/E·게이트·체크포인트와 결합되어 Plan 편집 시 회귀 위험.
+- 결과:
+  - 각 계층의 mutating 권한·UI 진입·portable export·삭제 정책이 단일 ownership 규칙으로 결정 가능.
+  - Plan 편집은 Step만 영향, Step 실행은 Card만 영향 → Plan 편집과 진행 중 작업이 충돌하지 않는다.
+  - 향후 Plan 버전 관리(N개 plan 동시 보관)나 Step 병렬 분기를 도입할 때 경계가 명확해 마이그레이션이 쉬움.
+- 참조 파일:
+  - `dive/src-tauri/src/dive/gate.rs` (`run_mode` 분기)
+  - `dive/src-tauri/src/agent/mod.rs` (Step context 주입)
+  - `dive/src-tauri/src/ipc/workspace_plan.rs` (각 계층 IPC)
+  - `dive/src/features/planning/`, `dive/src/features/roadmap/`
+  - `DIVE_SPEC.md` §4.1.x, §4.2.x, §10.2

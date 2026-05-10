@@ -2,7 +2,7 @@
 
 use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
-use dive_lib::agent::{AgentError, AgentLoop, AlwaysApproveHook};
+use dive_lib::agent::{AgentError, AgentLoop, AlwaysApproveHook, StepContext};
 use dive_lib::db::dao::{card, message, project, session, workmap};
 use dive_lib::db::models::{CardState, NewCard, NewProject, NewSession};
 use dive_lib::dive::{
@@ -302,6 +302,65 @@ async fn agent_loop_injects_current_card_system_prompt() {
     );
     assert!(system_content.contains("card-1"));
     assert!(system_content.contains("implement login form"));
+}
+
+#[tokio::test]
+async fn agent_loop_injects_active_step_context_into_system_prompt() {
+    let (db, _db_file, root, sid) = fresh_env();
+    let cid = insert_card(&db, sid, CardState::Instructed, Some("card instruction"), 1);
+    {
+        let guard = db.lock().unwrap();
+        workmap::set_current_card(guard.conn(), sid, Some(cid)).unwrap();
+    }
+    let mock = Arc::new(MockProvider::new(vec![vec![
+        ChatEvent::TextDelta("ok".into()),
+        ChatEvent::Done {
+            finish_reason: FinishReason::Stop,
+        },
+    ]]));
+    let loop_ = AgentLoop::builder()
+        .provider(mock.clone())
+        .registry(Arc::new(ToolRegistry::with_builtins()))
+        .permission(Arc::new(AlwaysApproveHook))
+        .db(db.clone())
+        .tool_ctx(ToolContext::new(root.path(), sid))
+        .model("mock-model")
+        .cancel(Arc::new(AtomicBool::new(false)))
+        .max_iterations(3)
+        .stage(DiveStage::I)
+        .step_context(Some(StepContext {
+            step_id: 7,
+            title: "Export artifacts".into(),
+            instruction_seed: Some("Write plan files".into()),
+            acceptance_criteria: Some("plan.json exists".into()),
+            expected_files: Some(".dive/plan.json".into()),
+        }))
+        .build()
+        .unwrap();
+
+    let mut events = Vec::new();
+    loop_
+        .run(sid, "continue", &mut |e| events.push(e))
+        .await
+        .unwrap();
+
+    let request = mock
+        .requests_snapshot()
+        .into_iter()
+        .next()
+        .expect("expected request");
+    let system_content = request
+        .messages
+        .iter()
+        .find_map(|m| match m {
+            dive_lib::Message::System { content } => Some(content.clone()),
+            _ => None,
+        })
+        .expect("expected system prompt injection");
+    assert!(system_content.contains("Export artifacts"));
+    assert!(system_content.contains("Write plan files"));
+    assert!(system_content.contains("plan.json exists"));
+    assert!(system_content.contains(".dive/plan.json"));
 }
 
 #[tokio::test]

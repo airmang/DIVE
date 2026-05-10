@@ -11,6 +11,7 @@ pub mod mcp;
 pub mod menu;
 pub mod providers;
 pub mod tools;
+pub mod workspace_plan;
 
 pub use auth::{AuthError, Keyring, OsKeyring, SecretScope};
 pub use db::Database;
@@ -104,7 +105,18 @@ pub fn run() {
             ipc::mcp_server_test_connect,
             ipc::mcp_server_list_tools,
             ipc::prompt_check_review,
-            ipc::menu_refresh_recents
+            ipc::menu_refresh_recents,
+            ipc::workspace_plan_status,
+            ipc::workspace_plan_start_interview,
+            ipc::workspace_plan_save_interview_answer,
+            ipc::workspace_plan_submit_interview,
+            ipc::workspace_plan_generate_draft,
+            ipc::workspace_plan_approve,
+            ipc::workspace_plan_discard_plan,
+            ipc::workspace_plan_list_steps,
+            ipc::workspace_plan_step_mappings,
+            ipc::roadmap_step_open,
+            ipc::roadmap_step_update_state
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

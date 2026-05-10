@@ -1,4 +1,5 @@
 import { AlertCircle, Code, Eye } from "lucide-react";
+import type { ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { LearningHint } from "../ui/learning-hint";
@@ -26,11 +27,7 @@ interface ChatAreaProps {
   onRetryError?: (id: string) => void;
   onApproveToolCall?: (toolCallId: string, modifiedArgs?: unknown) => void;
   onDenyToolCall?: (toolCallId: string, reason?: string) => void;
-  planApproval?: {
-    activeMessageId: string | null;
-    onApprove: () => void;
-    onRequestChanges: () => void;
-  };
+  interviewPanel?: ReactNode;
   modelLabel?: string;
   inputDisabled?: boolean;
   inputBlocked?: { reason: string; actionLabel?: string; onAction?: () => void } | null;
@@ -41,6 +38,7 @@ interface ChatAreaProps {
     actionLabel?: string;
     onAction?: () => void;
   };
+  planDraftApproval?: ReactNode;
 }
 
 export function ChatArea({
@@ -55,12 +53,13 @@ export function ChatArea({
   onRetryError,
   onApproveToolCall,
   onDenyToolCall,
-  planApproval,
+  interviewPanel,
   modelLabel,
   inputDisabled,
   inputBlocked,
   stage,
   emptyState,
+  planDraftApproval,
 }: ChatAreaProps) {
   const hasConversation = messages !== undefined && messages.length > 0;
 
@@ -118,13 +117,14 @@ export function ChatArea({
       ) : null}
 
       <div className="flex-1 min-h-0 overflow-hidden">
-        {hasConversation ? (
+        {planDraftApproval ? (
+          planDraftApproval
+        ) : hasConversation ? (
           <MessageList
             messages={messages}
             onRetryError={onRetryError}
             onApproveToolCall={onApproveToolCall}
             onDenyToolCall={onDenyToolCall}
-            planApproval={planApproval}
           />
         ) : (
           <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 px-6 text-center">
@@ -176,7 +176,9 @@ export function ChatArea({
             ) : null}
           </div>
         ) : null}
-        {onSendMessage ? (
+        {interviewPanel ? (
+          interviewPanel
+        ) : onSendMessage ? (
           <ChatInput
             onSend={onSendMessage}
             disabled={inputDisabled || !!inputBlocked}

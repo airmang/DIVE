@@ -11,9 +11,10 @@ const MIGRATIONS: &[(i64, MigrationFn)] = &[
     (4, migration_v4),
     (5, migration_v5),
     (6, migration_v6),
+    (7, migration_v7),
 ];
 
-pub const LATEST_SCHEMA_VERSION: i64 = 6;
+pub const LATEST_SCHEMA_VERSION: i64 = 7;
 
 pub fn migrate(conn: &mut Connection) -> Result<(), DbError> {
     migrate_with_migrations(conn, MIGRATIONS)
@@ -168,6 +169,17 @@ fn migration_v6(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     Ok(())
 }
 
+fn migration_v7(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    tx.execute_batch(schema::CREATE_INTERVIEW)?;
+    tx.execute_batch(schema::CREATE_PLAN)?;
+    tx.execute_batch(schema::CREATE_STEP)?;
+    tx.execute_batch(schema::CREATE_STEP_SESSION_MAPPING)?;
+    for index in schema::CREATE_V7_INDEXES {
+        tx.execute_batch(index)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use rusqlite::Transaction;
@@ -291,6 +303,34 @@ mod tests {
             })
             .unwrap();
         assert_eq!(latest, migrations::LATEST_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn migration_v7_creates_interview_plan_step_tables() {
+        let (db, _tmp) = fresh_db();
+        let tables: Vec<String> = db
+            .conn()
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('Interview','Plan','Step','StepSessionMapping')")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(tables.len(), 4);
+    }
+
+    #[test]
+    fn migration_v7_creates_v7_indexes() {
+        let (db, _tmp) = fresh_db();
+        let count: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name IN ('idx_step_plan_position','idx_step_session_mapping_session','idx_step_session_mapping_card')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 3);
     }
 
     #[test]

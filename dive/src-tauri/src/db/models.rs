@@ -267,3 +267,126 @@ pub struct EventLogRow {
     pub payload: Value,
     pub created_at: i64,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewInterview {
+    pub project_id: i64,
+    pub goal: String,
+    pub questions: Option<Value>,
+    pub unresolved_questions: Option<Value>,
+    pub intent_summary: Option<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InterviewRow {
+    pub id: i64,
+    pub project_id: i64,
+    pub goal: String,
+    pub questions: Option<Value>,
+    pub unresolved_questions: Option<Value>,
+    pub intent_summary: Option<String>,
+    pub status: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewPlan {
+    pub project_id: i64,
+    pub interview_id: Option<i64>,
+    pub goal: String,
+    pub intent_summary: Option<String>,
+    pub scope: Option<Value>,
+    pub non_goals: Option<Value>,
+    pub constraints: Option<Value>,
+    pub acceptance_criteria: Option<Value>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanRow {
+    pub id: i64,
+    pub project_id: i64,
+    pub interview_id: Option<i64>,
+    pub goal: String,
+    pub intent_summary: Option<String>,
+    pub scope: Option<Value>,
+    pub non_goals: Option<Value>,
+    pub constraints: Option<Value>,
+    pub acceptance_criteria: Option<Value>,
+    pub status: String,
+    pub created_at: i64,
+    pub approved_at: Option<i64>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewStep {
+    pub plan_id: i64,
+    pub step_id: String,
+    pub title: String,
+    pub summary: Option<String>,
+    pub instruction_seed: Option<String>,
+    pub expected_files: Option<Value>,
+    pub acceptance_criteria: Option<Value>,
+    pub verification_kind: Option<String>,
+    pub verification_command: Option<String>,
+    pub verification_manual_check: Option<String>,
+    pub dependencies: Option<Value>,
+    pub parallel_group: Option<String>,
+    pub position: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StepRow {
+    pub id: i64,
+    pub plan_id: i64,
+    pub step_id: String,
+    pub title: String,
+    pub summary: Option<String>,
+    pub instruction_seed: Option<String>,
+    pub expected_files: Option<Value>,
+    pub acceptance_criteria: Option<Value>,
+    pub verification_kind: Option<String>,
+    pub verification_command: Option<String>,
+    pub verification_manual_check: Option<String>,
+    pub dependencies: Option<Value>,
+    pub parallel_group: Option<String>,
+    pub position: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewStepSessionMapping {
+    pub step_id: i64,
+    pub session_id: Option<i64>,
+    pub card_id: Option<i64>,
+    pub state_path: Option<String>,
+    pub status: String,
+    pub started_at: Option<i64>,
+    pub completed_at: Option<i64>,
+    pub checkpoint_ids: Option<Value>,
+    pub verification_status: Option<String>,
+    pub verification_evidence: Option<String>,
+    pub user_decision: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StepSessionMappingRow {
+    pub id: i64,
+    pub step_id: i64,
+    pub session_id: Option<i64>,
+    pub card_id: Option<i64>,
+    pub state_path: Option<String>,
+    pub status: String,
+    pub started_at: Option<i64>,
+    pub completed_at: Option<i64>,
+    pub checkpoint_ids: Option<Value>,
+    pub verification_status: Option<String>,
+    pub verification_evidence: Option<String>,
+    pub user_decision: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}

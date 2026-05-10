@@ -7,7 +7,6 @@ import { ToolResultMessage } from "./ToolResultMessage";
 import { SystemMessage } from "./SystemMessage";
 import { ErrorMessage } from "./ErrorMessage";
 import { ReasoningCard } from "./ReasoningCard";
-import { PlanDraftInlineActions } from "./PlanDraftInlineActions";
 
 interface Props {
   messages: ChatMessage[];
@@ -16,11 +15,6 @@ interface Props {
   onResendUser?: (id: string) => void;
   onApproveToolCall?: (toolCallId: string, modifiedArgs?: unknown) => void;
   onDenyToolCall?: (toolCallId: string, reason?: string) => void;
-  planApproval?: {
-    activeMessageId: string | null;
-    onApprove: () => void;
-    onRequestChanges: () => void;
-  };
   /** Cap DOM nodes to last N. Real virtualization lands in task 4-4. */
   maxRendered?: number;
 }
@@ -35,7 +29,6 @@ function MessageListImpl({
   onResendUser,
   onApproveToolCall,
   onDenyToolCall,
-  planApproval,
   maxRendered = 200,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -98,21 +91,8 @@ function MessageListImpl({
                   onDeny={onDenyToolCall}
                 />
               );
-            case "tool_result": {
-              const showPlanActions =
-                msg.toolName === "emit_plan_draft" && planApproval?.activeMessageId === msg.id;
-              return (
-                <div key={msg.id} className="flex flex-col gap-2">
-                  <ToolResultMessage message={msg} />
-                  {showPlanActions && planApproval ? (
-                    <PlanDraftInlineActions
-                      onApprove={planApproval.onApprove}
-                      onRequestChanges={planApproval.onRequestChanges}
-                    />
-                  ) : null}
-                </div>
-              );
-            }
+            case "tool_result":
+              return <ToolResultMessage key={msg.id} message={msg} />;
             case "system":
               return <SystemMessage key={msg.id} message={msg} />;
             case "error":

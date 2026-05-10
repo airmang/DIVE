@@ -29,7 +29,7 @@ use crate::db::dao::{card, message, workmap};
 use crate::db::models::NewMessage;
 use crate::db::Database;
 use crate::dive::event_log as dive_event_log;
-use crate::dive::DiveStage;
+use crate::dive::{build_plan_interview_system_prompt, DiveStage};
 use crate::providers::{
     ChatEvent, ChatRequest, FinishReason, LlmProvider, Message as ProviderMessage, ToolCall,
 };
@@ -50,6 +50,15 @@ fn changed_paths_from_tool_result(tool_name: &str, full: &Value) -> Vec<String> 
         .unwrap_or_default()
 }
 
+#[derive(Debug, Clone)]
+pub struct StepContext {
+    pub step_id: i64,
+    pub title: String,
+    pub instruction_seed: Option<String>,
+    pub acceptance_criteria: Option<String>,
+    pub expected_files: Option<String>,
+}
+
 pub struct AgentLoop {
     pub provider: Arc<dyn LlmProvider>,
     pub registry: Arc<ToolRegistry>,
@@ -60,9 +69,11 @@ pub struct AgentLoop {
     pub cancel: Arc<AtomicBool>,
     pub model: String,
     pub stage: DiveStage,
+    pub run_mode: AgentRunMode,
     pub disable_gates: bool,
     pub plan_accepted: bool,
     pub locale: Option<String>,
+    pub step_context: Option<StepContext>,
 }
 
 pub struct AgentOutcome {
@@ -119,6 +130,14 @@ impl AgentLoop {
                 },
             );
         }
+        if let Some(interview_prompt) = self.plan_interview_system_prompt() {
+            messages.insert(
+                0,
+                ProviderMessage::System {
+                    content: interview_prompt,
+                },
+            );
+        }
         if let Some(last) = messages.last() {
             if !matches!(last, ProviderMessage::User { .. }) {
                 messages.push(ProviderMessage::User {
@@ -131,7 +150,11 @@ impl AgentLoop {
             });
         }
 
-        let tool_defs = self.registry.tool_defs();
+        let tool_defs = if self.run_mode == AgentRunMode::Interview {
+            Vec::new()
+        } else {
+            self.registry.tool_defs()
+        };
 
         for iter in 0..self.max_iterations {
             self.check_cancel()?;
@@ -687,15 +710,30 @@ impl AgentLoop {
         let Some(card) = card::get_by_id(db.conn(), cid)? else {
             return Ok(None);
         };
+        let mut prompt_parts = Vec::new();
+        if let Some(ctx) = &self.step_context {
+            prompt_parts.push(format!("현재 작업 단계: {}", ctx.title));
+            if let Some(instruction) = &ctx.instruction_seed {
+                prompt_parts.push(format!("단계 지시: {}", instruction));
+            }
+            if let Some(criteria) = &ctx.acceptance_criteria {
+                prompt_parts.push(format!("수용 기준: {}", criteria));
+            }
+            if let Some(files) = &ctx.expected_files {
+                prompt_parts.push(format!("예상 변경 파일: {}", files));
+            }
+        }
+
         let instruction = card.instruction.as_deref().unwrap_or("").trim();
         if instruction.is_empty() {
-            Ok(Some(format!("현재 작업 중인 카드: {}", card.title)))
+            prompt_parts.push(format!("현재 작업 중인 카드: {}", card.title));
         } else {
-            Ok(Some(format!(
+            prompt_parts.push(format!(
                 "현재 작업 중인 카드: {}\n지시: {}",
                 card.title, instruction
-            )))
+            ));
         }
+        Ok(Some(prompt_parts.join("\n\n")))
     }
 
     fn locale_system_prompt(&self) -> Option<String> {
@@ -705,6 +743,15 @@ impl AgentLoop {
         }
         Some(format!(
             "현재 사용자 언어: {locale}. 모든 응답(설명, 질문, 요약)은 반드시 그 언어로 작성하세요."
+        ))
+    }
+
+    fn plan_interview_system_prompt(&self) -> Option<String> {
+        if self.run_mode != AgentRunMode::Interview {
+            return None;
+        }
+        Some(build_plan_interview_system_prompt(
+            self.locale.as_deref().unwrap_or("ko"),
         ))
     }
 
@@ -792,9 +839,11 @@ pub struct AgentLoopBuilder {
     cancel: Option<Arc<AtomicBool>>,
     model: Option<String>,
     stage: Option<DiveStage>,
+    run_mode: Option<AgentRunMode>,
     disable_gates: bool,
     plan_accepted: bool,
     locale: Option<String>,
+    step_context: Option<StepContext>,
 }
 
 impl AgentLoopBuilder {
@@ -834,6 +883,10 @@ impl AgentLoopBuilder {
         self.stage = Some(s);
         self
     }
+    pub fn run_mode(mut self, mode: AgentRunMode) -> Self {
+        self.run_mode = Some(mode);
+        self
+    }
     pub fn disable_gates(mut self, disabled: bool) -> Self {
         self.disable_gates = disabled;
         self
@@ -846,6 +899,10 @@ impl AgentLoopBuilder {
         self.locale = locale
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
+        self
+    }
+    pub fn step_context(mut self, ctx: Option<StepContext>) -> Self {
+        self.step_context = ctx;
         self
     }
 
@@ -864,9 +921,11 @@ impl AgentLoopBuilder {
                 .unwrap_or_else(|| Arc::new(AtomicBool::new(false))),
             model: self.model.unwrap_or_else(|| "unset".into()),
             stage: self.stage.unwrap_or(DiveStage::D),
+            run_mode: self.run_mode.unwrap_or(AgentRunMode::Plan),
             disable_gates: self.disable_gates,
             plan_accepted: self.plan_accepted,
             locale: self.locale,
+            step_context: self.step_context,
         })
     }
 }

@@ -1,10 +1,14 @@
 pub mod card;
 pub mod checkpoint;
 pub mod event_log;
+pub mod interview;
 pub mod message;
+pub mod plan;
 pub mod project;
 pub mod provider_config;
 pub mod session;
+pub mod step;
+pub mod step_session_mapping;
 pub mod tool_call;
 pub mod workmap;
 

@@ -233,89 +233,62 @@
       "step_request_changes": "채팅에서 수정 요청",
       "step_approve_message_seed": "{{position}}단계 승인: {{title}}",
       "step_request_changes_message_seed": "{{position}}단계 수정 요청: {{title}} — "
+    },
+    "plan_graph": {
+      "summary": "{{total}}단계 · 준비 {{ready}}개 · 막힘 {{blocked}}개",
+      "waiting_for": "{{deps}} 완료 대기 중",
+      "resume": "계속",
+      "status": {
+        "blocked": "막힘",
+        "ready": "준비됨",
+        "in_progress": "진행 중",
+        "done": "완료",
+        "shipped": "반영됨"
+      }
     }
   },
   "planning": {
-    "roadmap_created_title": "로드맵 생성됨",
-    "roadmap_created_description": "{{count}}개 단계가 검토 준비되었습니다.",
-    "adjust_goal_seed": "{{title}} 계획을 조정하세요. 해결할 문제: {{reason}}",
-    "questions": {
-      "product_shape": "먼저 무엇을 만들고 싶나요?",
-      "mvp_focus": "첫 버전에서 무엇을 확인하면 좋을까요?",
-      "risk_level": "에이전트가 얼마나 조심스럽게 움직이면 좋을까요?"
+    "interview": {
+      "title": "계획 인터뷰",
+      "goal_hint": "무엇을 만들고 싶은지 자연어로 설명하세요.",
+      "answer_hint": "마지막 질문에 답하세요. 모호하면 DIVE가 더 구체적으로 물어봅니다.",
+      "goal_placeholder": "이런 것을 만들고 싶어요...",
+      "answer_placeholder": "답변을 입력하세요...",
+      "start": "시작",
+      "send_answer": "전송",
+      "complete": "인터뷰 완료",
+      "question_fallback": "마지막 인터뷰 질문",
+      "submit_prompt": "[INTERVIEW_SUBMIT]\n목표: {{goal}}\n인터뷰를 요약하고, workspace_plan_generate_draft와 호환되는 plan_input을 포함해 intent_summary, unresolved_questions와 함께 JSON만 반환하세요.",
+      "adjust_failure_seed": "{{title}} 계획 인터뷰를 다시 여세요. 해결해야 할 문제: {{reason}}",
+      "vague_answer_error": "대상, 범위, 성공 기준, 제약 중 하나 이상을 더 구체적으로 적어 주세요.",
+      "start_failed_title": "인터뷰를 시작할 수 없음",
+      "save_failed_title": "답변을 저장할 수 없음",
+      "draft_ready_title": "계획 초안 준비됨",
+      "draft_ready_description": "승인하기 전에 생성된 계획을 검토하세요.",
+      "draft_failed_title": "계획 초안을 만들 수 없음"
     },
-    "choices": {
-      "web_app": "웹 앱",
-      "desktop_app": "데스크톱 앱",
-      "script_or_tool": "스크립트 또는 도구",
-      "user_can_add_and_see_data": "사용자가 데이터를 추가하고 볼 수 있음",
-      "data_is_saved": "데이터가 저장됨",
-      "looks_polished": "보기 좋게 다듬어짐",
-      "tiny_safe_steps": "아주 작은 안전 단계",
-      "balanced_mvp": "균형 잡힌 MVP",
-      "explore_options_first": "선택지 먼저 비교",
-      "not_sure": "잘 모르겠음"
-    },
-    "draft": {
-      "focus": {
-        "user_can_add_and_see_data": "사용자가 데이터를 추가하고 볼 수 있음",
-        "data_is_saved": "데이터가 저장됨",
-        "looks_polished": "보기 좋게 다듬어짐",
-        "not_sure": "핵심 동작이 먼저 확인됨"
-      },
-      "safety": {
-        "tiny_safe_steps": "이 단계를 아주 작게 유지하고 위험한 변경 전에는 먼저 물어보세요.",
-        "explore_options_first": "파일을 바꾸기 전에 가장 단순한 선택지를 비교하세요.",
-        "balanced_mvp": "가장 작은 유용한 MVP 변경을 우선하고 검증하세요.",
-        "not_sure": "목표에 가까워지는 가장 작고 되돌릴 수 있는 변경을 하세요."
-      },
-      "mvp": {
-        "script_or_tool": "{{goal}}을 위한 작게 동작하는 도구입니다. 첫 버전에서는 {{focus}}을 확인합니다.",
-        "desktop_app": "{{goal}}을 위한 최소 데스크톱 경험입니다. 첫 버전에서는 {{focus}}을 확인합니다.",
-        "web_app": "{{goal}}을 위한 최소 앱 화면입니다. 첫 버전에서는 {{focus}}을 확인합니다.",
-        "not_sure": "{{goal}}의 핵심 동작을 안전하게 확인하는 최소 첫 버전입니다."
-      },
-      "non_goals": {
-        "unrelated_screens": "관련 없는 화면을 다시 설계하지 않습니다.",
-        "new_dependencies": "사용자 승인 없이 새 의존성을 추가하지 않습니다.",
-        "backend_or_fs": "단계가 명시적으로 요구하지 않으면 백엔드나 파일시스템 동작을 바꾸지 않습니다."
-      },
-      "success_criteria": {
-        "beginner_describes": "초심자가 결과를 한 문장으로 설명할 수 있습니다.",
-        "mvp_check_command": "MVP를 구체적인 명령이나 수동 smoke test로 확인할 수 있습니다.",
-        "next_step_obvious": "첫 버전이 동작한 뒤 다음 단계가 명확합니다."
-      },
-      "steps": {
-        "1": {
-          "title": "가장 작은 유용한 버전 확인",
-          "summary": "목표를 작은 MVP로 정리합니다: {{mvp}}",
-          "acceptance": {
-            "target_user_clear": "대상 사용자와 첫 번째 유용한 결과가 명확합니다.",
-            "open_questions_listed": "구현 전에 열린 질문이 정리됩니다."
-          },
-          "instruction_seed": "{{safety}} 다음 목표의 가장 작은 유용한 버전을 명확히 하세요: {{goal}}"
-        },
-        "2": {
-          "title": "첫 번째 보이는 경로 구현",
-          "summary": "MVP에 필요한 UI 또는 코드 경로만 구현합니다.",
-          "acceptance": {
-            "happy_path_works": "주요 성공 경로가 처음부터 끝까지 동작합니다.",
-            "unrelated_untouched": "관련 없는 파일이나 기능은 변경하지 않습니다."
-          },
-          "instruction_seed": "{{safety}} 다음 목표의 첫 번째 보이는 경로를 구현하세요: {{goal}}"
-        },
-        "3": {
-          "title": "결과 검증 및 설명",
-          "summary": "가장 작은 유용한 검증을 실행하고 변경 내용을 설명합니다.",
-          "acceptance": {
-            "checks_pass_or_explained": "관련 검증이 통과하거나 실패 이유가 명확히 설명됩니다.",
-            "user_sees_diff": "사용자가 무엇이 바뀌었고 무엇이 남았는지 볼 수 있습니다."
-          },
-          "instruction_seed": "{{safety}} MVP를 검증하고 결과를 요약하세요: {{goal}}"
-        }
-      }
-    },
-    "request_changes_seed": "계획의 일부를 바꿨으면 합니다. 목표: {{goal}}. 어떤 부분을 다시 생각해볼지 제안해 주세요."
+    "approval": {
+      "title": "계획 초안",
+      "approve": "승인",
+      "discard": "폐기",
+      "goal": "목표",
+      "intent_summary": "의도 요약",
+      "scope": "범위",
+      "non_goals": "비목표",
+      "constraints": "제약",
+      "acceptance_criteria": "완료 기준",
+      "steps": "단계",
+      "step_dag": "Step DAG",
+      "interview_context": "인터뷰 맥락",
+      "unresolved_questions": "미해결 질문",
+      "none": "없음",
+      "request_changes": "수정 요청",
+      "request_changes_placeholder": "이 초안에서 바꿀 내용을 입력하세요...",
+      "unresolved_warning": "These items are unresolved — consider answering before approving",
+      "revision_prompt": "[INTERVIEW_SUBMIT]\n다음 사용자 피드백을 반영해 현재 workspace plan 초안을 다시 생성하세요:\n{{feedback}}\n\n현재 초안 JSON:\n{{draft}}\n\nintent_summary, unresolved_questions, plan_input을 포함한 JSON만 반환하세요.",
+      "approve_failed_title": "계획을 승인할 수 없음",
+      "discard_failed_title": "계획을 폐기할 수 없음"
+    }
   },
   "recovery": {
     "title": "복구 및 되돌리기",

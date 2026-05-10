@@ -239,6 +239,7 @@ export function useChatSession(
       stage?: "d" | "i" | "v" | "e",
       runMode?: "interview" | "plan" | "build" | "verify",
       planAccepted?: boolean,
+      stepId?: number,
     ) => {
       if (sessionId === null) {
         setState((s) => ({
@@ -262,6 +263,7 @@ export function useChatSession(
           runMode: runMode ?? null,
           locale: useLocaleStore.getState().locale,
           planAccepted: planAccepted ?? null,
+          stepId: stepId ?? null,
         });
       } catch (err) {
         clearStallTimer();
