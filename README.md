@@ -133,7 +133,7 @@ cargo clippy --features dev-mock --all-targets -- -D warnings
 - **투명성** — 도구 호출, 에러, 변경 파일, 검증 결과를 숨기지 않습니다.
 - **로컬 우선** — 프로젝트 데이터와 비밀값은 로컬 저장소/OS keyring 중심으로 관리합니다.
 
-내부 운영 문서: [`docs/internal/`](./docs/internal/)
+내부 운영 문서: [`docs/internal/`](./docs/internal/) · ADR ledger: [`DIVE_DECISIONS.md`](./DIVE_DECISIONS.md) (72 ADR, latest ADR-085)
 
 ---
 

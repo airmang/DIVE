@@ -8,6 +8,7 @@ pub mod assist;
 pub mod event_log;
 pub mod gate;
 pub mod plan_interview;
+pub mod plan_router;
 pub mod prompt_check;
 pub mod state_machine;
 pub mod verify;

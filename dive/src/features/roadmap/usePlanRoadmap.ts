@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { WorkspacePlanStatus } from "../planning";
 
+export const PLAN_ROADMAP_REFRESH_EVENT = "dive:plan-roadmap-refresh";
+
 type TauriApi = {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 };
@@ -166,6 +168,15 @@ export function usePlanRoadmap(projectId: number | null) {
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = () => {
+      void refresh();
+    };
+    window.addEventListener(PLAN_ROADMAP_REFRESH_EVENT, handler);
+    return () => window.removeEventListener(PLAN_ROADMAP_REFRESH_EVENT, handler);
   }, [refresh]);
 
   const openStep = useCallback(

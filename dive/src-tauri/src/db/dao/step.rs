@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::db::dao::{optional_json_to_string, parse_optional_json};
@@ -99,6 +101,32 @@ pub fn next_position(conn: &Connection, plan_id: i64) -> Result<i64, DbError> {
         [plan_id],
         |row| row.get(0),
     )?)
+}
+
+pub fn next_step_id(conn: &Connection, plan_id: i64) -> Result<String, DbError> {
+    let steps = list_by_plan(conn, plan_id)?;
+    let existing = steps
+        .iter()
+        .map(|step| step.step_id.as_str())
+        .collect::<HashSet<_>>();
+    let mut next = steps
+        .iter()
+        .filter_map(|step| {
+            step.step_id
+                .strip_prefix("step-")
+                .and_then(|suffix| suffix.parse::<i64>().ok())
+        })
+        .max()
+        .unwrap_or(0)
+        + 1;
+
+    loop {
+        let candidate = format!("step-{next:03}");
+        if !existing.contains(candidate.as_str()) {
+            return Ok(candidate);
+        }
+        next += 1;
+    }
 }
 
 pub fn validate_dependencies(conn: &Connection, plan_id: i64) -> Result<(), DbError> {
@@ -286,5 +314,17 @@ mod tests {
         insert(db.conn(), &s1).unwrap();
         insert(db.conn(), &s2).unwrap();
         assert!(validate_dependencies(db.conn(), plan_id).is_ok());
+    }
+
+    #[test]
+    fn next_step_id_uses_next_numeric_suffix_and_skips_collisions() {
+        let (db, _tmp) = fresh_db();
+        let pid = seed_project(db.conn());
+        let plan_id = seed_plan(db.conn(), pid);
+        insert(db.conn(), &new_step(plan_id, "step-001", 1)).unwrap();
+        insert(db.conn(), &new_step(plan_id, "step-003", 2)).unwrap();
+        insert(db.conn(), &new_step(plan_id, "custom", 3)).unwrap();
+
+        assert_eq!(next_step_id(db.conn(), plan_id).unwrap(), "step-004");
     }
 }

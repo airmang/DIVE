@@ -22,6 +22,8 @@
   "sidebar": {
     "section_projects": "프로젝트",
     "section_sessions": "세션",
+    "tab_workspace": "작업공간",
+    "tab_dashboard": "대시보드",
     "new_project": "+ 새 프로젝트",
     "new_session": "+ 새 세션",
     "empty_projects": "프로젝트가 없습니다",
@@ -180,6 +182,7 @@
   },
   "roadmap": {
     "title": "로드맵",
+    "refresh": "로드맵 새로고침",
     "progress": "진행률",
     "progress_aria": "로드맵 진행률",
     "current_step": "현재 단계",
@@ -234,7 +237,27 @@
       "step_approve_message_seed": "{{position}}단계 승인: {{title}}",
       "step_request_changes_message_seed": "{{position}}단계 수정 요청: {{title}} — "
     },
+    "action_failure": {
+      "title": "{{count}}개 단계를 시작할 수 없음",
+      "single_title": "작업 실패",
+      "dismiss": "작업 실패 닫기"
+    },
+    "activity": {
+      "title": "최근 활동",
+      "refresh": "활동 새로고침",
+      "empty": "아직 기록된 활동이 없습니다.",
+      "error": "활동을 불러올 수 없음: {{message}}",
+      "events": {
+        "plan_approved": "Plan 승인됨",
+        "plan_step_opened": "Step 세션 시작",
+        "plan_step_open_failed": "Step 시작 차단",
+        "plan_step_state_changed": "Step 상태 변경",
+        "plan_step_appended": "Step 추가됨"
+      }
+    },
     "plan_graph": {
+      "open_graph": "의존성",
+      "graph_title": "의존성 그래프",
       "summary": "{{total}}단계 · 준비 {{ready}}개 · 막힘 {{blocked}}개",
       "waiting_for": "{{deps}} 완료 대기 중",
       "resume": "계속",
@@ -253,6 +276,37 @@
         "in_progress": "진행 중",
         "done": "완료",
         "shipped": "반영됨"
+      }
+    },
+    "dashboard": {
+      "title": "Plan 대시보드",
+      "summary": "{{projects}}개 프로젝트 · {{planned}}개 계획 있음",
+      "refresh": "대시보드 새로고침",
+      "metric_ready": "준비",
+      "metric_active": "진행",
+      "metric_blocked": "막힘",
+      "empty": "프로젝트가 없습니다",
+      "progress": "{{done}}/{{total}} 완료",
+      "counts": "준비 {{ready}} · 진행 {{active}} · 막힘 {{blocked}}",
+      "resume": "계속",
+      "start": "시작",
+      "open_project": "프로젝트 열기",
+      "working": "처리 중…",
+      "action_failed": "대시보드 작업 실패: {{message}}",
+      "last_activity": "최근",
+      "detail_active": "진행 중: {{step}} · {{title}}",
+      "detail_ready": "다음: {{step}} · {{title}}",
+      "detail_no_plan": "아직 승인된 계획이 없습니다.",
+      "detail_draft": "계획 초안이 승인 대기 중입니다.",
+      "detail_idle": "지금 시작할 수 있는 단계가 없습니다.",
+      "status": {
+        "no_plan": "계획 없음",
+        "draft": "초안",
+        "complete": "완료",
+        "active": "{{count}} 진행",
+        "ready": "{{count}} 준비",
+        "blocked": "막힘",
+        "idle": "대기"
       }
     }
   },
@@ -297,6 +351,26 @@
       "revision_prompt": "[INTERVIEW_SUBMIT]\n다음 사용자 피드백을 반영해 현재 workspace plan 초안을 다시 생성하세요:\n{{feedback}}\n\n현재 초안 JSON:\n{{draft}}\n\nintent_summary, unresolved_questions, plan_input을 포함한 JSON만 반환하세요.",
       "approve_failed_title": "계획을 승인할 수 없음",
       "discard_failed_title": "계획을 폐기할 수 없음"
+    },
+    "route": {
+      "routing_status": "라우팅 중…",
+      "confirm": {
+        "title": "이 요청을 plan에 새 step으로 추가할까요?",
+        "description": "DIVE가 채팅을 보내기 전에 승인된 plan에 이 요청을 새 단계로 붙일 수 있습니다.",
+        "suggested_title": "제안된 step",
+        "dependencies": "의존: {{deps}}",
+        "dependencies_label": "의존",
+        "parallel_group_label": "병렬 그룹",
+        "acceptance_label": "완료 기준",
+        "no_dependencies": "없음",
+        "none": "없음",
+        "add_button": "Plan에 추가",
+        "skip_button": "그냥 채팅",
+        "reason_label": "이유"
+      },
+      "error": {
+        "routing_failed": "자동 라우팅 실패: {{message}}"
+      }
     }
   },
   "recovery": {

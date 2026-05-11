@@ -54,7 +54,7 @@ fn blocklist_lets_normal_commands_pass() {
 }
 
 #[tokio::test]
-async fn agent_emits_blocked_event_and_skips_run() {
+async fn agent_rejects_unregistered_bash_without_approval() {
     let db_file = tempfile::NamedTempFile::new().unwrap();
     let mut db = dive_lib::Database::open(db_file.path()).unwrap();
     db.migrate().unwrap();
@@ -141,16 +141,19 @@ async fn agent_emits_blocked_event_and_skips_run() {
         .run(session_id, "try wipe", &mut |e| events.push(e))
         .await;
 
-    let blocked = events
-        .iter()
-        .find(|e| matches!(e, AgentEvent::ToolCallBlocked { .. }));
-    assert!(blocked.is_some(), "expected ToolCallBlocked event");
     let approved = events
         .iter()
         .find(|e| matches!(e, AgentEvent::ToolCallApproved { .. }));
-    assert!(approved.is_none(), "blocked tool must not be approved");
-    let result = events
-        .iter()
-        .find(|e| matches!(e, AgentEvent::ToolResult { .. }));
-    assert!(result.is_none(), "blocked tool must not produce result");
+    assert!(approved.is_none(), "unregistered bash must not be approved");
+    let result = events.iter().find(|e| {
+        matches!(
+            e,
+            AgentEvent::ToolResult { success: false, summary, .. }
+                if summary.contains("not registered")
+        )
+    });
+    assert!(
+        result.is_some(),
+        "unregistered bash must produce not-registered result"
+    );
 }

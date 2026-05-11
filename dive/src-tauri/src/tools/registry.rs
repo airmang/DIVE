@@ -4,9 +4,9 @@ use std::sync::Arc;
 use crate::providers::ToolDef;
 
 use super::{
-    bash::Bash, delete_file::DeleteFile, edit_file::EditFile, emit_plan_draft::EmitPlanDraftTool,
-    list_dir::ListDir, mkdir::Mkdir, read_file::ReadFile, run_process::RunProcess,
-    search_files::SearchFiles, write_file::WriteFile, Tool,
+    delete_file::DeleteFile, edit_file::EditFile, list_dir::ListDir, mkdir::Mkdir,
+    read_file::ReadFile, run_process::RunProcess, search_files::SearchFiles, write_file::WriteFile,
+    Tool,
 };
 
 /// Registry of built-in tools indexed by name. Tools are `Arc<dyn Tool>` so
@@ -29,12 +29,10 @@ impl ToolRegistry {
         r.register(Arc::new(ListDir));
         r.register(Arc::new(WriteFile));
         r.register(Arc::new(EditFile));
-        r.register(Arc::new(Bash));
         r.register(Arc::new(SearchFiles));
         r.register(Arc::new(Mkdir));
         r.register(Arc::new(DeleteFile));
         r.register(Arc::new(RunProcess));
-        r.register(Arc::new(EmitPlanDraftTool));
         r
     }
 
@@ -84,10 +82,8 @@ mod tests {
             ("write_file", RiskLevel::Warn),
             ("edit_file", RiskLevel::Warn),
             ("mkdir", RiskLevel::Warn),
-            ("bash", RiskLevel::Danger),
             ("delete_file", RiskLevel::Danger),
             ("run_process", RiskLevel::Danger),
-            ("emit_workspace_plan_draft", RiskLevel::Safe),
         ];
         assert_eq!(registry.list().len(), expected.len());
         for (name, risk) in expected {

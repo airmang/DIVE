@@ -16,7 +16,7 @@ import { useT } from "../../i18n";
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts";
 import { usePlanRoadmap, useRoadmap } from "../../features/roadmap";
 import type { StepSessionMappingRow } from "../../features/roadmap";
-import { usePlan } from "../../features/planning";
+import { usePlan, usePlanRouter, type RouteDecision } from "../../features/planning";
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
 import { usePlanInterviewLLM } from "../../features/planning/usePlanInterviewLLM";
 import { useChatSession, type CheckpointRowPayload } from "../../hooks/useChatSession";
@@ -32,6 +32,13 @@ import { PlanDraftApprovalScreen } from "./PlanDraftApprovalScreen";
 import { SocraticInterviewPanel } from "./SocraticInterviewPanel";
 
 const ONBOARDING_DISMISSED_PROJECT_KEY = "dive:onboarding-dismissed-project-id";
+
+type AddStepRouteDecision = Extract<RouteDecision, { action: "add_step" }>;
+
+interface PendingPlanRouteConfirmation {
+  decision: AddStepRouteDecision;
+  resolve: (approved: boolean) => void;
+}
 
 function readDismissedOnboardingProjectId(): number | null {
   if (typeof window === "undefined") return null;
@@ -71,6 +78,10 @@ export function useProductShellController() {
   const [activeInterview, setActiveInterview] = useState<InterviewRow | null>(null);
   const activeInterviewRef = useRef<InterviewRow | null>(null);
   const [generatedPlanDraft, setGeneratedPlanDraft] = useState<PlanGenerationResult | null>(null);
+  const [pendingPlanRoute, setPendingPlanRoute] = useState<PendingPlanRouteConfirmation | null>(
+    null,
+  );
+  const pendingPlanRouteRef = useRef<PendingPlanRouteConfirmation | null>(null);
   const [checkpoints, setCheckpoints] = useState<CheckpointRowPayload[]>([]);
   const [checkpointsLoading, setCheckpointsLoading] = useState(false);
   const [checkpointsError, setCheckpointsError] = useState<string | null>(null);
@@ -139,6 +150,84 @@ export function useProductShellController() {
   const roadmapModel = useRoadmap(currentSessionId);
   const planRoadmap = usePlanRoadmap(currentProjectId);
   const plan = usePlan(currentProjectId);
+  const planRouter = usePlanRouter(currentProjectId);
+
+  useEffect(() => {
+    pendingPlanRouteRef.current = pendingPlanRoute;
+  }, [pendingPlanRoute]);
+
+  useEffect(
+    () => () => {
+      pendingPlanRouteRef.current?.resolve(false);
+    },
+    [],
+  );
+
+  const requestPlanRouteConfirmation = useCallback(
+    (decision: AddStepRouteDecision) =>
+      new Promise<boolean>((resolve) => {
+        setPendingPlanRoute({ decision, resolve });
+      }),
+    [],
+  );
+
+  const settlePlanRouteConfirmation = useCallback((approved: boolean) => {
+    const pending = pendingPlanRouteRef.current;
+    if (!pending) return;
+    pending.resolve(approved);
+    pendingPlanRouteRef.current = null;
+    setPendingPlanRoute(null);
+  }, []);
+
+  const handleBeforeChatSend = useCallback(
+    async ({
+      text,
+      runMode,
+    }: {
+      text: string;
+      runMode?: "interview" | "plan" | "build" | "verify";
+    }) => {
+      if (runMode === "interview") return true;
+      const approvedPlanId = planRoadmap.status?.has_approved_plan
+        ? planRoadmap.status.plan_id
+        : plan.status?.has_approved_plan
+          ? plan.status.plan_id
+          : null;
+      if (approvedPlanId === null) return true;
+
+      let decision: RouteDecision;
+      try {
+        decision = await planRouter.route(text);
+      } catch (err) {
+        toast({
+          variant: "error",
+          title: t("planning.route.error.routing_failed", {
+            message: err instanceof Error ? err.message : String(err),
+          }),
+        });
+        return true;
+      }
+
+      if (decision.action !== "add_step") return true;
+      const approved = await requestPlanRouteConfirmation(decision);
+      if (!approved) return true;
+
+      try {
+        await planRouter.appendStep(approvedPlanId, decision.draft);
+        await Promise.all([planRoadmap.refresh(), plan.refresh()]);
+      } catch (err) {
+        toast({
+          variant: "error",
+          title: t("planning.route.error.routing_failed", {
+            message: err instanceof Error ? err.message : String(err),
+          }),
+        });
+      }
+      return true;
+    },
+    [plan, planRoadmap, planRouter, requestPlanRouteConfirmation, t, toast],
+  );
+
   const planInterviewObserver = usePlanInterviewLLM({
     onPlanDraft: (draft) => {
       const interview = activeInterviewRef.current;
@@ -176,7 +265,7 @@ export function useProductShellController() {
       })();
     },
   });
-  const chat = useChatSession(currentSessionId, planInterviewObserver);
+  const chat = useChatSession(currentSessionId, planInterviewObserver, handleBeforeChatSend);
   const listCheckpoints = chat.listCheckpoints;
 
   useEffect(() => {
@@ -915,7 +1004,12 @@ export function useProductShellController() {
             onComplete: handleCompleteInterview,
           })
         : null,
-      inputDisabled: chat.isStreaming || (!isDemoRoute && currentSessionId === null),
+      modelLabel: planRouter.busy ? t("planning.route.routing_status") : undefined,
+      inputDisabled:
+        chat.isStreaming ||
+        planRouter.busy ||
+        pendingPlanRoute !== null ||
+        (!isDemoRoute && currentSessionId === null),
       inputBlocked,
       stage: promptStage,
       emptyState,
@@ -988,6 +1082,13 @@ export function useProductShellController() {
       newProject: {
         open: dialogs.newProjectOpen,
         onOpenChange: dialogs.setNewProjectOpen,
+      },
+      planRoute: {
+        open: pendingPlanRoute !== null,
+        decision: pendingPlanRoute?.decision ?? null,
+        steps: planRoadmap.steps,
+        onApprove: () => settlePlanRouteConfirmation(true),
+        onReject: () => settlePlanRouteConfirmation(false),
       },
     },
     hiddenState: {

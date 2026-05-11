@@ -270,33 +270,44 @@ impl AgentLoop {
                     json!({ "tool": tc.name, "params_preview": preview, "risk": risk.as_str() }),
                 )?;
 
-                if let Some(tool) = tool_opt.as_ref() {
-                    if let Err(crate::tools::ToolError::Blocked(reason)) =
-                        tool.validate(&args_value)
-                    {
-                        emit(AgentEvent::ToolCallBlocked {
-                            id: tc.id.clone(),
-                            reason: reason.clone(),
-                        });
-                        self.log_event(
-                            session_id,
-                            "tool_call_blocked",
-                            json!({
-                                "tool": tc.name,
-                                "rule": reason.rule,
-                                "pattern": reason.pattern,
-                            }),
-                        )?;
-                        let msg = format!(
-                            "tool call blocked by safety policy: {} (pattern: {})",
-                            reason.rule, reason.pattern
-                        );
-                        messages.push(ProviderMessage::Tool {
-                            content: msg,
-                            tool_call_id: tc.id.clone(),
-                        });
-                        continue;
-                    }
+                let Some(tool) = tool_opt else {
+                    let msg = format!("tool '{}' not registered", tc.name);
+                    emit(AgentEvent::ToolResult {
+                        call_id: tc.id.clone(),
+                        success: false,
+                        summary: msg.clone(),
+                        full: json!({ "error": msg.clone() }),
+                    });
+                    messages.push(ProviderMessage::Tool {
+                        content: msg,
+                        tool_call_id: tc.id.clone(),
+                    });
+                    continue;
+                };
+
+                if let Err(crate::tools::ToolError::Blocked(reason)) = tool.validate(&args_value) {
+                    emit(AgentEvent::ToolCallBlocked {
+                        id: tc.id.clone(),
+                        reason: reason.clone(),
+                    });
+                    self.log_event(
+                        session_id,
+                        "tool_call_blocked",
+                        json!({
+                            "tool": tc.name,
+                            "rule": reason.rule,
+                            "pattern": reason.pattern,
+                        }),
+                    )?;
+                    let msg = format!(
+                        "tool call blocked by safety policy: {} (pattern: {})",
+                        reason.rule, reason.pattern
+                    );
+                    messages.push(ProviderMessage::Tool {
+                        content: msg,
+                        tool_call_id: tc.id.clone(),
+                    });
+                    continue;
                 }
 
                 let decision = self.permission.intercept(tc, risk).await;
@@ -309,20 +320,6 @@ impl AgentLoop {
                             "tool_approve",
                             json!({ "tool": tc.name, "risk": risk.as_str() }),
                         )?;
-                        let Some(tool) = tool_opt else {
-                            let msg = format!("tool '{}' not registered", tc.name);
-                            emit(AgentEvent::ToolResult {
-                                call_id: tc.id.clone(),
-                                success: false,
-                                summary: msg.clone(),
-                                full: json!({ "error": msg.clone() }),
-                            });
-                            messages.push(ProviderMessage::Tool {
-                                content: msg,
-                                tool_call_id: tc.id.clone(),
-                            });
-                            continue;
-                        };
                         let out = match tool.run(effective_args, &self.tool_ctx).await {
                             Ok(out) => out,
                             Err(e) => {

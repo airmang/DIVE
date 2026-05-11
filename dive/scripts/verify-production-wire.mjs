@@ -28,6 +28,16 @@ check(
     !/debug_assertions[\s\S]{0,120}MockProvider/.test(providers),
 );
 
+const registry = read("dive/src-tauri/src/tools/registry.rs");
+check(
+  "production builtins omit freeform bash",
+  !registry.includes("Arc::new(Bash)") && !registry.includes('("bash", RiskLevel::Danger)'),
+);
+check(
+  "production builtins omit stale emit plan draft tool",
+  !registry.includes("EmitPlanDraftTool") && !registry.includes("emit_workspace_plan_draft"),
+);
+
 const productShellController = read("dive/src/components/product/useProductShellController.ts");
 check(
   "Product shell controller uses real roadmap wiring",
@@ -76,9 +86,9 @@ check("App resolves only recognized demo routes", app.includes("resolveDemoRoute
 
 const planInterview = read("dive/src/features/planning/usePlanInterviewLLM.ts");
 check(
-  "Plan interview uses real emit_plan_draft tool results",
-  planInterview.includes('start.tool === "emit_plan_draft"') &&
-    planInterview.includes("decodePlanDraftFromLlm") &&
+  "Plan interview parses assistant_end JSON without mock fallback",
+  planInterview.includes("decodeWorkspacePlanDraftFromLlm") &&
+    planInterview.includes("assistant_end") &&
     !planInterview.includes("mockPlanDraft"),
 );
 

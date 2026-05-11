@@ -1,13 +1,11 @@
 //! Built-in tools.
 //!
 //! Spec §8.4 — `Tool` trait + `RiskLevel`. Four built-ins land here in task 2-3:
-//! read_file, list_dir, write_file, edit_file. `bash`/`search_files` arrive later.
+//! read_file, list_dir, write_file, edit_file. `search_files` arrives later.
 
-pub mod bash;
 pub mod context;
 pub mod delete_file;
 pub mod edit_file;
-pub mod emit_plan_draft;
 pub mod fs_guard;
 pub mod guard;
 pub mod list_dir;
@@ -137,13 +135,27 @@ pub fn params_preview(tool_name: &str, args: &Value) -> String {
         }
         _ => {
             let s = args.to_string();
-            if s.len() > 80 {
-                format!("{}...", &s[..77])
-            } else {
-                s
-            }
+            truncate_utf8(&s, 77, "...")
         }
     }
+}
+
+pub(crate) fn truncate_utf8(s: &str, max_bytes: usize, suffix: &str) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+
+    let mut end = 0;
+    for (idx, _) in s.char_indices() {
+        if idx > max_bytes {
+            break;
+        }
+        end = idx;
+    }
+
+    let mut out = s[..end].to_string();
+    out.push_str(suffix);
+    out
 }
 
 #[cfg(test)]
@@ -153,6 +165,23 @@ mod integration_tests {
         Tool, ToolContext,
     };
     use serde_json::json;
+
+    #[test]
+    fn truncate_utf8_keeps_char_boundary_with_multibyte_text() {
+        let input = "가나다라마바사";
+        let out = super::truncate_utf8(input, 5, "...");
+        assert_eq!(out, "가...");
+    }
+
+    #[test]
+    fn params_preview_truncates_json_without_panicking_on_korean() {
+        let args = json!({
+            "message": "가나다라마바사아자차카타파하가나다라마바사아자차카타파하"
+        });
+        let preview = super::params_preview("unknown_tool", &args);
+        assert!(preview.ends_with("..."));
+        assert!(preview.is_char_boundary(preview.len()));
+    }
 
     #[tokio::test]
     #[cfg(unix)]

@@ -3,13 +3,11 @@ import { ActionDock } from "./ActionDock";
 import { ConversationPanel } from "./ConversationPanel";
 import { ProductModalHost } from "./ProductModalHost";
 import { ProjectRail } from "./ProjectRail";
-import { RoadmapHost } from "./RoadmapHost";
+import { RoadmapRail } from "./RoadmapRail";
 import { TopBar } from "./TopBar";
 import { RecoverySlideIn } from "./RecoverySlideIn";
 import { StepDetailSlideIn } from "./StepDetailSlideIn";
-import { RoadmapDAG } from "../roadmap/RoadmapDAG";
-import { RoadmapGraph } from "../roadmap/RoadmapGraph";
-import { usePlanRoadmap } from "../../features/roadmap";
+import { usePlanActivity, usePlanRoadmap } from "../../features/roadmap";
 import { useProjectSessionStore } from "../../stores/project-session";
 
 interface ProductShellLayoutProps {
@@ -25,6 +23,7 @@ export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
   const selectSession = useProjectSessionStore((s) => s.selectSession);
   const loadAll = useProjectSessionStore((s) => s.loadAll);
   const planRoadmap = usePlanRoadmap(currentProjectId);
+  const planActivity = usePlanActivity(planRoadmap.status?.plan_id ?? null, 5);
   const rightPanelVisible = shell.roadmap.visible || planRoadmap.hasPlan;
   const gridCols = rightPanelVisible
     ? "grid-cols-[280px_minmax(0,1fr)_360px]"
@@ -35,6 +34,7 @@ export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
   };
   const handleOpenPlanStep = async (stepId: number, opts?: OpenPlanStepOptions) => {
     const mapping = await planRoadmap.openStep(stepId);
+    await planActivity.refresh();
     if (mapping.session_id !== null) {
       shell.roadmap.onPlanStepOpened(mapping);
       await loadAll();
@@ -65,24 +65,13 @@ export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
       </div>
       {rightPanelVisible ? (
         <div className="row-start-2 col-start-3 min-h-0 flex flex-col overflow-hidden border-l bg-bg">
-          <RoadmapDAG
-            steps={planRoadmap.steps}
-            loading={planRoadmap.loading}
-            error={planRoadmap.error}
-            onOpenStep={handleOpenPlanStep}
+          <RoadmapRail
+            planRoadmap={planRoadmap}
+            planActivity={planActivity}
+            fallbackRoadmap={shell.roadmap}
+            onOpenPlanStep={handleOpenPlanStep}
             onOpenSession={handleOpenSession}
           />
-          <RoadmapGraph
-            goal={planRoadmap.status?.plan_summary ?? shell.roadmap.goal}
-            steps={planRoadmap.steps}
-            loading={planRoadmap.loading}
-            error={planRoadmap.error}
-            onOpenStep={handleOpenPlanStep}
-            onOpenSession={handleOpenSession}
-          />
-          <div className="min-h-0 flex-1">
-            <RoadmapHost roadmap={shell.roadmap} />
-          </div>
         </div>
       ) : null}
       <ActionDock />

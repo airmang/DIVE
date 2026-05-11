@@ -107,6 +107,8 @@ pub fn run() {
             ipc::prompt_check_review,
             ipc::menu_refresh_recents,
             ipc::workspace_plan_status,
+            ipc::workspace_plan_dashboard,
+            ipc::workspace_plan_activity,
             ipc::workspace_plan_start_interview,
             ipc::workspace_plan_save_interview_answer,
             ipc::workspace_plan_submit_interview,
@@ -115,6 +117,8 @@ pub fn run() {
             ipc::workspace_plan_discard_plan,
             ipc::workspace_plan_list_steps,
             ipc::workspace_plan_step_mappings,
+            ipc::workspace_plan_route_chat,
+            ipc::workspace_plan_append_step,
             ipc::roadmap_step_open,
             ipc::roadmap_step_update_state
         ])

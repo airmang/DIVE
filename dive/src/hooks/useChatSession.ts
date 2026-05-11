@@ -122,9 +122,20 @@ interface State {
   error: string | null;
 }
 
+export interface SendUserMessageContext {
+  text: string;
+  stage?: "d" | "i" | "v" | "e";
+  runMode?: "interview" | "plan" | "build" | "verify";
+  planAccepted?: boolean;
+  stepId?: number;
+}
+
+type BeforeSendUserMessage = (context: SendUserMessageContext) => boolean | Promise<boolean>;
+
 export function useChatSession(
   sessionId: number | null,
   onAgentEvent?: (event: AgentEvent) => void,
+  beforeSendUserMessage?: BeforeSendUserMessage,
 ) {
   const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [state, setState] = useState<State>({
@@ -135,9 +146,13 @@ export function useChatSession(
   });
   const apiRef = useRef<TauriApi | null>(null);
   const onAgentEventRef = useRef<typeof onAgentEvent>(onAgentEvent);
+  const beforeSendUserMessageRef = useRef<typeof beforeSendUserMessage>(beforeSendUserMessage);
   useEffect(() => {
     onAgentEventRef.current = onAgentEvent;
   }, [onAgentEvent]);
+  useEffect(() => {
+    beforeSendUserMessageRef.current = beforeSendUserMessage;
+  }, [beforeSendUserMessage]);
 
   const clearStallTimer = useCallback(() => {
     if (stallTimerRef.current) {
@@ -253,6 +268,14 @@ export function useChatSession(
         appendErrorMessage("Tauri IPC unavailable — run `pnpm tauri:dev`", true);
         return;
       }
+      const shouldSend = await beforeSendUserMessageRef.current?.({
+        text,
+        stage,
+        runMode,
+        planAccepted,
+        stepId,
+      });
+      if (shouldSend === false) return;
       armStallTimer();
       setState((s) => ({ ...s, isStreaming: true, error: null }));
       try {

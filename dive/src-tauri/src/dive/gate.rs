@@ -149,9 +149,17 @@ impl DiveGateEngine {
 }
 
 pub fn gates_disabled_for_research() -> bool {
-    std::env::var("DIVE_RESEARCH_ABLATION_GATES")
-        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "on" | "ON"))
-        .unwrap_or(false)
+    #[cfg(feature = "dev-mock")]
+    {
+        std::env::var("DIVE_RESEARCH_ABLATION_GATES")
+            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "on" | "ON"))
+            .unwrap_or(false)
+    }
+
+    #[cfg(not(feature = "dev-mock"))]
+    {
+        false
+    }
 }
 
 fn current_card(
@@ -200,6 +208,19 @@ mod tests {
     use crate::db::models::{CardState, NewCard, NewMessage, NewToolCall};
     use crate::db::tests::{fresh_db, seed_project_session};
     use serde_json::json;
+
+    #[test]
+    fn ablation_env_is_ignored_without_dev_mock_feature() {
+        std::env::set_var("DIVE_RESEARCH_ABLATION_GATES", "1");
+        let disabled = gates_disabled_for_research();
+        std::env::remove_var("DIVE_RESEARCH_ABLATION_GATES");
+
+        #[cfg(feature = "dev-mock")]
+        assert!(disabled);
+
+        #[cfg(not(feature = "dev-mock"))]
+        assert!(!disabled);
+    }
 
     fn insert_card(conn: &rusqlite::Connection, sid: i64, state: CardState, pos: i64) -> i64 {
         card_dao::insert(

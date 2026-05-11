@@ -1,36 +1,126 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
+use async_trait::async_trait;
 use dive_lib::auth::InMemoryKeyring;
 use dive_lib::db::dao::{
     card, interview, plan, project, session, step, step_session_mapping as mapping, workmap,
 };
 use dive_lib::db::models::{NewInterview, NewPlan, NewProject, NewStep};
 use dive_lib::ipc::workspace_plan::{
-    roadmap_step_open_impl, roadmap_step_update_state_impl, workspace_plan_approve_impl,
+    roadmap_step_open_impl, roadmap_step_update_state_impl, workspace_plan_activity_impl,
+    workspace_plan_append_step_impl, workspace_plan_approve_impl, workspace_plan_dashboard_impl,
     workspace_plan_discard_plan_impl, workspace_plan_generate_draft_impl,
-    workspace_plan_list_steps_impl, workspace_plan_save_interview_answer_impl,
-    workspace_plan_start_interview_impl, workspace_plan_status_impl,
-    workspace_plan_step_mappings_impl, workspace_plan_submit_interview_impl, PlanDraftInput,
-    StepDraftInput, StepStateUpdateInput,
+    workspace_plan_list_steps_impl, workspace_plan_route_chat_impl,
+    workspace_plan_save_interview_answer_impl, workspace_plan_start_interview_impl,
+    workspace_plan_status_impl, workspace_plan_step_mappings_impl,
+    workspace_plan_submit_interview_impl, PlanDraftInput, RouteDecision, StepDraftInput,
+    StepStateUpdateInput,
 };
-use dive_lib::{AppState, Database, MockProvider};
+use dive_lib::{
+    AppState, ChatEvent, ChatRequest, Database, FinishReason, LlmProvider, ModelInfo, ProviderError,
+};
+use futures::stream::{self, BoxStream};
+use futures::StreamExt;
 use serde_json::json;
 
+#[derive(Clone)]
+struct ScriptedProvider {
+    scripts: Arc<Mutex<Vec<Vec<ChatEvent>>>>,
+    requests: Arc<Mutex<Vec<ChatRequest>>>,
+}
+
+impl ScriptedProvider {
+    fn new(scripts: Vec<Vec<ChatEvent>>) -> Self {
+        Self {
+            scripts: Arc::new(Mutex::new(scripts)),
+            requests: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn request_count(&self) -> usize {
+        self.requests
+            .lock()
+            .map(|requests| requests.len())
+            .unwrap_or(0)
+    }
+
+    fn requests_snapshot(&self) -> Vec<ChatRequest> {
+        self.requests
+            .lock()
+            .map(|requests| requests.clone())
+            .unwrap_or_default()
+    }
+}
+
+#[async_trait]
+impl LlmProvider for ScriptedProvider {
+    fn id(&self) -> &str {
+        "mock"
+    }
+
+    fn list_models(&self) -> Vec<ModelInfo> {
+        vec![ModelInfo {
+            id: "mock-model".into(),
+            display_name: "Mock".into(),
+        }]
+    }
+
+    async fn chat(&self, req: ChatRequest) -> Result<BoxStream<'static, ChatEvent>, ProviderError> {
+        if let Ok(mut requests) = self.requests.lock() {
+            requests.push(req);
+        }
+        let batch = {
+            let mut scripts = self.scripts.lock().map_err(|_| {
+                ProviderError::Unsupported("scripted provider mutex poisoned".into())
+            })?;
+            if scripts.is_empty() {
+                vec![ChatEvent::Done {
+                    finish_reason: FinishReason::Stop,
+                }]
+            } else {
+                scripts.remove(0)
+            }
+        };
+        Ok(stream::iter(batch).boxed())
+    }
+
+    async fn refresh_auth(&mut self) -> Result<(), ProviderError> {
+        Ok(())
+    }
+}
+
 fn mk_state(tmp: &tempfile::TempDir) -> AppState {
+    mk_state_with_scripts(tmp, Vec::new()).0
+}
+
+fn mk_state_with_scripts(
+    tmp: &tempfile::TempDir,
+    scripts: Vec<Vec<ChatEvent>>,
+) -> (AppState, Arc<ScriptedProvider>) {
     let mut db = Database::open_in_memory().unwrap();
     db.migrate().unwrap();
-    let provider = Arc::new(MockProvider::new(Vec::new()));
-    AppState::new(db, provider, tmp.path().to_path_buf(), "mock".into())
-        .with_keyring(Arc::new(InMemoryKeyring::new()))
+    let provider = Arc::new(ScriptedProvider::new(scripts));
+    let state = AppState::new(
+        db,
+        provider.clone(),
+        tmp.path().to_path_buf(),
+        "mock".into(),
+    )
+    .with_keyring(Arc::new(InMemoryKeyring::new()));
+    (state, provider)
 }
 
 fn seed_project(state: &AppState) -> i64 {
+    seed_project_named(state, "Workspace Plan", "/tmp/workspace-plan")
+}
+
+fn seed_project_named(state: &AppState, name: &str, path: &str) -> i64 {
     let db = state.db.lock().unwrap();
     project::insert(
         db.conn(),
         &NewProject {
-            name: "Workspace Plan".into(),
-            path: "/tmp/workspace-plan".into(),
+            name: name.into(),
+            path: path.into(),
             provider_default: None,
             model_default: None,
         },
@@ -119,6 +209,22 @@ fn draft_input() -> PlanDraftInput {
     }
 }
 
+fn append_step_draft(dependencies: Vec<String>) -> StepDraftInput {
+    StepDraftInput {
+        title: "Add authentication".into(),
+        summary: "Add sign-in and session handling.".into(),
+        instruction_seed: "Implement authentication flows and update related UI.".into(),
+        expected_files: vec!["src/auth.ts".into()],
+        acceptance_criteria: vec!["Users can sign in.".into()],
+        verification_command: Some("pnpm test".into()),
+        verification_type: Some("command".into()),
+        dependencies,
+        parallel_group: Some(1),
+        position: 99,
+        step_id: "ignored-by-append".into(),
+    }
+}
+
 #[test]
 fn status_counts_ready_and_blocked_steps() {
     let tmp = tempfile::tempdir().unwrap();
@@ -134,6 +240,232 @@ fn status_counts_ready_and_blocked_steps() {
     assert_eq!(status.step_count, 2);
     assert_eq!(status.ready_count, 1);
     assert_eq!(status.blocked_count, 1);
+}
+
+#[test]
+fn dashboard_lists_projects_with_plan_progress_and_actions() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let no_plan_project = seed_project_named(&state, "No Plan", "/tmp/dashboard-no-plan");
+    let draft_project = seed_project_named(&state, "Draft Plan", "/tmp/dashboard-draft-plan");
+    let draft_plan = seed_plan(&state, draft_project, "draft");
+    let approved_project =
+        seed_project_named(&state, "Approved Plan", "/tmp/dashboard-approved-plan");
+    let approved_plan = seed_plan(&state, approved_project, "approved");
+    let first = insert_step(&state, approved_plan, "step-001", &[]);
+    insert_step(&state, approved_plan, "step-002", &["step-001"]);
+    let active = insert_step(&state, approved_plan, "step-003", &[]);
+    insert_step(&state, approved_plan, "step-004", &["step-002"]);
+
+    roadmap_step_open_impl(&state, first).unwrap();
+    roadmap_step_update_state_impl(
+        &state,
+        StepStateUpdateInput {
+            step_id: first,
+            status: "done".into(),
+            evidence: Some("first complete".into()),
+            verification_status: Some("passed".into()),
+        },
+    )
+    .unwrap();
+    let active_mapping = roadmap_step_open_impl(&state, active).unwrap();
+
+    let dashboard = workspace_plan_dashboard_impl(&state).unwrap();
+    assert_eq!(dashboard.len(), 3);
+
+    let no_plan = dashboard
+        .iter()
+        .find(|row| row.project_id == no_plan_project)
+        .unwrap();
+    assert_eq!(no_plan.project_name, "No Plan");
+    assert_eq!(no_plan.plan_id, None);
+    assert_eq!(no_plan.step_count, 0);
+    assert!(no_plan.next_ready_steps.is_empty());
+
+    let draft = dashboard
+        .iter()
+        .find(|row| row.project_id == draft_project)
+        .unwrap();
+    assert_eq!(draft.plan_id, Some(draft_plan));
+    assert_eq!(draft.plan_status.as_deref(), Some("draft"));
+    assert_eq!(draft.step_count, 0);
+
+    let approved = dashboard
+        .iter()
+        .find(|row| row.project_id == approved_project)
+        .unwrap();
+    assert_eq!(approved.plan_id, Some(approved_plan));
+    assert_eq!(approved.plan_goal.as_deref(), Some("Build a graph roadmap"));
+    assert_eq!(approved.plan_status.as_deref(), Some("approved"));
+    assert_eq!(approved.step_count, 4);
+    assert_eq!(approved.ready_count, 1);
+    assert_eq!(approved.blocked_count, 1);
+    assert_eq!(approved.active_count, 1);
+    assert_eq!(approved.done_count, 1);
+    assert_eq!(approved.shipped_count, 0);
+    assert_eq!(approved.next_ready_steps.len(), 1);
+    assert_eq!(approved.next_ready_steps[0].step_db_id, first + 1);
+    assert_eq!(approved.next_ready_steps[0].stable_step_id, "step-002");
+    assert_eq!(approved.next_ready_steps[0].status, "ready");
+    assert_eq!(approved.active_steps.len(), 1);
+    assert_eq!(approved.active_steps[0].step_db_id, active);
+    assert_eq!(approved.active_steps[0].stable_step_id, "step-003");
+    assert_eq!(
+        approved.active_steps[0].session_id,
+        active_mapping.session_id
+    );
+}
+
+#[tokio::test]
+async fn route_chat_returns_skip_when_no_approved_plan() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, provider) = mk_state_with_scripts(&tmp, Vec::new());
+    let project_id = seed_project(&state);
+
+    let decision = workspace_plan_route_chat_impl(&state, project_id, "auth 추가해줘".into())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        decision,
+        RouteDecision::Skip {
+            reason: "approved plan not found".into()
+        }
+    );
+    assert_eq!(provider.request_count(), 0);
+}
+
+#[tokio::test]
+async fn route_chat_returns_chat_decision_from_mock_provider() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta("ROUTE chat reason=\"status question\"".into()),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    insert_step(&state, plan_id, "step-001", &[]);
+
+    let decision = workspace_plan_route_chat_impl(&state, project_id, "지금 진행상황 어때?".into())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        decision,
+        RouteDecision::Chat {
+            reason: "status question".into()
+        }
+    );
+    let requests = provider.requests_snapshot();
+    assert_eq!(requests.len(), 1);
+    assert!(format!("{:?}", requests[0].messages).contains("step-001"));
+}
+
+#[tokio::test]
+async fn route_chat_parses_add_step_and_generates_next_step_id() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta("ROUTE add_step title=\"Add authentication\" summary=\"Add sign-in and session handling.\" instruction_seed=\"Implement authentication flows.\" expected_files=[\"src/auth.ts\"] acceptance_criteria=[\"Users can sign in.\"] verification_type=\"command\" verification_command=\"pnpm test\" dependencies=[\"step-001\"] parallel_group=1 reason=\"new implementation request\"".into()),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    insert_step(&state, plan_id, "step-001", &[]);
+    insert_step(&state, plan_id, "step-002", &["step-001"]);
+
+    let decision = workspace_plan_route_chat_impl(&state, project_id, "auth도 추가해줘".into())
+        .await
+        .unwrap();
+
+    match decision {
+        RouteDecision::AddStep { draft, reason } => {
+            assert_eq!(reason, "new implementation request");
+            assert_eq!(draft.step_id, "step-003");
+            assert_eq!(draft.position, 3);
+            assert_eq!(draft.title, "Add authentication");
+            assert_eq!(draft.dependencies, vec!["step-001"]);
+            assert_eq!(draft.parallel_group, Some(1));
+        }
+        other => panic!("expected add_step decision, got {other:?}"),
+    }
+}
+
+#[test]
+fn append_step_increments_position_and_passes_dependency_check() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    insert_step(&state, plan_id, "step-001", &[]);
+    insert_step(&state, plan_id, "step-002", &["step-001"]);
+
+    let row = workspace_plan_append_step_impl(
+        &state,
+        plan_id,
+        append_step_draft(vec!["step-001".into()]),
+    )
+    .unwrap();
+
+    assert_eq!(row.step_id, "step-003");
+    assert_eq!(row.position, 3);
+    assert_eq!(row.dependencies, Some(json!(["step-001"])));
+    assert_eq!(row.parallel_group, Some("1".into()));
+    assert_eq!(
+        workspace_plan_list_steps_impl(&state, plan_id)
+            .unwrap()
+            .len(),
+        3
+    );
+}
+
+#[test]
+fn append_step_rejects_invalid_dependencies() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    insert_step(&state, plan_id, "step-001", &[]);
+
+    let err = workspace_plan_append_step_impl(
+        &state,
+        plan_id,
+        append_step_draft(vec!["step-999".into()]),
+    )
+    .unwrap_err();
+
+    assert!(err.contains("invalid dependency"));
+    assert_eq!(
+        workspace_plan_list_steps_impl(&state, plan_id)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn append_step_rejects_when_plan_not_approved() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "draft");
+
+    let err =
+        workspace_plan_append_step_impl(&state, plan_id, append_step_draft(vec![])).unwrap_err();
+
+    assert!(err.contains("approved"));
+    assert!(workspace_plan_list_steps_impl(&state, plan_id)
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
@@ -214,10 +546,14 @@ fn opening_blocked_step_is_rejected_without_creating_mapping() {
     let project_id = seed_project(&state);
     let plan_id = seed_plan(&state, project_id, "approved");
     insert_step(&state, plan_id, "step-001", &[]);
-    let blocked = insert_step(&state, plan_id, "step-002", &["step-001"]);
+    insert_step(&state, plan_id, "step-002", &[]);
+    let blocked = insert_step(&state, plan_id, "step-003", &["step-001", "step-002"]);
 
     let err = roadmap_step_open_impl(&state, blocked).unwrap_err();
-    assert!(err.contains("blocked"));
+    assert_eq!(
+        err,
+        "step is blocked: waiting for step-001, step-002".to_string()
+    );
     assert!(workspace_plan_step_mappings_impl(&state, plan_id)
         .unwrap()
         .is_empty());
@@ -259,6 +595,70 @@ fn updating_step_state_unlocks_dependent_step_status() {
             .verification_status,
         Some("passed".into())
     );
+}
+
+#[test]
+fn plan_activity_records_lifecycle_events_latest_first() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "draft");
+    let first = insert_step(&state, plan_id, "step-001", &[]);
+
+    workspace_plan_approve_impl(&state, plan_id).unwrap();
+    workspace_plan_append_step_impl(&state, plan_id, append_step_draft(vec!["step-001".into()]))
+        .unwrap();
+    roadmap_step_open_impl(&state, first).unwrap();
+    roadmap_step_update_state_impl(
+        &state,
+        StepStateUpdateInput {
+            step_id: first,
+            status: "done".into(),
+            evidence: Some("tests passed".into()),
+            verification_status: Some("passed".into()),
+        },
+    )
+    .unwrap();
+
+    let activity = workspace_plan_activity_impl(&state, plan_id, 10).unwrap();
+    let event_types = activity
+        .iter()
+        .map(|row| row.event_type.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        event_types,
+        vec![
+            "plan_step_state_changed",
+            "plan_step_opened",
+            "plan_step_appended",
+            "plan_approved"
+        ]
+    );
+    assert_eq!(activity[0].stable_step_id.as_deref(), Some("step-001"));
+    assert_eq!(activity[0].step_title.as_deref(), Some("Step step-001"));
+    assert_eq!(activity[0].message, "Step marked done");
+    assert_eq!(activity[0].reason, None);
+}
+
+#[test]
+fn plan_activity_records_blocked_open_failure_reason() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    insert_step(&state, plan_id, "step-001", &[]);
+    insert_step(&state, plan_id, "step-002", &[]);
+    let blocked = insert_step(&state, plan_id, "step-003", &["step-001", "step-002"]);
+
+    let err = roadmap_step_open_impl(&state, blocked).unwrap_err();
+
+    let activity = workspace_plan_activity_impl(&state, plan_id, 10).unwrap();
+    assert_eq!(activity.len(), 1);
+    assert_eq!(activity[0].event_type, "plan_step_open_failed");
+    assert_eq!(activity[0].stable_step_id.as_deref(), Some("step-003"));
+    assert_eq!(activity[0].message, "Step start blocked");
+    assert_eq!(activity[0].reason.as_deref(), Some(err.as_str()));
 }
 
 #[test]

@@ -4,14 +4,19 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::db::dao::{
-    card as card_dao, interview as interview_dao, plan as plan_dao, session as session_dao,
-    step as step_dao, step_session_mapping as mapping_dao, workmap as workmap_dao,
+    card as card_dao, event_log as event_log_dao, interview as interview_dao, plan as plan_dao,
+    project as project_dao, session as session_dao, step as step_dao,
+    step_session_mapping as mapping_dao, workmap as workmap_dao,
 };
 use crate::db::models::{
-    CardState, InterviewRow, NewCard, NewInterview, NewPlan, NewSession, NewStep,
-    NewStepSessionMapping, NewWorkmap, PlanRow, StepRow, StepSessionMappingRow,
+    CardState, EventLogRow, InterviewRow, NewCard, NewInterview, NewPlan, NewSession, NewStep,
+    NewStepSessionMapping, NewWorkmap, PlanRow, ProjectRow, StepRow, StepSessionMappingRow,
 };
 use crate::db::now_ms;
+use crate::dive::event_log as dive_event_log;
+use crate::dive::plan_router::{
+    self, PlanRouterContext, PlanRouterDecision, PlanRouterStepContext, RouterStepDraft,
+};
 use crate::ipc::AppState;
 use crate::workspace_plan as workspace_plan_service;
 
@@ -27,6 +32,50 @@ pub struct WorkspacePlanStatus {
     pub blocked_count: i64,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct WorkspacePlanDashboardStep {
+    pub step_db_id: i64,
+    pub stable_step_id: String,
+    pub title: String,
+    pub position: i64,
+    pub status: String,
+    pub session_id: Option<i64>,
+    pub card_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct PlanActivityLogRow {
+    pub id: i64,
+    pub plan_id: i64,
+    pub event_type: String,
+    pub message: String,
+    pub step_id: Option<i64>,
+    pub stable_step_id: Option<String>,
+    pub step_title: Option<String>,
+    pub reason: Option<String>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct WorkspacePlanDashboardProject {
+    pub project_id: i64,
+    pub project_name: String,
+    pub project_path: String,
+    pub project_updated_at: i64,
+    pub plan_id: Option<i64>,
+    pub plan_goal: Option<String>,
+    pub plan_status: Option<String>,
+    pub step_count: i64,
+    pub ready_count: i64,
+    pub blocked_count: i64,
+    pub active_count: i64,
+    pub done_count: i64,
+    pub shipped_count: i64,
+    pub next_ready_steps: Vec<WorkspacePlanDashboardStep>,
+    pub active_steps: Vec<WorkspacePlanDashboardStep>,
+    pub last_activity: Option<PlanActivityLogRow>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StepStateUpdateInput {
@@ -36,7 +85,7 @@ pub struct StepStateUpdateInput {
     pub verification_status: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct StepDraftInput {
     pub title: String,
@@ -50,6 +99,21 @@ pub struct StepDraftInput {
     pub parallel_group: Option<i64>,
     pub position: i64,
     pub step_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum RouteDecision {
+    AddStep {
+        draft: Box<StepDraftInput>,
+        reason: String,
+    },
+    Chat {
+        reason: String,
+    },
+    Skip {
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -70,6 +134,22 @@ pub async fn workspace_plan_status(
     project_id: i64,
 ) -> Result<WorkspacePlanStatus, String> {
     workspace_plan_status_impl(&state, project_id)
+}
+
+#[tauri::command]
+pub async fn workspace_plan_dashboard(
+    state: State<'_, AppState>,
+) -> Result<Vec<WorkspacePlanDashboardProject>, String> {
+    workspace_plan_dashboard_impl(&state)
+}
+
+#[tauri::command]
+pub async fn workspace_plan_activity(
+    state: State<'_, AppState>,
+    plan_id: i64,
+    limit: i64,
+) -> Result<Vec<PlanActivityLogRow>, String> {
+    workspace_plan_activity_impl(&state, plan_id, limit)
 }
 
 #[tauri::command]
@@ -143,6 +223,24 @@ pub async fn workspace_plan_step_mappings(
 }
 
 #[tauri::command]
+pub async fn workspace_plan_route_chat(
+    state: State<'_, AppState>,
+    project_id: i64,
+    prompt: String,
+) -> Result<RouteDecision, String> {
+    workspace_plan_route_chat_impl(&state, project_id, prompt).await
+}
+
+#[tauri::command]
+pub async fn workspace_plan_append_step(
+    state: State<'_, AppState>,
+    plan_id: i64,
+    draft: StepDraftInput,
+) -> Result<StepRow, String> {
+    workspace_plan_append_step_impl(&state, plan_id, draft)
+}
+
+#[tauri::command]
 pub async fn roadmap_step_open(
     state: State<'_, AppState>,
     step_id: i64,
@@ -190,19 +288,7 @@ pub fn workspace_plan_status_impl(
 
     let steps = step_dao::list_by_plan(db.conn(), plan.id).map_err(|e| e.to_string())?;
     let mappings = mappings_for_steps(db.conn(), &steps)?;
-    let done_step_ids = done_step_ids(&steps, &mappings);
-    let mut ready_count = 0;
-    let mut blocked_count = 0;
-    for step in &steps {
-        if mappings.iter().any(|mapping| mapping.step_id == step.id) {
-            continue;
-        }
-        if dependencies_done(step, &done_step_ids) {
-            ready_count += 1;
-        } else {
-            blocked_count += 1;
-        }
-    }
+    let progress = derive_plan_progress(&steps, &mappings);
 
     Ok(WorkspacePlanStatus {
         status: if plan.status == "approved" {
@@ -214,10 +300,39 @@ pub fn workspace_plan_status_impl(
         has_approved_plan: plan.status == "approved",
         plan_summary: Some(plan.goal),
         plan_id: Some(plan.id),
-        step_count: steps.len() as i64,
-        ready_count,
-        blocked_count,
+        step_count: progress.step_count,
+        ready_count: progress.ready_count,
+        blocked_count: progress.blocked_count,
     })
+}
+
+pub fn workspace_plan_dashboard_impl(
+    state: &AppState,
+) -> Result<Vec<WorkspacePlanDashboardProject>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let mut projects = project_dao::list(db.conn()).map_err(|e| e.to_string())?;
+    projects.sort_by_key(|project| std::cmp::Reverse(project.updated_at));
+
+    projects
+        .into_iter()
+        .map(|project| {
+            let plan =
+                plan_dao::get_by_project(db.conn(), project.id).map_err(|e| e.to_string())?;
+            dashboard_row_for_project(db.conn(), project, plan)
+        })
+        .collect()
+}
+
+pub fn workspace_plan_activity_impl(
+    state: &AppState,
+    plan_id: i64,
+    limit: i64,
+) -> Result<Vec<PlanActivityLogRow>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    plan_dao::get_by_id(db.conn(), plan_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("plan {plan_id} not found"))?;
+    plan_activity_for_plan(db.conn(), plan_id, limit)
 }
 
 pub fn workspace_plan_start_interview_impl(
@@ -435,9 +550,19 @@ pub fn workspace_plan_approve_impl(state: &AppState, plan_id: i64) -> Result<Pla
         }
     }
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    plan_dao::get_by_id(db.conn(), plan_id)
+    let plan = plan_dao::get_by_id(db.conn(), plan_id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("plan {plan_id} not found after approve"))
+        .ok_or_else(|| format!("plan {plan_id} not found after approve"))?;
+    let _ = append_plan_activity(
+        db.conn(),
+        &plan,
+        None,
+        None,
+        "plan_approved",
+        "Plan approved",
+        None,
+    );
+    Ok(plan)
 }
 
 pub fn workspace_plan_discard_plan_impl(state: &AppState, plan_id: i64) -> Result<(), String> {
@@ -468,6 +593,103 @@ pub fn workspace_plan_step_mappings_impl(
     mappings_for_steps(db.conn(), &steps)
 }
 
+pub async fn workspace_plan_route_chat_impl(
+    state: &AppState,
+    project_id: i64,
+    prompt: String,
+) -> Result<RouteDecision, String> {
+    let status = workspace_plan_status_impl(state, project_id)?;
+    let Some(plan_id) = status.plan_id else {
+        return Ok(RouteDecision::Skip {
+            reason: "approved plan not found".into(),
+        });
+    };
+    if !status.has_approved_plan {
+        return Ok(RouteDecision::Skip {
+            reason: "approved plan not found".into(),
+        });
+    }
+
+    let runtime = state.ensure_provider_runtime().await?;
+    let ctx = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let plan = plan_dao::get_by_id(db.conn(), plan_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("plan {plan_id} not found"))?;
+        let steps = step_dao::list_by_plan(db.conn(), plan_id).map_err(|e| e.to_string())?;
+        let mappings = mappings_for_steps(db.conn(), &steps)?;
+        build_router_context(&plan, &steps, &mappings)
+    };
+
+    let decision =
+        plan_router::decide(runtime.provider.as_ref(), runtime.model, prompt, ctx).await?;
+    match decision {
+        PlanRouterDecision::Chat { reason } => Ok(RouteDecision::Chat { reason }),
+        PlanRouterDecision::AddStep { draft, reason } => {
+            let db = state.db.lock().map_err(|e| e.to_string())?;
+            Ok(RouteDecision::AddStep {
+                draft: Box::new(step_draft_input_from_router(db.conn(), plan_id, *draft)?),
+                reason,
+            })
+        }
+    }
+}
+
+pub fn workspace_plan_append_step_impl(
+    state: &AppState,
+    plan_id: i64,
+    draft: StepDraftInput,
+) -> Result<StepRow, String> {
+    validate_append_draft(&draft)?;
+    let mut db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn_mut();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let plan = plan_dao::get_by_id(&tx, plan_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("plan {plan_id} not found"))?;
+    if plan.status != "approved" {
+        return Err("plan must be approved before appending steps".into());
+    }
+
+    validate_draft_dependencies(&tx, plan_id, &draft.dependencies)?;
+    let step_id = step_dao::next_step_id(&tx, plan_id).map_err(|e| e.to_string())?;
+    let position = step_dao::next_position(&tx, plan_id).map_err(|e| e.to_string())?;
+    let inserted_id = step_dao::insert(
+        &tx,
+        &NewStep {
+            plan_id,
+            step_id,
+            title: draft.title,
+            summary: Some(draft.summary),
+            instruction_seed: Some(draft.instruction_seed),
+            expected_files: Some(serde_json::json!(draft.expected_files)),
+            acceptance_criteria: Some(serde_json::json!(draft.acceptance_criteria)),
+            verification_kind: draft.verification_type,
+            verification_command: draft.verification_command,
+            verification_manual_check: None,
+            dependencies: Some(serde_json::json!(draft.dependencies)),
+            parallel_group: draft.parallel_group.map(|group| group.to_string()),
+            position,
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    step_dao::validate_dependencies(&tx, plan_id).map_err(|e| e.to_string())?;
+    let row = step_dao::get_by_id(&tx, inserted_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "step not found after insert".to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    let _ = append_plan_activity(
+        conn,
+        &plan,
+        Some(&row),
+        None,
+        "plan_step_appended",
+        "Step appended to plan",
+        None,
+    );
+    Ok(row)
+}
+
 pub fn roadmap_step_open_impl(
     state: &AppState,
     step_id: i64,
@@ -489,8 +711,23 @@ pub fn roadmap_step_open_impl(
 
     let steps = step_dao::list_by_plan(conn, step.plan_id).map_err(|e| e.to_string())?;
     let mappings = mappings_for_steps(conn, &steps)?;
-    if !dependencies_done(&step, &done_step_ids(&steps, &mappings)) {
-        return Err("step is blocked: dependencies not completed".to_string());
+    let done_ids = done_step_ids(&steps, &mappings);
+    let blocked_dependencies = blocked_dependency_ids(&step, &done_ids);
+    if !blocked_dependencies.is_empty() {
+        let reason = format!(
+            "step is blocked: waiting for {}",
+            blocked_dependencies.join(", ")
+        );
+        let _ = append_plan_activity(
+            conn,
+            &plan,
+            Some(&step),
+            None,
+            "plan_step_open_failed",
+            "Step start blocked",
+            Some(&reason),
+        );
+        return Err(reason);
     }
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
@@ -538,7 +775,7 @@ pub fn roadmap_step_open_impl(
             step_id,
             session_id: Some(session_id),
             card_id: Some(card_id),
-            state_path: Some(step.step_id),
+            state_path: Some(step.step_id.clone()),
             status: "in_progress".into(),
             started_at: Some(now_ms()),
             completed_at: None,
@@ -551,9 +788,19 @@ pub fn roadmap_step_open_impl(
     .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
 
-    mapping_dao::get_by_id(conn, mapping_id)
+    let mapping = mapping_dao::get_by_id(conn, mapping_id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| "mapping not found after insert".to_string())
+        .ok_or_else(|| "mapping not found after insert".to_string())?;
+    let _ = append_plan_activity(
+        conn,
+        &plan,
+        Some(&step),
+        Some(session_id),
+        "plan_step_opened",
+        "Step session started",
+        None,
+    );
+    Ok(mapping)
 }
 
 pub fn roadmap_step_update_state_impl(
@@ -561,16 +808,23 @@ pub fn roadmap_step_update_state_impl(
     input: StepStateUpdateInput,
 ) -> Result<StepSessionMappingRow, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
+    let step = step_dao::get_by_id(db.conn(), input.step_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("step {} not found", input.step_id))?;
+    let plan = plan_dao::get_by_id(db.conn(), step.plan_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("plan {} not found", step.plan_id))?;
     let mapping = mapping_dao::get_by_step(db.conn(), input.step_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("no mapping found for step {}", input.step_id))?;
-    let done = input.status == "done" || input.status == "shipped";
+    let status = input.status;
+    let done = status == "done" || status == "shipped";
     let updated = NewStepSessionMapping {
         step_id: mapping.step_id,
         session_id: mapping.session_id,
         card_id: mapping.card_id,
         state_path: mapping.state_path,
-        status: input.status,
+        status,
         started_at: mapping.started_at,
         completed_at: if done {
             Some(now_ms())
@@ -583,9 +837,240 @@ pub fn roadmap_step_update_state_impl(
         user_decision: mapping.user_decision,
     };
     mapping_dao::update(db.conn(), mapping.id, &updated).map_err(|e| e.to_string())?;
-    mapping_dao::get_by_id(db.conn(), mapping.id)
+    let mapping = mapping_dao::get_by_id(db.conn(), mapping.id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| "mapping not found after update".to_string())
+        .ok_or_else(|| "mapping not found after update".to_string())?;
+    let message = step_state_activity_message(mapping.status.as_str());
+    let _ = append_plan_activity(
+        db.conn(),
+        &plan,
+        Some(&step),
+        mapping.session_id,
+        "plan_step_state_changed",
+        &message,
+        None,
+    );
+    Ok(mapping)
+}
+
+#[derive(Default)]
+struct PlanProgress {
+    step_count: i64,
+    ready_count: i64,
+    blocked_count: i64,
+    active_count: i64,
+    done_count: i64,
+    shipped_count: i64,
+    next_ready_steps: Vec<WorkspacePlanDashboardStep>,
+    active_steps: Vec<WorkspacePlanDashboardStep>,
+}
+
+fn dashboard_row_for_project(
+    conn: &rusqlite::Connection,
+    project: ProjectRow,
+    plan: Option<PlanRow>,
+) -> Result<WorkspacePlanDashboardProject, String> {
+    let Some(plan) = plan else {
+        return Ok(WorkspacePlanDashboardProject {
+            project_id: project.id,
+            project_name: project.name,
+            project_path: project.path,
+            project_updated_at: project.updated_at,
+            plan_id: None,
+            plan_goal: None,
+            plan_status: None,
+            step_count: 0,
+            ready_count: 0,
+            blocked_count: 0,
+            active_count: 0,
+            done_count: 0,
+            shipped_count: 0,
+            next_ready_steps: Vec::new(),
+            active_steps: Vec::new(),
+            last_activity: None,
+        });
+    };
+
+    let steps = step_dao::list_by_plan(conn, plan.id).map_err(|e| e.to_string())?;
+    let mappings = mappings_for_steps(conn, &steps)?;
+    let progress = derive_plan_progress(&steps, &mappings);
+    let last_activity = latest_plan_activity(conn, plan.id)?;
+
+    Ok(WorkspacePlanDashboardProject {
+        project_id: project.id,
+        project_name: project.name,
+        project_path: project.path,
+        project_updated_at: project.updated_at,
+        plan_id: Some(plan.id),
+        plan_goal: Some(plan.goal),
+        plan_status: Some(plan.status),
+        step_count: progress.step_count,
+        ready_count: progress.ready_count,
+        blocked_count: progress.blocked_count,
+        active_count: progress.active_count,
+        done_count: progress.done_count,
+        shipped_count: progress.shipped_count,
+        next_ready_steps: progress.next_ready_steps,
+        active_steps: progress.active_steps,
+        last_activity,
+    })
+}
+
+fn derive_plan_progress(steps: &[StepRow], mappings: &[StepSessionMappingRow]) -> PlanProgress {
+    let done_ids = done_step_ids(steps, mappings);
+    let mapping_by_step_id = mappings
+        .iter()
+        .map(|mapping| (mapping.step_id, mapping))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut progress = PlanProgress {
+        step_count: steps.len() as i64,
+        ..PlanProgress::default()
+    };
+
+    for step in steps {
+        if let Some(mapping) = mapping_by_step_id.get(&step.id) {
+            match mapping.status.as_str() {
+                "done" => progress.done_count += 1,
+                "shipped" => progress.shipped_count += 1,
+                _ => {
+                    progress.active_count += 1;
+                    progress.active_steps.push(dashboard_step(
+                        step,
+                        mapping.status.as_str(),
+                        Some(mapping),
+                    ));
+                }
+            }
+            continue;
+        }
+
+        if dependencies_done(step, &done_ids) {
+            progress.ready_count += 1;
+            progress
+                .next_ready_steps
+                .push(dashboard_step(step, "ready", None));
+        } else {
+            progress.blocked_count += 1;
+        }
+    }
+
+    progress
+}
+
+fn dashboard_step(
+    step: &StepRow,
+    status: &str,
+    mapping: Option<&StepSessionMappingRow>,
+) -> WorkspacePlanDashboardStep {
+    WorkspacePlanDashboardStep {
+        step_db_id: step.id,
+        stable_step_id: step.step_id.clone(),
+        title: step.title.clone(),
+        position: step.position,
+        status: status.to_string(),
+        session_id: mapping.and_then(|mapping| mapping.session_id),
+        card_id: mapping.and_then(|mapping| mapping.card_id),
+    }
+}
+
+fn append_plan_activity(
+    conn: &rusqlite::Connection,
+    plan: &PlanRow,
+    step: Option<&StepRow>,
+    session_id: Option<i64>,
+    event_type: &str,
+    message: &str,
+    reason: Option<&str>,
+) -> Result<(), String> {
+    dive_event_log::append_to_conn(
+        conn,
+        session_id,
+        event_type,
+        serde_json::json!({
+            "project_id": plan.project_id,
+            "plan_id": plan.id,
+            "step_id": step.map(|step| step.id),
+            "stable_step_id": step.map(|step| step.step_id.clone()),
+            "step_title": step.map(|step| step.title.clone()),
+            "message": message,
+            "reason": reason,
+        }),
+    )
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
+fn latest_plan_activity(
+    conn: &rusqlite::Connection,
+    plan_id: i64,
+) -> Result<Option<PlanActivityLogRow>, String> {
+    Ok(plan_activity_for_plan(conn, plan_id, 1)?.into_iter().next())
+}
+
+fn plan_activity_for_plan(
+    conn: &rusqlite::Connection,
+    plan_id: i64,
+    limit: i64,
+) -> Result<Vec<PlanActivityLogRow>, String> {
+    let limit = if limit <= 0 {
+        20
+    } else {
+        limit.min(100) as usize
+    };
+    let mut rows = event_log_dao::list(conn)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter_map(|row| plan_activity_from_event(row, Some(plan_id)))
+        .collect::<Vec<_>>();
+    rows.sort_by(|left, right| {
+        right
+            .created_at
+            .cmp(&left.created_at)
+            .then_with(|| right.id.cmp(&left.id))
+    });
+    rows.truncate(limit);
+    Ok(rows)
+}
+
+fn plan_activity_from_event(
+    row: EventLogRow,
+    required_plan_id: Option<i64>,
+) -> Option<PlanActivityLogRow> {
+    if !row.r#type.starts_with("plan_") {
+        return None;
+    }
+    let plan_id = row.payload.get("plan_id")?.as_i64()?;
+    if required_plan_id.is_some_and(|required| required != plan_id) {
+        return None;
+    }
+
+    Some(PlanActivityLogRow {
+        id: row.id,
+        plan_id,
+        event_type: row.r#type,
+        message: payload_string(&row.payload, "message").unwrap_or_else(|| "Plan activity".into()),
+        step_id: row.payload.get("step_id").and_then(|value| value.as_i64()),
+        stable_step_id: payload_string(&row.payload, "stable_step_id"),
+        step_title: payload_string(&row.payload, "step_title"),
+        reason: payload_string(&row.payload, "reason"),
+        created_at: row.created_at,
+    })
+}
+
+fn payload_string(payload: &serde_json::Value, key: &str) -> Option<String> {
+    payload
+        .get(key)
+        .and_then(|value| value.as_str())
+        .map(ToOwned::to_owned)
+}
+
+fn step_state_activity_message(status: &str) -> String {
+    match status {
+        "done" => "Step marked done".into(),
+        "shipped" => "Step marked shipped".into(),
+        "in_progress" => "Step marked in progress".into(),
+        other => format!("Step marked {other}"),
+    }
 }
 
 fn mappings_for_steps(
@@ -615,17 +1100,21 @@ fn done_step_ids(steps: &[StepRow], mappings: &[StepSessionMappingRow]) -> HashS
 }
 
 fn dependencies_done(step: &StepRow, done_step_ids: &HashSet<String>) -> bool {
+    blocked_dependency_ids(step, done_step_ids).is_empty()
+}
+
+fn blocked_dependency_ids(step: &StepRow, done_step_ids: &HashSet<String>) -> Vec<String> {
     step.dependencies
         .as_ref()
         .and_then(|deps| deps.as_array())
         .map(|deps| {
-            deps.iter().all(|dep| {
-                dep.as_str()
-                    .map(|dep_id| done_step_ids.contains(dep_id))
-                    .unwrap_or(true)
-            })
+            deps.iter()
+                .filter_map(|dep| dep.as_str())
+                .filter(|dep_id| !done_step_ids.contains(*dep_id))
+                .map(ToOwned::to_owned)
+                .collect()
         })
-        .unwrap_or(true)
+        .unwrap_or_default()
 }
 
 fn validate_unique_step_ids(steps: &[StepDraftInput]) -> Result<(), String> {
@@ -636,6 +1125,105 @@ fn validate_unique_step_ids(steps: &[StepDraftInput]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn build_router_context(
+    plan: &PlanRow,
+    steps: &[StepRow],
+    mappings: &[StepSessionMappingRow],
+) -> PlanRouterContext {
+    let done_ids = done_step_ids(steps, mappings);
+    PlanRouterContext {
+        goal: plan.goal.clone(),
+        intent_summary: plan.intent_summary.clone(),
+        scope: json_string_array(plan.scope.as_ref()),
+        acceptance_criteria: json_string_array(plan.acceptance_criteria.as_ref()),
+        steps: steps
+            .iter()
+            .map(|step| {
+                let status = mappings
+                    .iter()
+                    .find(|mapping| mapping.step_id == step.id)
+                    .map(|mapping| mapping.status.clone())
+                    .unwrap_or_else(|| {
+                        if dependencies_done(step, &done_ids) {
+                            "ready".into()
+                        } else {
+                            "blocked".into()
+                        }
+                    });
+                PlanRouterStepContext {
+                    step_id: step.step_id.clone(),
+                    title: step.title.clone(),
+                    status,
+                    dependencies: json_string_array(step.dependencies.as_ref()),
+                }
+            })
+            .collect(),
+    }
+}
+
+fn step_draft_input_from_router(
+    conn: &rusqlite::Connection,
+    plan_id: i64,
+    draft: RouterStepDraft,
+) -> Result<StepDraftInput, String> {
+    Ok(StepDraftInput {
+        title: draft.title,
+        summary: draft.summary,
+        instruction_seed: draft.instruction_seed,
+        expected_files: draft.expected_files,
+        acceptance_criteria: draft.acceptance_criteria,
+        verification_command: draft.verification_command,
+        verification_type: draft.verification_type,
+        dependencies: draft.dependencies,
+        parallel_group: draft.parallel_group,
+        position: step_dao::next_position(conn, plan_id).map_err(|e| e.to_string())?,
+        step_id: step_dao::next_step_id(conn, plan_id).map_err(|e| e.to_string())?,
+    })
+}
+
+fn validate_append_draft(draft: &StepDraftInput) -> Result<(), String> {
+    if draft.title.trim().is_empty() {
+        return Err("step title is required".into());
+    }
+    if draft.summary.trim().is_empty() {
+        return Err("step summary is required".into());
+    }
+    if draft.instruction_seed.trim().is_empty() {
+        return Err("step instruction_seed is required".into());
+    }
+    Ok(())
+}
+
+fn validate_draft_dependencies(
+    conn: &rusqlite::Connection,
+    plan_id: i64,
+    dependencies: &[String],
+) -> Result<(), String> {
+    let existing = step_dao::list_by_plan(conn, plan_id)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|step| step.step_id)
+        .collect::<HashSet<_>>();
+    for dependency in dependencies {
+        if !existing.contains(dependency) {
+            return Err(format!("invalid dependency: {dependency}"));
+        }
+    }
+    Ok(())
+}
+
+fn json_string_array(value: Option<&serde_json::Value>) -> Vec<String> {
+    value
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(ToOwned::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn join_string_array(value: Option<&serde_json::Value>) -> Option<String> {

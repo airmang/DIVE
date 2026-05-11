@@ -1,7 +1,13 @@
 import { useCallback, useMemo, useState } from "react";
-import { Play } from "lucide-react";
+import { AlertTriangle, Play, X } from "lucide-react";
 import { translate, useLocale, useT, type Locale } from "../../i18n";
-import type { PlanRoadmapStep, StepSessionMappingRow } from "../../features/roadmap";
+import {
+  makeRoadmapActionFailure,
+  type PlanRoadmapStep,
+  type RoadmapActionFailure,
+  type StepSessionMappingRow,
+} from "../../features/roadmap";
+import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { MermaidDiagram } from "../product/MermaidDiagram";
 import { useToast } from "../toast/toast-context";
@@ -12,6 +18,7 @@ interface RoadmapDAGProps {
   error: string | null;
   onOpenStep: (stepId: number, opts?: { focus?: boolean }) => Promise<StepSessionMappingRow>;
   onOpenSession: (sessionId: number) => void;
+  className?: string;
 }
 
 interface ExplicitBucketGroup {
@@ -145,11 +152,19 @@ function buildExplicitBucketGroups(steps: PlanRoadmapStep[]): ExplicitBucketGrou
   }));
 }
 
-export function RoadmapDAG({ steps, loading, error, onOpenStep, onOpenSession }: RoadmapDAGProps) {
+export function RoadmapDAG({
+  steps,
+  loading,
+  error,
+  onOpenStep,
+  onOpenSession,
+  className,
+}: RoadmapDAGProps) {
   const t = useT();
   const locale = useLocale();
   const { toast } = useToast();
   const [openingBuckets, setOpeningBuckets] = useState<Set<string>>(() => new Set());
+  const [actionFailures, setActionFailures] = useState<RoadmapActionFailure[]>([]);
   const chart = useMemo(() => buildRoadmapChart(steps, locale), [locale, steps]);
   const explicitGroups = useMemo(() => buildExplicitBucketGroups(steps), [steps]);
   const stepByStepId = useMemo(
@@ -179,7 +194,15 @@ export function RoadmapDAG({ steps, loading, error, onOpenStep, onOpenSession }:
       const item = stepByStepId.get(stepId);
       if (!item) return;
       if (item.status === "ready") {
-        void onOpenStep(item.step.id);
+        void onOpenStep(item.step.id).catch((error) => {
+          setActionFailures([
+            makeRoadmapActionFailure({
+              action: "start_step",
+              stepLabel: `${item.step.step_id}: ${item.step.title}`,
+              error,
+            }),
+          ]);
+        });
         return;
       }
       if (item.status === "in_progress" && item.mapping?.session_id) {
@@ -195,12 +218,25 @@ export function RoadmapDAG({ steps, loading, error, onOpenStep, onOpenSession }:
 
   const handleStartGroup = async (group: ExplicitBucketGroup) => {
     if (group.readySteps.length === 0) return;
+    setActionFailures([]);
     setOpeningBuckets((current) => new Set(current).add(group.bucket));
     try {
       const results = await Promise.allSettled(
         group.readySteps.map((item) => onOpenStep(item.step.id, { focus: false })),
       );
       const ok = results.filter((result) => result.status === "fulfilled").length;
+      const failures = results.flatMap((result, index) =>
+        result.status === "rejected"
+          ? [
+              makeRoadmapActionFailure({
+                action: "start_group",
+                stepLabel: `${group.readySteps[index].step.step_id}: ${group.readySteps[index].step.title}`,
+                error: result.reason,
+              }),
+            ]
+          : [],
+      );
+      setActionFailures(failures);
       toast({
         variant: ok === results.length ? "success" : "warn",
         title: t("roadmap.plan_graph.batch_open_partial", {
@@ -219,7 +255,7 @@ export function RoadmapDAG({ steps, loading, error, onOpenStep, onOpenSession }:
 
   return (
     <section
-      className="max-h-56 overflow-auto border-b bg-bg-panel px-3 py-3"
+      className={cn("max-h-56 overflow-auto border-b bg-bg-panel px-3 py-3", className)}
       data-testid="plan-roadmap-dag"
     >
       <MermaidDiagram
@@ -227,6 +263,12 @@ export function RoadmapDAG({ steps, loading, error, onOpenStep, onOpenSession }:
         onNodeClick={handleNodeClick}
         nodeIdResolver={resolveNodeStepId}
       />
+      {actionFailures.length > 0 ? (
+        <RoadmapActionFailurePanel
+          failures={actionFailures}
+          onDismiss={() => setActionFailures([])}
+        />
+      ) : null}
       {explicitGroups.length > 0 ? (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {explicitGroups.map((group) => (
@@ -263,5 +305,47 @@ export function RoadmapDAG({ steps, loading, error, onOpenStep, onOpenSession }:
         </span>
       </div>
     </section>
+  );
+}
+
+function RoadmapActionFailurePanel({
+  failures,
+  onDismiss,
+}: {
+  failures: RoadmapActionFailure[];
+  onDismiss: () => void;
+}) {
+  const t = useT();
+  return (
+    <div
+      className="mt-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs"
+      data-testid="roadmap-action-failure"
+    >
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold text-fg">
+            {t("roadmap.action_failure.title", { count: failures.length })}
+          </div>
+          <ul className="mt-1 space-y-1 text-danger">
+            {failures.map((failure) => (
+              <li key={`${failure.occurredAt}:${failure.stepLabel}:${failure.message}`}>
+                <span className="font-medium text-fg">{failure.stepLabel}</span>
+                <span className="text-fg-muted"> — </span>
+                <span>{failure.message}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <button
+          type="button"
+          className="rounded p-1 text-fg-muted hover:bg-bg-panel2 hover:text-fg"
+          onClick={onDismiss}
+          aria-label={t("roadmap.action_failure.dismiss")}
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
   );
 }

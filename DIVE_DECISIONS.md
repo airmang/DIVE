@@ -1445,3 +1445,43 @@
   - `dive/src-tauri/src/ipc/workspace_plan.rs` (각 계층 IPC)
   - `dive/src/features/planning/`, `dive/src/features/roadmap/`
   - `DIVE_SPEC.md` §4.1.x, §4.2.x, §10.2
+
+## ADR-084: Freeform bash and stale plan-draft tools are excluded from the v1 built-in registry
+
+- 일시: 2026-05-11
+- 상태: 채택 (Phase 10 Korean-user GA hardening)
+- 컨텍스트: 무감독 한국어 일반 사용자 출시에서는 정규식 기반 shell blocklist를 신뢰 경계로 둘 수 없다. Phase 9 이후 plan interview는 `assistant_end` JSON을 파싱하므로 `emit_workspace_plan_draft` built-in tool도 product runtime에서 사용되지 않는다.
+- 결정:
+  - `bash` built-in tool은 production registry에서 제거하고, 사용자는 shell 없이 explicit argv 기반 `run_process`만 사용한다.
+  - stale `emit_workspace_plan_draft` tool은 built-in registry에서 제거한다.
+  - `verify-production-wire`는 새 현실을 검증한다: plan interview는 `decodeWorkspacePlanDraftFromLlm` 경로를 사용하고 mock fallback이 없어야 한다.
+- 대안:
+  - `bash`를 유지하고 blocklist를 더 강화 — shell grammar와 Windows command parsing을 정규식으로 완전히 막기 어렵다.
+  - plan draft tool을 재와이어 — Phase 10의 목표는 새 기능 추가가 아니라 출시 하드닝이므로 범위를 키우지 않는다.
+- 결과:
+  - production model tool list에서 freeform shell 실행 표면이 사라진다.
+  - release gate가 Phase 9 구현 현실과 다시 일치한다.
+- 참조 파일:
+  - `dive/src-tauri/src/tools/registry.rs`
+  - `dive/src-tauri/src/tools/mod.rs`
+  - `dive/scripts/verify-production-wire.mjs`
+  - `dive/src/features/planning/usePlanInterviewLLM.ts`
+
+## ADR-085: Research gate ablation env is dev-mock only in Phase 10 release hardening
+
+- 일시: 2026-05-11
+- 상태: 채택 (Phase 10 Korean-user GA hardening)
+- 컨텍스트: `DIVE_RESEARCH_ABLATION_GATES`는 연구 재현성에는 유용하지만 무감독 일반 사용자 릴리스에서는 안전 게이트를 우회하는 footgun이다.
+- 결정:
+  - 환경 변수 기반 gate ablation은 `dev-mock` feature 빌드에서만 동작한다.
+  - production/release 빌드는 같은 환경 변수가 있어도 게이트를 끄지 않는다.
+  - Settings의 연구 전용 runtime flag는 별도 제품 정책으로 남기되, Phase 10에서는 env footgun만 제거한다.
+- 대안:
+  - 환경 변수를 유지하고 문서로 경고 — 사용자 머신 환경 오염이나 지원 스크립트 실수를 막지 못한다.
+  - 연구 ablation 자체를 삭제 — 기존 연구 검증 흐름을 불필요하게 깨뜨린다.
+- 결과:
+  - 일반 사용자 릴리스에서 D/I/V/E safety gate가 환경 변수로 비활성화되지 않는다.
+  - 연구 빌드는 기존 env 기반 자동화가 계속 가능하다.
+- 참조 파일:
+  - `dive/src-tauri/src/dive/gate.rs`
+  - `docs/research-ablation.md`

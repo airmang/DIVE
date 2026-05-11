@@ -3,7 +3,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::time::Duration;
 
-use super::{RiskLevel, Tool, ToolContext, ToolError, ToolOutput};
+use super::{truncate_utf8, RiskLevel, Tool, ToolContext, ToolError, ToolOutput};
 
 #[derive(Deserialize)]
 struct Input {
@@ -124,19 +124,19 @@ fn validate_no_shell(value: &str, label: &str) -> Result<(), ToolError> {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        let mut out = s[..max].to_string();
-        out.push_str("\n… [truncated]");
-        out
-    }
+    truncate_utf8(s, max, "\n… [truncated]")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn truncate_handles_utf8_boundary() {
+        let out = truncate("가나다라마바사", 5);
+        assert_eq!(out, "가\n… [truncated]");
+    }
 
     #[test]
     fn run_process_validate_rejects_shell_metacharacters_and_escape_args() {

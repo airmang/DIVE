@@ -22,6 +22,8 @@
   "sidebar": {
     "section_projects": "Projects",
     "section_sessions": "Sessions",
+    "tab_workspace": "Workspace",
+    "tab_dashboard": "Dashboard",
     "new_project": "+ New project",
     "new_session": "+ New session",
     "empty_projects": "No projects yet",
@@ -180,6 +182,7 @@
   },
   "roadmap": {
     "title": "Roadmap",
+    "refresh": "Refresh roadmap",
     "progress": "Progress",
     "progress_aria": "Roadmap progress",
     "current_step": "Current step",
@@ -234,7 +237,27 @@
       "step_approve_message_seed": "Approve Step {{position}}: {{title}}",
       "step_request_changes_message_seed": "Request changes on Step {{position}}: {{title}} — "
     },
+    "action_failure": {
+      "title": "Could not start {{count}} step(s)",
+      "single_title": "Action failed",
+      "dismiss": "Dismiss action failure"
+    },
+    "activity": {
+      "title": "Recent activity",
+      "refresh": "Refresh activity",
+      "empty": "No recorded activity yet.",
+      "error": "Could not load activity: {{message}}",
+      "events": {
+        "plan_approved": "Plan approved",
+        "plan_step_opened": "Step session started",
+        "plan_step_open_failed": "Step start blocked",
+        "plan_step_state_changed": "Step state changed",
+        "plan_step_appended": "Step added"
+      }
+    },
     "plan_graph": {
+      "open_graph": "Dependencies",
+      "graph_title": "Dependency graph",
       "summary": "{{total}} steps · {{ready}} ready · {{blocked}} blocked",
       "waiting_for": "Waiting for {{deps}}",
       "resume": "Resume",
@@ -253,6 +276,37 @@
         "in_progress": "In progress",
         "done": "Done",
         "shipped": "Shipped"
+      }
+    },
+    "dashboard": {
+      "title": "Plan dashboard",
+      "summary": "{{projects}} projects · {{planned}} planned",
+      "refresh": "Refresh dashboard",
+      "metric_ready": "Ready",
+      "metric_active": "Active",
+      "metric_blocked": "Blocked",
+      "empty": "No projects yet",
+      "progress": "{{done}}/{{total}} done",
+      "counts": "{{ready}} ready · {{active}} active · {{blocked}} blocked",
+      "resume": "Resume",
+      "start": "Start",
+      "open_project": "Open project",
+      "working": "Working…",
+      "action_failed": "Dashboard action failed: {{message}}",
+      "last_activity": "Latest",
+      "detail_active": "Active: {{step}} · {{title}}",
+      "detail_ready": "Next: {{step}} · {{title}}",
+      "detail_no_plan": "No approved plan yet.",
+      "detail_draft": "Plan draft is waiting for approval.",
+      "detail_idle": "No ready step right now.",
+      "status": {
+        "no_plan": "No plan",
+        "draft": "Draft",
+        "complete": "Complete",
+        "active": "{{count}} active",
+        "ready": "{{count}} ready",
+        "blocked": "Blocked",
+        "idle": "Idle"
       }
     }
   },
@@ -297,6 +351,26 @@
       "revision_prompt": "[INTERVIEW_SUBMIT]\nRegenerate the current workspace plan draft using this user feedback:\n{{feedback}}\n\nCurrent draft JSON:\n{{draft}}\n\nReturn only JSON with intent_summary, unresolved_questions, and plan_input.",
       "approve_failed_title": "Could not approve plan",
       "discard_failed_title": "Could not discard plan"
+    },
+    "route": {
+      "routing_status": "Routing…",
+      "confirm": {
+        "title": "Add this as a new step?",
+        "description": "DIVE can append this request to the approved plan before sending it to chat.",
+        "suggested_title": "Suggested step",
+        "dependencies": "Depends on: {{deps}}",
+        "dependencies_label": "Dependencies",
+        "parallel_group_label": "Parallel group",
+        "acceptance_label": "Acceptance criteria",
+        "no_dependencies": "None",
+        "none": "None",
+        "add_button": "Add to plan",
+        "skip_button": "Just chat",
+        "reason_label": "Reason"
+      },
+      "error": {
+        "routing_failed": "Routing failed: {{message}}"
+      }
     }
   },
   "recovery": {
