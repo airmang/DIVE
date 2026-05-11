@@ -139,17 +139,16 @@
 ### 로그 위치
 
 ```
-%APPDATA%\dive\logs\dive.log              ← 메인 로그 (tracing INFO+)
-%APPDATA%\dive\logs\dive.log.1, .2, ...   ← 로테이션 백업
+%LOCALAPPDATA%\com.coreelab.dive\logs\dive.log.YYYY-MM-DD  ← 일별 로그 (tracing INFO+)
 ```
 
-민감 정보(API 키·OAuth 토큰·학생 이름)는 로그에 `***`로 마스킹됩니다.
+API 키·OAuth 토큰·비밀번호 같은 민감 정보는 로그에 `[REDACTED_SECRET]`로 마스킹됩니다. 채팅 원문은 진단 로그에 남기지 않습니다.
 
 ### 진단 정보 수집 (이슈 제보용)
 
 ```powershell
 # PowerShell
-$env:APPDATA + "\dive\logs" | Set-Clipboard
+$env:LOCALAPPDATA + "\com.coreelab.dive\logs" | Set-Clipboard
 ```
 
 위 경로를 탐색기에서 열고 가장 최근 로그 + `session.db`가 있는 프로젝트 폴더를 압축해 GitHub Issue에 첨부.

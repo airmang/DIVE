@@ -714,6 +714,14 @@ pub async fn chat_send(
         .as_deref()
         .and_then(DiveStage::parse)
         .unwrap_or(DiveStage::D);
+    tracing::info!(
+        session_id,
+        stage = stage.as_str(),
+        requested_run_mode = run_mode.as_deref().unwrap_or("default"),
+        text_chars = text.chars().count(),
+        step_id,
+        "ipc chat_send started"
+    );
     let requested_plan_accepted = plan_accepted.unwrap_or(false);
     let step_context = load_active_step_context(&state, session_id, step_id)?;
     let effective_plan_accepted = requested_plan_accepted
@@ -730,6 +738,10 @@ pub async fn chat_send(
     let snap = state.ensure_provider_runtime().await?;
     if snap.kind.is_none() {
         let msg = crate::providers::ProviderError::NotConfigured.to_string();
+        tracing::warn!(
+            session_id,
+            "ipc chat_send rejected because provider is not configured"
+        );
         let _ = log_error_event(&state, Some(session_id), "provider", &msg);
         return Err(msg);
     }
@@ -778,9 +790,17 @@ pub async fn chat_send(
     }
 
     match res {
-        Ok(_) => Ok(()),
+        Ok(_) => {
+            tracing::info!(session_id, "ipc chat_send completed");
+            Ok(())
+        }
         Err(err) => {
             let message = err.to_string();
+            tracing::error!(
+                session_id,
+                error = %crate::telemetry::redact_log_text(&message),
+                "ipc chat_send failed"
+            );
             let _ = log_error_event(&state, Some(session_id), "agent_loop", &message);
             Err(message)
         }

@@ -23,7 +23,7 @@ impl OpenAiProvider {
             base_url: "https://api.openai.com/v1".to_string(),
             id: "openai".to_string(),
             models: default_openai_models(),
-            http: reqwest::Client::new(),
+            http: crate::http_client::build_provider_http_client(),
         }
     }
 
@@ -68,29 +68,56 @@ impl LlmProvider for OpenAiProvider {
     }
 
     async fn chat(&self, req: ChatRequest) -> Result<BoxStream<'static, ChatEvent>, ProviderError> {
+        tracing::info!(
+            provider = %self.id,
+            model = %req.model,
+            message_count = req.messages.len(),
+            tool_count = req.tools.as_ref().map_or(0, Vec::len),
+            "provider chat request started"
+        );
         let mut body = to_openai_payload(&req);
         body["stream"] = json!(true);
         if self.id == "openai" {
             body["stream_options"] = json!({"include_usage": true});
         }
 
-        let response = self
+        let response = match self
             .http
             .post(format!("{}/chat/completions", self.base_url))
             .bearer_auth(&self.api_key)
             .header(reqwest::header::ACCEPT, "text/event-stream")
             .json(&body)
             .send()
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(err) => {
+                tracing::warn!(
+                    provider = %self.id,
+                    error = %crate::telemetry::redact_log_text(&err.to_string()),
+                    "provider chat request failed"
+                );
+                return Err(err.into());
+            }
+        };
 
         let status = response.status();
         if !status.is_success() {
+            let status_code = status.as_u16();
+            let body = response.text().await?;
+            tracing::warn!(
+                provider = %self.id,
+                status = status_code,
+                body_len = body.len(),
+                "provider chat API error"
+            );
             return Err(ProviderError::Api {
-                status: status.as_u16(),
-                body: response.text().await?,
+                status: status_code,
+                body,
             });
         }
 
+        tracing::info!(provider = %self.id, "provider chat stream opened");
         Ok(stream::parse_openai_events(sse::response_to_sse_events(response)).boxed())
     }
 

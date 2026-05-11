@@ -44,8 +44,24 @@ impl Database {
     }
 
     pub fn migrate(&mut self) -> Result<(), DbError> {
+        tracing::info!(
+            persistent = self.path.is_some(),
+            "database migration starting"
+        );
         self.backup_before_forward_migration()?;
-        migrations::migrate(&mut self.conn)
+        match migrations::migrate(&mut self.conn) {
+            Ok(()) => {
+                tracing::info!("database migration completed");
+                Ok(())
+            }
+            Err(err) => {
+                tracing::error!(
+                    error = %crate::telemetry::redact_log_text(&err.to_string()),
+                    "database migration failed"
+                );
+                Err(err)
+            }
+        }
     }
 
     pub fn conn(&self) -> &Connection {

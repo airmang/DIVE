@@ -18,7 +18,7 @@ static SECRET_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?ix)
         sk-[A-Za-z0-9_\-]{3,}
-        |(?:api[_-]?key|token|secret|authorization)\s*[:=]\s*[A-Za-z0-9_\-\.]{4,}
+        |(?:api[_-]?key|token|secret|authorization|password)\s*[:=]\s*[A-Za-z0-9_\-\.]{4,}
         |bearer\s+[A-Za-z0-9_\-\.]{4,}
         ",
     )
@@ -62,7 +62,12 @@ pub fn redact_value(value: &Value) -> Value {
         Value::Object(map) => {
             let mut out = Map::new();
             for (key, value) in map {
-                out.insert(key.clone(), redact_value(value));
+                let redacted = if is_sensitive_key(key) {
+                    Value::String("[REDACTED_SECRET]".into())
+                } else {
+                    redact_value(value)
+                };
+                out.insert(key.clone(), redacted);
             }
             Value::Object(out)
         }
@@ -81,6 +86,15 @@ pub fn hash_text(text: &str) -> String {
     let digest = hasher.finalize();
     let hex = format!("{digest:x}");
     hex[..16].to_string()
+}
+
+fn is_sensitive_key(key: &str) -> bool {
+    let normalized = key.to_ascii_lowercase().replace(['-', '_'], "");
+    normalized.contains("apikey")
+        || normalized.contains("token")
+        || normalized.contains("secret")
+        || normalized.contains("authorization")
+        || normalized.contains("password")
 }
 
 #[cfg(test)]
@@ -102,10 +116,12 @@ mod tests {
         let redacted = redact_value(&json!({
             "nested": {"authorization": "Bearer secret-token-123"},
             "api_key": "sk-abc123",
+            "password": "hunter2",
         }));
         let encoded = redacted.to_string();
         assert!(!encoded.contains("sk-abc123"));
         assert!(!encoded.contains("secret-token-123"));
+        assert!(!encoded.contains("hunter2"));
         assert!(encoded.contains("[REDACTED_SECRET]"));
     }
 }

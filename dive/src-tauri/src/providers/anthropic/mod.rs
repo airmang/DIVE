@@ -17,7 +17,7 @@ impl AnthropicProvider {
         Self {
             api_key,
             base_url: "https://api.anthropic.com".to_string(),
-            http: reqwest::Client::new(),
+            http: crate::http_client::build_provider_http_client(),
         }
     }
 
@@ -50,8 +50,15 @@ impl LlmProvider for AnthropicProvider {
     }
 
     async fn chat(&self, req: ChatRequest) -> Result<BoxStream<'static, ChatEvent>, ProviderError> {
+        tracing::info!(
+            provider = "anthropic",
+            model = %req.model,
+            message_count = req.messages.len(),
+            tool_count = req.tools.as_ref().map_or(0, Vec::len),
+            "provider chat request started"
+        );
         let payload = convert::to_anthropic_payload(&req)?;
-        let response = self
+        let response = match self
             .http
             .post(format!("{}/v1/messages", self.base_url))
             .header("x-api-key", &self.api_key)
@@ -60,16 +67,36 @@ impl LlmProvider for AnthropicProvider {
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .json(&payload)
             .send()
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(err) => {
+                tracing::warn!(
+                    provider = "anthropic",
+                    error = %crate::telemetry::redact_log_text(&err.to_string()),
+                    "provider chat request failed"
+                );
+                return Err(err.into());
+            }
+        };
 
         let status = response.status();
         if !status.is_success() {
+            let status_code = status.as_u16();
+            let body = response.text().await?;
+            tracing::warn!(
+                provider = "anthropic",
+                status = status_code,
+                body_len = body.len(),
+                "provider chat API error"
+            );
             return Err(ProviderError::Api {
-                status: status.as_u16(),
-                body: response.text().await?,
+                status: status_code,
+                body,
             });
         }
 
+        tracing::info!(provider = "anthropic", "provider chat stream opened");
         Ok(stream::parse_anthropic_events(sse::response_to_sse_events(response)).boxed())
     }
 

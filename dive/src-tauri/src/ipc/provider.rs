@@ -67,11 +67,30 @@ pub async fn provider_connect_impl(
     if trimmed_key.is_empty() {
         return Err("api_key cannot be empty".into());
     }
+    tracing::info!(
+        provider_kind = %kind,
+        has_custom_base_url = base_url.is_some(),
+        "provider_connect started"
+    );
     crate::providers::health_check(&kind, trimmed_key, base_url.as_deref())
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            tracing::warn!(
+                provider_kind = %kind,
+                error = %crate::telemetry::redact_log_text(&e.to_string()),
+                "provider health check failed"
+            );
+            e.to_string()
+        })?;
     let provider = crate::providers::build_provider(&kind, trimmed_key, base_url.as_deref())
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            tracing::warn!(
+                provider_kind = %kind,
+                error = %crate::telemetry::redact_log_text(&e.to_string()),
+                "provider build failed"
+            );
+            e.to_string()
+        })?;
     let parsed_kind = crate::ipc::ProviderKind::parse(&kind);
     let canonical_kind = parsed_kind.as_str().to_owned();
     let model = crate::providers::default_model_for_kind(&canonical_kind).to_owned();
@@ -102,6 +121,11 @@ pub async fn provider_connect_impl(
             provider,
         ))
         .map_err(|e| format!("runtime: {e}"))?;
+    tracing::info!(
+        provider_kind = %canonical_kind,
+        provider_config_id = id,
+        "provider_connect completed"
+    );
     Ok(ProviderConfigSummary {
         id,
         kind: canonical_kind,

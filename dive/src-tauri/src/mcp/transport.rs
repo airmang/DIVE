@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::Duration;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -8,11 +9,26 @@ pub enum TransportError {
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
     #[error("http: {0}")]
-    Http(#[from] reqwest::Error),
+    Http(reqwest::Error),
+    #[error("timeout: {0}")]
+    Timeout(String),
     #[error("closed")]
     Closed,
     #[error("{0}")]
     Other(String),
+}
+
+impl From<reqwest::Error> for TransportError {
+    fn from(error: reqwest::Error) -> Self {
+        if error.is_timeout() {
+            Self::Timeout(
+                "MCP HTTP request timed out while waiting for a response; check the server and retry"
+                    .into(),
+            )
+        } else {
+            Self::Http(error)
+        }
+    }
 }
 
 #[async_trait]
@@ -39,12 +55,18 @@ impl HttpTransport {
         Self {
             endpoint: endpoint.into(),
             headers: HashMap::new(),
-            client: reqwest::Client::new(),
+            client: crate::http_client::build_mcp_http_client(),
         }
     }
 
     pub fn with_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.headers.insert(name.into(), value.into());
+        self
+    }
+
+    pub fn with_request_timeout(mut self, timeout: Duration) -> Self {
+        self.client = crate::http_client::build_http_client_with_request_timeout(timeout)
+            .expect("MCP HTTP timeout configuration should be valid");
         self
     }
 }
@@ -77,13 +99,25 @@ pub struct StdioTransport {
     child: Mutex<Option<tokio::process::Child>>,
     stdin: tokio::sync::Mutex<Option<tokio::process::ChildStdin>>,
     stdout: tokio::sync::Mutex<Option<tokio::io::BufReader<tokio::process::ChildStdout>>>,
+    response_timeout: Duration,
 }
 
 impl StdioTransport {
+    const DEFAULT_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
+
     pub async fn spawn(
         command: &str,
         args: &[String],
         env: &HashMap<String, String>,
+    ) -> Result<Self, TransportError> {
+        Self::spawn_with_response_timeout(command, args, env, Self::DEFAULT_RESPONSE_TIMEOUT).await
+    }
+
+    pub async fn spawn_with_response_timeout(
+        command: &str,
+        args: &[String],
+        env: &HashMap<String, String>,
+        response_timeout: Duration,
     ) -> Result<Self, TransportError> {
         use tokio::process::Command;
         let mut cmd = Command::new(command);
@@ -107,6 +141,7 @@ impl StdioTransport {
             child: Mutex::new(Some(child)),
             stdin: tokio::sync::Mutex::new(Some(stdin)),
             stdout: tokio::sync::Mutex::new(Some(tokio::io::BufReader::new(stdout))),
+            response_timeout,
         })
     }
 
@@ -133,7 +168,14 @@ impl Transport for StdioTransport {
         let mut stdout_guard = self.stdout.lock().await;
         let stdout = stdout_guard.as_mut().ok_or(TransportError::Closed)?;
         let mut line = String::new();
-        let n = stdout.read_line(&mut line).await?;
+        let n = tokio::time::timeout(self.response_timeout, stdout.read_line(&mut line))
+            .await
+            .map_err(|_| {
+                TransportError::Timeout(format!(
+                    "MCP stdio request timed out after {}s while waiting for a response line; check the server and retry",
+                    self.response_timeout.as_secs()
+                ))
+            })??;
         if n == 0 {
             return Err(TransportError::Closed);
         }
@@ -223,6 +265,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn http_transport_times_out_waiting_for_response() {
+        use std::time::Duration;
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/rpc"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_millis(50))
+                    .set_body_string("{}"),
+            )
+            .mount(&server)
+            .await;
+        let t = HttpTransport::new(format!("{}/rpc", server.uri()))
+            .with_request_timeout(Duration::from_millis(1));
+        let err = t.send(b"{}").await.unwrap_err();
+        assert!(matches!(err, TransportError::Timeout(_)));
+        assert!(err.to_string().contains("MCP HTTP"));
+    }
+
+    #[tokio::test]
     async fn mock_transport_returns_queued_responses() {
         let t = MockTransport::new(vec![
             serde_json::json!({"a": 1}),
@@ -246,6 +309,32 @@ mod tests {
                 .unwrap();
             let bytes = t.send(b"hello-line").await.unwrap();
             assert_eq!(bytes, b"hello-line");
+            t.kill().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn stdio_transport_times_out_waiting_for_response_line() {
+        #[cfg(unix)]
+        {
+            use std::collections::HashMap;
+            use std::time::Duration;
+
+            let args = vec![
+                "-c".to_string(),
+                "while read _line; do sleep 5; done".to_string(),
+            ];
+            let t = StdioTransport::spawn_with_response_timeout(
+                "sh",
+                &args,
+                &HashMap::new(),
+                Duration::from_millis(5),
+            )
+            .await
+            .unwrap();
+            let err = t.send(b"hello-line").await.unwrap_err();
+            assert!(matches!(err, TransportError::Timeout(_)));
+            assert!(err.to_string().contains("MCP stdio"));
             t.kill().await;
         }
     }

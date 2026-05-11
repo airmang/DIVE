@@ -15,6 +15,7 @@ pub fn is_retryable(err: &ProviderError) -> bool {
             }
             false
         }
+        ProviderError::Timeout(_) => true,
         ProviderError::Api { status, .. } => *status >= 500 && *status < 600,
         ProviderError::Stream(_) => true,
         _ => false,

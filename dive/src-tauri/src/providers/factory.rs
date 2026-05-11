@@ -299,6 +299,7 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert!(matches!(err, ProviderError::Http(ref http) if http.is_timeout()));
+        assert!(matches!(err, ProviderError::Timeout(_)));
+        assert!(err.to_string().contains("timed out"));
     }
 }

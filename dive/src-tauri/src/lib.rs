@@ -6,10 +6,12 @@ pub mod checkpoint;
 pub mod db;
 pub mod dive;
 pub mod export;
+pub(crate) mod http_client;
 pub mod ipc;
 pub mod mcp;
 pub mod menu;
 pub mod providers;
+pub(crate) mod telemetry;
 pub mod tools;
 pub mod workspace_plan;
 
@@ -31,11 +33,33 @@ fn greet(name: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    telemetry::install_panic_hook();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let app_state = ipc::AppState::from_app_handle(app.handle())?;
+            match telemetry::init_file_logging(app.handle()) {
+                Ok(Some(logs_dir)) => {
+                    tracing::info!(logs_dir = %logs_dir.display(), "file logging initialized");
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    let _ = err;
+                }
+            }
+
+            tracing::info!("tauri setup starting");
+            let app_state = match ipc::AppState::from_app_handle(app.handle()) {
+                Ok(app_state) => app_state,
+                Err(err) => {
+                    tracing::error!(
+                        error = %telemetry::redact_log_text(&err.to_string()),
+                        "startup state initialization failed"
+                    );
+                    return Err(err.into());
+                }
+            };
             app.manage(app_state);
 
             let recents = ipc::fetch_recent_projects_for_menu(app.handle()).unwrap_or_default();
@@ -43,6 +67,10 @@ pub fn run() {
             app.set_menu(menu)?;
             menu::install_event_handler(app.handle());
 
+            tracing::info!(
+                recent_project_count = recents.len(),
+                "tauri setup completed"
+            );
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -123,5 +151,11 @@ pub fn run() {
             ipc::roadmap_step_update_state
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .unwrap_or_else(|err| {
+            tracing::error!(
+                error = %telemetry::redact_log_text(&err.to_string()),
+                "tauri runtime failed"
+            );
+            panic!("error while running tauri application: {err}");
+        });
 }

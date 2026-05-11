@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::Value;
 
-use super::client::McpClient;
+use super::client::{McpClient, McpError};
 use crate::tools::{RiskLevel, Tool, ToolContext, ToolError, ToolOutput};
 
 pub const MCP_PREFIX: &str = "mcp__";
@@ -115,9 +115,18 @@ impl Tool for McpToolAdapter {
             .client
             .call_tool(&self.remote_name, input)
             .await
-            .map_err(|e| ToolError::InvalidInput(format!("mcp: {e}")))?;
+            .map_err(mcp_error_to_tool_error)?;
         let summary = summarize(&result);
         Ok(ToolOutput::success(summary, result))
+    }
+}
+
+fn mcp_error_to_tool_error(error: McpError) -> ToolError {
+    let msg = error.to_string();
+    if msg.contains("timed out") || msg.contains("timeout") {
+        ToolError::InvalidInput(format!("mcp timeout: {msg}"))
+    } else {
+        ToolError::InvalidInput(format!("mcp: {msg}"))
     }
 }
 
@@ -152,7 +161,7 @@ fn truncate(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mcp::transport::MockTransport;
+    use crate::mcp::transport::{MockTransport, Transport, TransportError, TransportKind};
     use crate::tools::ToolContext;
     use std::path::PathBuf;
 
@@ -241,6 +250,46 @@ mod tests {
         let err = adapter.run(serde_json::json!({}), &ctx).await.unwrap_err();
         match err {
             ToolError::InvalidInput(msg) => assert!(msg.contains("method not found")),
+            other => panic!("expected InvalidInput, got {other:?}"),
+        }
+    }
+
+    struct TimeoutTransport;
+
+    #[async_trait]
+    impl Transport for TimeoutTransport {
+        async fn send(&self, _request: &[u8]) -> Result<Vec<u8>, TransportError> {
+            Err(TransportError::Timeout(
+                "MCP stdio request timed out after 30s while waiting for a response line; check the server and retry"
+                    .into(),
+            ))
+        }
+
+        fn kind(&self) -> TransportKind {
+            TransportKind::Mock
+        }
+    }
+
+    #[tokio::test]
+    async fn run_timeout_surfaces_clear_tool_error() {
+        let client = Arc::new(McpClient::new(Box::new(TimeoutTransport)));
+        let adapter = McpToolAdapter::new(
+            "fs",
+            "slow".into(),
+            None,
+            serde_json::json!({}),
+            RiskLevel::Safe,
+            None,
+            client,
+        );
+        let ctx = ToolContext::new(PathBuf::from("."), 1);
+        let err = adapter.run(serde_json::json!({}), &ctx).await.unwrap_err();
+        match err {
+            ToolError::InvalidInput(msg) => {
+                assert!(msg.starts_with("mcp timeout:"));
+                assert!(msg.contains("timed out"));
+                assert!(msg.contains("retry"));
+            }
             other => panic!("expected InvalidInput, got {other:?}"),
         }
     }

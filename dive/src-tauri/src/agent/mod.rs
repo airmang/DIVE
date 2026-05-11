@@ -320,10 +320,22 @@ impl AgentLoop {
                             "tool_approve",
                             json!({ "tool": tc.name, "risk": risk.as_str() }),
                         )?;
+                        tracing::info!(
+                            session_id,
+                            tool = %tc.name,
+                            risk = risk.as_str(),
+                            "tool execution started"
+                        );
                         let out = match tool.run(effective_args, &self.tool_ctx).await {
                             Ok(out) => out,
                             Err(e) => {
                                 let msg = format!("{e}");
+                                tracing::warn!(
+                                    session_id,
+                                    tool = %tc.name,
+                                    error = %crate::telemetry::redact_log_text(&msg),
+                                    "tool execution failed"
+                                );
                                 emit(AgentEvent::ToolResult {
                                     call_id: tc.id.clone(),
                                     success: false,
@@ -353,6 +365,12 @@ impl AgentLoop {
                             summary: out.summary.clone(),
                             full: out.full.clone(),
                         });
+                        tracing::info!(
+                            session_id,
+                            tool = %tc.name,
+                            success = out.success,
+                            "tool execution completed"
+                        );
                         self.record_changed_files(session_id, &tc.name, &out.full)?;
                         self.log_event(
                             session_id,
