@@ -182,6 +182,32 @@ fn opening_ready_step_creates_session_card_and_mapping() {
 }
 
 #[test]
+fn opening_ready_step_twice_returns_existing_mapping() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    let step_id = insert_step(&state, plan_id, "step-001", &[]);
+
+    let first = roadmap_step_open_impl(&state, step_id).unwrap();
+    let second = roadmap_step_open_impl(&state, step_id).unwrap();
+
+    assert_eq!(second.id, first.id);
+    assert_eq!(second.step_id, first.step_id);
+    assert_eq!(second.session_id, first.session_id);
+    assert_eq!(second.card_id, first.card_id);
+    assert_eq!(second.status, first.status);
+
+    let db = state.db.lock().unwrap();
+    let matching_mappings = mapping::list(db.conn())
+        .unwrap()
+        .into_iter()
+        .filter(|mapping| mapping.step_id == step_id)
+        .count();
+    assert_eq!(matching_mappings, 1);
+}
+
+#[test]
 fn opening_blocked_step_is_rejected_without_creating_mapping() {
     let tmp = tempfile::tempdir().unwrap();
     let state = mk_state(&tmp);

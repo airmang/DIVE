@@ -9,7 +9,7 @@ interface RoadmapGraphProps {
   steps: PlanRoadmapStep[];
   loading: boolean;
   error: string | null;
-  onOpenStep: (stepId: number) => Promise<StepSessionMappingRow>;
+  onOpenStep: (stepId: number, opts?: { focus?: boolean }) => Promise<StepSessionMappingRow>;
   onOpenSession: (sessionId: number) => void;
 }
 

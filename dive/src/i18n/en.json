@@ -238,6 +238,15 @@
       "summary": "{{total}} steps · {{ready}} ready · {{blocked}} blocked",
       "waiting_for": "Waiting for {{deps}}",
       "resume": "Resume",
+      "start_group": "Start group",
+      "batch_open_partial": "Started {{ok}}/{{total}}",
+      "batch_open_failed": "Batch start failed: {{error}}",
+      "parallel_explicit": "Parallel group: {{name}}",
+      "parallel_auto": "Auto-parallel ready",
+      "dag_legend": {
+        "title": "Legend",
+        "auto_dashed": "Dashed = auto-parallel"
+      },
       "status": {
         "blocked": "Blocked",
         "ready": "Ready",

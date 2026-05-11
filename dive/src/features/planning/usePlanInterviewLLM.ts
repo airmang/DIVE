@@ -34,7 +34,9 @@ function decodeStep(raw: unknown, index: number): StepDraftInput | null {
   const instructionSeed = optionalString(source.instruction_seed ?? source.instructionSeed);
   if (!title || !summary || !instructionSeed) return null;
   return {
-    stepId: optionalString(source.step_id ?? source.stepId) ?? `step-${String(index + 1).padStart(3, "0")}`,
+    stepId:
+      optionalString(source.step_id ?? source.stepId) ??
+      `step-${String(index + 1).padStart(3, "0")}`,
     title,
     summary,
     instructionSeed,
@@ -79,9 +81,7 @@ export function decodeWorkspacePlanDraftFromLlm(raw: unknown): LlmPlanDraftPaylo
   };
   return {
     intentSummary,
-    unresolvedQuestions: stringArray(
-      payload.unresolved_questions ?? payload.unresolvedQuestions,
-    ),
+    unresolvedQuestions: stringArray(payload.unresolved_questions ?? payload.unresolvedQuestions),
     planInput,
   };
 }
@@ -114,7 +114,9 @@ export function usePlanInterviewLLM({ onPlanDraft }: UsePlanInterviewLlmArgs) {
 
   return useCallback((event: ObservedEvent) => {
     if (event.type === "assistant_end") {
-      const draft = decodeWorkspacePlanDraftFromLlm(parseAssistantJson((event as AssistantEndEvent).content));
+      const draft = decodeWorkspacePlanDraftFromLlm(
+        parseAssistantJson((event as AssistantEndEvent).content),
+      );
       if (draft) {
         lastHandlerRef.current(draft);
       }

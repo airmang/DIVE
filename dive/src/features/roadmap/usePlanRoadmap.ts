@@ -56,10 +56,13 @@ export interface PlanRoadmapStep {
   mapping: StepSessionMappingRow | null;
   status: PlanRoadmapStatus;
   blockedDependencies: string[];
+  parallelBucket: string | null;
 }
 
 function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 function mappingDone(mapping: StepSessionMappingRow | undefined): boolean {
@@ -72,28 +75,42 @@ export function derivePlanRoadmapSteps(
 ): PlanRoadmapStep[] {
   const mappingByStepId = new Map(mappings.map((mapping) => [mapping.step_id, mapping]));
   const doneStableIds = new Set(
-    steps
-      .filter((step) => mappingDone(mappingByStepId.get(step.id)))
-      .map((step) => step.step_id),
+    steps.filter((step) => mappingDone(mappingByStepId.get(step.id))).map((step) => step.step_id),
   );
 
-  return steps.map((step) => {
+  const derived = steps.map((step) => {
     const mapping = mappingByStepId.get(step.id) ?? null;
     if (mapping) {
-      const status =
+      const status: PlanRoadmapStatus =
         mapping.status === "done" || mapping.status === "shipped" ? mapping.status : "in_progress";
-      return { step, mapping, status, blockedDependencies: [] };
+      return { step, mapping, status, blockedDependencies: [], parallelBucket: null };
     }
 
     const blockedDependencies = stringArray(step.dependencies).filter(
       (dependency) => !doneStableIds.has(dependency),
     );
+    const status: PlanRoadmapStatus = blockedDependencies.length === 0 ? "ready" : "blocked";
     return {
       step,
       mapping,
-      status: blockedDependencies.length === 0 ? "ready" : "blocked",
+      status,
       blockedDependencies,
+      parallelBucket: null,
     };
+  });
+
+  const autoReadyCount = derived.filter(
+    (item) => !item.step.parallel_group && item.status === "ready",
+  ).length;
+
+  return derived.map((item) => {
+    if (item.step.parallel_group) {
+      return { ...item, parallelBucket: `explicit:${item.step.parallel_group}` };
+    }
+    if (item.status === "ready" && autoReadyCount >= 2) {
+      return { ...item, parallelBucket: "auto" };
+    }
+    return item;
   });
 }
 

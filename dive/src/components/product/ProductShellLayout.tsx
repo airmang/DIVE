@@ -7,12 +7,17 @@ import { RoadmapHost } from "./RoadmapHost";
 import { TopBar } from "./TopBar";
 import { RecoverySlideIn } from "./RecoverySlideIn";
 import { StepDetailSlideIn } from "./StepDetailSlideIn";
+import { RoadmapDAG } from "../roadmap/RoadmapDAG";
 import { RoadmapGraph } from "../roadmap/RoadmapGraph";
 import { usePlanRoadmap } from "../../features/roadmap";
 import { useProjectSessionStore } from "../../stores/project-session";
 
 interface ProductShellLayoutProps {
   shell: ProductShellController;
+}
+
+interface OpenPlanStepOptions {
+  focus?: boolean;
 }
 
 export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
@@ -28,12 +33,14 @@ export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
     selectSession(sessionId);
     void loadAll();
   };
-  const handleOpenPlanStep = async (stepId: number) => {
+  const handleOpenPlanStep = async (stepId: number, opts?: OpenPlanStepOptions) => {
     const mapping = await planRoadmap.openStep(stepId);
     if (mapping.session_id !== null) {
       shell.roadmap.onPlanStepOpened(mapping);
       await loadAll();
-      selectSession(mapping.session_id);
+      if (opts?.focus !== false) {
+        selectSession(mapping.session_id);
+      }
     }
     return mapping;
   };
@@ -58,6 +65,13 @@ export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
       </div>
       {rightPanelVisible ? (
         <div className="row-start-2 col-start-3 min-h-0 flex flex-col overflow-hidden border-l bg-bg">
+          <RoadmapDAG
+            steps={planRoadmap.steps}
+            loading={planRoadmap.loading}
+            error={planRoadmap.error}
+            onOpenStep={handleOpenPlanStep}
+            onOpenSession={handleOpenSession}
+          />
           <RoadmapGraph
             goal={planRoadmap.status?.plan_summary ?? shell.roadmap.goal}
             steps={planRoadmap.steps}

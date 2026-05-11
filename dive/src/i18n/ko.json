@@ -238,6 +238,15 @@
       "summary": "{{total}}단계 · 준비 {{ready}}개 · 막힘 {{blocked}}개",
       "waiting_for": "{{deps}} 완료 대기 중",
       "resume": "계속",
+      "start_group": "그룹 일괄 시작",
+      "batch_open_partial": "{{ok}}/{{total}}개 시작됨",
+      "batch_open_failed": "일괄 시작 실패: {{error}}",
+      "parallel_explicit": "병렬 그룹: {{name}}",
+      "parallel_auto": "자동 병렬 가능",
+      "dag_legend": {
+        "title": "범례",
+        "auto_dashed": "점선 = 자동 병렬"
+      },
       "status": {
         "blocked": "막힘",
         "ready": "준비됨",

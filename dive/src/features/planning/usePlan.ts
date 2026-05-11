@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type {
-  InterviewRow,
-  PlanDraftInput,
-  PlanGenerationResult,
-  PlanRow,
-} from "./types";
+import type { InterviewRow, PlanDraftInput, PlanGenerationResult, PlanRow } from "./types";
 import type { PlanStepRow } from "../roadmap";
 
 type TauriApi = {

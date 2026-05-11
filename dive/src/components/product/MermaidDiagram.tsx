@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import mermaid from "mermaid";
 
 interface MermaidApi {
@@ -14,10 +14,17 @@ function loadMermaid(): Promise<MermaidApi | null> {
 
 interface MermaidDiagramProps {
   chart: string;
+  onNodeClick?: (id: string) => void;
+  nodeIdResolver?: (rawId: string) => string | null | undefined;
 }
 
-export function MermaidDiagram({ chart }: MermaidDiagramProps) {
+function defaultNodeIdResolver(rawId: string): string {
+  return rawId.replace(/^flowchart-/, "").replace(/-\d+$/, "");
+}
+
+export function MermaidDiagram({ chart, onNodeClick, nodeIdResolver }: MermaidDiagramProps) {
   const id = useId().replace(/:/g, "_");
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [svg, setSvg] = useState<string>("");
 
   useEffect(() => {
@@ -32,8 +39,37 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
     };
   }, [chart, id]);
 
+  useEffect(() => {
+    if (!onNodeClick || !svg || !containerRef.current) return;
+    const nodes = Array.from(
+      containerRef.current.querySelectorAll<SVGGElement>('g.node[id^="flowchart-"]'),
+    );
+    const cleanups = nodes.flatMap((node) => {
+      const stepId = (nodeIdResolver ?? defaultNodeIdResolver)(node.id);
+      if (!stepId) return [];
+      node.dataset.stepId = stepId;
+      const listener = () => {
+        const currentStepId = node.dataset.stepId;
+        if (currentStepId) onNodeClick(currentStepId);
+      };
+      node.style.cursor = "pointer";
+      node.addEventListener("click", listener);
+      return [
+        () => {
+          node.removeEventListener("click", listener);
+          node.style.cursor = "";
+          delete node.dataset.stepId;
+        },
+      ];
+    });
+    return () => {
+      cleanups.forEach((cleanup) => cleanup());
+    };
+  }, [nodeIdResolver, onNodeClick, svg]);
+
   return (
     <div
+      ref={containerRef}
       className="min-h-48 overflow-auto rounded-md border bg-bg p-3"
       dangerouslySetInnerHTML={{ __html: svg }}
       data-testid="plan-dag"
