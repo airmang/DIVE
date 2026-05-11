@@ -73,7 +73,16 @@ const PROVIDER_KINDS: Array<{
     hintKey: "settings.provider_codex_hint",
     ga: true,
   },
-  { kind: "mock", label: "Mock (개발 전용)", hintKey: "settings.provider_mock_hint", ga: false },
+  ...(import.meta.env.DEV
+    ? [
+        {
+          kind: "mock",
+          label: "Mock (개발 전용)",
+          hintKey: "settings.provider_mock_hint",
+          ga: false,
+        },
+      ]
+    : []),
 ];
 
 interface McpServerSummary {

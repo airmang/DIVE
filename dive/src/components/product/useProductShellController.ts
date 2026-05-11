@@ -507,6 +507,16 @@ export function useProductShellController() {
     window.dispatchEvent(new PopStateEvent("popstate"));
   }, []);
 
+  const openPromptHelperRoute = import.meta.env.DEV
+    ? () => {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("demo");
+        url.searchParams.set("route", "prompt-helper");
+        window.history.pushState({}, "", url.toString());
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      }
+    : undefined;
+
   const handleOpenProject = useCallback(async () => {
     const picked = await pickFolder({ title: t("project.open_pick_title") });
     if (!picked) return;
@@ -581,13 +591,7 @@ export function useProductShellController() {
     onManualCheckpoint: handleManualCheckpoint,
     onNewProject: () => dialogs.setNewProjectOpen(true),
     onOpenSettings: openSettingsRoute,
-    onOpenPromptHelper: () => {
-      const url = new URL(window.location.href);
-      url.searchParams.delete("demo");
-      url.searchParams.set("route", "prompt-helper");
-      window.history.pushState({}, "", url.toString());
-      window.dispatchEvent(new PopStateEvent("popstate"));
-    },
+    onOpenPromptHelper: openPromptHelperRoute,
     onToggleSlidePanel: () => {
       if (slideInOpen) {
         closeSlideIn();

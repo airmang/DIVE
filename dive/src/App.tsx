@@ -1,7 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import MainShell from "./components/shell/MainShell";
 import SettingsPage from "./pages/settings";
-import PromptHelperDemoPage from "./pages/prompt-helper-demo";
 import { Rc1MigrationDialog } from "./components/rc1/Rc1MigrationDialog";
 import {
   acknowledgeRc1Migration,
@@ -21,14 +20,20 @@ const DevDemoShell = import.meta.env.DEV ? lazy(() => import("./components/demo/
 const DevResearchSurveyPage = import.meta.env.DEV
   ? lazy(() => import("./pages/research-survey"))
   : null;
+const DevPromptHelperDemoPage = import.meta.env.DEV
+  ? lazy(() => import("./pages/prompt-helper-demo"))
+  : null;
 
 function resolveRoute(
   search = typeof window === "undefined" ? "" : window.location.search,
 ): ResolvedRoute {
   const params = new URLSearchParams(search);
   const productRoute = params.get("route");
-  if (productRoute === "settings" || productRoute === "prompt-helper") {
-    return { kind: "product", route: productRoute };
+  if (productRoute === "settings") {
+    return { kind: "product", route: "settings" };
+  }
+  if (import.meta.env.DEV && productRoute === "prompt-helper") {
+    return { kind: "product", route: "prompt-helper" };
   }
 
   const internalRoute = params.get("internal");
@@ -37,7 +42,7 @@ function resolveRoute(
   }
 
   const demo = params.get("demo");
-  if (demo === "settings" || demo === "prompt-helper") {
+  if (demo === "settings" || (import.meta.env.DEV && demo === "prompt-helper")) {
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
       url.searchParams.delete("demo");
@@ -83,8 +88,17 @@ function App() {
     );
   } else if (route.kind === "product" && route.route === "settings") {
     content = <SettingsPage />;
-  } else if (route.kind === "product" && route.route === "prompt-helper") {
-    content = <PromptHelperDemoPage />;
+  } else if (
+    route.kind === "product" &&
+    route.route === "prompt-helper" &&
+    import.meta.env.DEV &&
+    DevPromptHelperDemoPage
+  ) {
+    content = (
+      <Suspense fallback={<MainShell />}>
+        <DevPromptHelperDemoPage />
+      </Suspense>
+    );
   } else if (route.kind === "internal" && import.meta.env.DEV && DevResearchSurveyPage) {
     content = (
       <Suspense fallback={<MainShell />}>

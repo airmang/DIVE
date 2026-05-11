@@ -83,6 +83,19 @@ check(
 
 const app = read("dive/src/App.tsx");
 check("App resolves only recognized demo routes", app.includes("resolveDemoRouteValue(demo)"));
+check(
+  "prompt-helper demo page is dev-only lazy loaded",
+  !/^import\s+PromptHelperDemoPage\s+from\s+["']\.\/pages\/prompt-helper-demo["'];/m.test(app) &&
+    /const\s+DevPromptHelperDemoPage\s*=\s*import\.meta\.env\.DEV\s*\?\s*lazy\(\(\)\s*=>\s*import\(["']\.\/pages\/prompt-helper-demo["']\)\)/.test(
+      app,
+    ),
+);
+check(
+  "production product routes omit prompt-helper",
+  !/productRoute\s*===\s*["']settings["']\s*\|\|\s*productRoute\s*===\s*["']prompt-helper["']/.test(
+    app,
+  ) && app.includes('import.meta.env.DEV && productRoute === "prompt-helper"'),
+);
 
 const planInterview = read("dive/src/features/planning/usePlanInterviewLLM.ts");
 check(
@@ -99,6 +112,21 @@ check(
 check(
   "release gate workflow exists",
   existsSync(resolve(repoRoot, ".github/workflows/release-gate.yml")),
+);
+
+check(
+  "prompt-helper shortcut is dev gated",
+  productShellController.includes("import.meta.env.DEV") &&
+    !/onOpenPromptHelper:\s*\(\)\s*=>\s*\{[\s\S]{0,220}route["'],\s*["']prompt-helper/.test(
+      productShellController,
+    ),
+);
+
+const settingsPage = read("dive/src/pages/settings.tsx");
+check(
+  "Settings mock provider card is dev gated",
+  settingsPage.includes("...(import.meta.env.DEV") &&
+    /import\.meta\.env\.DEV[\s\S]{0,180}kind:\s*["']mock["']/.test(settingsPage),
 );
 
 const failed = checks.filter((c) => !c.ok);
