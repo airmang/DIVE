@@ -12,6 +12,8 @@ pub enum ProviderError {
     Stream(String),
     #[error("auth: {0}")]
     Auth(String),
+    #[error("invalid provider config: {0}")]
+    InvalidConfig(String),
     #[error("provider not configured")]
     NotConfigured,
     #[error("unsupported: {0}")]

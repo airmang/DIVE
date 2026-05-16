@@ -135,6 +135,7 @@ fn to_openai_payload(req: &ChatRequest) -> Value {
             Message::User { content } => json!({ "role": "user", "content": content }),
             Message::Assistant {
                 content,
+                reasoning_content,
                 tool_calls,
             } => {
                 let has_tool_calls = tool_calls.as_ref().is_some_and(|t| !t.is_empty());
@@ -144,6 +145,12 @@ fn to_openai_payload(req: &ChatRequest) -> Value {
                     Value::String(content.clone())
                 };
                 let mut msg = json!({ "role": "assistant", "content": content_value });
+                if let Some(reasoning_content) = reasoning_content
+                    .as_deref()
+                    .filter(|value| !value.is_empty())
+                {
+                    msg["reasoning_content"] = json!(reasoning_content);
+                }
                 if let Some(calls) = tool_calls {
                     msg["tool_calls"] = Value::Array(
                         calls
@@ -234,7 +241,6 @@ fn opencode_zen_models() -> Vec<ModelInfo> {
     models_from_pairs(&[
         ("big-pickle", "Big Pickle"),
         ("minimax-m2.5-free", "MiniMax M2.5 Free"),
-        ("ling-2.6-flash", "Ling 2.6 Flash Free"),
         ("hy3-preview-free", "Hy3 Preview Free"),
     ])
 }
@@ -266,12 +272,7 @@ mod tests {
                 .into_iter()
                 .map(|m| m.id)
                 .collect::<Vec<_>>(),
-            vec![
-                "big-pickle",
-                "minimax-m2.5-free",
-                "ling-2.6-flash",
-                "hy3-preview-free"
-            ]
+            vec!["big-pickle", "minimax-m2.5-free", "hy3-preview-free"]
         );
     }
 
@@ -327,6 +328,7 @@ mod tests {
             messages: vec![
                 Message::Assistant {
                     content: "".into(),
+                    reasoning_content: None,
                     tool_calls: Some(vec![ToolCall {
                         id: "call_1".into(),
                         name: "read_file".into(),
@@ -368,6 +370,7 @@ mod tests {
             model: "m".into(),
             messages: vec![Message::Assistant {
                 content: "thinking".into(),
+                reasoning_content: None,
                 tool_calls: Some(vec![ToolCall {
                     id: "c1".into(),
                     name: "x".into(),
@@ -387,11 +390,40 @@ mod tests {
     }
 
     #[test]
+    fn assistant_tool_history_preserves_reasoning_content() {
+        let req = ChatRequest {
+            model: "m".into(),
+            messages: vec![Message::Assistant {
+                content: "".into(),
+                reasoning_content: Some("need directory listing first".into()),
+                tool_calls: Some(vec![ToolCall {
+                    id: "call_1".into(),
+                    name: "list_dir".into(),
+                    arguments: "{\"path\":\".\"}".into(),
+                }]),
+            }],
+            tools: None,
+            tool_choice: None,
+            temperature: None,
+            max_tokens: None,
+            stream: true,
+        };
+
+        let body = to_openai_payload(&req);
+        assert_eq!(
+            body["messages"][0]["reasoning_content"],
+            json!("need directory listing first")
+        );
+        assert_eq!(body["messages"][0]["tool_calls"][0]["id"], json!("call_1"));
+    }
+
+    #[test]
     fn assistant_without_tool_calls_keeps_empty_string_content() {
         let req = ChatRequest {
             model: "m".into(),
             messages: vec![Message::Assistant {
                 content: "".into(),
+                reasoning_content: None,
                 tool_calls: None,
             }],
             tools: None,

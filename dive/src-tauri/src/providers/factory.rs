@@ -43,6 +43,25 @@ pub fn normalize_model_for_kind(kind: &str, selected: Option<&str>) -> String {
     default_model_for_kind(kind).to_owned()
 }
 
+pub fn validate_model_for_kind(kind: &str, model: &str) -> Result<(), ProviderError> {
+    let trimmed = model.trim();
+    if trimmed.is_empty() || trimmed == "unset" {
+        return Err(ProviderError::InvalidConfig(
+            "AI 모델이 설정되지 않았습니다. Settings에서 연결된 AI의 모델을 선택한 뒤 다시 시도하세요."
+                .into(),
+        ));
+    }
+
+    let models = models_for_kind(kind);
+    if models.is_empty() || models.iter().any(|candidate| candidate.id == trimmed) {
+        return Ok(());
+    }
+
+    Err(ProviderError::InvalidConfig(format!(
+        "지원하지 않는 AI 모델입니다: {trimmed}. Settings에서 연결된 AI의 사용 가능한 모델로 전환한 뒤 다시 시도하세요."
+    )))
+}
+
 pub fn build_provider(
     kind: &str,
     api_key: &str,
@@ -52,32 +71,33 @@ pub fn build_provider(
     if key.is_empty() {
         return Err(ProviderError::Auth("api key is empty".into()));
     }
+    let base_url = validate_provider_base_url(kind, base_url)?;
 
     let provider: Arc<dyn LlmProvider> = match kind {
         "anthropic" => {
             let provider = AnthropicProvider::new(key);
-            Arc::new(match base_url {
+            Arc::new(match base_url.as_deref() {
                 Some(url) => provider.with_base_url(url),
                 None => provider,
             })
         }
         "openai" | "custom-openai" | "custom_openai" => {
             let provider = OpenAiProvider::new(key);
-            Arc::new(match base_url {
+            Arc::new(match base_url.as_deref() {
                 Some(url) => provider.with_base_url(url),
                 None => provider,
             })
         }
         "openrouter" => {
             let provider = OpenAiProvider::openrouter(key);
-            Arc::new(match base_url {
+            Arc::new(match base_url.as_deref() {
                 Some(url) => provider.with_base_url(url),
                 None => provider,
             })
         }
         "opencode-zen" | "opencode_zen" => {
             let provider = OpenAiProvider::opencode_zen(key);
-            Arc::new(match base_url {
+            Arc::new(match base_url.as_deref() {
                 Some(url) => provider.with_base_url(url),
                 None => provider,
             })
@@ -90,6 +110,36 @@ pub fn build_provider(
     };
 
     Ok(provider)
+}
+
+pub fn validate_provider_base_url(
+    _kind: &str,
+    base_url: Option<&str>,
+) -> Result<Option<String>, ProviderError> {
+    let Some(raw) = base_url.map(str::trim).filter(|url| !url.is_empty()) else {
+        return Ok(None);
+    };
+    let parsed = reqwest::Url::parse(raw)
+        .map_err(|_| ProviderError::InvalidConfig("base_url must be a valid URL".into()))?;
+    match parsed.scheme() {
+        "https" => Ok(Some(parsed.as_str().trim_end_matches('/').to_string())),
+        "http" if is_local_provider_host(&parsed) => {
+            Ok(Some(parsed.as_str().trim_end_matches('/').to_string()))
+        }
+        "http" => Err(ProviderError::InvalidConfig(
+            "base_url must use https unless it targets localhost for local development".into(),
+        )),
+        _ => Err(ProviderError::InvalidConfig(
+            "base_url must use https".into(),
+        )),
+    }
+}
+
+fn is_local_provider_host(url: &reqwest::Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    host == "localhost" || host == "::1" || host.starts_with("127.")
 }
 
 pub async fn health_check(
@@ -110,11 +160,13 @@ async fn health_check_with_timeout(
     if key.is_empty() {
         return Err(ProviderError::Auth("api key is empty".into()));
     }
+    let base_url = validate_provider_base_url(kind, base_url)?;
 
     let http = reqwest::Client::builder().timeout(timeout).build()?;
     let response = match kind {
         "anthropic" => {
             let base = base_url
+                .as_deref()
                 .unwrap_or("https://api.anthropic.com")
                 .trim_end_matches('/');
             http.get(format!("{base}/v1/models"))
@@ -125,6 +177,7 @@ async fn health_check_with_timeout(
         }
         "openai" | "custom-openai" | "custom_openai" => {
             let base = base_url
+                .as_deref()
                 .unwrap_or("https://api.openai.com/v1")
                 .trim_end_matches('/');
             http.get(format!("{base}/models"))
@@ -134,6 +187,7 @@ async fn health_check_with_timeout(
         }
         "openrouter" => {
             let base = base_url
+                .as_deref()
                 .unwrap_or("https://openrouter.ai/api/v1")
                 .trim_end_matches('/');
             http.get(format!("{base}/models"))
@@ -143,6 +197,7 @@ async fn health_check_with_timeout(
         }
         "opencode-zen" | "opencode_zen" => {
             let base = base_url
+                .as_deref()
                 .unwrap_or("https://opencode.ai/zen/v1")
                 .trim_end_matches('/');
             http.get(format!("{base}/models"))
@@ -219,6 +274,32 @@ mod tests {
     }
 
     #[test]
+    fn base_url_validation_rejects_non_local_http() {
+        let err = validate_provider_base_url("openai", Some("http://evil.example/v1")).unwrap_err();
+        assert!(matches!(err, ProviderError::InvalidConfig(_)));
+        assert!(err.to_string().contains("https"));
+    }
+
+    #[test]
+    fn base_url_validation_allows_https_and_localhost_http() {
+        assert_eq!(
+            validate_provider_base_url("openai", Some("https://proxy.example/v1")).unwrap(),
+            Some("https://proxy.example/v1".into())
+        );
+        assert_eq!(
+            validate_provider_base_url("openai", Some("http://127.0.0.1:11434/v1")).unwrap(),
+            Some("http://127.0.0.1:11434/v1".into())
+        );
+        assert_eq!(validate_provider_base_url("openai", None).unwrap(), None);
+    }
+
+    #[test]
+    fn build_provider_rejects_unsafe_base_url_before_key_use() {
+        let result = build_provider("openai", "sk-test", Some("http://evil.example/v1"));
+        assert!(matches!(result, Err(ProviderError::InvalidConfig(_))));
+    }
+
+    #[test]
     fn build_provider_supports_opencode_zen_aliases() {
         let provider = build_provider("opencode_zen", "sk-test", None).unwrap();
         assert_eq!(provider.id(), "opencode_zen");
@@ -235,9 +316,21 @@ mod tests {
             "big-pickle"
         );
         assert_eq!(
+            normalize_model_for_kind("opencode_zen", Some("ling-2.6-flash")),
+            "big-pickle"
+        );
+        assert_eq!(
             normalize_model_for_kind("opencode_zen", Some("hy3-preview-free")),
             "hy3-preview-free"
         );
+    }
+
+    #[test]
+    fn validate_model_for_kind_rejects_unsupported_opencode_model_with_cta() {
+        let err = validate_model_for_kind("opencode_zen", "ling-2.6-flash").unwrap_err();
+        assert!(matches!(err, ProviderError::InvalidConfig(_)));
+        assert!(err.to_string().contains("Settings"));
+        assert!(err.to_string().contains("ling-2.6-flash"));
     }
 
     #[tokio::test]

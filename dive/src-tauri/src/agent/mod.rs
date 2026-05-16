@@ -179,7 +179,7 @@ impl AgentLoop {
                 created_at: crate::db::now_ms(),
             });
 
-            let (content, tool_calls, finish_reason) =
+            let (content, reasoning_content, tool_calls, finish_reason) =
                 match self.stream_assistant(&assistant_id, request, emit).await {
                     Ok(result) => result,
                     Err(err) => {
@@ -192,7 +192,18 @@ impl AgentLoop {
                     }
                 };
 
-            self.persist_assistant_message(session_id, current_card_id, &content, &tool_calls)?;
+            let reasoning_content = if tool_calls.is_empty() {
+                None
+            } else {
+                reasoning_content
+            };
+            self.persist_assistant_message(
+                session_id,
+                current_card_id,
+                &content,
+                reasoning_content.as_deref(),
+                &tool_calls,
+            )?;
             emit(AgentEvent::AssistantEnd {
                 id: assistant_id,
                 content: content.clone(),
@@ -206,6 +217,7 @@ impl AgentLoop {
             if !content.is_empty() || !tool_calls.is_empty() {
                 messages.push(ProviderMessage::Assistant {
                     content: content.clone(),
+                    reasoning_content: reasoning_content.clone(),
                     tool_calls: if tool_calls.is_empty() {
                         None
                     } else {
@@ -448,7 +460,7 @@ impl AgentLoop {
         assistant_id: &str,
         request: ChatRequest,
         emit: &mut (dyn FnMut(AgentEvent) + Send),
-    ) -> Result<(String, Vec<ToolCall>, FinishReason), AgentError> {
+    ) -> Result<(String, Option<String>, Vec<ToolCall>, FinishReason), AgentError> {
         let provider = self.provider.clone();
         let mut stream = crate::providers::with_retry(
             || {
@@ -461,12 +473,16 @@ impl AgentLoop {
         )
         .await?;
         let mut content = String::new();
+        let mut reasoning_content = String::new();
         let mut pending_tool_calls: Vec<PendingToolCall> = Vec::new();
         let mut finish_reason = FinishReason::Stop;
 
         while let Some(event) = stream.next().await {
             self.check_cancel()?;
             match event {
+                ChatEvent::ReasoningDelta(delta) => {
+                    reasoning_content.push_str(&delta);
+                }
                 ChatEvent::TextDelta(delta) => {
                     content.push_str(&delta);
                     emit(AgentEvent::AssistantDelta {
@@ -517,7 +533,13 @@ impl AgentLoop {
             })
             .collect();
 
-        Ok((content, tool_calls, finish_reason))
+        let reasoning_content = if reasoning_content.is_empty() {
+            None
+        } else {
+            Some(reasoning_content)
+        };
+
+        Ok((content, reasoning_content, tool_calls, finish_reason))
     }
 
     fn persist_user_message(
@@ -537,6 +559,7 @@ impl AgentLoop {
                 card_id,
                 role: "user".into(),
                 content: content.to_string(),
+                reasoning_content: None,
                 tool_calls: None,
                 usage: None,
                 provider: Some(self.provider.id().into()),
@@ -551,6 +574,7 @@ impl AgentLoop {
         session_id: i64,
         card_id: Option<i64>,
         content: &str,
+        reasoning_content: Option<&str>,
         tool_calls: &[ToolCall],
     ) -> Result<i64, AgentError> {
         let tool_calls_json = if tool_calls.is_empty() {
@@ -569,6 +593,9 @@ impl AgentLoop {
                 card_id,
                 role: "assistant".into(),
                 content: content.to_string(),
+                reasoning_content: reasoning_content
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string),
                 tool_calls: tool_calls_json,
                 usage: None,
                 provider: Some(self.provider.id().into()),
@@ -604,6 +631,7 @@ impl AgentLoop {
                 },
                 "assistant" => ProviderMessage::Assistant {
                     content: row.content,
+                    reasoning_content: row.reasoning_content,
                     tool_calls: row
                         .tool_calls
                         .and_then(|v| serde_json::from_value::<Vec<ToolCall>>(v).ok()),

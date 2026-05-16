@@ -328,6 +328,7 @@ mod tests {
                 card_id: Some(card.id),
                 role: "assistant".into(),
                 content: "tool use".into(),
+                reasoning_content: None,
                 tool_calls: None,
                 usage: None,
                 provider: None,

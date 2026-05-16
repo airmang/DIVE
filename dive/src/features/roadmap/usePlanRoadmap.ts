@@ -53,6 +53,13 @@ export interface StepSessionMappingRow {
 
 export type PlanRoadmapStatus = "blocked" | "ready" | "in_progress" | "done" | "shipped";
 
+export interface PlanStepStateUpdate {
+  stepId: number;
+  status: "in_progress" | "done" | "shipped";
+  evidence?: string;
+  verificationStatus?: string;
+}
+
 export interface PlanRoadmapStep {
   step: PlanStepRow;
   mapping: StepSessionMappingRow | null;
@@ -189,6 +196,18 @@ export function usePlanRoadmap(projectId: number | null) {
     [api, refresh],
   );
 
+  const updateStepState = useCallback(
+    async (input: PlanStepStateUpdate) => {
+      if (!api) throw new Error("Tauri IPC unavailable");
+      const mapping = await api.invoke<StepSessionMappingRow>("roadmap_step_update_state", {
+        input,
+      });
+      await refresh();
+      return mapping;
+    },
+    [api, refresh],
+  );
+
   const roadmapSteps = useMemo(() => derivePlanRoadmapSteps(steps, mappings), [steps, mappings]);
 
   return {
@@ -198,6 +217,7 @@ export function usePlanRoadmap(projectId: number | null) {
     error,
     hasPlan: Boolean(status?.has_approved_plan),
     openStep,
+    updateStepState,
     refresh,
   };
 }

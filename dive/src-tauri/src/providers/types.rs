@@ -22,6 +22,9 @@ pub enum Message {
     },
     Assistant {
         content: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reasoning_content: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         tool_calls: Option<Vec<ToolCall>>,
     },
     Tool {
@@ -55,6 +58,7 @@ pub enum ToolChoice {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChatEvent {
+    ReasoningDelta(String),
     TextDelta(String),
     ToolCallStart {
         id: String,

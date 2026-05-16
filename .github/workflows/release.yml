@@ -1,17 +1,21 @@
 name: release
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       tag:
         description: "Release tag (e.g. v1.0.0-rc.2)"
         required: true
         default: "v1.0.0-rc.2"
+      release_owner:
+        description: "Release owner approving this draft"
+        required: true
+      release_gate_run_id:
+        description: "Approved release-gate.yml run id for this release candidate"
+        required: true
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
@@ -20,19 +24,31 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.extract.outputs.version }}
+      tag: ${{ steps.extract.outputs.tag }}
+      release_gate_url: ${{ steps.gate.outputs.release_gate_url }}
+      release_gate_head_branch: ${{ steps.gate.outputs.release_gate_head_branch }}
+      release_gate_head_sha: ${{ steps.gate.outputs.release_gate_head_sha }}
     steps:
       - uses: actions/checkout@v4
 
       - name: extract expected version
         id: extract
+        env:
+          DISPATCH_TAG: ${{ github.event.inputs.tag || '' }}
+          RELEASE_GATE_RUN_ID: ${{ github.event.inputs.release_gate_run_id || '' }}
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            TAG="${{ github.event.inputs.tag }}"
-          else
-            TAG="${GITHUB_REF_NAME}"
+          TAG="${DISPATCH_TAG}"
+          if [[ ! "${RELEASE_GATE_RUN_ID}" =~ ^[0-9]+$ ]]; then
+            echo "::error::release_gate_run_id must be the numeric GitHub Actions run id"
+            exit 1
+          fi
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            echo "::error::release tag must look like v1.0.0 or v1.0.0-rc.2"
+            exit 1
           fi
           # Strip leading "v"
           VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Expecting version: ${VERSION}"
 
@@ -63,98 +79,238 @@ jobs:
             exit 1
           fi
 
-  build-windows:
-    name: build ${{ matrix.label }}
-    needs: verify-versions
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: windows-x64
-            runner: windows-latest
-            target: x86_64-pc-windows-msvc
-          - label: windows-arm64
-            runner: windows-11-arm
-            target: aarch64-pc-windows-msvc
-    runs-on: ${{ matrix.runner }}
-    defaults:
-      run:
-        working-directory: dive
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: dive/pnpm-lock.yaml
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: dive/src-tauri
-          key: release-${{ matrix.target }}
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: tauri build
-        run: pnpm tauri build --target ${{ matrix.target }} --bundles nsis
-
-      - name: upload NSIS installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: DIVE-${{ matrix.label }}-nsis
-          path: dive/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
-          if-no-files-found: error
-          retention-days: 30
+      - name: validate approved release-gate run
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_GATE_RUN_ID: ${{ github.event.inputs.release_gate_run_id }}
+          RELEASE_OWNER: ${{ github.event.inputs.release_owner }}
+          EXPECTED_REPO: ${{ github.repository }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          gh run view "${RELEASE_GATE_RUN_ID}" \
+            --repo "${EXPECTED_REPO}" \
+            --json databaseId,workflowName,event,status,conclusion,headSha,headBranch,url \
+            > release-gate-run.json
+          mkdir -p release-gate-evidence/x64 release-gate-evidence/arm64
+          gh run download "${RELEASE_GATE_RUN_ID}" \
+            --repo "${EXPECTED_REPO}" \
+            --name DIVE-release-smoke-x64 \
+            --dir release-gate-evidence/x64
+          gh run download "${RELEASE_GATE_RUN_ID}" \
+            --repo "${EXPECTED_REPO}" \
+            --name DIVE-release-smoke-arm64 \
+            --dir release-gate-evidence/arm64
+          node <<'NODE'
+          const fs = require("node:fs");
+          const run = JSON.parse(fs.readFileSync("release-gate-run.json", "utf8"));
+          const expectedSha = process.env.EXPECTED_SHA;
+          const releaseOwner = process.env.RELEASE_OWNER;
+          const releaseGateRunId = process.env.RELEASE_GATE_RUN_ID;
+          const failures = [];
+          if (String(run.databaseId) !== releaseGateRunId) {
+            failures.push(`databaseId must match release_gate_run_id ${releaseGateRunId}, got ${run.databaseId}`);
+          }
+          if (run.workflowName !== "release-gate") {
+            failures.push(`workflowName must be release-gate, got ${run.workflowName}`);
+          }
+          if (run.event !== "workflow_dispatch") {
+            failures.push(`event must be workflow_dispatch, got ${run.event}`);
+          }
+          if (run.status !== "completed") {
+            failures.push(`status must be completed, got ${run.status}`);
+          }
+          if (run.conclusion !== "success") {
+            failures.push(`conclusion must be success, got ${run.conclusion}`);
+          }
+          if (run.headSha !== expectedSha) {
+            failures.push(`headSha must match release commit ${expectedSha}, got ${run.headSha}`);
+          }
+          for (const label of ["x64", "arm64"]) {
+            const path = `release-gate-evidence/${label}/release-smoke-${label}.json`;
+            if (!fs.existsSync(path)) {
+              failures.push(`missing ${path}`);
+              continue;
+            }
+            const smoke = JSON.parse(fs.readFileSync(path, "utf8"));
+            if (smoke.mode !== "full") {
+              failures.push(`${path} mode must be full, got ${smoke.mode}`);
+            }
+            if (smoke.evidence?.releaseOwner !== releaseOwner) {
+              failures.push(
+                `${path} evidence.releaseOwner must match release_owner ${releaseOwner}, got ${smoke.evidence?.releaseOwner}`,
+              );
+            }
+            if (smoke.evidence?.repo?.commit !== expectedSha) {
+              failures.push(
+                `${path} evidence.repo.commit must match release commit ${expectedSha}, got ${smoke.evidence?.repo?.commit}`,
+              );
+            }
+            if (!Array.isArray(smoke.results) || smoke.results.some((result) => !result.ok)) {
+              failures.push(`${path} must contain only passing results`);
+            }
+            if (Array.isArray(smoke.blockers) && smoke.blockers.length > 0) {
+              failures.push(`${path} must not contain blockers: ${smoke.blockers.join("; ")}`);
+            }
+          }
+          if (failures.length > 0) {
+            for (const failure of failures) console.error(`::error::${failure}`);
+            process.exit(1);
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `release_gate_url=${run.url}\n`);
+          fs.appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `release_gate_head_branch=${run.headBranch ?? ""}\n`,
+          );
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `release_gate_head_sha=${run.headSha}\n`);
+          NODE
+          cat release-gate-run.json
 
   release:
     name: create draft GitHub Release
-    needs: [verify-versions, build-windows]
+    needs: verify-versions
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
+      - name: download approved release-gate installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_GATE_RUN_ID: ${{ github.event.inputs.release_gate_run_id }}
+          EXPECTED_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p artifacts/DIVE-windows-x64-nsis artifacts/DIVE-windows-arm64-nsis
+          gh run download "${RELEASE_GATE_RUN_ID}" \
+            --repo "${EXPECTED_REPO}" \
+            --name DIVE-windows-x64-nsis \
+            --dir artifacts/DIVE-windows-x64-nsis
+          gh run download "${RELEASE_GATE_RUN_ID}" \
+            --repo "${EXPECTED_REPO}" \
+            --name DIVE-windows-arm64-nsis \
+            --dir artifacts/DIVE-windows-arm64-nsis
 
       - name: collect installer paths
         id: collect
         run: |
+          test -n "$(find artifacts/DIVE-windows-x64-nsis -name '*.exe' -print -quit)"
+          test -n "$(find artifacts/DIVE-windows-arm64-nsis -name '*.exe' -print -quit)"
           find artifacts -name '*.exe' | sort | tee installer-list.txt
+          test -s installer-list.txt
           echo "installers<<EOF" >> "$GITHUB_OUTPUT"
           cat installer-list.txt >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
+      - name: download approved release-gate smoke evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_GATE_RUN_ID: ${{ github.event.inputs.release_gate_run_id }}
+          EXPECTED_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p release-gate-evidence/x64 release-gate-evidence/arm64
+          gh run download "${RELEASE_GATE_RUN_ID}" \
+            --repo "${EXPECTED_REPO}" \
+            --name DIVE-release-smoke-x64 \
+            --dir release-gate-evidence/x64
+          gh run download "${RELEASE_GATE_RUN_ID}" \
+            --repo "${EXPECTED_REPO}" \
+            --name DIVE-release-smoke-arm64 \
+            --dir release-gate-evidence/arm64
+          test -f release-gate-evidence/x64/release-smoke-x64.json
+          test -f release-gate-evidence/arm64/release-smoke-arm64.json
+          find release-gate-evidence -name 'release-smoke-*.json' | sort | tee release-gate-evidence-list.txt
+          test -s release-gate-evidence-list.txt
+
+      - name: record approved release-gate run metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_GATE_RUN_ID: ${{ github.event.inputs.release_gate_run_id }}
+          EXPECTED_REPO: ${{ github.repository }}
+        run: |
+          gh run view "${RELEASE_GATE_RUN_ID}" \
+            --repo "${EXPECTED_REPO}" \
+            --json databaseId,workflowName,event,status,conclusion,headSha,headBranch,url \
+            > release-gate-run.json
+          cat release-gate-run.json
+
       - name: extract release notes from CHANGELOG
         id: notes
+        env:
+          VERSION: ${{ needs.verify-versions.outputs.version }}
         run: |
-          VERSION="${{ needs.verify-versions.outputs.version }}"
           HEADER="## [${VERSION}]"
           awk -v h="$HEADER" '
             index($0, h) == 1 { capture=1; next }
             capture && /^## \[/ { exit }
             capture { print }
           ' CHANGELOG.md > release-notes.md
+          test -s release-notes.md
           cat release-notes.md
+
+      - name: write release evidence
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ needs.verify-versions.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.verify-versions.outputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          RELEASE_OWNER: ${{ github.event.inputs.release_owner }}
+          RELEASE_GATE_RUN_ID: ${{ github.event.inputs.release_gate_run_id }}
+          RELEASE_GATE_URL: ${{ needs.verify-versions.outputs.release_gate_url }}
+          RELEASE_GATE_HEAD_BRANCH: ${{ needs.verify-versions.outputs.release_gate_head_branch }}
+          RELEASE_GATE_HEAD_SHA: ${{ needs.verify-versions.outputs.release_gate_head_sha }}
+        run: |
+          {
+            echo "# DIVE release evidence"
+            echo
+            echo "- event: ${EVENT_NAME}"
+            echo "- tag: ${RELEASE_TAG}"
+            echo "- version: ${RELEASE_VERSION}"
+            echo "- branch/ref: ${REF_NAME}"
+            echo "- commit: ${COMMIT_SHA}"
+            echo "- actor: ${ACTOR}"
+            echo "- release_owner: ${RELEASE_OWNER}"
+            echo "- release_gate_run_id: ${RELEASE_GATE_RUN_ID}"
+            echo "- release_gate_url: ${RELEASE_GATE_URL}"
+            echo "- release_gate_head_branch: ${RELEASE_GATE_HEAD_BRANCH}"
+            echo "- release_gate_head_sha: ${RELEASE_GATE_HEAD_SHA}"
+            echo
+            echo "## release-gate run metadata"
+            echo "- source_file: release-gate-run.json"
+            echo
+            cat release-gate-run.json
+            echo
+            echo "## installers"
+            sed 's/^/- /' installer-list.txt
+            echo
+            echo "## release-gate smoke evidence"
+            sed 's/^/- /' release-gate-evidence-list.txt
+          } > release-evidence.md
+          cat release-evidence.md
 
       - name: create draft release
         uses: softprops/action-gh-release@v2
         with:
           draft: true
           name: DIVE ${{ needs.verify-versions.outputs.version }}
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+          tag_name: ${{ github.event.inputs.tag }}
+          target_commitish: ${{ github.sha }}
           body_path: release-notes.md
           files: |
             artifacts/DIVE-windows-x64-nsis/*.exe
             artifacts/DIVE-windows-arm64-nsis/*.exe
           fail_on_unmatched_files: true
+
+      - name: upload release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: DIVE-release-evidence
+          path: |
+            release-evidence.md
+            release-notes.md
+            release-gate-run.json
+            installer-list.txt
+            release-gate-evidence-list.txt
+            release-gate-evidence/**/*.json
+          if-no-files-found: error
+          retention-days: 30

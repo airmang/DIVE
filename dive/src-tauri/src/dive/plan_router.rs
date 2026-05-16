@@ -84,6 +84,7 @@ pub async fn decide(
             }
             ChatEvent::Error(err) => return Err(err),
             ChatEvent::Usage { .. }
+            | ChatEvent::ReasoningDelta(_)
             | ChatEvent::ToolCallStart { .. }
             | ChatEvent::ToolCallDelta { .. }
             | ChatEvent::ToolCallEnd { .. } => {}

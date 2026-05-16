@@ -19,28 +19,32 @@ function UserMessageImpl({ message, onEdit, onResend }: Props) {
     >
       <div className="group relative max-w-[80%] rounded-lg bg-accent-subtle px-4 py-2 text-fg">
         <p className="whitespace-pre-wrap break-words text-sm">{message.content}</p>
-        <div className="absolute -top-3 right-1 hidden gap-1 group-hover:flex">
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="메시지 편집 (준비 중)"
-            onClick={() => onEdit?.(message.id)}
-            disabled={!onEdit}
-            className="h-6 w-6 bg-bg-panel2"
-          >
-            <Pencil className="h-3 w-3" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="메시지 재전송 (준비 중)"
-            onClick={() => onResend?.(message.id)}
-            disabled={!onResend}
-            className="h-6 w-6 bg-bg-panel2"
-          >
-            <RotateCcw className="h-3 w-3" />
-          </Button>
-        </div>
+        {onEdit || onResend ? (
+          <div className="absolute -top-3 right-1 hidden gap-1 group-hover:flex">
+            {onEdit ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="메시지 편집"
+                onClick={() => onEdit(message.id)}
+                className="h-6 w-6 bg-bg-panel2"
+              >
+                <Pencil className="h-3 w-3" />
+              </Button>
+            ) : null}
+            {onResend ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="메시지 재전송"
+                onClick={() => onResend(message.id)}
+                className="h-6 w-6 bg-bg-panel2"
+              >
+                <RotateCcw className="h-3 w-3" />
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </article>
   );

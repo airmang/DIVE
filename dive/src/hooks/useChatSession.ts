@@ -61,7 +61,16 @@ type AgentEvent =
   | { type: "error"; message: string; retryable: boolean }
   | { type: "done"; reason: string };
 
-type Envelope = AgentEvent & { session_id: number };
+type AgentEventEnvelope = {
+  session_id: number;
+  event: AgentEvent;
+};
+
+type ChatEventPayload = AgentEvent | AgentEventEnvelope;
+
+function unwrapAgentEvent(payload: ChatEventPayload): AgentEvent {
+  return "event" in payload ? payload.event : payload;
+}
 
 export interface VerifyLogPayload {
   intent_match: boolean;
@@ -147,6 +156,7 @@ export function useChatSession(
   const apiRef = useRef<TauriApi | null>(null);
   const onAgentEventRef = useRef<typeof onAgentEvent>(onAgentEvent);
   const beforeSendUserMessageRef = useRef<typeof beforeSendUserMessage>(beforeSendUserMessage);
+  const lastRetryableIntentRef = useRef<SendUserMessageContext | null>(null);
   useEffect(() => {
     onAgentEventRef.current = onAgentEvent;
   }, [onAgentEvent]);
@@ -226,11 +236,12 @@ export function useChatSession(
           error: err instanceof Error ? err.message : String(err),
         }));
       }
-      unsub = await api.listen<Envelope>(`chat://event/${sessionId}`, (e) => {
-        const payload = e.payload;
+      unsub = await api.listen<ChatEventPayload>(`chat://event/${sessionId}`, (e) => {
+        const payload = unwrapAgentEvent(e.payload);
         if (
           payload.type === "done" ||
           payload.type === "error" ||
+          payload.type === "assistant_end" ||
           payload.type === "tool_call_start"
         ) {
           clearStallTimer();
@@ -276,6 +287,7 @@ export function useChatSession(
         stepId,
       });
       if (shouldSend === false) return;
+      lastRetryableIntentRef.current = { text, stage, runMode, planAccepted, stepId };
       armStallTimer();
       setState((s) => ({ ...s, isStreaming: true, error: null }));
       try {
@@ -288,6 +300,8 @@ export function useChatSession(
           planAccepted: planAccepted ?? null,
           stepId: stepId ?? null,
         });
+        clearStallTimer();
+        setState((s) => ({ ...s, isStreaming: false, error: null }));
       } catch (err) {
         clearStallTimer();
         appendErrorMessage(err instanceof Error ? err.message : String(err), true);
@@ -295,6 +309,13 @@ export function useChatSession(
     },
     [appendErrorMessage, armStallTimer, clearStallTimer, sessionId],
   );
+
+  const retryLastUserMessage = useCallback(() => {
+    const last = lastRetryableIntentRef.current;
+    if (!last) return false;
+    void sendUserMessage(last.text, last.stage, last.runMode, last.planAccepted, last.stepId);
+    return true;
+  }, [sendUserMessage]);
 
   const cancel = useCallback(async () => {
     if (sessionId === null) return;
@@ -409,6 +430,7 @@ export function useChatSession(
   return {
     ...state,
     sendUserMessage,
+    retryLastUserMessage,
     cancel,
     approveToolCall,
     denyToolCall,
@@ -459,6 +481,7 @@ function reduce(prev: State, evt: AgentEvent): State {
             ? { ...m, content: evt.content, streaming: false }
             : m,
         ),
+        isStreaming: false,
       };
     }
     case "reasoning": {

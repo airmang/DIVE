@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
+import os from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,11 +13,21 @@ const tauriRoot = resolve(diveRoot, "src-tauri");
 const args = new Set(process.argv.slice(2));
 const preflightOnly = args.has("--preflight");
 const keepInstalled = args.has("--keep-installed");
+const jsonOut = argValue("--json-out");
 
 const results = [];
 const blockers = [];
 let sessionId = null;
 let driver = null;
+let evidence = null;
+
+function argValue(name) {
+  const argv = process.argv.slice(2);
+  const prefixed = argv.find((arg) => arg.startsWith(`${name}=`));
+  if (prefixed) return prefixed.slice(name.length + 1);
+  const index = argv.indexOf(name);
+  return index >= 0 ? argv[index + 1] : null;
+}
 
 function record(name, ok, detail = "") {
   results.push({ name, ok, detail });
@@ -38,6 +49,50 @@ function commandExists(command) {
   );
 }
 
+function commandOutput(command, args, cwd = repoRoot) {
+  const result = spawnSync(command, args, { cwd, encoding: "utf8", shell: false });
+  if (result.status !== 0) return null;
+  return result.stdout.trim() || null;
+}
+
+function collectEvidence() {
+  const statusShort = commandOutput("git", ["status", "--short"]);
+  const statusEntries = statusShort ? statusShort.split(/\r?\n/).filter(Boolean).length : 0;
+  return {
+    generatedAt: new Date().toISOString(),
+    tester: process.env.DIVE_RELEASE_TESTER ?? process.env.USERNAME ?? process.env.USER ?? null,
+    releaseOwner: process.env.DIVE_RELEASE_OWNER ?? null,
+    host: {
+      hostname: os.hostname(),
+      osType: os.type(),
+      osRelease: os.release(),
+      osVersion: typeof os.version === "function" ? os.version() : null,
+      platform: process.platform,
+      arch: process.arch,
+      cpus: os.cpus().length,
+    },
+    repo: {
+      branch: commandOutput("git", ["rev-parse", "--abbrev-ref", "HEAD"]),
+      commit: commandOutput("git", ["rev-parse", "HEAD"]),
+      worktree: statusEntries === 0 ? "clean" : "changed",
+      statusEntries,
+    },
+    paths: {},
+  };
+}
+
+function writeReport(mode) {
+  const report = { mode, evidence, results, blockers };
+  const text = JSON.stringify(report, null, 2);
+  if (jsonOut) {
+    const output = resolve(diveRoot, jsonOut);
+    mkdirSync(dirname(output), { recursive: true });
+    writeFileSync(output, `${text}\n`, "utf8");
+    console.log(`[release-gate-smoke] wrote JSON evidence to ${output}`);
+  }
+  console.log(text);
+}
+
 function appDataDir() {
   if (process.platform === "win32") {
     const local = process.env.LOCALAPPDATA;
@@ -50,6 +105,46 @@ function appDataDir() {
   return join(
     process.env.XDG_DATA_HOME ?? join(process.env.HOME ?? "", ".local", "share"),
     "com.coreelab.dive",
+  );
+}
+
+function releaseGateWorkflowMatchesSop() {
+  const workflow = join(repoRoot, ".github", "workflows", "release-gate.yml");
+  if (!existsSync(workflow)) return false;
+  const body = readFileSync(workflow, "utf8");
+  const requiresReleaseOwner =
+    /release_owner:\s*\n\s+description:[^\n]*\n\s+required:\s*true/m.test(body);
+  const hasRequiredCommands = [
+    "pnpm typecheck",
+    "pnpm lint --max-warnings 0",
+    "pnpm build",
+    "pnpm format:check",
+    "pnpm verify:production-wire",
+    "pnpm verify:v4",
+    "windows-latest",
+    "windows-11-arm",
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+    "cargo fmt --all -- --check",
+    "cargo test --features dev-mock --all-targets",
+    "cargo clippy --features dev-mock --all-targets -- -D warnings",
+    "cargo check --release",
+    "bash ./scripts/verify-release-mock-guard.sh",
+    "pnpm tauri build --target ${{ matrix.target }} --bundles nsis",
+    "pnpm release:smoke -- --json-out release-smoke-${{ matrix.label }}.json",
+    "RELEASE_OWNER: ${{ github.event.inputs.release_owner }}",
+    "DIVE_RELEASE_OWNER",
+    "actions/upload-artifact@v4",
+    "DIVE-windows-${{ matrix.label }}-nsis",
+    "DIVE-release-smoke-${{ matrix.label }}",
+    '$driverTool = Join-Path $cargoBin "msedgedriver-tool.exe"',
+    "& $driverTool",
+  ].every((command) => body.includes(command));
+  return (
+    hasRequiredCommands &&
+    requiresReleaseOwner &&
+    body.includes("workflow_dispatch:") &&
+    !/^\s+push:\s*$/m.test(body)
   );
 }
 
@@ -196,6 +291,7 @@ async function smokeInstalledApp(application) {
 }
 
 async function main() {
+  evidence = collectEvidence();
   console.log("[release-gate-smoke] DIVE installed-app release gate smoke");
   record(
     "official tauri-driver contract",
@@ -211,6 +307,11 @@ async function main() {
     existsSync(join(diveRoot, "scripts", "verify-production-wire.mjs")),
   );
   record("release gate SOP exists", existsSync(join(repoRoot, "docs", "release-gate-2026-05.md")));
+  record(
+    "release gate workflow matches SOP commands",
+    releaseGateWorkflowMatchesSop(),
+    ".github/workflows/release-gate.yml",
+  );
 
   if (preflightOnly) {
     const isWindows = process.platform === "win32";
@@ -225,7 +326,7 @@ async function main() {
       );
       process.exitCode = 0;
     }
-    console.log(JSON.stringify({ mode: "preflight", results, blockers }, null, 2));
+    writeReport("preflight");
     return;
   }
 
@@ -240,16 +341,20 @@ async function main() {
     throw new Error("msedgedriver not found in PATH; install matching Microsoft Edge Driver");
 
   const dataDir = appDataDir();
+  evidence.paths.appDataDir = dataDir;
   rmSync(dataDir, { recursive: true, force: true });
   record("clean app local data", true, dataDir);
 
   const installer = await findInstaller();
+  evidence.paths.installer = installer;
   await installNsis(installer);
   record("silent NSIS install", true, installer);
 
   const application = await findApplication();
   if (!application) throw new Error("Installed DIVE executable not found; set DIVE_RELEASE_APP");
+  evidence.paths.application = application;
   const smoke = await smokeInstalledApp(application);
+  evidence.paths.db = smoke.db;
   record("tauri-driver startup + main shell", true, application);
   record("disk DB created", existsSync(smoke.db), smoke.db);
 
@@ -272,7 +377,7 @@ async function main() {
     }
   }
 
-  console.log(JSON.stringify({ mode: "full", results, blockers }, null, 2));
+  writeReport("full");
 }
 
 process.on("exit", () => {
@@ -286,8 +391,6 @@ process.on("SIGINT", async () => {
 main().catch(async (err) => {
   await stopDriver();
   fail("release gate smoke", err instanceof Error ? err.message : String(err));
-  console.log(
-    JSON.stringify({ mode: preflightOnly ? "preflight" : "full", results, blockers }, null, 2),
-  );
+  writeReport(preflightOnly ? "preflight" : "full");
   process.exit(process.exitCode || 1);
 });

@@ -8,7 +8,7 @@ use std::sync::{atomic::AtomicBool, Arc, Mutex};
 use dive_lib::db::dao::{card, event_log, message, project, session};
 use dive_lib::db::models::{CardState, NewCard, NewProject, NewSession};
 use dive_lib::Database;
-use dive_lib::{ChatEvent, FinishReason, MockProvider};
+use dive_lib::{ChatEvent, FinishReason, Message, MockProvider};
 
 use dive_lib::agent::{
     AgentError, AgentEvent, AgentLoop, AlwaysApproveHook, AlwaysDenyHook, AwaitUserHook,
@@ -233,6 +233,106 @@ async fn scenario_b_tool_call_then_followup() {
     assert!(kinds.contains(&"tool_approve"));
     assert!(kinds.contains(&"tool_result"));
     assert!(kinds.contains(&"tool_complete"));
+}
+
+#[tokio::test]
+async fn tool_call_followup_replays_reasoning_content_and_writes_index() {
+    let (db, _db_file, root, sid) = fresh_env();
+
+    let mock = Arc::new(MockProvider::new(vec![
+        vec![
+            ChatEvent::ReasoningDelta("Need to inspect the project first.".into()),
+            ChatEvent::ToolCallStart {
+                id: "call-1".into(),
+                name: "list_dir".into(),
+            },
+            ChatEvent::ToolCallDelta {
+                id: "call-1".into(),
+                arguments_delta: r#"{"path":"."}"#.into(),
+            },
+            ChatEvent::ToolCallEnd {
+                id: "call-1".into(),
+            },
+            ChatEvent::Done {
+                finish_reason: FinishReason::ToolCalls,
+            },
+        ],
+        vec![
+            ChatEvent::ReasoningDelta("Now create the starter file.".into()),
+            ChatEvent::ToolCallStart {
+                id: "call-2".into(),
+                name: "write_file".into(),
+            },
+            ChatEvent::ToolCallDelta {
+                id: "call-2".into(),
+                arguments_delta: r#"{"path":"index.html","content":"<!doctype html><html><head><title>QA</title></head><body><h1>DIVE QA</h1></body></html>"}"#.into(),
+            },
+            ChatEvent::ToolCallEnd {
+                id: "call-2".into(),
+            },
+            ChatEvent::Done {
+                finish_reason: FinishReason::ToolCalls,
+            },
+        ],
+        vec![
+            ChatEvent::TextDelta("Created index.html.".into()),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ],
+    ]));
+    let loop_ = build_loop(
+        db.clone(),
+        root.path(),
+        mock.clone(),
+        Arc::new(AlwaysApproveHook),
+        sid,
+    );
+    let mut events = Vec::new();
+    loop_
+        .run(sid, "inspect", &mut |e| events.push(e))
+        .await
+        .unwrap();
+
+    let requests = mock.requests_snapshot();
+    assert_eq!(requests.len(), 3);
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::AssistantDelta { delta, .. } if delta.contains("Need to inspect"))),
+        "reasoning deltas must stay hidden from the UI stream"
+    );
+
+    let assistant = requests[1]
+        .messages
+        .iter()
+        .find_map(|message| match message {
+            Message::Assistant {
+                reasoning_content,
+                tool_calls,
+                ..
+            } if tool_calls.as_ref().is_some_and(|calls| !calls.is_empty()) => {
+                reasoning_content.as_deref()
+            }
+            _ => None,
+        })
+        .expect("second provider request should include assistant reasoning for tool turn");
+    assert_eq!(assistant, "Need to inspect the project first.");
+    assert!(
+        root.path().join("index.html").exists(),
+        "list_dir follow-up should reach write_file and create index.html"
+    );
+
+    let db_guard = db.lock().unwrap();
+    let messages = message::list_by_session(db_guard.conn(), sid, 10).unwrap();
+    let persisted = messages
+        .iter()
+        .find(|row| row.role == "assistant" && row.tool_calls.is_some())
+        .expect("tool-call assistant message persisted");
+    assert_eq!(
+        persisted.reasoning_content.as_deref(),
+        Some("Need to inspect the project first.")
+    );
 }
 
 #[tokio::test]

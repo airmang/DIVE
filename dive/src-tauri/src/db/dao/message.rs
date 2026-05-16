@@ -9,29 +9,30 @@ fn map_row(row: &rusqlite::Row<'_>) -> Result<MessageRow, DbError> {
         card_id: row.get(2)?,
         role: row.get(3)?,
         content: row.get(4)?,
-        tool_calls: parse_optional_json(row.get(5)?)?,
-        usage: parse_optional_json(row.get(6)?)?,
-        provider: row.get(7)?,
-        model: row.get(8)?,
-        created_at: row.get(9)?,
+        reasoning_content: row.get(5)?,
+        tool_calls: parse_optional_json(row.get(6)?)?,
+        usage: parse_optional_json(row.get(7)?)?,
+        provider: row.get(8)?,
+        model: row.get(9)?,
+        created_at: row.get(10)?,
     })
 }
 fn query_map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MessageRow> {
     map_row(row).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, Box::new(e))
+        rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, Box::new(e))
     })
 }
 pub fn insert(conn: &Connection, row: &NewMessage) -> Result<i64, DbError> {
     let tool_calls = optional_json_to_string(row.tool_calls.as_ref())?;
     let usage = optional_json_to_string(row.usage.as_ref())?;
-    conn.execute("INSERT INTO Message(session_id, card_id, role, content, tool_calls, usage, provider, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",params![row.session_id,row.card_id,row.role,row.content,tool_calls,usage,row.provider,row.model,now_ms()])?;
+    conn.execute("INSERT INTO Message(session_id, card_id, role, content, reasoning_content, tool_calls, usage, provider, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",params![row.session_id,row.card_id,row.role,row.content,row.reasoning_content.as_deref(),tool_calls,usage,row.provider,row.model,now_ms()])?;
     Ok(conn.last_insert_rowid())
 }
 pub fn get_by_id(conn: &Connection, id: i64) -> Result<Option<MessageRow>, DbError> {
-    Ok(conn.query_row("SELECT id, session_id, card_id, role, content, tool_calls, usage, provider, model, created_at FROM Message WHERE id = ?",[id],query_map_row).optional()?)
+    Ok(conn.query_row("SELECT id, session_id, card_id, role, content, reasoning_content, tool_calls, usage, provider, model, created_at FROM Message WHERE id = ?",[id],query_map_row).optional()?)
 }
 pub fn list(conn: &Connection) -> Result<Vec<MessageRow>, DbError> {
-    let mut stmt=conn.prepare("SELECT id, session_id, card_id, role, content, tool_calls, usage, provider, model, created_at FROM Message ORDER BY id")?;
+    let mut stmt=conn.prepare("SELECT id, session_id, card_id, role, content, reasoning_content, tool_calls, usage, provider, model, created_at FROM Message ORDER BY id")?;
     let rows = stmt
         .query_map([], query_map_row)?
         .collect::<Result<Vec<_>, _>>()?;
@@ -42,7 +43,7 @@ pub fn list_by_session(
     session_id: i64,
     limit: i64,
 ) -> Result<Vec<MessageRow>, DbError> {
-    let mut stmt=conn.prepare("SELECT id, session_id, card_id, role, content, tool_calls, usage, provider, model, created_at FROM Message WHERE session_id = ? ORDER BY created_at, id LIMIT ?")?;
+    let mut stmt=conn.prepare("SELECT id, session_id, card_id, role, content, reasoning_content, tool_calls, usage, provider, model, created_at FROM Message WHERE session_id = ? ORDER BY created_at, id LIMIT ?")?;
     let rows = stmt
         .query_map(params![session_id, limit], query_map_row)?
         .collect::<Result<Vec<_>, _>>()?;
@@ -51,7 +52,7 @@ pub fn list_by_session(
 pub fn update(conn: &Connection, id: i64, row: &NewMessage) -> Result<(), DbError> {
     let tool_calls = optional_json_to_string(row.tool_calls.as_ref())?;
     let usage = optional_json_to_string(row.usage.as_ref())?;
-    conn.execute("UPDATE Message SET session_id = ?, card_id = ?, role = ?, content = ?, tool_calls = ?, usage = ?, provider = ?, model = ? WHERE id = ?",params![row.session_id,row.card_id,row.role,row.content,tool_calls,usage,row.provider,row.model,id])?;
+    conn.execute("UPDATE Message SET session_id = ?, card_id = ?, role = ?, content = ?, reasoning_content = ?, tool_calls = ?, usage = ?, provider = ?, model = ? WHERE id = ?",params![row.session_id,row.card_id,row.role,row.content,row.reasoning_content.as_deref(),tool_calls,usage,row.provider,row.model,id])?;
     Ok(())
 }
 pub fn delete(conn: &Connection, id: i64) -> Result<(), DbError> {
@@ -69,6 +70,7 @@ mod tests {
             card_id: None,
             role: "assistant".into(),
             content: c.into(),
+            reasoning_content: Some("reasoning".into()),
             tool_calls: Some(json!([{ "name":"read" }])),
             usage: Some(json!({"tokens":3})),
             provider: Some("openai".into()),

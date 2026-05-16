@@ -70,6 +70,12 @@ fn handle_event(state: &mut OpenAiState, data: &str) -> Vec<ChatEvent> {
 
     let mut output = Vec::new();
     for choice in chunk.choices {
+        if let Some(reasoning_content) = choice.delta.reasoning_content {
+            if !reasoning_content.is_empty() {
+                output.push(ChatEvent::ReasoningDelta(reasoning_content));
+            }
+        }
+
         if let Some(content) = choice.delta.content {
             if !content.is_empty() {
                 output.push(ChatEvent::TextDelta(content));
@@ -154,6 +160,7 @@ struct Choice {
 
 #[derive(Default, Deserialize)]
 struct Delta {
+    reasoning_content: Option<String>,
     content: Option<String>,
     tool_calls: Option<Vec<ToolCallDelta>>,
 }
@@ -209,6 +216,27 @@ mod tests {
             vec![
                 ChatEvent::TextDelta("Hel".into()),
                 ChatEvent::TextDelta("lo".into()),
+                ChatEvent::Done {
+                    finish_reason: FinishReason::Stop
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn parses_reasoning_content_chunks() {
+        let events = collect(vec![
+            event(serde_json::json!({"choices":[{"delta":{"reasoning_content":"think "},"finish_reason":null}],"usage":null})),
+            event(serde_json::json!({"choices":[{"delta":{"reasoning_content":"more","content":"done"},"finish_reason":"stop"}],"usage":null})),
+        ])
+        .await;
+
+        assert_eq!(
+            events,
+            vec![
+                ChatEvent::ReasoningDelta("think ".into()),
+                ChatEvent::ReasoningDelta("more".into()),
+                ChatEvent::TextDelta("done".into()),
                 ChatEvent::Done {
                     finish_reason: FinishReason::Stop
                 },

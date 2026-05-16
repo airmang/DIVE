@@ -4,6 +4,12 @@ ralph_logs/
 # OMC (oh-my-claudecode) 작업 디렉토리 — 사용자별 핸드오프/플랜/세션 상태
 .omc/
 
+# 로컬 QA 산출물 (Computer Use / release smoke 재현용, 커밋 대상 아님)
+qa-sandbox/
+
+# Wily 실행 세션 로그는 로드맵 감사 문서와 분리한다.
+.wily/sessions/
+
 # OS
 .DS_Store
 Thumbs.db

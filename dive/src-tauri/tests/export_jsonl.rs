@@ -60,6 +60,7 @@ fn seed() -> (Arc<Mutex<dive_lib::Database>>, i64) {
             card_id: None,
             role: "user".into(),
             content: "학생-42가 개인적으로 묻고 싶은 질문".into(),
+            reasoning_content: None,
             tool_calls: None,
             usage: None,
             provider: None,

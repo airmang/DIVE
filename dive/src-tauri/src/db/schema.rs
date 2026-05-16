@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS Message (
     card_id INTEGER REFERENCES Card(id) ON DELETE SET NULL,
     role TEXT NOT NULL CHECK(role IN ('user','assistant','system','tool')),
     content TEXT NOT NULL,
+    reasoning_content TEXT,
     tool_calls TEXT,
     usage TEXT,
     provider TEXT,

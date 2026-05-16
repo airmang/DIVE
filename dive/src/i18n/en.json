@@ -150,16 +150,7 @@
     "auto_approval_description": "Advanced shortcut: only safe read tools can be auto-approved. File edits and commands still require manual approval.",
     "auto_approval_hint": "Warning and danger tools always stay manual.",
     "safe_read_auto_allowed": "Safe read · auto-approval allowed",
-    "file_changes_always_manual": "Changes files · always manual",
-    "mcp_title": "MCP servers for extra tools",
-    "mcp_hint": "Model Context Protocol servers add advanced tools. Tool calls still route through permission cards.",
-    "mcp_empty": "No MCP servers added.",
-    "mcp_test": "Test",
-    "mcp_remove": "Remove",
-    "mcp_add_title": "Add MCP server",
-    "mcp_default_risk": "Default risk:",
-    "mcp_adding": "Adding…",
-    "mcp_add": "Add"
+    "file_changes_always_manual": "Changes files · always manual"
   },
   "chat": {
     "empty_no_project_title": "Choose a project folder",
@@ -261,6 +252,7 @@
       "summary": "{{total}} steps · {{ready}} ready · {{blocked}} blocked",
       "waiting_for": "Waiting for {{deps}}",
       "resume": "Resume",
+      "mark_done": "Done",
       "start_group": "Start group",
       "batch_open_partial": "Started {{ok}}/{{total}}",
       "batch_open_failed": "Batch start failed: {{error}}",

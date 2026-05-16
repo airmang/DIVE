@@ -10,7 +10,7 @@
 ## 준비물
 
 - Windows 10 22H2 이상 또는 Windows 11 (x64 또는 ARM64)
-- DIVE 인스톨러 (`DIVE_<version>_x64-setup.exe`) — [GitHub Releases](https://github.com/coreelab/dive/releases/latest)
+- DIVE 인스톨러 (`DIVE_<version>_x64-setup.exe`) — [GitHub Releases](https://github.com/airmang/DIVE-2/releases/latest)
 - **AI 프로바이더 계정 1개** (아래 중 하나)
   - **ChatGPT Plus/Pro 구독** — OAuth로 연결, 별도 API 키 불필요
   - Anthropic API 키 (콘솔에서 발급, $5 크레딧 필요)
@@ -114,6 +114,7 @@ HTML + 순수 JavaScript로.
 → **지시 저장** 버튼.
 
 > **잘 지시하는 요령** — 입력 폼을 예로:
+>
 > - "만들어줘" 같은 모호 표현 대신 "input과 button 하나씩"처럼 수치·구체 명시
 > - 기술 스택 명시(HTML + JS / React / …)
 > - 결과 확인 방법 명시(console.log / 화면에 표시 / …)
@@ -218,25 +219,28 @@ dive-tutorial/
 
 ## 6. 다음 스텝
 
-| 하고 싶은 것 | 참조 |
-|---|---|
-| 다른 시나리오(B 시나리오 — 영어 단어 채점기) 연습 | [`docs/scenarios/`](../scenarios/) 6 차시 |
-| 자주 묻는 질문 | [`faq.md`](./faq.md) |
-| 문제가 생겼을 때 | [`troubleshooting.md`](./troubleshooting.md) |
-| 교사로서 수업 준비 | [`docs/teacher-manual.md`](../teacher-manual.md) |
-| 단축키 전체 목록 | [`faq.md`](./faq.md) §단축키 |
+| 하고 싶은 것                                      | 참조                                             |
+| ------------------------------------------------- | ------------------------------------------------ |
+| 다른 시나리오(B 시나리오 — 영어 단어 채점기) 연습 | [`docs/scenarios/`](../scenarios/) 6 차시        |
+| 자주 묻는 질문                                    | [`faq.md`](./faq.md)                             |
+| 문제가 생겼을 때                                  | [`troubleshooting.md`](./troubleshooting.md)     |
+| 교사로서 수업 준비                                | [`docs/teacher-manual.md`](../teacher-manual.md) |
+| 단축키 전체 목록                                  | [`faq.md`](./faq.md) §단축키                     |
 
 ---
 
 ## 7. 자주 혼동하는 지점
 
 ### Q. "채팅창이 회색으로 잠겼어요"
+
 **A.** 지금 단계의 **게이트** 조건이 충족되지 않았기 때문입니다. 배너에 "먼저 ~하세요"라고 이유가 표시됩니다. 이건 버그가 아니라 **DIVE의 의도된 동작**입니다.
 
 ### Q. "AI가 내 지시와 다른 걸 했어요"
+
 **A.** V 단계에서 **거부** → I 단계로 돌아가 지시를 더 구체적으로 다시 쓰세요. 거부 후 다시 쓰는 것이 DIVE의 학습 루프입니다.
 
 ### Q. "체크포인트로 돌아갔는데 코드가 사라졌어요"
+
 **A.** 체크포인트는 **git 기반 스냅샷**이므로 그 시점으로 완전히 되돌립니다. 되돌리기 전에 토스트에서 "이전 상태를 별도 브랜치로 보존" 옵션을 선택하면 잃지 않습니다.
 
 축하합니다. DIVE 4단계를 한 번 완주했습니다.

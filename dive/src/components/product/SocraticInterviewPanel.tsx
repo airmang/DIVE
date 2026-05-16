@@ -25,7 +25,9 @@ function isVagueAnswer(value: string): boolean {
     "anything",
     "up to you",
   ];
-  return vague.some((phrase) => normalized === phrase || normalized.includes(phrase));
+  return vague.some(
+    (phrase) => normalized === phrase || (normalized.length <= 16 && normalized.includes(phrase)),
+  );
 }
 
 export function SocraticInterviewPanel({

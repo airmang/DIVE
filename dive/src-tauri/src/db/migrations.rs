@@ -12,9 +12,10 @@ const MIGRATIONS: &[(i64, MigrationFn)] = &[
     (5, migration_v5),
     (6, migration_v6),
     (7, migration_v7),
+    (8, migration_v8),
 ];
 
-pub const LATEST_SCHEMA_VERSION: i64 = 7;
+pub const LATEST_SCHEMA_VERSION: i64 = 8;
 
 pub fn migrate(conn: &mut Connection) -> Result<(), DbError> {
     migrate_with_migrations(conn, MIGRATIONS)
@@ -180,6 +181,28 @@ fn migration_v7(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     Ok(())
 }
 
+fn migration_v8(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    let message_exists: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'Message'",
+        [],
+        |row| row.get(0),
+    )?;
+    if message_exists == 0 {
+        tx.execute_batch(schema::CREATE_MESSAGE)?;
+        return Ok(());
+    }
+
+    let has_reasoning_content: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('Message') WHERE name = 'reasoning_content'",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_reasoning_content == 0 {
+        tx.execute_batch("ALTER TABLE Message ADD COLUMN reasoning_content TEXT")?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use rusqlite::Transaction;
@@ -331,6 +354,20 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn migration_v8_adds_message_reasoning_content_column() {
+        let (db, _tmp) = fresh_db();
+        let has_col: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('Message') WHERE name = 'reasoning_content'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_col, 1);
     }
 
     #[test]

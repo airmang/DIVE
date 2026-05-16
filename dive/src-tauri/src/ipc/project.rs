@@ -26,6 +26,84 @@ fn run_checkpoint_init(state: &AppState, root: &Path) -> Result<(), String> {
     engine.init().map_err(|e| e.to_string())
 }
 
+fn validate_project_root_for_write(root: &Path) -> Result<PathBuf, String> {
+    if root.as_os_str().is_empty() {
+        return Err("unsafe project path: empty path".into());
+    }
+    if !root.is_absolute() {
+        return Err(format!(
+            "unsafe project path: absolute path required ({})",
+            root.display()
+        ));
+    }
+    if is_system_or_root_path(root) {
+        return Err(format!("unsafe project path: {}", root.display()));
+    }
+
+    let parent = root
+        .parent()
+        .ok_or_else(|| format!("unsafe project path: {}", root.display()))?;
+    if parent == root {
+        return Err(format!("unsafe project path: {}", root.display()));
+    }
+    if is_system_or_root_path(parent) && root.file_name().is_none() {
+        return Err(format!("unsafe project path: {}", root.display()));
+    }
+
+    if root.exists() {
+        std::fs::canonicalize(root).map_err(|e| format!("canonicalize project path: {e}"))
+    } else {
+        let parent = std::fs::canonicalize(parent)
+            .map_err(|e| format!("canonicalize project parent: {e}"))?;
+        if is_system_or_root_path(&parent) {
+            return Err(format!("unsafe project parent: {}", parent.display()));
+        }
+        Ok(parent.join(
+            root.file_name()
+                .ok_or_else(|| format!("unsafe project path: {}", root.display()))?,
+        ))
+    }
+}
+
+fn validate_project_root_for_delete(root: &Path, delete_folder: bool) -> Result<PathBuf, String> {
+    let canonical = validate_project_root_for_write(root)?;
+    if delete_folder && !canonical.join(".dive").is_dir() {
+        return Err(format!(
+            "unsafe project path: refusing to delete folder without .dive marker ({})",
+            canonical.display()
+        ));
+    }
+    Ok(canonical)
+}
+
+fn is_system_or_root_path(path: &Path) -> bool {
+    let raw = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
+    let trimmed = raw.trim_end_matches('/');
+    if trimmed.is_empty() || trimmed == "/" {
+        return true;
+    }
+    if trimmed.len() == 2 && trimmed.ends_with(':') {
+        return true;
+    }
+    matches!(
+        trimmed,
+        "/system"
+            | "/library"
+            | "/applications"
+            | "/bin"
+            | "/sbin"
+            | "/usr"
+            | "/etc"
+            | "/private"
+            | "c:/windows"
+            | "c:/program files"
+            | "c:/program files (x86)"
+    )
+}
+
 fn insert_project(state: &AppState, name: String, root: &Path) -> Result<ProjectRow, String> {
     let id = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -53,6 +131,7 @@ fn project_create_impl(
     path: String,
 ) -> Result<ProjectRow, String> {
     let root = PathBuf::from(&path);
+    let root = validate_project_root_for_write(&root)?;
     std::fs::create_dir_all(&root).map_err(|e| format!("create project dir: {e}"))?;
     ensure_dive_dir(&root)?;
     let resolved_name = name
@@ -94,6 +173,7 @@ pub async fn project_get(
 
 fn project_open_impl(state: &AppState, path: String) -> Result<ProjectRow, String> {
     let root = PathBuf::from(&path);
+    let root = validate_project_root_for_write(&root)?;
     if !root.exists() {
         return Err(format!("path does not exist: {}", root.display()));
     }
@@ -138,6 +218,7 @@ fn project_select_impl(state: &AppState, project_id: i64) -> Result<ProjectRow, 
             .ok_or_else(|| format!("project {project_id} not found"))?
     };
     let root = PathBuf::from(&row.path);
+    let root = validate_project_root_for_write(&root)?;
     if !root.exists() {
         return Err(format!("path does not exist: {}", root.display()));
     }
@@ -172,12 +253,13 @@ fn project_delete_impl(
         project_dao::get_by_id(db.conn(), project_id).map_err(|e| e.to_string())?
     }
     .ok_or_else(|| format!("project {project_id} not found"))?;
+    let root = PathBuf::from(&row.path);
+    let root = validate_project_root_for_delete(&root, delete_folder)?;
+    let was_active = state.project_root_snapshot() == root;
     {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         project_dao::delete(db.conn(), project_id).map_err(|e| e.to_string())?;
     }
-    let root = PathBuf::from(&row.path);
-    let was_active = state.project_root_snapshot() == root;
     if delete_folder {
         if root.exists() {
             std::fs::remove_dir_all(&root).map_err(|e| format!("remove project dir: {e}"))?;
@@ -272,6 +354,8 @@ mod tests {
 
         let row_a =
             project_create_impl(&state, Some("A".into()), root_a.to_string_lossy().into()).unwrap();
+        let root_a = root_a.canonicalize().unwrap();
+        let root_b = root_b.canonicalize().unwrap();
         assert_eq!(row_a.name, "A");
         assert_eq!(state.project_root_snapshot(), root_a);
 
@@ -295,6 +379,8 @@ mod tests {
             project_create_impl(&state, Some("A".into()), root_a.to_string_lossy().into()).unwrap();
         let row_b =
             project_create_impl(&state, Some("B".into()), root_b.to_string_lossy().into()).unwrap();
+        let root_a = root_a.canonicalize().unwrap();
+        let root_b = root_b.canonicalize().unwrap();
         assert_eq!(state.project_root_snapshot(), root_b);
 
         let selected = project_select_impl(&state, row_a.id).unwrap();
@@ -317,6 +403,7 @@ mod tests {
             project_create_impl(&state, Some("A".into()), root_a.to_string_lossy().into()).unwrap();
         let row_b =
             project_create_impl(&state, Some("B".into()), root_b.to_string_lossy().into()).unwrap();
+        let root_b = root_b.canonicalize().unwrap();
         assert_eq!(state.project_root_snapshot(), root_b);
 
         project_delete_impl(&state, row_a.id, false).unwrap();
@@ -325,6 +412,50 @@ mod tests {
         project_delete_impl(&state, row_b.id, false).unwrap();
         assert!(state.project_root_snapshot().as_os_str().is_empty());
         assert!(state.project_root_required().is_err());
+    }
+
+    #[test]
+    fn project_create_rejects_filesystem_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = mk_state(&tmp);
+        let err =
+            project_create_impl(&state, Some("Root".into()), root_path_for_test()).unwrap_err();
+        assert!(err.contains("unsafe project path"), "{err}");
+    }
+
+    #[test]
+    fn project_delete_with_folder_rejects_filesystem_root_and_keeps_db_row() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = mk_state(&tmp);
+        let id = {
+            let db = state.db.lock().unwrap();
+            project_dao::insert(
+                db.conn(),
+                &NewProject {
+                    name: "root".into(),
+                    path: root_path_for_test(),
+                    provider_default: None,
+                    model_default: None,
+                },
+            )
+            .unwrap()
+        };
+
+        let err = project_delete_impl(&state, id, true).unwrap_err();
+        assert!(err.contains("unsafe project path"), "{err}");
+        let db = state.db.lock().unwrap();
+        assert!(project_dao::get_by_id(db.conn(), id).unwrap().is_some());
+    }
+
+    fn root_path_for_test() -> String {
+        #[cfg(windows)]
+        {
+            "C:\\".into()
+        }
+        #[cfg(not(windows))]
+        {
+            "/".into()
+        }
     }
 
     #[test]

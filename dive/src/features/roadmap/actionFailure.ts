@@ -1,4 +1,9 @@
-export type RoadmapActionKind = "open_project" | "resume_step" | "start_step" | "start_group";
+export type RoadmapActionKind =
+  | "open_project"
+  | "resume_step"
+  | "start_step"
+  | "start_group"
+  | "complete_step";
 
 export interface RoadmapActionFailure {
   action: RoadmapActionKind;

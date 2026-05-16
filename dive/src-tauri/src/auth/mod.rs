@@ -7,6 +7,8 @@
 //!
 //! ProviderConfig 삭제 계약: `provider_config::delete()`를 호출하기 전에
 //! `auth::delete_provider_api_key()`를 먼저 호출해 OS keyring 항목을 제거한다.
+//! [`LocalFileKeyring`]은 반복 수동 QA 전용이며 `DIVE_SECRET_BACKEND=local-file`
+//! 실행에서만 사용한다. 프로덕션 기본값은 항상 [`OsKeyring`]이다.
 //! [`InMemoryKeyring`]은 테스트·CI 전용이며 프로덕션 경로에서 사용하지 않는다.
 
 pub mod codex_oauth;
@@ -16,6 +18,7 @@ mod scope;
 
 use std::collections::HashMap;
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 pub use codex_oauth::{CodexOAuth, CodexTokens, OAuthError, PkcePair};
@@ -117,6 +120,117 @@ impl Keyring for OsKeyring {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(err) => Err(AuthError::Keyring(err)),
         }
+    }
+}
+
+/// 반복 수동 QA 전용 로컬 파일 secret store.
+///
+/// 이 구현은 OS keyring 인증 프롬프트를 우회하기 위해 app-local 파일에 secret을
+/// 평문 저장한다. 릴리스 기본 경로에서는 사용하지 말고, QA 실행에서만
+/// `DIVE_SECRET_BACKEND=local-file`로 명시적으로 활성화한다.
+pub struct LocalFileKeyring {
+    path: PathBuf,
+    lock: Mutex<()>,
+}
+
+impl LocalFileKeyring {
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self {
+            path: path.into(),
+            lock: Mutex::new(()),
+        }
+    }
+
+    fn key(scope: &SecretScope) -> String {
+        format!("{}\n{}", scope.service(), scope.account())
+    }
+
+    fn read_all(&self) -> Result<HashMap<String, String>, AuthError> {
+        if !self.path.exists() {
+            return Ok(HashMap::new());
+        }
+        let raw = std::fs::read_to_string(&self.path)
+            .map_err(|err| AuthError::BackendUnavailable(err.to_string()))?;
+        if raw.trim().is_empty() {
+            return Ok(HashMap::new());
+        }
+        serde_json::from_str(&raw).map_err(|err| AuthError::BackendUnavailable(err.to_string()))
+    }
+
+    fn write_all(&self, entries: &HashMap<String, String>) -> Result<(), AuthError> {
+        if let Some(parent) = self.path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|err| AuthError::BackendUnavailable(err.to_string()))?;
+        }
+        let raw = serde_json::to_vec_pretty(entries)
+            .map_err(|err| AuthError::BackendUnavailable(err.to_string()))?;
+        std::fs::write(&self.path, raw)
+            .map_err(|err| AuthError::BackendUnavailable(err.to_string()))?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let permissions = std::fs::Permissions::from_mode(0o600);
+            std::fs::set_permissions(&self.path, permissions)
+                .map_err(|err| AuthError::BackendUnavailable(err.to_string()))?;
+        }
+
+        Ok(())
+    }
+}
+
+impl fmt::Debug for LocalFileKeyring {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LocalFileKeyring")
+            .field("path", &self.path)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Keyring for LocalFileKeyring {
+    fn store(&self, scope: &SecretScope, secret: &str) -> Result<(), AuthError> {
+        let _guard = self
+            .lock
+            .lock()
+            .map_err(|err| AuthError::BackendUnavailable(err.to_string()))?;
+        let mut entries = self.read_all()?;
+        entries.insert(Self::key(scope), secret.to_owned());
+        self.write_all(&entries)
+    }
+
+    fn load(&self, scope: &SecretScope) -> Result<Option<String>, AuthError> {
+        let _guard = self
+            .lock
+            .lock()
+            .map_err(|err| AuthError::BackendUnavailable(err.to_string()))?;
+        if let Some(secret) = self.read_all()?.get(&Self::key(scope)).cloned() {
+            return Ok(Some(secret));
+        }
+        Ok(qa_env_secret(scope))
+    }
+
+    fn delete(&self, scope: &SecretScope) -> Result<(), AuthError> {
+        let _guard = self
+            .lock
+            .lock()
+            .map_err(|err| AuthError::BackendUnavailable(err.to_string()))?;
+        let mut entries = self.read_all()?;
+        entries.remove(&Self::key(scope));
+        self.write_all(&entries)
+    }
+}
+
+fn qa_env_secret(scope: &SecretScope) -> Option<String> {
+    match scope {
+        SecretScope::ProviderApiKey { provider_config_id } => {
+            let scoped = format!("DIVE_PROVIDER_API_KEY_{provider_config_id}");
+            std::env::var(scoped)
+                .ok()
+                .or_else(|| std::env::var("DIVE_QA_PROVIDER_API_KEY").ok())
+                .map(|secret| secret.trim().to_owned())
+                .filter(|secret| !secret.is_empty())
+        }
+        _ => None,
     }
 }
 
@@ -336,6 +450,53 @@ mod tests {
             )
             .unwrap();
         assert!(load_codex_tokens(&keyring, 42).unwrap().is_none());
+    }
+
+    #[test]
+    fn local_file_keyring_persists_without_os_keyring() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("qa-secrets.json");
+        let scope = SecretScope::ProviderApiKey {
+            provider_config_id: 77,
+        };
+
+        let keyring = LocalFileKeyring::new(&path);
+        keyring.store(&scope, "qa-secret").unwrap();
+        assert_eq!(keyring.load(&scope).unwrap(), Some("qa-secret".into()));
+
+        let reopened = LocalFileKeyring::new(&path);
+        assert_eq!(reopened.load(&scope).unwrap(), Some("qa-secret".into()));
+        reopened.delete(&scope).unwrap();
+        assert_eq!(reopened.load(&scope).unwrap(), None);
+    }
+
+    #[test]
+    fn local_file_debug_does_not_include_secret_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("qa-secrets.json");
+        let keyring = LocalFileKeyring::new(&path);
+        keyring.store(&sample_scopes()[0], "super-secret").unwrap();
+
+        let debug = format!("{keyring:?}");
+
+        assert!(debug.contains("LocalFileKeyring"));
+        assert!(!debug.contains("super-secret"));
+    }
+
+    #[test]
+    fn local_file_keyring_can_read_qa_env_provider_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("qa-secrets.json");
+        let keyring = LocalFileKeyring::new(&path);
+        let scope = SecretScope::ProviderApiKey {
+            provider_config_id: 12345,
+        };
+
+        std::env::set_var("DIVE_PROVIDER_API_KEY_12345", "env-secret");
+        let loaded = keyring.load(&scope).unwrap();
+        std::env::remove_var("DIVE_PROVIDER_API_KEY_12345");
+
+        assert_eq!(loaded, Some("env-secret".into()));
     }
 
     #[test]

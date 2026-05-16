@@ -23,6 +23,7 @@ All notable changes to DIVE are documented here. Format: [Keep a Changelog](http
 - Static provider model lists and persisted `selected_model` storage for connected providers.
 - `pnpm verify:v4` aggregate gate covering Tracks A-G; Track H live model refresh remains a follow-up.
 - Productization blocker closure from `dive-snazzy-lighthouse.md`: release gates green, beginner reasoning/retrospective flow, research ablation settings, and anonymized retrospective analysis tooling.
+- Phase 10 release hardening: MCP product UI hidden for v1 with guarded IPC inputs, provider custom endpoints restricted to HTTPS or localhost development URLs, project create/delete path policy hardened, and rollback documentation added.
 
 ### Changed
 
@@ -30,17 +31,22 @@ All notable changes to DIVE are documented here. Format: [Keep a Changelog](http
 - Language and theme controls moved into Settings > General; sidebar duplicate controls removed.
 - Demo pages remain available in development but are excluded from production bundles with DEV-only lazy imports.
 - Default chat model hint copy is generic and no longer embeds concrete model IDs.
+- Bundle descriptions now use product language without the internal D/I/V/E research framing, and the production chat surface no longer shows dead disabled controls.
+- GitHub Release publishing is now release-owner-approved `workflow_dispatch` only; `release-gate.yml` requires `release_owner` evidence and uploads the smoke-tested x64/ARM64 NSIS artifacts, while `release.yml` requires a release owner plus a numeric `release-gate.yml` run id, validates the same-commit release-gate run and its x64/ARM64 smoke JSON evidence, creates the draft tag at the workflow commit SHA, and publishes the tested installers with `DIVE-release-evidence`.
 
 ### Fixed
 
 - Recent project ordering now remains deterministic when multiple updates occur in the same millisecond.
 - Release gate red lights cleared for `verify:production-wire`, `verify:version-sync`, and `format:check`.
+- Phase 10 Gate A rerun is green: frontend typecheck/lint/build/format/production-wire/v4 plus Rust fmt/check/test/clippy and the corrected release mock guard path.
 
 ### External blockers before publish
 
 - Full Windows physical-machine / CI `tauri-driver` + NSIS installed-app smoke.
 - GitHub Release `v1.0.0-rc.1` UI yanked title/body update and `v1.0.0-rc.2` draft publish authority.
 - Code signing remains v1.1+/production-distribution blocker.
+- Windows installers are currently unsigned. SmartScreen may show an unknown-publisher warning; trusted internal testers should use **More info → Run anyway**. Azure Trusted Signing remains a v1.1+ follow-up.
+- Phase 10 release publication remains blocked on Windows x64/ARM64 physical smoke and GitHub Release authority; rollback links must remain in release notes.
 
 ## [1.0.0-rc.2] — 2026-05-04
 
@@ -72,6 +78,7 @@ All notable changes to DIVE are documented here. Format: [Keep a Changelog](http
 
 - `v1.0.0-rc.2` tag/publish waits for full Windows installed-app smoke and GitHub release authority.
 - rc.1 GitHub Release UI yanked notice waits for release authority; assets must remain attached for archive purposes.
+- Windows installers are unsigned for this candidate, so SmartScreen unknown-publisher warnings are expected. Use `More info → Run anyway` only for trusted internal builds.
 
 ## [Yanked] 1.0.0-rc.1 — 2026-05-04
 
@@ -176,12 +183,12 @@ v0.1 — 워크맵 + 채팅 + 권한 카드 + D 게이트. 메인 시나리오 A
 
 ---
 
-[Unreleased]: https://github.com/coreelab/dive/compare/v1.0.0-rc.2...HEAD
-[1.0.0-rc.2]: https://github.com/coreelab/dive/compare/v1.0.0-rc.1...v1.0.0-rc.2
-[Yanked 1.0.0-rc.1]: https://github.com/coreelab/dive/releases/tag/v1.0.0-rc.1
-[1.0.0-rc.1]: https://github.com/coreelab/dive/releases/tag/v1.0.0-rc.1
-[0.3.0]: https://github.com/coreelab/dive/releases/tag/v0.3.0
-[0.2.0]: https://github.com/coreelab/dive/releases/tag/v0.2.0
-[0.2.0-beta]: https://github.com/coreelab/dive/releases/tag/v0.2.0-beta
-[0.1.0]: https://github.com/coreelab/dive/releases/tag/v0.1.0
-[0.0.1]: https://github.com/coreelab/dive/releases/tag/v0.0.1
+[Unreleased]: https://github.com/airmang/DIVE-2/compare/v1.0.0-rc.2...HEAD
+[1.0.0-rc.2]: https://github.com/airmang/DIVE-2/compare/v1.0.0-rc.1...v1.0.0-rc.2
+[Yanked 1.0.0-rc.1]: https://github.com/airmang/DIVE-2/releases/tag/v1.0.0-rc.1
+[1.0.0-rc.1]: https://github.com/airmang/DIVE-2/releases/tag/v1.0.0-rc.1
+[0.3.0]: https://github.com/airmang/DIVE-2/releases/tag/v0.3.0
+[0.2.0]: https://github.com/airmang/DIVE-2/releases/tag/v0.2.0
+[0.2.0-beta]: https://github.com/airmang/DIVE-2/releases/tag/v0.2.0-beta
+[0.1.0]: https://github.com/airmang/DIVE-2/releases/tag/v0.1.0
+[0.0.1]: https://github.com/airmang/DIVE-2/releases/tag/v0.0.1

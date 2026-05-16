@@ -43,6 +43,7 @@ impl Tool for WriteFile {
         let path = ctx.fs.resolve(&args.path)?;
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
+            ctx.fs.verify_write_parent(&path)?;
         }
         let bytes = args.content.len();
         tokio::fs::write(&path, &args.content).await?;

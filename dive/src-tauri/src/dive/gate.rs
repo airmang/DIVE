@@ -475,6 +475,7 @@ mod tests {
                 card_id: Some(cid),
                 role: "assistant".into(),
                 content: "m".into(),
+                reasoning_content: None,
                 tool_calls: None,
                 usage: None,
                 provider: None,
@@ -521,6 +522,7 @@ mod tests {
                 card_id: Some(cid),
                 role: "assistant".into(),
                 content: "m".into(),
+                reasoning_content: None,
                 tool_calls: Some(json!([
                     {"id":"call_1","name":"read_file"},
                     {"id":"call_2","name":"edit_file"}

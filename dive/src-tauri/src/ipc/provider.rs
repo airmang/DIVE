@@ -21,6 +21,16 @@ fn selected_model_for_kind(kind: &str, config: &Value) -> String {
     crate::providers::normalize_model_for_kind(kind, selected_model_from_config(config).as_deref())
 }
 
+fn model_needs_repair(kind: &str, config: &Value, normalized: &str) -> bool {
+    selected_model_from_config(config)
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .is_some_and(|stored| {
+            stored != normalized && !crate::providers::models_for_kind(kind).is_empty()
+        })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderConfigSummary {
     pub id: i64,
@@ -72,6 +82,8 @@ pub async fn provider_connect_impl(
         has_custom_base_url = base_url.is_some(),
         "provider_connect started"
     );
+    let base_url = crate::providers::validate_provider_base_url(&kind, base_url.as_deref())
+        .map_err(|e| e.to_string())?;
     crate::providers::health_check(&kind, trimmed_key, base_url.as_deref())
         .await
         .map_err(|e| {
@@ -142,11 +154,13 @@ pub async fn provider_list(
     state: State<'_, AppState>,
 ) -> Result<Vec<ProviderConfigSummary>, String> {
     let rows = provider_rows(&state)?;
+    repair_stale_selected_models(&state, &rows)?;
     Ok(summaries_from_rows(rows, ConnectionCheck::ConfiguredOnly))
 }
 
 pub fn provider_list_impl(state: &AppState) -> Result<Vec<ProviderConfigSummary>, String> {
     let rows = provider_rows(state)?;
+    repair_stale_selected_models(state, &rows)?;
     Ok(summaries_from_rows(
         rows,
         ConnectionCheck::VerifySecrets(state.keyring.as_ref()),
@@ -182,6 +196,32 @@ fn summaries_from_rows(
         });
     }
     out
+}
+
+fn repair_stale_selected_models(
+    state: &AppState,
+    rows: &[ProviderConfigRow],
+) -> Result<(), String> {
+    let repairs = rows
+        .iter()
+        .filter_map(|row| {
+            let normalized = selected_model_for_kind(&row.kind, &row.config);
+            if model_needs_repair(&row.kind, &row.config, &normalized) {
+                Some((row.id, normalized))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    if repairs.is_empty() {
+        return Ok(());
+    }
+
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    for (id, model) in repairs {
+        provider_dao::write_selected_model(db.conn(), id, &model).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 fn connection_summary(
@@ -286,10 +326,8 @@ pub async fn provider_set_model_impl(
         let row = provider_dao::get_by_id(db.conn(), provider_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("provider not found: {provider_id}"))?;
-        let allowed = crate::providers::models_for_kind(&row.kind);
-        if !allowed.is_empty() && !allowed.iter().any(|model| model.id == trimmed) {
-            return Err(format!("model not available for {}: {trimmed}", row.kind));
-        }
+        crate::providers::validate_model_for_kind(&row.kind, &trimmed)
+            .map_err(|err| err.to_string())?;
         provider_dao::write_selected_model(db.conn(), provider_id, &trimmed)
             .map_err(|e| e.to_string())?;
         row
@@ -467,6 +505,33 @@ mod tests {
         let rows = provider_list_impl(&state).unwrap();
         let opencode = rows.iter().find(|row| row.id == id).unwrap();
         assert_eq!(opencode.selected_model.as_deref(), Some("big-pickle"));
+        let db = state.db.lock().unwrap();
+        let repaired = provider_dao::read_selected_model(db.conn(), id).unwrap();
+        assert_eq!(repaired.as_deref(), Some("big-pickle"));
+    }
+
+    #[tokio::test]
+    async fn provider_set_model_rejects_unsupported_opencode_model_with_cta() {
+        let state = mk_state();
+        let id = {
+            let db = state.db.lock().unwrap();
+            provider_dao::insert(
+                db.conn(),
+                &NewProviderConfig {
+                    kind: "opencode_zen".into(),
+                    auth_type: "api_key".into(),
+                    base_url: None,
+                    config: json!({ "selected_model": "big-pickle" }),
+                },
+            )
+            .unwrap()
+        };
+
+        let err = provider_set_model_impl(&state, id, "ling-2.6-flash".into())
+            .await
+            .unwrap_err();
+        assert!(err.contains("ling-2.6-flash"));
+        assert!(err.contains("Settings"));
     }
 
     #[test]

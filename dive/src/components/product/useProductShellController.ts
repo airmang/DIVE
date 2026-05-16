@@ -15,7 +15,7 @@ import { getCardStateMeta } from "../workmap/card-state-meta";
 import { useT } from "../../i18n";
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts";
 import { usePlanRoadmap, useRoadmap } from "../../features/roadmap";
-import type { StepSessionMappingRow } from "../../features/roadmap";
+import type { PlanRoadmapStep, StepSessionMappingRow } from "../../features/roadmap";
 import { usePlan, usePlanRouter, type RouteDecision } from "../../features/planning";
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
 import { usePlanInterviewLLM } from "../../features/planning/usePlanInterviewLLM";
@@ -64,6 +64,31 @@ function checkpointToRecoveryItem(row: CheckpointRowPayload): RecoveryCheckpoint
   };
 }
 
+function buildPlanStepExecutionPrompt(item: PlanRoadmapStep): string {
+  const lines = [
+    "이 roadmap step을 바로 실행해 주세요.",
+    `Step: ${item.step.step_id} - ${item.step.title}`,
+  ];
+  if (item.step.instruction_seed?.trim()) {
+    lines.push("", item.step.instruction_seed.trim());
+  } else if (item.step.summary?.trim()) {
+    lines.push("", item.step.summary.trim());
+  }
+  const expectedFiles = Array.isArray(item.step.expected_files)
+    ? item.step.expected_files.filter((value): value is string => typeof value === "string")
+    : [];
+  if (expectedFiles.length > 0) {
+    lines.push("", `Expected files: ${expectedFiles.join(", ")}`);
+  }
+  const acceptanceCriteria = Array.isArray(item.step.acceptance_criteria)
+    ? item.step.acceptance_criteria.filter((value): value is string => typeof value === "string")
+    : [];
+  if (acceptanceCriteria.length > 0) {
+    lines.push("", "Acceptance criteria:", ...acceptanceCriteria.map((item) => `- ${item}`));
+  }
+  return lines.join("\n");
+}
+
 function compactFailureReason(reason: string): string {
   const trimmed = reason.trim();
   if (trimmed.length <= 220) return trimmed;
@@ -87,6 +112,9 @@ export function useProductShellController() {
   const [checkpointsError, setCheckpointsError] = useState<string | null>(null);
   const [restoringCheckpointId, setRestoringCheckpointId] = useState<number | null>(null);
   const [justOpenedPlanStepBySession, setJustOpenedPlanStepBySession] = useState<
+    Record<number, number>
+  >({});
+  const [pendingAutoRunPlanStepBySession, setPendingAutoRunPlanStepBySession] = useState<
     Record<number, number>
   >({});
   const wasStreaming = useRef(false);
@@ -300,6 +328,10 @@ export function useProductShellController() {
       ...current,
       [sessionId]: mapping.step_id,
     }));
+    setPendingAutoRunPlanStepBySession((current) => ({
+      ...current,
+      [sessionId]: mapping.step_id,
+    }));
   }, []);
   const activePlanStepIdForChat = useMemo(() => {
     if (currentSessionId === null) return undefined;
@@ -352,6 +384,20 @@ export function useProductShellController() {
     () => inferStageFor(currentCard, cards.length, allVerified),
     [currentCard, cards.length, allVerified],
   );
+
+  useEffect(() => {
+    if (currentSessionId === null || chat.isStreaming || !chat.isTauri) return;
+    const stepId = pendingAutoRunPlanStepBySession[currentSessionId];
+    if (stepId === undefined) return;
+    const item = planRoadmap.steps.find((candidate) => candidate.step.id === stepId);
+    if (!item) return;
+    setPendingAutoRunPlanStepBySession((current) => {
+      const next = { ...current };
+      delete next[currentSessionId];
+      return next;
+    });
+    void chat.sendUserMessage(buildPlanStepExecutionPrompt(item), "i", "build", true, item.step.id);
+  }, [chat, currentSessionId, pendingAutoRunPlanStepBySession, planRoadmap.steps]);
 
   const stageBanner = useMemo<ChatStageBanner | null>(() => {
     if (cards.length === 0) return null;
@@ -740,6 +786,7 @@ export function useProductShellController() {
       );
       return;
     }
+    if (chat.retryLastUserMessage()) return;
     toast({
       variant: "error",
       title: t("toast.retry_unavailable"),
@@ -867,8 +914,7 @@ export function useProductShellController() {
       planStatus.status === "interview_submitted" ||
       planStatus.status === "draft" ||
       planStatus.status === "submitted");
-  const interviewPanelDisabled =
-    chat.isStreaming || currentSessionId === null || !hasConnectedProvider || plan.loading;
+  const interviewPanelDisabled = currentSessionId === null || !hasConnectedProvider;
 
   const handleStartInterview = useCallback(
     (goal: string) => {
@@ -1037,6 +1083,7 @@ export function useProductShellController() {
       onSelectStep: handleStepSelect,
       onPlanStepOpened: rememberJustOpenedPlanStepMapping,
     },
+    planRoadmap,
     stepDetail: {
       open: dialogs.stepDetailOpen,
       step: currentCard ? (roadmapModel.steps.find((s) => s.id === currentCard.id) ?? null) : null,

@@ -12,12 +12,29 @@ pub struct ToolContext {
 
 impl ToolContext {
     pub fn new(project_root: impl AsRef<Path>, session_id: i64) -> Self {
-        let root = project_root.as_ref().to_path_buf();
-        let fs = Arc::new(FsGuard::new(root.clone()));
+        let fs_guard = FsGuard::new(project_root.as_ref().to_path_buf());
+        let root = fs_guard.project_root().to_path_buf();
+        let fs = Arc::new(fs_guard);
         Self {
             project_root: root,
             session_id,
             fs,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_root_matches_fs_guard_canonical_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project = tmp.path().join("project");
+        std::fs::create_dir_all(project.join("src")).unwrap();
+
+        let ctx = ToolContext::new(project.join("src/.."), 1);
+
+        assert_eq!(ctx.project_root, ctx.fs.project_root());
     }
 }

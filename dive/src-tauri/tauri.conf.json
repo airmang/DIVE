@@ -26,12 +26,12 @@
   "bundle": {
     "active": true,
     "targets": ["nsis", "app", "dmg"],
-    "category": "Education",
-    "shortDescription": "AI 코딩 교육용 데스크톱 앱 (DIVE 4단계 워크플로우)",
-    "longDescription": "DIVE는 바이브 코딩 입문자가 Decompose → Instruct → Verify → Extend 4단계 게이트로 AI 코딩 에이전트를 안전하게 사용하도록 안내하는 데스크톱 앱입니다.",
+    "category": "DeveloperTool",
+    "shortDescription": "초심자를 위한 로컬 AI 코딩 에이전트 데스크톱 앱",
+    "longDescription": "DIVE는 프로젝트 폴더를 선택하고 AI를 연결한 뒤, 계획 수립부터 코드 변경과 검증까지 안전 확인을 거치며 진행하도록 돕는 데스크톱 앱입니다.",
     "copyright": "© 2026 DIVE 연구진 (광교고·토평고·어정중·경인교대). MIT License.",
     "publisher": "DIVE 연구진",
-    "homepage": "https://github.com/coreelab/dive",
+    "homepage": "https://github.com/airmang/DIVE-2",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

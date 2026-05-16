@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
@@ -35,6 +35,13 @@ interface ResearchSettingsDto {
 
 const SAFE_TOOLS = ["read_file", "list_dir", "search_files"];
 const WARN_TOOLS = ["write_file", "edit_file"];
+
+const DEFAULT_PROVIDER_HOSTS: Record<string, string> = {
+  anthropic: "api.anthropic.com",
+  openai: "api.openai.com",
+  openrouter: "openrouter.ai",
+  opencode_zen: "opencode.ai",
+};
 
 const PROVIDER_KINDS: Array<{
   kind: string;
@@ -85,34 +92,16 @@ const PROVIDER_KINDS: Array<{
     : []),
 ];
 
-interface McpServerSummary {
-  id: number;
-  label: string;
-  transport: string;
-  command: string | null;
-  url: string | null;
-  default_risk: string;
-  enabled: boolean;
-}
+const DevMcpSettingsSection = import.meta.env.DEV ? lazy(() => import("./settings-mcp-dev")) : null;
 
-interface McpDraft {
-  label: string;
-  transport: "stdio" | "http";
-  command: string;
-  argsText: string;
-  url: string;
-  defaultRisk: "safe" | "caution" | "danger";
-}
-
-function defaultMcpDraft(): McpDraft {
-  return {
-    label: "",
-    transport: "stdio",
-    command: "",
-    argsText: "",
-    url: "",
-    defaultRisk: "caution",
-  };
+function usesNonDefaultProviderHost(provider: ProviderSummary | undefined) {
+  if (!provider?.base_url) return false;
+  try {
+    const host = new URL(provider.base_url).hostname;
+    return host !== DEFAULT_PROVIDER_HOSTS[provider.kind];
+  } catch {
+    return true;
+  }
 }
 
 export function SettingsPage() {
@@ -139,10 +128,6 @@ export function SettingsPage() {
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [codexDialogOpen, setCodexDialogOpen] = useState(false);
-  const [mcpServers, setMcpServers] = useState<McpServerSummary[]>([]);
-  const [mcpDraft, setMcpDraft] = useState<McpDraft>(defaultMcpDraft());
-  const [mcpBusy, setMcpBusy] = useState(false);
-  const [mcpTestResult, setMcpTestResult] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loaded) {
@@ -185,12 +170,6 @@ export function SettingsPage() {
           window.localStorage.removeItem("dive:research-disable-gates");
           setResearchSettings({ disable_gates: false, controls_enabled: false });
         }
-        try {
-          const servers = await api.invoke<McpServerSummary[]>("mcp_server_list");
-          setMcpServers(servers);
-        } catch (err) {
-          console.warn("mcp_server_list failed:", err);
-        }
         return;
       }
       try {
@@ -207,94 +186,11 @@ export function SettingsPage() {
           disable_gates: controlsEnabled && researchDisable === "true",
         });
         if (!controlsEnabled) window.localStorage.removeItem("dive:research-disable-gates");
-        const mcpMock = window.localStorage.getItem("dive:mcp-servers");
-        if (mcpMock) setMcpServers(JSON.parse(mcpMock) as McpServerSummary[]);
       } catch (err) {
         console.warn("settings: corrupted policy json", err);
       }
     })();
   }, [internalResearchEnabled]);
-
-  const handleMcpAdd = async () => {
-    if (!mcpDraft.label.trim()) return;
-    setMcpBusy(true);
-    setMcpTestResult(null);
-    try {
-      const argsArr = mcpDraft.argsText
-        .split("\n")
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
-      const payload = {
-        label: mcpDraft.label.trim(),
-        transport: mcpDraft.transport,
-        command: mcpDraft.transport === "stdio" ? mcpDraft.command.trim() || null : null,
-        args: mcpDraft.transport === "stdio" && argsArr.length > 0 ? argsArr : null,
-        env: null,
-        url: mcpDraft.transport === "http" ? mcpDraft.url.trim() || null : null,
-        headers: null,
-        default_risk: mcpDraft.defaultRisk,
-        enabled: true,
-      };
-      const api = await loadTauri();
-      if (api) {
-        await api.invoke<number>("mcp_server_add", { server: payload });
-        const servers = await api.invoke<McpServerSummary[]>("mcp_server_list");
-        setMcpServers(servers);
-      } else {
-        const nextId = mcpServers.length > 0 ? Math.max(...mcpServers.map((s) => s.id)) + 1 : 1;
-        const next: McpServerSummary[] = [
-          ...mcpServers,
-          {
-            id: nextId,
-            label: payload.label,
-            transport: payload.transport,
-            command: payload.command,
-            url: payload.url,
-            default_risk: payload.default_risk,
-            enabled: true,
-          },
-        ];
-        setMcpServers(next);
-        window.localStorage.setItem("dive:mcp-servers", JSON.stringify(next));
-      }
-      setMcpDraft(defaultMcpDraft());
-    } finally {
-      setMcpBusy(false);
-    }
-  };
-
-  const handleMcpRemove = async (id: number) => {
-    const api = await loadTauri();
-    if (api) {
-      await api.invoke<void>("mcp_server_remove", { id });
-      const servers = await api.invoke<McpServerSummary[]>("mcp_server_list");
-      setMcpServers(servers);
-    } else {
-      const next = mcpServers.filter((s) => s.id !== id);
-      setMcpServers(next);
-      window.localStorage.setItem("dive:mcp-servers", JSON.stringify(next));
-    }
-  };
-
-  const handleMcpTestConnect = async (id: number) => {
-    setMcpTestResult(null);
-    const api = await loadTauri();
-    if (api) {
-      try {
-        const r = await api.invoke<{
-          initialize: { server_name: string | null; protocol_version: string };
-          tools: Array<{ name: string; risk_hint: string | null }>;
-        }>("mcp_server_test_connect", { id });
-        setMcpTestResult(
-          `연결 성공: ${r.initialize.server_name ?? "?"} · 도구 ${r.tools.length}개`,
-        );
-      } catch (err) {
-        setMcpTestResult(`실패: ${String(err)}`);
-      }
-    } else {
-      setMcpTestResult(`mock: 연결 성공(시뮬레이션) · 도구 2개`);
-    }
-  };
 
   const persistPolicy = async (next: PolicyDto) => {
     setPolicy(next);
@@ -518,6 +414,12 @@ export function SettingsPage() {
                         />
                       </div>
                       <div className="text-[11px] text-fg-muted">{t(p.hintKey)}</div>
+                      {usesNonDefaultProviderHost(connected) ? (
+                        <div className="mt-1 text-[10px] text-warn" data-testid="base-url-warning">
+                          기본 AI 서버가 아닌 엔드포인트에 연결되어 있습니다. API key가 해당 서버로
+                          전송됩니다.
+                        </div>
+                      ) : null}
                       {p.warning ? (
                         <div className="mt-1 text-[10px] text-warn" data-testid="provider-warning">
                           {t(p.warning.textKey)} (
@@ -724,153 +626,11 @@ export function SettingsPage() {
             </div>
           </details>
 
-          <details
-            className="rounded-md border bg-bg-panel px-3 py-3"
-            data-testid="settings-section-mcp"
-          >
-            <summary className="cursor-pointer text-sm font-semibold text-fg">
-              {t("settings.mcp_title")}
-            </summary>
-            <LearningHint className="mt-2 text-xs">{t("settings.mcp_hint")}</LearningHint>
-            <div className="mt-3 flex flex-col gap-2" data-testid="mcp-server-list">
-              {mcpServers.length === 0 ? (
-                <div
-                  className="rounded-md border border-dashed bg-bg px-3 py-6 text-center text-xs text-fg-muted"
-                  data-testid="mcp-empty"
-                >
-                  {t("settings.mcp_empty")}
-                </div>
-              ) : (
-                mcpServers.map((s) => (
-                  <div
-                    key={s.id}
-                    className="flex items-center justify-between rounded-md border bg-bg px-3 py-2"
-                    data-testid="mcp-server-row"
-                    data-mcp-label={s.label}
-                  >
-                    <div>
-                      <div className="text-sm font-medium">
-                        <code>{s.label}</code>
-                      </div>
-                      <div className="text-[10px] text-fg-muted">
-                        {s.transport === "stdio"
-                          ? `stdio · ${s.command ?? "-"}`
-                          : `http · ${s.url ?? "-"}`}{" "}
-                        · default risk: {s.default_risk}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void handleMcpTestConnect(s.id)}
-                        data-testid="mcp-test-connect"
-                        data-mcp-label={s.label}
-                      >
-                        {t("settings.mcp_test")}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void handleMcpRemove(s.id)}
-                        data-testid="mcp-remove"
-                        data-mcp-label={s.label}
-                      >
-                        {t("settings.mcp_remove")}
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-            {mcpTestResult ? (
-              <div
-                className="mt-3 rounded-md border bg-bg px-3 py-2 text-xs"
-                data-testid="mcp-test-result"
-              >
-                {mcpTestResult}
-              </div>
-            ) : null}
-            <div
-              className="mt-3 flex flex-col gap-2 rounded-md border border-dashed bg-bg p-3"
-              data-testid="mcp-form"
-            >
-              <div className="text-xs font-medium">{t("settings.mcp_add_title")}</div>
-              <div className="grid grid-cols-2 gap-2">
-                <Input
-                  placeholder="Label, e.g. filesystem"
-                  value={mcpDraft.label}
-                  onChange={(e) => setMcpDraft({ ...mcpDraft, label: e.target.value })}
-                  data-testid="mcp-label"
-                />
-                <select
-                  value={mcpDraft.transport}
-                  onChange={(e) =>
-                    setMcpDraft({
-                      ...mcpDraft,
-                      transport: e.target.value as "stdio" | "http",
-                    })
-                  }
-                  className="rounded-md border bg-bg px-2 py-1 text-sm"
-                  data-testid="mcp-transport"
-                >
-                  <option value="stdio">stdio</option>
-                  <option value="http">http</option>
-                </select>
-              </div>
-              {mcpDraft.transport === "stdio" ? (
-                <>
-                  <Input
-                    placeholder="command, e.g. npx"
-                    value={mcpDraft.command}
-                    onChange={(e) => setMcpDraft({ ...mcpDraft, command: e.target.value })}
-                    data-testid="mcp-command"
-                  />
-                  <textarea
-                    placeholder="args, one per line"
-                    value={mcpDraft.argsText}
-                    onChange={(e) => setMcpDraft({ ...mcpDraft, argsText: e.target.value })}
-                    className="min-h-[60px] rounded-md border bg-bg px-2 py-1 text-sm"
-                    data-testid="mcp-args"
-                    spellCheck={false}
-                  />
-                </>
-              ) : (
-                <Input
-                  placeholder="URL, e.g. https://example.com/rpc"
-                  value={mcpDraft.url}
-                  onChange={(e) => setMcpDraft({ ...mcpDraft, url: e.target.value })}
-                  data-testid="mcp-url"
-                />
-              )}
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-fg-muted">{t("settings.mcp_default_risk")}</span>
-                <select
-                  value={mcpDraft.defaultRisk}
-                  onChange={(e) =>
-                    setMcpDraft({
-                      ...mcpDraft,
-                      defaultRisk: e.target.value as McpDraft["defaultRisk"],
-                    })
-                  }
-                  className="rounded-md border bg-bg px-2 py-1 text-sm"
-                  data-testid="mcp-default-risk"
-                >
-                  <option value="safe">safe</option>
-                  <option value="caution">caution</option>
-                  <option value="danger">danger</option>
-                </select>
-                <Button
-                  size="sm"
-                  onClick={() => void handleMcpAdd()}
-                  disabled={mcpBusy || !mcpDraft.label.trim()}
-                  data-testid="mcp-add-submit"
-                >
-                  {mcpBusy ? t("settings.mcp_adding") : t("settings.mcp_add")}
-                </Button>
-              </div>
-            </div>
-          </details>
+          {DevMcpSettingsSection ? (
+            <Suspense fallback={null}>
+              <DevMcpSettingsSection />
+            </Suspense>
+          ) : null}
 
           {internalResearchEnabled && researchSettings.controls_enabled ? (
             <details

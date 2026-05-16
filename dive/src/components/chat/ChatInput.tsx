@@ -168,15 +168,13 @@ export function ChatInput({
             {t("chat.input.pre_send_check_label")}
           </Button>
           <div className="flex-1" />
-          <Button
-            variant="outline"
-            size="sm"
-            disabled
+          <div
+            className="rounded-md border bg-bg-panel px-2 py-1 text-xs text-fg-muted"
             aria-label={t("chat.input.model_select_aria")}
-            data-testid="chat-model-selector"
+            data-testid="chat-model-label"
           >
-            {resolvedModelLabel} <span aria-hidden>▾</span>
-          </Button>
+            {resolvedModelLabel}
+          </div>
           <Button
             variant="primary"
             size="sm"

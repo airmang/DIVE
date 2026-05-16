@@ -7,7 +7,7 @@ import { RoadmapRail } from "./RoadmapRail";
 import { TopBar } from "./TopBar";
 import { RecoverySlideIn } from "./RecoverySlideIn";
 import { StepDetailSlideIn } from "./StepDetailSlideIn";
-import { usePlanActivity, usePlanRoadmap } from "../../features/roadmap";
+import { usePlanActivity } from "../../features/roadmap";
 import { useProjectSessionStore } from "../../stores/project-session";
 
 interface ProductShellLayoutProps {
@@ -19,12 +19,10 @@ interface OpenPlanStepOptions {
 }
 
 export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
-  const currentProjectId = useProjectSessionStore((s) => s.currentProjectId);
   const selectSession = useProjectSessionStore((s) => s.selectSession);
   const loadAll = useProjectSessionStore((s) => s.loadAll);
-  const planRoadmap = usePlanRoadmap(currentProjectId);
-  const planActivity = usePlanActivity(planRoadmap.status?.plan_id ?? null, 5);
-  const rightPanelVisible = shell.roadmap.visible || planRoadmap.hasPlan;
+  const planActivity = usePlanActivity(shell.planRoadmap.status?.plan_id ?? null, 5);
+  const rightPanelVisible = shell.roadmap.visible || shell.planRoadmap.hasPlan;
   const gridCols = rightPanelVisible
     ? "grid-cols-[280px_minmax(0,1fr)_360px]"
     : "grid-cols-[280px_minmax(0,1fr)]";
@@ -33,7 +31,7 @@ export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
     void loadAll();
   };
   const handleOpenPlanStep = async (stepId: number, opts?: OpenPlanStepOptions) => {
-    const mapping = await planRoadmap.openStep(stepId);
+    const mapping = await shell.planRoadmap.openStep(stepId);
     await planActivity.refresh();
     if (mapping.session_id !== null) {
       shell.roadmap.onPlanStepOpened(mapping);
@@ -42,6 +40,17 @@ export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
         selectSession(mapping.session_id);
       }
     }
+    return mapping;
+  };
+  const handleMarkPlanStepDone = async (stepId: number) => {
+    const mapping = await shell.planRoadmap.updateStepState({
+      stepId,
+      status: "done",
+      evidence: "Marked complete from the roadmap rail after user verification.",
+      verificationStatus: "manual_done",
+    });
+    await planActivity.refresh();
+    await loadAll();
     return mapping;
   };
   return (
@@ -66,10 +75,11 @@ export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
       {rightPanelVisible ? (
         <div className="row-start-2 col-start-3 min-h-0 flex flex-col overflow-hidden border-l bg-bg">
           <RoadmapRail
-            planRoadmap={planRoadmap}
+            planRoadmap={shell.planRoadmap}
             planActivity={planActivity}
             fallbackRoadmap={shell.roadmap}
             onOpenPlanStep={handleOpenPlanStep}
+            onMarkPlanStepDone={handleMarkPlanStepDone}
             onOpenSession={handleOpenSession}
           />
         </div>

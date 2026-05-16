@@ -4,7 +4,7 @@
 
 **DIVE**는 코딩 에이전트를 터미널에서 직접 다루기 어려운 초심자가 데스크톱 UI 안에서 목표를 설명하고, 계획을 검토하고, 단계별 실행·변경 사항·검증·되돌리기를 확인할 수 있도록 만든 **Windows 데스크톱 앱**입니다.
 
-[![build](https://github.com/coreelab/dive/actions/workflows/build.yml/badge.svg)](https://github.com/coreelab/dive/actions/workflows/build.yml)
+[![build](https://github.com/airmang/DIVE-2/actions/workflows/build.yml/badge.svg)](https://github.com/airmang/DIVE-2/actions/workflows/build.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20ARM64-0078d4.svg)](#설치)
 
@@ -39,7 +39,7 @@ DIVE의 제품 UI는 일반 사용자가 이해하기 쉬운 용어를 우선합
 ## 핵심 기능
 
 - **초심자용 데스크톱 UI** — 터미널 중심 흐름 대신 채팅, 계획, 로드맵, 변경 확인으로 진행
-- **AI 연결** — Anthropic · OpenAI · OpenRouter · ChatGPT OAuth · Custom OpenAI-compatible · MCP 서버
+- **AI 연결** — Anthropic · OpenAI · OpenRouter · ChatGPT OAuth · Custom OpenAI-compatible
 - **권한 요청** — 도구 실행 전 위험도와 변경 미리보기를 확인하고 승인/거부
 - **자동 체크포인트** — 중요한 단계 전후로 저장하고 필요하면 되돌리기
 - **프롬프트 도우미** — 모호한 요청을 더 구체적인 작업 지시로 다듬기
@@ -55,7 +55,7 @@ DIVE의 제품 UI는 일반 사용자가 이해하기 쉬운 용어를 우선합
 
 ### 1. 다운로드
 
-[GitHub Releases](https://github.com/coreelab/dive/releases/latest) 페이지에서 본인 PC 아키텍처에 맞는 인스톨러를 받으세요:
+[GitHub Releases](https://github.com/airmang/DIVE-2/releases/latest) 페이지에서 본인 PC 아키텍처에 맞는 인스톨러를 받으세요:
 
 - **x64 (일반 인텔·AMD)**: `DIVE_<version>_x64-setup.exe`
 - **ARM64 (Surface Pro X / Copilot+ PC)**: `DIVE_<version>_arm64-setup.exe`
@@ -79,7 +79,6 @@ DIVE의 제품 UI는 일반 사용자가 이해하기 쉬운 용어를 우선합
 사용자 가이드: [튜토리얼](./docs/user-guide/tutorial.md) · [FAQ](./docs/user-guide/faq.md) · [트러블슈팅](./docs/user-guide/troubleshooting.md)
 
 ---
-
 
 ## Product UX Refactor QA checklist
 
@@ -155,5 +154,5 @@ cargo clippy --features dev-mock --all-targets -- -D warnings
 
 ## 기여·문의
 
-- 이슈·PR: [GitHub Issues](https://github.com/coreelab/dive/issues)
+- 이슈·PR: [GitHub Issues](https://github.com/airmang/DIVE-2/issues)
 - 보안 취약점 제보: 별도 이슈 대신 관리자에게 직접 연락

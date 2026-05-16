@@ -10,7 +10,11 @@ pub fn to_anthropic_payload(req: &ChatRequest) -> Result<Value, ProviderError> {
         match message {
             Message::System { content } => system.push(content.clone()),
             Message::User { content } => messages.push(json!({"role": "user", "content": content})),
-            Message::Assistant { content, tool_calls } => {
+            Message::Assistant {
+                content,
+                tool_calls,
+                ..
+            } => {
                 let mut blocks = Vec::new();
                 if !content.is_empty() {
                     blocks.push(json!({"type": "text", "text": content}));
@@ -115,6 +119,7 @@ mod tests {
     fn converts_assistant_tool_calls() {
         let payload = to_anthropic_payload(&base(vec![Message::Assistant {
             content: "".into(),
+            reasoning_content: None,
             tool_calls: Some(vec![ToolCall {
                 id: "toolu_1".into(),
                 name: "search".into(),

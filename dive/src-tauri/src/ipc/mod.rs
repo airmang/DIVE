@@ -45,7 +45,7 @@ use crate::agent::{
     AgentEvent, AgentLoop, AgentRunMode, AutoApprovePolicy, PendingApprovals, PermissionDecision,
     PermissionHook, PolicyAwareHook, RunModePermissionHook, StepContext,
 };
-use crate::auth::{self, Keyring, OsKeyring};
+use crate::auth::{self, Keyring, LocalFileKeyring, OsKeyring};
 use crate::db::dao::{
     card as card_dao, message as message_dao, plan as plan_dao, project as project_dao,
     provider_config as provider_dao, step as step_dao, step_session_mapping as mapping_dao,
@@ -78,6 +78,9 @@ pub enum AppStateError {
 }
 
 const PROJECT_NOT_SELECTED_MESSAGE: &str = "프로젝트를 선택하세요";
+const PROVIDER_RUNTIME_HYDRATE_TIMEOUT: Duration = Duration::from_secs(120);
+const PROVIDER_RUNTIME_HYDRATE_TIMEOUT_MESSAGE: &str =
+    "AI 연결 정보를 불러오는 중 시간이 초과되었습니다. macOS 키체인 암호 창이 떠 있다면 로그인 암호를 입력하고 '항상 허용'을 선택한 뒤 다시 시도하세요.";
 
 pub struct AppState {
     pub db: Arc<Mutex<Database>>,
@@ -136,7 +139,7 @@ impl AppState {
         let mut db = Database::open(data_dir.join("dive.db"))?;
         db.migrate()?;
 
-        let keyring: Arc<dyn Keyring> = Arc::new(OsKeyring::new());
+        let keyring = keyring_from_environment(data_dir.join("qa-secrets.json"));
         let runtime = ProviderRuntime::none();
         let project_root = project_dao::list(db.conn())?
             .last()
@@ -194,9 +197,15 @@ impl AppState {
     pub async fn ensure_provider_runtime(&self) -> Result<ProviderRuntime, String> {
         let current = self.runtime_snapshot();
         if !current.kind.is_none() {
+            providers::validate_model_for_kind(current.kind.as_str(), &current.model)
+                .map_err(|e| e.to_string())?;
             return Ok(current);
         }
 
+        tracing::info!(
+            timeout_secs = PROVIDER_RUNTIME_HYDRATE_TIMEOUT.as_secs(),
+            "provider runtime hydrate started"
+        );
         let db = self.db.clone();
         let keyring = self.keyring.clone();
         let hydrate = tauri::async_runtime::spawn_blocking(move || {
@@ -206,18 +215,26 @@ impl AppState {
             };
             hydrate_provider_runtime_from_rows(rows, keyring.as_ref()).map_err(|e| e.to_string())
         });
-        let next = match tokio::time::timeout(Duration::from_secs(8), hydrate).await {
+        let next = match tokio::time::timeout(PROVIDER_RUNTIME_HYDRATE_TIMEOUT, hydrate).await {
             Ok(result) => result.map_err(|e| format!("provider runtime task failed: {e}"))??,
             Err(_) => {
-                return Err(
-                    "AI 연결 정보를 불러오는 중 시간이 초과되었습니다. 설정에서 연결 상태를 확인한 뒤 다시 시도하세요."
-                        .into(),
+                tracing::warn!(
+                    timeout_secs = PROVIDER_RUNTIME_HYDRATE_TIMEOUT.as_secs(),
+                    "provider runtime hydrate timed out"
                 );
+                return Err(PROVIDER_RUNTIME_HYDRATE_TIMEOUT_MESSAGE.into());
             }
         };
+        tracing::info!(
+            provider_kind = %next.kind.as_str(),
+            has_config_id = next.config_id.is_some(),
+            "provider runtime hydrate completed"
+        );
         if next.kind.is_none() {
             return Ok(next);
         }
+        providers::validate_model_for_kind(next.kind.as_str(), &next.model)
+            .map_err(|e| e.to_string())?;
         self.swap_runtime(next.clone())
             .map_err(|e| format!("runtime: {e}"))?;
         Ok(next)
@@ -258,6 +275,23 @@ impl AppState {
             .map_err(|e| e.to_string())?;
         *value = disabled;
         Ok(())
+    }
+}
+
+fn keyring_from_environment(default_local_file_path: PathBuf) -> Arc<dyn Keyring> {
+    match std::env::var("DIVE_SECRET_BACKEND").ok().as_deref() {
+        Some("local-file") => {
+            let path = std::env::var_os("DIVE_LOCAL_SECRET_PATH")
+                .map(PathBuf::from)
+                .unwrap_or(default_local_file_path);
+            tracing::warn!(
+                secret_backend = "local-file",
+                path = %path.display(),
+                "QA local file secret backend enabled"
+            );
+            Arc::new(LocalFileKeyring::new(path))
+        }
+        _ => Arc::new(OsKeyring::new()),
     }
 }
 
@@ -345,6 +379,26 @@ mod tests {
         let snap = state.runtime_snapshot();
         assert!(snap.kind.is_none());
         assert_eq!(snap.model, "unset");
+    }
+
+    #[tokio::test]
+    async fn ensure_provider_runtime_rejects_invalid_active_model_with_cta() {
+        let state = AppState::dev_mock();
+        state
+            .swap_runtime(ProviderRuntime::new(
+                Some(1),
+                ProviderKind::OpencodeZen,
+                "ling-2.6-flash".into(),
+                Arc::new(crate::providers::MockProvider::new(Vec::new())),
+            ))
+            .unwrap();
+
+        let err = match state.ensure_provider_runtime().await {
+            Ok(_) => panic!("invalid runtime model should be rejected"),
+            Err(err) => err,
+        };
+        assert!(err.contains("ling-2.6-flash"));
+        assert!(err.contains("Settings"));
     }
 
     #[test]
@@ -548,6 +602,7 @@ mod tests {
                     card_id: None,
                     role: "user".into(),
                     content: "hello".into(),
+                    reasoning_content: None,
                     tool_calls: None,
                     usage: None,
                     provider: Some("openai".into()),
@@ -562,6 +617,7 @@ mod tests {
                     card_id: None,
                     role: "assistant".into(),
                     content: "world".into(),
+                    reasoning_content: None,
                     tool_calls: None,
                     usage: None,
                     provider: Some("openai".into()),

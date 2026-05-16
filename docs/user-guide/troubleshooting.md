@@ -115,6 +115,19 @@
 - **원인**: 복원 시점이 의도한 지점보다 이전일 수 있음
 - **해결**: 사이드바 → 타임라인에서 각 체크포인트의 **라벨**과 **시점**을 한 번 더 확인 → 정확한 체크포인트 선택
 
+### 증상: 이전 버전으로 되돌린 뒤 "database schema version ... is newer" 오류가 표시됨
+
+- **원인**: 새 버전의 DIVE가 데이터베이스 구조를 앞으로 마이그레이션했습니다. 이전 앱은 더 새 schema를 안전하게 읽을 수 없어 시작을 거부합니다.
+- **해결 A (권장)**: 다시 최신 DIVE 버전을 설치해 같은 데이터베이스를 엽니다.
+- **해결 B (롤백)**:
+  1. DIVE를 종료합니다.
+  2. `%LOCALAPPDATA%\com.coreelab.dive\dive.db`를 다른 폴더에 복사해 보관합니다.
+  3. `%LOCALAPPDATA%\com.coreelab.dive\backups\`에서 되돌릴 버전의 `dive-v<schema>-<timestamp>.db` 백업을 찾습니다.
+  4. 기존 `dive.db` 이름을 `dive.db.newer`로 바꿉니다.
+  5. 선택한 백업 파일을 `dive.db`로 복사합니다.
+  6. 이전 버전의 DIVE를 실행합니다.
+- **주의**: 백업 시점 이후의 세션, 메시지, 프로젝트 목록 변경은 이전 DB에 없을 수 있습니다. 프로젝트 폴더의 실제 파일은 앱 DB와 별개이므로 필요한 경우 별도로 백업하세요.
+
 ---
 
 ## 성능 / 메모리
@@ -165,7 +178,7 @@ pnpm tauri:dev   # 자세한 tracing DEBUG 레벨 로그
 ## 아직 해결 안 됐다면
 
 1. [FAQ](./faq.md) 다시 확인
-2. [GitHub Issues](https://github.com/coreelab/dive/issues) 기존 이슈 검색
+2. [GitHub Issues](https://github.com/airmang/DIVE-2/issues) 기존 이슈 검색
 3. 새 Issue 등록 (진단 정보 첨부)
 4. 긴급·보안 관련은 연구진에 직접 이메일
 

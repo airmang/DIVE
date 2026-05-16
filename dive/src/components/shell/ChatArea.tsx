@@ -65,7 +65,6 @@ export function ChatArea({
 
   const handleOpenSlidePanel = () => {
     if (onOpenSlidePanel) onOpenSlidePanel();
-    else console.log("open slide-in panel (task 2-5)");
   };
 
   return (

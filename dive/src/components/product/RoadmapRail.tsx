@@ -43,6 +43,7 @@ interface RoadmapRailProps {
   planActivity: PlanActivityModel;
   fallbackRoadmap: ProductShellController["roadmap"];
   onOpenPlanStep: (stepId: number, opts?: { focus?: boolean }) => Promise<StepSessionMappingRow>;
+  onMarkPlanStepDone: (stepId: number) => Promise<StepSessionMappingRow>;
   onOpenSession: (sessionId: number) => void;
 }
 
@@ -117,6 +118,7 @@ export function RoadmapRail({
   planActivity,
   fallbackRoadmap,
   onOpenPlanStep,
+  onMarkPlanStepDone,
   onOpenSession,
 }: RoadmapRailProps) {
   if (!planRoadmap.hasPlan && fallbackRoadmap.visible) {
@@ -129,6 +131,7 @@ export function RoadmapRail({
       planRoadmap={planRoadmap}
       planActivity={planActivity}
       onOpenPlanStep={onOpenPlanStep}
+      onMarkPlanStepDone={onMarkPlanStepDone}
       onOpenSession={onOpenSession}
     />
   );
@@ -138,6 +141,7 @@ function PlanRoadmapRail({
   planRoadmap,
   planActivity,
   onOpenPlanStep,
+  onMarkPlanStepDone,
   onOpenSession,
 }: Omit<RoadmapRailProps, "fallbackRoadmap">) {
   const t = useT();
@@ -157,6 +161,24 @@ function PlanRoadmapRail({
       setActionFailure(
         makeRoadmapActionFailure({
           action: "start_step",
+          stepLabel: `${item.step.step_id}: ${item.step.title}`,
+          error,
+        }),
+      );
+    } finally {
+      setBusyStepId(null);
+    }
+  };
+
+  const handleMarkStepDone = async (item: PlanRoadmapStep) => {
+    setBusyStepId(item.step.id);
+    setActionFailure(null);
+    try {
+      await onMarkPlanStepDone(item.step.id);
+    } catch (error) {
+      setActionFailure(
+        makeRoadmapActionFailure({
+          action: "complete_step",
           stepLabel: `${item.step.step_id}: ${item.step.title}`,
           error,
         }),
@@ -273,6 +295,7 @@ function PlanRoadmapRail({
                   item={item}
                   busy={busyStepId === item.step.id}
                   onOpen={() => void handleOpenStep(item)}
+                  onMarkDone={() => void handleMarkStepDone(item)}
                   onResume={(sessionId) => onOpenSession(sessionId)}
                 />
               </li>
@@ -369,11 +392,13 @@ function PlanStepItem({
   item,
   busy,
   onOpen,
+  onMarkDone,
   onResume,
 }: {
   item: PlanRoadmapStep;
   busy: boolean;
   onOpen: () => void;
+  onMarkDone: () => void;
   onResume: (sessionId: number) => void;
 }) {
   const t = useT();
@@ -408,19 +433,25 @@ function PlanStepItem({
         {item.status === "ready" ? (
           <Button size="sm" variant="outline" onClick={onOpen} disabled={busy} className="flex-1">
             <Play className="h-4 w-4" aria-hidden />
-            {busy ? t("roadmap.dashboard.working") : t("common.open")}
+            {busy ? t("roadmap.dashboard.working") : t("roadmap.dashboard.start")}
           </Button>
         ) : item.status === "in_progress" && sessionId !== null ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => onResume(sessionId)}
-            disabled={busy}
-            className="flex-1"
-          >
-            <RotateCw className="h-4 w-4" aria-hidden />
-            {t("roadmap.plan_graph.resume")}
-          </Button>
+          <>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onResume(sessionId)}
+              disabled={busy}
+              className="flex-1"
+            >
+              <RotateCw className="h-4 w-4" aria-hidden />
+              {t("roadmap.plan_graph.resume")}
+            </Button>
+            <Button size="sm" variant="outline" onClick={onMarkDone} disabled={busy}>
+              <CheckCircle2 className="h-4 w-4" aria-hidden />
+              {busy ? t("roadmap.dashboard.working") : t("roadmap.plan_graph.mark_done")}
+            </Button>
+          </>
         ) : null}
       </div>
     </div>

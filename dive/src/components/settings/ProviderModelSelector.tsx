@@ -44,7 +44,6 @@ function fallbackModels(providerKind: string): ModelInfo[] {
     return [
       { id: "big-pickle", display_name: "Big Pickle" },
       { id: "minimax-m2.5-free", display_name: "MiniMax M2.5 Free" },
-      { id: "ling-2.6-flash", display_name: "Ling 2.6 Flash Free" },
       { id: "hy3-preview-free", display_name: "Hy3 Preview Free" },
     ];
   }
@@ -90,12 +89,12 @@ export function ProviderModelSelector({ providerId, providerKind, selectedModel 
   }, [providerId, providerKind]);
 
   const options = useMemo(() => {
-    if (!selected || models.some((model) => model.id === selected)) return models;
-    return [{ id: selected, display_name: `${selected} (저장됨)` }, ...models];
-  }, [models, selected]);
+    return models;
+  }, [models]);
 
   useEffect(() => {
-    if (selected || options.length === 0) return;
+    if (options.length === 0) return;
+    if (selected && options.some((model) => model.id === selected)) return;
     setSelected(options[0]?.id ?? "");
   }, [options, selected]);
 
