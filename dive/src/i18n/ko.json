@@ -169,6 +169,11 @@
       "model_select_default_label": "모델 선택",
       "send_aria": "메시지 전송",
       "send_label": "전송"
+    },
+    "running": {
+      "elapsed": "AI 작업 중 · {{seconds}}초 경과",
+      "cancel": "중지",
+      "cancel_requested": "중지 요청됨"
     }
   },
   "roadmap": {
@@ -191,6 +196,7 @@
       "no_steps": "채팅에 목표를 설명하면 로드맵이 생성됩니다.",
       "pick_step": "단계를 선택하면 자세한 내용을 볼 수 있습니다.",
       "planned": "시작 대기 중입니다. 에이전트가 곧 작업을 시작합니다.",
+      "blocked": "막힌 상태입니다. 의존성이나 프로바이더 한도를 확인한 뒤 계속으로 재시도하세요.",
       "in_progress": "에이전트가 이 단계를 작업 중입니다.",
       "review": "결과를 확인한 뒤 채팅에서 승인하거나 수정을 요청하세요.",
       "done": "승인되었습니다. 다음 단계로 이동하세요.",
@@ -313,14 +319,31 @@
       "send_answer": "전송",
       "complete": "인터뷰 완료",
       "question_fallback": "마지막 인터뷰 질문",
-      "submit_prompt": "[INTERVIEW_SUBMIT]\n목표: {{goal}}\n인터뷰를 요약하고, workspace_plan_generate_draft와 호환되는 plan_input을 포함해 intent_summary, unresolved_questions와 함께 JSON만 반환하세요.",
+      "submit_prompt": "[INTERVIEW_SUBMIT]\n목표: {{goal}}\n인터뷰를 요약하고, workspace_plan_generate_draft와 호환되는 plan_input을 포함해 intent_summary, unresolved_questions와 함께 간결한 JSON만 반환하세요. plan_input.steps는 2~4개로 제한하고 Markdown 코드펜스나 설명 문장은 쓰지 마세요.",
       "adjust_failure_seed": "{{title}} 계획 인터뷰를 다시 여세요. 해결해야 할 문제: {{reason}}",
       "vague_answer_error": "대상, 범위, 성공 기준, 제약 중 하나 이상을 더 구체적으로 적어 주세요.",
       "start_failed_title": "인터뷰를 시작할 수 없음",
       "save_failed_title": "답변을 저장할 수 없음",
       "draft_ready_title": "계획 초안 준비됨",
       "draft_ready_description": "승인하기 전에 생성된 계획을 검토하세요.",
-      "draft_failed_title": "계획 초안을 만들 수 없음"
+      "draft_failed_title": "계획 초안을 만들 수 없음",
+      "compact_retry_prompt": "이전 계획 JSON 생성이 실패했습니다. 이유: {{reason}}\n목표: {{goal}}\n완전하고 짧은 JSON만 다시 반환하세요. plan_input은 정확히 2~4개 steps만 포함하고, 각 step은 title, summary, instruction_seed, expected_files, acceptance_criteria, verification_command를 포함해야 합니다. 설명 문장이나 Markdown 코드펜스는 쓰지 마세요.",
+      "recovery": {
+        "retry": "짧은 JSON으로 다시 생성",
+        "hints": "모델 응답이 길면 계획 초안만 짧게 다시 요청하세요.|다시 실패하면 목표 범위를 더 작게 나누세요.",
+        "length": {
+          "title": "계획 응답이 중간에 끊겼습니다",
+          "description": "모델이 토큰 한도에 도달해 계획 JSON을 끝까지 보내지 못했습니다. 짧은 형식으로 다시 생성할 수 있습니다."
+        },
+        "invalid_json": {
+          "title": "계획 JSON을 읽을 수 없습니다",
+          "description": "모델 응답이 JSON 형식이 아니거나 중간에 깨졌습니다. DIVE가 더 짧고 엄격한 JSON으로 다시 요청합니다."
+        },
+        "invalid_plan_shape": {
+          "title": "계획 구조가 맞지 않습니다",
+          "description": "JSON은 읽혔지만 DIVE가 필요한 goal, intent summary, steps 구조가 부족합니다. 호환되는 구조로 다시 생성할 수 있습니다."
+        }
+      }
     },
     "approval": {
       "title": "계획 초안",
@@ -346,6 +369,10 @@
     },
     "route": {
       "routing_status": "라우팅 중…",
+      "elapsed": "라우팅 중 · {{seconds}}초 경과",
+      "cancel": "중지 요청",
+      "cancel_requested": "중지 요청됨",
+      "cancel_requested_status": "라우팅 중 중지 요청됨",
       "confirm": {
         "title": "이 요청을 plan에 새 step으로 추가할까요?",
         "description": "DIVE가 채팅을 보내기 전에 승인된 plan에 이 요청을 새 단계로 붙일 수 있습니다.",
@@ -409,6 +436,19 @@
     "manual_label": "수동 저장",
     "manual_label_with_card": "수동 저장 — {{title}}"
   },
+  "slide_in": {
+    "code_empty": {
+      "no_output": {
+        "title": "아직 코드 산출물이 없습니다",
+        "description": "단계를 시작하면 DIVE가 변경한 파일과 diff를 여기에 표시합니다."
+      },
+      "blocked_no_output": {
+        "title": "막힌 상태라 파일이 만들어지지 않았습니다",
+        "description": "프로바이더 한도나 의존성을 확인한 뒤 로드맵의 계속 버튼으로 다시 시도하세요."
+      },
+      "open_terminal": "터미널 보기"
+    }
+  },
   "keyboard": {
     "shortcut_new_project": "Ctrl+N — 새 프로젝트",
     "shortcut_checkpoint": "Ctrl+S — 체크포인트",
@@ -449,12 +489,17 @@
     "rate_limit": {
       "title": "요청 한도 초과",
       "body": "프로바이더 요청 한도에 도달했습니다. 원문: {{message}}",
-      "hints": "잠시 기다린 뒤 다시 시도하세요.|필요하면 더 작은 작업 단위로 나누세요."
+      "hints": "잠시 기다린 뒤 다시 시도하세요.|Settings에서 다른 모델로 바꾸거나 프로바이더 한도를 확인하세요.|필요하면 더 작은 작업 단위로 나누세요."
     },
     "network": {
       "title": "네트워크 오류",
       "body": "네트워크 연결이나 조직 방화벽을 확인하세요. 원문: {{message}}",
       "hints": "인터넷 연결을 확인하세요.|프록시/VPN 환경이면 관리자에게 API 도메인 허용을 요청하세요."
+    },
+    "assistant_length": {
+      "title": "응답이 중간에 끊김",
+      "body": "모델이 출력 한도에 도달해 응답을 끝까지 보내지 못했습니다.",
+      "hints": "더 짧은 응답으로 다시 요청하세요.|계획 생성 중이었다면 짧은 JSON 재생성을 사용하세요."
     },
     "tool_blocked": {
       "title": "안전 정책으로 차단됨",

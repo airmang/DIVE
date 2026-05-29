@@ -1,4 +1,8 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use dive_lib::auth::InMemoryKeyring;
@@ -10,11 +14,11 @@ use dive_lib::ipc::workspace_plan::{
     roadmap_step_open_impl, roadmap_step_update_state_impl, workspace_plan_activity_impl,
     workspace_plan_append_step_impl, workspace_plan_approve_impl, workspace_plan_dashboard_impl,
     workspace_plan_discard_plan_impl, workspace_plan_generate_draft_impl,
-    workspace_plan_list_steps_impl, workspace_plan_route_chat_impl,
-    workspace_plan_save_interview_answer_impl, workspace_plan_start_interview_impl,
-    workspace_plan_status_impl, workspace_plan_step_mappings_impl,
-    workspace_plan_submit_interview_impl, PlanDraftInput, RouteDecision, StepDraftInput,
-    StepStateUpdateInput,
+    workspace_plan_list_steps_impl, workspace_plan_route_cancel_impl,
+    workspace_plan_route_chat_impl, workspace_plan_save_interview_answer_impl,
+    workspace_plan_start_interview_impl, workspace_plan_status_impl,
+    workspace_plan_step_mappings_impl, workspace_plan_submit_interview_impl, PlanDraftInput,
+    RouteDecision, StepDraftInput, StepStateUpdateInput,
 };
 use dive_lib::{
     AppState, ChatEvent, ChatRequest, Database, FinishReason, LlmProvider, ModelInfo, ProviderError,
@@ -87,6 +91,70 @@ impl LlmProvider for ScriptedProvider {
     async fn refresh_auth(&mut self) -> Result<(), ProviderError> {
         Ok(())
     }
+}
+
+struct PendingRouteProviderResponse {
+    called: Arc<AtomicBool>,
+}
+
+#[async_trait]
+impl LlmProvider for PendingRouteProviderResponse {
+    fn id(&self) -> &str {
+        "mock"
+    }
+
+    fn list_models(&self) -> Vec<ModelInfo> {
+        vec![ModelInfo {
+            id: "mock".into(),
+            display_name: "Mock".into(),
+        }]
+    }
+
+    async fn chat(
+        &self,
+        _req: ChatRequest,
+    ) -> Result<BoxStream<'static, ChatEvent>, ProviderError> {
+        self.called.store(true, Ordering::SeqCst);
+        std::future::pending().await
+    }
+
+    async fn refresh_auth(&mut self) -> Result<(), ProviderError> {
+        Ok(())
+    }
+}
+
+struct PendingRouteStreamProvider;
+
+#[async_trait]
+impl LlmProvider for PendingRouteStreamProvider {
+    fn id(&self) -> &str {
+        "mock"
+    }
+
+    fn list_models(&self) -> Vec<ModelInfo> {
+        vec![ModelInfo {
+            id: "mock".into(),
+            display_name: "Mock".into(),
+        }]
+    }
+
+    async fn chat(
+        &self,
+        _req: ChatRequest,
+    ) -> Result<BoxStream<'static, ChatEvent>, ProviderError> {
+        Ok(stream::pending().boxed())
+    }
+
+    async fn refresh_auth(&mut self) -> Result<(), ProviderError> {
+        Ok(())
+    }
+}
+
+fn mk_state_with_provider(tmp: &tempfile::TempDir, provider: Arc<dyn LlmProvider>) -> AppState {
+    let mut db = Database::open_in_memory().unwrap();
+    db.migrate().unwrap();
+    AppState::new(db, provider, tmp.path().to_path_buf(), "mock".into())
+        .with_keyring(Arc::new(InMemoryKeyring::new()))
 }
 
 fn mk_state(tmp: &tempfile::TempDir) -> AppState {
@@ -243,6 +311,22 @@ fn status_counts_ready_and_blocked_steps() {
 }
 
 #[test]
+fn status_counts_blocked_step_mapping_as_blocked_not_active() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    let first = insert_step(&state, plan_id, "step-001", &[]);
+    insert_step(&state, plan_id, "step-002", &["step-001"]);
+    let mapping = roadmap_step_open_impl(&state, first).unwrap();
+    mapping::update_status(state.db.lock().unwrap().conn(), mapping.id, "blocked").unwrap();
+
+    let status = workspace_plan_status_impl(&state, project_id).unwrap();
+    assert_eq!(status.ready_count, 0);
+    assert_eq!(status.blocked_count, 2);
+}
+
+#[test]
 fn dashboard_lists_projects_with_plan_progress_and_actions() {
     let tmp = tempfile::tempdir().unwrap();
     let state = mk_state(&tmp);
@@ -322,7 +406,7 @@ async fn route_chat_returns_skip_when_no_approved_plan() {
     let (state, provider) = mk_state_with_scripts(&tmp, Vec::new());
     let project_id = seed_project(&state);
 
-    let decision = workspace_plan_route_chat_impl(&state, project_id, "auth 추가해줘".into())
+    let decision = workspace_plan_route_chat_impl(&state, project_id, "auth 추가해줘".into(), None)
         .await
         .unwrap();
 
@@ -351,9 +435,10 @@ async fn route_chat_returns_chat_decision_from_mock_provider() {
     let plan_id = seed_plan(&state, project_id, "approved");
     insert_step(&state, plan_id, "step-001", &[]);
 
-    let decision = workspace_plan_route_chat_impl(&state, project_id, "지금 진행상황 어때?".into())
-        .await
-        .unwrap();
+    let decision =
+        workspace_plan_route_chat_impl(&state, project_id, "지금 진행상황 어때?".into(), None)
+            .await
+            .unwrap();
 
     assert_eq!(
         decision,
@@ -383,9 +468,10 @@ async fn route_chat_parses_add_step_and_generates_next_step_id() {
     insert_step(&state, plan_id, "step-001", &[]);
     insert_step(&state, plan_id, "step-002", &["step-001"]);
 
-    let decision = workspace_plan_route_chat_impl(&state, project_id, "auth도 추가해줘".into())
-        .await
-        .unwrap();
+    let decision =
+        workspace_plan_route_chat_impl(&state, project_id, "auth도 추가해줘".into(), None)
+            .await
+            .unwrap();
 
     match decision {
         RouteDecision::AddStep { draft, reason } => {
@@ -398,6 +484,83 @@ async fn route_chat_parses_add_step_and_generates_next_step_id() {
         }
         other => panic!("expected add_step decision, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn route_chat_cancel_while_waiting_for_provider_response() {
+    let tmp = tempfile::tempdir().unwrap();
+    let provider_called = Arc::new(AtomicBool::new(false));
+    let state = mk_state_with_provider(
+        &tmp,
+        Arc::new(PendingRouteProviderResponse {
+            called: provider_called.clone(),
+        }),
+    );
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    insert_step(&state, plan_id, "step-001", &[]);
+    let route_request_id = "route-provider-cancel-test".to_string();
+
+    let result = tokio::time::timeout(Duration::from_millis(300), async {
+        let route = workspace_plan_route_chat_impl(
+            &state,
+            project_id,
+            "계속 대기하는 라우팅".into(),
+            Some(route_request_id.clone()),
+        );
+        let cancel = async {
+            while !provider_called.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            workspace_plan_route_cancel_impl(&state, route_request_id)
+        };
+        let (route_result, cancel_result) = tokio::join!(route, cancel);
+        cancel_result.unwrap();
+        route_result
+    })
+    .await
+    .expect("route cancellation should interrupt pending provider response");
+
+    let err = result.expect_err("route should be cancelled");
+    assert!(
+        err.to_lowercase().contains("cancel"),
+        "unexpected route error: {err}"
+    );
+    assert!(provider_called.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn route_chat_cancel_while_waiting_for_stream_chunk() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state_with_provider(&tmp, Arc::new(PendingRouteStreamProvider));
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    insert_step(&state, plan_id, "step-001", &[]);
+    let route_request_id = "route-stream-cancel-test".to_string();
+
+    let result = tokio::time::timeout(Duration::from_millis(300), async {
+        let route = workspace_plan_route_chat_impl(
+            &state,
+            project_id,
+            "스트림 청크를 기다리는 라우팅".into(),
+            Some(route_request_id.clone()),
+        );
+        let cancel = async {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            workspace_plan_route_cancel_impl(&state, route_request_id)
+        };
+        let (route_result, cancel_result) = tokio::join!(route, cancel);
+        cancel_result.unwrap();
+        route_result
+    })
+    .await
+    .expect("route cancellation should interrupt pending stream chunk");
+
+    let err = result.expect_err("route should be cancelled");
+    assert!(
+        err.to_lowercase().contains("cancel"),
+        "unexpected route error: {err}"
+    );
 }
 
 #[test]

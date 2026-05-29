@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { PlanStepRow } from "../roadmap";
 import type { StepDraftInput } from "./types";
 
@@ -31,8 +31,12 @@ export type RouteDecision =
 
 export function usePlanRouter(projectId: number | null) {
   const [api, setApi] = useState<TauriApi | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [routeBusy, setRouteBusy] = useState(false);
+  const [appendBusy, setAppendBusy] = useState(false);
+  const [routeStartedAt, setRouteStartedAt] = useState<number | null>(null);
+  const [routeCancelRequested, setRouteCancelRequested] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     void loadTauri().then(setApi);
@@ -43,28 +47,50 @@ export function usePlanRouter(projectId: number | null) {
       if (!api || projectId === null) {
         return { action: "skip", reason: "routing unavailable" };
       }
-      setBusy(true);
+      const routeRequestId = `route-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      requestIdRef.current = routeRequestId;
+      setRouteBusy(true);
+      setRouteStartedAt(Date.now());
+      setRouteCancelRequested(false);
       setError(null);
       try {
         return await api.invoke<RouteDecision>("workspace_plan_route_chat", {
           projectId,
           prompt,
+          routeRequestId,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         setError(message);
         throw err;
       } finally {
-        setBusy(false);
+        if (requestIdRef.current === routeRequestId) {
+          requestIdRef.current = null;
+          setRouteBusy(false);
+          setRouteStartedAt(null);
+          setRouteCancelRequested(false);
+        }
       }
     },
-    [api, projectId],
+    [api, projectId, requestIdRef],
   );
+
+  const cancelRoute = useCallback(async () => {
+    if (!api || !requestIdRef.current) return;
+    setRouteCancelRequested(true);
+    try {
+      await api.invoke<void>("workspace_plan_route_cancel", {
+        routeRequestId: requestIdRef.current,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [api, requestIdRef]);
 
   const appendStep = useCallback(
     async (planId: number, draft: StepDraftInput): Promise<PlanStepRow> => {
       if (!api) throw new Error("Tauri IPC unavailable");
-      setBusy(true);
+      setAppendBusy(true);
       setError(null);
       try {
         return await api.invoke<PlanStepRow>("workspace_plan_append_step", {
@@ -76,7 +102,7 @@ export function usePlanRouter(projectId: number | null) {
         setError(message);
         throw err;
       } finally {
-        setBusy(false);
+        setAppendBusy(false);
       }
     },
     [api],
@@ -85,7 +111,12 @@ export function usePlanRouter(projectId: number | null) {
   return {
     route,
     appendStep,
-    busy,
+    cancelRoute,
+    busy: routeBusy || appendBusy,
+    routeBusy,
+    appendBusy,
+    routeStartedAt,
+    routeCancelRequested,
     error,
   };
 }

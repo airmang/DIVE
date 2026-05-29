@@ -4,10 +4,16 @@
 //! for one compact `ROUTE ...` line and parses that line into a draft decision
 //! that the IPC layer can present for user confirmation.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
 use futures::StreamExt;
 use regex::Regex;
 
 use crate::providers::{ChatEvent, ChatRequest, FinishReason, LlmProvider, Message, ToolChoice};
+
+const ROUTE_CANCELLED_MESSAGE: &str = "route chat cancelled";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlanRouterContext {
@@ -56,6 +62,16 @@ pub async fn decide(
     prompt: String,
     ctx: PlanRouterContext,
 ) -> Result<PlanRouterDecision, String> {
+    decide_cancelable(provider, model, prompt, ctx, None).await
+}
+
+pub async fn decide_cancelable(
+    provider: &dyn LlmProvider,
+    model: String,
+    prompt: String,
+    ctx: PlanRouterContext,
+    cancel: Option<Arc<AtomicBool>>,
+) -> Result<PlanRouterDecision, String> {
     let req = ChatRequest {
         model,
         messages: vec![
@@ -72,10 +88,30 @@ pub async fn decide(
         max_tokens: Some(700),
         stream: true,
     };
-    let mut stream = provider.chat(req).await.map_err(|e| e.to_string())?;
+    check_route_cancel(cancel.as_ref())?;
+    let mut stream = if let Some(cancel) = cancel.clone() {
+        tokio::select! {
+            result = provider.chat(req) => result.map_err(|e| e.to_string())?,
+            _ = wait_for_route_cancel(cancel) => return Err(ROUTE_CANCELLED_MESSAGE.into()),
+        }
+    } else {
+        provider.chat(req).await.map_err(|e| e.to_string())?
+    };
     let mut text = String::new();
     let mut finish_reason = FinishReason::Stop;
-    while let Some(event) = stream.next().await {
+    loop {
+        check_route_cancel(cancel.as_ref())?;
+        let event = if let Some(cancel) = cancel.clone() {
+            tokio::select! {
+                event = stream.next() => event,
+                _ = wait_for_route_cancel(cancel) => return Err(ROUTE_CANCELLED_MESSAGE.into()),
+            }
+        } else {
+            stream.next().await
+        };
+        let Some(event) = event else {
+            break;
+        };
         match event {
             ChatEvent::TextDelta(delta) => text.push_str(&delta),
             ChatEvent::Done { finish_reason: fr } => {
@@ -93,7 +129,25 @@ pub async fn decide(
     if finish_reason == FinishReason::Length {
         return Err("router response was truncated".into());
     }
+    check_route_cancel(cancel.as_ref())?;
     parse_route_decision(&text)
+}
+
+fn check_route_cancel(cancel: Option<&Arc<AtomicBool>>) -> Result<(), String> {
+    if cancel
+        .map(|token| token.load(Ordering::SeqCst))
+        .unwrap_or(false)
+    {
+        Err(ROUTE_CANCELLED_MESSAGE.into())
+    } else {
+        Ok(())
+    }
+}
+
+async fn wait_for_route_cancel(cancel: Arc<AtomicBool>) {
+    while !cancel.load(Ordering::SeqCst) {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 }
 
 fn build_system_prompt() -> String {

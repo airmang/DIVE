@@ -1,13 +1,19 @@
 import { useMemo } from "react";
+import { AlertCircle, Terminal } from "lucide-react";
 import { DiffViewer } from "../permission-card";
 import { useSlideInStore } from "../../stores/slideIn";
 import { cn } from "../../lib/utils";
+import { useT } from "../../i18n";
+import { Button } from "../ui/button";
 
 export function CodeTab() {
+  const t = useT();
   const files = useSlideInStore((s) => s.changedFiles);
   const changeSummary = useSlideInStore((s) => s.changeSummary);
+  const emptyReason = useSlideInStore((s) => s.emptyReason);
   const selected = useSlideInStore((s) => s.selectedFilePath);
   const setSelected = useSlideInStore((s) => s.setSelectedFile);
+  const setActiveTab = useSlideInStore((s) => s.setActiveTab);
 
   const sortedFiles = useMemo(
     () => [...files].sort((a, b) => a.path.localeCompare(b.path)),
@@ -30,8 +36,32 @@ export function CodeTab() {
             {changeSummary}
           </p>
         ) : null}
-        <div data-testid="code-tab-empty">
-          <p className="text-sm text-fg-muted">변경된 파일이 없습니다.</p>
+        <div
+          className="max-w-sm rounded-md border bg-bg-panel2 px-4 py-3"
+          data-testid="code-tab-empty"
+          data-empty-reason={emptyReason ?? "no_output"}
+        >
+          <div className="flex items-start gap-2 text-left">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-fg-muted" aria-hidden />
+            <div>
+              <p className="text-sm font-semibold text-fg">
+                {t(`slide_in.code_empty.${emptyReason ?? "no_output"}.title`)}
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+                {t(`slide_in.code_empty.${emptyReason ?? "no_output"}.description`)}
+              </p>
+              <Button
+                className="mt-3"
+                size="sm"
+                variant="outline"
+                onClick={() => setActiveTab("terminal")}
+                data-testid="code-tab-empty-action"
+              >
+                <Terminal />
+                {t("slide_in.code_empty.open_terminal")}
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
     );

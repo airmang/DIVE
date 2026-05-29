@@ -169,6 +169,11 @@
       "model_select_default_label": "Pick model",
       "send_aria": "Send message",
       "send_label": "Send"
+    },
+    "running": {
+      "elapsed": "AI is working · {{seconds}}s elapsed",
+      "cancel": "Stop",
+      "cancel_requested": "Stop requested"
     }
   },
   "roadmap": {
@@ -191,6 +196,7 @@
       "no_steps": "Describe your goal in chat to generate a roadmap.",
       "pick_step": "Select a step to see its details.",
       "planned": "Waiting to start. The agent will pick this up next.",
+      "blocked": "This step is blocked. Check dependencies or provider quota, then retry with Resume.",
       "in_progress": "The agent is working on this step.",
       "review": "Review the results, then approve or request changes in chat.",
       "done": "Approved. Move on to the next step.",
@@ -313,14 +319,31 @@
       "send_answer": "Send",
       "complete": "Finish interview",
       "question_fallback": "Latest interview question",
-      "submit_prompt": "[INTERVIEW_SUBMIT]\nGoal: {{goal}}\nSummarize the interview and return only JSON with intent_summary, unresolved_questions, and a workspace_plan_generate_draft-compatible plan_input.",
+      "submit_prompt": "[INTERVIEW_SUBMIT]\nGoal: {{goal}}\nSummarize the interview and return compact JSON only with intent_summary, unresolved_questions, and a workspace_plan_generate_draft-compatible plan_input. Limit plan_input.steps to 2-4 items and do not include Markdown fences or prose.",
       "adjust_failure_seed": "Re-open the plan interview for {{title}}. The issue to resolve is: {{reason}}",
       "vague_answer_error": "Please be more specific about the audience, scope, success criteria, or constraints.",
       "start_failed_title": "Could not start interview",
       "save_failed_title": "Could not save answer",
       "draft_ready_title": "Plan draft ready",
       "draft_ready_description": "Review the generated plan before approving it.",
-      "draft_failed_title": "Could not create plan draft"
+      "draft_failed_title": "Could not create plan draft",
+      "compact_retry_prompt": "The previous plan JSON generation failed. Reason: {{reason}}\nGoal: {{goal}}\nReturn complete, short JSON only. plan_input must contain exactly 2-4 steps, and each step must include title, summary, instruction_seed, expected_files, acceptance_criteria, and verification_command. Do not include prose or Markdown fences.",
+      "recovery": {
+        "retry": "Regenerate short JSON",
+        "hints": "If the model response is too long, ask only for a compact plan draft.|If it fails again, split the goal into a smaller scope.",
+        "length": {
+          "title": "Plan response was cut off",
+          "description": "The model reached its token limit before finishing the plan JSON. DIVE can ask again using a shorter format."
+        },
+        "invalid_json": {
+          "title": "Plan JSON could not be read",
+          "description": "The model response was not valid JSON or was corrupted. DIVE can retry with a shorter, stricter JSON request."
+        },
+        "invalid_plan_shape": {
+          "title": "Plan structure is incomplete",
+          "description": "The JSON was readable, but it did not include the goal, intent summary, and steps DIVE needs. DIVE can regenerate a compatible structure."
+        }
+      }
     },
     "approval": {
       "title": "Plan draft",
@@ -346,6 +369,10 @@
     },
     "route": {
       "routing_status": "Routing…",
+      "elapsed": "Routing · {{seconds}}s elapsed",
+      "cancel": "Stop",
+      "cancel_requested": "Stop requested",
+      "cancel_requested_status": "Routing stop requested",
       "confirm": {
         "title": "Add this as a new step?",
         "description": "DIVE can append this request to the approved plan before sending it to chat.",
@@ -409,6 +436,19 @@
     "manual_label": "Manual save",
     "manual_label_with_card": "Manual save — {{title}}"
   },
+  "slide_in": {
+    "code_empty": {
+      "no_output": {
+        "title": "No code output yet",
+        "description": "After a step starts, DIVE will show changed files and diffs here."
+      },
+      "blocked_no_output": {
+        "title": "No files were produced because the step is blocked",
+        "description": "Check provider quota or dependencies, then retry from the roadmap Resume action."
+      },
+      "open_terminal": "Open terminal"
+    }
+  },
   "keyboard": {
     "shortcut_new_project": "Ctrl+N — New project",
     "shortcut_checkpoint": "Ctrl+S — Checkpoint",
@@ -449,12 +489,17 @@
     "rate_limit": {
       "title": "Rate limit reached",
       "body": "The provider rate limit was reached. Raw: {{message}}",
-      "hints": "Wait and retry.|Split the task into smaller steps if needed."
+      "hints": "Wait and retry.|Switch models in Settings or check the provider quota.|Split the task into smaller steps if needed."
     },
     "network": {
       "title": "Network error",
       "body": "Check your network connection or firewall. Raw: {{message}}",
       "hints": "Confirm internet access.|If behind a proxy/VPN, ask an admin to allow the API domains."
+    },
+    "assistant_length": {
+      "title": "Response was cut off",
+      "body": "The model reached its output limit before finishing the response.",
+      "hints": "Retry with a shorter response request.|If this happened during plan generation, use compact JSON regeneration."
     },
     "tool_blocked": {
       "title": "Blocked by safety policy",

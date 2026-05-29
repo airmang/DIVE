@@ -1,15 +1,23 @@
 import { useEffect, useId, useRef, useState } from "react";
-import mermaid from "mermaid";
 
 interface MermaidApi {
   initialize: (config: { startOnLoad: false; theme: "dark"; securityLevel: "strict" }) => void;
   render: (id: string, chart: string) => Promise<{ svg: string }> | { svg: string };
 }
 
-mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
+let mermaidPromise: Promise<MermaidApi> | null = null;
+let mermaidInitialized = false;
 
-function loadMermaid(): Promise<MermaidApi | null> {
-  return Promise.resolve(mermaid as MermaidApi);
+async function loadMermaid(): Promise<MermaidApi> {
+  if (!mermaidPromise) {
+    mermaidPromise = import("mermaid").then((module) => module.default as MermaidApi);
+  }
+  const mermaid = await mermaidPromise;
+  if (!mermaidInitialized) {
+    mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
+    mermaidInitialized = true;
+  }
+  return mermaid;
 }
 
 interface MermaidDiagramProps {
@@ -26,14 +34,25 @@ export function MermaidDiagram({ chart, onNodeClick, nodeIdResolver }: MermaidDi
   const id = useId().replace(/:/g, "_");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [svg, setSvg] = useState<string>("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    void loadMermaid().then(async (mermaid) => {
-      if (!mermaid) return;
-      const rendered = await mermaid.render(`mermaid_${id}`, chart);
-      if (!cancelled) setSvg(rendered.svg);
-    });
+    setLoading(true);
+    setError(null);
+    setSvg("");
+    void loadMermaid()
+      .then(async (mermaid) => {
+        const rendered = await mermaid.render(`mermaid_${id}`, chart);
+        if (!cancelled) setSvg(rendered.svg);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -66,6 +85,28 @@ export function MermaidDiagram({ chart, onNodeClick, nodeIdResolver }: MermaidDi
       cleanups.forEach((cleanup) => cleanup());
     };
   }, [nodeIdResolver, onNodeClick, svg]);
+
+  if (loading) {
+    return (
+      <div
+        className="flex min-h-48 items-center justify-center rounded-md border bg-bg p-3 text-xs text-fg-muted"
+        data-testid="mermaid-loading"
+      >
+        Loading diagram...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div
+        className="min-h-48 rounded-md border border-warn/40 bg-warn/10 p-3 text-xs text-fg"
+        data-testid="mermaid-error"
+      >
+        {error}
+      </div>
+    );
+  }
 
   return (
     <div

@@ -207,6 +207,7 @@ impl AgentLoop {
             emit(AgentEvent::AssistantEnd {
                 id: assistant_id,
                 content: content.clone(),
+                finish_reason: finish_reason_str(finish_reason).to_owned(),
             });
             self.log_event(
                 session_id,
@@ -462,23 +463,32 @@ impl AgentLoop {
         emit: &mut (dyn FnMut(AgentEvent) + Send),
     ) -> Result<(String, Option<String>, Vec<ToolCall>, FinishReason), AgentError> {
         let provider = self.provider.clone();
-        let mut stream = crate::providers::with_retry(
-            || {
-                let provider = provider.clone();
-                let req = request.clone();
-                async move { provider.chat(req).await }
-            },
-            3,
-            std::time::Duration::from_millis(500),
-        )
-        .await?;
+        let mut stream = tokio::select! {
+            result = crate::providers::with_retry(
+                || {
+                    let provider = provider.clone();
+                    let req = request.clone();
+                    async move { provider.chat(req).await }
+                },
+                3,
+                std::time::Duration::from_millis(500),
+            ) => result?,
+            _ = self.wait_for_cancel() => return Err(AgentError::Cancelled),
+        };
         let mut content = String::new();
         let mut reasoning_content = String::new();
         let mut pending_tool_calls: Vec<PendingToolCall> = Vec::new();
         let mut finish_reason = FinishReason::Stop;
 
-        while let Some(event) = stream.next().await {
+        loop {
             self.check_cancel()?;
+            let event = tokio::select! {
+                event = stream.next() => event,
+                _ = self.wait_for_cancel() => return Err(AgentError::Cancelled),
+            };
+            let Some(event) = event else {
+                break;
+            };
             match event {
                 ChatEvent::ReasoningDelta(delta) => {
                     reasoning_content.push_str(&delta);
@@ -652,6 +662,12 @@ impl AgentLoop {
             Err(AgentError::Cancelled)
         } else {
             Ok(())
+        }
+    }
+
+    async fn wait_for_cancel(&self) {
+        while !self.cancel.load(Ordering::SeqCst) {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
     }
 

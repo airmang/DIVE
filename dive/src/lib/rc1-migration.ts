@@ -41,5 +41,9 @@ export function acknowledgeRc1Migration(storage: Storage | null = browserStorage
 
 function browserStorage(): Storage | null {
   if (typeof window === "undefined") return null;
-  return window.localStorage;
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }

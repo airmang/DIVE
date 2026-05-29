@@ -1,6 +1,7 @@
 import type { DiffPreviewData } from "../permission-card";
 
 export type SlideInTab = "code" | "preview" | "terminal";
+export type CodeEmptyReason = "no_output" | "blocked_no_output";
 
 export interface ChangedFile {
   path: string;
@@ -18,6 +19,7 @@ export interface SlideInOpenArgs {
   tab?: SlideInTab;
   files?: ChangedFile[];
   changeSummary?: string | null;
+  emptyReason?: CodeEmptyReason | null;
   previewUrl?: string | null;
   replaceFiles?: boolean;
 }

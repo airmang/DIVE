@@ -16,6 +16,30 @@ interface SidebarProps {
   className?: string;
 }
 
+const MODEL_LABELS: Record<string, string> = {
+  "big-pickle": "Big Pickle",
+  "minimax-m2.5-free": "MiniMax M2.5 Free",
+  "hy3-preview-free": "Hy3 Preview Free",
+  "gpt-5.5": "GPT-5.5",
+  "gpt-5.5-codex": "GPT-5.5 Codex",
+  "gpt-5.4": "GPT-5.4",
+  "gpt-5.4-mini": "GPT-5.4 Mini",
+};
+
+function providerDisplayName(kind: string) {
+  if (kind === "opencode_zen" || kind === "opencode-zen") return "opencode zen";
+  if (kind === "openrouter") return "OpenRouter";
+  if (kind === "openai") return "OpenAI";
+  if (kind === "anthropic") return "Anthropic";
+  if (kind === "codex") return "Codex";
+  return kind;
+}
+
+function modelDisplayName(model: string | null | undefined) {
+  if (!model) return null;
+  return MODEL_LABELS[model] ?? model;
+}
+
 export function Sidebar({ className }: SidebarProps) {
   const { theme, toggleTheme } = useTheme();
   const t = useT();
@@ -58,9 +82,17 @@ export function Sidebar({ className }: SidebarProps) {
     await deleteSession(id);
   };
 
+  const connectedProvider = providers.find((p) => p.is_connected);
+  const selectedModelLabel = modelDisplayName(connectedProvider?.selected_model);
   const providerLabel =
-    providers.find((p) => p.is_connected)?.kind ??
-    (hasProvider ? t("sidebar.provider_connected") : t("sidebar.provider_not_connected"));
+    selectedModelLabel ??
+    (connectedProvider
+      ? providerDisplayName(connectedProvider.kind)
+      : hasProvider
+        ? t("sidebar.provider_connected")
+        : t("sidebar.provider_not_connected"));
+  const providerSubLabel =
+    selectedModelLabel && connectedProvider ? providerDisplayName(connectedProvider.kind) : null;
 
   return (
     <aside
@@ -197,6 +229,11 @@ export function Sidebar({ className }: SidebarProps) {
             <div className="truncate text-sm font-medium text-fg" data-testid="provider-label">
               {providerLabel}
             </div>
+            {providerSubLabel ? (
+              <div className="truncate text-[10px] text-fg-muted" data-testid="provider-sub-label">
+                {providerSubLabel}
+              </div>
+            ) : null}
           </Card>
         </button>
 

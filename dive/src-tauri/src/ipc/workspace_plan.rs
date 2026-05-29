@@ -1,4 +1,7 @@
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -20,6 +23,8 @@ use crate::dive::plan_router::{
 use crate::ipc::AppState;
 use crate::workspace_plan as workspace_plan_service;
 
+const ROUTE_CANCELLED_MESSAGE: &str = "route chat cancelled";
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct WorkspacePlanStatus {
     pub status: String,
@@ -30,6 +35,8 @@ pub struct WorkspacePlanStatus {
     pub step_count: i64,
     pub ready_count: i64,
     pub blocked_count: i64,
+    pub active_count: i64,
+    pub done_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -227,8 +234,17 @@ pub async fn workspace_plan_route_chat(
     state: State<'_, AppState>,
     project_id: i64,
     prompt: String,
+    route_request_id: Option<String>,
 ) -> Result<RouteDecision, String> {
-    workspace_plan_route_chat_impl(&state, project_id, prompt).await
+    workspace_plan_route_chat_impl(&state, project_id, prompt, route_request_id).await
+}
+
+#[tauri::command]
+pub async fn workspace_plan_route_cancel(
+    state: State<'_, AppState>,
+    route_request_id: String,
+) -> Result<(), String> {
+    workspace_plan_route_cancel_impl(&state, route_request_id)
 }
 
 #[tauri::command]
@@ -283,6 +299,8 @@ pub fn workspace_plan_status_impl(
             step_count: 0,
             ready_count: 0,
             blocked_count: 0,
+            active_count: 0,
+            done_count: 0,
         });
     };
 
@@ -303,6 +321,8 @@ pub fn workspace_plan_status_impl(
         step_count: progress.step_count,
         ready_count: progress.ready_count,
         blocked_count: progress.blocked_count,
+        active_count: progress.active_count,
+        done_count: progress.done_count,
     })
 }
 
@@ -597,6 +617,33 @@ pub async fn workspace_plan_route_chat_impl(
     state: &AppState,
     project_id: i64,
     prompt: String,
+    route_request_id: Option<String>,
+) -> Result<RouteDecision, String> {
+    let cancel = register_route_cancel(state, route_request_id.as_deref())?;
+    let result = workspace_plan_route_chat_inner(state, project_id, prompt, cancel.clone()).await;
+    if let Some(route_request_id) = route_request_id {
+        let mut guard = state.route_cancels.lock().map_err(|e| e.to_string())?;
+        guard.remove(&route_request_id);
+    }
+    result
+}
+
+pub fn workspace_plan_route_cancel_impl(
+    state: &AppState,
+    route_request_id: String,
+) -> Result<(), String> {
+    let guard = state.route_cancels.lock().map_err(|e| e.to_string())?;
+    if let Some(token) = guard.get(&route_request_id) {
+        token.store(true, Ordering::SeqCst);
+    }
+    Ok(())
+}
+
+async fn workspace_plan_route_chat_inner(
+    state: &AppState,
+    project_id: i64,
+    prompt: String,
+    cancel: Option<Arc<AtomicBool>>,
 ) -> Result<RouteDecision, String> {
     let status = workspace_plan_status_impl(state, project_id)?;
     let Some(plan_id) = status.plan_id else {
@@ -610,7 +657,16 @@ pub async fn workspace_plan_route_chat_impl(
         });
     }
 
-    let runtime = state.ensure_provider_runtime().await?;
+    check_route_cancel(cancel.as_ref())?;
+    let runtime = if let Some(cancel) = cancel.clone() {
+        tokio::select! {
+            result = state.ensure_provider_runtime() => result?,
+            _ = wait_for_route_cancel(cancel) => return Err(ROUTE_CANCELLED_MESSAGE.into()),
+        }
+    } else {
+        state.ensure_provider_runtime().await?
+    };
+    check_route_cancel(cancel.as_ref())?;
     let ctx = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let plan = plan_dao::get_by_id(db.conn(), plan_id)
@@ -621,8 +677,14 @@ pub async fn workspace_plan_route_chat_impl(
         build_router_context(&plan, &steps, &mappings)
     };
 
-    let decision =
-        plan_router::decide(runtime.provider.as_ref(), runtime.model, prompt, ctx).await?;
+    let decision = plan_router::decide_cancelable(
+        runtime.provider.as_ref(),
+        runtime.model,
+        prompt,
+        ctx,
+        cancel,
+    )
+    .await?;
     match decision {
         PlanRouterDecision::Chat { reason } => Ok(RouteDecision::Chat { reason }),
         PlanRouterDecision::AddStep { draft, reason } => {
@@ -632,6 +694,36 @@ pub async fn workspace_plan_route_chat_impl(
                 reason,
             })
         }
+    }
+}
+
+fn register_route_cancel(
+    state: &AppState,
+    route_request_id: Option<&str>,
+) -> Result<Option<Arc<AtomicBool>>, String> {
+    let Some(route_request_id) = route_request_id.map(str::trim).filter(|id| !id.is_empty()) else {
+        return Ok(None);
+    };
+    let token = Arc::new(AtomicBool::new(false));
+    let mut guard = state.route_cancels.lock().map_err(|e| e.to_string())?;
+    guard.insert(route_request_id.to_string(), token.clone());
+    Ok(Some(token))
+}
+
+fn check_route_cancel(cancel: Option<&Arc<AtomicBool>>) -> Result<(), String> {
+    if cancel
+        .map(|token| token.load(Ordering::SeqCst))
+        .unwrap_or(false)
+    {
+        Err(ROUTE_CANCELLED_MESSAGE.into())
+    } else {
+        Ok(())
+    }
+}
+
+async fn wait_for_route_cancel(cancel: Arc<AtomicBool>) {
+    while !cancel.load(Ordering::SeqCst) {
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
 
@@ -932,6 +1024,7 @@ fn derive_plan_progress(steps: &[StepRow], mappings: &[StepSessionMappingRow]) -
             match mapping.status.as_str() {
                 "done" => progress.done_count += 1,
                 "shipped" => progress.shipped_count += 1,
+                "blocked" => progress.blocked_count += 1,
                 _ => {
                     progress.active_count += 1;
                     progress.active_steps.push(dashboard_step(

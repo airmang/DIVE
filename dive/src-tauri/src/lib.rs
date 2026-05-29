@@ -146,6 +146,7 @@ pub fn run() {
             ipc::workspace_plan_list_steps,
             ipc::workspace_plan_step_mappings,
             ipc::workspace_plan_route_chat,
+            ipc::workspace_plan_route_cancel,
             ipc::workspace_plan_append_step,
             ipc::roadmap_step_open,
             ipc::roadmap_step_update_state

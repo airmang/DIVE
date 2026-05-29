@@ -31,6 +31,10 @@
     "release:smoke:preflight": "node scripts/release-gate-smoke.mjs --preflight",
     "verify:rc1-migration": "node scripts/verify-rc1-migration.mjs",
     "verify:version-sync": "node scripts/verify-version-sync.mjs 1.0.0-rc.2",
+    "verify:audit-fixes": "node scripts/verify-audit-fixes.mjs",
+    "verify:quality-iteration": "node scripts/verify-quality-iteration.mjs",
+    "verify:quality-followup": "node scripts/verify-quality-followup.mjs",
+    "verify:route-chat-cancel-quality": "node scripts/verify-route-chat-cancel-quality.mjs",
     "research:retrospective": "node scripts/analyze-retrospective.mjs"
   },
   "dependencies": {

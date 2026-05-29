@@ -23,6 +23,8 @@ export interface WorkspacePlanStatus {
   step_count: number;
   ready_count: number;
   blocked_count: number;
+  active_count: number;
+  done_count: number;
 }
 
 function normalizeGeneratedDraft(value: unknown): PlanGenerationResult {

@@ -3,16 +3,26 @@
 //! Uses `MockProvider` + in-memory tempdir project + tempfile SQLite so the
 //! loop can be driven without network or Tauri runtime.
 
-use std::sync::{atomic::AtomicBool, Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
+use std::time::Duration;
 
-use dive_lib::db::dao::{card, event_log, message, project, session};
+use async_trait::async_trait;
+use dive_lib::db::dao::{card, event_log, message, project, session, workmap};
 use dive_lib::db::models::{CardState, NewCard, NewProject, NewSession};
 use dive_lib::Database;
-use dive_lib::{ChatEvent, FinishReason, Message, MockProvider};
+use dive_lib::{
+    ChatEvent, ChatRequest, FinishReason, LlmProvider, Message, MockProvider, ModelInfo,
+    ProviderError,
+};
+use futures::stream::{self, BoxStream};
+use futures::StreamExt;
 
 use dive_lib::agent::{
-    AgentError, AgentEvent, AgentLoop, AlwaysApproveHook, AlwaysDenyHook, AwaitUserHook,
-    PendingApprovals, PermissionDecision,
+    AgentError, AgentEvent, AgentLoop, AgentRunMode, AlwaysApproveHook, AlwaysDenyHook,
+    AwaitUserHook, PendingApprovals, PermissionDecision, StepContext,
 };
 use dive_lib::tools::{ToolContext, ToolRegistry};
 
@@ -121,6 +131,63 @@ fn build_loop(
         .unwrap()
 }
 
+struct PendingProviderResponse {
+    called: Arc<AtomicBool>,
+}
+
+#[async_trait]
+impl LlmProvider for PendingProviderResponse {
+    fn id(&self) -> &str {
+        "pending-provider-response"
+    }
+
+    fn list_models(&self) -> Vec<ModelInfo> {
+        vec![ModelInfo {
+            id: "pending-model".into(),
+            display_name: "Pending".into(),
+        }]
+    }
+
+    async fn chat(
+        &self,
+        _req: ChatRequest,
+    ) -> Result<BoxStream<'static, ChatEvent>, ProviderError> {
+        self.called.store(true, Ordering::SeqCst);
+        std::future::pending().await
+    }
+
+    async fn refresh_auth(&mut self) -> Result<(), ProviderError> {
+        Ok(())
+    }
+}
+
+struct PendingStreamProvider;
+
+#[async_trait]
+impl LlmProvider for PendingStreamProvider {
+    fn id(&self) -> &str {
+        "pending-stream"
+    }
+
+    fn list_models(&self) -> Vec<ModelInfo> {
+        vec![ModelInfo {
+            id: "pending-model".into(),
+            display_name: "Pending".into(),
+        }]
+    }
+
+    async fn chat(
+        &self,
+        _req: ChatRequest,
+    ) -> Result<BoxStream<'static, ChatEvent>, ProviderError> {
+        Ok(stream::pending().boxed())
+    }
+
+    async fn refresh_auth(&mut self) -> Result<(), ProviderError> {
+        Ok(())
+    }
+}
+
 #[tokio::test]
 async fn scenario_a_text_only_response() {
     let (db, _db_file, root, sid) = fresh_env();
@@ -167,6 +234,33 @@ async fn scenario_a_text_only_response() {
         !encoded_logs.contains("sk-abc123"),
         "EventLog must not contain raw API keys: {encoded_logs}"
     );
+}
+
+#[tokio::test]
+async fn assistant_end_event_includes_length_finish_reason() {
+    let (db, _db_file, root, sid) = fresh_env();
+    let mock = Arc::new(MockProvider::new(vec![vec![
+        ChatEvent::TextDelta("{\"plan_input\":".into()),
+        ChatEvent::Done {
+            finish_reason: FinishReason::Length,
+        },
+    ]]));
+    let loop_ = build_loop(db, root.path(), mock, Arc::new(AlwaysApproveHook), sid);
+
+    let mut events = Vec::new();
+    loop_
+        .run(sid, "finish interview", &mut |e| events.push(e))
+        .await
+        .unwrap();
+
+    assert!(events.iter().any(|event| matches!(
+        event,
+        AgentEvent::AssistantEnd {
+            content,
+            finish_reason,
+            ..
+        } if content == "{\"plan_input\":" && finish_reason == "length"
+    )));
 }
 
 #[tokio::test]
@@ -336,6 +430,113 @@ async fn tool_call_followup_replays_reasoning_content_and_writes_index() {
 }
 
 #[tokio::test]
+async fn product_path_build_step_creates_code_output_and_records_changed_files() {
+    let (db, _db_file, root, sid) = fresh_env();
+    let card_id = {
+        let db_guard = db.lock().unwrap();
+        let card_id = card::list_by_session(db_guard.conn(), sid).unwrap()[0].id;
+        db_guard
+            .conn()
+            .execute(
+                "UPDATE Card SET instruction = ? WHERE id = ?",
+                ("Write a single-file todo app in index.html.", card_id),
+            )
+            .unwrap();
+        workmap::set_current_card(db_guard.conn(), sid, Some(card_id)).unwrap();
+        card_id
+    };
+
+    let mock = Arc::new(MockProvider::new(vec![
+        vec![
+            ChatEvent::ToolCallStart {
+                id: "call-write-index".into(),
+                name: "write_file".into(),
+            },
+            ChatEvent::ToolCallDelta {
+                id: "call-write-index".into(),
+                arguments_delta: r#"{"path":"index.html","content":"<!doctype html><html><head><title>DIVE QA</title></head><body><main><h1>DIVE Todo</h1><input aria-label=\"New todo\"><button>Add</button></main><script>localStorage.setItem('dive-qa','ready');</script></body></html>"}"#.into(),
+            },
+            ChatEvent::ToolCallEnd {
+                id: "call-write-index".into(),
+            },
+            ChatEvent::Done {
+                finish_reason: FinishReason::ToolCalls,
+            },
+        ],
+        vec![
+            ChatEvent::TextDelta("Created index.html and wired the todo shell.".into()),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ],
+    ]));
+    let loop_ = AgentLoop::builder()
+        .provider(mock)
+        .registry(Arc::new(ToolRegistry::with_builtins()))
+        .permission(Arc::new(AlwaysApproveHook))
+        .db(db.clone())
+        .tool_ctx(ToolContext::new(root.path(), sid))
+        .model("mock-model")
+        .cancel(Arc::new(AtomicBool::new(false)))
+        .stage(dive_lib::dive::DiveStage::I)
+        .run_mode(AgentRunMode::Build)
+        .plan_accepted(true)
+        .step_context(Some(StepContext {
+            step_id: 1,
+            title: "Create browser todo app".into(),
+            instruction_seed: Some("Write a single-file todo app in index.html.".into()),
+            acceptance_criteria: Some("index.html exists and includes todo UI.".into()),
+            expected_files: Some(r#"["index.html"]"#.into()),
+        }))
+        .max_iterations(5)
+        .build()
+        .unwrap();
+
+    let mut events = Vec::new();
+    loop_
+        .run(
+            sid,
+            "Build the approved first roadmap step.",
+            &mut |event| events.push(event),
+        )
+        .await
+        .unwrap();
+
+    let index_path = root.path().join("index.html");
+    assert!(index_path.exists(), "build step should create index.html");
+    let content = std::fs::read_to_string(index_path).unwrap();
+    assert!(content.contains("DIVE Todo"));
+
+    assert!(events.iter().any(|event| matches!(
+        event,
+        AgentEvent::ToolCallStart {
+            tool,
+            diff_preview: Some(diff),
+            ..
+        } if tool == "write_file" && diff.path == "index.html" && diff.after.contains("DIVE Todo")
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        AgentEvent::ToolResult {
+            success: true,
+            summary,
+            ..
+        } if summary.contains("index.html")
+    )));
+
+    let db_guard = db.lock().unwrap();
+    let card = card::get_by_id(db_guard.conn(), card_id)
+        .unwrap()
+        .expect("current card should still exist");
+    assert_eq!(card.changed_files, Some(serde_json::json!(["index.html"])));
+    let logs = event_log::list_by_session(db_guard.conn(), sid).unwrap();
+    assert!(logs.iter().any(|row| {
+        row.r#type == "card_changed_files"
+            && row.payload["paths"] == serde_json::json!(["index.html"])
+    }));
+}
+
+#[tokio::test]
 async fn scenario_c_tool_call_denied() {
     let (db, _db_file, root, sid) = fresh_env();
     let mock = Arc::new(MockProvider::new(vec![
@@ -461,6 +662,88 @@ async fn scenario_e_cancel_mid_stream() {
     let mut events = Vec::new();
     let result = loop_.run(sid, "hi", &mut |e| events.push(e)).await;
     assert!(matches!(result, Err(AgentError::Cancelled)));
+}
+
+#[tokio::test]
+async fn cancel_while_waiting_for_provider_response() {
+    let (db, _db_file, root, sid) = fresh_env();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let provider_called = Arc::new(AtomicBool::new(false));
+    let loop_ = AgentLoop::builder()
+        .provider(Arc::new(PendingProviderResponse {
+            called: provider_called.clone(),
+        }))
+        .registry(Arc::new(ToolRegistry::with_builtins()))
+        .permission(Arc::new(AlwaysApproveHook))
+        .db(db)
+        .tool_ctx(ToolContext::new(root.path(), sid))
+        .model("pending-model")
+        .cancel(cancel.clone())
+        .max_iterations(5)
+        .build()
+        .unwrap();
+
+    let canceller = {
+        let cancel = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            cancel.store(true, Ordering::SeqCst);
+        })
+    };
+    let mut events = Vec::new();
+    let result = tokio::time::timeout(
+        Duration::from_millis(300),
+        loop_.run(sid, "hi", &mut |event| events.push(event)),
+    )
+    .await
+    .expect("cancel should interrupt pending provider response");
+    canceller.await.unwrap();
+
+    assert!(provider_called.load(Ordering::SeqCst));
+    assert!(matches!(result, Err(AgentError::Cancelled)));
+    assert!(events.iter().all(|event| !matches!(
+        event,
+        AgentEvent::AssistantDelta { .. } | AgentEvent::ToolResult { .. }
+    )));
+}
+
+#[tokio::test]
+async fn cancel_while_waiting_for_stream_chunk() {
+    let (db, _db_file, root, sid) = fresh_env();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let loop_ = AgentLoop::builder()
+        .provider(Arc::new(PendingStreamProvider))
+        .registry(Arc::new(ToolRegistry::with_builtins()))
+        .permission(Arc::new(AlwaysApproveHook))
+        .db(db)
+        .tool_ctx(ToolContext::new(root.path(), sid))
+        .model("pending-model")
+        .cancel(cancel.clone())
+        .max_iterations(5)
+        .build()
+        .unwrap();
+
+    let canceller = {
+        let cancel = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            cancel.store(true, Ordering::SeqCst);
+        })
+    };
+    let mut events = Vec::new();
+    let result = tokio::time::timeout(
+        Duration::from_millis(300),
+        loop_.run(sid, "hi", &mut |event| events.push(event)),
+    )
+    .await
+    .expect("cancel should interrupt pending stream chunk");
+    canceller.await.unwrap();
+
+    assert!(matches!(result, Err(AgentError::Cancelled)));
+    assert!(events.iter().all(|event| !matches!(
+        event,
+        AgentEvent::AssistantDelta { .. } | AgentEvent::ToolResult { .. }
+    )));
 }
 
 #[tokio::test]

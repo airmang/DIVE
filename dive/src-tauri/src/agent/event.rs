@@ -25,6 +25,7 @@ pub enum AgentEvent {
     AssistantEnd {
         id: String,
         content: String,
+        finish_reason: String,
     },
     Reasoning {
         id: String,

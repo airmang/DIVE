@@ -91,7 +91,9 @@ export function derivePlanRoadmapSteps(
     const mapping = mappingByStepId.get(step.id) ?? null;
     if (mapping) {
       const status: PlanRoadmapStatus =
-        mapping.status === "done" || mapping.status === "shipped" ? mapping.status : "in_progress";
+        mapping.status === "done" || mapping.status === "shipped" || mapping.status === "blocked"
+          ? mapping.status
+          : "in_progress";
       return { step, mapping, status, blockedDependencies: [], parallelBucket: null };
     }
 

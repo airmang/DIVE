@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type {
   ChangedFile,
+  CodeEmptyReason,
   SlideInOpenArgs,
   SlideInTab,
   TerminalLine,
@@ -13,6 +14,7 @@ interface SlideInState {
   activeTab: SlideInTab;
   changedFiles: ChangedFile[];
   changeSummary: string | null;
+  emptyReason: CodeEmptyReason | null;
   selectedFilePath: string | null;
   previewUrl: string | null;
   terminalLines: TerminalLine[];
@@ -34,6 +36,7 @@ export const useSlideInStore = create<SlideInState>((set) => ({
   activeTab: "code",
   changedFiles: [],
   changeSummary: null,
+  emptyReason: null,
   selectedFilePath: null,
   previewUrl: null,
   terminalLines: [],
@@ -55,6 +58,12 @@ export const useSlideInStore = create<SlideInState>((set) => ({
             : args?.replaceFiles
               ? null
               : prev.changeSummary,
+        emptyReason:
+          args?.emptyReason !== undefined
+            ? args.emptyReason
+            : args?.replaceFiles
+              ? null
+              : prev.emptyReason,
         selectedFilePath:
           prev.selectedFilePath && files.some((f) => f.path === prev.selectedFilePath)
             ? prev.selectedFilePath

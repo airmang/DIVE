@@ -1,4 +1,13 @@
-import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Suspense,
+  createElement,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { ChatStageBanner } from "../shell/ChatArea";
 import type { VerifyLogView } from "../workmap/types";
 import { useSlideInStore } from "../../stores/slideIn";
@@ -18,7 +27,10 @@ import { usePlanRoadmap, useRoadmap } from "../../features/roadmap";
 import type { PlanRoadmapStep, StepSessionMappingRow } from "../../features/roadmap";
 import { usePlan, usePlanRouter, type RouteDecision } from "../../features/planning";
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
-import { usePlanInterviewLLM } from "../../features/planning/usePlanInterviewLLM";
+import {
+  usePlanInterviewLLM,
+  type PlanDraftLlmErrorReason,
+} from "../../features/planning/usePlanInterviewLLM";
 import { useChatSession, type CheckpointRowPayload } from "../../hooks/useChatSession";
 import { refreshMenuRecents, useMenuEvents } from "../../lib/menu-events";
 import { pickFolder } from "../../lib/tauri-dialog";
@@ -28,10 +40,15 @@ import { useUiPreferencesStore } from "../../stores/ui-preferences";
 import type { DiveStage as PromptDiveStage } from "../../lib/ambiguity";
 import type { RecoveryCheckpointItem, FailedStepRecovery } from "./RecoveryPanel";
 import { useProductShellDialogs } from "./useProductShellDialogs";
-import { PlanDraftApprovalScreen } from "./PlanDraftApprovalScreen";
+import { PlanDraftRecoveryScreen } from "./PlanDraftRecoveryScreen";
 import { SocraticInterviewPanel } from "./SocraticInterviewPanel";
 
 const ONBOARDING_DISMISSED_PROJECT_KEY = "dive:onboarding-dismissed-project-id";
+const PlanDraftApprovalScreen = lazy(() =>
+  import("./PlanDraftApprovalScreen").then((module) => ({
+    default: module.PlanDraftApprovalScreen,
+  })),
+);
 
 type AddStepRouteDecision = Extract<RouteDecision, { action: "add_step" }>;
 
@@ -103,6 +120,10 @@ export function useProductShellController() {
   const [activeInterview, setActiveInterview] = useState<InterviewRow | null>(null);
   const activeInterviewRef = useRef<InterviewRow | null>(null);
   const [generatedPlanDraft, setGeneratedPlanDraft] = useState<PlanGenerationResult | null>(null);
+  const [planDraftFailure, setPlanDraftFailure] = useState<{
+    reason: PlanDraftLlmErrorReason;
+  } | null>(null);
+  const expectingPlanDraftRef = useRef(false);
   const [pendingPlanRoute, setPendingPlanRoute] = useState<PendingPlanRouteConfirmation | null>(
     null,
   );
@@ -227,10 +248,12 @@ export function useProductShellController() {
       try {
         decision = await planRouter.route(text);
       } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.toLowerCase().includes("cancel")) return false;
         toast({
           variant: "error",
           title: t("planning.route.error.routing_failed", {
-            message: err instanceof Error ? err.message : String(err),
+            message,
           }),
         });
         return true;
@@ -260,6 +283,8 @@ export function useProductShellController() {
     onPlanDraft: (draft) => {
       const interview = activeInterviewRef.current;
       if (!interview) return;
+      expectingPlanDraftRef.current = false;
+      setPlanDraftFailure(null);
       void (async () => {
         try {
           const submitted =
@@ -291,6 +316,18 @@ export function useProductShellController() {
           });
         }
       })();
+    },
+    onPlanDraftError: (error) => {
+      if (!expectingPlanDraftRef.current || !activeInterviewRef.current) return;
+      expectingPlanDraftRef.current = false;
+      setPlanDraftFailure({
+        reason: error.reason,
+      });
+      toast({
+        variant: "warn",
+        title: t(`planning.interview.recovery.${error.reason}.title`),
+        description: t(`planning.interview.recovery.${error.reason}.description`),
+      });
     },
   });
   const chat = useChatSession(currentSessionId, planInterviewObserver, handleBeforeChatSend);
@@ -660,13 +697,30 @@ export function useProductShellController() {
 
   const handleOpenCodeForCard = (cardId: number) => {
     const card = cards.find((candidate) => candidate.id === cardId);
+    const files = roadmapModel.changedFilesForStep(cardId);
     openSlideIn({
       tab: "code",
-      files: roadmapModel.changedFilesForStep(cardId),
+      files,
       changeSummary: card?.changeSummary ?? null,
+      emptyReason: files.length > 0 ? null : "no_output",
       replaceFiles: true,
     });
   };
+
+  const openCodePanelWithContext = useCallback(() => {
+    const currentFiles = currentCard ? roadmapModel.changedFilesForStep(currentCard.id) : [];
+    const hasBlockedWithoutOutput =
+      planRoadmap.steps.some((step) => step.status === "blocked") &&
+      cards.every((card) => roadmapModel.changedFilesForStep(card.id).length === 0);
+    openSlideIn({
+      tab: "code",
+      files: currentFiles,
+      changeSummary: currentCard?.changeSummary ?? null,
+      emptyReason:
+        currentFiles.length > 0 ? null : hasBlockedWithoutOutput ? "blocked_no_output" : "no_output",
+      replaceFiles: true,
+    });
+  }, [cards, currentCard, openSlideIn, planRoadmap.steps, roadmapModel]);
 
   const cardStateLabel = currentCard ? getCardStateMeta(currentCard.state).label : null;
   const currentVerifyLog: VerifyLogView | null = currentCard
@@ -970,6 +1024,8 @@ export function useProductShellController() {
     const submitPrompt = t("planning.interview.submit_prompt", {
       goal: interview.goal,
     });
+    expectingPlanDraftRef.current = true;
+    setPlanDraftFailure(null);
     void chat.sendUserMessage(submitPrompt, stage, "interview", false);
   }, [chat, stage, t]);
 
@@ -1000,10 +1056,24 @@ export function useProductShellController() {
           steps: generatedPlanDraft.steps,
         }),
       });
+      expectingPlanDraftRef.current = true;
+      setPlanDraftFailure(null);
       void chat.sendUserMessage(prompt, stage, "interview", false);
     },
     [chat, generatedPlanDraft, stage, t],
   );
+
+  const handleRetryPlanDraft = useCallback(() => {
+    const interview = activeInterviewRef.current;
+    if (!interview || !planDraftFailure) return;
+    const prompt = t("planning.interview.compact_retry_prompt", {
+      goal: interview.goal,
+      reason: planDraftFailure.reason,
+    });
+    expectingPlanDraftRef.current = true;
+    setPlanDraftFailure(null);
+    void chat.sendUserMessage(prompt, stage, "interview", false);
+  }, [chat, planDraftFailure, stage, t]);
 
   const handleDiscardGeneratedPlan = useCallback(() => {
     if (!generatedPlanDraft) return;
@@ -1038,7 +1108,7 @@ export function useProductShellController() {
       cardStateLabel,
       stageBanner,
       onSendMessage: sendMessage,
-      onOpenSlidePanel: () => openSlideIn({ tab: "code" }),
+      onOpenSlidePanel: openCodePanelWithContext,
       onRetryError: handleRetryError,
       onApproveToolCall: (toolCallId: string, modifiedArgs?: unknown) =>
         void chat.approveToolCall(toolCallId, modifiedArgs),
@@ -1054,7 +1124,19 @@ export function useProductShellController() {
             onComplete: handleCompleteInterview,
           })
         : null,
-      modelLabel: planRouter.busy ? t("planning.route.routing_status") : undefined,
+      modelLabel: planRouter.routeBusy
+        ? planRouter.routeCancelRequested
+          ? t("planning.route.cancel_requested_status")
+          : t("planning.route.routing_status")
+        : undefined,
+      isStreaming: chat.isStreaming,
+      runStartedAt: chat.runStartedAt,
+      cancelRequested: chat.cancelRequested,
+      onCancelStreaming: () => void chat.cancel(),
+      isRouting: planRouter.routeBusy,
+      routeStartedAt: planRouter.routeStartedAt,
+      routeCancelRequested: planRouter.routeCancelRequested,
+      onCancelRouting: () => void planRouter.cancelRoute(),
       inputDisabled:
         chat.isStreaming ||
         planRouter.busy ||
@@ -1064,15 +1146,26 @@ export function useProductShellController() {
       stage: promptStage,
       emptyState,
       planDraftApproval: generatedPlanDraft
-        ? createElement(PlanDraftApprovalScreen, {
-            draft: generatedPlanDraft,
-            interview: activeInterview,
-            busy: chat.isStreaming,
-            onApprove: handleApproveGeneratedPlan,
-            onRequestRevision: handleRequestPlanRevision,
-            onDiscard: handleDiscardGeneratedPlan,
-          })
-        : null,
+        ? createElement(
+            Suspense,
+            { fallback: null },
+            createElement(PlanDraftApprovalScreen, {
+              draft: generatedPlanDraft,
+              interview: activeInterview,
+              busy: chat.isStreaming,
+              onApprove: handleApproveGeneratedPlan,
+              onRequestRevision: handleRequestPlanRevision,
+              onDiscard: handleDiscardGeneratedPlan,
+            }),
+          )
+        : planDraftFailure
+          ? createElement(PlanDraftRecoveryScreen, {
+              reason: planDraftFailure.reason,
+              busy: chat.isStreaming,
+              onRetry: handleRetryPlanDraft,
+              onDismiss: () => setPlanDraftFailure(null),
+            })
+          : null,
     },
     roadmap: {
       visible: roadmapModel.steps.length > 0 || planAccepted,

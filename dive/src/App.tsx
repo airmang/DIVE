@@ -1,7 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import MainShell from "./components/shell/MainShell";
-import SettingsPage from "./pages/settings";
-import { Rc1MigrationDialog } from "./components/rc1/Rc1MigrationDialog";
 import {
   acknowledgeRc1Migration,
   runRc1Migration,
@@ -23,6 +21,38 @@ const DevResearchSurveyPage = import.meta.env.DEV
 const DevPromptHelperDemoPage = import.meta.env.DEV
   ? lazy(() => import("./pages/prompt-helper-demo"))
   : null;
+const SettingsPage = lazy(() => import("./pages/settings"));
+const Rc1MigrationDialog = lazy(() => import("./components/rc1/Rc1MigrationDialog"));
+
+function Rc1MigrationFallback({ result, onAcknowledge }: {
+  result: Rc1MigrationResult;
+  onAcknowledge: () => void;
+}) {
+  return (
+    <div
+      className="flex min-h-screen items-center justify-center bg-bg px-6 text-fg"
+      data-testid="rc1-migration-fallback"
+    >
+      <div className="w-full max-w-lg rounded-md border bg-bg-panel p-5 shadow-soft">
+        <h1 className="text-base font-semibold">DIVE 데이터 전환 준비 중</h1>
+        <p className="mt-2 text-sm text-fg-muted">
+          이전 데모 저장소를 정리하고 실제 저장 방식으로 시작합니다.
+        </p>
+        <p className="mt-3 text-xs text-fg-muted" data-testid="rc1-fallback-removed-count">
+          정리 대상: {result.removedKeys.length}개
+        </p>
+        <button
+          type="button"
+          className="mt-4 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-fg"
+          onClick={onAcknowledge}
+          data-testid="rc1-migration-fallback-confirm"
+        >
+          확인하고 계속
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function resolveRoute(
   search = typeof window === "undefined" ? "" : window.location.search,
@@ -87,7 +117,11 @@ function App() {
       </Suspense>
     );
   } else if (route.kind === "product" && route.route === "settings") {
-    content = <SettingsPage />;
+    content = (
+      <Suspense fallback={<MainShell />}>
+        <SettingsPage />
+      </Suspense>
+    );
   } else if (
     route.kind === "product" &&
     route.route === "prompt-helper" &&
@@ -112,7 +146,11 @@ function App() {
   if (rc1Migration !== null) {
     return (
       <div className="min-h-screen bg-bg text-fg" data-testid="rc1-migration-shell">
-        <Rc1MigrationDialog open result={rc1Migration} onAcknowledge={acknowledge} />
+        <Suspense
+          fallback={<Rc1MigrationFallback result={rc1Migration} onAcknowledge={acknowledge} />}
+        >
+          <Rc1MigrationDialog open result={rc1Migration} onAcknowledge={acknowledge} />
+        </Suspense>
       </div>
     );
   }

@@ -2,6 +2,7 @@ export type ClassifiedErrorKind =
   | "auth"
   | "rate_limit"
   | "network"
+  | "assistant_length"
   | "tool_blocked"
   | "verify_fail"
   | "unknown";
@@ -33,7 +34,15 @@ export function classifyError(input: unknown): ClassifiedError {
 
   if (/\b(401|403)\b/.test(lower) || lower.includes("unauthorized") || lower.includes("auth")) {
     kind = "auth";
-  } else if (/\b(429)\b/.test(lower) || lower.includes("rate limit") || lower.includes("quota")) {
+  } else if (lower.includes("assistant_length") || lower.includes("output limit")) {
+    kind = "assistant_length";
+    retryable = true;
+  } else if (
+    /\b(429)\b/.test(lower) ||
+    lower.includes("rate limit") ||
+    lower.includes("quota") ||
+    lower.includes("freeusagelimiterror")
+  ) {
     kind = "rate_limit";
     retryable = true;
   } else if (

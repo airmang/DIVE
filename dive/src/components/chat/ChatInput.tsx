@@ -13,6 +13,7 @@ interface Props {
   onSend: (text: string) => void;
   disabled?: boolean;
   modelLabel?: string;
+  busyLabel?: string;
   onPromptHelper?: () => void;
   stage?: DiveStage | null;
   className?: string;
@@ -26,6 +27,7 @@ export function ChatInput({
   onSend,
   disabled = false,
   modelLabel,
+  busyLabel,
   onPromptHelper,
   stage = null,
   className,
@@ -37,7 +39,7 @@ export function ChatInput({
   const [helperOpen, setHelperOpen] = useState(false);
   const [checkOpen, setCheckOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const resolvedModelLabel = modelLabel ?? t("chat.input.model_select_default_label");
+  const resolvedModelLabel = busyLabel ?? modelLabel ?? t("chat.input.model_select_default_label");
 
   const resize = useCallback(() => {
     const el = textareaRef.current;

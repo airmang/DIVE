@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useToast } from "../toast/toast-context";
+import { useProjectSessionStore } from "../../stores/project-session";
 
 interface ModelInfo {
   id: string;
@@ -10,6 +11,7 @@ interface Props {
   providerId: number;
   providerKind: string;
   selectedModel?: string | null;
+  onModelSaved?: () => void | Promise<void>;
 }
 
 type TauriApi = {
@@ -55,11 +57,17 @@ function fallbackModels(providerKind: string): ModelInfo[] {
   ];
 }
 
-export function ProviderModelSelector({ providerId, providerKind, selectedModel }: Props) {
+export function ProviderModelSelector({
+  providerId,
+  providerKind,
+  selectedModel,
+  onModelSaved,
+}: Props) {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [selected, setSelected] = useState(selectedModel ?? "");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const loadAll = useProjectSessionStore((s) => s.loadAll);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -104,6 +112,8 @@ export function ProviderModelSelector({ providerId, providerKind, selectedModel 
     try {
       const api = await loadTauri();
       if (api) await api.invoke<void>("provider_set_model", { providerId, modelId });
+      await loadAll();
+      await onModelSaved?.();
       toast({
         variant: "success",
         title: "모델 설정 저장됨",

@@ -27,9 +27,16 @@ pub(crate) fn redact_log_text(text: &str) -> String {
 }
 
 pub(crate) fn init_file_logging(app: &tauri::AppHandle) -> Result<Option<PathBuf>, TelemetryError> {
-    let logs_dir = logs_dir_from_app_data(app.path().app_local_data_dir()?);
+    let logs_dir = logs_dir_from_app_data(app_data_dir_from_environment(app)?);
     init_file_logging_at(&logs_dir)?;
     Ok(Some(logs_dir))
+}
+
+fn app_data_dir_from_environment(app: &tauri::AppHandle) -> Result<PathBuf, tauri::Error> {
+    if let Some(path) = std::env::var_os("DIVE_QA_APP_DATA_DIR").map(PathBuf::from) {
+        return Ok(path);
+    }
+    app.path().app_local_data_dir()
 }
 
 fn init_file_logging_at(logs_dir: &Path) -> Result<(), TelemetryError> {

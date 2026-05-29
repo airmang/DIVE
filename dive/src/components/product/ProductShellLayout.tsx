@@ -1,14 +1,20 @@
+import { lazy, Suspense } from "react";
 import type { ProductShellController } from "./useProductShellController";
 import { ActionDock } from "./ActionDock";
 import { ConversationPanel } from "./ConversationPanel";
 import { ProductModalHost } from "./ProductModalHost";
 import { ProjectRail } from "./ProjectRail";
-import { RoadmapRail } from "./RoadmapRail";
 import { TopBar } from "./TopBar";
-import { RecoverySlideIn } from "./RecoverySlideIn";
-import { StepDetailSlideIn } from "./StepDetailSlideIn";
 import { usePlanActivity } from "../../features/roadmap";
 import { useProjectSessionStore } from "../../stores/project-session";
+
+const RoadmapRail = lazy(() => import("./RoadmapRail").then((module) => ({ default: module.RoadmapRail })));
+const StepDetailSlideIn = lazy(() =>
+  import("./StepDetailSlideIn").then((module) => ({ default: module.StepDetailSlideIn })),
+);
+const RecoverySlideIn = lazy(() =>
+  import("./RecoverySlideIn").then((module) => ({ default: module.RecoverySlideIn })),
+);
 
 interface ProductShellLayoutProps {
   shell: ProductShellController;
@@ -74,24 +80,34 @@ export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
       </div>
       {rightPanelVisible ? (
         <div className="row-start-2 col-start-3 min-h-0 flex flex-col overflow-hidden border-l bg-bg">
-          <RoadmapRail
-            planRoadmap={shell.planRoadmap}
-            planActivity={planActivity}
-            fallbackRoadmap={shell.roadmap}
-            onOpenPlanStep={handleOpenPlanStep}
-            onMarkPlanStepDone={handleMarkPlanStepDone}
-            onOpenSession={handleOpenSession}
-          />
+          <Suspense fallback={null}>
+            <RoadmapRail
+              planRoadmap={shell.planRoadmap}
+              planActivity={planActivity}
+              fallbackRoadmap={shell.roadmap}
+              onOpenPlanStep={handleOpenPlanStep}
+              onMarkPlanStepDone={handleMarkPlanStepDone}
+              onOpenSession={handleOpenSession}
+            />
+          </Suspense>
         </div>
       ) : null}
       <ActionDock />
       <ProductModalHost modals={shell.modals} />
-      <StepDetailSlideIn {...shell.stepDetail} />
-      <RecoverySlideIn
-        open={shell.recovery.open}
-        onOpenChange={shell.recovery.onOpenChange}
-        recovery={shell.recovery.panel}
-      />
+      {shell.stepDetail.open ? (
+        <Suspense fallback={null}>
+          <StepDetailSlideIn {...shell.stepDetail} />
+        </Suspense>
+      ) : null}
+      {shell.recovery.open ? (
+        <Suspense fallback={null}>
+          <RecoverySlideIn
+            open={shell.recovery.open}
+            onOpenChange={shell.recovery.onOpenChange}
+            recovery={shell.recovery.panel}
+          />
+        </Suspense>
+      ) : null}
       <input type="hidden" data-testid="current-stage" value={shell.hiddenState.stage} />
       <input
         type="hidden"

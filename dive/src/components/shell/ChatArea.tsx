@@ -1,5 +1,5 @@
-import { AlertCircle, Code, Eye } from "lucide-react";
-import type { ReactNode } from "react";
+import { AlertCircle, Code, Eye, X } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { LearningHint } from "../ui/learning-hint";
@@ -7,6 +7,7 @@ import { ChatInput } from "../chat/ChatInput";
 import { MessageList } from "../chat/MessageList";
 import type { ChatMessage } from "../chat/types";
 import type { DiveStage } from "../../lib/ambiguity";
+import { useT } from "../../i18n";
 
 export type ChatStageBannerTone = "info" | "warn" | "success";
 
@@ -29,6 +30,14 @@ interface ChatAreaProps {
   onDenyToolCall?: (toolCallId: string, reason?: string) => void;
   interviewPanel?: ReactNode;
   modelLabel?: string;
+  isStreaming?: boolean;
+  runStartedAt?: number | null;
+  cancelRequested?: boolean;
+  onCancelStreaming?: () => void;
+  isRouting?: boolean;
+  routeStartedAt?: number | null;
+  routeCancelRequested?: boolean;
+  onCancelRouting?: () => void;
   inputDisabled?: boolean;
   inputBlocked?: { reason: string; actionLabel?: string; onAction?: () => void } | null;
   stage?: DiveStage | null;
@@ -55,17 +64,48 @@ export function ChatArea({
   onDenyToolCall,
   interviewPanel,
   modelLabel,
+  isStreaming = false,
+  runStartedAt = null,
+  cancelRequested = false,
+  onCancelStreaming,
+  isRouting = false,
+  routeStartedAt = null,
+  routeCancelRequested = false,
+  onCancelRouting,
   inputDisabled,
   inputBlocked,
   stage,
   emptyState,
   planDraftApproval,
 }: ChatAreaProps) {
+  const t = useT();
+  const [now, setNow] = useState(() => Date.now());
   const hasConversation = messages !== undefined && messages.length > 0;
+  const elapsedSeconds =
+    isStreaming && runStartedAt !== null ? Math.max(0, Math.floor((now - runStartedAt) / 1000)) : 0;
+  const runningLabel = isStreaming
+    ? t("chat.running.elapsed", { seconds: elapsedSeconds })
+    : undefined;
+  const routeElapsedSeconds =
+    isRouting && routeStartedAt !== null
+      ? Math.max(0, Math.floor((now - routeStartedAt) / 1000))
+      : 0;
+  const routingLabel = isRouting
+    ? routeCancelRequested
+      ? t("planning.route.cancel_requested_status")
+      : t("planning.route.elapsed", { seconds: routeElapsedSeconds })
+    : undefined;
 
   const handleOpenSlidePanel = () => {
     if (onOpenSlidePanel) onOpenSlidePanel();
   };
+
+  useEffect(() => {
+    if ((!isStreaming || runStartedAt === null) && (!isRouting || routeStartedAt === null)) return;
+    setNow(Date.now());
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [isRouting, isStreaming, routeStartedAt, runStartedAt]);
 
   return (
     <section className={cn("flex h-full flex-col bg-bg", className)} aria-label="채팅 영역">
@@ -155,6 +195,52 @@ export function ChatArea({
       </div>
 
       <footer className="shrink-0 border-t p-4">
+        {isRouting ? (
+          <div
+            className="mb-2 flex items-center gap-2 rounded-md border border-info/40 bg-info/10 px-3 py-2 text-xs text-fg"
+            role="status"
+            data-testid="chat-routing-status"
+          >
+            <AlertCircle className="h-4 w-4 shrink-0 text-info" aria-hidden />
+            <span className="flex-1">{routingLabel}</span>
+            {onCancelRouting ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onCancelRouting}
+                disabled={routeCancelRequested}
+                data-testid="chat-cancel-routing"
+              >
+                <X />
+                {routeCancelRequested
+                  ? t("planning.route.cancel_requested")
+                  : t("planning.route.cancel")}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+        {isStreaming ? (
+          <div
+            className="mb-2 flex items-center gap-2 rounded-md border border-info/40 bg-info/10 px-3 py-2 text-xs text-fg"
+            role="status"
+            data-testid="chat-running-status"
+          >
+            <AlertCircle className="h-4 w-4 shrink-0 text-info" aria-hidden />
+            <span className="flex-1">{runningLabel}</span>
+            {onCancelStreaming ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onCancelStreaming}
+                disabled={cancelRequested}
+                data-testid="chat-cancel-streaming"
+              >
+                <X />
+                {cancelRequested ? t("chat.running.cancel_requested") : t("chat.running.cancel")}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
         {inputBlocked ? (
           <div
             className="mb-2 flex items-start gap-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn"
@@ -182,6 +268,7 @@ export function ChatArea({
             onSend={onSendMessage}
             disabled={inputDisabled || !!inputBlocked}
             modelLabel={modelLabel}
+            busyLabel={runningLabel ?? routingLabel}
             stage={stage}
           />
         ) : (
@@ -189,6 +276,7 @@ export function ChatArea({
             onSend={() => {}}
             disabled={inputDisabled || !!inputBlocked}
             modelLabel={modelLabel}
+            busyLabel={runningLabel ?? routingLabel}
             stage={stage}
           />
         )}

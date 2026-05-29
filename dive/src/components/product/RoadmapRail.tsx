@@ -435,7 +435,7 @@ function PlanStepItem({
             <Play className="h-4 w-4" aria-hidden />
             {busy ? t("roadmap.dashboard.working") : t("roadmap.dashboard.start")}
           </Button>
-        ) : item.status === "in_progress" && sessionId !== null ? (
+        ) : (item.status === "in_progress" || item.status === "blocked") && sessionId !== null ? (
           <>
             <Button
               size="sm"
@@ -518,13 +518,11 @@ function StepMetadata({ item, dependencies }: { item: PlanRoadmapStep; dependenc
 function NextAction({ item }: { item: PlanRoadmapStep }) {
   const t = useT();
   const key =
-    item.status === "blocked"
+    item.status === "ready"
       ? "planned"
-      : item.status === "ready"
-        ? "planned"
-        : item.status === "in_progress"
-          ? "in_progress"
-          : item.status;
+      : item.status === "in_progress"
+        ? "in_progress"
+        : item.status;
   return (
     <div className="mt-3 rounded-md border border-border/70 bg-bg/70 px-3 py-2 text-xs">
       <div className="font-semibold text-fg">{t("roadmap.next_action_label")}</div>

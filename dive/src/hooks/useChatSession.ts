@@ -23,7 +23,7 @@ type AgentEvent =
     }
   | { type: "assistant_start"; id: string; created_at: number }
   | { type: "assistant_delta"; id: string; delta: string }
-  | { type: "assistant_end"; id: string; content: string }
+  | { type: "assistant_end"; id: string; content: string; finish_reason?: string }
   | {
       type: "reasoning";
       id: string;
@@ -129,6 +129,8 @@ interface State {
   isStreaming: boolean;
   isTauri: boolean;
   error: string | null;
+  runStartedAt: number | null;
+  cancelRequested: boolean;
 }
 
 export interface SendUserMessageContext {
@@ -152,6 +154,8 @@ export function useChatSession(
     isStreaming: false,
     isTauri: false,
     error: null,
+    runStartedAt: null,
+    cancelRequested: false,
   });
   const apiRef = useRef<TauriApi | null>(null);
   const onAgentEventRef = useRef<typeof onAgentEvent>(onAgentEvent);
@@ -184,6 +188,8 @@ export function useChatSession(
       messages: [...s.messages, m],
       isStreaming: false,
       error: message,
+      runStartedAt: null,
+      cancelRequested: false,
     }));
   }, []);
 
@@ -206,6 +212,8 @@ export function useChatSession(
       isStreaming: false,
       isTauri: false,
       error: null,
+      runStartedAt: null,
+      cancelRequested: false,
     });
     (async () => {
       if (sessionId === null) {
@@ -289,7 +297,13 @@ export function useChatSession(
       if (shouldSend === false) return;
       lastRetryableIntentRef.current = { text, stage, runMode, planAccepted, stepId };
       armStallTimer();
-      setState((s) => ({ ...s, isStreaming: true, error: null }));
+      setState((s) => ({
+        ...s,
+        isStreaming: true,
+        error: null,
+        runStartedAt: Date.now(),
+        cancelRequested: false,
+      }));
       try {
         await api.invoke<void>("chat_send", {
           sessionId,
@@ -301,7 +315,13 @@ export function useChatSession(
           stepId: stepId ?? null,
         });
         clearStallTimer();
-        setState((s) => ({ ...s, isStreaming: false, error: null }));
+        setState((s) => ({
+          ...s,
+          isStreaming: false,
+          error: null,
+          runStartedAt: null,
+          cancelRequested: false,
+        }));
       } catch (err) {
         clearStallTimer();
         appendErrorMessage(err instanceof Error ? err.message : String(err), true);
@@ -321,6 +341,7 @@ export function useChatSession(
     if (sessionId === null) return;
     const api = apiRef.current;
     if (!api) return;
+    setState((s) => (s.isStreaming ? { ...s, cancelRequested: true } : s));
     await api.invoke<void>("chat_cancel", { sessionId });
   }, [sessionId]);
 
@@ -474,14 +495,28 @@ function reduce(prev: State, evt: AgentEvent): State {
       };
     }
     case "assistant_end": {
+      const messages = prev.messages.map((m) =>
+        m.id === evt.id && m.kind === "assistant"
+          ? { ...m, content: evt.content, streaming: false }
+          : m,
+      );
+      if (evt.finish_reason === "length") {
+        const error: ErrorMessageData = {
+          id: `err-${Date.now()}`,
+          kind: "error",
+          createdAt: Date.now(),
+          message:
+            "assistant_length: assistant response stopped because the model hit its output limit",
+          retryable: true,
+        };
+        messages.push(error);
+      }
       return {
         ...prev,
-        messages: prev.messages.map((m) =>
-          m.id === evt.id && m.kind === "assistant"
-            ? { ...m, content: evt.content, streaming: false }
-            : m,
-        ),
+        messages,
         isStreaming: false,
+        runStartedAt: null,
+        cancelRequested: false,
       };
     }
     case "reasoning": {
@@ -564,7 +599,13 @@ function reduce(prev: State, evt: AgentEvent): State {
         message: evt.message,
         retryable: evt.retryable,
       };
-      return { ...prev, messages: [...prev.messages, m], isStreaming: false };
+      return {
+        ...prev,
+        messages: [...prev.messages, m],
+        isStreaming: false,
+        runStartedAt: null,
+        cancelRequested: false,
+      };
     }
     case "done": {
       const m: SystemMessageData = {
@@ -577,6 +618,8 @@ function reduce(prev: State, evt: AgentEvent): State {
         ...prev,
         messages: [...prev.messages, m],
         isStreaming: false,
+        runStartedAt: null,
+        cancelRequested: false,
       };
     }
   }

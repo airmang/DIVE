@@ -92,6 +92,7 @@ pub struct AppState {
     pub pending_approvals: PendingApprovals,
     pub project_root: Arc<RwLock<PathBuf>>,
     pub cancels: Arc<Mutex<HashMap<i64, Arc<AtomicBool>>>>,
+    pub route_cancels: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     pub keyring: Arc<dyn Keyring>,
 }
 
@@ -121,6 +122,7 @@ impl AppState {
             pending_approvals: pending,
             project_root: Arc::new(RwLock::new(project_root)),
             cancels: Arc::new(Mutex::new(HashMap::new())),
+            route_cancels: Arc::new(Mutex::new(HashMap::new())),
             keyring: Arc::new(OsKeyring::new()),
         }
     }
@@ -134,7 +136,7 @@ impl AppState {
     }
 
     pub fn from_app_handle(app: &AppHandle) -> Result<Self, AppStateError> {
-        let data_dir = app.path().app_local_data_dir()?;
+        let data_dir = app_data_dir_from_environment(app)?;
         std::fs::create_dir_all(&data_dir)?;
         let mut db = Database::open(data_dir.join("dive.db"))?;
         db.migrate()?;
@@ -172,6 +174,7 @@ impl AppState {
             pending_approvals: pending,
             project_root: Arc::new(RwLock::new(project_root)),
             cancels: Arc::new(Mutex::new(HashMap::new())),
+            route_cancels: Arc::new(Mutex::new(HashMap::new())),
             keyring,
         }
     }
@@ -276,6 +279,17 @@ impl AppState {
         *value = disabled;
         Ok(())
     }
+}
+
+fn app_data_dir_from_environment(app: &AppHandle) -> Result<PathBuf, tauri::Error> {
+    if let Some(path) = std::env::var_os("DIVE_QA_APP_DATA_DIR").map(PathBuf::from) {
+        tracing::warn!(
+            path = %path.display(),
+            "QA app data directory override enabled"
+        );
+        return Ok(path);
+    }
+    app.path().app_local_data_dir()
 }
 
 fn keyring_from_environment(default_local_file_path: PathBuf) -> Arc<dyn Keyring> {
@@ -588,6 +602,103 @@ mod tests {
     }
 
     #[test]
+    fn recoverable_provider_error_marks_active_plan_step_blocked() {
+        let state = AppState::dev_mock();
+        let tmp = tempfile::tempdir().unwrap();
+        let db = state.db.lock().unwrap();
+        let project_id = crate::db::dao::project::insert(
+            db.conn(),
+            &crate::db::models::NewProject {
+                name: "p".into(),
+                path: tmp.path().to_string_lossy().into(),
+                provider_default: None,
+                model_default: None,
+            },
+        )
+        .unwrap();
+        let session_id = crate::db::dao::session::insert(
+            db.conn(),
+            &crate::db::models::NewSession {
+                project_id,
+                title: "s".into(),
+                ended_at: None,
+                status: "active".into(),
+            },
+        )
+        .unwrap();
+        let plan_id = crate::db::dao::plan::insert(
+            db.conn(),
+            &crate::db::models::NewPlan {
+                project_id,
+                interview_id: None,
+                goal: "Build a todo app".into(),
+                intent_summary: None,
+                scope: None,
+                non_goals: None,
+                constraints: None,
+                acceptance_criteria: None,
+                status: "approved".into(),
+            },
+        )
+        .unwrap();
+        let step_id = crate::db::dao::step::insert(
+            db.conn(),
+            &crate::db::models::NewStep {
+                plan_id,
+                step_id: "step-001".into(),
+                title: "Create markup".into(),
+                summary: None,
+                instruction_seed: Some("Write index.html".into()),
+                expected_files: Some(serde_json::json!(["index.html"])),
+                acceptance_criteria: Some(serde_json::json!(["file exists"])),
+                verification_kind: None,
+                verification_command: None,
+                verification_manual_check: None,
+                dependencies: Some(serde_json::json!([])),
+                parallel_group: None,
+                position: 1,
+            },
+        )
+        .unwrap();
+        let mapping_id = mapping_dao::insert(
+            db.conn(),
+            &crate::db::models::NewStepSessionMapping {
+                step_id,
+                session_id: Some(session_id),
+                card_id: None,
+                state_path: None,
+                status: "in_progress".into(),
+                started_at: Some(crate::db::now_ms()),
+                completed_at: None,
+                checkpoint_ids: Some(serde_json::json!([])),
+                verification_status: None,
+                verification_evidence: None,
+                user_decision: None,
+            },
+        )
+        .unwrap();
+        drop(db);
+
+        mark_step_blocked_after_recoverable_error(
+            &state,
+            step_id,
+            "provider: api error (429): FreeUsageLimitError",
+        )
+        .unwrap();
+
+        let db = state.db.lock().unwrap();
+        let mapping = mapping_dao::get_by_id(db.conn(), mapping_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(mapping.status, "blocked");
+        let logs = crate::db::dao::event_log::list_by_session(db.conn(), session_id).unwrap();
+        assert!(logs.iter().any(|row| {
+            row.r#type == "plan_step_state_changed"
+                && row.payload["message"] == "Step blocked by provider limit"
+        }));
+    }
+
+    #[test]
     fn message_list_restores_persisted_chat_rows_for_ui() {
         let state = AppState::dev_mock();
         let tmp = tempfile::tempdir().unwrap();
@@ -780,6 +891,7 @@ pub async fn chat_send(
     );
     let requested_plan_accepted = plan_accepted.unwrap_or(false);
     let step_context = load_active_step_context(&state, session_id, step_id)?;
+    let active_step_id = step_context.as_ref().map(|ctx| ctx.context.step_id);
     let effective_plan_accepted = requested_plan_accepted
         || step_context
             .as_ref()
@@ -857,10 +969,59 @@ pub async fn chat_send(
                 error = %crate::telemetry::redact_log_text(&message),
                 "ipc chat_send failed"
             );
+            if let Some(step_id) = active_step_id {
+                let _ = mark_step_blocked_after_recoverable_error(&state, step_id, &message);
+            }
             let _ = log_error_event(&state, Some(session_id), "agent_loop", &message);
             Err(message)
         }
     }
+}
+
+fn mark_step_blocked_after_recoverable_error(
+    state: &AppState,
+    step_id: i64,
+    message: &str,
+) -> Result<(), String> {
+    let lower = message.to_lowercase();
+    let recoverable_provider_error = lower.contains("429")
+        || lower.contains("rate limit")
+        || lower.contains("quota")
+        || lower.contains("freeusagelimiterror");
+    if !recoverable_provider_error {
+        return Ok(());
+    }
+
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let Some(mapping) = mapping_dao::get_by_step(db.conn(), step_id).map_err(|e| e.to_string())?
+    else {
+        return Ok(());
+    };
+    if mapping.status == "done" || mapping.status == "shipped" {
+        return Ok(());
+    }
+    mapping_dao::update_status(db.conn(), mapping.id, "blocked").map_err(|e| e.to_string())?;
+    let step = step_dao::get_by_id(db.conn(), step_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("step {step_id} not found"))?;
+    let plan = plan_dao::get_by_id(db.conn(), step.plan_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("plan {} not found", step.plan_id))?;
+    let _ = dive_event_log::append_to_conn(
+        db.conn(),
+        mapping.session_id,
+        "plan_step_state_changed",
+        serde_json::json!({
+            "project_id": plan.project_id,
+            "plan_id": plan.id,
+            "step_id": step.id,
+            "stable_step_id": step.step_id,
+            "step_title": step.title,
+            "message": "Step blocked by provider limit",
+            "reason": crate::telemetry::redact_log_text(message),
+        }),
+    );
+    Ok(())
 }
 
 struct LoadedStepContext {
