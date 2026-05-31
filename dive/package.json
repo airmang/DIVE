@@ -35,7 +35,8 @@
     "verify:quality-iteration": "node scripts/verify-quality-iteration.mjs",
     "verify:quality-followup": "node scripts/verify-quality-followup.mjs",
     "verify:route-chat-cancel-quality": "node scripts/verify-route-chat-cancel-quality.mjs",
-    "research:retrospective": "node scripts/analyze-retrospective.mjs"
+    "research:retrospective": "node scripts/analyze-retrospective.mjs",
+    "research:supervision": "node scripts/analyze-supervision.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
