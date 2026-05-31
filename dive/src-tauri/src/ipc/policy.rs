@@ -8,6 +8,8 @@ use super::AppState;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ResearchSettingsDto {
     pub disable_gates: bool,
+    #[serde(default = "default_true")]
+    pub require_approval_judgment: bool,
     #[serde(default)]
     pub controls_enabled: bool,
 }
@@ -63,6 +65,17 @@ pub fn research_controls_enabled() -> bool {
         || truthy_env("DIVE_RESEARCH_ABLATION_GATES")
 }
 
+fn default_true() -> bool {
+    true
+}
+
+pub fn require_approval_judgment(state: &AppState) -> Result<bool, String> {
+    if research_controls_enabled() {
+        return state.require_approval_judgment_value();
+    }
+    Ok(true)
+}
+
 fn truthy_env(name: &str) -> bool {
     std::env::var(name)
         .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "on" | "ON"))
@@ -94,9 +107,15 @@ pub async fn research_settings_get(
     let controls_enabled = research_controls_enabled();
     if !controls_enabled {
         state.set_research_gates_disabled(false)?;
+        state.set_require_approval_judgment(true)?;
     }
     Ok(ResearchSettingsDto {
         disable_gates: controls_enabled && state.research_gates_disabled()?,
+        require_approval_judgment: if controls_enabled {
+            state.require_approval_judgment_value()?
+        } else {
+            true
+        },
         controls_enabled,
     })
 }
@@ -110,7 +129,11 @@ pub async fn research_settings_set(
     if !controls_enabled && settings.disable_gates {
         return Err("research controls are disabled in this build/session".into());
     }
-    state.set_research_gates_disabled(settings.disable_gates)
+    if !controls_enabled && !settings.require_approval_judgment {
+        return Err("research controls are disabled in this build/session".into());
+    }
+    state.set_research_gates_disabled(settings.disable_gates)?;
+    state.set_require_approval_judgment(settings.require_approval_judgment)
 }
 
 #[cfg(test)]
@@ -137,12 +160,20 @@ mod tests {
     fn research_settings_dto_roundtrip_shape() {
         let dto = ResearchSettingsDto {
             disable_gates: true,
+            require_approval_judgment: false,
             controls_enabled: true,
         };
         let encoded = serde_json::to_string(&dto).unwrap();
         assert!(encoded.contains("disable_gates"));
+        assert!(encoded.contains("require_approval_judgment"));
         let decoded: ResearchSettingsDto = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded, dto);
+    }
+
+    #[test]
+    fn approval_judgment_required_by_default() {
+        let state = AppState::dev_mock();
+        assert!(super::require_approval_judgment(&state).unwrap());
     }
 
     #[test]

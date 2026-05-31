@@ -88,6 +88,7 @@ pub struct AppState {
     pub permission: Arc<dyn PermissionHook>,
     pub auto_policy: Arc<RwLock<AutoApprovePolicy>>,
     pub research_gates_disabled: Arc<RwLock<bool>>,
+    pub require_approval_judgment: Arc<RwLock<bool>>,
     pub pending_approvals: PendingApprovals,
     pub project_root: Arc<RwLock<PathBuf>>,
     pub cancels: Arc<Mutex<HashMap<i64, Arc<AtomicBool>>>>,
@@ -118,6 +119,7 @@ impl AppState {
             permission,
             auto_policy,
             research_gates_disabled: Arc::new(RwLock::new(false)),
+            require_approval_judgment: Arc::new(RwLock::new(true)),
             pending_approvals: pending,
             project_root: Arc::new(RwLock::new(project_root)),
             cancels: Arc::new(Mutex::new(HashMap::new())),
@@ -170,6 +172,7 @@ impl AppState {
             permission,
             auto_policy,
             research_gates_disabled: Arc::new(RwLock::new(false)),
+            require_approval_judgment: Arc::new(RwLock::new(true)),
             pending_approvals: pending,
             project_root: Arc::new(RwLock::new(project_root)),
             cancels: Arc::new(Mutex::new(HashMap::new())),
@@ -276,6 +279,22 @@ impl AppState {
             .write()
             .map_err(|e| e.to_string())?;
         *value = disabled;
+        Ok(())
+    }
+
+    pub fn require_approval_judgment_value(&self) -> Result<bool, String> {
+        self.require_approval_judgment
+            .read()
+            .map(|value| *value)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn set_require_approval_judgment(&self, required: bool) -> Result<(), String> {
+        let mut value = self
+            .require_approval_judgment
+            .write()
+            .map_err(|e| e.to_string())?;
+        *value = required;
         Ok(())
     }
 }
@@ -1298,7 +1317,7 @@ pub fn card_transition_no_checkpoint_impl(
         .ok_or_else(|| format!("card {card_id} not found"))?;
 
     let judgment_gated = matches!(transition, CardTransition::Approve | CardTransition::Reject);
-    if judgment_gated {
+    if judgment_gated && policy::require_approval_judgment(state)? {
         match &judgment {
             None => {
                 return Err(
