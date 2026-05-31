@@ -1,4 +1,5 @@
 import type { CardTileData, VerifyLogView } from "../../components/workmap/types";
+import type { ApprovalDecisionWithTime } from "../../components/workmap/ApprovalJudgment";
 import type { CardTransitionKind } from "../../stores/workmap";
 import type { ChangedFile } from "../../components/slide-in/types";
 
@@ -85,7 +86,7 @@ export interface RoadmapModel {
   transitionStep: (
     stepId: number,
     action: RoadmapStepAction,
-    options?: { approveForce?: boolean },
+    options?: { approveForce?: boolean; judgment?: ApprovalDecisionWithTime },
   ) => Promise<void>;
   verifyStep: (stepId: number) => Promise<void>;
   deleteStep: (stepId: number) => Promise<void>;

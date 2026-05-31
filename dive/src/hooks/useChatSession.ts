@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ApprovalDecisionWithTime } from "../components/workmap/ApprovalJudgment";
 import type {
   AssistantMessageData,
   ChatMessage,
@@ -392,6 +393,7 @@ export function useChatSession(
         | "reopen_from_reject"
         | "extend",
       approveForce = false,
+      judgment?: ApprovalDecisionWithTime,
     ) => {
       const api = apiRef.current;
       if (!api) return null;
@@ -399,6 +401,7 @@ export function useChatSession(
         cardId,
         transition,
         approveForce,
+        judgment: judgment ?? null,
       });
     },
     [],

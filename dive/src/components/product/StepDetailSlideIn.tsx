@@ -5,6 +5,7 @@ import { LearningHint } from "../ui/learning-hint";
 import { cn } from "../../lib/utils";
 import { type RoadmapStep, type RoadmapStepStatus } from "../../features/roadmap";
 import type { ChangedFile } from "../slide-in/types";
+import { ApprovalJudgment, type ApprovalDecision } from "../workmap/ApprovalJudgment";
 import type { VerifyLogView } from "../workmap/types";
 import { useT } from "../../i18n";
 
@@ -18,8 +19,7 @@ export interface StepDetailSlideInProps {
   changedFiles: ChangedFile[];
   onOpenChange: (open: boolean) => void;
   onOpenCode: () => void;
-  onApproveInChat: () => void;
-  onRequestChangesInChat: () => void;
+  onApprovalDecision: (decision: ApprovalDecision) => void;
   onGoToChat: () => void;
 }
 
@@ -48,8 +48,7 @@ export function StepDetailSlideIn({
   changedFiles,
   onOpenChange,
   onOpenCode,
-  onApproveInChat,
-  onRequestChangesInChat,
+  onApprovalDecision,
   onGoToChat,
 }: StepDetailSlideInProps) {
   const t = useT();
@@ -137,24 +136,7 @@ export function StepDetailSlideIn({
 
           <div className="mt-3 flex flex-wrap gap-2">
             {isReview ? (
-              <>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={onApproveInChat}
-                  data-testid="step-detail-approve-cta"
-                >
-                  {t("roadmap.chat_actions.step_approve")}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={onRequestChangesInChat}
-                  data-testid="step-detail-request-changes-cta"
-                >
-                  {t("roadmap.chat_actions.step_request_changes")}
-                </Button>
-              </>
+              <ApprovalJudgment onDecide={onApprovalDecision} />
             ) : (
               <Button
                 variant="outline"

@@ -8,6 +8,8 @@ export interface ApprovalDecision {
   note: string | null;
 }
 
+export type ApprovalDecisionWithTime = ApprovalDecision & { decided_at: number };
+
 interface Props {
   disabled?: boolean;
   onDecide: (decision: ApprovalDecision) => void;

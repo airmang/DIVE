@@ -10,6 +10,7 @@ import {
 } from "react";
 import type { ChatStageBanner } from "../shell/ChatArea";
 import type { VerifyLogView } from "../workmap/types";
+import type { ApprovalDecision } from "../workmap/ApprovalJudgment";
 import { useSlideInStore } from "../../stores/slideIn";
 import { useChatComposerStore } from "../../stores/chatComposer";
 import {
@@ -529,27 +530,25 @@ export function useProductShellController() {
   const pushChatComposerSeed = useChatComposerStore((s) => s.pushSeed);
   const requestChatFocus = useChatComposerStore((s) => s.requestFocus);
 
-  const handleApproveStepInChat = useCallback(() => {
-    if (!currentCard) return;
-    pushChatComposerSeed(
-      t("roadmap.chat_actions.step_approve_message_seed", {
-        position: currentCard.position,
-        title: currentCard.title,
-      }),
-    );
-    dialogs.setStepDetailOpen(false);
-  }, [currentCard, dialogs, pushChatComposerSeed, t]);
-
-  const handleRequestStepChangesInChat = useCallback(() => {
-    if (!currentCard) return;
-    pushChatComposerSeed(
-      t("roadmap.chat_actions.step_request_changes_message_seed", {
-        position: currentCard.position,
-        title: currentCard.title,
-      }),
-    );
-    dialogs.setStepDetailOpen(false);
-  }, [currentCard, dialogs, pushChatComposerSeed, t]);
+  const handleApprovalDecision = useCallback(
+    (decision: ApprovalDecision) => {
+      if (!currentCard) return;
+      const judgment = { ...decision, decided_at: Date.now() };
+      const action =
+        decision.outcome === "revision_requested" ? "request_changes" : "approve";
+      void roadmapModel
+        .transitionStep(currentCard.id, action, { judgment })
+        .then(() => {
+          if (decision.outcome === "revision_requested" && decision.note) {
+            pushChatComposerSeed(decision.note);
+            requestChatFocus();
+          }
+          dialogs.setStepDetailOpen(false);
+        })
+        .catch(showWorkmapError);
+    },
+    [currentCard, dialogs, pushChatComposerSeed, requestChatFocus, roadmapModel, showWorkmapError],
+  );
 
   const handleGoToChatFromStepDetail = useCallback(() => {
     requestChatFocus();
@@ -1175,8 +1174,7 @@ export function useProductShellController() {
         if (!currentCard) return;
         handleOpenCodeForCard(currentCard.id);
       },
-      onApproveInChat: handleApproveStepInChat,
-      onRequestChangesInChat: handleRequestStepChangesInChat,
+      onApprovalDecision: handleApprovalDecision,
       onGoToChat: handleGoToChatFromStepDetail,
     },
     recovery: {

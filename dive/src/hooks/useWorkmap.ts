@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkmapStore } from "../stores/workmap";
 import type { CardState, CardTileData } from "../components/workmap/types";
+import type { ApprovalDecisionWithTime } from "../components/workmap/ApprovalJudgment";
 import type { CardTransitionKind } from "../stores/workmap";
 import type { VerifyLogView } from "../components/workmap/types";
 import type { ChangedFile } from "../components/slide-in/types";
@@ -22,6 +23,7 @@ interface CardRow {
   verify_log: string | null;
   changed_files: unknown | null;
   test_command: string | null;
+  approval_judgment?: string | null;
   position: number;
   created_at: number;
   updated_at: number;
@@ -244,13 +246,14 @@ export function useWorkmap(sessionId: number | null) {
     async (
       cardId: number,
       transition: CardTransitionKind,
-      options?: { approveForce?: boolean },
+      options?: { approveForce?: boolean; judgment?: ApprovalDecisionWithTime },
     ) => {
       const activeApi = requireApi();
       await activeApi.invoke<CardState>("card_transition", {
         cardId,
         transition,
         approveForce: options?.approveForce ?? false,
+        judgment: options?.judgment ?? null,
       });
       await refresh();
     },
