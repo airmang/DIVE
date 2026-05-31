@@ -142,7 +142,14 @@ export function StepDetailSlideIn({
 
           <div className="mt-3 flex flex-wrap gap-2">
             {isReview ? (
-              <ApprovalJudgment onDecide={onApprovalDecision} />
+              <ApprovalJudgment
+                prompt={
+                  verifyLog
+                    ? "AI는 의도 충족이라 주장합니다. 직접 확인했을 때 동의하나요?"
+                    : undefined
+                }
+                onDecide={onApprovalDecision}
+              />
             ) : (
               <Button
                 variant="outline"

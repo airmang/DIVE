@@ -12,17 +12,18 @@ export type ApprovalDecisionWithTime = ApprovalDecision & { decided_at: number }
 
 interface Props {
   disabled?: boolean;
+  prompt?: string;
   onDecide: (decision: ApprovalDecision) => void;
 }
 
-export function ApprovalJudgment({ disabled, onDecide }: Props) {
+export function ApprovalJudgment({ disabled, prompt, onDecide }: Props) {
   const [stance, setStance] = useState<"none" | "confirmed" | "concern">("none");
   const [note, setNote] = useState("");
   const noteOk = note.trim().length > 0;
 
   return (
     <div className="flex flex-col gap-2" data-testid="approval-judgment">
-      <p className="text-xs text-fg-muted">결과를 직접 확인했나요?</p>
+      <p className="text-xs text-fg-muted">{prompt ?? "결과를 직접 확인했나요?"}</p>
       <div className="flex gap-2">
         <Button
           variant={stance === "confirmed" ? "primary" : "ghost"}
