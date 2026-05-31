@@ -118,6 +118,7 @@ pub struct NewCard {
     pub verify_log: Option<String>,
     pub changed_files: Option<Value>,
     pub test_command: Option<String>,
+    pub approval_judgment: Option<String>,
     pub position: i64,
 }
 
@@ -135,6 +136,7 @@ pub struct CardRow {
     pub verify_log: Option<String>,
     pub changed_files: Option<Value>,
     pub test_command: Option<String>,
+    pub approval_judgment: Option<String>,
     pub position: i64,
     pub created_at: i64,
     pub updated_at: i64,

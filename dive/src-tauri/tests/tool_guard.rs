@@ -93,6 +93,7 @@ async fn agent_rejects_unregistered_bash_without_approval() {
             verify_log: None,
             changed_files: None,
             test_command: None,
+            approval_judgment: None,
             position: 1,
         },
     )

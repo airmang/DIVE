@@ -489,6 +489,7 @@ mod tests {
                 verify_log: None,
                 changed_files: None,
                 test_command: None,
+                approval_judgment: None,
                 position: 1,
             },
         )
@@ -1196,6 +1197,7 @@ pub fn card_update_instruction_impl(
                 verify_log: existing.verify_log.clone(),
                 changed_files: existing.changed_files.clone(),
                 test_command: existing.test_command.clone(),
+                approval_judgment: existing.approval_judgment.clone(),
                 position: existing.position,
             },
         )
@@ -1246,6 +1248,7 @@ pub fn card_update_test_command_impl(
                 verify_log: existing.verify_log,
                 changed_files: existing.changed_files,
                 test_command: normalized.clone(),
+                approval_judgment: existing.approval_judgment,
                 position: existing.position,
             },
         )
@@ -1313,6 +1316,7 @@ pub fn card_transition_no_checkpoint_impl(
             verify_log: existing.verify_log,
             changed_files: existing.changed_files,
             test_command: existing.test_command,
+            approval_judgment: existing.approval_judgment,
             position: existing.position,
         },
     )
@@ -1382,6 +1386,7 @@ pub fn card_save_retrospective_impl(
                 verify_log: existing.verify_log,
                 changed_files: existing.changed_files,
                 test_command: existing.test_command,
+                approval_judgment: existing.approval_judgment,
                 position: existing.position,
             },
         )

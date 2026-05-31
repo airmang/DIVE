@@ -71,6 +71,7 @@ fn fresh_env() -> (
             verify_log: None,
             changed_files: None,
             test_command: None,
+            approval_judgment: None,
             position: 1,
         },
     )

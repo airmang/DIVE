@@ -52,6 +52,7 @@ fn seed_with_test_command(
             verify_log: None,
             changed_files: Some(serde_json::json!(["src/LoginForm.tsx", "src/App.tsx"])),
             test_command,
+            approval_judgment: None,
             position: 1,
         },
     )

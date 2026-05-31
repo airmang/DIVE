@@ -269,6 +269,7 @@ impl VerifyEngine {
                 verify_log: Some(log.to_json_string()),
                 changed_files: card.changed_files.clone(),
                 test_command: card.test_command.clone(),
+                approval_judgment: card.approval_judgment.clone(),
                 position: card.position,
             },
         )

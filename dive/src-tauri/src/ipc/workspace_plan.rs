@@ -847,6 +847,7 @@ pub fn roadmap_step_open_impl(
             verify_log: None,
             changed_files: None,
             test_command: None,
+            approval_judgment: None,
             position: 1,
         },
     )

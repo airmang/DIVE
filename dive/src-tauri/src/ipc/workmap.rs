@@ -57,6 +57,7 @@ pub fn card_create_impl(
                 verify_log: None,
                 changed_files: None,
                 test_command: None,
+                approval_judgment: None,
                 position: position.unwrap_or(
                     card_dao::next_position(db.conn(), session_id).map_err(|e| e.to_string())?,
                 ),
