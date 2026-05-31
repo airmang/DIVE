@@ -35,7 +35,7 @@ const ITEMS: Item[] = [
   {
     id: "dive_stage",
     scale: "dive_learning_flow",
-    label: "활동 중 내가 D/I/V/E 어느 단계에 있는지 알 수 있었다.",
+    label: "AI 결과가 외부 테스트로 검증됐는지, AI의 주장인지 구분할 수 있었다.",
   },
   {
     id: "dive_reason",
