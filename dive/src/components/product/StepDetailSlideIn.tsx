@@ -31,6 +31,12 @@ const STATUS_CLASS: Record<RoadmapStepStatus, string> = {
   shipped: "border-success/70 bg-success/15 text-success",
 };
 
+const TEST_RESULT_LABEL: Record<VerifyLogView["test_result"], string> = {
+  pass: "테스트 통과",
+  fail: "테스트 실패",
+  skipped: "외부 테스트 없음",
+};
+
 function statusIcon(status: RoadmapStepStatus) {
   if (status === "shipped" || status === "done") return <CheckCircle2 aria-hidden />;
   if (status === "review") return <Clock3 aria-hidden />;
@@ -286,18 +292,20 @@ function VerificationBlock({ verifyLog, verifyState, verifyError }: Verification
   }
   return (
     <div className="space-y-2 text-xs" data-testid="step-detail-verify-log">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span
           className={cn(
             "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
             verifyLog.intent_match
-              ? "border-success/60 bg-success/10 text-success"
-              : "border-danger/60 bg-danger/10 text-danger",
+              ? "border-info/60 bg-info/10 text-info"
+              : "border-warn/60 bg-warn/10 text-warn",
           )}
           data-testid="step-detail-intent-match"
           data-intent-match={verifyLog.intent_match ? "true" : "false"}
         >
-          {verifyLog.intent_match ? "✓" : "✗"}
+          {verifyLog.intent_match
+            ? "AI 자가보고: 의도 충족(주장)"
+            : "AI 자가보고: 의도 불충족(주장)"}
         </span>
         <span
           className={cn(
@@ -311,9 +319,14 @@ function VerificationBlock({ verifyLog, verifyState, verifyError }: Verification
           data-testid="step-detail-test-result"
           data-test-result={verifyLog.test_result}
         >
-          {verifyLog.test_result}
+          {TEST_RESULT_LABEL[verifyLog.test_result]}
         </span>
       </div>
+      {verifyLog.test_result === "skipped" ? (
+        <p className="text-[10px] text-fg-muted" data-testid="step-detail-unverified-note">
+          외부 테스트로 검증되지 않았습니다. 결과를 직접 확인하세요.
+        </p>
+      ) : null}
       {verifyLog.test_command ? (
         <p className="break-all font-mono text-[11px] text-fg">{verifyLog.test_command}</p>
       ) : null}
