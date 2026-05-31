@@ -5,9 +5,13 @@ use std::sync::{atomic::AtomicBool, Arc, Mutex};
 use dive_lib::agent::{AgentLoop, AlwaysApproveHook, StepContext};
 use dive_lib::db::dao::{card, message, project, session, workmap};
 use dive_lib::db::models::{CardState, NewCard, NewProject, NewSession};
-use dive_lib::dive::{apply_transition, CardTransition, TransitionError};
+use dive_lib::dive::{
+    apply_transition, ApprovalJudgment, ApprovalOutcome, CardTransition, TestResult,
+    TransitionError, VerifyLog,
+};
+use dive_lib::ipc::card_transition_no_checkpoint_impl;
 use dive_lib::tools::{ToolContext, ToolRegistry};
-use dive_lib::Database;
+use dive_lib::{AppState, Database};
 use dive_lib::{ChatEvent, FinishReason, MockProvider};
 
 fn fresh_env() -> (
@@ -72,6 +76,82 @@ fn insert_card(
     .unwrap()
 }
 
+fn setup_verifying_card_with_passing_log() -> (AppState, i64) {
+    let state = AppState::dev_mock();
+    let session_id = {
+        let guard = state.db.lock().unwrap();
+        let project_id = project::insert(
+            guard.conn(),
+            &NewProject {
+                name: "judgment-test".into(),
+                path: ".".into(),
+                provider_default: None,
+                model_default: None,
+            },
+        )
+        .unwrap();
+        session::insert(
+            guard.conn(),
+            &NewSession {
+                project_id,
+                title: "judgment session".into(),
+                ended_at: None,
+                status: "active".into(),
+            },
+        )
+        .unwrap()
+    };
+    let card_id = insert_card(
+        &state.db,
+        session_id,
+        CardState::Verifying,
+        Some("verify this"),
+        1,
+    );
+    let log = VerifyLog {
+        intent_match: true,
+        test_result: TestResult::Skipped,
+        details: "ok".into(),
+        model: "mock".into(),
+        ran_at: 1,
+        test_command: None,
+        test_exit_code: None,
+        test_stdout: None,
+        test_stderr: None,
+    };
+    {
+        let guard = state.db.lock().unwrap();
+        let mut row = card::get_by_id(guard.conn(), card_id).unwrap().unwrap();
+        row.verify_log = Some(log.to_json_string());
+        card::update(
+            guard.conn(),
+            card_id,
+            &NewCard {
+                session_id: row.session_id,
+                title: row.title,
+                instruction: row.instruction,
+                assist_summary: row.assist_summary,
+                acceptance_criteria: row.acceptance_criteria,
+                retrospective: row.retrospective,
+                change_summary: row.change_summary,
+                state: row.state,
+                verify_log: row.verify_log,
+                changed_files: row.changed_files,
+                test_command: row.test_command,
+                approval_judgment: row.approval_judgment,
+                position: row.position,
+            },
+        )
+        .unwrap();
+    }
+    (state, card_id)
+}
+
+fn load_card(state: &AppState, card_id: i64) -> dive_lib::db::models::CardRow {
+    let guard = state.db.lock().unwrap();
+    card::get_by_id(guard.conn(), card_id).unwrap().unwrap()
+}
+
 #[test]
 fn card_state_machine_valid_path_decomposed_to_extended() {
     let state = CardState::Decomposed;
@@ -108,6 +188,60 @@ fn card_state_machine_rejects_illegal_transitions() {
         apply_transition(CardState::Verified, CardTransition::EnterInstruct).unwrap_err(),
         TransitionError::InvalidTransition { .. }
     ));
+}
+
+#[test]
+fn approve_without_judgment_is_rejected_when_required() {
+    let (state, card_id) = setup_verifying_card_with_passing_log();
+    let err = card_transition_no_checkpoint_impl(
+        &state,
+        card_id,
+        CardTransition::Approve,
+        None,
+        None,
+    )
+    .unwrap_err();
+    assert!(err.contains("judgment required"));
+}
+
+#[test]
+fn approve_with_confirmed_judgment_persists_and_transitions() {
+    let (state, card_id) = setup_verifying_card_with_passing_log();
+    let j = ApprovalJudgment {
+        outcome: ApprovalOutcome::Approved,
+        note: None,
+        decided_at: 1,
+    };
+    let next = card_transition_no_checkpoint_impl(
+        &state,
+        card_id,
+        CardTransition::Approve,
+        None,
+        Some(j),
+    )
+    .unwrap();
+    assert_eq!(next, CardState::Verified);
+    let stored = load_card(&state, card_id).approval_judgment.unwrap();
+    assert!(stored.contains("\"outcome\":\"approved\""));
+}
+
+#[test]
+fn revision_requested_requires_note_and_rejects_card() {
+    let (state, card_id) = setup_verifying_card_with_passing_log();
+    let j = ApprovalJudgment {
+        outcome: ApprovalOutcome::RevisionRequested,
+        note: Some("입력 검증 빠짐".into()),
+        decided_at: 1,
+    };
+    let next = card_transition_no_checkpoint_impl(
+        &state,
+        card_id,
+        CardTransition::Reject,
+        None,
+        Some(j),
+    )
+    .unwrap();
+    assert_eq!(next, CardState::Rejected);
 }
 
 #[tokio::test]

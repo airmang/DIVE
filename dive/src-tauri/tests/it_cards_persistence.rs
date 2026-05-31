@@ -67,6 +67,7 @@ fn cards_persist_through_create_list_update_transition_reorder_snapshot() {
         first.id,
         CardTransition::RequestVerify,
         None,
+        None,
     )
     .unwrap();
     assert_eq!(next, CardState::Verifying);

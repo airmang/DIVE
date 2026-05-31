@@ -556,9 +556,27 @@ mod tests {
                     .unwrap(),
                 initial_state,
             );
-            let (_next, row) =
-                card_transition_with_checkpoint_impl(&state, card_id, transition, approve_force)
-                    .unwrap();
+            let judgment = match transition {
+                CardTransition::Approve => Some(crate::dive::ApprovalJudgment {
+                    outcome: crate::dive::ApprovalOutcome::Approved,
+                    note: None,
+                    decided_at: 1,
+                }),
+                CardTransition::Reject => Some(crate::dive::ApprovalJudgment {
+                    outcome: crate::dive::ApprovalOutcome::RevisionRequested,
+                    note: Some("needs revision".into()),
+                    decided_at: 1,
+                }),
+                _ => None,
+            };
+            let (_next, row) = card_transition_with_checkpoint_impl(
+                &state,
+                card_id,
+                transition,
+                approve_force,
+                judgment,
+            )
+            .unwrap();
             let row = row.expect("transition should create an auto checkpoint");
             assert_eq!(row.kind, "auto");
             assert_eq!(row.label.as_deref(), Some(expected_label));
@@ -1272,11 +1290,36 @@ pub fn card_transition_no_checkpoint_impl(
     card_id: i64,
     transition: CardTransition,
     approve_force: Option<bool>,
+    judgment: Option<crate::dive::ApprovalJudgment>,
 ) -> Result<CardState, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let existing = card_dao::get_by_id(db.conn(), card_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("card {card_id} not found"))?;
+
+    let judgment_gated = matches!(transition, CardTransition::Approve | CardTransition::Reject);
+    if judgment_gated {
+        match &judgment {
+            None => {
+                return Err(
+                    "judgment required: choose 확인함 or 우려 있음 before approving".into(),
+                )
+            }
+            Some(j) => {
+                j.validate()?;
+                use crate::dive::ApprovalOutcome::*;
+                let ok = matches!(
+                    (transition, j.outcome),
+                    (CardTransition::Approve, Approved)
+                        | (CardTransition::Approve, ApprovedWithConcern)
+                        | (CardTransition::Reject, RevisionRequested)
+                );
+                if !ok {
+                    return Err("judgment outcome does not match the requested transition".into());
+                }
+            }
+        }
+    }
 
     if matches!(transition, CardTransition::Approve) && !approve_force.unwrap_or(false) {
         let log_str = existing
@@ -1301,6 +1344,10 @@ pub fn card_transition_no_checkpoint_impl(
     } else {
         existing.change_summary.clone()
     };
+    let approval_judgment = match (&judgment, judgment_gated) {
+        (Some(j), true) => Some(j.to_json_string()),
+        _ => existing.approval_judgment.clone(),
+    };
     card_dao::update(
         db.conn(),
         card_id,
@@ -1316,7 +1363,7 @@ pub fn card_transition_no_checkpoint_impl(
             verify_log: existing.verify_log,
             changed_files: existing.changed_files,
             test_command: existing.test_command,
-            approval_judgment: existing.approval_judgment,
+            approval_judgment,
             position: existing.position,
         },
     )
@@ -1412,9 +1459,10 @@ pub async fn card_transition(
     card_id: i64,
     transition: CardTransition,
     approve_force: Option<bool>,
+    judgment: Option<crate::dive::ApprovalJudgment>,
 ) -> Result<CardState, String> {
     let (next, checkpoint) =
-        card_transition_with_checkpoint_impl(&state, card_id, transition, approve_force)?;
+        card_transition_with_checkpoint_impl(&state, card_id, transition, approve_force, judgment)?;
 
     if let Some(row) = checkpoint {
         let _ = app.emit(
@@ -1440,6 +1488,7 @@ fn card_transition_with_checkpoint_impl(
     card_id: i64,
     transition: CardTransition,
     approve_force: Option<bool>,
+    judgment: Option<crate::dive::ApprovalJudgment>,
 ) -> Result<(CardState, Option<CheckpointRow>), String> {
     let (session_id, card_title, previous_state) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -1448,7 +1497,8 @@ fn card_transition_with_checkpoint_impl(
             .ok_or_else(|| format!("card {card_id} not found"))?;
         (existing.session_id, existing.title.clone(), existing.state)
     };
-    let next = card_transition_no_checkpoint_impl(state, card_id, transition, approve_force)?;
+    let next =
+        card_transition_no_checkpoint_impl(state, card_id, transition, approve_force, judgment)?;
     log_event(
         state,
         Some(session_id),
