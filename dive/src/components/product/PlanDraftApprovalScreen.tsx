@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useT } from "../../i18n";
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
 import type { PlanStepRow } from "../../features/roadmap";
+import { useTutorialEnabled } from "../../stores/ui-preferences";
 import { Button } from "../ui/button";
 import { MermaidDiagram } from "./MermaidDiagram";
 
@@ -125,11 +126,14 @@ export function PlanDraftApprovalScreen({
   onDiscard,
 }: PlanDraftApprovalScreenProps) {
   const t = useT();
+  const tutorialEnabled = useTutorialEnabled();
   const [feedback, setFeedback] = useState("");
+  const [critique, setCritique] = useState<"unset" | "none" | "found">("unset");
   const unresolved = stringArray(interview?.unresolved_questions);
   const chart = useMemo(() => buildPlanDraftChart(draft.steps), [draft.steps]);
   const markdown = useMemo(() => buildPlanMarkdown(draft), [draft]);
   const plan = draft.plan;
+  const approveBlocked = tutorialEnabled && critique !== "none";
 
   return (
     <div className="h-full overflow-y-auto bg-bg" data-testid="plan-draft-approval">
@@ -140,7 +144,12 @@ export function PlanDraftApprovalScreen({
             <p className="mt-1 text-sm text-fg-muted">{plan.goal}</p>
           </div>
           <div className="flex shrink-0 gap-2">
-            <Button variant="primary" size="sm" onClick={onApprove} disabled={busy}>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={onApprove}
+              disabled={busy || approveBlocked}
+            >
               <Check />
               {t("planning.approval.approve")}
             </Button>
@@ -150,6 +159,38 @@ export function PlanDraftApprovalScreen({
             </Button>
           </div>
         </header>
+
+        {tutorialEnabled ? (
+          <div
+            className="flex flex-wrap items-center gap-2 rounded-md border border-info/40 bg-info/5 p-3 text-sm"
+            data-testid="plan-critique-rep"
+          >
+            <span className="text-fg">이 계획에 빠진 단계가 있나요?</span>
+            <div className="flex gap-2">
+              <Button
+                variant={critique === "none" ? "primary" : "ghost"}
+                size="sm"
+                data-testid="plan-critique-none"
+                onClick={() => setCritique("none")}
+              >
+                없음 — 승인 가능
+              </Button>
+              <Button
+                variant={critique === "found" ? "danger" : "ghost"}
+                size="sm"
+                data-testid="plan-critique-found"
+                onClick={() => setCritique("found")}
+              >
+                있음 — 변경 요청
+              </Button>
+            </div>
+            {critique === "found" ? (
+              <span className="w-full text-[11px] text-fg-muted">
+                오른쪽 "변경 요청"란에 빠진 단계를 적어 수정을 요청하세요.
+              </span>
+            ) : null}
+          </div>
+        ) : null}
 
         {unresolved.length > 0 ? (
           <div className="flex gap-2 rounded-md border border-warn/40 bg-warn/10 p-3 text-sm text-fg">
