@@ -49,7 +49,10 @@ fn seed() -> (Arc<Mutex<dive_lib::Database>>, i64) {
             ),
             changed_files: Some(json!(["src/App.tsx", "src/LoginForm.tsx"])),
             test_command: None,
-            approval_judgment: None,
+            approval_judgment: Some(
+                r#"{"outcome":"approved_with_concern","note":"엣지케이스 불안","decided_at":1}"#
+                    .into(),
+            ),
             position: 1,
         },
     )
@@ -200,6 +203,33 @@ fn default_export_emits_retrospective_metrics_without_raw_text() {
     assert!(
         metrics["char_count"].as_u64().unwrap_or_default() > 0,
         "metrics must preserve aggregate size without raw text: {metrics:?}"
+    );
+}
+
+#[test]
+fn export_emits_approval_judgment_and_metrics_for_card() {
+    let (db, sid) = seed();
+    let engine = ExportEngine::new(db);
+    let out = engine
+        .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+        .unwrap();
+    assert!(out.contains("\"approval_judgment\""));
+    assert!(out.contains("approved_with_concern"));
+    assert!(out.contains("\"approval_judgment_metrics\""));
+
+    let records = lines(&out);
+    let card = records
+        .iter()
+        .find(|record| record["kind"] == "card")
+        .expect("card record");
+    assert_eq!(
+        card["approval_judgment_metrics"]["outcome"],
+        "approved_with_concern"
+    );
+    assert_eq!(card["approval_judgment_metrics"]["has_note"], true);
+    assert!(
+        !out.contains("엣지케이스 불안"),
+        "default export must not leak raw approval note"
     );
 }
 

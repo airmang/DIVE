@@ -151,7 +151,7 @@ impl ExportEngine {
 
         let mut stmt = conn
             .prepare(
-                "SELECT id, title, instruction, state, verify_log, changed_files, position, created_at, updated_at, retrospective, change_summary FROM Card WHERE session_id = ? ORDER BY position, id"
+                "SELECT id, title, instruction, state, verify_log, changed_files, position, created_at, updated_at, retrospective, change_summary, approval_judgment FROM Card WHERE session_id = ? ORDER BY position, id"
             )
             .map_err(|e| ExportError::Db(e.to_string()))?;
         let rows = stmt
@@ -168,6 +168,7 @@ impl ExportEngine {
                     updated_at: row.get(8)?,
                     retrospective: row.get::<_, Option<String>>(9)?,
                     change_summary: row.get::<_, Option<String>>(10)?,
+                    approval_judgment: row.get::<_, Option<String>>(11)?,
                 })
             })
             .map_err(|e| ExportError::Db(e.to_string()))?;
@@ -212,6 +213,8 @@ impl ExportEngine {
                     "changed_files": changed_files_emit,
                     "retrospective": c.retrospective.as_ref().map(|s| anonymize::maybe_hash_text(options.hash_user_text, s, salt)),
                     "retrospective_metrics": c.retrospective.as_ref().map(|s| retrospective_metrics(s)),
+                    "approval_judgment": c.approval_judgment.as_ref().and_then(|s| approval_judgment_emit(s, options.hash_user_text, salt)),
+                    "approval_judgment_metrics": c.approval_judgment.as_ref().and_then(|s| approval_judgment_metrics(s)),
                     "change_summary": c.change_summary.as_ref().map(|s| anonymize::maybe_hash_text(options.hash_user_text, s, salt)),
                     "position": c.position,
                     "created_at": c.created_at,
@@ -447,6 +450,30 @@ fn retrospective_metrics(text: &str) -> Value {
     })
 }
 
+fn approval_judgment_emit(raw: &str, hash_user_text: bool, salt: &str) -> Option<Value> {
+    let v: Value = serde_json::from_str(raw).ok()?;
+    let outcome = v.get("outcome").and_then(|x| x.as_str())?;
+    let note = v.get("note").and_then(|x| x.as_str());
+    Some(json!({
+        "outcome": outcome,
+        "note": note.map(|n| anonymize::maybe_hash_text(hash_user_text, n, salt)),
+        "decided_at": v.get("decided_at").and_then(|x| x.as_i64()),
+    }))
+}
+
+fn approval_judgment_metrics(raw: &str) -> Option<Value> {
+    let v: Value = serde_json::from_str(raw).ok()?;
+    let outcome = v.get("outcome").and_then(|x| x.as_str())?;
+    let note = v.get("note").and_then(|x| x.as_str()).unwrap_or("");
+    Some(json!({
+        "schema_version": 1,
+        "outcome": outcome,
+        "note_char_count": note.chars().count(),
+        "note_word_count": note.split_whitespace().filter(|t| !t.is_empty()).count(),
+        "has_note": !note.trim().is_empty(),
+    }))
+}
+
 fn count_terms(text: &str, terms: &[&str]) -> usize {
     terms.iter().filter(|term| text.contains(**term)).count()
 }
@@ -465,6 +492,7 @@ struct CardEmit {
     changed_files: Option<String>,
     retrospective: Option<String>,
     change_summary: Option<String>,
+    approval_judgment: Option<String>,
     position: i64,
     created_at: i64,
     updated_at: i64,
