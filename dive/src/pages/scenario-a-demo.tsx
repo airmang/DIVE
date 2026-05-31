@@ -22,7 +22,7 @@ const STEPS = [
   {
     id: 1,
     title: "1. 빈 워크맵 + 입력 차단",
-    body: "초기 상태. 채팅 입력란은 D 게이트로 차단되어 있고, 상단 배너가 안내합니다.",
+    body: "초기 상태. 채팅 입력란은 계획 흐름 안내로 차단되어 있고, 상단 배너가 안내합니다.",
     testId: "step-1",
   },
   {
@@ -45,7 +45,7 @@ const STEPS = [
   },
   {
     id: 5,
-    title: "5. 카드 추가 → D 게이트 해제",
+    title: "5. 카드 추가 → 입력 차단 해제",
     body: "카드가 들어오면 입력 차단 배너가 사라지고, 채팅이 활성화됩니다.",
     testId: "step-5",
   },
@@ -64,7 +64,6 @@ function demoCards(): CardTileData[] {
       title: "할 일 입력 폼",
       summary: "입력 + 제출",
       state: "decomposed",
-      stagesCompleted: { d: true, i: false, v: false, e: false },
       position: 1,
     },
     {
@@ -72,7 +71,6 @@ function demoCards(): CardTileData[] {
       title: "할 일 목록 렌더",
       summary: "배열 렌더 + 빈 상태",
       state: "instructed",
-      stagesCompleted: { d: true, i: true, v: false, e: false },
       position: 2,
     },
     {
@@ -80,7 +78,6 @@ function demoCards(): CardTileData[] {
       title: "체크/삭제 인터랙션",
       summary: "완료 토글 + 삭제",
       state: "verified",
-      stagesCompleted: { d: true, i: true, v: true, e: true },
       position: 3,
     },
   ];
@@ -102,7 +99,7 @@ export default function ScenarioADemoPage() {
           <div>
             <h1 className="text-lg font-semibold leading-tight">시나리오 A · 통합 데모</h1>
             <p className="text-xs text-fg-muted">
-              DIVE_SPEC.md §3.1 · D 게이트 + AI 도움 + 슬라이드 인 연결 (작업 2-6)
+              DIVE_SPEC.md §3.1 · 계획 흐름 + AI 도움 + 슬라이드 인 연결 (작업 2-6)
             </p>
           </div>
         </div>

@@ -1,7 +1,6 @@
 import { cn } from "../../lib/utils";
 import { getCardStateMeta } from "./card-state-meta";
 import { CardStateBadge } from "./CardStateBadge";
-import { DiveProgress } from "./DiveProgress";
 import type { CardTileData } from "./types";
 
 interface CardTileExpandedProps {
@@ -44,11 +43,7 @@ export function CardTileExpanded({ card, disabled, onClick }: CardTileExpandedPr
         <span className="truncate text-sm font-bold text-fg">{card.title}</span>
       </div>
 
-      <div className="flex flex-1 items-center justify-center pl-1">
-        <DiveProgress stages={card.stagesCompleted} mode="expanded" />
-      </div>
-
-      <p className="truncate px-3 pb-3 pl-4 text-xs text-fg-muted">{summary}</p>
+      <p className="mt-auto truncate px-3 pb-3 pl-4 text-xs text-fg-muted">{summary}</p>
     </button>
   );
 }

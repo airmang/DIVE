@@ -13,7 +13,7 @@ import type { VerifyLogView } from "../workmap/types";
 import { useSlideInStore } from "../../stores/slideIn";
 import { useChatComposerStore } from "../../stores/chatComposer";
 import {
-  inferStageFor,
+  promptContextFor,
   selectAllCardsVerified,
   selectCurrentCard,
   useWorkmapStore,
@@ -37,7 +37,6 @@ import { pickFolder } from "../../lib/tauri-dialog";
 import { useTheme } from "../../hooks/useTheme";
 import { hasRecognizedDemoRoute } from "../../lib/dev-demo";
 import { useUiPreferencesStore } from "../../stores/ui-preferences";
-import type { DiveStage as PromptDiveStage } from "../../lib/ambiguity";
 import type { RecoveryCheckpointItem, FailedStepRecovery } from "./RecoveryPanel";
 import { useProductShellDialogs } from "./useProductShellDialogs";
 import { PlanDraftRecoveryScreen } from "./PlanDraftRecoveryScreen";
@@ -417,8 +416,8 @@ export function useProductShellController() {
   const closeSlideIn = useSlideInStore((s) => s.close);
   const slideInOpen = useSlideInStore((s) => s.isOpen);
 
-  const stage = useMemo(
-    () => inferStageFor(currentCard, cards.length, allVerified),
+  const promptContext = useMemo(
+    () => promptContextFor(currentCard, cards.length, allVerified),
     [currentCard, cards.length, allVerified],
   );
 
@@ -433,7 +432,7 @@ export function useProductShellController() {
       delete next[currentSessionId];
       return next;
     });
-    void chat.sendUserMessage(buildPlanStepExecutionPrompt(item), "i", "build", true, item.step.id);
+    void chat.sendUserMessage(buildPlanStepExecutionPrompt(item), "build", true, item.step.id);
   }, [chat, currentSessionId, pendingAutoRunPlanStepBySession, planRoadmap.steps]);
 
   const stageBanner = useMemo<ChatStageBanner | null>(() => {
@@ -737,8 +736,6 @@ export function useProductShellController() {
     }
     void createSession(currentProjectId);
   }, [createSession, currentProjectId, dialogs]);
-  const promptStage = stage.toUpperCase() as PromptDiveStage;
-
   const inputBlocked = useMemo(() => {
     if (!isDemoRoute && currentProjectId === null) {
       return {
@@ -761,7 +758,7 @@ export function useProductShellController() {
         onAction: handleEmptyStateAction,
       };
     }
-    if (stage === "i" && currentCard) {
+    if (currentCard?.state === "instructed") {
       const hasInstruction = (currentCard.summary ?? "").trim().length > 0;
       if (!hasInstruction) {
         return {
@@ -771,13 +768,6 @@ export function useProductShellController() {
         };
       }
     }
-    if (stage === "v" && currentCard?.state !== "verifying") {
-      return {
-        reason: t("stage.gate_not_verifying"),
-        actionLabel: t("stage.action_start_verify"),
-        onAction: currentCard ? () => void handleVerify(currentCard.id) : undefined,
-      };
-    }
     return null;
   }, [
     currentCard,
@@ -785,11 +775,9 @@ export function useProductShellController() {
     currentSessionId,
     dialogs,
     handleEmptyStateAction,
-    handleVerify,
     hasConnectedProvider,
     isDemoRoute,
     openSettingsRoute,
-    stage,
     t,
   ]);
 
@@ -818,13 +806,12 @@ export function useProductShellController() {
       const effectivePlanAccepted = planAccepted || activePlanStepIdForChat !== undefined;
       void chat.sendUserMessage(
         text,
-        stage,
         undefined,
         effectivePlanAccepted,
         activePlanStepIdForChat,
       );
     },
-    [activePlanStepIdForChat, chat, stage, planAccepted],
+    [activePlanStepIdForChat, chat, planAccepted],
   );
 
   const handleRetryError = useCallback(() => {
@@ -833,7 +820,6 @@ export function useProductShellController() {
       const effectivePlanAccepted = planAccepted || activePlanStepIdForChat !== undefined;
       void chat.sendUserMessage(
         lastUser.content,
-        stage,
         undefined,
         effectivePlanAccepted,
         activePlanStepIdForChat,
@@ -846,16 +832,16 @@ export function useProductShellController() {
       title: t("toast.retry_unavailable"),
       description: t("toast.retry_unavailable_description"),
     });
-  }, [activePlanStepIdForChat, chat, stage, planAccepted, toast, t]);
+  }, [activePlanStepIdForChat, chat, planAccepted, toast, t]);
 
   const openPlanInterview = useCallback(
     (goal?: string) => {
       const trimmed = goal?.trim() ?? "";
       if (trimmed.length > 0) {
-        void chat.sendUserMessage(trimmed, stage, "interview", false);
+        void chat.sendUserMessage(trimmed, "interview", false);
       }
     },
-    [chat, stage],
+    [chat],
   );
 
   const recoveryCheckpoints = useMemo(
@@ -893,13 +879,12 @@ export function useProductShellController() {
       const stepTitle = currentCard?.title ?? t("roadmap.current_step_fallback");
       void chat.sendUserMessage(
         t("recovery.explain_failure_prompt", { title: stepTitle, reason }),
-        stage,
         undefined,
         planAccepted || activePlanStepIdForChat !== undefined,
         activePlanStepIdForChat,
       );
     },
-    [activePlanStepIdForChat, chat, currentCard, stage, planAccepted, t],
+    [activePlanStepIdForChat, chat, currentCard, planAccepted, t],
   );
 
   const handleRetryRecovery = useCallback(() => {
@@ -977,7 +962,7 @@ export function useProductShellController() {
         try {
           const interview = await plan.startInterview(goal);
           setActiveInterview(interview);
-          await chat.sendUserMessage(goal, stage, "interview", false);
+          await chat.sendUserMessage(goal, "interview", false);
         } catch (err) {
           toast({
             variant: "error",
@@ -987,7 +972,7 @@ export function useProductShellController() {
         }
       })();
     },
-    [chat, currentProjectId, plan, stage, t, toast],
+    [chat, currentProjectId, plan, t, toast],
   );
 
   const handleSubmitInterviewAnswer = useCallback(
@@ -1005,7 +990,7 @@ export function useProductShellController() {
             answer,
           );
           setActiveInterview(updated);
-          await chat.sendUserMessage(answer, stage, "interview", false);
+          await chat.sendUserMessage(answer, "interview", false);
         } catch (err) {
           toast({
             variant: "error",
@@ -1015,7 +1000,7 @@ export function useProductShellController() {
         }
       })();
     },
-    [chat, handleStartInterview, latestInterviewQuestion, plan, stage, t, toast],
+    [chat, handleStartInterview, latestInterviewQuestion, plan, t, toast],
   );
 
   const handleCompleteInterview = useCallback(() => {
@@ -1026,8 +1011,8 @@ export function useProductShellController() {
     });
     expectingPlanDraftRef.current = true;
     setPlanDraftFailure(null);
-    void chat.sendUserMessage(submitPrompt, stage, "interview", false);
-  }, [chat, stage, t]);
+    void chat.sendUserMessage(submitPrompt, "interview", false);
+  }, [chat, t]);
 
   const handleApproveGeneratedPlan = useCallback(() => {
     if (!generatedPlanDraft) return;
@@ -1058,9 +1043,9 @@ export function useProductShellController() {
       });
       expectingPlanDraftRef.current = true;
       setPlanDraftFailure(null);
-      void chat.sendUserMessage(prompt, stage, "interview", false);
+      void chat.sendUserMessage(prompt, "interview", false);
     },
-    [chat, generatedPlanDraft, stage, t],
+    [chat, generatedPlanDraft, t],
   );
 
   const handleRetryPlanDraft = useCallback(() => {
@@ -1072,8 +1057,8 @@ export function useProductShellController() {
     });
     expectingPlanDraftRef.current = true;
     setPlanDraftFailure(null);
-    void chat.sendUserMessage(prompt, stage, "interview", false);
-  }, [chat, planDraftFailure, stage, t]);
+    void chat.sendUserMessage(prompt, "interview", false);
+  }, [chat, planDraftFailure, t]);
 
   const handleDiscardGeneratedPlan = useCallback(() => {
     if (!generatedPlanDraft) return;
@@ -1143,7 +1128,7 @@ export function useProductShellController() {
         pendingPlanRoute !== null ||
         (!isDemoRoute && currentSessionId === null),
       inputBlocked,
-      stage: promptStage,
+      context: promptContext,
       emptyState,
       planDraftApproval: generatedPlanDraft
         ? createElement(
@@ -1236,7 +1221,6 @@ export function useProductShellController() {
       },
     },
     hiddenState: {
-      stage,
       currentCardId,
       lastManualCheckpointLabel,
     },

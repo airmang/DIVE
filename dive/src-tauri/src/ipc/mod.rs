@@ -1,8 +1,7 @@
 //! Tauri IPC commands (spec §11.5).
 //!
 //! Task 3-1 extends the Phase 2 surface with card state-machine commands
-//! and an optional `stage` parameter on `chat_send` so the frontend can
-//! request I/V/E gate evaluation in addition to the default D gate.
+//! and legacy stage telemetry on `chat_send`.
 //!
 //! Task 4-1 adds project / session / provider CRUD via the sibling
 //! `project`, `session`, and `provider` submodules. The keyring used for
@@ -54,7 +53,7 @@ use crate::db::dao::{
 use crate::db::models::{CardState, CheckpointRow, MessageRow, NewCard, ProviderConfigRow};
 use crate::db::Database;
 use crate::dive::event_log as dive_event_log;
-use crate::dive::{apply_transition, CardTransition, DiveStage};
+use crate::dive::{apply_transition, CardTransition};
 use crate::providers::{self, LlmProvider};
 use crate::tools::{ToolContext, ToolRegistry};
 
@@ -430,6 +429,24 @@ mod tests {
         state.swap_project_root(root.clone()).unwrap();
         assert_eq!(state.project_root_snapshot(), root);
         assert_eq!(state.project_root_required().unwrap(), root);
+    }
+
+    #[test]
+    fn backend_run_mode_floor_requires_plan_until_accepted() {
+        assert_eq!(backend_run_mode_floor(false), AgentRunMode::Plan);
+    }
+
+    #[test]
+    fn backend_run_mode_floor_allows_build_after_plan_accepted() {
+        assert_eq!(backend_run_mode_floor(true), AgentRunMode::Build);
+    }
+
+    #[test]
+    fn safest_run_mode_allows_verify_when_plan_is_accepted() {
+        assert_eq!(
+            safest_run_mode(backend_run_mode_floor(true), AgentRunMode::Verify),
+            AgentRunMode::Verify
+        );
     }
 
     fn seed_session(state: &AppState, project_root: &std::path::Path) -> i64 {
@@ -836,14 +853,11 @@ fn log_error_event(
     )
 }
 
-fn run_mode_for_stage(stage: DiveStage, plan_accepted: bool) -> AgentRunMode {
-    if !plan_accepted {
-        return AgentRunMode::Plan;
-    }
-    match stage {
-        DiveStage::D => AgentRunMode::Plan,
-        DiveStage::I | DiveStage::E => AgentRunMode::Build,
-        DiveStage::V => AgentRunMode::Verify,
+fn backend_run_mode_floor(plan_accepted: bool) -> AgentRunMode {
+    if plan_accepted {
+        AgentRunMode::Build
+    } else {
+        AgentRunMode::Plan
     }
 }
 
@@ -877,13 +891,9 @@ pub async fn chat_send(
     plan_accepted: Option<bool>,
     step_id: Option<i64>,
 ) -> Result<(), String> {
-    let stage = stage
-        .as_deref()
-        .and_then(DiveStage::parse)
-        .unwrap_or(DiveStage::D);
     tracing::info!(
         session_id,
-        stage = stage.as_str(),
+        legacy_stage = stage.as_deref().unwrap_or("default"),
         requested_run_mode = run_mode.as_deref().unwrap_or("default"),
         text_chars = text.chars().count(),
         step_id,
@@ -897,7 +907,7 @@ pub async fn chat_send(
             .as_ref()
             .map(|ctx| ctx.plan_approved)
             .unwrap_or(false);
-    let backend_run_mode = run_mode_for_stage(stage, effective_plan_accepted);
+    let backend_run_mode = backend_run_mode_floor(effective_plan_accepted);
     let requested_run_mode = run_mode.as_deref().and_then(AgentRunMode::parse);
     let run_mode = match requested_run_mode {
         Some(requested) => safest_run_mode(backend_run_mode, requested),
@@ -914,7 +924,6 @@ pub async fn chat_send(
         return Err(msg);
     }
     let project_root = state.project_root_required()?;
-    let disable_gates = policy::research_controls_enabled() && state.research_gates_disabled()?;
     let cancel = Arc::new(AtomicBool::new(false));
     {
         let mut guard = state.cancels.lock().map_err(|e| e.to_string())?;
@@ -932,9 +941,7 @@ pub async fn chat_send(
         .tool_ctx(ToolContext::new(project_root, session_id))
         .model(snap.model)
         .cancel(cancel)
-        .stage(stage)
         .run_mode(run_mode)
-        .disable_gates(disable_gates)
         .plan_accepted(effective_plan_accepted)
         .locale(locale)
         .step_context(step_context.map(|ctx| ctx.context))
@@ -1591,7 +1598,6 @@ pub async fn ai_assist_cards(
 pub async fn prompt_check_review(
     state: State<'_, AppState>,
     text: String,
-    stage: Option<String>,
     locale: Option<String>,
 ) -> Result<crate::dive::PromptCheckResult, String> {
     let snap = state.ensure_provider_runtime().await?;
@@ -1600,7 +1606,7 @@ pub async fn prompt_check_review(
     }
     let engine = crate::dive::PromptCheckEngine::new(snap.provider, snap.model);
     engine
-        .review(&text, stage.as_deref(), locale.as_deref())
+        .review(&text, locale.as_deref())
         .await
         .map_err(|e| e.to_string())
 }

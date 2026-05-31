@@ -2,27 +2,29 @@ import { X } from "lucide-react";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { LearningHint } from "../ui/learning-hint";
-import type { DiveStage } from "../../lib/ambiguity";
-import { templatesForStage, PROMPT_TEMPLATES } from "../../lib/prompt-templates";
+import {
+  templatesForContext,
+  PROMPT_TEMPLATES,
+  type PromptContext,
+} from "../../lib/prompt-templates";
 
 interface Props {
   open: boolean;
-  stage: DiveStage | null;
+  context: PromptContext | null;
   onClose: () => void;
   onInsert: (body: string) => void;
 }
 
-const STAGE_LABEL: Record<DiveStage, string> = {
-  D: "Plan",
-  I: "Step",
-  V: "Run Check",
-  E: "Continue",
+const CONTEXT_LABEL: Record<PromptContext, string> = {
+  plan: "계획",
+  build: "실행",
+  verify: "검증",
 };
 
-export function PromptHelperPanel({ open, stage, onClose, onInsert }: Props) {
+export function PromptHelperPanel({ open, context, onClose, onInsert }: Props) {
   if (!open) return null;
-  const list = stage ? templatesForStage(stage) : PROMPT_TEMPLATES;
-  const fallback = stage && list.length === 0 ? PROMPT_TEMPLATES : null;
+  const list = context ? templatesForContext(context) : PROMPT_TEMPLATES;
+  const fallback = context && list.length === 0 ? PROMPT_TEMPLATES : null;
 
   return (
     <aside
@@ -30,12 +32,12 @@ export function PromptHelperPanel({ open, stage, onClose, onInsert }: Props) {
       role="complementary"
       aria-label="프롬프트 도우미"
       data-testid="prompt-helper-panel"
-      data-stage={stage ?? ""}
+      data-context={context ?? ""}
     >
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-semibold">프롬프트 도우미</h3>
-          {stage ? <Badge variant="accent">{STAGE_LABEL[stage]}</Badge> : null}
+          {context ? <Badge variant="accent">{CONTEXT_LABEL[context]}</Badge> : null}
         </div>
         <Button
           variant="ghost"

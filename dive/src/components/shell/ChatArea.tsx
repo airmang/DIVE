@@ -6,7 +6,7 @@ import { LearningHint } from "../ui/learning-hint";
 import { ChatInput } from "../chat/ChatInput";
 import { MessageList } from "../chat/MessageList";
 import type { ChatMessage } from "../chat/types";
-import type { DiveStage } from "../../lib/ambiguity";
+import type { PromptContext } from "../../lib/prompt-templates";
 import { useT } from "../../i18n";
 
 export type ChatStageBannerTone = "info" | "warn" | "success";
@@ -40,7 +40,7 @@ interface ChatAreaProps {
   onCancelRouting?: () => void;
   inputDisabled?: boolean;
   inputBlocked?: { reason: string; actionLabel?: string; onAction?: () => void } | null;
-  stage?: DiveStage | null;
+  context?: PromptContext | null;
   emptyState?: {
     title: string;
     description: string;
@@ -74,7 +74,7 @@ export function ChatArea({
   onCancelRouting,
   inputDisabled,
   inputBlocked,
-  stage,
+  context,
   emptyState,
   planDraftApproval,
 }: ChatAreaProps) {
@@ -269,7 +269,7 @@ export function ChatArea({
             disabled={inputDisabled || !!inputBlocked}
             modelLabel={modelLabel}
             busyLabel={runningLabel ?? routingLabel}
-            stage={stage}
+            context={context}
           />
         ) : (
           <ChatInput
@@ -277,7 +277,7 @@ export function ChatArea({
             disabled={inputDisabled || !!inputBlocked}
             modelLabel={modelLabel}
             busyLabel={runningLabel ?? routingLabel}
-            stage={stage}
+            context={context}
           />
         )}
       </footer>

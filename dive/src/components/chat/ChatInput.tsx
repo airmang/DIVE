@@ -2,7 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { Send, Sparkles, ClipboardCheck } from "lucide-react";
 import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
-import type { AmbiguityHit, DiveStage } from "../../lib/ambiguity";
+import type { AmbiguityHit } from "../../lib/ambiguity";
+import type { PromptContext } from "../../lib/prompt-templates";
 import { AmbiguityHintList, AmbiguityUnderlay } from "../prompt-helper/AmbiguityHinter";
 import { PromptHelperPanel } from "../prompt-helper/PromptHelperPanel";
 import { PromptCheckDialog, type PromptCheckResult } from "../prompt-helper/PromptCheckDialog";
@@ -15,7 +16,7 @@ interface Props {
   modelLabel?: string;
   busyLabel?: string;
   onPromptHelper?: () => void;
-  stage?: DiveStage | null;
+  context?: PromptContext | null;
   className?: string;
   promptCheckMock?: PromptCheckResult;
 }
@@ -29,7 +30,7 @@ export function ChatInput({
   modelLabel,
   busyLabel,
   onPromptHelper,
-  stage = null,
+  context = null,
   className,
   promptCheckMock,
 }: Props) {
@@ -142,7 +143,7 @@ export function ChatInput({
             )}
             style={{ minHeight: `${MIN_HEIGHT_PX}px`, maxHeight: `${MAX_HEIGHT_PX}px` }}
           />
-          <AmbiguityUnderlay value={value} stage={stage} onHitsChange={setHits} />
+          <AmbiguityUnderlay value={value} onHitsChange={setHits} />
         </div>
         <AmbiguityHintList hits={hits} />
         <div className="flex items-center gap-2">
@@ -192,14 +193,13 @@ export function ChatInput({
       </div>
       <PromptHelperPanel
         open={helperOpen}
-        stage={stage}
+        context={context}
         onClose={() => setHelperOpen(false)}
         onInsert={handleInsertTemplate}
       />
       <PromptCheckDialog
         open={checkOpen}
         initialText={value}
-        stage={stage}
         onOpenChange={setCheckOpen}
         onApply={handleApplyRefined}
         mockResult={promptCheckMock}

@@ -135,7 +135,6 @@ interface State {
 
 export interface SendUserMessageContext {
   text: string;
-  stage?: "d" | "i" | "v" | "e";
   runMode?: "interview" | "plan" | "build" | "verify";
   planAccepted?: boolean;
   stepId?: number;
@@ -270,7 +269,6 @@ export function useChatSession(
   const sendUserMessage = useCallback(
     async (
       text: string,
-      stage?: "d" | "i" | "v" | "e",
       runMode?: "interview" | "plan" | "build" | "verify",
       planAccepted?: boolean,
       stepId?: number,
@@ -289,13 +287,12 @@ export function useChatSession(
       }
       const shouldSend = await beforeSendUserMessageRef.current?.({
         text,
-        stage,
         runMode,
         planAccepted,
         stepId,
       });
       if (shouldSend === false) return;
-      lastRetryableIntentRef.current = { text, stage, runMode, planAccepted, stepId };
+      lastRetryableIntentRef.current = { text, runMode, planAccepted, stepId };
       armStallTimer();
       setState((s) => ({
         ...s,
@@ -308,7 +305,6 @@ export function useChatSession(
         await api.invoke<void>("chat_send", {
           sessionId,
           text,
-          stage: stage ?? null,
           runMode: runMode ?? null,
           locale: useLocaleStore.getState().locale,
           planAccepted: planAccepted ?? null,
@@ -333,7 +329,7 @@ export function useChatSession(
   const retryLastUserMessage = useCallback(() => {
     const last = lastRetryableIntentRef.current;
     if (!last) return false;
-    void sendUserMessage(last.text, last.stage, last.runMode, last.planAccepted, last.stepId);
+    void sendUserMessage(last.text, last.runMode, last.planAccepted, last.stepId);
     return true;
   }, [sendUserMessage]);
 

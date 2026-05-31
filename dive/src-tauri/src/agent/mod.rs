@@ -28,8 +28,8 @@ use uuid::Uuid;
 use crate::db::dao::{card, message, workmap};
 use crate::db::models::NewMessage;
 use crate::db::Database;
+use crate::dive::build_plan_interview_system_prompt;
 use crate::dive::event_log as dive_event_log;
-use crate::dive::{build_plan_interview_system_prompt, DiveStage};
 use crate::providers::{
     ChatEvent, ChatRequest, FinishReason, LlmProvider, Message as ProviderMessage, ToolCall,
 };
@@ -68,9 +68,7 @@ pub struct AgentLoop {
     pub max_iterations: u32,
     pub cancel: Arc<AtomicBool>,
     pub model: String,
-    pub stage: DiveStage,
     pub run_mode: AgentRunMode,
-    pub disable_gates: bool,
     pub plan_accepted: bool,
     pub locale: Option<String>,
     pub step_context: Option<StepContext>,
@@ -92,8 +90,6 @@ impl AgentLoop {
         user_input: &str,
         emit: &mut (dyn FnMut(AgentEvent) + Send),
     ) -> Result<String, AgentError> {
-        self.check_gate(session_id, emit)?;
-
         let user_msg_id = Uuid::new_v4().to_string();
         let created_at = crate::db::now_ms();
         let current_card_id = self.current_card_id(session_id)?;
@@ -109,11 +105,11 @@ impl AgentLoop {
         self.log_event(
             session_id,
             "stage_enter",
-            json!({ "stage": self.stage.as_str(), "card_id": current_card_id }),
+            json!({ "run_mode": self.run_mode.as_str(), "card_id": current_card_id }),
         )?;
         let mut user_payload = dive_event_log::user_text_metadata(user_input);
         if let Value::Object(map) = &mut user_payload {
-            map.insert("stage".into(), json!(self.stage.as_str()));
+            map.insert("run_mode".into(), json!(self.run_mode.as_str()));
             map.insert("card_id".into(), json!(current_card_id));
         }
         self.log_event(session_id, "user_message", user_payload)?;
@@ -232,7 +228,7 @@ impl AgentLoop {
                     session_id,
                     "stage_exit",
                     json!({
-                        "stage": self.stage.as_str(),
+                        "run_mode": self.run_mode.as_str(),
                         "reason": finish_reason_str(finish_reason),
                     }),
                 )?;
@@ -671,48 +667,6 @@ impl AgentLoop {
         }
     }
 
-    fn check_gate(
-        &self,
-        session_id: i64,
-        emit: &mut (dyn FnMut(AgentEvent) + Send),
-    ) -> Result<(), AgentError> {
-        if self.disable_gates || crate::dive::gates_disabled_for_research() {
-            self.log_event(
-                session_id,
-                "gate_bypassed",
-                json!({
-                    "stage": self.stage.as_str(),
-                    "reason": "research_ablation"
-                }),
-            )?;
-            return Ok(());
-        }
-        let db = self
-            .db
-            .lock()
-            .map_err(|_| AgentError::Internal("db mutex poisoned".into()))?;
-        let decision = crate::dive::DiveGateEngine::check(
-            db.conn(),
-            session_id,
-            self.stage,
-            self.plan_accepted,
-        )?;
-        drop(db);
-        match decision {
-            crate::dive::GateDecision::Allow => Ok(()),
-            crate::dive::GateDecision::Block { stage, reason } => {
-                emit(AgentEvent::Error {
-                    message: reason.clone(),
-                    retryable: false,
-                });
-                Err(AgentError::GateBlocked {
-                    stage: stage.as_str().into(),
-                    reason,
-                })
-            }
-        }
-    }
-
     fn current_card_id(&self, session_id: i64) -> Result<Option<i64>, AgentError> {
         let db = self
             .db
@@ -897,9 +851,7 @@ pub struct AgentLoopBuilder {
     max_iterations: Option<u32>,
     cancel: Option<Arc<AtomicBool>>,
     model: Option<String>,
-    stage: Option<DiveStage>,
     run_mode: Option<AgentRunMode>,
-    disable_gates: bool,
     plan_accepted: bool,
     locale: Option<String>,
     step_context: Option<StepContext>,
@@ -938,16 +890,8 @@ impl AgentLoopBuilder {
         self.model = Some(m.into());
         self
     }
-    pub fn stage(mut self, s: DiveStage) -> Self {
-        self.stage = Some(s);
-        self
-    }
     pub fn run_mode(mut self, mode: AgentRunMode) -> Self {
         self.run_mode = Some(mode);
-        self
-    }
-    pub fn disable_gates(mut self, disabled: bool) -> Self {
-        self.disable_gates = disabled;
         self
     }
     pub fn plan_accepted(mut self, accepted: bool) -> Self {
@@ -979,9 +923,7 @@ impl AgentLoopBuilder {
                 .cancel
                 .unwrap_or_else(|| Arc::new(AtomicBool::new(false))),
             model: self.model.unwrap_or_else(|| "unset".into()),
-            stage: self.stage.unwrap_or(DiveStage::D),
             run_mode: self.run_mode.unwrap_or(AgentRunMode::Plan),
-            disable_gates: self.disable_gates,
             plan_accepted: self.plan_accepted,
             locale: self.locale,
             step_context: self.step_context,

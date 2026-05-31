@@ -137,8 +137,7 @@ pub fn card_tool_call_stats_impl(
     card_id: i64,
 ) -> Result<CardToolCallStats, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let count =
-        crate::dive::gate::card_tool_call_count(db.conn(), card_id).map_err(|e| e.to_string())?;
+    let count = crate::dive::card_tool_call_count(db.conn(), card_id).map_err(|e| e.to_string())?;
     Ok(CardToolCallStats { count })
 }
 

@@ -1,5 +1,3 @@
-export type DiveStage = "D" | "I" | "V" | "E";
-
 export type AmbiguityKind =
   | "pronoun"
   | "vague_subject"
@@ -48,7 +46,7 @@ const RULES: RegexRule[] = [
   },
 ];
 
-export function detectAmbiguity(text: string, _stage?: DiveStage): AmbiguityHit[] {
+export function detectAmbiguity(text: string): AmbiguityHit[] {
   if (!text || text.length === 0) return [];
   const hits: AmbiguityHit[] = [];
   for (const rule of RULES) {

@@ -10,7 +10,6 @@ import {
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { LearningHint } from "../ui/learning-hint";
-import type { DiveStage } from "../../lib/ambiguity";
 import { useLocale } from "../../i18n";
 
 type TauriApi = {
@@ -51,7 +50,6 @@ function friendlyPromptCheckError(error: string): string {
 interface Props {
   open: boolean;
   initialText: string;
-  stage?: DiveStage | null;
   onOpenChange: (open: boolean) => void;
   onApply: (refinedText: string, alsoSend: boolean) => void;
   mockResult?: PromptCheckResult;
@@ -60,7 +58,6 @@ interface Props {
 export function PromptCheckDialog({
   open,
   initialText,
-  stage,
   onOpenChange,
   onApply,
   mockResult,
@@ -87,7 +84,6 @@ export function PromptCheckDialog({
       if (api) {
         const r = await api.invoke<PromptCheckResult>("prompt_check_review", {
           text: initialText,
-          stage: stage ?? null,
           locale,
         });
         setResult(r);

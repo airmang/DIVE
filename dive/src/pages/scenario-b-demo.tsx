@@ -21,20 +21,20 @@ function ThemeToggle() {
 const STEPS = [
   {
     id: 1,
-    title: "1. 빈 워크맵 (D 게이트)",
-    body: "채팅 입력이 차단됩니다. 'D seed' 버튼으로 카드 1개를 생성하세요.",
+    title: "1. 빈 워크맵 (계획 흐름)",
+    body: "채팅 입력이 차단됩니다. '계획 seed' 버튼으로 카드 1개를 생성하세요.",
     testId: "step-b-1",
   },
   {
     id: 2,
     title: "2. Decomposed → Instructed",
-    body: "카드 클릭 → 지시 입력 → [I 단계로 진입]. state가 Instructed로 전이.",
+    body: "카드 클릭 → 지시 입력 → 실행 흐름으로 전환. state가 Instructed로 전이.",
     testId: "step-b-2",
   },
   {
     id: 3,
     title: "3. Instructed → Verifying",
-    body: "카드 다시 클릭 → [V 단계로 진입]. 도구 호출 1회 이상 필요.",
+    body: "카드 다시 클릭 → 검증 흐름으로 전환. 도구 호출 1회 이상 필요.",
     testId: "step-b-3",
   },
   {
@@ -51,8 +51,8 @@ const STEPS = [
   },
   {
     id: 6,
-    title: "6. 모든 카드 완료 → E 단계",
-    body: "모든 카드가 Verified/Extended면 E 배너가 표시됩니다.",
+    title: "6. 모든 카드 완료 → 검증 완료",
+    body: "모든 카드가 Verified/Extended면 완료 배너가 표시됩니다.",
     testId: "step-b-6",
   },
 ];
@@ -64,7 +64,6 @@ function dSeedCards(): CardTileData[] {
       title: "로그인 폼 구현",
       summary: null,
       state: "decomposed",
-      stagesCompleted: { d: true, i: false, v: false, e: false },
       position: 1,
     },
   ];
@@ -77,7 +76,6 @@ function iSeedCards(): CardTileData[] {
       title: "로그인 폼 구현",
       summary: "사용자/비밀번호 입력 + 서버 인증 POST + 에러 표시",
       state: "instructed",
-      stagesCompleted: { d: true, i: true, v: false, e: false },
       position: 1,
     },
   ];
@@ -90,7 +88,6 @@ function vSeedCards(): CardTileData[] {
       title: "로그인 폼 구현",
       summary: "사용자/비밀번호 입력 + 서버 인증 POST + 에러 표시",
       state: "verifying",
-      stagesCompleted: { d: true, i: true, v: false, e: false },
       position: 1,
     },
   ];
@@ -103,7 +100,6 @@ function verifiedSeedCards(): CardTileData[] {
       title: "로그인 폼 구현",
       summary: "사용자/비밀번호 입력 + 서버 인증 POST + 에러 표시",
       state: "verified",
-      stagesCompleted: { d: true, i: true, v: true, e: false },
       position: 1,
     },
   ];
@@ -116,7 +112,6 @@ function rejectedSeedCards(): CardTileData[] {
       title: "로그인 폼 구현",
       summary: "사용자/비밀번호 입력 + 서버 인증 POST + 에러 표시",
       state: "rejected",
-      stagesCompleted: { d: true, i: true, v: false, e: false },
       position: 1,
     },
   ];
@@ -129,7 +124,6 @@ function allDoneSeedCards(): CardTileData[] {
       title: "로그인 폼 구현",
       summary: "완료",
       state: "verified",
-      stagesCompleted: { d: true, i: true, v: true, e: false },
       position: 1,
     },
     {
@@ -137,7 +131,6 @@ function allDoneSeedCards(): CardTileData[] {
       title: "회원가입 폼 구현",
       summary: "완료",
       state: "extended",
-      stagesCompleted: { d: true, i: true, v: true, e: true },
       position: 2,
     },
   ];
@@ -170,7 +163,7 @@ export default function ScenarioBDemoPage() {
           <div>
             <h1 className="text-lg font-semibold leading-tight">시나리오 B · 상태 머신 데모</h1>
             <p className="text-xs text-fg-muted">
-              DIVE_SPEC.md §3.2 · 카드 상태 전이 + I/V/E 게이트 (작업 3-1)
+              DIVE_SPEC.md §3.2 · 카드 상태 전이 + 실행/검증 흐름 (작업 3-1)
             </p>
           </div>
         </div>
@@ -201,7 +194,7 @@ export default function ScenarioBDemoPage() {
             onClick={() => setCards(seeds.d)}
             data-testid="scenario-b-seed-d"
           >
-            D seed
+            계획 seed
           </Button>
           <Button
             size="sm"
@@ -209,7 +202,7 @@ export default function ScenarioBDemoPage() {
             onClick={() => setCards(seeds.i)}
             data-testid="scenario-b-seed-i"
           >
-            I seed
+            실행 seed
           </Button>
           <Button
             size="sm"
@@ -217,7 +210,7 @@ export default function ScenarioBDemoPage() {
             onClick={() => setCards(seeds.v)}
             data-testid="scenario-b-seed-v"
           >
-            V seed
+            검증 seed
           </Button>
           <Button
             size="sm"
@@ -241,7 +234,7 @@ export default function ScenarioBDemoPage() {
             onClick={() => setCards(seeds.all)}
             data-testid="scenario-b-seed-all"
           >
-            E seed (all done)
+            완료 seed
           </Button>
           <ThemeToggle />
         </div>

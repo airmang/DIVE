@@ -56,7 +56,7 @@ fn fresh_env() -> (
         },
     )
     .unwrap();
-    // Seed one card so the D-stage gate (task 2-6) allows chat.
+    // Seed one card so card-aware prompts and message persistence have context.
     card::insert(
         db.conn(),
         &NewCard {
@@ -478,7 +478,6 @@ async fn product_path_build_step_creates_code_output_and_records_changed_files()
         .tool_ctx(ToolContext::new(root.path(), sid))
         .model("mock-model")
         .cancel(Arc::new(AtomicBool::new(false)))
-        .stage(dive_lib::dive::DiveStage::I)
         .run_mode(AgentRunMode::Build)
         .plan_accepted(true)
         .step_context(Some(StepContext {
@@ -1033,10 +1032,10 @@ async fn diff_preview_populated_for_write_and_edit() {
 }
 
 #[tokio::test]
-async fn scenario_i_d_gate_blocks_empty_workmap() {
+async fn plan_first_allows_empty_workmap_after_plan_accepted() {
     let (db, _db_file, root, sid) = fresh_env_no_cards();
     let mock = Arc::new(MockProvider::new(vec![vec![
-        ChatEvent::TextDelta("ignored".into()),
+        ChatEvent::TextDelta("allowed".into()),
         ChatEvent::Done {
             finish_reason: FinishReason::Stop,
         },
@@ -1056,22 +1055,22 @@ async fn scenario_i_d_gate_blocks_empty_workmap() {
 
     let mut events = Vec::new();
     let result = loop_.run(sid, "hi", &mut |e| events.push(e)).await;
+    assert!(result.unwrap().starts_with("stopped:"));
     assert!(
-        matches!(result, Err(AgentError::GateBlocked { ref stage, .. }) if stage == "D"),
-        "expected GateBlocked, got {result:?}"
-    );
-    assert_eq!(mock.request_count(), 0, "provider must not be called");
-    assert!(
-        events.iter().any(|e| matches!(
+        !events.iter().any(|e| matches!(
             e,
-            AgentEvent::Error { retryable: false, message } if message.contains("카드")
+            AgentEvent::Error {
+                retryable: false,
+                ..
+            }
         )),
-        "expected Error event with guidance"
+        "legacy D gate must not block plan-first runtime"
     );
+    assert_eq!(mock.request_count(), 1, "provider should be called");
 }
 
 #[tokio::test]
-async fn d_gate_allows_empty_workmap_before_plan_accepted() {
+async fn plan_first_allows_empty_workmap_before_plan_accepted() {
     let (db, _db_file, root, sid) = fresh_env_no_cards();
     let mock = Arc::new(MockProvider::new(vec![vec![
         ChatEvent::TextDelta("hello".into()),
@@ -1097,7 +1096,7 @@ async fn d_gate_allows_empty_workmap_before_plan_accepted() {
         .await;
     assert!(
         result.is_ok(),
-        "D gate must let the first plan-mode message through when plan_accepted is false, got {result:?}"
+        "plan-first runtime must let the first plan-mode message through, got {result:?}"
     );
     assert!(
         mock.request_count() >= 1,
@@ -1106,7 +1105,7 @@ async fn d_gate_allows_empty_workmap_before_plan_accepted() {
 }
 
 #[tokio::test]
-async fn research_ablation_bypasses_d_gate_and_logs_event() {
+async fn agent_loop_no_longer_emits_gate_bypassed_events() {
     let (db, _db_file, root, sid) = fresh_env_no_cards();
     let mock = Arc::new(MockProvider::new(vec![vec![
         ChatEvent::TextDelta("allowed".into()),
@@ -1123,7 +1122,6 @@ async fn research_ablation_bypasses_d_gate_and_logs_event() {
         .model("mock-model")
         .cancel(Arc::new(AtomicBool::new(false)))
         .max_iterations(5)
-        .disable_gates(true)
         .build()
         .unwrap();
 
@@ -1138,7 +1136,7 @@ async fn research_ablation_bypasses_d_gate_and_logs_event() {
     let db_guard = db.lock().unwrap();
     let logs = event_log::list_by_session(db_guard.conn(), sid).unwrap();
     assert!(
-        logs.iter().any(|row| row.r#type == "gate_bypassed"),
-        "ablation must be traceable in EventLog"
+        logs.iter().all(|row| row.r#type != "gate_bypassed"),
+        "legacy gate bypass events should disappear with runtime gate removal"
     );
 }

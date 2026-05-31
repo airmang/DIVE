@@ -58,7 +58,6 @@ impl PromptCheckEngine {
     pub async fn review(
         &self,
         prompt_text: &str,
-        stage_hint: Option<&str>,
         locale: Option<&str>,
     ) -> Result<PromptCheckResult, PromptCheckError> {
         if self.model.is_empty() {
@@ -77,9 +76,6 @@ impl PromptCheckEngine {
         };
 
         let locale_code = normalize_locale(locale);
-        let stage_line = stage_hint
-            .map(|s| format!("현재 DIVE 단계: {s}\n"))
-            .unwrap_or_default();
         let req = ChatRequest {
             model: self.model.clone(),
             messages: vec![
@@ -88,7 +84,7 @@ impl PromptCheckEngine {
                 },
                 Message::User {
                     content: format!(
-                        "{stage_line}사용자 프롬프트:\n```\n{prompt_text}\n```\n\n`prompt_review` 도구로 모호한 부분과 보완 제안을 반환하세요."
+                        "사용자 프롬프트:\n```\n{prompt_text}\n```\n\n`prompt_review` 도구로 모호한 부분과 보완 제안을 반환하세요."
                     ),
                 },
             ],
@@ -102,7 +98,7 @@ impl PromptCheckEngine {
         let stream = match self.provider.chat(req).await {
             Ok(stream) => stream,
             Err(e) if should_retry_without_specific_tool_choice(&e.to_string()) => {
-                return self.review_as_json(trimmed, stage_hint, &locale_code).await;
+                return self.review_as_json(trimmed, &locale_code).await;
             }
             Err(e) => return Err(PromptCheckError::Provider(e.to_string())),
         };
@@ -190,12 +186,8 @@ impl PromptCheckEngine {
     async fn review_as_json(
         &self,
         prompt_text: &str,
-        stage_hint: Option<&str>,
         locale_code: &str,
     ) -> Result<PromptCheckResult, PromptCheckError> {
-        let stage_line = stage_hint
-            .map(|s| format!("현재 DIVE 단계: {s}\n"))
-            .unwrap_or_default();
         let req = ChatRequest {
             model: self.model.clone(),
             messages: vec![
@@ -204,7 +196,7 @@ impl PromptCheckEngine {
                 },
                 Message::User {
                     content: format!(
-                        "{stage_line}사용자 프롬프트:\n```\n{prompt_text}\n```\n\nJSON만 반환하세요."
+                        "사용자 프롬프트:\n```\n{prompt_text}\n```\n\nJSON만 반환하세요."
                     ),
                 },
             ],

@@ -1,19 +1,25 @@
 import { useEffect, useState } from "react";
 import { Button } from "../components/ui/button";
 import { ChatInput } from "../components/chat/ChatInput";
-import { detectAmbiguity, type AmbiguityHit, type DiveStage } from "../lib/ambiguity";
-import { PROMPT_TEMPLATES } from "../lib/prompt-templates";
+import { detectAmbiguity, type AmbiguityHit } from "../lib/ambiguity";
+import { PROMPT_TEMPLATES, type PromptContext } from "../lib/prompt-templates";
 
 declare global {
   interface Window {
-    __test_detect_ambiguity?: (text: string, stage?: DiveStage) => AmbiguityHit[];
+    __test_detect_ambiguity?: (text: string) => AmbiguityHit[];
     __test_prompt_templates?: typeof PROMPT_TEMPLATES;
   }
 }
 
+const CONTEXT_LABEL: Record<PromptContext, string> = {
+  plan: "계획",
+  build: "실행",
+  verify: "검증",
+};
+
 export default function PromptHelperDemoPage() {
   const [lastSent, setLastSent] = useState<string>("");
-  const [stage, setStage] = useState<DiveStage>("I");
+  const [context, setContext] = useState<PromptContext>("build");
 
   useEffect(() => {
     window.__test_detect_ambiguity = detectAmbiguity;
@@ -38,31 +44,31 @@ export default function PromptHelperDemoPage() {
 
         <div
           className="flex items-center gap-3 rounded-md border bg-bg-panel px-3 py-2"
-          data-testid="stage-picker"
+          data-testid="context-picker"
         >
-          <span className="text-xs">현재 단계:</span>
-          {(["D", "I", "V", "E"] as DiveStage[]).map((s) => (
+          <span className="text-xs">현재 흐름:</span>
+          {(["plan", "build", "verify"] as PromptContext[]).map((item) => (
             <Button
-              key={s}
+              key={item}
               size="sm"
-              variant={stage === s ? "primary" : "outline"}
-              onClick={() => setStage(s)}
-              data-testid="stage-set"
-              data-stage={s}
+              variant={context === item ? "primary" : "outline"}
+              onClick={() => setContext(item)}
+              data-testid="context-set"
+              data-context={item}
             >
-              {s}
+              {CONTEXT_LABEL[item]}
             </Button>
           ))}
           <div className="flex-1" />
-          <span className="text-[11px] text-fg-muted" data-testid="active-stage">
-            stage: <code>{stage}</code>
+          <span className="text-[11px] text-fg-muted" data-testid="active-context">
+            context: <code>{context}</code>
           </span>
         </div>
 
         <div className="rounded-md border bg-bg-panel p-3">
           <ChatInput
             onSend={setLastSent}
-            stage={stage}
+            context={context}
             promptCheckMock={{
               issues: [
                 {

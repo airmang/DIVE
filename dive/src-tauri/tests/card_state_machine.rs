@@ -1,13 +1,11 @@
-//! Task 3-1 — card state machine + I/V/E gate integration scenarios.
+//! Task 3-1 — card state machine + plan-first agent integration scenarios.
 
 use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
-use dive_lib::agent::{AgentError, AgentLoop, AlwaysApproveHook, StepContext};
+use dive_lib::agent::{AgentLoop, AlwaysApproveHook, StepContext};
 use dive_lib::db::dao::{card, message, project, session, workmap};
 use dive_lib::db::models::{CardState, NewCard, NewProject, NewSession};
-use dive_lib::dive::{
-    apply_transition, CardTransition, DiveGateEngine, DiveStage, GateDecision, TransitionError,
-};
+use dive_lib::dive::{apply_transition, CardTransition, TransitionError};
 use dive_lib::tools::{ToolContext, ToolRegistry};
 use dive_lib::Database;
 use dive_lib::{ChatEvent, FinishReason, MockProvider};
@@ -111,104 +109,8 @@ fn card_state_machine_rejects_illegal_transitions() {
     ));
 }
 
-#[test]
-fn i_gate_blocks_without_instruction() {
-    let (db, _db_file, _root, sid) = fresh_env();
-    let cid = insert_card(&db, sid, CardState::Instructed, None, 1);
-    {
-        let guard = db.lock().unwrap();
-        workmap::set_current_card(guard.conn(), sid, Some(cid)).unwrap();
-    }
-    let guard = db.lock().unwrap();
-    let decision = DiveGateEngine::check_stage_i(guard.conn(), sid).unwrap();
-    assert!(matches!(
-        decision,
-        GateDecision::Block {
-            stage: DiveStage::I,
-            ..
-        }
-    ));
-}
-
-#[test]
-fn i_gate_allows_with_instruction() {
-    let (db, _db_file, _root, sid) = fresh_env();
-    let cid = insert_card(&db, sid, CardState::Instructed, Some("do it"), 1);
-    {
-        let guard = db.lock().unwrap();
-        workmap::set_current_card(guard.conn(), sid, Some(cid)).unwrap();
-    }
-    let guard = db.lock().unwrap();
-    assert_eq!(
-        DiveGateEngine::check_stage_i(guard.conn(), sid).unwrap(),
-        GateDecision::Allow
-    );
-}
-
-#[test]
-fn v_gate_blocks_non_verifying_current_card() {
-    let (db, _db_file, _root, sid) = fresh_env();
-    let cid = insert_card(&db, sid, CardState::Instructed, Some("x"), 1);
-    {
-        let guard = db.lock().unwrap();
-        workmap::set_current_card(guard.conn(), sid, Some(cid)).unwrap();
-    }
-    let guard = db.lock().unwrap();
-    let decision = DiveGateEngine::check_stage_v(guard.conn(), sid).unwrap();
-    assert!(matches!(
-        decision,
-        GateDecision::Block {
-            stage: DiveStage::V,
-            ..
-        }
-    ));
-}
-
-#[test]
-fn v_gate_allows_verifying_current_card() {
-    let (db, _db_file, _root, sid) = fresh_env();
-    let cid = insert_card(&db, sid, CardState::Verifying, Some("x"), 1);
-    {
-        let guard = db.lock().unwrap();
-        workmap::set_current_card(guard.conn(), sid, Some(cid)).unwrap();
-    }
-    let guard = db.lock().unwrap();
-    assert_eq!(
-        DiveGateEngine::check_stage_v(guard.conn(), sid).unwrap(),
-        GateDecision::Allow
-    );
-}
-
-#[test]
-fn e_gate_blocks_when_any_card_unfinished() {
-    let (db, _db_file, _root, sid) = fresh_env();
-    insert_card(&db, sid, CardState::Verified, Some("x"), 1);
-    insert_card(&db, sid, CardState::Instructed, Some("y"), 2);
-    let guard = db.lock().unwrap();
-    let decision = DiveGateEngine::check_stage_e(guard.conn(), sid).unwrap();
-    assert!(matches!(
-        decision,
-        GateDecision::Block {
-            stage: DiveStage::E,
-            ..
-        }
-    ));
-}
-
-#[test]
-fn e_gate_allows_when_all_cards_done() {
-    let (db, _db_file, _root, sid) = fresh_env();
-    insert_card(&db, sid, CardState::Verified, Some("x"), 1);
-    insert_card(&db, sid, CardState::Extended, Some("y"), 2);
-    let guard = db.lock().unwrap();
-    assert_eq!(
-        DiveGateEngine::check_stage_e(guard.conn(), sid).unwrap(),
-        GateDecision::Allow
-    );
-}
-
 #[tokio::test]
-async fn agent_loop_blocks_i_when_current_card_has_no_instruction() {
+async fn agent_loop_starts_without_legacy_instruction_gate() {
     let (db, _db_file, root, sid) = fresh_env();
     let cid = insert_card(&db, sid, CardState::Instructed, None, 1);
     {
@@ -230,17 +132,12 @@ async fn agent_loop_blocks_i_when_current_card_has_no_instruction() {
         .model("mock-model")
         .cancel(Arc::new(AtomicBool::new(false)))
         .max_iterations(3)
-        .stage(DiveStage::I)
         .build()
         .unwrap();
 
     let mut events = Vec::new();
-    let result = loop_.run(sid, "hi", &mut |e| events.push(e)).await;
-    assert!(
-        matches!(result, Err(AgentError::GateBlocked { ref stage, .. }) if stage == "I"),
-        "expected I GateBlocked, got {result:?}"
-    );
-    assert_eq!(mock.request_count(), 0);
+    loop_.run(sid, "hi", &mut |e| events.push(e)).await.unwrap();
+    assert_eq!(mock.request_count(), 1);
 }
 
 #[tokio::test]
@@ -272,7 +169,6 @@ async fn agent_loop_injects_current_card_system_prompt() {
         .model("mock-model")
         .cancel(Arc::new(AtomicBool::new(false)))
         .max_iterations(3)
-        .stage(DiveStage::I)
         .build()
         .unwrap();
 
@@ -327,7 +223,6 @@ async fn agent_loop_injects_active_step_context_into_system_prompt() {
         .model("mock-model")
         .cancel(Arc::new(AtomicBool::new(false)))
         .max_iterations(3)
-        .stage(DiveStage::I)
         .step_context(Some(StepContext {
             step_id: 7,
             title: "Export artifacts".into(),
@@ -386,7 +281,6 @@ async fn agent_loop_persists_user_message_with_card_id() {
         .model("mock-model")
         .cancel(Arc::new(AtomicBool::new(false)))
         .max_iterations(3)
-        .stage(DiveStage::I)
         .build()
         .unwrap();
     let mut events = Vec::new();

@@ -108,7 +108,6 @@ export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
           />
         </Suspense>
       ) : null}
-      <input type="hidden" data-testid="current-stage" value={shell.hiddenState.stage} />
       <input
         type="hidden"
         data-testid="current-card-id"

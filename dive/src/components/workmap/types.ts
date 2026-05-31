@@ -14,13 +14,6 @@ export type CardState =
 
 export type CardTileMode = "expanded" | "collapsed";
 
-export interface CardDiveStages {
-  d: boolean;
-  i: boolean;
-  v: boolean;
-  e: boolean;
-}
-
 export interface CardTileData {
   id: number;
   title: string;
@@ -31,7 +24,6 @@ export interface CardTileData {
   changeSummary?: string | null;
   testCommand?: string | null;
   state: CardState;
-  stagesCompleted: CardDiveStages;
   position: number;
 }
 

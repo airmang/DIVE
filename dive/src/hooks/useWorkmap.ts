@@ -44,21 +44,6 @@ async function loadTauri(): Promise<TauriApi | null> {
   return { invoke: core.invoke as TauriApi["invoke"] };
 }
 
-function stagesForState(state: CardState): CardTileData["stagesCompleted"] {
-  switch (state) {
-    case "decomposed":
-      return { d: true, i: false, v: false, e: false };
-    case "instructed":
-    case "verifying":
-    case "rejected":
-      return { d: true, i: true, v: false, e: false };
-    case "verified":
-      return { d: true, i: true, v: true, e: false };
-    case "extended":
-      return { d: true, i: true, v: true, e: true };
-  }
-}
-
 function toTile(row: CardRow): CardTileData {
   return {
     id: row.id,
@@ -70,7 +55,6 @@ function toTile(row: CardRow): CardTileData {
     changeSummary: row.change_summary ?? null,
     testCommand: row.test_command,
     state: row.state,
-    stagesCompleted: stagesForState(row.state),
     position: row.position,
   };
 }

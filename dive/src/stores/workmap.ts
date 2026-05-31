@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import type { CardState, CardTileData } from "../components/workmap/types";
-
-export type DiveStage = "d" | "i" | "v" | "e";
+import type { PromptContext } from "../lib/prompt-templates";
 
 export type CardTransitionKind =
   | "enter_instruct"
@@ -25,23 +24,6 @@ interface WorkmapState {
   clearLocal: () => void;
 }
 
-function stagesForState(state: CardState): CardTileData["stagesCompleted"] {
-  switch (state) {
-    case "decomposed":
-      return { d: true, i: false, v: false, e: false };
-    case "instructed":
-      return { d: true, i: true, v: false, e: false };
-    case "verifying":
-      return { d: true, i: true, v: false, e: false };
-    case "verified":
-      return { d: true, i: true, v: true, e: false };
-    case "rejected":
-      return { d: true, i: true, v: false, e: false };
-    case "extended":
-      return { d: true, i: true, v: true, e: true };
-  }
-}
-
 export const useWorkmapStore = create<WorkmapState>((set) => ({
   cards: [],
   currentCardId: null,
@@ -56,9 +38,7 @@ export const useWorkmapStore = create<WorkmapState>((set) => ({
   setCurrentCardLocal: (id) => set({ currentCardId: id }),
   transitionCardLocal: (id, nextState) =>
     set((s) => ({
-      cards: s.cards.map((c) =>
-        c.id === id ? { ...c, state: nextState, stagesCompleted: stagesForState(nextState) } : c,
-      ),
+      cards: s.cards.map((c) => (c.id === id ? { ...c, state: nextState } : c)),
     })),
   setInstructionLocal: (id, instruction) =>
     set((s) => ({
@@ -72,7 +52,6 @@ export const useWorkmapStore = create<WorkmapState>((set) => ({
           ...c,
           summary,
           state: nextState,
-          stagesCompleted: stagesForState(nextState),
         };
       }),
     })),
@@ -90,18 +69,24 @@ export const selectCurrentCard = (state: WorkmapState): CardTileData | null => {
   return state.cards.find((c) => c.id === state.currentCardId) ?? null;
 };
 
-export function inferStageFor(
+export function promptContextFor(
   currentCard: CardTileData | null,
   cardCount: number,
   allVerified: boolean,
-): DiveStage {
-  if (cardCount === 0) return "d";
+): PromptContext {
+  if (cardCount === 0) return "plan";
   if (currentCard) {
-    if (currentCard.state === "verifying") return "v";
-    if (currentCard.state === "verified" || currentCard.state === "extended") {
-      return allVerified ? "e" : "d";
+    switch (currentCard.state) {
+      case "decomposed":
+        return "plan";
+      case "verifying":
+      case "verified":
+      case "extended":
+        return "verify";
+      case "instructed":
+      case "rejected":
+        return "build";
     }
-    return "i";
   }
-  return allVerified ? "e" : "d";
+  return allVerified ? "verify" : "plan";
 }

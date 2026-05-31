@@ -1,7 +1,6 @@
 import { cn } from "../../lib/utils";
 import { getCardStateMeta } from "./card-state-meta";
 import { CardStateBadge } from "./CardStateBadge";
-import { DiveProgress } from "./DiveProgress";
 import type { CardTileData } from "./types";
 
 interface CardTileCollapsedProps {
@@ -25,7 +24,7 @@ export function CardTileCollapsed({ card, disabled, onClick }: CardTileCollapsed
       data-mode="collapsed"
       className={cn(
         "relative grid h-9 w-[200px] shrink-0 items-center gap-2 overflow-hidden rounded-md",
-        "grid-cols-[3px_20px_1fr_auto] border bg-bg-panel2 pl-0 pr-2 text-left transition-colors",
+        "grid-cols-[3px_20px_1fr] border bg-bg-panel2 pl-0 pr-2 text-left transition-colors",
         "hover:border-accent/60 focus-visible:outline-none focus-visible:ring-2",
         "focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
         "disabled:cursor-not-allowed disabled:opacity-50",
@@ -35,7 +34,6 @@ export function CardTileCollapsed({ card, disabled, onClick }: CardTileCollapsed
       <span aria-hidden data-testid="card-color-bar" className={cn("h-full", meta.barClass)} />
       <CardStateBadge state={card.state} mode="collapsed" className="ml-1" />
       <span className="truncate text-xs text-fg">{card.title}</span>
-      <DiveProgress stages={card.stagesCompleted} mode="collapsed" />
     </button>
   );
 }
