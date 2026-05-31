@@ -65,7 +65,7 @@ export const CARD_STATE_META: Record<CardState, CardStateMeta> = {
     iconFgClass: "text-success",
     icon: CheckCircle2,
     animate: false,
-    defaultSummary: "검증 통과 — 변경 사항 확인",
+    defaultSummary: "AI 검토 통과 — 직접 확인 권장",
     progressText: "4",
   },
   rejected: {
