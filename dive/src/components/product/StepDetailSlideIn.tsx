@@ -142,14 +142,20 @@ export function StepDetailSlideIn({
 
           <div className="mt-3 flex flex-wrap gap-2">
             {isReview ? (
-              <ApprovalJudgment
-                prompt={
-                  verifyLog
-                    ? "AI는 의도 충족이라 주장합니다. 직접 확인했을 때 동의하나요?"
-                    : undefined
-                }
-                onDecide={onApprovalDecision}
-              />
+              <div className="flex flex-col gap-2">
+                <LearningHint data-testid="trust-calibration-hint">
+                  AI가 틀렸을 수 있는 지점이 있다면 어디일까요? 한 곳을 짚어본 뒤
+                  판단하세요.
+                </LearningHint>
+                <ApprovalJudgment
+                  prompt={
+                    verifyLog
+                      ? "AI는 의도 충족이라 주장합니다. 직접 확인했을 때 동의하나요?"
+                      : undefined
+                  }
+                  onDecide={onApprovalDecision}
+                />
+              </div>
             ) : (
               <Button
                 variant="outline"
