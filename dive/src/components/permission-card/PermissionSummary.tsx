@@ -1,4 +1,5 @@
 import { Badge } from "../ui/badge";
+import { useT } from "../../i18n";
 import type { ToolExplanation } from "./explain";
 import type { RiskLevel } from "./types";
 
@@ -15,6 +16,8 @@ const BADGE_VARIANT: Record<RiskLevel, "info" | "warn" | "danger"> = {
 };
 
 export function PermissionSummary({ toolName, risk, explanation }: Props) {
+  const t = useT();
+
   return (
     <div className="space-y-3 text-xs" data-testid="permission-summary">
       <div>
@@ -29,7 +32,7 @@ export function PermissionSummary({ toolName, risk, explanation }: Props) {
 
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="rounded-md border bg-bg/60 p-2" data-testid="permission-involved-files">
-          <p className="font-medium text-fg">Files or folders involved</p>
+          <p className="font-medium text-fg">{t("permission_card.summary.files_title")}</p>
           {explanation.files.length > 0 ? (
             <ul className="mt-1 space-y-1 font-mono text-[11px] text-fg-muted">
               {explanation.files.map((file) => (
@@ -37,11 +40,11 @@ export function PermissionSummary({ toolName, risk, explanation }: Props) {
               ))}
             </ul>
           ) : (
-            <p className="mt-1 text-fg-muted">No specific file path was provided.</p>
+            <p className="mt-1 text-fg-muted">{t("permission_card.summary.files_empty")}</p>
           )}
         </div>
         <div className="rounded-md border bg-bg/60 p-2" data-testid="permission-choices">
-          <p className="font-medium text-fg">Your choices</p>
+          <p className="font-medium text-fg">{t("permission_card.summary.choices_title")}</p>
           <ul className="mt-1 list-disc space-y-1 pl-4 text-fg-muted">
             {explanation.choices.map((choice) => (
               <li key={choice}>{choice}</li>

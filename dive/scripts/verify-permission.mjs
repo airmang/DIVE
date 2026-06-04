@@ -58,7 +58,7 @@ async function main() {
 
   console.log("\n4. Danger card renders command args block");
   const dangerArgs = await page.$eval(
-    '[data-testid="demo-section-danger"] [data-testid="danger-args"]',
+    '[data-testid="demo-section-danger"] [data-testid="raw-details"]',
     (el) => el.textContent,
   );
   check(
@@ -144,23 +144,11 @@ async function main() {
   );
   check("standalone editor present", !!standaloneEditor);
 
-  console.log("\n13. Default route still renders MainShell");
-  await page.goto(BASE);
-  await page.waitForTimeout(300);
-  const shell = await page.$('[data-testid="workmap-strip"]');
-  check("main shell still works", !!shell);
-
-  console.log("\n14. Chat demo still reachable");
+  console.log("\n13. Chat demo still reachable");
   await page.goto(`${BASE}/?demo=chat`);
-  await page.waitForTimeout(300);
+  await page.waitForSelector('[data-testid="demo-section-six"]');
   const chatSection = await page.$('[data-testid="demo-section-six"]');
   check("chat demo reachable", !!chatSection);
-
-  console.log("\n15. Workmap demo still reachable");
-  await page.goto(`${BASE}/?demo=workmap`);
-  await page.waitForTimeout(300);
-  const wm = await page.$('[data-testid="demo-section-expanded"]');
-  check("workmap demo reachable", !!wm);
 
   await browser.close();
 

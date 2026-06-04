@@ -1,6 +1,10 @@
 import type { RiskLevel } from "./types";
 
 type ArgsObject = Record<string, unknown>;
+export type PermissionCardTranslator = (
+  key: string,
+  params?: Record<string, string | number>,
+) => string;
 
 export interface ToolExplanation {
   actionTitle: string;
@@ -43,151 +47,139 @@ function commandText(toolName: string, args: ArgsObject): string | null {
   return argv.length > 0 ? [command, ...argv].join(" ") : command;
 }
 
-function riskCopy(risk: RiskLevel): Pick<ToolExplanation, "riskLabel" | "riskBody"> {
-  switch (risk) {
-    case "safe":
-      return {
-        riskLabel: "Safe read",
-        riskBody:
-          "This only reads project information. It should not change files or run commands.",
-      };
-    case "warn":
-      return {
-        riskLabel: "Needs your approval",
-        riskBody: "This may change files. Review the file path and preview before allowing it.",
-      };
-    case "danger":
-      return {
-        riskLabel: "Higher risk",
-        riskBody:
-          "This can run commands or remove files. DIVE will not continue unless you explicitly allow it.",
-      };
-  }
+function riskCopy(
+  risk: RiskLevel,
+  t: PermissionCardTranslator,
+): Pick<ToolExplanation, "riskLabel" | "riskBody"> {
+  return {
+    riskLabel: t(`permission_card.risk.${risk}.label`),
+    riskBody: t(`permission_card.risk.${risk}.body`),
+  };
 }
 
-export function explainTool(toolName: string, risk: RiskLevel, args: unknown): ToolExplanation {
+function choices(t: PermissionCardTranslator, keys: string[]): string[] {
+  return keys.map((key) => t(`permission_card.explain.choices.${key}`));
+}
+
+export function explainTool(
+  toolName: string,
+  risk: RiskLevel,
+  args: unknown,
+  t: PermissionCardTranslator,
+): ToolExplanation {
   const objectArgs = asObject(args);
-  const baseRisk = riskCopy(risk);
+  const baseRisk = riskCopy(risk, t);
   const command = commandText(toolName, objectArgs);
 
   switch (toolName) {
     case "read_file":
       return {
         ...baseRisk,
-        actionTitle: "Read a file",
-        actionBody: "DIVE wants to open this file so it can understand the project before acting.",
+        actionTitle: t("permission_card.explain.tools.read_file.title"),
+        actionBody: t("permission_card.explain.tools.read_file.body"),
         files: pathList(objectArgs),
         command,
         commandWillChangeFiles: "no",
-        choices: ["Allow the read", "Deny if this file should stay private"],
+        choices: choices(t, ["allow_read", "deny_file_private"]),
         patchPreviewExpected: false,
       };
     case "list_dir":
       return {
         ...baseRisk,
-        actionTitle: "List files in a folder",
-        actionBody: "DIVE wants to see the folder names so it can choose the right next step.",
+        actionTitle: t("permission_card.explain.tools.list_dir.title"),
+        actionBody: t("permission_card.explain.tools.list_dir.body"),
         files: pathList(objectArgs),
         command,
         commandWillChangeFiles: "no",
-        choices: ["Allow the read", "Deny if this folder should stay private"],
+        choices: choices(t, ["allow_read", "deny_folder_private"]),
         patchPreviewExpected: false,
       };
     case "search_files":
       return {
         ...baseRisk,
-        actionTitle: "Search project files",
-        actionBody: "DIVE wants to search text in your project. This should not edit anything.",
+        actionTitle: t("permission_card.explain.tools.search_files.title"),
+        actionBody: t("permission_card.explain.tools.search_files.body"),
         files: pathList(objectArgs),
         command,
         commandWillChangeFiles: "no",
-        choices: ["Allow the search", "Deny if the search is unnecessary"],
+        choices: choices(t, ["allow_search", "deny_unnecessary_search"]),
         patchPreviewExpected: false,
       };
     case "write_file":
       return {
         ...baseRisk,
-        actionTitle: "Create or replace a file",
-        actionBody:
-          "DIVE wants to write new content to this file. Review the preview before allowing it.",
+        actionTitle: t("permission_card.explain.tools.write_file.title"),
+        actionBody: t("permission_card.explain.tools.write_file.body"),
         files: pathList(objectArgs),
         command,
         commandWillChangeFiles: "yes",
-        choices: ["Allow the file change", "Edit the request", "Deny and ask DIVE to explain"],
+        choices: choices(t, ["allow_file_change", "edit_request", "deny_ask_explain"]),
         patchPreviewExpected: true,
       };
     case "edit_file":
       return {
         ...baseRisk,
-        actionTitle: "Edit part of a file",
-        actionBody:
-          "DIVE wants to replace matching text in this file. Review the before/after preview.",
+        actionTitle: t("permission_card.explain.tools.edit_file.title"),
+        actionBody: t("permission_card.explain.tools.edit_file.body"),
         files: pathList(objectArgs),
         command,
         commandWillChangeFiles: "yes",
-        choices: ["Allow the edit", "Edit the request", "Deny and ask for a safer change"],
+        choices: choices(t, ["allow_edit", "edit_request", "deny_ask_safer_change"]),
         patchPreviewExpected: true,
       };
     case "delete_file":
       return {
         ...baseRisk,
-        actionTitle: "Delete a file",
-        actionBody:
-          "DIVE wants to remove this file from the project. Only allow this if you expected it.",
+        actionTitle: t("permission_card.explain.tools.delete_file.title"),
+        actionBody: t("permission_card.explain.tools.delete_file.body"),
         files: pathList(objectArgs),
         command,
         commandWillChangeFiles: "yes",
-        choices: ["Allow the delete", "Deny and keep the file"],
+        choices: choices(t, ["allow_delete", "deny_keep_file"]),
         patchPreviewExpected: false,
       };
     case "mkdir":
       return {
         ...baseRisk,
-        actionTitle: "Create a folder",
-        actionBody: "DIVE wants to add a folder inside the project.",
+        actionTitle: t("permission_card.explain.tools.mkdir.title"),
+        actionBody: t("permission_card.explain.tools.mkdir.body"),
         files: pathList(objectArgs),
         command,
         commandWillChangeFiles: "yes",
-        choices: ["Allow the folder", "Deny if the location looks wrong"],
+        choices: choices(t, ["allow_folder", "deny_wrong_location"]),
         patchPreviewExpected: false,
       };
     case "run_process":
       return {
         ...baseRisk,
-        actionTitle: "Run a project command",
-        actionBody:
-          "DIVE wants to run one program in the project folder. It may check, build, install, or generate files depending on the command.",
+        actionTitle: t("permission_card.explain.tools.run_process.title"),
+        actionBody: t("permission_card.explain.tools.run_process.body"),
         files: [],
         command,
         commandWillChangeFiles: "maybe",
-        choices: ["Allow the command", "Deny and ask what it is for", "Edit the command first"],
+        choices: choices(t, ["allow_command", "deny_ask_purpose", "edit_command_first"]),
         patchPreviewExpected: false,
       };
     case "bash":
       return {
         ...baseRisk,
-        actionTitle: "Run a shell command",
-        actionBody:
-          "DIVE wants to run this through the shell. Shell commands are powerful, so blocked patterns still cannot run even if approved.",
+        actionTitle: t("permission_card.explain.tools.bash.title"),
+        actionBody: t("permission_card.explain.tools.bash.body"),
         files: [],
         command,
         commandWillChangeFiles: "maybe",
-        choices: [
-          "Allow the command",
-          "Deny and ask for a safer command",
-          "Edit the command first",
-        ],
+        choices: choices(t, ["allow_command", "deny_ask_safer_command", "edit_command_first"]),
         patchPreviewExpected: false,
       };
     default:
       return {
         ...baseRisk,
-        actionTitle: `Use ${toolName}`,
-        actionBody: "DIVE wants to use this tool. Review the details before allowing it.",
+        actionTitle: t("permission_card.explain.tools.default.title", { toolName }),
+        actionBody: t("permission_card.explain.tools.default.body"),
         files: pathList(objectArgs),
         command,
         commandWillChangeFiles: risk === "safe" ? "no" : "maybe",
-        choices: ["Allow", "Deny", "Edit the request if the details look wrong"],
+        choices: choices(t, ["allow", "deny", "edit_if_wrong"]),
         patchPreviewExpected: false,
       };
   }

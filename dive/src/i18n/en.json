@@ -431,6 +431,139 @@
     "checkpoint_verify_pass": "[check passed]",
     "checkpoint_extend": "[done]"
   },
+  "permission_card": {
+    "safe": {
+      "title": "Quick safety check",
+      "description": "This request should only read information. You still stay in control.",
+      "approve": "Allow read"
+    },
+    "warn": {
+      "title": "Review before DIVE changes anything",
+      "description": "Nothing is applied until you choose Allow. Deny is always safe.",
+      "approve": "Allow this change"
+    },
+    "danger": {
+      "title": "High-risk approval required",
+      "description": "DIVE is asking for a powerful action. It will not run unless you allow it.",
+      "approve": "Allow high-risk action"
+    },
+    "actions": {
+      "deny": "Deny",
+      "add_reason": "Add reason",
+      "confirm_deny": "Confirm deny",
+      "edit_request": "Edit request",
+      "stop_editing": "Stop editing request",
+      "show_details": "Show details",
+      "deny_reason_label": "Why deny? (optional)",
+      "deny_reason_aria": "Deny reason",
+      "args_label": "Edit arguments (JSON)",
+      "args_aria": "Edit tool arguments as JSON",
+      "json_error": "JSON error: {{message}}"
+    },
+    "summary": {
+      "files_title": "Files or folders involved",
+      "files_empty": "No specific file path was provided.",
+      "choices_title": "Your choices"
+    },
+    "command": {
+      "title": "Command to run",
+      "change_maybe": "This command might change files if the program writes to the project. DIVE will show results afterward, but it cannot promise the command is read-only.",
+      "change_yes": "This action is expected to change project files.",
+      "change_no": "This command is not expected to change files.",
+      "failure_note": "If it fails, no approval is reused automatically. DIVE gets the error and can explain it.",
+      "deny_note": "You can deny now and ask DIVE why this command is needed."
+    },
+    "patch": {
+      "title": "Patch preview before approval",
+      "with_diff": "Review the exact before/after file change. Nothing here is applied until you allow it.",
+      "missing_diff": "A patch preview is not available for this request. Review the file path and raw details before deciding."
+    },
+    "diff": {
+      "truncated": "Over 300 lines - showing part only",
+      "expand": "Show all"
+    },
+    "risk": {
+      "safe": {
+        "label": "Safe read",
+        "body": "This only reads project information. It should not change files or run commands."
+      },
+      "warn": {
+        "label": "Needs your approval",
+        "body": "This may change files. Review the file path and preview before allowing it."
+      },
+      "danger": {
+        "label": "Higher risk",
+        "body": "This can run commands or remove files. DIVE will not continue unless you explicitly allow it."
+      }
+    },
+    "explain": {
+      "tools": {
+        "read_file": {
+          "title": "Read a file",
+          "body": "DIVE wants to open this file so it can understand the project before acting."
+        },
+        "list_dir": {
+          "title": "List files in a folder",
+          "body": "DIVE wants to see the folder names so it can choose the right next step."
+        },
+        "search_files": {
+          "title": "Search project files",
+          "body": "DIVE wants to search text in your project. This should not edit anything."
+        },
+        "write_file": {
+          "title": "Create or replace a file",
+          "body": "DIVE wants to write new content to this file. Review the preview before allowing it."
+        },
+        "edit_file": {
+          "title": "Edit part of a file",
+          "body": "DIVE wants to replace matching text in this file. Review the before/after preview."
+        },
+        "delete_file": {
+          "title": "Delete a file",
+          "body": "DIVE wants to remove this file from the project. Only allow this if you expected it."
+        },
+        "mkdir": {
+          "title": "Create a folder",
+          "body": "DIVE wants to add a folder inside the project."
+        },
+        "run_process": {
+          "title": "Run a project command",
+          "body": "DIVE wants to run one program in the project folder. It may check, build, install, or generate files depending on the command."
+        },
+        "bash": {
+          "title": "Run a shell command",
+          "body": "DIVE wants to run this through the shell. Shell commands are powerful, so blocked patterns still cannot run even if approved."
+        },
+        "default": {
+          "title": "Use {{toolName}}",
+          "body": "DIVE wants to use this tool. Review the details before allowing it."
+        }
+      },
+      "choices": {
+        "allow_read": "Allow the read",
+        "deny_file_private": "Deny if this file should stay private",
+        "deny_folder_private": "Deny if this folder should stay private",
+        "allow_search": "Allow the search",
+        "deny_unnecessary_search": "Deny if the search is unnecessary",
+        "allow_file_change": "Allow the file change",
+        "edit_request": "Edit the request",
+        "deny_ask_explain": "Deny and ask DIVE to explain",
+        "allow_edit": "Allow the edit",
+        "deny_ask_safer_change": "Deny and ask for a safer change",
+        "allow_delete": "Allow the delete",
+        "deny_keep_file": "Deny and keep the file",
+        "allow_folder": "Allow the folder",
+        "deny_wrong_location": "Deny if the location looks wrong",
+        "allow_command": "Allow the command",
+        "deny_ask_purpose": "Deny and ask what it is for",
+        "edit_command_first": "Edit the command first",
+        "deny_ask_safer_command": "Deny and ask for a safer command",
+        "allow": "Allow",
+        "deny": "Deny",
+        "edit_if_wrong": "Edit the request if the details look wrong"
+      }
+    }
+  },
   "checkpoint": {
     "manual_saved": "Checkpoint saved",
     "manual_label": "Manual save",

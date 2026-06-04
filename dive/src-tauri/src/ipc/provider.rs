@@ -153,18 +153,17 @@ pub async fn provider_connect_impl(
 pub async fn provider_list(
     state: State<'_, AppState>,
 ) -> Result<Vec<ProviderConfigSummary>, String> {
-    let rows = provider_rows(&state)?;
-    repair_stale_selected_models(&state, &rows)?;
-    Ok(summaries_from_rows(rows, ConnectionCheck::ConfiguredOnly))
+    provider_list_command_impl(state.inner())
+}
+
+pub fn provider_list_command_impl(state: &AppState) -> Result<Vec<ProviderConfigSummary>, String> {
+    provider_list_impl(state)
 }
 
 pub fn provider_list_impl(state: &AppState) -> Result<Vec<ProviderConfigSummary>, String> {
     let rows = provider_rows(state)?;
     repair_stale_selected_models(state, &rows)?;
-    Ok(summaries_from_rows(
-        rows,
-        ConnectionCheck::VerifySecrets(state.keyring.as_ref()),
-    ))
+    Ok(summaries_from_rows(rows, state.keyring.as_ref()))
 }
 
 fn provider_rows(state: &AppState) -> Result<Vec<ProviderConfigRow>, String> {
@@ -172,19 +171,14 @@ fn provider_rows(state: &AppState) -> Result<Vec<ProviderConfigRow>, String> {
     provider_dao::list(db.conn()).map_err(|e| e.to_string())
 }
 
-enum ConnectionCheck<'a> {
-    ConfiguredOnly,
-    VerifySecrets(&'a dyn auth::Keyring),
-}
-
 fn summaries_from_rows(
     rows: Vec<ProviderConfigRow>,
-    check: ConnectionCheck<'_>,
+    keyring: &dyn auth::Keyring,
 ) -> Vec<ProviderConfigSummary> {
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
         let selected_model = Some(selected_model_for_kind(&row.kind, &row.config));
-        let (is_connected, account_id) = connection_summary(&row, &check);
+        let (is_connected, account_id) = connection_summary(&row, keyring);
         out.push(ProviderConfigSummary {
             id: row.id,
             kind: row.kind,
@@ -226,7 +220,7 @@ fn repair_stale_selected_models(
 
 fn connection_summary(
     row: &ProviderConfigRow,
-    check: &ConnectionCheck<'_>,
+    keyring: &dyn auth::Keyring,
 ) -> (bool, Option<String>) {
     let account_id = row
         .config
@@ -235,29 +229,14 @@ fn connection_summary(
         .filter(|value| !value.is_empty())
         .map(str::to_owned);
 
-    if matches!(check, ConnectionCheck::ConfiguredOnly) {
-        if row.kind == "codex" {
-            let is_connected = row
-                .config
-                .get("oauth_connected")
-                .and_then(|value| value.as_bool())
-                .unwrap_or(false);
-            return (is_connected, account_id);
-        }
-        return (row.auth_type == "api_key", account_id);
-    }
-
-    let ConnectionCheck::VerifySecrets(keyring) = check else {
-        unreachable!("configured-only branch returned above")
-    };
     if row.kind == "codex" {
-        let is_connected = auth::load_codex_tokens(*keyring, row.id)
+        let is_connected = auth::load_codex_tokens(keyring, row.id)
             .map(|tokens| tokens.is_some())
             .unwrap_or(false);
         return (is_connected, account_id);
     }
 
-    let is_connected = auth::load_provider_api_key(*keyring, row.id)
+    let is_connected = auth::load_provider_api_key(keyring, row.id)
         .map(|secret| {
             secret
                 .as_deref()
@@ -559,6 +538,33 @@ mod tests {
         let rows = provider_list_impl(&state).unwrap();
         let opencode = rows.iter().find(|row| row.id == id).unwrap();
         assert!(opencode.is_connected);
+    }
+
+    #[test]
+    fn provider_list_command_path_requires_api_key_secret_to_be_connected() {
+        let state = mk_state();
+        let id = {
+            let db = state.db.lock().unwrap();
+            provider_dao::insert(
+                db.conn(),
+                &NewProviderConfig {
+                    kind: "openai".into(),
+                    auth_type: "api_key".into(),
+                    base_url: None,
+                    config: json!({ "selected_model": "gpt-5.1" }),
+                },
+            )
+            .unwrap()
+        };
+
+        let rows = provider_list_command_impl(&state).unwrap();
+        let openai = rows.iter().find(|row| row.id == id).unwrap();
+        assert!(!openai.is_connected);
+
+        auth::upsert_provider_api_key(state.keyring.as_ref(), id, "sk-test").unwrap();
+        let rows = provider_list_command_impl(&state).unwrap();
+        let openai = rows.iter().find(|row| row.id == id).unwrap();
+        assert!(openai.is_connected);
     }
 
     #[tokio::test]

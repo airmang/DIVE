@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useT } from "../../i18n";
 import type { DiffPreviewData } from "./types";
 import { computeLineDiff } from "./diff";
 
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function DiffViewer({ diff, className, onExpand }: Props) {
+  const t = useT();
   const result = useMemo(() => computeLineDiff(diff.before, diff.after), [diff.before, diff.after]);
 
   return (
@@ -60,7 +62,7 @@ export function DiffViewer({ diff, className, onExpand }: Props) {
       </pre>
       {result.truncated ? (
         <footer className="flex items-center justify-between border-t bg-bg-panel2 px-3 py-1.5 text-xs">
-          <span className="text-warn">300줄 초과 — 일부만 표시</span>
+          <span className="text-warn">{t("permission_card.diff.truncated")}</span>
           {onExpand ? (
             <button
               type="button"
@@ -68,7 +70,7 @@ export function DiffViewer({ diff, className, onExpand }: Props) {
               data-testid="diff-expand"
               className="text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
             >
-              전체 보기 →
+              {t("permission_card.diff.expand")}
             </button>
           ) : null}
         </footer>

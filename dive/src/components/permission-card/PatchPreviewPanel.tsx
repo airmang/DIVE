@@ -1,4 +1,5 @@
 import { FileDiff } from "lucide-react";
+import { useT } from "../../i18n";
 import { DiffViewer } from "./DiffViewer";
 import type { DiffPreviewData } from "./types";
 
@@ -8,6 +9,8 @@ interface Props {
 }
 
 export function PatchPreviewPanel({ diff, expected }: Props) {
+  const t = useT();
+
   if (!diff && !expected) return null;
 
   return (
@@ -15,11 +18,9 @@ export function PatchPreviewPanel({ diff, expected }: Props) {
       <div className="mb-2 flex items-start gap-2 text-xs">
         <FileDiff className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden />
         <div>
-          <p className="font-semibold text-fg">Patch preview before approval</p>
+          <p className="font-semibold text-fg">{t("permission_card.patch.title")}</p>
           <p className="text-fg-muted">
-            {diff
-              ? "Review the exact before/after file change. Nothing here is applied until you allow it."
-              : "A patch preview is not available for this request. Review the file path and raw details before deciding."}
+            {diff ? t("permission_card.patch.with_diff") : t("permission_card.patch.missing_diff")}
           </p>
         </div>
       </div>
