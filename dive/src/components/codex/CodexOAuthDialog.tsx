@@ -58,6 +58,29 @@ export function CodexOAuthDialog({ open, onOpenChange, onConnected, baseAuthUrl 
     }
   }, [open]);
 
+  useEffect(() => {
+    if (!open || phase !== "waiting") return;
+    let cancelled = false;
+    const interval = window.setInterval(async () => {
+      try {
+        const api = await loadTauri();
+        if (!api || cancelled) return;
+        const status = await api.invoke<StatusResponse>("codex_oauth_status");
+        if (!cancelled && status.connected) {
+          setPhase("done");
+          onConnected?.(status);
+          window.clearInterval(interval);
+        }
+      } catch {
+        // Keep the manual fallback visible while the callback listener waits.
+      }
+    }, 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [open, phase, onConnected]);
+
   const startFlow = async () => {
     setError(null);
     setBusy(true);
@@ -66,7 +89,7 @@ export function CodexOAuthDialog({ open, onOpenChange, onConnected, baseAuthUrl 
       if (!api) {
         const stateValue = "browser-mock-state";
         setAuthUrl(
-          `https://auth.openai.com/oauth/authorize?response_type=code&client_id=browser-mock&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback&state=${stateValue}`,
+          `https://auth.openai.com/oauth/authorize?response_type=code&client_id=browser-mock&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback&state=${stateValue}`,
         );
         setCsrfState(stateValue);
         setReturnedState(stateValue);
@@ -142,7 +165,7 @@ export function CodexOAuthDialog({ open, onOpenChange, onConnected, baseAuthUrl 
           <div className="flex flex-col gap-3" data-testid="codex-phase-idle">
             <p className="text-sm text-fg-muted">
               [시작] 버튼을 누르면 브라우저에서 ChatGPT 로그인 페이지가 열립니다. 인증 후 리다이렉트
-              URL(`http://localhost:1455/callback?...`)에 포함된 `code`와 `state`를 여기에 붙여
+              URL(`http://localhost:1455/auth/callback?...`)에 포함된 `code`와 `state`를 여기에 붙여
               넣으세요.
             </p>
             <Button onClick={startFlow} disabled={busy} data-testid="codex-start">
@@ -154,9 +177,9 @@ export function CodexOAuthDialog({ open, onOpenChange, onConnected, baseAuthUrl 
         {phase === "waiting" && authUrl ? (
           <div className="flex flex-col gap-3" data-testid="codex-phase-waiting">
             <p className="text-xs text-fg-muted">
-              아래 버튼으로 인증 페이지를 여세요. 로그인 후 브라우저가 이동하는 URL에서 `code=` 와
-              `state=` 값을 찾아 아래에 입력합니다. state는 CSRF 보호용으로 반드시 시작 시 생성된
-              값과 일치해야 합니다.
+              아래 버튼으로 인증 페이지를 여세요. 로그인이 끝나면 DIVE가 자동으로 callback을 받아
+              연결을 완료합니다. 자동 완료가 되지 않는 경우에만 브라우저 주소창의 callback URL 전체를
+              code 칸에 붙여넣고 연결 완료를 누르세요.
             </p>
             <div className="flex items-center gap-2">
               <Button

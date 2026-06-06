@@ -10,6 +10,7 @@ pub(crate) mod http_client;
 pub mod ipc;
 pub mod mcp;
 pub mod menu;
+pub mod pi_sidecar;
 pub mod providers;
 pub(crate) mod telemetry;
 pub mod tools;
@@ -126,6 +127,7 @@ pub fn run() {
             ipc::codex_oauth_status,
             ipc::codex_oauth_logout,
             ipc::codex_oauth_refresh,
+            ipc::pi_sidecar_codex_smoke,
             ipc::mcp_server_add,
             ipc::mcp_server_list,
             ipc::mcp_server_remove,

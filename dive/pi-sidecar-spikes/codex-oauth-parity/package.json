@@ -1,0 +1,12 @@
+{
+  "name": "dive-pi-codex-oauth-parity-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node codex-oauth-parity.mjs"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.78.0",
+    "@earendil-works/pi-coding-agent": "0.78.0"
+  }
+}
