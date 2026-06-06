@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ko" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DIVE — 병렬 표현 옵션 비교</title>
+<style>
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css');
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+  :root{
+    --bg:26 26 31; --panel:33 32 40; --panel2:45 44 54; --border:54 53 63; --line:62 60 73;
+    --fg:232 230 240; --muted:142 140 154; --subtle:101 99 112;
+    --accent:177 156 217; --accent-subtle:46 40 64; --accent-fg:24 23 28;
+    --success:122 184 154; --warn:224 184 112; --danger:216 144 144; --ring:177 156 217;
+    --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+    --sans:"Pretendard Variable",Pretendard,-apple-system,system-ui,"Noto Sans KR",sans-serif;
+  }
+  *{box-sizing:border-box} html,body{margin:0}
+  body{color:rgb(var(--fg)); font-family:var(--sans); font-size:14px; line-height:1.55; -webkit-font-smoothing:antialiased;
+    padding:30px 16px 70px; display:flex; flex-direction:column; align-items:center; gap:14px;
+    background:radial-gradient(900px 460px at 50% -8%,rgb(var(--accent)/.07),transparent 70%),rgb(var(--bg))}
+  .top{max-width:560px; text-align:center}
+  .top h1{font-size:15px; font-weight:700; margin:0 0 4px}
+  .top p{margin:0; color:rgb(var(--muted)); font-size:12px; line-height:1.7}
+  .grid{display:flex; flex-wrap:wrap; gap:18px; justify-content:center; align-items:flex-start}
+
+  .opt{width:430px; max-width:100%}
+  .opthd{display:flex; align-items:baseline; gap:9px; margin:0 2px 8px}
+  .optid{font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.1em; color:rgb(var(--accent-fg));
+    background:rgb(var(--accent)); padding:2px 8px; border-radius:5px}
+  .optnm{font-size:13px; font-weight:700}
+  .optnote{margin:0 2px 10px; font-size:11.5px; color:rgb(var(--muted)); line-height:1.6}
+  .optnote b{color:rgb(var(--success))} .optnote i{color:rgb(var(--warn)); font-style:normal}
+
+  .panel{background:linear-gradient(rgb(255 255 255/.025),transparent 90px),rgb(var(--panel));
+    border:1px solid rgb(var(--border)); border-radius:13px; overflow:hidden;
+    box-shadow:0 18px 44px -22px rgb(0 0 0/.7)}
+  .tl{padding:8px 18px 14px 0}
+
+  /* step base (shared with v2) */
+  .step{position:relative; display:grid; grid-template-columns:54px 1fr; align-items:stretch}
+  .spine{position:relative}
+  .spine::before,.spine::after{content:""; position:absolute; left:50%; width:2px; transform:translateX(-50%)}
+  .spine::before{top:0; height:calc(50% - 13px)} .spine::after{top:calc(50% + 13px); bottom:0}
+  .spine[data-up="done"]::before{background:rgb(var(--success))}
+  .spine[data-up="active"]::before{background:linear-gradient(rgb(var(--success)),rgb(var(--accent)))}
+  .spine[data-up="future"]::before{background:repeating-linear-gradient(rgb(var(--line)) 0 4px,transparent 4px 8px)}
+  .spine[data-up="none"]::before{display:none}
+  .spine[data-down="future"]::after{background:repeating-linear-gradient(rgb(var(--line)) 0 4px,transparent 4px 8px)}
+  .spine[data-down="active"]::after{background:linear-gradient(rgb(var(--accent)),rgb(var(--line)))}
+  .spine[data-down="none"]::after{display:none}
+  .node{position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:26px; height:26px; border-radius:50%;
+    display:grid; place-items:center; z-index:2; background:rgb(var(--panel)); border:2px solid rgb(var(--line))}
+  .node.ready{border-color:rgb(var(--accent)); color:rgb(var(--accent))}
+  .node.ready::after{content:""; width:8px; height:8px; border-radius:50%; background:rgb(var(--accent))}
+  .node.blocked{border-color:rgb(var(--line)); color:rgb(var(--subtle))}
+  .node svg{width:13px; height:13px}
+  .body{padding:13px 0 16px 6px; min-width:0}
+  .step.dim{opacity:.55}
+  .meta{display:flex; align-items:center; gap:9px}
+  .sid{font-family:var(--mono); font-size:11px; font-weight:700; color:rgb(var(--muted)); letter-spacing:.02em}
+  .tag{font-family:var(--mono); font-size:9.5px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; padding:2px 7px 1px; border-radius:4px; border:1px solid}
+  .tag.ready{color:rgb(var(--accent)); border-color:rgb(var(--accent)/.45); background:rgb(var(--accent-subtle))}
+  .tag.blocked{color:rgb(var(--subtle)); border-color:rgb(var(--line)); background:transparent}
+  .tag.par{color:rgb(var(--accent)); border-color:rgb(var(--accent)/.45); background:rgb(var(--accent-subtle))}
+  .spacer{flex:1}
+  .t{margin:9px 0 0; font-size:14px; font-weight:600; letter-spacing:-.01em; line-height:1.35}
+  .s{margin:3px 0 0; font-size:12px; color:rgb(var(--muted))}
+  .dep{margin-top:8px; font-family:var(--mono); font-size:10px; color:rgb(var(--subtle))}
+  .dep b{color:rgb(var(--muted))} .dep.block b{color:rgb(var(--danger))}
+  .act{appearance:none; cursor:pointer; font-family:var(--mono); font-size:10.5px; font-weight:700; letter-spacing:.06em;
+    text-transform:uppercase; padding:7px 12px; border-radius:7px; border:1px solid; display:inline-flex; align-items:center; gap:6px}
+  .act.go{background:rgb(var(--accent)); border-color:rgb(var(--accent)); color:rgb(var(--accent-fg))}
+  .act.ghost{background:transparent; border-color:rgb(var(--border)); color:rgb(var(--fg))}
+  .act:disabled{opacity:.4; cursor:not-allowed}
+  .act svg{width:12px; height:12px}
+  .act.sm{padding:5px 10px; font-size:9.5px}
+  .grp-lab{font-family:var(--mono); font-size:9.5px; font-weight:700; letter-spacing:.16em; text-transform:uppercase;
+    color:rgb(var(--accent)); display:flex; align-items:center; gap:7px}
+  .grp-lab svg{width:12px; height:12px}
+
+  /* ── A · twin rails ─────────────────────────────────────── */
+  .a-grp{position:relative; border-radius:10px; background:
+    repeating-linear-gradient(rgb(var(--accent)/.5) 0 4px,transparent 4px 8px) 23px 0/2px 100% no-repeat,
+    repeating-linear-gradient(rgb(var(--accent)/.5) 0 4px,transparent 4px 8px) 31px 0/2px 100% no-repeat,
+    rgb(var(--fg)/.03)}
+  .a-grp .step .spine::before,.a-grp .step .spine::after{display:none}
+  .a-head{display:grid; grid-template-columns:54px 1fr}
+  .a-head .h{grid-column:2; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:11px 0 5px}
+
+  /* ── B · side-by-side fork/merge ────────────────────────── */
+  .b-wrap{padding:2px 18px 4px 54px}
+  .b-cap{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:4px}
+  .b-bus{height:0; border-top:2px dashed rgb(var(--accent)/.55); margin:0 11%}
+  .b-cols{display:grid; grid-template-columns:1fr 1fr; gap:0}
+  .b-col{position:relative; padding:6px 12px 12px}
+  .b-col+.b-col{border-left:1px solid rgb(var(--border))}
+  .b-col::before{content:""; position:absolute; top:-1px; left:50%; width:2px; height:9px; transform:translateX(-50%);
+    background:rgb(var(--accent)/.55)}
+  .b-node{width:22px; height:22px; border-radius:50%; border:2px solid rgb(var(--accent)); position:relative; margin:6px auto 0}
+  .b-node::after{content:""; position:absolute; inset:5px; border-radius:50%; background:rgb(var(--accent))}
+  .b-col .t{text-align:center; margin-top:8px; font-size:13px}
+  .b-col .meta{justify-content:center; margin-top:7px}
+  .b-col .act{margin:11px auto 0; display:flex; width:max-content}
+
+  /* ── C · brace bracket ──────────────────────────────────── */
+  .c-grp{display:grid; grid-template-columns:54px 1fr}
+  .c-brace{position:relative}
+  .c-brace::before{content:""; position:absolute; left:24px; right:14px; top:12px; bottom:12px;
+    border:2px solid rgb(var(--accent)/.55); border-right:0; border-radius:9px 0 0 9px}
+  .c-brace::after{content:"동시"; position:absolute; left:8px; top:50%; transform:translateY(-50%) rotate(180deg);
+    writing-mode:vertical-rl; font-family:var(--mono); font-size:9px; font-weight:700; letter-spacing:.2em;
+    text-transform:uppercase; color:rgb(var(--accent))}
+  .c-rows .step{grid-template-columns:38px 1fr}
+  .c-rows .node{width:22px;height:22px}
+  .c-head{padding:10px 0 4px 44px}
+
+  /* ── D · inline on main spine ───────────────────────────── */
+  .d-head{display:grid; grid-template-columns:54px 1fr}
+  .d-head .h{grid-column:2; padding:11px 0 2px}
+  .d-grp .spine[data-up]::before{background:repeating-linear-gradient(rgb(var(--accent)/.5) 0 4px,transparent 4px 8px)}
+  .d-grp .spine[data-down]::after{background:repeating-linear-gradient(rgb(var(--accent)/.5) 0 4px,transparent 4px 8px)}
+  .d-grp .node.ready{box-shadow:0 0 0 4px rgb(var(--accent)/.10)}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <h1>병렬(parallel) 단계 표현 — 옵션 비교</h1>
+  <p>같은 흐름(S-004 준비 → <b style="color:rgb(var(--accent))">병렬 S-005·S-006</b> → S-007 대기)을 4가지 방식으로. 전부 동급 스테이지(들여쓰기 없음·동일 노드) 원칙 유지. 동시성 <i>표현 방식</i>만 다름.</p>
+</div>
+
+<div class="grid">
+
+  <!-- ============ OPTION A ============ -->
+  <div class="opt">
+    <div class="opthd"><span class="optid">A</span><span class="optnm">트윈 레일 (현재 v2)</span></div>
+    <p class="optnote"><b>장점</b> 흐름 끊김 없음·차분함. <i>단점</i> "두 트랙"이 은근해 빠르게 안 읽힐 수 있음.</p>
+    <div class="panel"><div class="tl">
+      <div class="step"><div class="spine" data-up="active" data-down="future"><div class="node ready"></div></div>
+        <div class="body"><div class="meta"><span class="sid">S-004</span><span class="tag ready">Ready</span><span class="spacer"></span><button class="act go"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Start</button></div><h3 class="t">검색 + 필터 UI</h3></div></div>
+
+      <div class="a-grp">
+        <div class="a-head"><div class="h"><span class="grp-lab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>Parallel · 동시 실행</span><button class="act ghost sm">Run both ×2</button></div></div>
+        <div class="step"><div class="spine"><div class="node ready"></div></div>
+          <div class="body"><div class="meta"><span class="sid">S-005</span><span class="tag ready">Ready</span><span class="tag par">병렬</span><span class="spacer"></span><button class="act go">Start</button></div><h3 class="t">단위 테스트 작성</h3></div></div>
+        <div class="step"><div class="spine"><div class="node ready"></div></div>
+          <div class="body"><div class="meta"><span class="sid">S-006</span><span class="tag ready">Ready</span><span class="tag par">병렬</span><span class="spacer"></span><button class="act go">Start</button></div><h3 class="t">사용 설명 문서화</h3></div></div>
+      </div>
+
+      <div class="step dim"><div class="spine" data-up="future" data-down="none"><div class="node blocked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div></div>
+        <div class="body"><div class="meta"><span class="sid">S-007</span><span class="tag blocked">Blocked</span></div><h3 class="t">패키징 + 배포</h3><div class="dep block"><b>⊘ blocked by</b> S-005 · S-006</div></div></div>
+    </div></div>
+  </div>
+
+  <!-- ============ OPTION B ============ -->
+  <div class="opt">
+    <div class="opthd"><span class="optid">B</span><span class="optnm">갈래/합류 (side-by-side)</span></div>
+    <p class="optnote"><b>장점</b> "동시"가 가장 직관적(좌우 분기→합류). <i>단점</i> 폭 좁아 제목 길면 답답·요약 생략.</p>
+    <div class="panel"><div class="tl">
+      <div class="step"><div class="spine" data-up="active" data-down="active"><div class="node ready"></div></div>
+        <div class="body"><div class="meta"><span class="sid">S-004</span><span class="tag ready">Ready</span><span class="spacer"></span><button class="act go"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Start</button></div><h3 class="t">검색 + 필터 UI</h3></div></div>
+
+      <div class="b-wrap">
+        <div class="b-cap"><span class="grp-lab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>Parallel · 동시 실행</span><button class="act ghost sm">Run both ×2</button></div>
+        <div class="b-bus"></div>
+        <div class="b-cols">
+          <div class="b-col"><div class="b-node"></div><div class="meta"><span class="sid">S-005</span><span class="tag ready">Ready</span></div><h3 class="t">단위 테스트 작성</h3><button class="act go">Start</button></div>
+          <div class="b-col"><div class="b-node"></div><div class="meta"><span class="sid">S-006</span><span class="tag ready">Ready</span></div><h3 class="t">사용 설명 문서화</h3><button class="act go">Start</button></div>
+        </div>
+        <div class="b-bus" style="margin-top:2px"></div>
+      </div>
+
+      <div class="step dim"><div class="spine" data-up="active" data-down="none"><div class="node blocked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div></div>
+        <div class="body"><div class="meta"><span class="sid">S-007</span><span class="tag blocked">Blocked</span></div><h3 class="t">패키징 + 배포</h3><div class="dep block"><b>⊘ blocked by</b> S-005 · S-006</div></div></div>
+    </div></div>
+  </div>
+
+  <!-- ============ OPTION C ============ -->
+  <div class="opt">
+    <div class="opthd"><span class="optid">C</span><span class="optnm">대괄호 묶음 (brace)</span></div>
+    <p class="optnote"><b>장점</b> 묶임이 명확·세로 흐름 유지. <i>단점</i> 괄호가 약간 장식적, 노드 살짝 축소.</p>
+    <div class="panel"><div class="tl">
+      <div class="step"><div class="spine" data-up="active" data-down="future"><div class="node ready"></div></div>
+        <div class="body"><div class="meta"><span class="sid">S-004</span><span class="tag ready">Ready</span><span class="spacer"></span><button class="act go"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Start</button></div><h3 class="t">검색 + 필터 UI</h3></div></div>
+
+      <div class="c-head"><div style="display:flex; justify-content:space-between; align-items:center"><span class="grp-lab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>Parallel · 동시 실행</span><button class="act ghost sm">Run both ×2</button></div></div>
+      <div class="c-grp"><div class="c-brace"></div>
+        <div class="c-rows">
+          <div class="step"><div class="spine"><div class="node ready"></div></div>
+            <div class="body" style="padding-top:9px"><div class="meta"><span class="sid">S-005</span><span class="tag ready">Ready</span><span class="spacer"></span><button class="act go">Start</button></div><h3 class="t">단위 테스트 작성</h3></div></div>
+          <div class="step"><div class="spine"><div class="node ready"></div></div>
+            <div class="body"><div class="meta"><span class="sid">S-006</span><span class="tag ready">Ready</span><span class="spacer"></span><button class="act go">Start</button></div><h3 class="t">사용 설명 문서화</h3></div></div>
+        </div>
+      </div>
+
+      <div class="step dim"><div class="spine" data-up="future" data-down="none"><div class="node blocked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div></div>
+        <div class="body"><div class="meta"><span class="sid">S-007</span><span class="tag blocked">Blocked</span></div><h3 class="t">패키징 + 배포</h3><div class="dep block"><b>⊘ blocked by</b> S-005 · S-006</div></div></div>
+    </div></div>
+  </div>
+
+  <!-- ============ OPTION D ============ -->
+  <div class="opt">
+    <div class="opthd"><span class="optid">D</span><span class="optnm">인라인 (라벨만 · 미니멀)</span></div>
+    <p class="optnote"><b>장점</b> 가장 단순·완전 동급(메인 척추 위). <i>단점</i> 시각 신호 약함 → 라벨/태그 의존.</p>
+    <div class="panel"><div class="tl">
+      <div class="step"><div class="spine" data-up="active" data-down="active"><div class="node ready"></div></div>
+        <div class="body"><div class="meta"><span class="sid">S-004</span><span class="tag ready">Ready</span><span class="spacer"></span><button class="act go"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Start</button></div><h3 class="t">검색 + 필터 UI</h3></div></div>
+
+      <div class="d-grp">
+        <div class="d-head"><div class="h" style="display:flex; justify-content:space-between; align-items:center"><span class="grp-lab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>Parallel 그룹 · 동시 실행</span><button class="act ghost sm">Run both ×2</button></div></div>
+        <div class="step"><div class="spine" data-up="active" data-down="active"><div class="node ready"></div></div>
+          <div class="body"><div class="meta"><span class="sid">S-005</span><span class="tag ready">Ready</span><span class="tag par">병렬</span><span class="spacer"></span><button class="act go">Start</button></div><h3 class="t">단위 테스트 작성</h3></div></div>
+        <div class="step"><div class="spine" data-up="active" data-down="active"><div class="node ready"></div></div>
+          <div class="body"><div class="meta"><span class="sid">S-006</span><span class="tag ready">Ready</span><span class="tag par">병렬</span><span class="spacer"></span><button class="act go">Start</button></div><h3 class="t">사용 설명 문서화</h3></div></div>
+      </div>
+
+      <div class="step dim"><div class="spine" data-up="future" data-down="none"><div class="node blocked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div></div>
+        <div class="body"><div class="meta"><span class="sid">S-007</span><span class="tag blocked">Blocked</span></div><h3 class="t">패키징 + 배포</h3><div class="dep block"><b>⊘ blocked by</b> S-005 · S-006</div></div></div>
+    </div></div>
+  </div>
+
+</div>
+
+<div class="top" style="margin-top:6px"><p>A·C·D는 세로 흐름 유지, B는 좌우 분기. 어느 쪽이 좋은지(또는 조합·변형) 알려주세요.</p></div>
+</body>
+</html>

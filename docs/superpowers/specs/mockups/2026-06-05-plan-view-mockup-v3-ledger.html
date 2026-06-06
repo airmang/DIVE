@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="ko" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DIVE — 플랜 뷰 목업 v3 (ledger)</title>
+<style>
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css');
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+  /* ── DIVE tokens (globals.css, dark) ───────────────────────── */
+  :root{
+    --bg:26 26 31; --panel:37 36 44; --panel2:45 44 54; --border:54 53 63;
+    --fg:232 230 240; --muted:142 140 154; --subtle:106 104 117;
+    --accent:177 156 217; --accent-subtle:46 40 64; --accent-fg:26 26 31;
+    --success:122 184 154; --warn:224 184 112; --danger:216 144 144; --info:138 168 208;
+    --ring:177 156 217;
+    --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+    --sans:"Pretendard Variable",Pretendard,-apple-system,system-ui,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:
+      radial-gradient(120% 80% at 50% -10%, rgb(45 44 54 / .5), transparent 60%),
+      rgb(var(--bg));
+    color:rgb(var(--fg)); font-family:var(--sans); font-size:14px; line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh; display:flex; flex-direction:column; align-items:center; gap:16px;
+    padding:30px 16px 64px;
+  }
+  .cap{color:rgb(var(--muted)); font-size:12px; max-width:520px; text-align:center; line-height:1.7}
+  .cap b{color:rgb(var(--fg)); font-weight:600}
+
+  /* state tabs */
+  .tabs{display:flex; gap:2px; font-family:var(--mono); font-size:11px}
+  .tab{appearance:none; border:1px solid rgb(var(--border)); border-right-width:0; background:rgb(var(--bg));
+       color:rgb(var(--muted)); font:inherit; letter-spacing:.06em; padding:7px 14px; cursor:pointer; text-transform:uppercase}
+  .tab:first-child{border-radius:3px 0 0 3px} .tab:last-child{border-right-width:1px; border-radius:0 3px 3px 0}
+  .tab[aria-selected="true"]{background:rgb(var(--fg)/.06); color:rgb(var(--fg))}
+  .tab:focus-visible{outline:2px solid rgb(var(--ring)); outline-offset:2px; z-index:1}
+
+  /* panel — a sheet, not a rounded card stack */
+  .panel{width:480px; max-width:100%; background:rgb(var(--bg)); border:1px solid rgb(var(--border)); border-radius:4px}
+
+  /* ── header ─────────────────────────────────────────────── */
+  .head{padding:18px 20px 16px; border-bottom:1px solid rgb(var(--border))}
+  .kicker{font-family:var(--mono); font-size:10.5px; letter-spacing:.22em; text-transform:uppercase; color:rgb(var(--accent))}
+  .head-row{display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-top:7px}
+  .ptitle{font-size:18px; font-weight:600; letter-spacing:-.01em}
+  .pstat{font-family:var(--mono); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:rgb(var(--accent)); white-space:nowrap}
+  .pstat .dot{display:inline-block; width:6px; height:6px; border-radius:50%; background:rgb(var(--accent)); margin-right:5px; vertical-align:middle}
+  .goal{margin:8px 0 0; font-size:12.5px; color:rgb(var(--muted))}
+  /* progress: thin full-bleed rule + mono numerals */
+  .meter{margin-top:16px; height:2px; background:rgb(var(--border)); position:relative; overflow:hidden}
+  .meter > i{position:absolute; inset:0 auto 0 0; background:rgb(var(--success))}
+  .meterrow{margin-top:9px; display:flex; justify-content:space-between; font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; color:rgb(var(--muted))}
+  .meterrow b{color:rgb(var(--fg)); font-weight:500}
+
+  .mm-toggle{margin-top:15px; appearance:none; background:transparent; border:0; cursor:pointer; padding:0;
+       font-family:var(--mono); font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:rgb(var(--muted));
+       display:inline-flex; align-items:center; gap:8px}
+  .mm-toggle:hover{color:rgb(var(--fg))}
+  .mm-toggle:focus-visible{outline:2px solid rgb(var(--ring)); outline-offset:3px}
+  .mm-toggle .sign{display:inline-grid; place-items:center; width:15px; height:15px; border:1px solid rgb(var(--border)); border-radius:2px; font-size:12px; line-height:1}
+
+  /* ── minimap — blueprint ────────────────────────────────── */
+  .minimap{border-bottom:1px solid rgb(var(--border)); padding:14px 10px;
+    background-color:rgb(var(--bg));
+    background-image:linear-gradient(rgb(var(--fg)/.035) 1px,transparent 1px),linear-gradient(90deg,rgb(var(--fg)/.035) 1px,transparent 1px);
+    background-size:22px 22px; overflow:auto}
+  .minimap[hidden]{display:none}
+  .mm-node{cursor:pointer}
+  .mm-node rect{fill:rgb(var(--bg)); transition:fill .15s}
+  .mm-node:hover rect{fill:rgb(var(--fg)/.06)}
+  .mm-node:focus-visible{outline:none}
+  .mm-node:focus-visible rect{stroke-width:2.4}
+  .mm-id{font-family:var(--mono); font-size:9px; letter-spacing:.04em; font-weight:500; fill:rgb(var(--fg))}
+  .mm-edge{fill:none; stroke:rgb(var(--subtle)); stroke-width:1.25; marker-end:url(#ar)}
+
+  /* ── step list — flat rows, hairline rules, no cards ────── */
+  .list[hidden]{display:none}
+  .row{display:grid; grid-template-columns:54px 1fr auto; column-gap:14px; align-items:start;
+       padding:15px 20px; border-bottom:1px solid rgb(var(--border)); position:relative; transition:background .12s}
+  .row:last-child{border-bottom:0}
+  .row:hover{background:rgb(var(--fg)/.025)}
+  .row.current{background:rgb(var(--accent)/.06)}
+  .row.blocked{opacity:.55}
+
+  .rid{font-family:var(--mono); font-size:12px; font-weight:500; letter-spacing:.02em; color:rgb(var(--subtle)); padding-top:1px; font-variant-numeric:tabular-nums}
+  .row.current .rid{color:rgb(var(--accent))}
+
+  .title{font-size:14.5px; font-weight:600; letter-spacing:-.005em; color:rgb(var(--fg))}
+  .row.blocked .title, .row.done .title{font-weight:500; color:rgb(var(--muted))}
+  .meta{margin-top:5px; font-family:var(--mono); font-size:10.5px; letter-spacing:.07em; text-transform:uppercase;
+        color:rgb(var(--muted)); display:flex; flex-wrap:wrap; align-items:center; gap:9px}
+  .st{display:inline-flex; align-items:center; gap:6px; font-weight:600}
+  .st .g{display:inline-block; width:7px; height:7px}
+  .st.done{color:rgb(var(--success))}    .st.done .g{border-radius:50%; background:rgb(var(--success))}
+  .st.run{color:rgb(var(--accent))}      .st.run .g{background:rgb(var(--accent))}
+  .st.ready{color:rgb(var(--fg))}        .st.ready .g{width:0;height:0;border-left:7px solid rgb(var(--fg));border-top:4px solid transparent;border-bottom:4px solid transparent}
+  .st.blk{color:rgb(var(--danger))}      .st.blk .g{border:1.5px solid rgb(var(--danger)); border-radius:1px; background:transparent}
+  .sep{color:rgb(var(--border))}
+  .dep{color:rgb(var(--subtle))}
+  .dep.bad{color:rgb(var(--danger))}
+  .summary{margin-top:8px; font-size:12.5px; color:rgb(var(--muted)); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .blockmsg{margin-top:8px; font-family:var(--mono); font-size:10.5px; letter-spacing:.05em; color:rgb(var(--muted))}
+
+  /* actions — squared, restrained */
+  .act{display:flex; align-items:center}
+  .btn{appearance:none; font-family:var(--sans); font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap;
+       display:inline-flex; align-items:center; gap:6px; padding:7px 13px; border-radius:3px; border:1px solid; transition:.12s}
+  .btn:focus-visible{outline:2px solid rgb(var(--ring)); outline-offset:2px}
+  .btn .ic{width:12px; height:12px}
+  .btn.primary{background:rgb(var(--accent)); border-color:rgb(var(--accent)); color:rgb(var(--accent-fg))}
+  .btn.primary:hover{filter:brightness(1.07)}
+  .btn.ghost{background:transparent; border-color:rgb(var(--border)); color:rgb(var(--fg))}
+  .btn.ghost:hover{border-color:rgb(var(--accent)/.55); color:rgb(var(--accent))}
+  .btn:disabled{cursor:not-allowed; opacity:.4}
+
+  /* parallel section — a labelled band, not a card */
+  .band-head{display:flex; align-items:center; gap:12px; padding:13px 20px 11px; border-bottom:1px solid rgb(var(--border)); background:rgb(var(--fg)/.02)}
+  .band-head .lab{font-family:var(--mono); font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:rgb(var(--muted)); white-space:nowrap; display:flex; align-items:center; gap:8px}
+  .band-head .rule{flex:1; height:1px; background:rgb(var(--border))}
+  .band .row{background:rgb(var(--fg)/.02)}
+  .band .row:hover{background:rgb(var(--fg)/.045)}
+
+  /* skeleton / empty / error */
+  .skl{margin:0 20px; border-bottom:1px solid rgb(var(--border)); padding:18px 0}
+  .skl > span{display:block; height:11px; border-radius:2px; background:linear-gradient(90deg,rgb(var(--panel2)),rgb(var(--panel)),rgb(var(--panel2)));
+    background-size:200% 100%; animation:sh 1.3s ease-in-out infinite}
+  .skl > span+span{margin-top:9px}
+  @keyframes sh{0%{background-position:200% 0}100%{background-position:-200% 0}}
+  .ph{padding:52px 24px; text-align:center}
+  .ph .mk{font-family:var(--mono); font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:rgb(var(--subtle))}
+  .ph h3{margin:14px 0 5px; font-size:15px; font-weight:600}
+  .ph p{margin:0 auto 18px; font-size:12.5px; color:rgb(var(--muted)); max-width:300px}
+  .err{margin:20px; border:1px solid rgb(var(--danger)/.4); border-left-width:2px; background:rgb(var(--danger)/.07); padding:14px 16px}
+  .err .et{font-family:var(--mono); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:rgb(var(--danger)); font-weight:700}
+  .err .em{margin-top:6px; font-size:12.5px; color:rgb(var(--muted))}
+  [hidden]{display:none !important}
+</style>
+</head>
+<body>
+
+<p class="cap"><b>DIVE 플랜 뷰 — v3 (engineering ledger).</b> 레이아웃 동일, 비주얼 재설계: 카드·왼쪽 색바·라운드 칩 제거 → 헤어라인 행 + 모노스페이스 메타 + 라벤더는 현재 단계/주 액션에만.</p>
+
+<div class="tabs" role="tablist" aria-label="상태 미리보기">
+  <button class="tab" role="tab" aria-selected="true"  data-state="filled">Filled</button>
+  <button class="tab" role="tab" aria-selected="false" data-state="loading">Loading</button>
+  <button class="tab" role="tab" aria-selected="false" data-state="empty">Empty</button>
+  <button class="tab" role="tab" aria-selected="false" data-state="error">Error</button>
+</div>
+
+<section class="panel" aria-label="프로젝트 플랜">
+
+  <!-- HEADER -->
+  <header class="head">
+    <div class="kicker">Plan</div>
+    <div class="head-row">
+      <div class="ptitle">메모 앱 만들기</div>
+      <div class="pstat"><span class="dot"></span>진행 중</div>
+    </div>
+    <p class="goal">로컬에 저장되는 간단한 메모 앱 — 작성·수정·삭제·검색.</p>
+    <div class="meter" aria-hidden="true"><i style="width:29%"></i></div>
+    <div class="meterrow"><span><b>02</b> / 07 단계 완료 · <b>29%</b></span><span>준비 3 · 진행 1 · 대기 1</span></div>
+    <button class="mm-toggle" id="mmToggle" aria-expanded="true" aria-controls="minimap">
+      <span class="sign" id="mmSign">−</span> 의존성 맵
+    </button>
+  </header>
+
+  <!-- MINIMAP -->
+  <div class="minimap" id="minimap">
+    <svg viewBox="0 0 520 200" width="500" height="192" role="group" aria-label="단계 의존성 그래프">
+      <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="rgb(106 104 117)"/></marker></defs>
+      <path class="mm-edge" d="M102,125 L138,125"/>
+      <path class="mm-edge" d="M202,125 C220,125 220,88 238,88"/>
+      <path class="mm-edge" d="M202,125 C220,125 220,162 238,162"/>
+      <path class="mm-edge" d="M302,88 C320,88 320,70 338,70"/>
+      <path class="mm-edge" d="M302,88 C320,88 320,146 338,146"/>
+      <path class="mm-edge" d="M402,70 C420,70 420,108 438,108"/>
+      <path class="mm-edge" d="M402,146 C420,146 420,108 438,108"/>
+      <!-- node = outline rect, status by stroke + corner tick -->
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-001 환경 설정 (완료)">
+        <rect x="40" y="110" width="62" height="30" rx="2" stroke="rgb(122 184 154)"/><rect x="40" y="110" width="6" height="6" fill="rgb(122 184 154)"/><text class="mm-id" x="71" y="129" text-anchor="middle">S-001</text></g>
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-002 데이터 모델 (완료)">
+        <rect x="140" y="110" width="62" height="30" rx="2" stroke="rgb(122 184 154)"/><rect x="140" y="110" width="6" height="6" fill="rgb(122 184 154)"/><text class="mm-id" x="171" y="129" text-anchor="middle">S-002</text></g>
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-003 작성 화면 (진행 중)">
+        <rect x="240" y="73" width="62" height="30" rx="2" stroke="rgb(177 156 217)" stroke-width="1.8"/><rect x="240" y="73" width="6" height="6" fill="rgb(177 156 217)"/><text class="mm-id" x="271" y="92" text-anchor="middle" fill="rgb(177 156 217)">S-003</text></g>
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-004 검색 UI (준비)">
+        <rect x="240" y="147" width="62" height="30" rx="2" stroke="rgb(142 140 154)"/><rect x="240" y="147" width="6" height="6" fill="rgb(232 230 240)"/><text class="mm-id" x="271" y="166" text-anchor="middle">S-004</text></g>
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-005 단위 테스트 (준비)">
+        <rect x="340" y="55" width="62" height="30" rx="2" stroke="rgb(142 140 154)"/><rect x="340" y="55" width="6" height="6" fill="rgb(232 230 240)"/><text class="mm-id" x="371" y="74" text-anchor="middle">S-005</text></g>
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-006 문서화 (준비)">
+        <rect x="340" y="131" width="62" height="30" rx="2" stroke="rgb(142 140 154)"/><rect x="340" y="131" width="6" height="6" fill="rgb(232 230 240)"/><text class="mm-id" x="371" y="150" text-anchor="middle">S-006</text></g>
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-007 배포 (대기 — 막힘)">
+        <rect x="438" y="93" width="62" height="30" rx="2" stroke="rgb(54 53 63)" stroke-dasharray="3 3"/><text class="mm-id" x="469" y="112" text-anchor="middle" fill="rgb(106 104 117)">S-007</text></g>
+    </svg>
+  </div>
+
+  <!-- ===== FILLED ===== -->
+  <div class="list" data-view="filled">
+
+    <article class="row done">
+      <div class="rid">S-001</div>
+      <div>
+        <div class="title">개발 환경 설정</div>
+        <div class="meta"><span class="st done"><span class="g"></span>Done</span></div>
+      </div>
+      <div class="act"><button class="btn ghost">열기</button></div>
+    </article>
+
+    <article class="row done">
+      <div class="rid">S-002</div>
+      <div>
+        <div class="title">메모 데이터 모델 + SQLite 스키마</div>
+        <div class="meta"><span class="st done"><span class="g"></span>Done</span><span class="sep">/</span><span class="dep">← S-001</span></div>
+      </div>
+      <div class="act"><button class="btn ghost">열기</button></div>
+    </article>
+
+    <article class="row current" aria-current="step">
+      <div class="rid">S-003</div>
+      <div>
+        <div class="title">메모 작성·수정·삭제 화면</div>
+        <div class="meta"><span class="st run"><span class="g"></span>In&nbsp;progress</span><span class="sep">/</span><span class="dep">← S-002</span></div>
+        <div class="summary">목록·편집 UI 구현 중 — 저장 핸들러 작업.</div>
+      </div>
+      <div class="act"><button class="btn primary">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M21 3v6h-6"/></svg>이어하기</button></div>
+    </article>
+
+    <article class="row">
+      <div class="rid">S-004</div>
+      <div>
+        <div class="title">검색 + 필터 UI</div>
+        <div class="meta"><span class="st ready"><span class="g"></span>Ready</span><span class="sep">/</span><span class="dep">← S-002</span></div>
+        <div class="summary">제목·본문 부분일치 검색바.</div>
+      </div>
+      <div class="act"><button class="btn ghost">시작</button></div>
+    </article>
+
+    <!-- PARALLEL band -->
+    <div class="band">
+      <div class="band-head">
+        <span class="lab">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+          병렬 · 동시 시작
+        </span>
+        <span class="rule"></span>
+        <button class="btn ghost" style="padding:6px 11px; font-family:var(--mono); font-size:11px; letter-spacing:.04em">그룹 시작 2/2</button>
+      </div>
+      <article class="row">
+        <div class="rid">S-005</div>
+        <div>
+          <div class="title">단위 테스트 작성</div>
+          <div class="meta"><span class="st ready"><span class="g"></span>Ready</span><span class="sep">/</span><span class="dep">← S-003</span></div>
+        </div>
+        <div class="act"><button class="btn ghost">시작</button></div>
+      </article>
+      <article class="row">
+        <div class="rid">S-006</div>
+        <div>
+          <div class="title">사용 설명 문서화</div>
+          <div class="meta"><span class="st ready"><span class="g"></span>Ready</span><span class="sep">/</span><span class="dep">← S-003</span></div>
+        </div>
+        <div class="act"><button class="btn ghost">시작</button></div>
+      </article>
+    </div>
+
+    <article class="row blocked">
+      <div class="rid">S-007</div>
+      <div>
+        <div class="title">패키징 + 배포</div>
+        <div class="meta"><span class="st blk"><span class="g"></span>Blocked</span><span class="sep">/</span><span class="dep bad">← S-005, S-006</span></div>
+        <div class="blockmsg">S-005, S-006 완료 후 시작할 수 있습니다.</div>
+      </div>
+      <div class="act"><button class="btn ghost" disabled>시작</button></div>
+    </article>
+  </div>
+
+  <!-- ===== LOADING ===== -->
+  <div class="list" data-view="loading" hidden>
+    <div class="skl"><span style="width:30%"></span><span style="width:70%"></span></div>
+    <div class="skl"><span style="width:24%"></span><span style="width:55%"></span></div>
+    <div class="skl"><span style="width:28%"></span><span style="width:62%"></span></div>
+  </div>
+
+  <!-- ===== EMPTY ===== -->
+  <div data-view="empty" hidden>
+    <div class="ph">
+      <div class="mk">No plan</div>
+      <h3>아직 플랜이 없어요</h3>
+      <p>목표를 정하면 AI가 단계로 나눠 줍니다. 같이 계획부터 세워볼까요?</p>
+      <button class="btn primary" style="margin:0 auto">플랜 만들기</button>
+    </div>
+  </div>
+
+  <!-- ===== ERROR ===== -->
+  <div data-view="error" hidden>
+    <div class="err">
+      <div class="et">Load failed</div>
+      <div class="em">데이터베이스 연결이 끊어졌어요. 잠시 후 다시 시도하세요.</div>
+      <button class="btn ghost" style="margin-top:12px">다시 시도</button>
+    </div>
+  </div>
+
+</section>
+
+<p class="cap">상단 탭으로 4가지 상태 전환 · 헤더 <b>의존성 맵</b>으로 블루프린트 미니맵 토글(노드 Tab 포커스).</p>
+
+<script>
+  const tabs=[...document.querySelectorAll('.tab')], views=[...document.querySelectorAll('[data-view]')];
+  const minimap=document.getElementById('minimap');
+  function show(s){
+    tabs.forEach(t=>t.setAttribute('aria-selected',String(t.dataset.state===s)));
+    views.forEach(v=>v.hidden=v.dataset.view!==s);
+    minimap.hidden = s!=='filled' ? true : minimap.dataset.user==='closed';
+  }
+  tabs.forEach(t=>t.addEventListener('click',()=>show(t.dataset.state)));
+  const mm=document.getElementById('mmToggle'), sign=document.getElementById('mmSign');
+  mm.addEventListener('click',()=>{
+    const open=mm.getAttribute('aria-expanded')==='true';
+    mm.setAttribute('aria-expanded',String(!open)); sign.textContent=open?'+':'−';
+    minimap.dataset.user=open?'closed':'open'; minimap.hidden=open;
+  });
+  document.querySelectorAll('.mm-node').forEach(n=>{
+    const act=()=>n.querySelector('rect').animate([{opacity:.3},{opacity:1}],{duration:450});
+    n.addEventListener('click',act);
+    n.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();act();}});
+  });
+</script>
+</body>
+</html>

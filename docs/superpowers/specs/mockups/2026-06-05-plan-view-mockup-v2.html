@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="ko" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DIVE — 플랜 타임라인 (redesign v2)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<style>
+  :root{
+    --bg:26 26 31; --panel:33 32 40; --panel2:45 44 54; --border:54 53 63; --line:62 60 73;
+    --fg:232 230 240; --muted:142 140 154; --subtle:101 99 112;
+    --accent:177 156 217; --accent2:150 196 224; --accent-subtle:46 40 64; --accent-fg:24 23 28;
+    --success:122 184 154; --warn:224 184 112; --danger:216 144 144;
+    --ring:177 156 217;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:"Pretendard Variable",Pretendard,-apple-system,system-ui,"Noto Sans KR",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    min-height:100vh; color:rgb(var(--fg)); font-family:var(--sans); font-size:14px; line-height:1.6;
+    -webkit-font-smoothing:antialiased; padding:34px 16px 70px;
+    display:flex; flex-direction:column; align-items:center; gap:16px;
+    background:
+      radial-gradient(820px 420px at 50% -8%, rgb(var(--accent)/.08), transparent 70%),
+      linear-gradient(rgb(var(--line)/.22) 1px, transparent 1px) 0 0/100% 30px,
+      linear-gradient(90deg, rgb(var(--line)/.22) 1px, transparent 1px) 0 0/30px 100%,
+      rgb(var(--bg));
+  }
+  .cap{color:rgb(var(--muted)); font-size:12px; text-align:center; max-width:520px}
+  .cap b{color:rgb(var(--fg))}
+
+  /* ── panel ─────────────────────────────────────────────── */
+  .panel{
+    width:470px; max-width:100%; background:
+      linear-gradient(rgb(255 255 255/.025), transparent 120px), rgb(var(--panel));
+    border:1px solid rgb(var(--border)); border-radius:14px; overflow:hidden;
+    box-shadow:0 24px 60px -24px rgb(0 0 0/.7), inset 0 1px 0 rgb(255 255 255/.04);
+  }
+
+  /* ── header ────────────────────────────────────────────── */
+  .head{padding:18px 20px 16px; border-bottom:1px solid rgb(var(--border)); position:relative}
+  .eyebrow{font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:.32em;
+           text-transform:uppercase; color:rgb(var(--accent))}
+  .head-row{display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-top:9px}
+  .ptitle{font-size:18px; font-weight:700; letter-spacing:-.01em; line-height:1.25}
+  .goal{margin:7px 0 0; font-size:12.5px; color:rgb(var(--muted)); max-width:300px}
+  .counter{font-family:var(--mono); font-weight:800; font-size:30px; line-height:1; letter-spacing:-.02em;
+           white-space:nowrap; text-align:right}
+  .counter b{color:rgb(var(--success))}
+  .counter span{color:rgb(var(--subtle)); font-weight:600}
+  .counter small{display:block; font-size:9px; font-weight:700; letter-spacing:.22em; color:rgb(var(--muted));
+                 text-transform:uppercase; margin-top:6px}
+  /* segmented progress echoing the spine */
+  .segs{display:flex; gap:4px; margin-top:15px}
+  .segs i{height:4px; flex:1; border-radius:2px; background:rgb(var(--panel2))}
+  .segs i.done{background:rgb(var(--success))}
+  .segs i.now{background:rgb(var(--accent)); box-shadow:0 0 0 1px rgb(var(--accent)/.4), 0 0 10px rgb(var(--accent)/.5)}
+
+  .mmtoggle{margin-top:15px; appearance:none; cursor:pointer; font-family:var(--mono); font-size:10.5px;
+    font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:rgb(var(--muted));
+    background:transparent; border:0; padding:0; display:inline-flex; align-items:center; gap:7px}
+  .mmtoggle:hover{color:rgb(var(--fg))}
+  .mmtoggle .cv{transition:transform .25s} .mmtoggle[aria-expanded="true"] .cv{transform:rotate(90deg)}
+  .mmtoggle:focus-visible{outline:2px solid rgb(var(--ring)); outline-offset:3px; border-radius:3px}
+
+  .minimap{border-bottom:1px solid rgb(var(--border)); background:
+     linear-gradient(rgb(var(--line)/.18) 1px,transparent 1px) 0 0/100% 22px,
+     linear-gradient(90deg,rgb(var(--line)/.18) 1px,transparent 1px) 0 0/22px 100%, rgb(var(--bg));
+     padding:14px; overflow:auto}
+  .minimap[hidden]{display:none}
+  .mm-edge{stroke:rgb(var(--line)); stroke-width:1.5; fill:none}
+  .mm-edge.dash{stroke-dasharray:3 4}
+  .mm-lab{font-family:var(--mono); font-size:8.5px; font-weight:700; fill:rgb(var(--fg))}
+  .mm-node{cursor:pointer} .mm-node:hover circle{filter:brightness(1.3)}
+  .mm-node:focus-visible{outline:none} .mm-node:focus-visible circle{stroke-width:3}
+
+  /* ── timeline ──────────────────────────────────────────── */
+  .tl{padding:6px 20px 16px 0}
+  .step{position:relative; display:grid; grid-template-columns:54px 1fr; align-items:stretch;
+        opacity:0; transform:translateY(6px); animation:rise .5s cubic-bezier(.2,.7,.3,1) forwards}
+  @keyframes rise{to{opacity:1; transform:none}}
+  .step:nth-child(1){animation-delay:.02s}.step:nth-child(2){animation-delay:.07s}
+  .step:nth-child(3){animation-delay:.12s}.step:nth-child(4){animation-delay:.17s}
+  .step:nth-child(5){animation-delay:.22s}.step:nth-child(6){animation-delay:.27s}
+
+  /* spine cell */
+  .spine{position:relative}
+  .spine::before,.spine::after{content:""; position:absolute; left:50%; width:2px; transform:translateX(-50%)}
+  .spine::before{top:0; height:calc(50% - 13px)}      /* up to node */
+  .spine::after{top:calc(50% + 13px); bottom:0}        /* below node */
+  .spine[data-up="done"]::before{background:rgb(var(--success))}
+  .spine[data-up="active"]::before{background:linear-gradient(rgb(var(--success)),rgb(var(--accent)))}
+  .spine[data-up="future"]::before{background:repeating-linear-gradient(rgb(var(--line)) 0 4px,transparent 4px 8px)}
+  .spine[data-up="none"]::before{display:none}
+  .spine[data-down="done"]::after{background:rgb(var(--success))}
+  .spine[data-down="active"]::after{background:linear-gradient(rgb(var(--accent)),rgb(var(--line)))}
+  .spine[data-down="future"]::after{background:repeating-linear-gradient(rgb(var(--line)) 0 4px,transparent 4px 8px)}
+  .spine[data-down="none"]::after{display:none}
+
+  .node{position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+        width:26px; height:26px; border-radius:50%; display:grid; place-items:center; z-index:2;
+        background:rgb(var(--panel)); border:2px solid rgb(var(--line))}
+  .node.done{background:rgb(var(--success)); border-color:rgb(var(--success)); color:rgb(var(--accent-fg))}
+  .node.now{border-color:rgb(var(--accent)); color:rgb(var(--accent));
+            box-shadow:0 0 0 4px rgb(var(--accent)/.16); animation:pulse 2.2s ease-in-out infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 4px rgb(var(--accent)/.16)}50%{box-shadow:0 0 0 7px rgb(var(--accent)/.05)}}
+  .node.ready{border-color:rgb(var(--accent)); color:rgb(var(--accent))}
+  .node.ready::after{content:""; width:8px; height:8px; border-radius:50%; background:rgb(var(--accent))}
+  .node.blocked{border-color:rgb(var(--line)); color:rgb(var(--subtle))}
+  .node svg{width:13px; height:13px}
+
+  /* content */
+  .body{padding:13px 0 17px 6px; min-width:0}
+  .step.cur .body{background:linear-gradient(90deg, rgb(var(--accent)/.07), transparent 80%);
+                  margin-left:-6px; padding-left:12px; border-radius:0 10px 10px 0}
+  .step.dim{opacity:.55}
+  .meta{display:flex; align-items:center; gap:9px}
+  .sid{font-family:var(--mono); font-size:11px; font-weight:700; color:rgb(var(--muted)); letter-spacing:.02em}
+  .tag{font-family:var(--mono); font-size:9.5px; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+       padding:2px 7px 1px; border-radius:4px; border:1px solid}
+  .tag.done{color:rgb(var(--success)); border-color:rgb(var(--success)/.4); background:rgb(var(--success)/.08)}
+  .tag.now{color:rgb(var(--warn)); border-color:rgb(var(--warn)/.45); background:rgb(var(--warn)/.1)}
+  .tag.ready{color:rgb(var(--accent)); border-color:rgb(var(--accent)/.45); background:rgb(var(--accent-subtle))}
+  .tag.blocked{color:rgb(var(--subtle)); border-color:rgb(var(--line)); background:transparent}
+  .spacer{flex:1}
+  .t{margin:9px 0 0; font-size:14.5px; font-weight:600; letter-spacing:-.01em; line-height:1.35}
+  .s{margin:3px 0 0; font-size:12.5px; color:rgb(var(--muted))}
+  .dep{margin-top:9px; font-family:var(--mono); font-size:10.5px; color:rgb(var(--subtle)); display:flex; gap:8px; flex-wrap:wrap}
+  .dep b{color:rgb(var(--muted)); font-weight:600}
+  .dep.block b{color:rgb(var(--danger))}
+
+  /* action */
+  .act{appearance:none; cursor:pointer; font-family:var(--mono); font-size:11px; font-weight:700;
+       letter-spacing:.06em; text-transform:uppercase; padding:8px 13px; border-radius:7px; border:1px solid;
+       display:inline-flex; align-items:center; gap:7px; transition:.15s}
+  .act:focus-visible{outline:2px solid rgb(var(--ring)); outline-offset:2px}
+  .act.go{background:rgb(var(--accent)); border-color:rgb(var(--accent)); color:rgb(var(--accent-fg))}
+  .act.go:hover{filter:brightness(1.07); transform:translateY(-1px)}
+  .act.ghost{background:transparent; border-color:rgb(var(--border)); color:rgb(var(--fg))}
+  .act.ghost:hover{border-color:rgb(var(--accent)/.6); color:rgb(var(--accent))}
+  .act:disabled{cursor:not-allowed; opacity:.4}
+  .act svg{width:13px;height:13px}
+
+  /* parallel group — equal-tier stages bound by twin rails (no indent, full-size nodes) */
+  .pargroup{position:relative; margin:2px 0; border-radius:10px;
+    background:
+      repeating-linear-gradient(rgb(var(--accent)/.5) 0 4px,transparent 4px 8px) 23px 0/2px 100% no-repeat,
+      repeating-linear-gradient(rgb(var(--accent)/.5) 0 4px,transparent 4px 8px) 31px 0/2px 100% no-repeat,
+      rgb(var(--fg)/.03)}
+  .par-head{display:grid; grid-template-columns:54px 1fr}
+  .par-head .phl{grid-column:2; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 0 6px}
+  .par-head .lab{font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:.16em; text-transform:uppercase;
+     color:rgb(var(--accent)); display:flex; align-items:center; gap:7px}
+  .step.par .spine::before,.step.par .spine::after{display:none}  /* twin rails come from the group bg */
+  .tag.par{color:rgb(var(--accent)); border-color:rgb(var(--accent)/.45); background:rgb(var(--accent-subtle))}
+  .act.sm{padding:6px 11px; font-size:10px}
+
+  @media(max-width:520px){.panel{width:100%} .counter{font-size:26px}}
+</style>
+</head>
+<body>
+
+<p class="cap"><b>Redesign v2 — 플랜 = 타임라인 척추.</b> 카드·장식 색바 제거. 진행도는 연결선이 차오르며(별도 progress bar 없음), 병렬 단계는 선이 갈라지고, 상태는 선 위 노드로. 모노 타이포 + 블루프린트 그리드.</p>
+
+<section class="panel" aria-label="프로젝트 플랜">
+  <header class="head">
+    <div class="eyebrow">Project Plan</div>
+    <div class="head-row">
+      <div>
+        <div class="ptitle">메모 앱 만들기</div>
+        <p class="goal">로컬에 저장되는 간단한 메모 앱 — 작성·수정·삭제·검색.</p>
+      </div>
+      <div class="counter"><b>02</b><span>/07</span><small>Done</small></div>
+    </div>
+    <div class="segs" aria-hidden="true">
+      <i class="done"></i><i class="done"></i><i class="now"></i><i></i><i></i><i></i><i></i>
+    </div>
+    <button class="mmtoggle" id="mmToggle" aria-expanded="false" aria-controls="minimap">
+      <svg class="cv" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+      의존성 그래프 보기
+    </button>
+  </header>
+
+  <div class="minimap" id="minimap" hidden>
+    <svg viewBox="0 0 510 200" width="482" height="189" role="group" aria-label="단계 의존성 그래프">
+      <path class="mm-edge" d="M96,130 H130"/>
+      <path class="mm-edge" d="M196,130 C214,130 214,92 232,92"/>
+      <path class="mm-edge" d="M196,130 C214,130 214,168 232,168"/>
+      <path class="mm-edge dash" d="M298,92 C316,92 316,72 334,72"/>
+      <path class="mm-edge dash" d="M298,92 C316,92 316,150 334,150"/>
+      <path class="mm-edge dash" d="M400,72 C418,72 418,112 436,112"/>
+      <path class="mm-edge dash" d="M400,150 C418,150 418,112 436,112"/>
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-001 완료"><circle cx="64" cy="130" r="13" fill="rgb(122 184 154)" stroke="rgb(122 184 154)"/><text class="mm-lab" x="64" y="158" text-anchor="middle" fill="rgb(142 140 154)">S-001</text></g>
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-002 완료"><circle cx="164" cy="130" r="13" fill="rgb(122 184 154)" stroke="rgb(122 184 154)"/><text class="mm-lab" x="164" y="158" text-anchor="middle" fill="rgb(142 140 154)">S-002</text></g>
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-003 진행 중"><circle cx="264" cy="92" r="13" fill="rgb(33 32 40)" stroke="rgb(177 156 217)" stroke-width="2.5"/><text class="mm-lab" x="264" y="64" text-anchor="middle">S-003</text></g>
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-004 준비"><circle cx="264" cy="168" r="13" fill="rgb(46 40 64)" stroke="rgb(177 156 217)" stroke-width="2"/><text class="mm-lab" x="264" y="196" text-anchor="middle" fill="rgb(142 140 154)">S-004</text></g>
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-005 준비"><circle cx="366" cy="72" r="13" fill="rgb(46 40 64)" stroke="rgb(177 156 217)" stroke-width="2"/><text class="mm-lab" x="366" y="46" text-anchor="middle" fill="rgb(142 140 154)">S-005</text></g>
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-006 준비"><circle cx="366" cy="150" r="13" fill="rgb(46 40 64)" stroke="rgb(177 156 217)" stroke-width="2"/><text class="mm-lab" x="366" y="178" text-anchor="middle" fill="rgb(142 140 154)">S-006</text></g>
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-007 대기"><circle cx="468" cy="112" r="13" fill="rgb(33 32 40)" stroke="rgb(62 60 73)" stroke-width="2"/><text class="mm-lab" x="468" y="140" text-anchor="middle" fill="rgb(101 99 112)">S-007</text></g>
+    </svg>
+  </div>
+
+  <!-- TIMELINE -->
+  <div class="tl">
+
+    <!-- done -->
+    <div class="step">
+      <div class="spine" data-up="none" data-down="done">
+        <div class="node done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+      </div>
+      <div class="body">
+        <div class="meta"><span class="sid">S-001</span><span class="tag done">Done</span><span class="spacer"></span>
+          <button class="act ghost">Open</button></div>
+        <h3 class="t">개발 환경 설정</h3>
+        <p class="s">Tauri + React 스캐폴드, 의존성 설치 완료.</p>
+      </div>
+    </div>
+
+    <!-- done -->
+    <div class="step">
+      <div class="spine" data-up="done" data-down="active">
+        <div class="node done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+      </div>
+      <div class="body">
+        <div class="meta"><span class="sid">S-002</span><span class="tag done">Done</span><span class="spacer"></span>
+          <button class="act ghost">Open</button></div>
+        <h3 class="t">메모 데이터 모델 + SQLite</h3>
+        <p class="s">note 테이블, 마이그레이션 v1 적용.</p>
+        <div class="dep"><span><b>↳</b> needs S-001</span></div>
+      </div>
+    </div>
+
+    <!-- current / in_progress -->
+    <div class="step cur">
+      <div class="spine" data-up="active" data-down="future">
+        <div class="node now"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
+      </div>
+      <div class="body">
+        <div class="meta"><span class="sid">S-003</span><span class="tag now">In&nbsp;Progress</span><span class="spacer"></span>
+          <button class="act go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M21 3v6h-6"/></svg>Resume</button></div>
+        <h3 class="t">메모 작성·수정·삭제 화면</h3>
+        <p class="s">목록/편집 UI 구현 중 — 저장 핸들러 작업.</p>
+        <div class="dep"><span><b>↳</b> needs S-002</span></div>
+      </div>
+    </div>
+
+    <!-- ready -->
+    <div class="step">
+      <div class="spine" data-up="future" data-down="future">
+        <div class="node ready"></div>
+      </div>
+      <div class="body">
+        <div class="meta"><span class="sid">S-004</span><span class="tag ready">Ready</span><span class="spacer"></span>
+          <button class="act go"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Start</button></div>
+        <h3 class="t">검색 + 필터 UI</h3>
+        <p class="s">제목/본문 부분일치 검색바.</p>
+        <div class="dep"><span><b>↳</b> needs S-002</span></div>
+      </div>
+    </div>
+
+    <!-- PARALLEL GROUP — equal-tier stages bound by twin rails -->
+    <div class="pargroup">
+      <div class="par-head">
+        <div class="phl">
+          <span class="lab">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+            Parallel · 동시 실행
+          </span>
+          <button class="act ghost sm"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Run both ×2</button>
+        </div>
+      </div>
+
+      <div class="step par">
+        <div class="spine"><div class="node ready"></div></div>
+        <div class="body">
+          <div class="meta"><span class="sid">S-005</span><span class="tag ready">Ready</span><span class="tag par">병렬</span><span class="spacer"></span>
+            <button class="act go"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Start</button></div>
+          <h3 class="t">단위 테스트 작성</h3>
+          <p class="s">저장/검색 로직 테스트.</p>
+          <div class="dep"><span><b>↳</b> needs S-003</span></div>
+        </div>
+      </div>
+
+      <div class="step par">
+        <div class="spine"><div class="node ready"></div></div>
+        <div class="body">
+          <div class="meta"><span class="sid">S-006</span><span class="tag ready">Ready</span><span class="tag par">병렬</span><span class="spacer"></span>
+            <button class="act go"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Start</button></div>
+          <h3 class="t">사용 설명 문서화</h3>
+          <p class="s">README + 단축키 안내.</p>
+          <div class="dep"><span><b>↳</b> needs S-003</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- blocked -->
+    <div class="step dim">
+      <div class="spine" data-up="future" data-down="none">
+        <div class="node blocked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+      </div>
+      <div class="body">
+        <div class="meta"><span class="sid">S-007</span><span class="tag blocked">Blocked</span><span class="spacer"></span>
+          <button class="act ghost" disabled>Locked</button></div>
+        <h3 class="t">패키징 + 배포</h3>
+        <p class="s">Windows / macOS 빌드 산출.</p>
+        <div class="dep block"><span><b>⊘ blocked by</b> S-005 · S-006</span></div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<p class="cap">헤더 <b>의존성 그래프 보기</b>로 미니맵을 펴고(기본 접힘), 노드는 Tab 포커스 가능. 같은 노드 언어를 타임라인·미니맵이 공유합니다.</p>
+
+<script>
+  const mm = document.getElementById('mmToggle'), map = document.getElementById('minimap');
+  mm.addEventListener('click', () => {
+    const open = mm.getAttribute('aria-expanded') === 'true';
+    mm.setAttribute('aria-expanded', String(!open));
+    map.hidden = open;
+  });
+  document.querySelectorAll('.mm-node').forEach(n => {
+    const flash = () => n.querySelector('circle').animate(
+      [{filter:'brightness(1.7)'},{filter:'brightness(1)'}], {duration:500});
+    n.addEventListener('click', flash);
+    n.addEventListener('keydown', e => { if(e.key==='Enter'||e.key===' '){e.preventDefault();flash();} });
+  });
+</script>
+</body>
+</html>
