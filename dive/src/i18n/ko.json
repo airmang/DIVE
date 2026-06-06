@@ -308,6 +308,35 @@
       }
     }
   },
+  "plan_view": {
+    "aria": "프로젝트 플랜",
+    "eyebrow": "Project Plan",
+    "default_title": "현재 프로젝트",
+    "done": "Done",
+    "show_minimap": "의존성 그래프 보기",
+    "hide_minimap": "의존성 그래프 접기",
+    "minimap_aria": "플랜 의존성 미니맵",
+    "minimap_node_aria": "{{step}}, {{status}}. 해당 단계로 이동",
+    "dependencies": "needs",
+    "blocked_by": "blocked by",
+    "parallel": "Parallel · 동시 실행",
+    "parallel_named": "Parallel · {{name}}",
+    "parallel_tag": "병렬",
+    "run_group": "Run both ×{{count}}",
+    "run_group_aria": "준비된 병렬 단계 {{count}}개 시작",
+    "empty_title": "아직 승인된 계획이 없습니다",
+    "empty_description": "채팅에서 계획을 만들거나 승인하면 여기에 단계가 표시됩니다.",
+    "empty_cta": "플랜 만들기",
+    "error_title": "플랜을 불러올 수 없음",
+    "retry": "재시도",
+    "actions": {
+      "start": "Start",
+      "resume": "Resume",
+      "open": "Open",
+      "locked": "Locked",
+      "working": "Working..."
+    }
+  },
   "planning": {
     "interview": {
       "title": "계획 인터뷰",

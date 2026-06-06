@@ -1,6 +1,5 @@
 /*
  * DIVE design tokens. Source: DIVE_SPEC.md §2.3.
- * RGB triplets + hex comment let reviewers verify palette fidelity.
  * Dark is DEFAULT (:root). `.light` on <html> opts into light mode.
  */
 
@@ -37,25 +36,25 @@
   :root.dark {
     color-scheme: dark;
 
-    --color-bg: 26 26 31; /* #1A1A1F */
-    --color-bg-panel: 37 36 44; /* #25242C */
-    --color-bg-panel2: 45 44 54; /* #2D2C36 */
-    --color-border: 54 53 63; /* #36353F */
+    --color-bg: 26 26 31;
+    --color-bg-panel: 37 36 44;
+    --color-bg-panel2: 45 44 54;
+    --color-border: 54 53 63;
 
-    --color-fg: 232 230 240; /* #E8E6F0 */
-    --color-fg-muted: 142 140 154; /* #8E8C9A */
+    --color-fg: 232 230 240;
+    --color-fg-muted: 142 140 154;
     --color-fg-subtle: 106 104 117; /* derived: hint-level fg */
 
-    --color-accent: 177 156 217; /* #B19CD9 */
+    --color-accent: 177 156 217;
     --color-accent-hover: 196 180 227; /* lightened +10% */
     --color-accent-active: 158 138 198; /* darkened -10% */
-    --color-accent-subtle: 46 40 64; /* #2E2840 */
+    --color-accent-subtle: 46 40 64;
     --color-accent-fg: 26 26 31; /* text on accent bg = bg */
 
-    --color-success: 122 184 154; /* #7AB89A */
-    --color-warn: 224 184 112; /* #E0B870 */
-    --color-danger: 216 144 144; /* #D89090 */
-    --color-info: 138 168 208; /* #8AA8D0 */
+    --color-success: 122 184 154;
+    --color-warn: 224 184 112;
+    --color-danger: 216 144 144;
+    --color-info: 138 168 208;
 
     --color-ring: 177 156 217;
   }
@@ -65,19 +64,19 @@
   :root.light {
     color-scheme: light;
 
-    --color-bg: 250 250 252; /* #FAFAFC */
-    --color-bg-panel: 240 239 245; /* #F0EFF5 */
+    --color-bg: 250 250 252;
+    --color-bg-panel: 240 239 245;
     --color-bg-panel2: 255 255 255; /* white card on light panel */
-    --color-border: 224 222 230; /* #E0DEE6 */
+    --color-border: 224 222 230;
 
-    --color-fg: 42 41 51; /* #2A2933 */
-    --color-fg-muted: 130 128 142; /* #82808E */
+    --color-fg: 42 41 51;
+    --color-fg-muted: 130 128 142;
     --color-fg-subtle: 162 160 174;
 
-    --color-accent: 155 133 199; /* #9B85C7 */
+    --color-accent: 155 133 199;
     --color-accent-hover: 170 150 210;
     --color-accent-active: 136 114 180;
-    --color-accent-subtle: 238 232 248; /* #EEE8F8 */
+    --color-accent-subtle: 238 232 248;
     --color-accent-fg: 255 255 255;
 
     --color-success: 90 154 124;
@@ -112,5 +111,58 @@
   kbd,
   samp {
     @apply font-mono;
+  }
+}
+
+@layer utilities {
+  .plan-spine-future {
+    background: repeating-linear-gradient(
+      to bottom,
+      rgb(var(--color-border)) 0 4px,
+      transparent 4px 8px
+    );
+  }
+
+  .plan-node-pulse {
+    box-shadow: 0 0 0 4px rgb(var(--color-accent) / 0.16);
+    animation: plan-node-pulse 2.2s ease-in-out infinite;
+  }
+
+  .plan-twin-rails {
+    background:
+      repeating-linear-gradient(
+          to bottom,
+          rgb(var(--color-accent) / 0.5) 0 4px,
+          transparent 4px 8px
+        )
+        23px 0 / 2px 100% no-repeat,
+      repeating-linear-gradient(
+          to bottom,
+          rgb(var(--color-accent) / 0.5) 0 4px,
+          transparent 4px 8px
+        )
+        31px 0 / 2px 100% no-repeat,
+      rgb(var(--color-fg) / 0.03);
+  }
+
+  .plan-blueprint-grid {
+    background:
+      linear-gradient(rgb(var(--color-border) / 0.22) 1px, transparent 1px) 0 0 / 22px 22px,
+      linear-gradient(90deg, rgb(var(--color-border) / 0.22) 1px, transparent 1px) 0 0 / 22px 22px,
+      rgb(var(--color-bg));
+  }
+
+  .plan-minimap-node:focus-visible circle {
+    stroke-width: 3;
+  }
+
+  @keyframes plan-node-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 4px rgb(var(--color-accent) / 0.16);
+    }
+    50% {
+      box-shadow: 0 0 0 7px rgb(var(--color-accent) / 0.05);
+    }
   }
 }

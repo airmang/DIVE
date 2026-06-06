@@ -196,7 +196,7 @@ check(
     "onApprove",
     "onRequestRevision",
     "onDiscard",
-    "MermaidDiagram",
+    "PlanDraftDependencyMap",
     'data-testid="plan-critique-rep"',
   ]) &&
     includesAll(usePlan, ['"workspace_plan_approve"', '"workspace_plan_discard_plan"']) &&

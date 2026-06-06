@@ -1,11 +1,10 @@
-// Standalone Playwright verification for task 2-1 (workmap card tiles).
+// Standalone Playwright verification for the plan surface redesign.
 // Run with: node scripts/verify-workmap.mjs
 // Requires dev server running on http://localhost:1420.
 
 import { chromium } from "./_playwright-loader.mjs";
 
 const BASE = "http://localhost:1420";
-const results = [];
 let pass = 0;
 let fail = 0;
 
@@ -13,11 +12,9 @@ function check(name, cond, detail = "") {
   if (cond) {
     pass++;
     console.log(`  PASS  ${name}${detail ? "  " + detail : ""}`);
-    results.push({ name, pass: true });
   } else {
     fail++;
     console.log(`  FAIL  ${name}${detail ? "  " + detail : ""}`);
-    results.push({ name, pass: false, detail });
   }
 }
 
@@ -29,206 +26,75 @@ async function main() {
   });
   const page = await context.newPage();
 
-  console.log("1. Navigate to ?demo=workmap");
+  console.log("1. Navigate to ?demo=workmap (plan surface demo)");
   await page.goto(`${BASE}/?demo=workmap`);
-  await page.waitForSelector('[data-testid="demo-section-expanded"]');
+  await page.waitForSelector('[data-testid="plan-view"]');
 
-  console.log("\n2. 4 expanded cards in section 1");
-  const expandedCards = await page.$$eval(
-    '[data-testid="demo-section-expanded"] [data-testid="card-tile"]',
-    (els) =>
-      els.map((e) => ({
-        id: e.getAttribute("data-card-id"),
-        state: e.getAttribute("data-card-state"),
-      })),
+  console.log("\n2. Timeline renders seven equal-tier plan steps");
+  const stepRows = await page.$$eval('[data-testid="plan-step"]', (els) =>
+    els.map((el) => ({
+      id: el.getAttribute("data-plan-step-id"),
+      status: el.getAttribute("data-plan-step-status"),
+    })),
   );
-  check("section 1 has 4 cards", expandedCards.length === 4, JSON.stringify(expandedCards));
-
-  console.log("\n3. Expanded card bbox is 200x130");
-  const firstCardBox = await page.$eval(
-    '[data-testid="demo-section-expanded"] [data-testid="card-tile"]',
-    (el) => {
-      const r = el.getBoundingClientRect();
-      return { w: r.width, h: r.height };
-    },
+  check("7 plan steps rendered", stepRows.length === 7, JSON.stringify(stepRows));
+  check(
+    "blocked step present",
+    stepRows.some((step) => step.status === "blocked"),
   );
   check(
-    "expanded bbox 200x130",
-    firstCardBox.w === 200 && firstCardBox.h === 130,
-    `got ${firstCardBox.w}x${firstCardBox.h}`,
+    "in-progress step present",
+    stepRows.some((step) => step.status === "in_progress"),
   );
 
-  console.log("\n4. Collapsed card bbox is 200x36");
-  const collapsedBox = await page.$eval(
-    '[data-testid="demo-section-collapsed"] [data-testid="card-tile"]',
-    (el) => {
-      const r = el.getBoundingClientRect();
-      return { w: r.width, h: r.height };
-    },
-  );
-  check(
-    "collapsed bbox 200x36",
-    collapsedBox.w === 200 && collapsedBox.h === 36,
-    `got ${collapsedBox.w}x${collapsedBox.h}`,
-  );
+  console.log("\n3. Parallel group uses twin rail contract");
+  const groupCount = await page.$$eval('[data-testid="plan-parallel-group"]', (els) => els.length);
+  const groupButton = await page.$('[data-testid="plan-roadmap-start-group"]');
+  check("one parallel group rendered", groupCount === 1, `got ${groupCount}`);
+  check("parallel run button present", !!groupButton);
 
-  console.log("\n5. Section 3 has all 6 CardStates");
-  const sixStates = await page.$$eval(
-    '[data-testid="demo-section-all-states"] [data-testid="card-tile"]',
-    (els) => els.map((e) => e.getAttribute("data-card-state")),
+  console.log("\n4. Step actions map by status");
+  const resumeAction = await page.$(
+    '[data-plan-step-id="S-003"] [data-testid="plan-step-action"][data-action="resume"]',
   );
-  const expectedStates = [
-    "decomposed",
-    "instructed",
-    "verifying",
-    "verified",
-    "rejected",
-    "extended",
-  ];
-  const hasAllStates = expectedStates.every((s) => sixStates.includes(s));
-  check("6 unique CardStates present", hasAllStates, `got ${JSON.stringify(sixStates)}`);
-
-  console.log("\n6. Color bar uses distinct colors per state");
-  const barColors = await page.$$eval(
-    '[data-testid="demo-section-all-states"] [data-testid="card-tile"]',
-    (els) =>
-      els.map((el) => {
-        const bar = el.querySelector('[data-testid="card-color-bar"]');
-        return {
-          state: el.getAttribute("data-card-state"),
-          bg: bar ? getComputedStyle(bar).backgroundColor : null,
-        };
-      }),
+  const startAction = await page.$(
+    '[data-plan-step-id="S-004"] [data-testid="plan-step-action"][data-action="start"]',
   );
-  // decomposed/instructed/verifying/verified/rejected should all differ
-  const distinctColors = new Set(barColors.filter((c) => c.state !== "extended").map((c) => c.bg));
-  check(
-    "5 distinct color bar colors (excluding extended)",
-    distinctColors.size === 5,
-    JSON.stringify(barColors),
-  );
-
-  console.log("\n7. DIVE progress dots — completed count matches aria-valuenow");
-  const progressCheck = await page.$$eval(
-    '[data-testid="demo-section-all-states"] [data-testid="card-tile"]',
-    (els) =>
-      els.map((el) => {
-        const pb = el.querySelector('[data-testid="dive-progress"][data-mode="expanded"]');
-        if (!pb) return { state: el.getAttribute("data-card-state"), valid: false };
-        const now = Number(pb.getAttribute("aria-valuenow"));
-        const filled = pb.querySelectorAll('[data-completed="true"]').length;
-        return {
-          state: el.getAttribute("data-card-state"),
-          ariaValue: now,
-          filledDots: filled,
-          valid: now === filled && Number(pb.getAttribute("aria-valuemax")) === 4,
-        };
-      }),
-  );
-  const allValid = progressCheck.every((c) => c.valid);
-  check(
-    "DIVE dots valid (aria-valuenow == filled count, max=4)",
-    allValid,
-    JSON.stringify(progressCheck),
-  );
-
-  console.log("\n8. Tab navigates between cards");
-  await page.keyboard.press("Tab");
-  await page.waitForTimeout(100);
-  const focusedAfterFirstTab = await page.evaluate(() => {
-    const el = document.activeElement;
-    return {
-      tag: el?.tagName,
-      testId: el?.getAttribute("data-testid"),
-      cardId: el?.getAttribute("data-card-id"),
-    };
-  });
-  check(
-    "first Tab lands on a button element",
-    focusedAfterFirstTab.tag === "BUTTON",
-    JSON.stringify(focusedAfterFirstTab),
-  );
-
-  console.log("\n9. [+ 카드 추가] button disabled state toggles with canAddCard");
-  const initialDisabled = await page.$eval(
-    '[data-testid="demo-section-list"] [data-testid="workmap-add-card"]',
+  const lockedDisabled = await page.$eval(
+    '[data-plan-step-id="S-007"] [data-testid="plan-step-action"]',
     (el) => el.disabled,
   );
+  check("in-progress step has Resume", !!resumeAction);
+  check("ready step has Start", !!startAction);
+  check("blocked step action is disabled", lockedDisabled);
+
+  console.log("\n5. Minimap is collapsed by default, then opens with focusable nodes");
+  const initiallyOpen = await page.$('[data-testid="plan-minimap"]');
+  check("minimap collapsed by default", !initiallyOpen);
+  await page.click('[data-testid="plan-minimap-toggle"]');
+  await page.waitForSelector('[data-testid="plan-minimap"]');
+  const nodeInfo = await page.$$eval('[data-testid="plan-minimap-node"]', (els) =>
+    els.map((el) => ({
+      id: el.getAttribute("data-plan-step-id"),
+      tabIndex: el.getAttribute("tabindex"),
+      role: el.getAttribute("role"),
+    })),
+  );
+  check("7 minimap nodes rendered", nodeInfo.length === 7, JSON.stringify(nodeInfo));
   check(
-    "add card initially enabled (checkbox default)",
-    !initialDisabled,
-    `disabled=${initialDisabled}`,
+    "minimap nodes are keyboard buttons",
+    nodeInfo.every((node) => node.tabIndex === "0" && node.role === "button"),
   );
 
-  await page.click('[data-testid="demo-toggle-can-add"]');
-  await page.waitForTimeout(50);
-  const afterToggle = await page.$eval(
-    '[data-testid="demo-section-list"] [data-testid="workmap-add-card"]',
-    (el) => el.disabled,
+  console.log("\n6. Minimap node click moves focus to matching timeline row");
+  await page.click('[data-testid="plan-minimap-node"][data-plan-step-id="S-006"]');
+  await page.waitForTimeout(180);
+  const focusedStep = await page.evaluate(() =>
+    document.activeElement?.getAttribute("data-plan-step-id"),
   );
-  check("add card disabled after toggle off", afterToggle, `disabled=${afterToggle}`);
-
-  console.log("\n10. Horizontal scroll changes scrollLeft");
-  const scrollResult = await page.$eval(
-    '[data-testid="demo-section-list"] [data-testid="workmap-scroll-container"]',
-    (el) => {
-      const before = el.scrollLeft;
-      el.scrollBy({ left: 400, behavior: "instant" });
-      const after = el.scrollLeft;
-      return { before, after, width: el.clientWidth, scrollWidth: el.scrollWidth };
-    },
-  );
-  check(
-    "horizontal scroll changes scrollLeft",
-    scrollResult.after > scrollResult.before && scrollResult.scrollWidth > scrollResult.width,
-    JSON.stringify(scrollResult),
-  );
-
-  console.log("\n11. WorkmapStrip integration (section 5) renders cards");
-  const stripCards = await page.$$eval(
-    '[data-testid="demo-section-strip"] [data-testid="workmap-strip"] [data-testid="card-tile"]',
-    (els) => els.length,
-  );
-  check("strip renders 4 cards", stripCards === 4, `got ${stripCards}`);
-
-  console.log("\n12. Toggle strip collapse → card mode flips to collapsed");
-  await page.click('[data-testid="demo-section-strip"] [data-testid="workmap-toggle"]');
-  await page.waitForTimeout(300);
-  const stripMode = await page.$eval(
-    '[data-testid="demo-section-strip"] [data-testid="workmap-strip"]',
-    (el) => el.getAttribute("data-collapsed"),
-  );
-  check("strip now collapsed", stripMode === "true", `data-collapsed=${stripMode}`);
-
-  console.log("\n13. Dark/Light theme toggle");
-  const initialTheme = await page.evaluate(() => document.documentElement.className);
-  await page.click('button[aria-label*="모드"]');
-  await page.waitForTimeout(100);
-  const newTheme = await page.evaluate(() => document.documentElement.className);
-  check(
-    "theme toggle flips html class",
-    initialTheme !== newTheme,
-    `${initialTheme} -> ${newTheme}`,
-  );
-
-  console.log("\n14. Cards still render in light mode");
-  const lightCards = await page.$$eval('[data-testid="card-tile"]', (els) => els.length);
-  check("cards render after theme flip", lightCards > 0, `${lightCards} cards`);
-
-  console.log("\n15. ?demo=showcase still works");
-  await page.goto(`${BASE}/?demo=showcase`);
-  await page.waitForTimeout(300);
-  const showcaseHeading = await page.$eval("h1", (el) => el.textContent);
-  check("showcase page heading visible", !!showcaseHeading?.includes("DIVE"), showcaseHeading);
-
-  console.log("\n16. Default route (no demo param) renders MainShell");
-  await page.goto(BASE);
-  await page.waitForTimeout(300);
-  const mainShellStrip = await page.$('[data-testid="workmap-strip"]');
-  check("main shell visible at /", !!mainShellStrip, mainShellStrip ? "present" : "missing");
+  check("timeline row S-006 focused", focusedStep === "S-006", `focused=${focusedStep}`);
 
   await browser.close();
-
   console.log(`\n\nTotal: ${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }

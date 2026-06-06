@@ -34,14 +34,6 @@ export interface CardTileProps {
   disabled?: boolean;
 }
 
-export interface WorkmapCardListProps {
-  cards: CardTileData[];
-  mode: CardTileMode;
-  canAddCard?: boolean;
-  onAddCard?: () => void;
-  onCardClick?: (card: CardTileData) => void;
-}
-
 export interface VerifyLogView {
   intent_match: boolean;
   test_result: "pass" | "fail" | "skipped";

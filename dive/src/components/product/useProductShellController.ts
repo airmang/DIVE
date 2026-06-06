@@ -534,8 +534,7 @@ export function useProductShellController() {
     (decision: ApprovalDecision) => {
       if (!currentCard) return;
       const judgment = { ...decision, decided_at: Date.now() };
-      const action =
-        decision.outcome === "revision_requested" ? "request_changes" : "approve";
+      const action = decision.outcome === "revision_requested" ? "request_changes" : "approve";
       void roadmapModel
         .transitionStep(currentCard.id, action, { judgment })
         .then(() => {
@@ -715,7 +714,11 @@ export function useProductShellController() {
       files: currentFiles,
       changeSummary: currentCard?.changeSummary ?? null,
       emptyReason:
-        currentFiles.length > 0 ? null : hasBlockedWithoutOutput ? "blocked_no_output" : "no_output",
+        currentFiles.length > 0
+          ? null
+          : hasBlockedWithoutOutput
+            ? "blocked_no_output"
+            : "no_output",
       replaceFiles: true,
     });
   }, [cards, currentCard, openSlideIn, planRoadmap.steps, roadmapModel]);
@@ -800,15 +803,29 @@ export function useProductShellController() {
     return undefined;
   }, [currentProjectId, currentSessionId, handleEmptyStateAction, t]);
 
+  const handleCreatePlanFromRail = useCallback(() => {
+    if (currentProjectId === null || currentSessionId === null) {
+      handleEmptyStateAction();
+      return;
+    }
+    if (!hasConnectedProvider) {
+      openSettingsRoute();
+      return;
+    }
+    requestChatFocus();
+  }, [
+    currentProjectId,
+    currentSessionId,
+    handleEmptyStateAction,
+    hasConnectedProvider,
+    openSettingsRoute,
+    requestChatFocus,
+  ]);
+
   const sendMessage = useCallback(
     (text: string) => {
       const effectivePlanAccepted = planAccepted || activePlanStepIdForChat !== undefined;
-      void chat.sendUserMessage(
-        text,
-        undefined,
-        effectivePlanAccepted,
-        activePlanStepIdForChat,
-      );
+      void chat.sendUserMessage(text, undefined, effectivePlanAccepted, activePlanStepIdForChat);
     },
     [activePlanStepIdForChat, chat, planAccepted],
   );
@@ -1153,12 +1170,14 @@ export function useProductShellController() {
     },
     roadmap: {
       visible: roadmapModel.steps.length > 0 || planAccepted,
+      showEmpty: currentProjectId !== null && !planAccepted && roadmapModel.steps.length === 0,
       steps: roadmapModel.steps,
       activeStepId: roadmapModel.activeStepId,
       progress: roadmapModel.progress,
       goal: generatedPlanDraft?.plan.goal ?? plan.status?.plan_summary ?? null,
       onSelectStep: handleStepSelect,
       onPlanStepOpened: rememberJustOpenedPlanStepMapping,
+      onCreatePlan: handleCreatePlanFromRail,
     },
     planRoadmap,
     stepDetail: {
