@@ -44,12 +44,14 @@ export function PlanStepActions({ item, busy, onStart, onResume, onOpen }: PlanS
     );
   }
 
-  if (item.status === "in_progress" && sessionId !== null) {
+  if (item.status === "in_progress") {
+    // Resume into the live session when present; otherwise re-open the step so an
+    // in-progress step is never stranded behind a disabled "Locked" action.
     return (
       <button
         type="button"
         className={actionClass(true)}
-        onClick={() => onResume(sessionId)}
+        onClick={() => (sessionId !== null ? onResume(sessionId) : onOpen())}
         disabled={busy}
         data-testid="plan-step-action"
         data-action="resume"

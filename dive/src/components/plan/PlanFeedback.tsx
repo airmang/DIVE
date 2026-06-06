@@ -82,7 +82,7 @@ export function PlanFailure({
             {t("roadmap.action_failure.title", { count: failures.length })}
           </div>
           {failures.map((failure) => (
-            <div key={`${failure.occurredAt}:${failure.stepLabel}`} className="mt-1">
+            <div key={`${failure.occurredAt}:${failure.stepLabel}:${failure.message}`} className="mt-1">
               <span className="font-medium text-fg">{failure.stepLabel}</span>
               <span className="text-fg-muted"> - </span>
               {failure.message}

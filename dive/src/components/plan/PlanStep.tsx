@@ -149,7 +149,7 @@ export const PlanStep = forwardRef<HTMLDivElement, PlanStepProps>(function PlanS
           <div
             className={cn(
               "mt-2 flex flex-wrap items-center gap-2 font-mono text-[10.5px]",
-              "text-fg",
+              item.blockedDependencies.length > 0 ? "text-danger" : "text-fg-muted",
             )}
           >
             <GitBranch className="h-3.5 w-3.5" aria-hidden />

@@ -19,19 +19,32 @@ interface PlanTimelineProps {
 
 function entriesFor(steps: PlanRoadmapStep[]): PlanTimelineEntry[] {
   const sorted = [...steps].sort((a, b) => a.step.position - b.step.position);
+  const consumed = new Set<number>();
   const entries: PlanTimelineEntry[] = [];
   for (let index = 0; index < sorted.length; index += 1) {
     const item = sorted[index];
+    if (consumed.has(item.step.id)) continue;
     const bucket = item.parallelBucket;
     if (!bucket) {
       entries.push({ key: String(item.step.id), type: "step", steps: [item] });
       continue;
     }
-    const group = [item];
-    while (sorted[index + 1]?.parallelBucket === bucket) {
-      group.push(sorted[index + 1]);
-      index += 1;
+    // Explicit parallel groups bind ALL members regardless of position adjacency;
+    // other buckets (auto) only bind a contiguous run so independent steps keep their place.
+    let group: PlanRoadmapStep[];
+    if (bucket.startsWith("explicit:")) {
+      group = sorted.filter((candidate) => candidate.parallelBucket === bucket);
+    } else {
+      group = [item];
+      while (
+        sorted[index + 1]?.parallelBucket === bucket &&
+        !consumed.has(sorted[index + 1].step.id)
+      ) {
+        group.push(sorted[index + 1]);
+        index += 1;
+      }
     }
+    group.forEach((member) => consumed.add(member.step.id));
     entries.push(
       group.length > 1
         ? { key: bucket, type: "parallel", steps: group, bucket }

@@ -16,13 +16,18 @@ function stringArray(value: unknown): string[] {
 function pointsFor(steps: PlanStepRow[]) {
   const byId = new Map(steps.map((step) => [step.step_id, step]));
   const levels = new Map<string, number>();
+  const visiting = new Set<string>();
   const levelFor = (step: PlanStepRow): number => {
     const cached = levels.get(step.step_id);
     if (cached !== undefined) return cached;
+    // Guard against cyclic/self dependencies so malformed data can't infinite-recurse.
+    if (visiting.has(step.step_id)) return 0;
+    visiting.add(step.step_id);
     const deps = stringArray(step.dependencies)
       .map((id) => byId.get(id))
       .filter((dep): dep is PlanStepRow => Boolean(dep));
     const level = deps.length === 0 ? 0 : Math.max(...deps.map(levelFor)) + 1;
+    visiting.delete(step.step_id);
     levels.set(step.step_id, level);
     return level;
   };

@@ -37,11 +37,11 @@ function summarizePlan(steps: PlanRoadmapStep[]): PlanSummary {
 }
 
 function currentStepFor(steps: PlanRoadmapStep[]) {
+  // No actionable step (e.g. plan fully complete) → no "current" highlight/auto-scroll.
   return (
     steps.find((item) => item.status === "in_progress") ??
     steps.find((item) => item.status === "ready") ??
     steps.find((item) => item.status === "blocked") ??
-    steps[0] ??
     null
   );
 }
