@@ -315,6 +315,19 @@
     "blocked_pattern": "Pattern:",
     "blocked_explain": "This command is blocked by the safety policy (§9.2) and cannot run, with or without your approval."
   },
+  "get_started": {
+    "title": "Get started",
+    "subtitle": "Finish these 3 steps to start chatting.",
+    "project_title": "Open a project",
+    "project_desc": "Pick the local folder DIVE will work in.",
+    "project_action": "Open project",
+    "provider_title": "Connect AI",
+    "provider_desc": "Connect the AI assistant that will handle your chats.",
+    "provider_action": "Connect AI",
+    "session_title": "Start your first session",
+    "session_desc": "Create a chat session to describe your goal.",
+    "session_action": "Start session"
+  },
   "card_state": {
     "decomposed": {
       "label": "Waiting",
