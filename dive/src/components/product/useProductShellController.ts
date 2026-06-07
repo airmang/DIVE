@@ -21,6 +21,11 @@ import {
 } from "../../stores/workmap";
 import { selectHasConnectedProvider, useProjectSessionStore } from "../../stores/project-session";
 import { cockpitProviderLabel } from "../../lib/provider-format";
+import type {
+  GetStartedModel,
+  GetStartedStepKey,
+  GetStartedStepStatus,
+} from "./GetStartedChecklist";
 import { useToast } from "../toast/toast-context";
 import { getCardStateMeta } from "../workmap/card-state-meta";
 import { useT } from "../../i18n";
@@ -44,7 +49,6 @@ import { useProductShellDialogs } from "./useProductShellDialogs";
 import { PlanDraftRecoveryScreen } from "./PlanDraftRecoveryScreen";
 import { SocraticInterviewPanel } from "./SocraticInterviewPanel";
 
-const ONBOARDING_DISMISSED_PROJECT_KEY = "dive:onboarding-dismissed-project-id";
 const PlanDraftApprovalScreen = lazy(() =>
   import("./PlanDraftApprovalScreen").then((module) => ({
     default: module.PlanDraftApprovalScreen,
@@ -56,20 +60,6 @@ type AddStepRouteDecision = Extract<RouteDecision, { action: "add_step" }>;
 interface PendingPlanRouteConfirmation {
   decision: AddStepRouteDecision;
   resolve: (approved: boolean) => void;
-}
-
-function readDismissedOnboardingProjectId(): number | null {
-  if (typeof window === "undefined") return null;
-  const raw = window.sessionStorage.getItem(ONBOARDING_DISMISSED_PROJECT_KEY);
-  if (!raw) return null;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function writeDismissedOnboardingProjectId(projectId: number | null) {
-  if (typeof window === "undefined") return;
-  if (projectId === null) window.sessionStorage.removeItem(ONBOARDING_DISMISSED_PROJECT_KEY);
-  else window.sessionStorage.setItem(ONBOARDING_DISMISSED_PROJECT_KEY, String(projectId));
 }
 
 function checkpointToRecoveryItem(row: CheckpointRowPayload): RecoveryCheckpointItem {
@@ -159,12 +149,8 @@ export function useProductShellController() {
   const createSession = useProjectSessionStore((s) => s.createSession);
   const openProject = useProjectSessionStore((s) => s.openProject);
   const selectProject = useProjectSessionStore((s) => s.selectProject);
-  const isOnboarded = useProjectSessionStore((s) => s.isOnboarded);
   const { toast } = useToast();
   const { toggleTheme } = useTheme();
-  const [dismissedOnboardingProjectId, setDismissedOnboardingProjectId] = useState<number | null>(
-    readDismissedOnboardingProjectId,
-  );
 
   useEffect(() => {
     if (!projectSessionLoaded) {
@@ -175,28 +161,6 @@ export function useProductShellController() {
   }, [projectSessionLoaded, loadProjectSession]);
 
   const isDemoRoute = import.meta.env.DEV && hasRecognizedDemoRoute();
-
-  useEffect(() => {
-    if (!hasConnectedProvider) return;
-    writeDismissedOnboardingProjectId(null);
-    setDismissedOnboardingProjectId(null);
-  }, [hasConnectedProvider]);
-
-  useEffect(() => {
-    if (!projectSessionLoaded || isDemoRoute || currentProjectId === null) return;
-    if (dismissedOnboardingProjectId === currentProjectId) return;
-    if (!isOnboarded() && !hasConnectedProvider) {
-      setOnboardingOpen(true);
-    }
-  }, [
-    projectSessionLoaded,
-    isDemoRoute,
-    currentProjectId,
-    dismissedOnboardingProjectId,
-    hasConnectedProvider,
-    isOnboarded,
-    setOnboardingOpen,
-  ]);
 
   const roadmapModel = useRoadmap(currentSessionId);
   const planRoadmap = usePlanRoadmap(currentProjectId);
@@ -521,12 +485,8 @@ export function useProductShellController() {
   const handleOnboardingOpenChange = useCallback(
     (open: boolean) => {
       setOnboardingOpen(open);
-      if (!open && currentProjectId !== null && !hasConnectedProvider) {
-        writeDismissedOnboardingProjectId(currentProjectId);
-        setDismissedOnboardingProjectId(currentProjectId);
-      }
     },
-    [currentProjectId, hasConnectedProvider, setOnboardingOpen],
+    [setOnboardingOpen],
   );
 
   const pushChatComposerSeed = useChatComposerStore((s) => s.pushSeed);
@@ -810,6 +770,70 @@ export function useProductShellController() {
     }
     return undefined;
   }, [currentProjectId, currentSessionId, handleEmptyStateAction, t]);
+
+  // C2: one cockpit-center checklist (project -> AI -> session) replaces the
+  // scattered first-run anchors. null once all prerequisites are met (or on demo
+  // routes); otherwise the first unmet step is "current".
+  const getStarted = useMemo<GetStartedModel | null>(() => {
+    if (isDemoRoute || !projectSessionLoaded) return null;
+    const hasProject = currentProjectId !== null;
+    const hasProvider = hasConnectedProvider;
+    const hasSession = currentSessionId !== null;
+    if (hasProject && hasProvider && hasSession) return null;
+
+    const firstIncomplete: GetStartedStepKey = !hasProject
+      ? "project"
+      : !hasProvider
+        ? "provider"
+        : "session";
+    const statusOf = (key: GetStartedStepKey, done: boolean): GetStartedStepStatus =>
+      done ? "done" : key === firstIncomplete ? "current" : "pending";
+
+    return {
+      steps: [
+        {
+          key: "project",
+          status: statusOf("project", hasProject),
+          title: t("get_started.project_title"),
+          description: t("get_started.project_desc"),
+          doneHint: currentProjectName ?? undefined,
+          actionLabel: t("get_started.project_action"),
+          onAction: handleEmptyStateAction,
+        },
+        {
+          key: "provider",
+          status: statusOf("provider", hasProvider),
+          title: t("get_started.provider_title"),
+          description: t("get_started.provider_desc"),
+          doneHint: cockpitProviderLabel(providers) ?? undefined,
+          actionLabel: t("get_started.provider_action"),
+          onAction: () => setOnboardingOpen(true),
+        },
+        {
+          key: "session",
+          status: statusOf("session", hasSession),
+          title: t("get_started.session_title"),
+          description: t("get_started.session_desc"),
+          actionLabel: t("get_started.session_action"),
+          onAction: () => {
+            if (currentProjectId !== null) void createSession(currentProjectId);
+          },
+        },
+      ],
+    };
+  }, [
+    isDemoRoute,
+    projectSessionLoaded,
+    currentProjectId,
+    hasConnectedProvider,
+    currentSessionId,
+    currentProjectName,
+    providers,
+    handleEmptyStateAction,
+    setOnboardingOpen,
+    createSession,
+    t,
+  ]);
 
   const handleCreatePlanFromRail = useCallback(() => {
     if (currentProjectId === null || currentSessionId === null) {
@@ -1104,7 +1128,7 @@ export function useProductShellController() {
   return {
     projectName: currentProjectName,
     providerBanner: {
-      show: showProviderSetupBanner,
+      show: showProviderSetupBanner && getStarted === null,
       title: t("chat.provider_setup_title"),
       description: t("stage.gate_no_provider"),
       actionLabel: t("stage.action_open_settings"),
@@ -1113,6 +1137,7 @@ export function useProductShellController() {
     conversation: {
       messages: chat.messages,
       messagesLoading: chat.loadingHistory,
+      getStarted,
       cardTitle: currentCard ? currentCard.title : null,
       sessionTitle: currentSessionTitle,
       cardStateLabel,
