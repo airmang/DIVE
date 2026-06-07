@@ -189,6 +189,26 @@
       "cancel_requested": "중지 요청됨"
     }
   },
+  "runtime": {
+    "supervised_label": "감독 모드",
+    "supervised_tooltip": "DIVE는 에이전트를 감독 런타임에서 실행합니다. 파일 수정·명령 실행 등 에이전트가 하려는 모든 작업은 먼저 당신의 승인이 필요합니다. 통제권은 당신에게 있습니다."
+  },
+  "tool_call": {
+    "status": {
+      "pending": "승인 대기",
+      "approved": "승인됨",
+      "denied": "거부됨",
+      "blocked": "차단됨"
+    },
+    "tool_label": "도구:",
+    "show_details": "자세히 보기",
+    "denied_title": "DIVE가 실행하지 않았습니다.",
+    "denied_plan_first": "계획 단계에서는 정상입니다: 파일 변경과 명령은 계획을 승인할 때까지 대기합니다.",
+    "blocked_title": "차단된 명령 — 실행 불가",
+    "blocked_rule": "차단 규칙:",
+    "blocked_pattern": "패턴:",
+    "blocked_explain": "이 명령은 안전 정책(§9.2)에 의해 승인 여부와 무관하게 실행이 차단됩니다."
+  },
   "card_state": {
     "decomposed": {
       "label": "대기",

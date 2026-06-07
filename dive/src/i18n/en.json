@@ -189,6 +189,26 @@
       "cancel_requested": "Stop requested"
     }
   },
+  "runtime": {
+    "supervised_label": "Supervised",
+    "supervised_tooltip": "DIVE runs the agent in a supervised runtime. Every action it wants to take — editing files, running commands — needs your approval first. You stay in control."
+  },
+  "tool_call": {
+    "status": {
+      "pending": "Awaiting approval",
+      "approved": "Approved",
+      "denied": "Denied",
+      "blocked": "Blocked"
+    },
+    "tool_label": "Tool:",
+    "show_details": "Show details",
+    "denied_title": "DIVE did not run this.",
+    "denied_plan_first": "This is expected during planning: file changes and commands wait until you approve a plan.",
+    "blocked_title": "Blocked command — cannot run",
+    "blocked_rule": "Block rule:",
+    "blocked_pattern": "Pattern:",
+    "blocked_explain": "This command is blocked by the safety policy (§9.2) and cannot run, with or without your approval."
+  },
   "card_state": {
     "decomposed": {
       "label": "Waiting",

@@ -4,6 +4,7 @@ import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { LearningHint } from "../ui/learning-hint";
 import { ChatInput } from "../chat/ChatInput";
+import { RuntimeBadge } from "./RuntimeBadge";
 import { MessageList } from "../chat/MessageList";
 import type { ChatMessage } from "../chat/types";
 import type { PromptContext } from "../../lib/prompt-templates";
@@ -131,18 +132,21 @@ export function ChatArea({
             </span>
           ) : null}
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleOpenSlidePanel}
-          aria-label={t("chat.slide_panel_aria")}
-        >
-          <Code />
-          <span>{t("chat.code_label")}</span>
-          <span className="text-fg-subtle">/</span>
-          <Eye />
-          <span>{t("chat.preview_label")}</span>
-        </Button>
+        <div className="flex shrink-0 items-center gap-3">
+          <RuntimeBadge />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleOpenSlidePanel}
+            aria-label={t("chat.slide_panel_aria")}
+          >
+            <Code />
+            <span>{t("chat.code_label")}</span>
+            <span className="text-fg-subtle">/</span>
+            <Eye />
+            <span>{t("chat.preview_label")}</span>
+          </Button>
+        </div>
       </header>
 
       {stageBanner ? (
