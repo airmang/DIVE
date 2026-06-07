@@ -83,6 +83,9 @@
     "provider_openai_hint": "GPT models",
     "provider_openrouter_hint": "Many providers in one place",
     "provider_opencode_zen_hint": "Free beta",
+    "provider_codex_hint": "ChatGPT login · no API key",
+    "codex_signin": "Sign in with ChatGPT",
+    "codex_note": "DIVE opens a secure sign-in window — no API key needed.",
     "error_unauthorized": "The key is invalid or lacks permission. ({{message}})",
     "error_timeout": "The network request timed out. ({{message}})",
     "error_network": "Could not connect because of a network problem. ({{message}})"

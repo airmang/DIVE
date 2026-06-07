@@ -9,9 +9,15 @@ import {
 } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { CodexOAuthDialog } from "../codex/CodexOAuthDialog";
 import { useProjectSessionStore } from "../../stores/project-session";
 import { useT } from "../../i18n";
 import { classifyError } from "../../lib/error-classify";
+
+function hasTauriRuntime(): boolean {
+  if (typeof window === "undefined") return false;
+  return Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
+}
 
 interface Props {
   open: boolean;
@@ -35,6 +41,7 @@ const PROVIDER_CHOICES: Array<{ kind: string; label: string; hintKey: string }> 
     label: "opencode zen",
     hintKey: "onboarding.provider_opencode_zen_hint",
   },
+  { kind: "codex", label: "Codex", hintKey: "onboarding.provider_codex_hint" },
 ];
 
 function onboardingErrorMessage(err: unknown, t: ReturnType<typeof useT>) {
@@ -45,10 +52,31 @@ function onboardingErrorMessage(err: unknown, t: ReturnType<typeof useT>) {
 export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
   const t = useT();
   const connectProvider = useProjectSessionStore((s) => s.connectProvider);
+  const loadAll = useProjectSessionStore((s) => s.loadAll);
   const [kind, setKind] = useState("anthropic");
   const [apiKey, setApiKey] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [codexOpen, setCodexOpen] = useState(false);
+  const isCodex = kind === "codex";
+
+  const handleCodexConnected = (connected: boolean) => {
+    void (async () => {
+      try {
+        if (!hasTauriRuntime() && connected) {
+          await connectProvider("codex", "mock-codex-oauth");
+        } else {
+          await loadAll();
+        }
+      } catch (err) {
+        console.warn("onboarding codex connect refresh failed:", err);
+      } finally {
+        setCodexOpen(false);
+        onOpenChange(false);
+        onConnected?.();
+      }
+    })();
+  };
 
   const handleConnect = async () => {
     if (!apiKey.trim()) {
@@ -84,7 +112,7 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
             <label className="text-xs font-medium text-fg-muted" htmlFor="onb-kind">
               {t("onboarding.provider_label")}
             </label>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-testid="onb-provider-list">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" data-testid="onb-provider-list">
               {PROVIDER_CHOICES.map((p) => (
                 <button
                   key={p.kind}
@@ -103,15 +131,17 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
                 </button>
               ))}
             </div>
-            <a
-              href={PROVIDER_LINKS[kind]}
-              target="_blank"
-              rel="noreferrer"
-              className="text-[10px] text-accent underline underline-offset-2"
-              data-testid="onb-key-link"
-            >
-              {t("onboarding.key_link")}
-            </a>
+            {PROVIDER_LINKS[kind] ? (
+              <a
+                href={PROVIDER_LINKS[kind]}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[10px] text-accent underline underline-offset-2"
+                data-testid="onb-key-link"
+              >
+                {t("onboarding.key_link")}
+              </a>
+            ) : null}
             {kind === "opencode_zen" ? (
               <p className="text-[10px] text-warn" data-testid="onb-opencode-warning">
                 {t("onboarding.opencode_warning")} (
@@ -127,21 +157,34 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
               </p>
             ) : null}
           </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-fg-muted" htmlFor="onb-api-key">
-              {t("onboarding.api_key_label")}
-            </label>
-            <Input
-              id="onb-api-key"
-              data-testid="onb-api-key"
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-..."
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </div>
+          {isCodex ? (
+            <div className="flex flex-col gap-2" data-testid="onb-codex-block">
+              <p className="text-xs text-fg-muted">{t("onboarding.codex_note")}</p>
+              <Button
+                variant="outline"
+                onClick={() => setCodexOpen(true)}
+                data-testid="onb-codex-signin"
+              >
+                {t("onboarding.codex_signin")}
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-fg-muted" htmlFor="onb-api-key">
+                {t("onboarding.api_key_label")}
+              </label>
+              <Input
+                id="onb-api-key"
+                data-testid="onb-api-key"
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="sk-..."
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+          )}
           {error ? (
             <p className="text-xs text-danger" role="alert" data-testid="onb-error">
               {error}
@@ -152,11 +195,18 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
           <Button variant="ghost" onClick={handleSkip} data-testid="onb-skip" disabled={submitting}>
             {t("onboarding.skip")}
           </Button>
-          <Button onClick={handleConnect} data-testid="onb-connect" disabled={submitting}>
-            {submitting ? t("onboarding.connecting") : t("onboarding.connect")}
-          </Button>
+          {isCodex ? null : (
+            <Button onClick={handleConnect} data-testid="onb-connect" disabled={submitting}>
+              {submitting ? t("onboarding.connecting") : t("onboarding.connect")}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
+      <CodexOAuthDialog
+        open={codexOpen}
+        onOpenChange={setCodexOpen}
+        onConnected={(status) => handleCodexConnected(status.connected)}
+      />
     </Dialog>
   );
 }

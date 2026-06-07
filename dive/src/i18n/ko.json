@@ -83,6 +83,9 @@
     "provider_openai_hint": "GPT 계열",
     "provider_openrouter_hint": "여러 제공사 통합",
     "provider_opencode_zen_hint": "무료 베타",
+    "provider_codex_hint": "ChatGPT 로그인 · API 키 불필요",
+    "codex_signin": "ChatGPT로 로그인",
+    "codex_note": "안전한 로그인 창이 열립니다 — API 키가 필요 없습니다.",
     "error_unauthorized": "키가 잘못되었거나 권한이 없습니다. ({{message}})",
     "error_timeout": "네트워크 시간이 초과되었습니다. ({{message}})",
     "error_network": "네트워크 문제로 연결하지 못했습니다. ({{message}})"
