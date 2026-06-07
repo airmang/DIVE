@@ -9,7 +9,7 @@ import type {
   ToolResultMessageData,
   UserMessageData,
 } from "../components/chat/types";
-import { useLocaleStore } from "../i18n";
+import { translate, useLocaleStore } from "../i18n";
 
 /**
  * Mirror of `AgentEvent` (Rust src-tauri/src/agent/event.rs). Variants match
@@ -132,6 +132,8 @@ interface State {
   error: string | null;
   runStartedAt: number | null;
   cancelRequested: boolean;
+  /** True while a session's persisted history is being fetched (drives the skeleton). */
+  loadingHistory: boolean;
 }
 
 export interface SendUserMessageContext {
@@ -156,6 +158,7 @@ export function useChatSession(
     error: null,
     runStartedAt: null,
     cancelRequested: false,
+    loadingHistory: false,
   });
   const apiRef = useRef<TauriApi | null>(null);
   const onAgentEventRef = useRef<typeof onAgentEvent>(onAgentEvent);
@@ -196,10 +199,7 @@ export function useChatSession(
   const armStallTimer = useCallback(() => {
     clearStallTimer();
     stallTimerRef.current = setTimeout(() => {
-      appendErrorMessage(
-        "AI 응답이 일정 시간 동안 진행되지 않았습니다. 네트워크나 모델 상태를 확인한 뒤 다시 시도하세요.",
-        true,
-      );
+      appendErrorMessage(translate(useLocaleStore.getState().locale, "chat.stall_timeout"), true);
     }, 45000);
   }, [appendErrorMessage, clearStallTimer]);
 
@@ -214,6 +214,7 @@ export function useChatSession(
       error: null,
       runStartedAt: null,
       cancelRequested: false,
+      loadingHistory: sessionId !== null,
     });
     (async () => {
       if (sessionId === null) {
@@ -224,7 +225,7 @@ export function useChatSession(
       if (cancelled) return;
       apiRef.current = api;
       if (!api) {
-        setState((s) => ({ ...s, isTauri: false }));
+        setState((s) => ({ ...s, isTauri: false, loadingHistory: false }));
         return;
       }
       try {
@@ -235,12 +236,14 @@ export function useChatSession(
           messages: history,
           isTauri: true,
           error: null,
+          loadingHistory: false,
         }));
       } catch (err) {
         if (cancelled) return;
         setState((s) => ({
           ...s,
           isTauri: true,
+          loadingHistory: false,
           error: err instanceof Error ? err.message : String(err),
         }));
       }

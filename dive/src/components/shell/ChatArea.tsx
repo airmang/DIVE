@@ -1,14 +1,37 @@
-import { AlertCircle, Code, Eye, Lightbulb, X } from "lucide-react";
+import { AlertCircle, Lightbulb, MessagesSquare, PanelRight, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { LearningHint } from "../ui/learning-hint";
+import { Skeleton } from "../ui/skeleton";
 import { ChatInput } from "../chat/ChatInput";
 import { RuntimeBadge } from "./RuntimeBadge";
 import { MessageList } from "../chat/MessageList";
 import type { ChatMessage } from "../chat/types";
 import type { PromptContext } from "../../lib/prompt-templates";
 import { useT } from "../../i18n";
+
+/** Placeholder rows shown while a session's persisted history is loading. */
+function MessageHistorySkeleton({ label }: { label: string }) {
+  return (
+    <div
+      className="flex h-full flex-col gap-4 px-6 py-4"
+      role="status"
+      aria-busy="true"
+      aria-label={label}
+      data-testid="chat-history-skeleton"
+    >
+      {[0, 1, 2].map((row) => (
+        <div key={row} className={cn("flex", row % 2 === 0 ? "justify-start" : "justify-end")}>
+          <div className="flex w-full max-w-[80%] flex-col gap-2">
+            <Skeleton height="0.75rem" width="35%" />
+            <Skeleton height="3.5rem" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export type ChatStageBannerTone = "info" | "warn" | "success";
 
@@ -20,6 +43,7 @@ export interface ChatStageBanner {
 interface ChatAreaProps {
   className?: string;
   messages?: ChatMessage[];
+  messagesLoading?: boolean;
   cardTitle?: string | null;
   sessionTitle?: string | null;
   cardStateLabel?: string | null;
@@ -55,6 +79,7 @@ interface ChatAreaProps {
 export function ChatArea({
   className,
   messages,
+  messagesLoading = false,
   cardTitle,
   sessionTitle,
   cardStateLabel,
@@ -140,11 +165,8 @@ export function ChatArea({
             onClick={handleOpenSlidePanel}
             aria-label={t("chat.slide_panel_aria")}
           >
-            <Code />
-            <span>{t("chat.code_label")}</span>
-            <span className="text-fg-subtle">/</span>
-            <Eye />
-            <span>{t("chat.preview_label")}</span>
+            <PanelRight />
+            <span>{t("chat.code_preview_label")}</span>
           </Button>
         </div>
       </header>
@@ -169,6 +191,8 @@ export function ChatArea({
       <div className="flex-1 min-h-0 overflow-hidden">
         {planDraftApproval ? (
           planDraftApproval
+        ) : messagesLoading && !hasConversation ? (
+          <MessageHistorySkeleton label={t("chat.history_loading_aria")} />
         ) : hasConversation ? (
           <MessageList
             messages={messages}
@@ -177,14 +201,15 @@ export function ChatArea({
             onDenyToolCall={onDenyToolCall}
           />
         ) : (
-          <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 px-6 text-center">
+          <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 px-6 text-center">
+            <MessagesSquare className="h-10 w-10 text-fg-subtle" aria-hidden />
             <p className="text-xl font-semibold text-fg">
               {emptyState?.title ?? t("chat.empty_default_title")}
             </p>
             <p className="text-sm text-fg-muted">
               {emptyState?.description ?? t("chat.empty_default_description")}
             </p>
-            {!emptyState?.description ? (
+            {!emptyState?.actionLabel ? (
               <LearningHint className="text-sm">{t("chat.empty_hint")}</LearningHint>
             ) : null}
             {emptyState?.actionLabel && emptyState.onAction ? (

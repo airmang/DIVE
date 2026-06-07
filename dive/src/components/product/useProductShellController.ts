@@ -1112,6 +1112,7 @@ export function useProductShellController() {
     },
     conversation: {
       messages: chat.messages,
+      messagesLoading: chat.loadingHistory,
       cardTitle: currentCard ? currentCard.title : null,
       sessionTitle: currentSessionTitle,
       cardStateLabel,
