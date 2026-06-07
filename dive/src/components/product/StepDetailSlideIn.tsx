@@ -31,12 +31,6 @@ const STATUS_CLASS: Record<RoadmapStepStatus, string> = {
   shipped: "border-success/70 bg-success/15 text-success",
 };
 
-const TEST_RESULT_LABEL: Record<VerifyLogView["test_result"], string> = {
-  pass: "테스트 통과",
-  fail: "테스트 실패",
-  skipped: "외부 테스트 없음",
-};
-
 function statusIcon(status: RoadmapStepStatus) {
   if (status === "shipped" || status === "done") return <CheckCircle2 aria-hidden />;
   if (status === "review") return <Clock3 aria-hidden />;
@@ -144,13 +138,12 @@ export function StepDetailSlideIn({
             {isReview ? (
               <div className="flex flex-col gap-2">
                 <LearningHint data-testid="trust-calibration-hint">
-                  AI가 틀렸을 수 있는 지점이 있다면 어디일까요? 한 곳을 짚어본 뒤
-                  판단하세요.
+                  {t("roadmap.step_detail.trust_calibration_hint")}
                 </LearningHint>
                 <ApprovalJudgment
                   prompt={
                     verifyLog
-                      ? "AI는 의도 충족이라 주장합니다. 직접 확인했을 때 동의하나요?"
+                      ? t("roadmap.step_detail.approval_prompt")
                       : undefined
                   }
                   onDecide={onApprovalDecision}
@@ -290,6 +283,7 @@ interface VerificationBlockProps {
 }
 
 function VerificationBlock({ verifyLog, verifyState, verifyError }: VerificationBlockProps) {
+  const t = useT();
   if (verifyState === "running") {
     return <p className="text-xs text-fg-muted">…</p>;
   }
@@ -317,8 +311,8 @@ function VerificationBlock({ verifyLog, verifyState, verifyError }: Verification
           data-intent-match={verifyLog.intent_match ? "true" : "false"}
         >
           {verifyLog.intent_match
-            ? "AI 자가보고: 의도 충족(주장)"
-            : "AI 자가보고: 의도 불충족(주장)"}
+            ? t("roadmap.step_detail.intent_match_true")
+            : t("roadmap.step_detail.intent_match_false")}
         </span>
         <span
           className={cn(
@@ -332,12 +326,12 @@ function VerificationBlock({ verifyLog, verifyState, verifyError }: Verification
           data-testid="step-detail-test-result"
           data-test-result={verifyLog.test_result}
         >
-          {TEST_RESULT_LABEL[verifyLog.test_result]}
+          {t(`roadmap.step_detail.test_result.${verifyLog.test_result}`)}
         </span>
       </div>
       {verifyLog.test_result === "skipped" ? (
         <p className="text-[10px] text-fg-muted" data-testid="step-detail-unverified-note">
-          외부 테스트로 검증되지 않았습니다. 결과를 직접 확인하세요.
+          {t("roadmap.step_detail.unverified_note")}
         </p>
       ) : null}
       {verifyLog.test_command ? (

@@ -7,6 +7,7 @@ import {
   PROMPT_TEMPLATES,
   type PromptContext,
 } from "../../lib/prompt-templates";
+import { useT } from "../../i18n";
 
 interface Props {
   open: boolean;
@@ -15,13 +16,8 @@ interface Props {
   onInsert: (body: string) => void;
 }
 
-const CONTEXT_LABEL: Record<PromptContext, string> = {
-  plan: "계획",
-  build: "실행",
-  verify: "검증",
-};
-
 export function PromptHelperPanel({ open, context, onClose, onInsert }: Props) {
+  const t = useT();
   if (!open) return null;
   const list = context ? templatesForContext(context) : PROMPT_TEMPLATES;
   const fallback = context && list.length === 0 ? PROMPT_TEMPLATES : null;
@@ -30,47 +26,48 @@ export function PromptHelperPanel({ open, context, onClose, onInsert }: Props) {
     <aside
       className="flex w-[280px] flex-col gap-3 border-l bg-bg-panel p-3"
       role="complementary"
-      aria-label="프롬프트 도우미"
+      aria-label={t("prompt_helper.title")}
       data-testid="prompt-helper-panel"
       data-context={context ?? ""}
     >
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-semibold">프롬프트 도우미</h3>
-          {context ? <Badge variant="accent">{CONTEXT_LABEL[context]}</Badge> : null}
+          <h3 className="text-sm font-semibold">{t("prompt_helper.title")}</h3>
+          {context ? <Badge variant="accent">{t(`prompt_helper.context.${context}`)}</Badge> : null}
         </div>
         <Button
           variant="ghost"
           size="sm"
           onClick={onClose}
-          aria-label="프롬프트 도우미 닫기"
+          aria-label={t("prompt_helper.close_aria")}
           data-testid="prompt-helper-close"
         >
           <X />
         </Button>
       </header>
-      <p className="text-[11px] text-fg-muted">현재 흐름에 맞는 템플릿</p>
-      <LearningHint>
-        현재 흐름에 맞는 템플릿을 눌러 입력란에 삽입하세요. 대괄호 부분을 작업 내용으로 교체하면
-        됩니다.
-      </LearningHint>
+      <p className="text-[11px] text-fg-muted">{t("prompt_helper.templates_for_flow")}</p>
+      <LearningHint>{t("prompt_helper.hint")}</LearningHint>
       <div className="flex flex-col gap-2" data-testid="prompt-helper-templates">
-        {list.map((t) => (
+        {list.map((tpl) => (
           <button
-            key={t.id}
+            key={tpl.id}
             type="button"
             className="rounded-md border bg-bg-panel2 p-2 text-left transition-colors hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={() => onInsert(t.body)}
+            onClick={() => onInsert(t(`prompt_helper.templates.${tpl.id}.body`))}
             data-testid="prompt-helper-template"
-            data-template-id={t.id}
+            data-template-id={tpl.id}
           >
-            <div className="text-xs font-medium text-fg">{t.title}</div>
-            <div className="mt-1 text-[11px] text-fg-muted">{t.body}</div>
+            <div className="text-xs font-medium text-fg">
+              {t(`prompt_helper.templates.${tpl.id}.title`)}
+            </div>
+            <div className="mt-1 text-[11px] text-fg-muted">
+              {t(`prompt_helper.templates.${tpl.id}.body`)}
+            </div>
           </button>
         ))}
         {fallback ? (
           <LearningHint className="text-[10px]">
-            이 흐름에 맞는 템플릿이 아직 없어 전체 라이브러리를 대신 표시합니다.
+            {t("prompt_helper.fallback")}
           </LearningHint>
         ) : null}
       </div>

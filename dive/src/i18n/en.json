@@ -19,6 +19,108 @@
     "optional": "(optional)",
     "required": "(required)"
   },
+  "codex_oauth": {
+    "title": "Connect ChatGPT subscription (Codex OAuth)",
+    "description": "DIVE calls models through your ChatGPT Plus/Pro/Team/Enterprise subscription. It's PKCE-based and works without an API key.",
+    "idle_instructions": "Click Start to open the ChatGPT sign-in page in your browser. After authenticating, paste the `code` and `state` from the redirect URL (`http://localhost:1455/auth/callback?...`) here.",
+    "start_busy": "Preparing…",
+    "start": "Start ChatGPT sign-in",
+    "waiting_instructions": "Open the auth page with the button below. Once you finish signing in, DIVE receives the callback automatically and completes the connection. Only if auto-complete doesn't happen, paste the full callback URL from the browser address bar into the code field and click Complete connection.",
+    "open_browser": "Open in browser",
+    "code_placeholder": "The ?code=… value from the redirect URL",
+    "state_placeholder": "The &state=… value from the redirect URL",
+    "expected_state": "Expected state:",
+    "complete_busy": "Exchanging token…",
+    "complete": "Complete connection",
+    "done_title": "Connected",
+    "done_body": "The token is saved in the OS keyring. You can now select the Codex provider in chat.",
+    "error_title": "Error",
+    "retry": "Retry"
+  },
+  "prompt_check": {
+    "error_tool_choice": "The model you selected doesn't support the pre-send check. Pick a different model, or send directly without this check.",
+    "error_not_configured": "AI isn't connected yet. Connect an AI assistant in Settings first.",
+    "title": "Pre-send check",
+    "description": "AI checks your prompt for ambiguity.",
+    "cost_hint": "Uses one model call.",
+    "original": "Original",
+    "run": "Run AI critique",
+    "loading": "Calling model…",
+    "error_title": "Error",
+    "issues_found": "Ambiguities found",
+    "issues_count": "{{count}}",
+    "issues_empty": "No ambiguity detected.",
+    "refined": "Refined suggestion",
+    "refined_empty": "(no refined suggestion)",
+    "usage": "This review: ~{{count}} tokens",
+    "close": "Close",
+    "apply_only": "Apply suggestion only",
+    "apply_send": "Apply suggestion + send"
+  },
+  "prompt_helper": {
+    "context": {
+      "plan": "Plan",
+      "build": "Build",
+      "verify": "Verify"
+    },
+    "title": "Prompt helper",
+    "close_aria": "Close prompt helper",
+    "templates_for_flow": "Templates for the current flow",
+    "hint": "Click a template that fits the current flow to insert it into the input. Replace the bracketed parts with your task.",
+    "fallback": "There's no template for this flow yet, so the full library is shown instead.",
+    "templates": {
+      "d-decompose": {
+        "title": "Break the goal into steps",
+        "body": "I want to build [feature]. Break it into 3–5 roadmap steps a beginner can follow."
+      },
+      "d-overview": {
+        "title": "Big picture first",
+        "body": "Map out the big picture of this project first. Summarize the key screens and data flow."
+      },
+      "i-focus-card": {
+        "title": "Work on the current step only",
+        "body": "Work on [current step] only. Don't touch anything else."
+      },
+      "i-io-first": {
+        "title": "Input/output examples first",
+        "body": "Show me input and output examples for this part first. Then let's start the implementation."
+      },
+      "v-verify-how": {
+        "title": "Ask how to verify",
+        "body": "How can I verify this step's behavior? Give me 3 test cases."
+      },
+      "v-edge-cases": {
+        "title": "Check edge cases",
+        "body": "Check whether exceptions (empty input, wrong type, network error) are handled."
+      },
+      "e-integration-review": {
+        "title": "Check integration issues",
+        "body": "Review the whole codebase and tell me what could break on integration."
+      },
+      "e-refactor-chances": {
+        "title": "Refactoring opportunities",
+        "body": "Find opportunities to reduce duplication and improve readability and performance in this code."
+      }
+    }
+  },
+  "rc1_migration": {
+    "title": "DIVE v1.0.0-rc.1 was a demo build",
+    "description": "It only ran the UI with no real data persistence, so previous session, project, and step data cannot be recovered.",
+    "body": "From v1.0.0-rc.2 on, data is actually saved to SQLite. Please re-enter your API key and create a new project.",
+    "removed_heading": "rc.1 demo keys cleaned up in this run",
+    "removed_count": "{{count}} removed",
+    "preserved": "Preserved: {{keys}}",
+    "apology": "Sorry for the inconvenience. — The DIVE team",
+    "confirm": "Acknowledge and start fresh"
+  },
+  "restore_confirm": {
+    "title": "Restore to checkpoint",
+    "description": "Your current state is auto-saved as a \"just-before-restore\" checkpoint, so you can undo anytime.",
+    "backup_label": "Auto-back up current state, then restore",
+    "backup_sub": "An `auto-pre-restore` checkpoint is created before restoring.",
+    "backup_aria": "Auto-back up current state before restoring",
+    "confirm": "Restore"
+  },
   "sidebar": {
     "section_projects": "Projects",
     "section_sessions": "Sessions",
@@ -280,6 +382,16 @@
       "read_only_note": "Read only. Make changes from chat.",
       "go_to_chat": "Open chat",
       "go_to_chat_hint": "Reviews, edits, and approvals happen in chat.",
+      "test_result": {
+        "pass": "Tests passed",
+        "fail": "Tests failed",
+        "skipped": "No external tests"
+      },
+      "trust_calibration_hint": "If the AI could be wrong somewhere, where would it be? Point to one spot before you decide.",
+      "approval_prompt": "The AI claims it met the intent. Do you agree after checking yourself?",
+      "intent_match_true": "AI self-report: intent met (claimed)",
+      "intent_match_false": "AI self-report: intent not met (claimed)",
+      "unverified_note": "Not verified by external tests. Check the result yourself.",
       "section_goal": "Goal",
       "section_acceptance_criteria": "Acceptance criteria",
       "section_instruction": "Instruction to the agent",

@@ -324,7 +324,7 @@ check(
   includesAll(workmap, ['"card_verify"', "verifyLogFor", "verifyStateFor", "verifyErrorFor"]) &&
     includesAll(chatSession, ['"card_verify"', "VerifyLogPayload"]) &&
     includesAll(stepDetail, [
-      "AI 자가보고: 의도 충족(주장)",
+      "roadmap.step_detail.intent_match_true",
       'data-testid="step-detail-test-result"',
       'data-testid="step-detail-unverified-note"',
       "ApprovalJudgment",

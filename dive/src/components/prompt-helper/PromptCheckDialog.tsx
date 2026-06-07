@@ -10,7 +10,7 @@ import {
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { LearningHint } from "../ui/learning-hint";
-import { useLocale } from "../../i18n";
+import { useLocale, useT } from "../../i18n";
 
 type TauriApi = {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -37,12 +37,12 @@ export interface PromptCheckResult {
   approximate_tokens: number;
 }
 
-function friendlyPromptCheckError(error: string): string {
+function friendlyPromptCheckError(error: string, t: (key: string) => string): string {
   if (error.includes("tool_choice") || error.toLowerCase().includes("tool choice")) {
-    return "현재 선택한 모델이 보내기 전 점검 방식과 맞지 않습니다. 다른 모델을 선택하거나, 이 점검 없이 바로 전송해 주세요.";
+    return t("prompt_check.error_tool_choice");
   }
   if (error.toLowerCase().includes("not configured")) {
-    return "AI 연결이 아직 설정되지 않았습니다. 설정에서 AI 도우미를 먼저 연결해 주세요.";
+    return t("prompt_check.error_not_configured");
   }
   return error;
 }
@@ -62,6 +62,7 @@ export function PromptCheckDialog({
   onApply,
   mockResult,
 }: Props) {
+  const t = useT();
   const locale = useLocale();
   const [result, setResult] = useState<PromptCheckResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -97,7 +98,7 @@ export function PromptCheckDialog({
         });
       }
     } catch (err) {
-      setError(friendlyPromptCheckError(String(err)));
+      setError(friendlyPromptCheckError(String(err), t));
     } finally {
       setLoading(false);
     }
@@ -111,18 +112,18 @@ export function PromptCheckDialog({
         data-phase={loading ? "loading" : result ? "done" : error ? "error" : "idle"}
       >
         <DialogHeader>
-          <DialogTitle>보내기 전 점검</DialogTitle>
+          <DialogTitle>{t("prompt_check.title")}</DialogTitle>
           <DialogDescription>
-            AI가 프롬프트의 모호함을 점검합니다.
+            {t("prompt_check.description")}{" "}
             <LearningHint inline className="ml-1">
-              모델 호출 1회가 소비됩니다.
+              {t("prompt_check.cost_hint")}
             </LearningHint>
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
           <div className="rounded-md border bg-bg-panel p-3" data-testid="prompt-original">
-            <div className="text-[11px] text-fg-muted">원본</div>
+            <div className="text-[11px] text-fg-muted">{t("prompt_check.original")}</div>
             <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-xs text-fg">
               {initialText}
             </pre>
@@ -134,7 +135,7 @@ export function PromptCheckDialog({
               onClick={() => void runCheck()}
               data-testid="prompt-check-run"
             >
-              AI 비평 실행
+              {t("prompt_check.run")}
             </Button>
           ) : null}
 
@@ -143,7 +144,7 @@ export function PromptCheckDialog({
               className="rounded-md border bg-bg-panel px-3 py-3 text-center text-xs text-fg-muted"
               data-testid="prompt-check-loading"
             >
-              모델 호출 중…
+              {t("prompt_check.loading")}
             </div>
           ) : null}
 
@@ -152,7 +153,7 @@ export function PromptCheckDialog({
               className="rounded-md border border-danger bg-danger/10 p-3 text-xs"
               data-testid="prompt-check-error"
             >
-              <div className="font-medium text-danger">오류</div>
+              <div className="font-medium text-danger">{t("prompt_check.error_title")}</div>
               <code>{error}</code>
             </div>
           ) : null}
@@ -161,17 +162,17 @@ export function PromptCheckDialog({
             <>
               <div className="rounded-md border bg-bg-panel p-3" data-testid="prompt-issues">
                 <div className="flex items-center justify-between">
-                  <div className="text-[11px] text-fg-muted">발견된 모호함</div>
+                  <div className="text-[11px] text-fg-muted">{t("prompt_check.issues_found")}</div>
                   <Badge
                     variant={result.issues.length === 0 ? "success" : "warn"}
                     data-testid="prompt-issues-count"
                   >
-                    {result.issues.length}건
+                    {t("prompt_check.issues_count", { count: result.issues.length })}
                   </Badge>
                 </div>
                 {result.issues.length === 0 ? (
                   <div className="mt-2 text-[11px] text-fg-muted" data-testid="prompt-issues-empty">
-                    모호한 부분이 감지되지 않았습니다.
+                    {t("prompt_check.issues_empty")}
                   </div>
                 ) : (
                   <ul className="mt-2 flex flex-col gap-1.5 text-xs">
@@ -194,14 +195,14 @@ export function PromptCheckDialog({
                 className="rounded-md border border-accent/40 bg-accent-subtle/30 p-3"
                 data-testid="prompt-refined"
               >
-                <div className="text-[11px] text-accent">정제된 제안</div>
+                <div className="text-[11px] text-accent">{t("prompt_check.refined")}</div>
                 <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-xs text-fg">
-                  {result.refined_text || "(정제 제안 없음)"}
+                  {result.refined_text || t("prompt_check.refined_empty")}
                 </pre>
               </div>
 
               <div className="text-right text-[10px] text-fg-muted" data-testid="prompt-usage">
-                이 검토: 토큰 약 {result.approximate_tokens}개
+                {t("prompt_check.usage", { count: result.approximate_tokens })}
               </div>
             </>
           ) : null}
@@ -213,7 +214,7 @@ export function PromptCheckDialog({
             onClick={() => onOpenChange(false)}
             data-testid="prompt-check-cancel"
           >
-            닫기
+            {t("prompt_check.close")}
           </Button>
           {result && result.refined_text ? (
             <>
@@ -225,7 +226,7 @@ export function PromptCheckDialog({
                 }}
                 data-testid="prompt-apply-only"
               >
-                제안 적용만
+                {t("prompt_check.apply_only")}
               </Button>
               <Button
                 variant="primary"
@@ -235,7 +236,7 @@ export function PromptCheckDialog({
                 }}
                 data-testid="prompt-apply-send"
               >
-                제안 적용 + 전송
+                {t("prompt_check.apply_send")}
               </Button>
             </>
           ) : null}

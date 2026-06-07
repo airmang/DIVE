@@ -3,6 +3,7 @@ import { ExternalLink } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { useT } from "../../i18n";
 
 type TauriApi = {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -38,6 +39,7 @@ interface Props {
 }
 
 export function CodexOAuthDialog({ open, onOpenChange, onConnected, baseAuthUrl }: Props) {
+  const t = useT();
   const [phase, setPhase] = useState<"idle" | "waiting" | "done" | "error">("idle");
   const [authUrl, setAuthUrl] = useState<string | null>(null);
   const [csrfState, setCsrfState] = useState<string | null>(null);
@@ -154,33 +156,22 @@ export function CodexOAuthDialog({ open, onOpenChange, onConnected, baseAuthUrl 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl" data-testid="codex-oauth-dialog" data-phase={phase}>
         <DialogHeader>
-          <DialogTitle>ChatGPT 구독 연결 (Codex OAuth)</DialogTitle>
-          <DialogDescription>
-            ChatGPT Plus/Pro/Team/Enterprise 구독을 통해 DIVE가 모델을 호출합니다. PKCE 기반이며 API
-            키 없이 동작합니다.
-          </DialogDescription>
+          <DialogTitle>{t("codex_oauth.title")}</DialogTitle>
+          <DialogDescription>{t("codex_oauth.description")}</DialogDescription>
         </DialogHeader>
 
         {phase === "idle" ? (
           <div className="flex flex-col gap-3" data-testid="codex-phase-idle">
-            <p className="text-sm text-fg-muted">
-              [시작] 버튼을 누르면 브라우저에서 ChatGPT 로그인 페이지가 열립니다. 인증 후 리다이렉트
-              URL(`http://localhost:1455/auth/callback?...`)에 포함된 `code`와 `state`를 여기에 붙여
-              넣으세요.
-            </p>
+            <p className="text-sm text-fg-muted">{t("codex_oauth.idle_instructions")}</p>
             <Button onClick={startFlow} disabled={busy} data-testid="codex-start">
-              {busy ? "준비 중…" : "ChatGPT로 로그인 시작"}
+              {busy ? t("codex_oauth.start_busy") : t("codex_oauth.start")}
             </Button>
           </div>
         ) : null}
 
         {phase === "waiting" && authUrl ? (
           <div className="flex flex-col gap-3" data-testid="codex-phase-waiting">
-            <p className="text-xs text-fg-muted">
-              아래 버튼으로 인증 페이지를 여세요. 로그인이 끝나면 DIVE가 자동으로 callback을 받아
-              연결을 완료합니다. 자동 완료가 되지 않는 경우에만 브라우저 주소창의 callback URL 전체를
-              code 칸에 붙여넣고 연결 완료를 누르세요.
-            </p>
+            <p className="text-xs text-fg-muted">{t("codex_oauth.waiting_instructions")}</p>
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
@@ -189,7 +180,7 @@ export function CodexOAuthDialog({ open, onOpenChange, onConnected, baseAuthUrl 
                 data-testid="codex-open-browser"
               >
                 <ExternalLink className="h-3.5 w-3.5" />
-                브라우저에서 열기
+                {t("codex_oauth.open_browser")}
               </Button>
               <code
                 className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded bg-bg-panel2 px-2 py-1 text-xs"
@@ -204,7 +195,7 @@ export function CodexOAuthDialog({ open, onOpenChange, onConnected, baseAuthUrl 
                 <Input
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
-                  placeholder="리다이렉트 URL의 ?code=… 값"
+                  placeholder={t("codex_oauth.code_placeholder")}
                   data-testid="codex-code-input"
                   spellCheck={false}
                   autoComplete="off"
@@ -215,7 +206,7 @@ export function CodexOAuthDialog({ open, onOpenChange, onConnected, baseAuthUrl 
                 <Input
                   value={returnedState}
                   onChange={(e) => setReturnedState(e.target.value)}
-                  placeholder="리다이렉트 URL의 &state=… 값"
+                  placeholder={t("codex_oauth.state_placeholder")}
                   data-testid="codex-state-input"
                   spellCheck={false}
                   autoComplete="off"
@@ -226,14 +217,14 @@ export function CodexOAuthDialog({ open, onOpenChange, onConnected, baseAuthUrl 
                 data-testid="codex-state-expected"
                 data-expected={csrfState ?? ""}
               >
-                기대 state: <code>{csrfState ?? ""}</code>
+                {t("codex_oauth.expected_state")} <code>{csrfState ?? ""}</code>
               </p>
               <Button
                 onClick={completeFlow}
                 disabled={busy || !code.trim() || !returnedState.trim()}
                 data-testid="codex-complete"
               >
-                {busy ? "토큰 교환 중…" : "연결 완료"}
+                {busy ? t("codex_oauth.complete_busy") : t("codex_oauth.complete")}
               </Button>
             </div>
           </div>
@@ -244,10 +235,8 @@ export function CodexOAuthDialog({ open, onOpenChange, onConnected, baseAuthUrl 
             className="flex flex-col gap-2 rounded-md border bg-success/10 p-3 text-sm"
             data-testid="codex-phase-done"
           >
-            <div className="font-medium text-success">연결 완료</div>
-            <div className="text-fg-muted">
-              토큰이 OS Keyring에 저장되었습니다. 채팅에서 Codex 프로바이더를 선택할 수 있습니다.
-            </div>
+            <div className="font-medium text-success">{t("codex_oauth.done_title")}</div>
+            <div className="text-fg-muted">{t("codex_oauth.done_body")}</div>
           </div>
         ) : null}
 
@@ -256,12 +245,12 @@ export function CodexOAuthDialog({ open, onOpenChange, onConnected, baseAuthUrl 
             className="flex flex-col gap-2 rounded-md border border-danger bg-danger/10 p-3 text-sm"
             data-testid="codex-phase-error"
           >
-            <div className="font-medium text-danger">오류</div>
+            <div className="font-medium text-danger">{t("codex_oauth.error_title")}</div>
             <code className="text-[11px]" data-testid="codex-error-message">
               {error}
             </code>
             <Button size="sm" variant="outline" onClick={() => setPhase("idle")}>
-              다시 시도
+              {t("codex_oauth.retry")}
             </Button>
           </div>
         ) : null}

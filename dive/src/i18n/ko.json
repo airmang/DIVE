@@ -19,6 +19,108 @@
     "optional": "(선택)",
     "required": "(필수)"
   },
+  "codex_oauth": {
+    "title": "ChatGPT 구독 연결 (Codex OAuth)",
+    "description": "ChatGPT Plus/Pro/Team/Enterprise 구독을 통해 DIVE가 모델을 호출합니다. PKCE 기반이며 API 키 없이 동작합니다.",
+    "idle_instructions": "[시작] 버튼을 누르면 브라우저에서 ChatGPT 로그인 페이지가 열립니다. 인증 후 리다이렉트 URL(`http://localhost:1455/auth/callback?...`)에 포함된 `code`와 `state`를 여기에 붙여 넣으세요.",
+    "start_busy": "준비 중…",
+    "start": "ChatGPT로 로그인 시작",
+    "waiting_instructions": "아래 버튼으로 인증 페이지를 여세요. 로그인이 끝나면 DIVE가 자동으로 callback을 받아 연결을 완료합니다. 자동 완료가 되지 않는 경우에만 브라우저 주소창의 callback URL 전체를 code 칸에 붙여넣고 연결 완료를 누르세요.",
+    "open_browser": "브라우저에서 열기",
+    "code_placeholder": "리다이렉트 URL의 ?code=… 값",
+    "state_placeholder": "리다이렉트 URL의 &state=… 값",
+    "expected_state": "기대 state:",
+    "complete_busy": "토큰 교환 중…",
+    "complete": "연결 완료",
+    "done_title": "연결 완료",
+    "done_body": "토큰이 OS Keyring에 저장되었습니다. 채팅에서 Codex 프로바이더를 선택할 수 있습니다.",
+    "error_title": "오류",
+    "retry": "다시 시도"
+  },
+  "prompt_check": {
+    "error_tool_choice": "현재 선택한 모델이 보내기 전 점검 방식과 맞지 않습니다. 다른 모델을 선택하거나, 이 점검 없이 바로 전송해 주세요.",
+    "error_not_configured": "AI 연결이 아직 설정되지 않았습니다. 설정에서 AI 도우미를 먼저 연결해 주세요.",
+    "title": "보내기 전 점검",
+    "description": "AI가 프롬프트의 모호함을 점검합니다.",
+    "cost_hint": "모델 호출 1회가 소비됩니다.",
+    "original": "원본",
+    "run": "AI 비평 실행",
+    "loading": "모델 호출 중…",
+    "error_title": "오류",
+    "issues_found": "발견된 모호함",
+    "issues_count": "{{count}}건",
+    "issues_empty": "모호한 부분이 감지되지 않았습니다.",
+    "refined": "정제된 제안",
+    "refined_empty": "(정제 제안 없음)",
+    "usage": "이 검토: 토큰 약 {{count}}개",
+    "close": "닫기",
+    "apply_only": "제안 적용만",
+    "apply_send": "제안 적용 + 전송"
+  },
+  "prompt_helper": {
+    "context": {
+      "plan": "계획",
+      "build": "실행",
+      "verify": "검증"
+    },
+    "title": "프롬프트 도우미",
+    "close_aria": "프롬프트 도우미 닫기",
+    "templates_for_flow": "현재 흐름에 맞는 템플릿",
+    "hint": "현재 흐름에 맞는 템플릿을 눌러 입력란에 삽입하세요. 대괄호 부분을 작업 내용으로 교체하면 됩니다.",
+    "fallback": "이 흐름에 맞는 템플릿이 아직 없어 전체 라이브러리를 대신 표시합니다.",
+    "templates": {
+      "d-decompose": {
+        "title": "목표를 단계로 나누기",
+        "body": "[기능]을 만들고 싶어. 초심자가 따라갈 수 있는 로드맵 단계 3~5개로 나눠줘."
+      },
+      "d-overview": {
+        "title": "큰 그림 먼저",
+        "body": "이 프로젝트의 큰 그림을 먼저 잡아줘. 핵심 화면과 데이터 흐름을 요약해줘."
+      },
+      "i-focus-card": {
+        "title": "현재 단계만 작업",
+        "body": "[현재 단계]만 작업해줘. 다른 부분은 건드리지 마."
+      },
+      "i-io-first": {
+        "title": "입·출력 예시 먼저",
+        "body": "이 부분의 입력과 출력 예시를 먼저 알려줘. 그다음에 구현을 시작하자."
+      },
+      "v-verify-how": {
+        "title": "검증 방법 물어보기",
+        "body": "이 단계의 동작을 어떻게 검증할 수 있어? 테스트 케이스 3개로 알려줘."
+      },
+      "v-edge-cases": {
+        "title": "엣지 케이스 확인",
+        "body": "예외 상황(빈 입력, 잘못된 타입, 네트워크 오류)에 대한 처리가 있는지 확인해줘."
+      },
+      "e-integration-review": {
+        "title": "통합 시 문제점 점검",
+        "body": "전체 코드를 검토하고 통합 시 문제될 부분을 알려줘."
+      },
+      "e-refactor-chances": {
+        "title": "리팩토링 기회",
+        "body": "이 코드에서 중복·가독성·성능 개선 여지를 찾아줘."
+      }
+    }
+  },
+  "rc1_migration": {
+    "title": "DIVE v1.0.0-rc.1은 데모 빌드였습니다",
+    "description": "실제 데이터 저장 기능 없이 화면만 구동되는 상태였기에, 이전 세션·프로젝트·단계 데이터는 복구할 수 없습니다.",
+    "body": "v1.0.0-rc.2부터는 SQLite에 실제로 저장됩니다. API 키를 다시 입력하고 프로젝트를 새로 만들어 주세요.",
+    "removed_heading": "이번 실행에서 정리한 rc.1 demo key",
+    "removed_count": "{{count}}개 삭제됨",
+    "preserved": "보존: {{keys}}",
+    "apology": "불편을 끼쳐 죄송합니다. — DIVE 팀",
+    "confirm": "확인하고 새로 시작"
+  },
+  "restore_confirm": {
+    "title": "체크포인트로 복원",
+    "description": "현재 상태가 \"복원 직전\" 체크포인트로 자동 저장되어 언제든 되돌릴 수 있습니다.",
+    "backup_label": "현재 상태 자동 백업 후 복원",
+    "backup_sub": "복원 전 `auto-pre-restore` 체크포인트가 생성됩니다.",
+    "backup_aria": "현재 상태 자동 백업 후 복원",
+    "confirm": "복원하기"
+  },
   "sidebar": {
     "section_projects": "프로젝트",
     "section_sessions": "세션",
@@ -280,6 +382,16 @@
       "read_only_note": "읽기 전용입니다. 수정은 채팅에서 진행하세요.",
       "go_to_chat": "채팅으로 이동",
       "go_to_chat_hint": "검토, 수정, 승인은 모두 채팅에서 이루어집니다.",
+      "test_result": {
+        "pass": "테스트 통과",
+        "fail": "테스트 실패",
+        "skipped": "외부 테스트 없음"
+      },
+      "trust_calibration_hint": "AI가 틀렸을 수 있는 지점이 있다면 어디일까요? 한 곳을 짚어본 뒤 판단하세요.",
+      "approval_prompt": "AI는 의도 충족이라 주장합니다. 직접 확인했을 때 동의하나요?",
+      "intent_match_true": "AI 자가보고: 의도 충족(주장)",
+      "intent_match_false": "AI 자가보고: 의도 불충족(주장)",
+      "unverified_note": "외부 테스트로 검증되지 않았습니다. 결과를 직접 확인하세요.",
       "section_goal": "목표",
       "section_acceptance_criteria": "완료 기준",
       "section_instruction": "에이전트에게 전달한 지시",
