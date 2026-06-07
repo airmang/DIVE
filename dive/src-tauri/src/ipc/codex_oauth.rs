@@ -1,8 +1,11 @@
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 
 use crate::auth::{self, CodexOAuth, Keyring, PkcePair};
 use crate::db::dao::provider_config as provider_dao;
@@ -20,6 +23,9 @@ struct PendingFlow {
 }
 
 static PENDING: Lazy<Mutex<Option<PendingFlow>>> = Lazy::new(|| Mutex::new(None));
+const CALLBACK_BIND_ADDR: &str = "127.0.0.1:1455";
+const CALLBACK_PATH: &str = "/auth/callback";
+const CALLBACK_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexAuthStartResponse {
@@ -166,30 +172,227 @@ async fn complete_impl(
     received_state: &str,
 ) -> Result<CodexAuthStatus, String> {
     let pending = {
-        let mut guard = PENDING.lock().map_err(|e| e.to_string())?;
+        let guard = PENDING.lock().map_err(|e| e.to_string())?;
         guard
-            .take()
+            .clone()
             .ok_or_else(|| "no pending OAuth flow: call codex_oauth_start first".to_string())?
     };
-    if pending.csrf_state != received_state {
+    let parsed = parse_authorization_input(code);
+    let authorization_code = parsed.code.as_deref().unwrap_or(code).trim();
+    let state = parsed.state.as_deref().unwrap_or(received_state).trim();
+    if pending.csrf_state != state {
         return Err("state mismatch: possible CSRF".into());
+    }
+    if authorization_code.is_empty() {
+        return Err("missing authorization code".into());
     }
     let oauth = match &pending.base_auth_url {
         Some(url) => CodexOAuth::with_base_url(url),
         None => CodexOAuth::new(),
     };
     let tokens = oauth
-        .exchange_code(code, &pending.pkce_verifier)
+        .exchange_code(authorization_code, &pending.pkce_verifier)
         .await
         .map_err(|e| e.to_string())?;
     auth::store_codex_tokens(keyring, pending.provider_config_id, &tokens)
         .map_err(|e| format!("keyring: {e}"))?;
+    {
+        let mut guard = PENDING.lock().map_err(|e| e.to_string())?;
+        *guard = None;
+    }
     Ok(CodexAuthStatus {
         connected: true,
         provider_config_id: Some(pending.provider_config_id),
         account_id: Some(tokens.account_id),
         pending: false,
     })
+}
+
+async fn complete_and_activate_impl(
+    state: &AppState,
+    code: &str,
+    received_state: &str,
+) -> Result<CodexAuthStatus, String> {
+    let status = complete_impl(state.keyring.as_ref(), code, received_state).await?;
+    if let Some(provider_config_id) = status.provider_config_id {
+        if let Some(account_id) = status.account_id.as_deref() {
+            mark_codex_connected(state, provider_config_id, account_id)?;
+        }
+        activate_codex_runtime(state, provider_config_id)?;
+    }
+    Ok(status)
+}
+
+fn request_target_matches_callback(target: &str) -> bool {
+    target
+        .split_once('?')
+        .map(|(path, _)| path)
+        .unwrap_or(target)
+        == CALLBACK_PATH
+}
+
+fn response_html(title: &str, body: &str) -> String {
+    format!(
+        "<!doctype html><meta charset=\"utf-8\"><title>{title}</title><body style=\"font-family: system-ui; margin: 2rem;\"><h1>{title}</h1><p>{body}</p></body>"
+    )
+}
+
+async fn write_http_response(
+    stream: &mut tokio::net::TcpStream,
+    status: &str,
+    body: &str,
+) -> std::io::Result<()> {
+    let response = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    stream.write_all(response.as_bytes()).await
+}
+
+async fn run_callback_server_once(app: AppHandle, state: AppState) -> Result<(), String> {
+    let listener = TcpListener::bind(CALLBACK_BIND_ADDR)
+        .await
+        .map_err(|err| format!("callback bind: {err}"))?;
+    let (mut stream, _) = tokio::time::timeout(CALLBACK_TIMEOUT, listener.accept())
+        .await
+        .map_err(|_| "callback timed out".to_string())?
+        .map_err(|err| format!("callback accept: {err}"))?;
+
+    let mut buf = vec![0u8; 8192];
+    let n = stream
+        .read(&mut buf)
+        .await
+        .map_err(|err| format!("callback read: {err}"))?;
+    let request = String::from_utf8_lossy(&buf[..n]);
+    let target = request
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .ok_or_else(|| "callback request missing target".to_string())?;
+
+    if !request_target_matches_callback(target) {
+        let body = response_html(
+            "DIVE OAuth callback not found",
+            "This callback URL is not handled by DIVE.",
+        );
+        let _ = write_http_response(&mut stream, "404 Not Found", &body).await;
+        return Err(format!("unexpected callback path: {target}"));
+    }
+
+    let parsed = parse_authorization_input(target);
+    let code = parsed
+        .code
+        .as_deref()
+        .ok_or_else(|| "callback missing code".to_string())?;
+    let state_value = parsed
+        .state
+        .as_deref()
+        .ok_or_else(|| "callback missing state".to_string())?;
+
+    match complete_and_activate_impl(&state, code, state_value).await {
+        Ok(status) => {
+            let body = response_html(
+                "DIVE Codex OAuth connected",
+                "You can close this browser tab and return to DIVE.",
+            );
+            let _ = write_http_response(&mut stream, "200 OK", &body).await;
+            let _ = app.emit("codex://oauth-complete", &status);
+            Ok(())
+        }
+        Err(err) => {
+            let body = response_html(
+                "DIVE Codex OAuth failed",
+                "Return to DIVE and try starting the login again.",
+            );
+            let _ = write_http_response(&mut stream, "400 Bad Request", &body).await;
+            let _ = app.emit("codex://oauth-error", err.clone());
+            Err(err)
+        }
+    }
+}
+
+fn spawn_callback_server(app: AppHandle, state: AppState) {
+    tokio::spawn(async move {
+        if let Err(err) = run_callback_server_once(app, state).await {
+            tracing::warn!(
+                error = %crate::telemetry::redact_log_text(&err),
+                "codex oauth callback server stopped"
+            );
+        }
+    });
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct ParsedAuthorizationInput {
+    code: Option<String>,
+    state: Option<String>,
+}
+
+fn parse_authorization_input(input: &str) -> ParsedAuthorizationInput {
+    let value = input.trim();
+    if value.is_empty() {
+        return ParsedAuthorizationInput::default();
+    }
+
+    let query_or_fragment = value
+        .split_once('?')
+        .map(|(_, rest)| rest)
+        .or_else(|| value.split_once('#').map(|(_, rest)| rest))
+        .unwrap_or(value);
+    let query = query_or_fragment
+        .split_once('#')
+        .map(|(before, _)| before)
+        .unwrap_or(query_or_fragment);
+
+    if !query.contains("code=") && !query.contains("state=") {
+        return ParsedAuthorizationInput {
+            code: Some(value.to_owned()),
+            state: None,
+        };
+    }
+
+    let mut parsed = ParsedAuthorizationInput::default();
+    for pair in query.split('&') {
+        let Some((key, raw_value)) = pair.split_once('=') else {
+            continue;
+        };
+        match key {
+            "code" => parsed.code = Some(percent_decode_form_value(raw_value)),
+            "state" => parsed.state = Some(percent_decode_form_value(raw_value)),
+            _ => {}
+        }
+    }
+    parsed
+}
+
+fn percent_decode_form_value(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b'%' if i + 2 < bytes.len() => {
+                let hi = (bytes[i + 1] as char).to_digit(16);
+                let lo = (bytes[i + 2] as char).to_digit(16);
+                if let (Some(hi), Some(lo)) = (hi, lo) {
+                    out.push(((hi << 4) | lo) as u8);
+                    i += 3;
+                } else {
+                    out.push(bytes[i]);
+                    i += 1;
+                }
+            }
+            byte => {
+                out.push(byte);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 fn status_impl(db: &Mutex<Database>, keyring: &dyn Keyring) -> Result<CodexAuthStatus, String> {
@@ -255,10 +458,13 @@ async fn refresh_impl(
 
 #[tauri::command]
 pub async fn codex_oauth_start(
+    app: AppHandle,
     state: State<'_, AppState>,
     base_auth_url: Option<String>,
 ) -> Result<CodexAuthStartResponse, String> {
-    start_impl(state.db.as_ref(), base_auth_url).await
+    let response = start_impl(state.db.as_ref(), base_auth_url).await?;
+    spawn_callback_server(app, state.inner().clone());
+    Ok(response)
 }
 
 #[tauri::command]
@@ -267,14 +473,7 @@ pub async fn codex_oauth_complete(
     code: String,
     received_state: String,
 ) -> Result<CodexAuthStatus, String> {
-    let status = complete_impl(state.keyring.as_ref(), &code, &received_state).await?;
-    if let Some(provider_config_id) = status.provider_config_id {
-        if let Some(account_id) = status.account_id.as_deref() {
-            mark_codex_connected(&state, provider_config_id, account_id)?;
-        }
-        activate_codex_runtime(&state, provider_config_id)?;
-    }
-    Ok(status)
+    complete_and_activate_impl(&state, &code, &received_state).await
 }
 
 #[tauri::command]
@@ -370,6 +569,30 @@ mod tests {
         let check = status_impl(db.as_ref(), keyring.as_ref()).unwrap();
         assert!(check.connected);
         assert_eq!(check.account_id.as_deref(), Some("acct_codex_1"));
+    }
+
+    #[test]
+    fn parse_authorization_input_accepts_full_callback_url() {
+        assert_eq!(
+            parse_authorization_input(
+                "http://localhost:1455/auth/callback?code=abc%2F123&state=csrf-456"
+            ),
+            ParsedAuthorizationInput {
+                code: Some("abc/123".into()),
+                state: Some("csrf-456".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_authorization_input_accepts_plain_code() {
+        assert_eq!(
+            parse_authorization_input("plain-code"),
+            ParsedAuthorizationInput {
+                code: Some("plain-code".into()),
+                state: None,
+            }
+        );
     }
 
     #[tokio::test]

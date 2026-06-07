@@ -49,7 +49,7 @@ impl Tool for RunProcess {
     fn validate(&self, input: &Value) -> Result<(), ToolError> {
         let args: Input = serde_json::from_value(input.clone())
             .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
-        validate_no_shell(&args.command, "command")?;
+        validate_command_no_shell(&args.command)?;
         for arg in &args.args {
             validate_no_shell(arg, "arg")?;
             if std::path::Path::new(arg).is_absolute() || arg.split(['/', '\\']).any(|p| p == "..")
@@ -108,6 +108,31 @@ impl Tool for RunProcess {
     }
 }
 
+fn validate_command_no_shell(command: &str) -> Result<(), ToolError> {
+    validate_no_shell(command, "command")?;
+    let executable = std::path::Path::new(command)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(command)
+        .to_ascii_lowercase();
+    let executable = executable.strip_suffix(".exe").unwrap_or(&executable);
+    const SHELL_EXECUTABLES: &[&str] = &[
+        "bash",
+        "sh",
+        "zsh",
+        "fish",
+        "cmd",
+        "powershell",
+        "pwsh",
+    ];
+    if SHELL_EXECUTABLES.contains(&executable) {
+        return Err(ToolError::InvalidInput(format!(
+            "shell executable not allowed in command: {command}"
+        )));
+    }
+    Ok(())
+}
+
 fn validate_no_shell(value: &str, label: &str) -> Result<(), ToolError> {
     if value.trim().is_empty() {
         return Err(ToolError::InvalidInput(format!(
@@ -143,6 +168,12 @@ mod tests {
         assert!(RunProcess
             .validate(&json!({ "command": "echo hello; rm -rf ." }))
             .is_err());
+        for command in ["bash", "sh", "zsh", "cmd", "powershell", "pwsh", "cmd.exe"] {
+            assert!(
+                RunProcess.validate(&json!({ "command": command })).is_err(),
+                "accepted shell command {command}"
+            );
+        }
         assert!(RunProcess
             .validate(&json!({ "command": "echo", "args": ["../secret"] }))
             .is_err());

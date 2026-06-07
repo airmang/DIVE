@@ -81,6 +81,7 @@ const PROVIDER_RUNTIME_HYDRATE_TIMEOUT: Duration = Duration::from_secs(120);
 const PROVIDER_RUNTIME_HYDRATE_TIMEOUT_MESSAGE: &str =
     "AI 연결 정보를 불러오는 중 시간이 초과되었습니다. macOS 키체인 암호 창이 떠 있다면 로그인 암호를 입력하고 '항상 허용'을 선택한 뒤 다시 시도하세요.";
 
+#[derive(Clone)]
 pub struct AppState {
     pub db: Arc<Mutex<Database>>,
     pub runtime: Arc<RwLock<ProviderRuntime>>,
@@ -916,6 +917,42 @@ fn safest_run_mode(backend: AgentRunMode, requested: AgentRunMode) -> AgentRunMo
     }
 }
 
+fn pi_sidecar_runtime_enabled() -> bool {
+    matches!(
+        std::env::var("DIVE_PI_RUNTIME").ok().as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
+}
+
+#[tauri::command]
+pub async fn pi_sidecar_codex_smoke(
+    state: State<'_, AppState>,
+    provider_config_id: Option<i64>,
+    model: Option<String>,
+) -> Result<crate::pi_sidecar::PiSidecarSmokeResult, String> {
+    let provider_config_id = match provider_config_id {
+        Some(id) => id,
+        None => {
+            let db = state.db.lock().map_err(|e| e.to_string())?;
+            provider_dao::list(db.conn())
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .rev()
+                .find(|row| row.kind == "codex")
+                .map(|row| row.id)
+                .ok_or_else(|| "codex provider not found".to_string())?
+        }
+    };
+    let project_root = state.project_root_required()?;
+    crate::pi_sidecar::run_codex_smoke(
+        state.keyring.as_ref(),
+        provider_config_id,
+        project_root,
+        model,
+    )
+    .await
+}
+
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn chat_send(
@@ -961,6 +998,8 @@ pub async fn chat_send(
         let _ = log_error_event(&state, Some(session_id), "provider", &msg);
         return Err(msg);
     }
+    let use_pi_sidecar_runtime = pi_sidecar_runtime_enabled() && snap.kind == ProviderKind::Codex;
+    let pi_provider_config_id = snap.config_id;
     let project_root = state.project_root_required()?;
     let cancel = Arc::new(AtomicBool::new(false));
     {
@@ -987,15 +1026,50 @@ pub async fn chat_send(
         .map_err(|e| e.to_string())?;
 
     let app_clone = app.clone();
-    let res = loop_
-        .run(session_id, &text, &mut move |evt| {
-            let envelope = ChatEventEnvelope {
+    let mut emit_event = move |evt| {
+        let envelope = ChatEventEnvelope {
+            session_id,
+            event: evt,
+        };
+        let _ = app_clone.emit(&format!("chat://event/{session_id}"), &envelope);
+    };
+    let res = if use_pi_sidecar_runtime {
+        let provider_config_id = pi_provider_config_id
+            .ok_or_else(|| "codex provider config id missing for Pi sidecar runtime".to_string())?;
+        let runtime_state_root = app_data_dir_from_environment(&app)
+            .map_err(|e| e.to_string())?
+            .join("runtime");
+        std::fs::create_dir_all(&runtime_state_root).map_err(|e| e.to_string())?;
+        tracing::info!(
+            session_id,
+            provider_config_id,
+            model = %loop_.model,
+            "ipc chat_send using Pi sidecar runtime"
+        );
+        crate::pi_sidecar::run_codex_supervised_turn(
+            state.keyring.as_ref(),
+            provider_config_id,
+            &loop_,
+            session_id,
+            &text,
+            Some(runtime_state_root),
+            &mut emit_event,
+        )
+        .await
+        .map(|result| {
+            tracing::info!(
                 session_id,
-                event: evt,
-            };
-            let _ = app_clone.emit(&format!("chat://event/{session_id}"), &envelope);
+                model = %result.model,
+                tool_calls_seen = result.tool_calls_seen,
+                "Pi sidecar runtime turn completed"
+            );
+            "stopped:stop".to_string()
         })
-        .await;
+    } else {
+        loop_
+            .run(session_id, &text, &mut emit_event)
+            .await
+    };
 
     {
         let mut guard = state.cancels.lock().map_err(|e| e.to_string())?;

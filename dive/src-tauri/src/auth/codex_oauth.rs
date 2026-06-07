@@ -35,9 +35,9 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 pub const DEFAULT_AUTH_BASE_URL: &str = "https://auth.openai.com";
-pub const DEFAULT_REDIRECT_URI: &str = "http://localhost:1455/callback";
+pub const DEFAULT_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 pub const DEFAULT_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
-pub const DEFAULT_SCOPE: &str = "openid email profile offline_access";
+pub const DEFAULT_SCOPE: &str = "openid profile email offline_access";
 
 #[derive(Debug, Error)]
 pub enum OAuthError {
@@ -158,6 +158,9 @@ impl CodexOAuth {
             ("code_challenge", pkce.challenge.as_str()),
             ("code_challenge_method", "S256"),
             ("state", state),
+            ("id_token_add_organizations", "true"),
+            ("codex_cli_simplified_flow", "true"),
+            ("originator", "dive"),
         ];
         let query = params
             .iter()
@@ -211,7 +214,7 @@ impl CodexOAuth {
 
     async fn post_token<T: Serialize>(&self, req: &T) -> Result<CodexTokens, OAuthError> {
         let url = format!("{}/oauth/token", self.base_auth_url);
-        let resp = self.http.post(&url).json(req).send().await?;
+        let resp = self.http.post(&url).form(req).send().await?;
         let status = resp.status();
         if !status.is_success() {
             return Err(OAuthError::Remote {
@@ -220,12 +223,10 @@ impl CodexOAuth {
             });
         }
         let body: TokenResponse = resp.json().await?;
-        let id_token = body
-            .id_token
-            .ok_or_else(|| OAuthError::Decode("missing id_token".into()))?;
         let refresh_token = body
             .refresh_token
             .ok_or_else(|| OAuthError::Decode("missing refresh_token".into()))?;
+        let id_token = body.id_token.unwrap_or_else(|| body.access_token.clone());
         let account_id = decode_account_id(&id_token)?;
         Ok(CodexTokens {
             access_token: body.access_token,
@@ -352,7 +353,7 @@ mod tests {
     fn authorization_url_contains_all_pkce_params() {
         let oauth = CodexOAuth::with_base_url("https://auth.example.com")
             .with_client_id("test-client")
-            .with_redirect_uri("http://localhost:1455/callback");
+            .with_redirect_uri("http://localhost:1455/auth/callback");
         let pkce = PkcePair::from_verifier_bytes(&[1u8; 32]);
         let url = oauth.authorization_url(&pkce, "csrf-123");
         assert!(url.starts_with("https://auth.example.com/oauth/authorize?"));
@@ -362,7 +363,10 @@ mod tests {
         assert!(url.contains(&format!("code_challenge={}", pkce.challenge)));
         assert!(url.contains("state=csrf-123"));
         // Redirect URI must be URL-encoded.
-        assert!(url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback"));
+        assert!(url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback"));
+        assert!(url.contains("id_token_add_organizations=true"));
+        assert!(url.contains("codex_cli_simplified_flow=true"));
+        assert!(url.contains("originator=dive"));
     }
 
     #[test]
@@ -451,20 +455,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn refresh_requires_id_token() {
+    async fn refresh_accepts_access_token_account_claim_without_id_token() {
         let server = MockServer::start().await;
-        // Response missing id_token → decode error.
+        let access_token = encode_id_token("acct_teacher_1");
         Mock::given(method("POST"))
             .and(path("/oauth/token"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "access_token": "at",
+                "access_token": access_token,
                 "refresh_token": "rt",
                 "expires_in": 3600,
             })))
             .mount(&server)
             .await;
         let oauth = CodexOAuth::with_base_url(server.uri());
-        let err = oauth.refresh("rt-old").await.unwrap_err();
-        assert!(matches!(err, OAuthError::Decode(_)));
+        let tokens = oauth.refresh("rt-old").await.unwrap();
+        assert_eq!(tokens.account_id, "acct_teacher_1");
     }
 }

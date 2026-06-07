@@ -79,6 +79,18 @@ pub struct AgentOutcome {
     pub final_reason: String,
 }
 
+pub struct ExternalTurnContext {
+    pub messages: Vec<ProviderMessage>,
+    pub current_card_id: Option<i64>,
+}
+
+pub struct SupervisedToolResult {
+    pub content: String,
+    pub success: bool,
+    pub summary: String,
+    pub full: Value,
+}
+
 impl AgentLoop {
     pub fn builder() -> AgentLoopBuilder {
         AgentLoopBuilder::default()
@@ -546,6 +558,345 @@ impl AgentLoop {
         };
 
         Ok((content, reasoning_content, tool_calls, finish_reason))
+    }
+
+    pub async fn begin_external_turn(
+        &self,
+        session_id: i64,
+        user_input: &str,
+        emit: &mut (dyn FnMut(AgentEvent) + Send),
+    ) -> Result<ExternalTurnContext, AgentError> {
+        let user_msg_id = Uuid::new_v4().to_string();
+        let created_at = crate::db::now_ms();
+        let current_card_id = self.current_card_id(session_id)?;
+        self.persist_user_message(session_id, current_card_id, user_input)?;
+        emit_and_forward(
+            emit,
+            AgentEvent::UserMessage {
+                id: user_msg_id,
+                content: user_input.to_string(),
+                created_at,
+            },
+        );
+        self.log_event(
+            session_id,
+            "stage_enter",
+            json!({ "run_mode": self.run_mode.as_str(), "card_id": current_card_id, "runtime": "pi_sidecar" }),
+        )?;
+        let mut user_payload = dive_event_log::user_text_metadata(user_input);
+        if let Value::Object(map) = &mut user_payload {
+            map.insert("run_mode".into(), json!(self.run_mode.as_str()));
+            map.insert("card_id".into(), json!(current_card_id));
+            map.insert("runtime".into(), json!("pi_sidecar"));
+        }
+        self.log_event(session_id, "user_message", user_payload)?;
+
+        let mut messages = self.load_history(session_id)?;
+        if let Some(prompt) = self.current_card_system_prompt(session_id)? {
+            messages.insert(0, ProviderMessage::System { content: prompt });
+        }
+        if let Some(locale_hint) = self.locale_system_prompt() {
+            messages.insert(
+                0,
+                ProviderMessage::System {
+                    content: locale_hint,
+                },
+            );
+        }
+        if let Some(interview_prompt) = self.plan_interview_system_prompt() {
+            messages.insert(
+                0,
+                ProviderMessage::System {
+                    content: interview_prompt,
+                },
+            );
+        }
+        if let Some(last) = messages.last() {
+            if !matches!(last, ProviderMessage::User { .. }) {
+                messages.push(ProviderMessage::User {
+                    content: user_input.to_string(),
+                });
+            }
+        } else {
+            messages.push(ProviderMessage::User {
+                content: user_input.to_string(),
+            });
+        }
+
+        Ok(ExternalTurnContext {
+            messages,
+            current_card_id,
+        })
+    }
+
+    pub fn tool_defs_for_external_turn(&self) -> Vec<crate::providers::ToolDef> {
+        if self.run_mode == AgentRunMode::Interview {
+            Vec::new()
+        } else {
+            self.registry.tool_defs()
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn finish_external_turn(
+        &self,
+        session_id: i64,
+        assistant_id: String,
+        current_card_id: Option<i64>,
+        content: String,
+        reasoning_content: Option<String>,
+        tool_calls: &[ToolCall],
+        finish_reason: FinishReason,
+        emit: &mut (dyn FnMut(AgentEvent) + Send),
+    ) -> Result<(), AgentError> {
+        let reasoning_content = if tool_calls.is_empty() {
+            None
+        } else {
+            reasoning_content
+        };
+        self.persist_assistant_message(
+            session_id,
+            current_card_id,
+            &content,
+            reasoning_content.as_deref(),
+            tool_calls,
+        )?;
+        emit(AgentEvent::AssistantEnd {
+            id: assistant_id,
+            content,
+            finish_reason: finish_reason_str(finish_reason).to_owned(),
+        });
+        self.log_event(
+            session_id,
+            "assistant_end",
+            json!({
+                "finish_reason": finish_reason_str(finish_reason),
+                "runtime": "pi_sidecar",
+            }),
+        )?;
+        self.log_event(
+            session_id,
+            "stage_exit",
+            json!({
+                "run_mode": self.run_mode.as_str(),
+                "reason": finish_reason_str(finish_reason),
+                "runtime": "pi_sidecar",
+            }),
+        )?;
+        Ok(())
+    }
+
+    pub async fn execute_supervised_tool_call(
+        &self,
+        session_id: i64,
+        tc: &ToolCall,
+        emit: &mut (dyn FnMut(AgentEvent) + Send),
+    ) -> Result<SupervisedToolResult, AgentError> {
+        self.check_cancel()?;
+        let (risk, tool_opt) = match self.registry.get(&tc.name) {
+            Some(t) => (t.risk_level(), Some(t)),
+            None => (RiskLevel::Warn, None),
+        };
+        let args_value: Value = serde_json::from_str(&tc.arguments)
+            .map_err(AgentError::ArgumentJson)
+            .unwrap_or_else(|e| {
+                let msg = format!("tool arguments not JSON: {e}");
+                emit(AgentEvent::Error {
+                    message: msg,
+                    retryable: false,
+                });
+                Value::Object(Default::default())
+            });
+        let preview = params_preview(&tc.name, &args_value);
+        let diff_preview = self.build_diff_preview(&tc.name, &args_value).await;
+        let reasoning_text = reasoning_summary(&tc.name, &preview);
+        emit(AgentEvent::Reasoning {
+            id: Uuid::new_v4().to_string(),
+            text: reasoning_text.clone(),
+            tool_call_id: tc.id.clone(),
+            created_at: crate::db::now_ms(),
+        });
+        self.log_event(
+            session_id,
+            "reasoning",
+            json!({ "tool": tc.name, "tool_call_id": tc.id, "text": reasoning_text }),
+        )?;
+        emit(AgentEvent::ToolCallStart {
+            id: tc.id.clone(),
+            tool: tc.name.clone(),
+            params_preview: preview.clone(),
+            risk,
+            diff_preview,
+            args: args_value.clone(),
+        });
+        self.log_event(
+            session_id,
+            "tool_call_start",
+            json!({ "tool": tc.name, "params_preview": preview, "risk": risk.as_str(), "runtime": "pi_sidecar" }),
+        )?;
+
+        let Some(tool) = tool_opt else {
+            let msg = format!("tool '{}' not registered", tc.name);
+            let full = json!({ "error": msg.clone() });
+            emit(AgentEvent::ToolResult {
+                call_id: tc.id.clone(),
+                success: false,
+                summary: msg.clone(),
+                full: full.clone(),
+            });
+            return Ok(SupervisedToolResult {
+                content: msg.clone(),
+                success: false,
+                summary: msg,
+                full,
+            });
+        };
+
+        if let Err(crate::tools::ToolError::Blocked(reason)) = tool.validate(&args_value) {
+            emit(AgentEvent::ToolCallBlocked {
+                id: tc.id.clone(),
+                reason: reason.clone(),
+            });
+            self.log_event(
+                session_id,
+                "tool_call_blocked",
+                json!({
+                    "tool": tc.name,
+                    "rule": reason.rule,
+                    "pattern": reason.pattern,
+                    "runtime": "pi_sidecar",
+                }),
+            )?;
+            let msg = format!(
+                "tool call blocked by safety policy: {} (pattern: {})",
+                reason.rule, reason.pattern
+            );
+            return Ok(SupervisedToolResult {
+                content: msg.clone(),
+                success: false,
+                summary: msg.clone(),
+                full: json!({ "error": msg }),
+            });
+        }
+
+        let decision = self.permission.intercept(tc, risk).await;
+        match decision {
+            PermissionDecision::Approved { modified_args } => {
+                emit(AgentEvent::ToolCallApproved { id: tc.id.clone() });
+                let effective_args = modified_args.unwrap_or(args_value);
+                self.log_event(
+                    session_id,
+                    "tool_approve",
+                    json!({ "tool": tc.name, "risk": risk.as_str(), "runtime": "pi_sidecar" }),
+                )?;
+                tracing::info!(
+                    session_id,
+                    tool = %tc.name,
+                    risk = risk.as_str(),
+                    runtime = "pi_sidecar",
+                    "tool execution started"
+                );
+                let out = match tool.run(effective_args, &self.tool_ctx).await {
+                    Ok(out) => out,
+                    Err(e) => {
+                        let msg = format!("{e}");
+                        tracing::warn!(
+                            session_id,
+                            tool = %tc.name,
+                            error = %crate::telemetry::redact_log_text(&msg),
+                            runtime = "pi_sidecar",
+                            "tool execution failed"
+                        );
+                        let full = json!({ "error": msg.clone() });
+                        emit(AgentEvent::ToolResult {
+                            call_id: tc.id.clone(),
+                            success: false,
+                            summary: msg.clone(),
+                            full: full.clone(),
+                        });
+                        self.log_event(
+                            session_id,
+                            "tool_error",
+                            json!({ "tool": tc.name, "error": msg.clone(), "runtime": "pi_sidecar" }),
+                        )?;
+                        self.log_event(
+                            session_id,
+                            "error_occurred",
+                            dive_event_log::error_payload("tool", &msg),
+                        )?;
+                        return Ok(SupervisedToolResult {
+                            content: msg.clone(),
+                            success: false,
+                            summary: msg,
+                            full,
+                        });
+                    }
+                };
+                emit(AgentEvent::ToolResult {
+                    call_id: tc.id.clone(),
+                    success: out.success,
+                    summary: out.summary.clone(),
+                    full: out.full.clone(),
+                });
+                tracing::info!(
+                    session_id,
+                    tool = %tc.name,
+                    success = out.success,
+                    runtime = "pi_sidecar",
+                    "tool execution completed"
+                );
+                self.record_changed_files(session_id, &tc.name, &out.full)?;
+                self.log_event(
+                    session_id,
+                    "tool_result",
+                    json!({
+                        "tool": tc.name,
+                        "success": out.success,
+                        "summary": out.summary.clone(),
+                        "runtime": "pi_sidecar",
+                    }),
+                )?;
+                self.log_event(
+                    session_id,
+                    "tool_complete",
+                    json!({
+                        "tool": tc.name,
+                        "success": out.success,
+                        "summary": out.summary.clone(),
+                        "runtime": "pi_sidecar",
+                    }),
+                )?;
+                Ok(SupervisedToolResult {
+                    content: out.full.to_string(),
+                    success: out.success,
+                    summary: out.summary,
+                    full: out.full,
+                })
+            }
+            PermissionDecision::Denied(reason) => {
+                emit(AgentEvent::ToolCallDenied {
+                    id: tc.id.clone(),
+                    reason: reason.clone(),
+                });
+                self.log_event(
+                    session_id,
+                    "tool_call_denied",
+                    json!({ "tool": tc.name, "reason": reason.clone(), "runtime": "pi_sidecar" }),
+                )?;
+                self.log_event(
+                    session_id,
+                    "tool_reject",
+                    json!({ "tool": tc.name, "reason": reason.clone(), "runtime": "pi_sidecar" }),
+                )?;
+                let content = format!("user denied tool call: {reason}");
+                Ok(SupervisedToolResult {
+                    content: content.clone(),
+                    success: false,
+                    summary: content.clone(),
+                    full: json!({ "error": content }),
+                })
+            }
+        }
     }
 
     fn persist_user_message(

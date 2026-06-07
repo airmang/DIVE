@@ -5,13 +5,7 @@ import { Badge } from "../ui/badge";
 import { PermissionCard, RawDetails } from "../permission-card";
 import type { PermissionCardData } from "../permission-card";
 import { McpProvenanceBadge } from "../mcp/McpProvenanceBadge";
-
-const STATUS_LABEL: Record<ToolCallMessageData["status"], string> = {
-  pending: "대기",
-  approved: "승인",
-  denied: "거부",
-  blocked: "차단",
-};
+import { useT } from "../../i18n";
 
 const STATUS_VARIANT: Record<ToolCallMessageData["status"], "warn" | "success" | "danger"> = {
   pending: "warn",
@@ -27,6 +21,7 @@ interface Props {
 }
 
 function ToolCallMessageImpl({ message, onApprove, onDeny }: Props) {
+  const t = useT();
   const showCard =
     message.status === "pending" &&
     message.risk !== undefined &&
@@ -72,14 +67,14 @@ function ToolCallMessageImpl({ message, onApprove, onDeny }: Props) {
         >
           <header className="flex items-center gap-2 border-b border-danger/40 bg-danger/20 px-3 py-2">
             <Ban className="h-4 w-4 text-danger" aria-hidden />
-            <span className="text-sm font-semibold text-danger">차단된 명령 — 실행 불가</span>
+            <span className="text-sm font-semibold text-danger">{t("tool_call.blocked_title")}</span>
             <Badge variant="danger" className="ml-auto">
-              blocked
+              {t("tool_call.status.blocked")}
             </Badge>
           </header>
           <div className="space-y-1 px-3 py-2 text-xs">
             <p className="flex items-center gap-1 text-fg">
-              <span className="font-semibold">도구:</span>
+              <span className="font-semibold">{t("tool_call.tool_label")}</span>
               <span className="font-mono">{message.toolName}</span>
               <McpProvenanceBadge name={message.toolName} />
             </p>
@@ -87,16 +82,16 @@ function ToolCallMessageImpl({ message, onApprove, onDeny }: Props) {
             {message.blockedReason ? (
               <>
                 <p className="mt-1 text-danger">
-                  <span className="font-semibold">차단 규칙:</span> {message.blockedReason.rule}
+                  <span className="font-semibold">{t("tool_call.blocked_rule")}</span>{" "}
+                  {message.blockedReason.rule}
                 </p>
                 <p className="font-mono text-fg-muted">
-                  <span className="font-semibold">패턴:</span> {message.blockedReason.pattern}
+                  <span className="font-semibold">{t("tool_call.blocked_pattern")}</span>{" "}
+                  {message.blockedReason.pattern}
                 </p>
               </>
             ) : null}
-            <p className="mt-1 text-fg-muted">
-              이 명령은 안전 정책(§9.2)에 의해 사용자 승인과 무관하게 실행이 차단됩니다.
-            </p>
+            <p className="mt-1 text-fg-muted">{t("tool_call.blocked_explain")}</p>
           </div>
         </div>
       </article>
@@ -118,25 +113,24 @@ function ToolCallMessageImpl({ message, onApprove, onDeny }: Props) {
             <span>{message.toolName}</span>
             <McpProvenanceBadge name={message.toolName} />
           </div>
-          <Badge variant={STATUS_VARIANT[message.status]}>{STATUS_LABEL[message.status]}</Badge>
+          <Badge variant={STATUS_VARIANT[message.status]}>
+            {t(`tool_call.status.${message.status}`)}
+          </Badge>
         </header>
         <p className="mt-1 truncate font-mono text-xs text-fg-muted">{message.paramsPreview}</p>
         {message.deniedReason ? (
           <div className="mt-2 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
-            <p className="font-semibold">DIVE did not run this.</p>
+            <p className="font-semibold">{t("tool_call.denied_title")}</p>
             <p>{message.deniedReason}</p>
             {message.deniedReason.includes("plan-first") ? (
-              <p className="mt-1 text-fg-muted">
-                This is expected during planning: file changes and commands wait until you approve a
-                plan.
-              </p>
+              <p className="mt-1 text-fg-muted">{t("tool_call.denied_plan_first")}</p>
             ) : null}
           </div>
         ) : null}
         {message.args !== undefined ? (
           <div className="mt-2">
             <RawDetails
-              label="Show details"
+              label={t("tool_call.show_details")}
               value={{ preview: message.paramsPreview, args: message.args }}
               testId="tool-call-details"
             />
