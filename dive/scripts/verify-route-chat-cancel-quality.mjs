@@ -69,10 +69,7 @@ check(
 
 console.log("\n2. Frontend exposes route-chat cancellation separately from streaming");
 check("usePlanRouter creates route request ids", /routeRequestId|requestIdRef/.test(usePlanRouter));
-check(
-  "usePlanRouter invokes route cancel IPC",
-  /workspace_plan_route_cancel/.test(usePlanRouter),
-);
+check("usePlanRouter invokes route cancel IPC", /workspace_plan_route_cancel/.test(usePlanRouter));
 check(
   "usePlanRouter tracks route cancel requested state",
   /routeCancelRequested|cancelRequested/.test(usePlanRouter) &&
@@ -90,7 +87,9 @@ check(
   "Product code panel opens current card changed files when available",
   /const currentFiles = currentCard \? roadmapModel\.changedFilesForStep\(currentCard\.id\) : \[\]/.test(
     controller,
-  ) && /files: currentFiles/.test(controller) && /currentFiles\.length > 0 \? null/.test(controller),
+  ) &&
+    /files: currentFiles/.test(controller) &&
+    /currentFiles\.length > 0 \? null/.test(controller),
 );
 check(
   "ChatArea renders a routing running status",
@@ -100,14 +99,8 @@ check(
   "ChatArea does not require chat streaming for routing cancel UI",
   /isRouting/.test(chatArea) && /routingLabel/.test(chatArea),
 );
-check(
-  "Korean route cancel copy exists",
-  /라우팅 중 중지 요청됨/.test(ko) && /중지 요청/.test(ko),
-);
-check(
-  "English route cancel copy exists",
-  /Routing stop requested/.test(en) && /Stop/.test(en),
-);
+check("Korean route cancel copy exists", /라우팅 중 중지 요청됨/.test(ko) && /중지 요청/.test(ko));
+check("English route cancel copy exists", /Routing stop requested/.test(en) && /Stop/.test(en));
 check(
   "RC1 migration lazy fallback is visible for fresh WebView QA",
   /rc1-migration-fallback/.test(read("src/App.tsx")) &&
@@ -190,23 +183,11 @@ if (files.length === 0) {
   const initial = files
     .filter((file) => /^index-.*\.js$/.test(file.name))
     .sort((a, b) => b.bytes - a.bytes)[0];
-  const mermaidChunks = files.filter((file) => /mermaid|cytoscape|dagre|diagram/i.test(file.name));
   check("initial app chunk exists", Boolean(initial));
   check(
     "initial app chunk is below 500KB",
     initial ? initial.bytes < 500 * 1024 : false,
     initial ? `${Math.round(initial.bytes / 1024)}KB` : "",
-  );
-  check("Mermaid remains split from the initial chunk", mermaidChunks.length > 0);
-  check(
-    "initial app chunk does not contain Mermaid renderer payload",
-    initial ? !/mermaidAPI|sequenceDiagram|flowchart-v2/.test(initial.text) : false,
-  );
-  const largestMermaid = mermaidChunks.reduce((max, file) => Math.max(max, file.bytes), 0);
-  check(
-    "Mermaid lazy chunk size is measured",
-    largestMermaid > 0,
-    largestMermaid ? `${Math.round(largestMermaid / 1024)}KB` : "",
   );
 }
 

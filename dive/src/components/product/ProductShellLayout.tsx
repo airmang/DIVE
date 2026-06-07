@@ -8,7 +8,9 @@ import { TopBar } from "./TopBar";
 import { usePlanActivity } from "../../features/roadmap";
 import { useProjectSessionStore } from "../../stores/project-session";
 
-const RoadmapRail = lazy(() => import("./RoadmapRail").then((module) => ({ default: module.RoadmapRail })));
+const RoadmapRail = lazy(() =>
+  import("./RoadmapRail").then((module) => ({ default: module.RoadmapRail })),
+);
 const StepDetailSlideIn = lazy(() =>
   import("./StepDetailSlideIn").then((module) => ({ default: module.StepDetailSlideIn })),
 );
@@ -28,7 +30,8 @@ export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
   const selectSession = useProjectSessionStore((s) => s.selectSession);
   const loadAll = useProjectSessionStore((s) => s.loadAll);
   const planActivity = usePlanActivity(shell.planRoadmap.status?.plan_id ?? null, 5);
-  const rightPanelVisible = shell.roadmap.visible || shell.planRoadmap.hasPlan;
+  const rightPanelVisible =
+    shell.roadmap.visible || shell.roadmap.showEmpty || shell.planRoadmap.hasPlan;
   const gridCols = rightPanelVisible
     ? "grid-cols-[280px_minmax(0,1fr)_360px]"
     : "grid-cols-[280px_minmax(0,1fr)]";
@@ -46,17 +49,6 @@ export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
         selectSession(mapping.session_id);
       }
     }
-    return mapping;
-  };
-  const handleMarkPlanStepDone = async (stepId: number) => {
-    const mapping = await shell.planRoadmap.updateStepState({
-      stepId,
-      status: "done",
-      evidence: "Marked complete from the roadmap rail after user verification.",
-      verificationStatus: "manual_done",
-    });
-    await planActivity.refresh();
-    await loadAll();
     return mapping;
   };
   return (
@@ -82,12 +74,12 @@ export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
         <div className="row-start-2 col-start-3 min-h-0 flex flex-col overflow-hidden border-l bg-bg">
           <Suspense fallback={null}>
             <RoadmapRail
+              projectName={shell.projectName}
               planRoadmap={shell.planRoadmap}
-              planActivity={planActivity}
               fallbackRoadmap={shell.roadmap}
               onOpenPlanStep={handleOpenPlanStep}
-              onMarkPlanStepDone={handleMarkPlanStepDone}
               onOpenSession={handleOpenSession}
+              onCreatePlan={shell.roadmap.onCreatePlan}
             />
           </Suspense>
         </div>

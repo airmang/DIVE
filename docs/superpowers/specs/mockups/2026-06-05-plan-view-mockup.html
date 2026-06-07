@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="ko" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DIVE — 단일 수직 플랜 뷰 목업</title>
+<style>
+  /* ── DIVE design tokens (globals.css, dark default) ───────────── */
+  :root{
+    --bg:26 26 31; --panel:37 36 44; --panel2:45 44 54; --border:54 53 63;
+    --fg:232 230 240; --muted:142 140 154; --subtle:106 104 117;
+    --accent:177 156 217; --accent-subtle:46 40 64; --accent-fg:26 26 31;
+    --success:122 184 154; --warn:224 184 112; --danger:216 144 144; --info:138 168 208;
+    --ring:177 156 217;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:rgb(var(--bg)); color:rgb(var(--fg));
+    font-family:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,system-ui,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+    font-size:14px; line-height:1.6; -webkit-font-smoothing:antialiased;
+    display:flex; flex-direction:column; align-items:center; gap:14px; padding:28px 16px 60px;
+  }
+  .caption{color:rgb(var(--muted)); font-size:12px; text-align:center; max-width:480px}
+  .caption b{color:rgb(var(--fg))}
+
+  /* state tabs */
+  .tabs{display:flex; gap:6px; background:rgb(var(--panel)); border:1px solid rgb(var(--border)); border-radius:10px; padding:4px}
+  .tab{appearance:none; border:0; background:transparent; color:rgb(var(--muted)); font:inherit; font-size:12px; font-weight:600;
+       padding:6px 12px; border-radius:7px; cursor:pointer}
+  .tab[aria-selected="true"]{background:rgb(var(--accent-subtle)); color:rgb(var(--accent))}
+  .tab:focus-visible{outline:2px solid rgb(var(--ring)); outline-offset:2px}
+
+  /* panel = side rail */
+  .panel{width:460px; max-width:100%; background:rgb(var(--panel)); border:1px solid rgb(var(--border));
+         border-radius:12px; overflow:hidden; box-shadow:0 1px 0 rgb(0 0 0 / .2)}
+
+  /* header */
+  .head{padding:14px 16px; border-bottom:1px solid rgb(var(--border))}
+  .head-top{display:flex; align-items:center; justify-content:space-between; gap:10px}
+  .head-title{display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600}
+  .head-title svg{color:rgb(var(--accent))}
+  .goal{margin:8px 0 0; font-size:12px; color:rgb(var(--muted))}
+  .progress{margin-top:12px; height:6px; border-radius:4px; background:rgb(var(--panel2)); overflow:hidden}
+  .progress > i{display:block; height:100%; background:rgb(var(--success)); border-radius:4px}
+  .progress-meta{margin-top:7px; display:flex; justify-content:space-between; font-size:11px; color:rgb(var(--muted))}
+  .pill{display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:600; padding:3px 9px; border-radius:999px;
+        border:1px solid; white-space:nowrap}
+  .pill.run{border-color:rgb(var(--accent)/.5); background:rgb(var(--accent)/.1); color:rgb(var(--accent))}
+
+  .minimap-toggle{appearance:none; font:inherit; font-size:11px; font-weight:600; cursor:pointer;
+        display:inline-flex; align-items:center; gap:5px; padding:5px 9px; border-radius:7px;
+        border:1px solid rgb(var(--border)); background:rgb(var(--panel2)); color:rgb(var(--fg))}
+  .minimap-toggle:hover{border-color:rgb(var(--accent)/.6)}
+  .minimap-toggle:focus-visible{outline:2px solid rgb(var(--ring)); outline-offset:2px}
+  .minimap-toggle .chev{transition:transform .2s}
+  .minimap-toggle[aria-expanded="true"] .chev{transform:rotate(90deg)}
+
+  /* minimap */
+  .minimap{border-bottom:1px solid rgb(var(--border)); background:rgb(var(--bg)); padding:10px; overflow:auto}
+  .minimap[hidden]{display:none}
+  .mm-node rect{transition:filter .15s}
+  .mm-node{cursor:pointer}
+  .mm-node:hover rect{filter:brightness(1.25)}
+  .mm-node:focus-visible{outline:none}
+  .mm-node:focus-visible rect{stroke-width:2.5}
+  .mm-label{font-size:9px; font-weight:700; fill:rgb(var(--fg))}
+  .mm-edge{stroke:rgb(var(--subtle)); stroke-width:1.5; fill:none; marker-end:url(#arrow)}
+
+  /* step list */
+  .list{padding:10px; display:flex; flex-direction:column; gap:8px}
+  .row{position:relative; display:grid; grid-template-columns:3px 1fr auto; gap:0; align-items:stretch;
+       border:1px solid rgb(var(--border)); border-radius:10px; background:rgb(var(--panel2)); overflow:hidden}
+  .row.current{border-color:rgb(var(--accent)/.6); box-shadow:0 0 0 1px rgb(var(--accent)/.25)}
+  .row.blocked{opacity:.6}
+  .bar{width:3px}
+  .bar.success{background:rgb(var(--success))} .bar.warn{background:rgb(var(--warn))}
+  .bar.accent{background:rgb(var(--accent))} .bar.muted{background:rgb(var(--border))}
+  .row-main{padding:11px 12px; min-width:0}
+  .row-head{display:flex; align-items:center; gap:8px}
+  .chip{display:inline-flex; align-items:center; gap:4px; font-size:10.5px; font-weight:700; letter-spacing:.2px;
+        padding:2px 7px; border-radius:6px; white-space:nowrap}
+  .chip.success{background:rgb(var(--success)/.15); color:rgb(var(--success))}
+  .chip.warn{background:rgb(var(--warn)/.15); color:rgb(var(--warn))}
+  .chip.accent{background:rgb(var(--accent-subtle)); color:rgb(var(--accent))}
+  .chip.muted{background:rgb(var(--panel)); color:rgb(var(--muted))}
+  .stepno{font-size:11px; font-weight:700; color:rgb(var(--muted)); font-variant-numeric:tabular-nums}
+  .title{margin:7px 0 0; font-size:13px; font-weight:600; color:rgb(var(--fg));
+         display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
+  .summary{margin:3px 0 0; font-size:12px; color:rgb(var(--muted));
+           display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden}
+  .deps{margin-top:8px; display:flex; flex-wrap:wrap; gap:5px; align-items:center}
+  .dep{display:inline-flex; align-items:center; gap:3px; font-size:10.5px; font-weight:600;
+       color:rgb(var(--muted)); background:rgb(var(--panel)); border:1px solid rgb(var(--border));
+       padding:2px 7px; border-radius:999px}
+  .dep.block{color:rgb(var(--danger)); border-color:rgb(var(--danger)/.35); background:rgb(var(--danger)/.08)}
+  .blockmsg{margin-top:7px; font-size:11px; color:rgb(var(--muted)); display:flex; align-items:center; gap:5px}
+
+  .row-action{display:flex; align-items:center; padding:11px 12px 11px 6px}
+  .btn{appearance:none; font:inherit; font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap;
+       display:inline-flex; align-items:center; gap:6px; padding:7px 12px; border-radius:8px; border:1px solid}
+  .btn:focus-visible{outline:2px solid rgb(var(--ring)); outline-offset:2px}
+  .btn.primary{background:rgb(var(--accent)); border-color:rgb(var(--accent)); color:rgb(var(--accent-fg))}
+  .btn.primary:hover{filter:brightness(1.06)}
+  .btn.outline{background:transparent; border-color:rgb(var(--border)); color:rgb(var(--fg))}
+  .btn.outline:hover{border-color:rgb(var(--accent)/.6); color:rgb(var(--accent))}
+  .btn:disabled{cursor:not-allowed; opacity:.45}
+
+  /* parallel group */
+  .group{border:1px dashed rgb(var(--accent)/.4); border-radius:11px; padding:8px; background:rgb(var(--accent)/.04)}
+  .group-head{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:2px 4px 8px}
+  .group-label{display:flex; align-items:center; gap:6px; font-size:11px; font-weight:700; color:rgb(var(--accent))}
+  .group .list{padding:0; gap:8px}
+
+  /* skeleton / empty / error */
+  .skl{height:74px; border-radius:10px; border:1px solid rgb(var(--border)); background:
+       linear-gradient(90deg, rgb(var(--panel2)) 0%, rgb(var(--panel)) 50%, rgb(var(--panel2)) 100%);
+       background-size:200% 100%; animation:sh 1.3s ease-in-out infinite}
+  @keyframes sh{0%{background-position:200% 0}100%{background-position:-200% 0}}
+  .placeholder{padding:44px 20px; text-align:center}
+  .placeholder svg{color:rgb(var(--muted))}
+  .placeholder h3{margin:12px 0 4px; font-size:13px; font-weight:600}
+  .placeholder p{margin:0 0 16px; font-size:12px; color:rgb(var(--muted))}
+  .errbox{margin:10px; border:1px solid rgb(var(--danger)/.4); background:rgb(var(--danger)/.1);
+          border-radius:10px; padding:12px; font-size:12px; display:flex; gap:9px}
+  .errbox svg{color:rgb(var(--danger)); flex:none}
+  .errbox .et{font-weight:700}
+  .errbox .em{color:rgb(var(--muted)); margin-top:2px}
+  [hidden]{display:none !important}
+</style>
+</head>
+<body>
+
+<p class="caption"><b>DIVE 단일 수직 플랜 뷰 — 목업.</b> 3중 표현(Mermaid 그래프·수평 카드 캐러셀·리스트)을 하나의 수직 뷰로 통합. 그래프는 접이식 경량 미니맵으로 강등. 실제 다크 테마 토큰 사용.</p>
+
+<div class="tabs" role="tablist" aria-label="상태 미리보기">
+  <button class="tab" role="tab" aria-selected="true"  data-state="filled">채워짐</button>
+  <button class="tab" role="tab" aria-selected="false" data-state="loading">로딩</button>
+  <button class="tab" role="tab" aria-selected="false" data-state="empty">비어있음</button>
+  <button class="tab" role="tab" aria-selected="false" data-state="error">오류</button>
+</div>
+
+<section class="panel" aria-label="프로젝트 플랜">
+
+  <!-- HEADER -->
+  <header class="head">
+    <div class="head-top">
+      <div class="head-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg>
+        플랜 · 메모 앱 만들기
+      </div>
+      <span class="pill run">● 진행 중</span>
+    </div>
+    <p class="goal">로컬에 저장되는 간단한 메모 앱을 만든다 — 작성·수정·삭제·검색.</p>
+    <div class="progress" aria-hidden="true"><i style="width:29%"></i></div>
+    <div class="progress-meta"><span>2/7 단계 완료 · 29%</span><span>준비 3 · 진행 1 · 대기 1</span></div>
+    <div style="margin-top:12px">
+      <button class="minimap-toggle" id="mmToggle" aria-expanded="true" aria-controls="minimap">
+        <svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+        의존성 미니맵
+      </button>
+    </div>
+  </header>
+
+  <!-- MINIMAP (lightweight SVG, level-based) -->
+  <div class="minimap" id="minimap">
+    <svg viewBox="0 0 520 215" width="500" height="206" role="group" aria-label="단계 의존성 그래프">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="rgb(106 104 117)"/>
+        </marker>
+      </defs>
+      <!-- edges -->
+      <path class="mm-edge" d="M104,135 L140,135"/>
+      <path class="mm-edge" d="M204,135 C222,135 222,95 240,95"/>
+      <path class="mm-edge" d="M204,135 C222,135 222,175 240,175"/>
+      <path class="mm-edge" d="M304,95 C322,95 322,75 340,75"/>
+      <path class="mm-edge" d="M304,95 C322,95 322,155 340,155"/>
+      <path class="mm-edge" d="M404,75 C422,75 422,115 440,115"/>
+      <path class="mm-edge" d="M404,155 C422,155 422,115 440,115"/>
+      <!-- nodes: state→token color -->
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-001 환경 설정 (완료)">
+        <rect x="40" y="120" width="64" height="30" rx="7" fill="rgb(122 184 154 / .18)" stroke="rgb(122 184 154)"/>
+        <text class="mm-label" x="72" y="139" text-anchor="middle">S-001</text></g>
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-002 데이터 모델 (완료)">
+        <rect x="140" y="120" width="64" height="30" rx="7" fill="rgb(122 184 154 / .18)" stroke="rgb(122 184 154)"/>
+        <text class="mm-label" x="172" y="139" text-anchor="middle">S-002</text></g>
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-003 인증 플로우 (진행 중)">
+        <rect x="240" y="80" width="64" height="30" rx="7" fill="rgb(224 184 112 / .18)" stroke="rgb(224 184 112)"/>
+        <text class="mm-label" x="272" y="99" text-anchor="middle">S-003</text></g>
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-004 UI 컴포넌트 (준비)">
+        <rect x="240" y="160" width="64" height="30" rx="7" fill="rgb(177 156 217 / .16)" stroke="rgb(177 156 217)"/>
+        <text class="mm-label" x="272" y="179" text-anchor="middle">S-004</text></g>
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-005 단위 테스트 (준비)">
+        <rect x="340" y="60" width="64" height="30" rx="7" fill="rgb(177 156 217 / .16)" stroke="rgb(177 156 217)"/>
+        <text class="mm-label" x="372" y="79" text-anchor="middle">S-005</text></g>
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-006 문서화 (준비)">
+        <rect x="340" y="140" width="64" height="30" rx="7" fill="rgb(177 156 217 / .16)" stroke="rgb(177 156 217)"/>
+        <text class="mm-label" x="372" y="159" text-anchor="middle">S-006</text></g>
+      <g class="mm-node" tabindex="0" role="button" aria-label="S-007 배포 (대기 — 막힘)">
+        <rect x="440" y="100" width="64" height="30" rx="7" fill="rgb(45 44 54)" stroke="rgb(54 53 63)"/>
+        <text class="mm-label" x="472" y="119" text-anchor="middle" fill="rgb(142 140 154)">S-007</text></g>
+    </svg>
+  </div>
+
+  <!-- ===== FILLED ===== -->
+  <div class="list" data-view="filled">
+
+    <!-- done -->
+    <article class="row">
+      <span class="bar success" aria-hidden="true"></span>
+      <div class="row-main">
+        <div class="row-head">
+          <span class="chip success">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>완료
+          </span>
+          <span class="stepno">S-001</span>
+        </div>
+        <h3 class="title">개발 환경 설정</h3>
+        <p class="summary">Tauri + React 스캐폴드, 의존성 설치 완료.</p>
+      </div>
+      <div class="row-action"><button class="btn outline">열기</button></div>
+    </article>
+
+    <!-- done -->
+    <article class="row">
+      <span class="bar success" aria-hidden="true"></span>
+      <div class="row-main">
+        <div class="row-head">
+          <span class="chip success">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>완료
+          </span>
+          <span class="stepno">S-002</span>
+        </div>
+        <h3 class="title">메모 데이터 모델 + SQLite 스키마</h3>
+        <p class="summary">note 테이블, 마이그레이션 v1 적용.</p>
+        <div class="deps"><span class="dep">← S-001</span></div>
+      </div>
+      <div class="row-action"><button class="btn outline">열기</button></div>
+    </article>
+
+    <!-- in_progress (current) -->
+    <article class="row current" aria-current="step">
+      <span class="bar warn" aria-hidden="true"></span>
+      <div class="row-main">
+        <div class="row-head">
+          <span class="chip warn">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>진행 중
+          </span>
+          <span class="stepno">S-003</span>
+        </div>
+        <h3 class="title">메모 작성·수정·삭제 화면</h3>
+        <p class="summary">목록/편집 UI 구현 중 — 저장 핸들러 작업.</p>
+        <div class="deps"><span class="dep">← S-002</span></div>
+      </div>
+      <div class="row-action"><button class="btn primary">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M21 3v6h-6"/></svg>이어하기</button></div>
+    </article>
+
+    <!-- ready -->
+    <article class="row">
+      <span class="bar accent" aria-hidden="true"></span>
+      <div class="row-main">
+        <div class="row-head">
+          <span class="chip accent">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"/></svg>준비
+          </span>
+          <span class="stepno">S-004</span>
+        </div>
+        <h3 class="title">검색 + 필터 UI</h3>
+        <p class="summary">제목/본문 부분일치 검색바.</p>
+        <div class="deps"><span class="dep">← S-002</span></div>
+      </div>
+      <div class="row-action"><button class="btn primary">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"/></svg>시작</button></div>
+    </article>
+
+    <!-- parallel group -->
+    <div class="group" aria-label="병렬 가능 단계">
+      <div class="group-head">
+        <span class="group-label">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+          병렬 가능 · 동시에 시작
+        </span>
+        <button class="btn outline" style="padding:6px 10px">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"/></svg>그룹 시작 <span style="color:rgb(var(--muted))">2/2</span>
+        </button>
+      </div>
+      <div class="list">
+        <article class="row">
+          <span class="bar accent" aria-hidden="true"></span>
+          <div class="row-main">
+            <div class="row-head"><span class="chip accent"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>준비</span><span class="stepno">S-005</span></div>
+            <h3 class="title">단위 테스트 작성</h3>
+            <p class="summary">저장/검색 로직 테스트.</p>
+            <div class="deps"><span class="dep">← S-003</span></div>
+          </div>
+          <div class="row-action"><button class="btn outline">시작</button></div>
+        </article>
+        <article class="row">
+          <span class="bar accent" aria-hidden="true"></span>
+          <div class="row-main">
+            <div class="row-head"><span class="chip accent"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>준비</span><span class="stepno">S-006</span></div>
+            <h3 class="title">사용 설명 문서화</h3>
+            <p class="summary">README + 단축키 안내.</p>
+            <div class="deps"><span class="dep">← S-003</span></div>
+          </div>
+          <div class="row-action"><button class="btn outline">시작</button></div>
+        </article>
+      </div>
+    </div>
+
+    <!-- blocked -->
+    <article class="row blocked">
+      <span class="bar muted" aria-hidden="true"></span>
+      <div class="row-main">
+        <div class="row-head">
+          <span class="chip muted">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>대기
+          </span>
+          <span class="stepno">S-007</span>
+        </div>
+        <h3 class="title">패키징 + 배포</h3>
+        <p class="summary">Windows/macOS 빌드 산출.</p>
+        <div class="deps">
+          <span class="dep block">← S-005</span><span class="dep block">← S-006</span>
+        </div>
+        <div class="blockmsg">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          S-005, S-006 완료 후 시작할 수 있습니다.
+        </div>
+      </div>
+      <div class="row-action"><button class="btn outline" disabled>시작</button></div>
+    </article>
+  </div>
+
+  <!-- ===== LOADING ===== -->
+  <div class="list" data-view="loading" hidden>
+    <div class="skl"></div><div class="skl"></div><div class="skl"></div>
+  </div>
+
+  <!-- ===== EMPTY ===== -->
+  <div data-view="empty" hidden>
+    <div class="placeholder">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11V6a3 3 0 0 1 6 0v5"/><rect width="18" height="11" x="3" y="11" rx="2"/></svg>
+      <h3>아직 플랜이 없어요</h3>
+      <p>목표를 정하면 AI가 단계로 나눠 줍니다. 같이 계획부터 세워볼까요?</p>
+      <button class="btn primary" style="margin:0 auto">플랜 만들기</button>
+    </div>
+  </div>
+
+  <!-- ===== ERROR ===== -->
+  <div data-view="error" hidden>
+    <div class="errbox">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+      <div>
+        <div class="et">플랜을 불러오지 못했습니다</div>
+        <div class="em">데이터베이스 연결이 끊어졌어요. 잠시 후 다시 시도하세요.</div>
+        <button class="btn outline" style="margin-top:10px">다시 시도</button>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<p class="caption">상단 탭으로 4가지 화면 상태를 전환하고, 헤더의 <b>의존성 미니맵</b>으로 그래프를 접었다 펼 수 있습니다. 미니맵 노드는 Tab으로 포커스됩니다.</p>
+
+<script>
+  const tabs = [...document.querySelectorAll('.tab')];
+  const views = [...document.querySelectorAll('[data-view]')];
+  const minimap = document.getElementById('minimap');
+  function show(state){
+    tabs.forEach(t=>t.setAttribute('aria-selected', String(t.dataset.state===state)));
+    views.forEach(v=>v.hidden = v.dataset.view!==state);
+    // minimap & header progress only meaningful when filled
+    minimap.hidden = state!=='filled' ? true : minimap.dataset.user!=='closed';
+  }
+  tabs.forEach(t=>t.addEventListener('click',()=>show(t.dataset.state)));
+
+  const mm = document.getElementById('mmToggle');
+  mm.addEventListener('click',()=>{
+    const open = mm.getAttribute('aria-expanded')==='true';
+    mm.setAttribute('aria-expanded', String(!open));
+    minimap.dataset.user = open ? 'closed' : 'open';
+    minimap.hidden = open;
+  });
+  // node click → would scroll+focus the matching row (demo: flash)
+  document.querySelectorAll('.mm-node').forEach(n=>{
+    const act = ()=>{ n.querySelector('rect').animate(
+      [{filter:'brightness(1.6)'},{filter:'brightness(1)'}], {duration:500}); };
+    n.addEventListener('click', act);
+    n.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();act();} });
+  });
+</script>
+</body>
+</html>

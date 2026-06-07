@@ -20,6 +20,7 @@ import {
   useWorkmapStore,
 } from "../../stores/workmap";
 import { selectHasConnectedProvider, useProjectSessionStore } from "../../stores/project-session";
+import { cockpitProviderLabel } from "../../lib/provider-format";
 import { useToast } from "../toast/toast-context";
 import { getCardStateMeta } from "../workmap/card-state-meta";
 import { useT } from "../../i18n";
@@ -143,6 +144,7 @@ export function useProductShellController() {
   const projectSessionLoaded = useProjectSessionStore((s) => s.loaded);
   const loadProjectSession = useProjectSessionStore((s) => s.loadAll);
   const hasConnectedProvider = useProjectSessionStore(selectHasConnectedProvider);
+  const providers = useProjectSessionStore((s) => s.providers);
   const setCurrentCardLocal = useWorkmapStore((s) => s.setCurrentCardLocal);
   const currentProjectId = useProjectSessionStore((s) => s.currentProjectId);
   const currentSessionId = useProjectSessionStore((s) => s.currentSessionId);
@@ -534,8 +536,7 @@ export function useProductShellController() {
     (decision: ApprovalDecision) => {
       if (!currentCard) return;
       const judgment = { ...decision, decided_at: Date.now() };
-      const action =
-        decision.outcome === "revision_requested" ? "request_changes" : "approve";
+      const action = decision.outcome === "revision_requested" ? "request_changes" : "approve";
       void roadmapModel
         .transitionStep(currentCard.id, action, { judgment })
         .then(() => {
@@ -715,12 +716,16 @@ export function useProductShellController() {
       files: currentFiles,
       changeSummary: currentCard?.changeSummary ?? null,
       emptyReason:
-        currentFiles.length > 0 ? null : hasBlockedWithoutOutput ? "blocked_no_output" : "no_output",
+        currentFiles.length > 0
+          ? null
+          : hasBlockedWithoutOutput
+            ? "blocked_no_output"
+            : "no_output",
       replaceFiles: true,
     });
   }, [cards, currentCard, openSlideIn, planRoadmap.steps, roadmapModel]);
 
-  const cardStateLabel = currentCard ? getCardStateMeta(currentCard.state).label : null;
+  const cardStateLabel = currentCard ? t(getCardStateMeta(currentCard.state).labelKey) : null;
   const currentVerifyLog: VerifyLogView | null = currentCard
     ? roadmapModel.verifyLogForStep(currentCard.id)
     : null;
@@ -757,28 +762,34 @@ export function useProductShellController() {
         onAction: handleEmptyStateAction,
       };
     }
-    if (currentCard?.state === "instructed") {
-      const hasInstruction = (currentCard.summary ?? "").trim().length > 0;
-      if (!hasInstruction) {
-        return {
-          reason: t("stage.gate_no_instruction"),
-          actionLabel: t("stage.action_write_instruction"),
-          onAction: () => dialogs.setStepDetailOpen(true),
-        };
-      }
-    }
     return null;
   }, [
-    currentCard,
     currentProjectId,
     currentSessionId,
-    dialogs,
     handleEmptyStateAction,
     hasConnectedProvider,
     isDemoRoute,
     openSettingsRoute,
     t,
   ]);
+
+  // C1: a missing step instruction is coaching, not a wall. Cockpit-first means
+  // chat is never blocked just because a card has no instruction yet — we surface
+  // a dismissible, non-blocking hint instead. (Card-summary persistence still
+  // records whether an instruction was written, so research telemetry is intact.)
+  const composerHint = useMemo(() => {
+    if (currentCard?.state === "instructed") {
+      const hasInstruction = (currentCard.summary ?? "").trim().length > 0;
+      if (!hasInstruction) {
+        return {
+          message: t("stage.hint_no_instruction"),
+          actionLabel: t("stage.action_write_instruction"),
+          onAction: () => dialogs.setStepDetailOpen(true),
+        };
+      }
+    }
+    return null;
+  }, [currentCard, dialogs, t]);
 
   const emptyState = useMemo(() => {
     if (currentProjectId === null) {
@@ -800,15 +811,29 @@ export function useProductShellController() {
     return undefined;
   }, [currentProjectId, currentSessionId, handleEmptyStateAction, t]);
 
+  const handleCreatePlanFromRail = useCallback(() => {
+    if (currentProjectId === null || currentSessionId === null) {
+      handleEmptyStateAction();
+      return;
+    }
+    if (!hasConnectedProvider) {
+      openSettingsRoute();
+      return;
+    }
+    requestChatFocus();
+  }, [
+    currentProjectId,
+    currentSessionId,
+    handleEmptyStateAction,
+    hasConnectedProvider,
+    openSettingsRoute,
+    requestChatFocus,
+  ]);
+
   const sendMessage = useCallback(
     (text: string) => {
       const effectivePlanAccepted = planAccepted || activePlanStepIdForChat !== undefined;
-      void chat.sendUserMessage(
-        text,
-        undefined,
-        effectivePlanAccepted,
-        activePlanStepIdForChat,
-      );
+      void chat.sendUserMessage(text, undefined, effectivePlanAccepted, activePlanStepIdForChat);
     },
     [activePlanStepIdForChat, chat, planAccepted],
   );
@@ -1112,7 +1137,7 @@ export function useProductShellController() {
         ? planRouter.routeCancelRequested
           ? t("planning.route.cancel_requested_status")
           : t("planning.route.routing_status")
-        : undefined,
+        : (cockpitProviderLabel(providers) ?? t("chat.input.model_disconnected_label")),
       isStreaming: chat.isStreaming,
       runStartedAt: chat.runStartedAt,
       cancelRequested: chat.cancelRequested,
@@ -1127,6 +1152,7 @@ export function useProductShellController() {
         pendingPlanRoute !== null ||
         (!isDemoRoute && currentSessionId === null),
       inputBlocked,
+      composerHint,
       context: promptContext,
       emptyState,
       planDraftApproval: generatedPlanDraft
@@ -1153,12 +1179,14 @@ export function useProductShellController() {
     },
     roadmap: {
       visible: roadmapModel.steps.length > 0 || planAccepted,
+      showEmpty: currentProjectId !== null && !planAccepted && roadmapModel.steps.length === 0,
       steps: roadmapModel.steps,
       activeStepId: roadmapModel.activeStepId,
       progress: roadmapModel.progress,
       goal: generatedPlanDraft?.plan.goal ?? plan.status?.plan_summary ?? null,
       onSelectStep: handleStepSelect,
       onPlanStepOpened: rememberJustOpenedPlanStepMapping,
+      onCreatePlan: handleCreatePlanFromRail,
     },
     planRoadmap,
     stepDetail: {

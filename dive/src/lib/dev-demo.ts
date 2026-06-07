@@ -5,6 +5,7 @@ export type RecognizedDemoRoute =
   | "slide-in-demo"
   | "scenario-a-demo"
   | "scenario-b-demo"
+  | "plan-surface-demo"
   | "tool-guard-demo"
   | "provisioning-demo"
   | "timeline-demo"
@@ -26,6 +27,9 @@ const DEMO_ROUTE_ALIASES: Record<string, RecognizedDemoRoute> = {
   "scenario-a-demo": "scenario-a-demo",
   "scenario-b": "scenario-b-demo",
   "scenario-b-demo": "scenario-b-demo",
+  workmap: "plan-surface-demo",
+  "plan-surface": "plan-surface-demo",
+  "plan-surface-demo": "plan-surface-demo",
   "tool-guard": "tool-guard-demo",
   "tool-guard-demo": "tool-guard-demo",
   provisioning: "provisioning-demo",

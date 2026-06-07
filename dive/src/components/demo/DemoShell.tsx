@@ -5,6 +5,7 @@ import PermissionDemoPage from "../../pages/permission-demo";
 import SlideInDemoPage from "../../pages/slide-in-demo";
 import ScenarioADemoPage from "../../pages/scenario-a-demo";
 import ScenarioBDemoPage from "../../pages/scenario-b-demo";
+import PlanSurfaceDemoPage from "../../pages/plan-surface-demo";
 import ToolGuardDemoPage from "../../pages/tool-guard-demo";
 import ProvisioningDemoPage from "../../pages/provisioning-demo";
 import ExportDemoPage from "../../pages/export-demo";
@@ -33,6 +34,7 @@ export function DemoShell({ route }: DemoShellProps) {
   if (demoRoute === "slide-in-demo") return <SlideInDemoPage />;
   if (demoRoute === "scenario-a-demo") return <ScenarioADemoPage />;
   if (demoRoute === "scenario-b-demo") return <ScenarioBDemoPage />;
+  if (demoRoute === "plan-surface-demo") return <PlanSurfaceDemoPage />;
   if (demoRoute === "tool-guard-demo") return <ToolGuardDemoPage />;
   if (demoRoute === "provisioning-demo") return <ProvisioningDemoPage />;
   if (demoRoute === "timeline-demo") return <TimelineDemoPage />;

@@ -1,4 +1,5 @@
 import { TerminalSquare } from "lucide-react";
+import { useT } from "../../i18n";
 import type { ToolExplanation } from "./explain";
 
 interface Props {
@@ -6,14 +7,16 @@ interface Props {
 }
 
 export function CommandExplainer({ explanation }: Props) {
+  const t = useT();
+
   if (!explanation.command) return null;
 
   const changeCopy =
     explanation.commandWillChangeFiles === "maybe"
-      ? "This command might change files if the program writes to the project. DIVE will show results afterward, but it cannot promise the command is read-only."
+      ? t("permission_card.command.change_maybe")
       : explanation.commandWillChangeFiles === "yes"
-        ? "This action is expected to change project files."
-        : "This command is not expected to change files.";
+        ? t("permission_card.command.change_yes")
+        : t("permission_card.command.change_no");
 
   return (
     <section
@@ -22,7 +25,7 @@ export function CommandExplainer({ explanation }: Props) {
     >
       <div className="flex items-center gap-2 font-semibold text-fg">
         <TerminalSquare className="h-4 w-4 text-danger" aria-hidden />
-        Command to run
+        {t("permission_card.command.title")}
       </div>
       <pre
         className="mt-2 overflow-auto rounded-md border bg-bg p-2 font-mono text-[11px] leading-5 text-fg"
@@ -32,10 +35,8 @@ export function CommandExplainer({ explanation }: Props) {
       </pre>
       <ul className="mt-2 space-y-1 text-fg-muted">
         <li>{changeCopy}</li>
-        <li>
-          If it fails, no approval is reused automatically. DIVE gets the error and can explain it.
-        </li>
-        <li>You can deny now and ask DIVE why this command is needed.</li>
+        <li>{t("permission_card.command.failure_note")}</li>
+        <li>{t("permission_card.command.deny_note")}</li>
       </ul>
     </section>
   );

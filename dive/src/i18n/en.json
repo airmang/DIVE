@@ -59,6 +59,7 @@
     "gate_no_provider": "Connect an AI assistant before planning, roadmap creation, and step execution.",
     "gate_no_cards": "Describe your goal and draft a plan before step execution.",
     "gate_no_instruction": "Describe what the agent should do for this step.",
+    "hint_no_instruction": "Tip: describe what this step should do for a sharper result — or just start chatting.",
     "gate_not_verifying": "Checks have not started yet.",
     "action_open_settings": "Connect AI",
     "action_add_ai_cards": "Add steps with AI",
@@ -158,6 +159,16 @@
     "empty_no_session_title": "Start a work session",
     "empty_no_session_description": "After your AI connection is ready, describe a goal so DIVE can draft a plan and roadmap.",
     "provider_setup_title": "Connect AI to continue",
+    "region_aria": "Chat area",
+    "header_title": "Conversation",
+    "no_session": "No session",
+    "slide_panel_aria": "Open code and preview panel",
+    "code_label": "Code",
+    "preview_label": "Preview",
+    "empty_default_title": "Start a session to begin chatting",
+    "empty_default_description": "Enter a goal or pick a roadmap step",
+    "empty_hint": "In the sidebar, click + New session to begin",
+    "hint_dismiss_aria": "Dismiss hint",
     "input": {
       "placeholder": "Type a message...",
       "aria_label": "Message input",
@@ -165,8 +176,10 @@
       "prompt_helper_label": "Helper",
       "pre_send_check_aria": "Pre-send check (Ctrl+Shift+Enter)",
       "pre_send_check_label": "Check",
-      "model_select_aria": "Model picker (coming soon)",
+      "model_select_aria": "Active AI model",
       "model_select_default_label": "Pick model",
+      "model_connected_aria": "Connected AI: {{label}}",
+      "model_disconnected_label": "No AI connected",
       "send_aria": "Send message",
       "send_label": "Send"
     },
@@ -174,6 +187,32 @@
       "elapsed": "AI is working · {{seconds}}s elapsed",
       "cancel": "Stop",
       "cancel_requested": "Stop requested"
+    }
+  },
+  "card_state": {
+    "decomposed": {
+      "label": "Waiting",
+      "summary": "Waiting for a task — click a step to start"
+    },
+    "instructed": {
+      "label": "In progress",
+      "summary": "Task written — ready to run"
+    },
+    "verifying": {
+      "label": "Verifying",
+      "summary": "Verification in progress…"
+    },
+    "verified": {
+      "label": "Done",
+      "summary": "Passed AI review — manual check recommended"
+    },
+    "rejected": {
+      "label": "Rejected",
+      "summary": "Verification rejected — revise the task and retry"
+    },
+    "extended": {
+      "label": "Done",
+      "summary": "Step complete"
     }
   },
   "roadmap": {
@@ -308,6 +347,35 @@
       }
     }
   },
+  "plan_view": {
+    "aria": "Project plan",
+    "eyebrow": "Project Plan",
+    "default_title": "Current project",
+    "done": "Done",
+    "show_minimap": "Show dependency graph",
+    "hide_minimap": "Hide dependency graph",
+    "minimap_aria": "Plan dependency minimap",
+    "minimap_node_aria": "{{step}}, {{status}}. Jump to step.",
+    "dependencies": "needs",
+    "blocked_by": "blocked by",
+    "parallel": "Parallel",
+    "parallel_named": "Parallel · {{name}}",
+    "parallel_tag": "Parallel",
+    "run_group": "Run both ×{{count}}",
+    "run_group_aria": "Start {{count}} ready parallel steps",
+    "empty_title": "No approved plan yet",
+    "empty_description": "Create or approve a plan in chat, then DIVE will map the steps here.",
+    "empty_cta": "Create plan",
+    "error_title": "Could not load plan",
+    "retry": "Retry",
+    "actions": {
+      "start": "Start",
+      "resume": "Resume",
+      "open": "Open",
+      "locked": "Locked",
+      "working": "Working..."
+    }
+  },
   "planning": {
     "interview": {
       "title": "Plan interview",
@@ -430,6 +498,139 @@
     "state_extended": "Done",
     "checkpoint_verify_pass": "[check passed]",
     "checkpoint_extend": "[done]"
+  },
+  "permission_card": {
+    "safe": {
+      "title": "Quick safety check",
+      "description": "This request should only read information. You still stay in control.",
+      "approve": "Allow read"
+    },
+    "warn": {
+      "title": "Review before DIVE changes anything",
+      "description": "Nothing is applied until you choose Allow. Deny is always safe.",
+      "approve": "Allow this change"
+    },
+    "danger": {
+      "title": "High-risk approval required",
+      "description": "DIVE is asking for a powerful action. It will not run unless you allow it.",
+      "approve": "Allow high-risk action"
+    },
+    "actions": {
+      "deny": "Deny",
+      "add_reason": "Add reason",
+      "confirm_deny": "Confirm deny",
+      "edit_request": "Edit request",
+      "stop_editing": "Stop editing request",
+      "show_details": "Show details",
+      "deny_reason_label": "Why deny? (optional)",
+      "deny_reason_aria": "Deny reason",
+      "args_label": "Edit arguments (JSON)",
+      "args_aria": "Edit tool arguments as JSON",
+      "json_error": "JSON error: {{message}}"
+    },
+    "summary": {
+      "files_title": "Files or folders involved",
+      "files_empty": "No specific file path was provided.",
+      "choices_title": "Your choices"
+    },
+    "command": {
+      "title": "Command to run",
+      "change_maybe": "This command might change files if the program writes to the project. DIVE will show results afterward, but it cannot promise the command is read-only.",
+      "change_yes": "This action is expected to change project files.",
+      "change_no": "This command is not expected to change files.",
+      "failure_note": "If it fails, no approval is reused automatically. DIVE gets the error and can explain it.",
+      "deny_note": "You can deny now and ask DIVE why this command is needed."
+    },
+    "patch": {
+      "title": "Patch preview before approval",
+      "with_diff": "Review the exact before/after file change. Nothing here is applied until you allow it.",
+      "missing_diff": "A patch preview is not available for this request. Review the file path and raw details before deciding."
+    },
+    "diff": {
+      "truncated": "Over 300 lines - showing part only",
+      "expand": "Show all"
+    },
+    "risk": {
+      "safe": {
+        "label": "Safe read",
+        "body": "This only reads project information. It should not change files or run commands."
+      },
+      "warn": {
+        "label": "Needs your approval",
+        "body": "This may change files. Review the file path and preview before allowing it."
+      },
+      "danger": {
+        "label": "Higher risk",
+        "body": "This can run commands or remove files. DIVE will not continue unless you explicitly allow it."
+      }
+    },
+    "explain": {
+      "tools": {
+        "read_file": {
+          "title": "Read a file",
+          "body": "DIVE wants to open this file so it can understand the project before acting."
+        },
+        "list_dir": {
+          "title": "List files in a folder",
+          "body": "DIVE wants to see the folder names so it can choose the right next step."
+        },
+        "search_files": {
+          "title": "Search project files",
+          "body": "DIVE wants to search text in your project. This should not edit anything."
+        },
+        "write_file": {
+          "title": "Create or replace a file",
+          "body": "DIVE wants to write new content to this file. Review the preview before allowing it."
+        },
+        "edit_file": {
+          "title": "Edit part of a file",
+          "body": "DIVE wants to replace matching text in this file. Review the before/after preview."
+        },
+        "delete_file": {
+          "title": "Delete a file",
+          "body": "DIVE wants to remove this file from the project. Only allow this if you expected it."
+        },
+        "mkdir": {
+          "title": "Create a folder",
+          "body": "DIVE wants to add a folder inside the project."
+        },
+        "run_process": {
+          "title": "Run a project command",
+          "body": "DIVE wants to run one program in the project folder. It may check, build, install, or generate files depending on the command."
+        },
+        "bash": {
+          "title": "Run a shell command",
+          "body": "DIVE wants to run this through the shell. Shell commands are powerful, so blocked patterns still cannot run even if approved."
+        },
+        "default": {
+          "title": "Use {{toolName}}",
+          "body": "DIVE wants to use this tool. Review the details before allowing it."
+        }
+      },
+      "choices": {
+        "allow_read": "Allow the read",
+        "deny_file_private": "Deny if this file should stay private",
+        "deny_folder_private": "Deny if this folder should stay private",
+        "allow_search": "Allow the search",
+        "deny_unnecessary_search": "Deny if the search is unnecessary",
+        "allow_file_change": "Allow the file change",
+        "edit_request": "Edit the request",
+        "deny_ask_explain": "Deny and ask DIVE to explain",
+        "allow_edit": "Allow the edit",
+        "deny_ask_safer_change": "Deny and ask for a safer change",
+        "allow_delete": "Allow the delete",
+        "deny_keep_file": "Deny and keep the file",
+        "allow_folder": "Allow the folder",
+        "deny_wrong_location": "Deny if the location looks wrong",
+        "allow_command": "Allow the command",
+        "deny_ask_purpose": "Deny and ask what it is for",
+        "edit_command_first": "Edit the command first",
+        "deny_ask_safer_command": "Deny and ask for a safer command",
+        "allow": "Allow",
+        "deny": "Deny",
+        "edit_if_wrong": "Edit the request if the details look wrong"
+      }
+    }
   },
   "checkpoint": {
     "manual_saved": "Checkpoint saved",

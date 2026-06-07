@@ -39,7 +39,8 @@ const codeTab = read("src/components/slide-in/CodeTab.tsx");
 const slideInStore = read("src/stores/slideIn.ts");
 const slideInTypes = read("src/components/slide-in/types.ts");
 const controller = read("src/components/product/useProductShellController.ts");
-const mermaid = read("src/components/product/MermaidDiagram.tsx");
+const planMiniMap = read("src/components/plan/PlanMiniMap.tsx");
+const planDraftMap = read("src/components/product/PlanDraftDependencyMap.tsx");
 const ko = JSON.parse(read("src/i18n/ko.json"));
 const en = JSON.parse(read("src/i18n/en.json"));
 
@@ -48,8 +49,14 @@ check(
   "agent-loop has product path code-output regression",
   /product_path_build_step_creates_code_output_and_records_changed_files/.test(agentLoopTest),
 );
-check("test writes index.html through write_file", /write_file[\s\S]*index\.html/.test(agentLoopTest));
-check("test asserts changed_files contains index.html", /changed_files[\s\S]*index\.html/.test(agentLoopTest));
+check(
+  "test writes index.html through write_file",
+  /write_file[\s\S]*index\.html/.test(agentLoopTest),
+);
+check(
+  "test asserts changed_files contains index.html",
+  /changed_files[\s\S]*index\.html/.test(agentLoopTest),
+);
 
 console.log("\n2. Long provider runs expose elapsed time and cancel");
 check("chat session tracks run started_at", /runStartedAt/.test(chatSession));
@@ -65,27 +72,31 @@ check("slide-in store tracks empty reason", /emptyReason/.test(slideInStore));
 check("slide-in types include blocked empty reason", /blocked_no_output/.test(slideInTypes));
 check("controller sends blocked no-output context", /blocked_no_output/.test(controller));
 check("code tab renders actionable empty state", /code-tab-empty-action/.test(codeTab));
-check("Korean blocked output copy exists", typeof ko.slide_in?.code_empty?.blocked_no_output?.title === "string");
-check("English blocked output copy exists", typeof en.slide_in?.code_empty?.blocked_no_output?.title === "string");
+check(
+  "Korean blocked output copy exists",
+  typeof ko.slide_in?.code_empty?.blocked_no_output?.title === "string",
+);
+check(
+  "English blocked output copy exists",
+  typeof en.slide_in?.code_empty?.blocked_no_output?.title === "string",
+);
 
-console.log("\n4. Mermaid is lazy-loaded");
-check("MermaidDiagram has no static mermaid import", !/import\s+mermaid\s+from\s+["']mermaid["']/.test(mermaid));
-check("MermaidDiagram dynamically imports mermaid", /import\(["']mermaid["']\)/.test(mermaid));
-check("MermaidDiagram initializes once after load", /mermaidInitialized/.test(mermaid));
-check("MermaidDiagram exposes loading state", /mermaid-loading/.test(mermaid));
+console.log("\n4. Dependency maps use lightweight SVG surfaces");
+check("plan minimap exposes focusable nodes", /plan-minimap-node/.test(planMiniMap));
+check("draft approval map exposes a test id", /plan-draft-dependency-map/.test(planDraftMap));
+check("plan minimap uses keyboard handlers", /onKeyDown/.test(planMiniMap));
 
-console.log("\n5. Bundle output keeps Mermaid out of initial chunk when dist exists");
+console.log("\n5. Bundle output keeps initial chunk within budget when dist exists");
 const built = distFiles();
 if (built.length === 0) {
   check("dist build output present", false, "run pnpm build before final verification");
 } else {
   const initial = built.find((file) => /^index-.*\.js$/.test(file.name));
-  const mermaidChunks = built.filter((file) => /mermaid|diagram|flow|cytoscape|dagre/i.test(file.name));
   check("initial app chunk exists", Boolean(initial));
-  check("Mermaid-related chunks are split", mermaidChunks.length > 0, `chunks=${mermaidChunks.length}`);
   check(
-    "initial app chunk does not contain Mermaid renderer payload",
-    initial ? !/mermaidAPI|mermaid version|sequenceDiagram/.test(initial.text) : false,
+    "initial app chunk is below 500KB",
+    initial ? initial.text.length < 500 * 1024 : false,
+    initial ? `${Math.round(initial.text.length / 1024)}KB` : "",
   );
 }
 

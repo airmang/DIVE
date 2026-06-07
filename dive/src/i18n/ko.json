@@ -59,6 +59,7 @@
     "gate_no_provider": "계획, 로드맵 생성, 단계 실행을 시작하려면 AI를 연결하세요.",
     "gate_no_cards": "단계 실행 전에 목표를 설명하고 계획을 작성하세요.",
     "gate_no_instruction": "이 단계에서 에이전트가 할 일을 적어 주세요.",
+    "hint_no_instruction": "팁: 이 단계에서 할 일을 적으면 결과가 더 정확해져요 — 아니면 바로 대화해도 됩니다.",
     "gate_not_verifying": "아직 검증을 시작하지 않았습니다.",
     "action_open_settings": "AI 연결",
     "action_add_ai_cards": "AI로 단계 추가",
@@ -158,6 +159,16 @@
     "empty_no_session_title": "작업 세션을 시작하세요",
     "empty_no_session_description": "AI 연결이 준비되면 목표를 설명하고 계획과 로드맵을 만들 수 있습니다.",
     "provider_setup_title": "계속하려면 AI를 연결하세요",
+    "region_aria": "채팅 영역",
+    "header_title": "대화",
+    "no_session": "세션 없음",
+    "slide_panel_aria": "코드와 미리보기 패널 열기",
+    "code_label": "코드",
+    "preview_label": "미리보기",
+    "empty_default_title": "세션을 시작해 대화를 시작하세요",
+    "empty_default_description": "목표를 입력하거나 로드맵 단계를 선택하세요",
+    "empty_hint": "사이드바에서 + 새 세션을 눌러 시작하세요",
+    "hint_dismiss_aria": "힌트 닫기",
     "input": {
       "placeholder": "메시지를 입력하세요...",
       "aria_label": "메시지 입력",
@@ -165,8 +176,10 @@
       "prompt_helper_label": "도우미",
       "pre_send_check_aria": "보내기 전 점검 (Ctrl+Shift+Enter)",
       "pre_send_check_label": "점검",
-      "model_select_aria": "모델 선택 (준비 중)",
+      "model_select_aria": "현재 AI 모델",
       "model_select_default_label": "모델 선택",
+      "model_connected_aria": "연결된 AI: {{label}}",
+      "model_disconnected_label": "연결된 AI 없음",
       "send_aria": "메시지 전송",
       "send_label": "전송"
     },
@@ -174,6 +187,32 @@
       "elapsed": "AI 작업 중 · {{seconds}}초 경과",
       "cancel": "중지",
       "cancel_requested": "중지 요청됨"
+    }
+  },
+  "card_state": {
+    "decomposed": {
+      "label": "대기",
+      "summary": "할 일 작성 대기 — 단계를 클릭해 시작하세요"
+    },
+    "instructed": {
+      "label": "진행 중",
+      "summary": "할 일 작성됨 — 실행 준비 완료"
+    },
+    "verifying": {
+      "label": "검증 중",
+      "summary": "검증 진행 중…"
+    },
+    "verified": {
+      "label": "완료",
+      "summary": "AI 검토 통과 — 직접 확인 권장"
+    },
+    "rejected": {
+      "label": "거부",
+      "summary": "검증 거부 — 할 일을 수정해 다시 시도"
+    },
+    "extended": {
+      "label": "완료",
+      "summary": "단계 완료"
     }
   },
   "roadmap": {
@@ -308,6 +347,35 @@
       }
     }
   },
+  "plan_view": {
+    "aria": "프로젝트 플랜",
+    "eyebrow": "Project Plan",
+    "default_title": "현재 프로젝트",
+    "done": "Done",
+    "show_minimap": "의존성 그래프 보기",
+    "hide_minimap": "의존성 그래프 접기",
+    "minimap_aria": "플랜 의존성 미니맵",
+    "minimap_node_aria": "{{step}}, {{status}}. 해당 단계로 이동",
+    "dependencies": "needs",
+    "blocked_by": "blocked by",
+    "parallel": "Parallel · 동시 실행",
+    "parallel_named": "Parallel · {{name}}",
+    "parallel_tag": "병렬",
+    "run_group": "Run both ×{{count}}",
+    "run_group_aria": "준비된 병렬 단계 {{count}}개 시작",
+    "empty_title": "아직 승인된 계획이 없습니다",
+    "empty_description": "채팅에서 계획을 만들거나 승인하면 여기에 단계가 표시됩니다.",
+    "empty_cta": "플랜 만들기",
+    "error_title": "플랜을 불러올 수 없음",
+    "retry": "재시도",
+    "actions": {
+      "start": "Start",
+      "resume": "Resume",
+      "open": "Open",
+      "locked": "Locked",
+      "working": "Working..."
+    }
+  },
   "planning": {
     "interview": {
       "title": "계획 인터뷰",
@@ -430,6 +498,139 @@
     "state_extended": "완료",
     "checkpoint_verify_pass": "[검증 통과]",
     "checkpoint_extend": "[완료]"
+  },
+  "permission_card": {
+    "safe": {
+      "title": "안전 확인",
+      "description": "읽기 전용 요청입니다. 승인해도 파일을 바꾸거나 명령을 실행하지 않습니다.",
+      "approve": "읽기 허용"
+    },
+    "warn": {
+      "title": "변경 전 확인이 필요합니다",
+      "description": "허용을 누르기 전에는 아무것도 적용되지 않습니다. 거부해도 안전합니다.",
+      "approve": "이 변경 허용"
+    },
+    "danger": {
+      "title": "고위험 작업 승인 필요",
+      "description": "명령 실행이나 삭제처럼 강한 작업입니다. 명시적으로 허용해야만 진행됩니다.",
+      "approve": "고위험 작업 허용"
+    },
+    "actions": {
+      "deny": "거부",
+      "add_reason": "사유 추가",
+      "confirm_deny": "거부 확정",
+      "edit_request": "요청 수정",
+      "stop_editing": "수정 중지",
+      "show_details": "상세 보기",
+      "deny_reason_label": "거부 사유 (선택)",
+      "deny_reason_aria": "거부 사유",
+      "args_label": "인자 수정 (JSON)",
+      "args_aria": "도구 인자 JSON 편집",
+      "json_error": "JSON 오류: {{message}}"
+    },
+    "summary": {
+      "files_title": "관련 파일/폴더",
+      "files_empty": "특정 파일 경로가 제공되지 않았습니다.",
+      "choices_title": "선택할 수 있는 행동"
+    },
+    "command": {
+      "title": "실행할 명령",
+      "change_maybe": "이 명령은 프로그램이 프로젝트에 쓰면 파일을 바꿀 수 있습니다. 실행 뒤 결과를 보여주지만, 읽기 전용이라고 보장할 수는 없습니다.",
+      "change_yes": "이 작업은 프로젝트 파일을 바꿀 것으로 예상됩니다.",
+      "change_no": "이 명령은 파일을 바꾸지 않을 것으로 예상됩니다.",
+      "failure_note": "실패해도 승인은 자동으로 재사용되지 않습니다. DIVE가 오류를 받아 설명할 수 있습니다.",
+      "deny_note": "지금 거부하고 DIVE에게 이 명령이 왜 필요한지 물어볼 수 있습니다."
+    },
+    "patch": {
+      "title": "승인 전 패치 미리보기",
+      "with_diff": "적용 전/후 변경을 정확히 확인하세요. 허용하기 전에는 적용되지 않습니다.",
+      "missing_diff": "이 요청에는 패치 미리보기가 없습니다. 파일 경로와 상세 내용을 확인한 뒤 결정하세요."
+    },
+    "diff": {
+      "truncated": "300줄 초과 - 일부만 표시",
+      "expand": "전체 보기"
+    },
+    "risk": {
+      "safe": {
+        "label": "안전한 읽기",
+        "body": "프로젝트 정보를 읽기만 합니다. 파일을 바꾸거나 명령을 실행하지 않습니다."
+      },
+      "warn": {
+        "label": "승인 필요",
+        "body": "파일이 변경될 수 있습니다. 경로와 미리보기를 확인한 뒤에만 허용하세요."
+      },
+      "danger": {
+        "label": "높은 위험",
+        "body": "명령 실행이나 파일 삭제가 포함될 수 있습니다. 명시적으로 허용해야만 DIVE가 계속 진행합니다."
+      }
+    },
+    "explain": {
+      "tools": {
+        "read_file": {
+          "title": "파일 읽기",
+          "body": "DIVE가 작업 전에 프로젝트를 이해할 수 있도록 이 파일을 열려고 합니다."
+        },
+        "list_dir": {
+          "title": "폴더 파일 목록 보기",
+          "body": "다음 단계를 올바르게 고를 수 있도록 폴더 이름을 확인하려고 합니다."
+        },
+        "search_files": {
+          "title": "프로젝트 파일 검색",
+          "body": "프로젝트 안의 텍스트를 검색하려고 합니다. 이 작업만으로는 아무것도 수정하지 않습니다."
+        },
+        "write_file": {
+          "title": "파일 생성 또는 덮어쓰기",
+          "body": "이 파일에 새 내용을 쓰려고 합니다. 허용하기 전에 미리보기를 확인하세요."
+        },
+        "edit_file": {
+          "title": "파일 일부 수정",
+          "body": "이 파일에서 일치하는 텍스트를 바꾸려고 합니다. 적용 전/후 미리보기를 확인하세요."
+        },
+        "delete_file": {
+          "title": "파일 삭제",
+          "body": "프로젝트에서 이 파일을 제거하려고 합니다. 예상한 삭제일 때만 허용하세요."
+        },
+        "mkdir": {
+          "title": "폴더 생성",
+          "body": "프로젝트 안에 폴더를 추가하려고 합니다."
+        },
+        "run_process": {
+          "title": "프로젝트 명령 실행",
+          "body": "프로젝트 폴더에서 프로그램 하나를 실행하려고 합니다. 명령에 따라 검사, 빌드, 설치, 파일 생성이 일어날 수 있습니다."
+        },
+        "bash": {
+          "title": "셸 명령 실행",
+          "body": "셸을 통해 명령을 실행하려고 합니다. 셸 명령은 강력하므로, 차단 패턴은 승인해도 실행되지 않습니다."
+        },
+        "default": {
+          "title": "{{toolName}} 사용",
+          "body": "이 도구를 사용하려고 합니다. 허용하기 전에 상세 내용을 확인하세요."
+        }
+      },
+      "choices": {
+        "allow_read": "읽기 허용",
+        "deny_file_private": "이 파일을 공개하면 안 되면 거부",
+        "deny_folder_private": "이 폴더를 공개하면 안 되면 거부",
+        "allow_search": "검색 허용",
+        "deny_unnecessary_search": "필요 없는 검색이면 거부",
+        "allow_file_change": "파일 변경 허용",
+        "edit_request": "요청 수정",
+        "deny_ask_explain": "거부하고 DIVE에게 설명 요청",
+        "allow_edit": "수정 허용",
+        "deny_ask_safer_change": "거부하고 더 안전한 변경 요청",
+        "allow_delete": "삭제 허용",
+        "deny_keep_file": "거부하고 파일 유지",
+        "allow_folder": "폴더 생성 허용",
+        "deny_wrong_location": "위치가 이상하면 거부",
+        "allow_command": "명령 실행 허용",
+        "deny_ask_purpose": "거부하고 용도 질문",
+        "edit_command_first": "먼저 명령 수정",
+        "deny_ask_safer_command": "거부하고 더 안전한 명령 요청",
+        "allow": "허용",
+        "deny": "거부",
+        "edit_if_wrong": "상세 내용이 이상하면 요청 수정"
+      }
+    }
   },
   "checkpoint": {
     "manual_saved": "체크포인트 저장됨",

@@ -2,10 +2,9 @@ import { AlertTriangle, Check, RotateCcw, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useT } from "../../i18n";
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
-import type { PlanStepRow } from "../../features/roadmap";
 import { useTutorialEnabled } from "../../stores/ui-preferences";
 import { Button } from "../ui/button";
-import { MermaidDiagram } from "./MermaidDiagram";
+import { PlanDraftDependencyMap } from "./PlanDraftDependencyMap";
 
 interface PlanDraftApprovalScreenProps {
   draft: PlanGenerationResult;
@@ -20,33 +19,6 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
-}
-
-function mermaidId(stepId: string): string {
-  return stepId.replace(/[^A-Za-z0-9_]/g, "_");
-}
-
-function escapeMermaid(label: string): string {
-  return label.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
-function buildPlanDraftChart(steps: PlanStepRow[]): string {
-  const lines = ["flowchart TD"];
-  for (const step of steps) {
-    lines.push(`  ${mermaidId(step.step_id)}["${escapeMermaid(step.title)}"]`);
-  }
-  for (const step of steps) {
-    for (const dep of stringArray(step.dependencies)) {
-      lines.push(`  ${mermaidId(dep)} --> ${mermaidId(step.step_id)}`);
-    }
-  }
-  for (const step of steps) {
-    if (step.parallel_group) {
-      lines.push(`  class ${mermaidId(step.step_id)} parallelGroup`);
-    }
-  }
-  lines.push("  classDef parallelGroup stroke:#8b5cf6,stroke-width:2px");
-  return lines.join("\n");
 }
 
 function buildPlanMarkdown(draft: PlanGenerationResult): string {
@@ -130,7 +102,6 @@ export function PlanDraftApprovalScreen({
   const [feedback, setFeedback] = useState("");
   const [critique, setCritique] = useState<"unset" | "none" | "found">("unset");
   const unresolved = stringArray(interview?.unresolved_questions);
-  const chart = useMemo(() => buildPlanDraftChart(draft.steps), [draft.steps]);
   const markdown = useMemo(() => buildPlanMarkdown(draft), [draft]);
   const plan = draft.plan;
   const approveBlocked = tutorialEnabled && critique !== "none";
@@ -248,7 +219,7 @@ export function PlanDraftApprovalScreen({
               <h3 className="mb-2 text-sm font-semibold text-fg">
                 {t("planning.approval.step_dag")}
               </h3>
-              <MermaidDiagram chart={chart} />
+              <PlanDraftDependencyMap steps={draft.steps} />
             </section>
             <section className="rounded-md border bg-bg-panel2 p-3">
               <h3 className="text-sm font-semibold text-fg">

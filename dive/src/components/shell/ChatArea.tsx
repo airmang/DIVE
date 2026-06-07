@@ -1,4 +1,4 @@
-import { AlertCircle, Code, Eye, X } from "lucide-react";
+import { AlertCircle, Code, Eye, Lightbulb, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
@@ -40,6 +40,7 @@ interface ChatAreaProps {
   onCancelRouting?: () => void;
   inputDisabled?: boolean;
   inputBlocked?: { reason: string; actionLabel?: string; onAction?: () => void } | null;
+  composerHint?: { message: string; actionLabel?: string; onAction?: () => void } | null;
   context?: PromptContext | null;
   emptyState?: {
     title: string;
@@ -74,12 +75,18 @@ export function ChatArea({
   onCancelRouting,
   inputDisabled,
   inputBlocked,
+  composerHint,
   context,
   emptyState,
   planDraftApproval,
 }: ChatAreaProps) {
   const t = useT();
   const [now, setNow] = useState(() => Date.now());
+  const [hintDismissed, setHintDismissed] = useState(false);
+  useEffect(() => {
+    setHintDismissed(false);
+  }, [composerHint?.message]);
+  const showComposerHint = composerHint !== null && composerHint !== undefined && !hintDismissed;
   const hasConversation = messages !== undefined && messages.length > 0;
   const elapsedSeconds =
     isStreaming && runStartedAt !== null ? Math.max(0, Math.floor((now - runStartedAt) / 1000)) : 0;
@@ -108,12 +115,12 @@ export function ChatArea({
   }, [isRouting, isStreaming, routeStartedAt, runStartedAt]);
 
   return (
-    <section className={cn("flex h-full flex-col bg-bg", className)} aria-label="채팅 영역">
+    <section className={cn("flex h-full flex-col bg-bg", className)} aria-label={t("chat.region_aria")}>
       <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b px-6">
         <div className="flex items-baseline gap-3">
-          <h1 className="text-lg font-bold text-fg">대화</h1>
+          <h1 className="text-lg font-bold text-fg">{t("chat.header_title")}</h1>
           <span className="text-xs text-fg-muted" data-testid="chat-card-title">
-            {cardTitle ?? sessionTitle ?? "세션 없음"}
+            {cardTitle ?? sessionTitle ?? t("chat.no_session")}
           </span>
           {cardStateLabel ? (
             <span
@@ -128,13 +135,13 @@ export function ChatArea({
           variant="outline"
           size="sm"
           onClick={handleOpenSlidePanel}
-          aria-label="코드와 미리보기 패널 열기"
+          aria-label={t("chat.slide_panel_aria")}
         >
           <Code />
-          <span>코드</span>
+          <span>{t("chat.code_label")}</span>
           <span className="text-fg-subtle">/</span>
           <Eye />
-          <span>미리보기</span>
+          <span>{t("chat.preview_label")}</span>
         </Button>
       </header>
 
@@ -168,17 +175,13 @@ export function ChatArea({
         ) : (
           <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 px-6 text-center">
             <p className="text-xl font-semibold text-fg">
-              {emptyState?.title ?? "세션을 시작해 대화를 시작하세요"}
+              {emptyState?.title ?? t("chat.empty_default_title")}
             </p>
             <p className="text-sm text-fg-muted">
-              {emptyState?.description ?? "목표를 입력하거나 로드맵 단계를 선택하세요"}
+              {emptyState?.description ?? t("chat.empty_default_description")}
             </p>
             {!emptyState?.description ? (
-              <LearningHint className="text-sm">
-                <>
-                  사이드바에서 <span className="font-medium text-fg">+ 새 세션</span>을 눌러 시작
-                </>
-              </LearningHint>
+              <LearningHint className="text-sm">{t("chat.empty_hint")}</LearningHint>
             ) : null}
             {emptyState?.actionLabel && emptyState.onAction ? (
               <Button
@@ -259,6 +262,35 @@ export function ChatArea({
                 {inputBlocked.actionLabel}
               </Button>
             ) : null}
+          </div>
+        ) : null}
+        {showComposerHint && composerHint ? (
+          <div
+            className="mb-2 flex items-start gap-2 rounded-md border border-accent/40 bg-accent-subtle px-3 py-2 text-xs"
+            role="status"
+            data-testid="chat-composer-hint"
+          >
+            <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden />
+            <span className="flex-1 text-fg">{composerHint.message}</span>
+            {composerHint.actionLabel && composerHint.onAction ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={composerHint.onAction}
+                data-testid="chat-composer-hint-action"
+              >
+                {composerHint.actionLabel}
+              </Button>
+            ) : null}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setHintDismissed(true)}
+              aria-label={t("chat.hint_dismiss_aria")}
+              data-testid="chat-composer-hint-dismiss"
+            >
+              <X />
+            </Button>
           </div>
         ) : null}
         {interviewPanel ? (
