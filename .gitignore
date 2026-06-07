@@ -13,6 +13,9 @@ dive/test-results/
 # Wily 실행 세션 로그는 로드맵 감사 문서와 분리한다.
 .wily/sessions/
 
+# Superpowers 브레인스토밍 비주얼 컴패니언 산출물 (사용자별, 커밋 대상 아님)
+.superpowers/
+
 # OS
 .DS_Store
 Thumbs.db
