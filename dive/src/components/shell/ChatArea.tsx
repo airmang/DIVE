@@ -6,6 +6,8 @@ import { LearningHint } from "../ui/learning-hint";
 import { Skeleton } from "../ui/skeleton";
 import { ChatInput } from "../chat/ChatInput";
 import { RuntimeBadge } from "./RuntimeBadge";
+import { GetStartedChecklist } from "../product/GetStartedChecklist";
+import type { GetStartedModel } from "../product/GetStartedChecklist";
 import { MessageList } from "../chat/MessageList";
 import type { ChatMessage } from "../chat/types";
 import type { PromptContext } from "../../lib/prompt-templates";
@@ -44,6 +46,7 @@ interface ChatAreaProps {
   className?: string;
   messages?: ChatMessage[];
   messagesLoading?: boolean;
+  getStarted?: GetStartedModel | null;
   cardTitle?: string | null;
   sessionTitle?: string | null;
   cardStateLabel?: string | null;
@@ -80,6 +83,7 @@ export function ChatArea({
   className,
   messages,
   messagesLoading = false,
+  getStarted = null,
   cardTitle,
   sessionTitle,
   cardStateLabel,
@@ -191,6 +195,8 @@ export function ChatArea({
       <div className="flex-1 min-h-0 overflow-hidden">
         {planDraftApproval ? (
           planDraftApproval
+        ) : getStarted ? (
+          <GetStartedChecklist model={getStarted} />
         ) : messagesLoading && !hasConversation ? (
           <MessageHistorySkeleton label={t("chat.history_loading_aria")} />
         ) : hasConversation ? (
@@ -273,7 +279,7 @@ export function ChatArea({
             ) : null}
           </div>
         ) : null}
-        {inputBlocked ? (
+        {inputBlocked && !getStarted ? (
           <div
             className="mb-2 flex items-start gap-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn"
             role="status"
