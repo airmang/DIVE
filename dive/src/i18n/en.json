@@ -59,6 +59,7 @@
     "gate_no_provider": "Connect an AI assistant before planning, roadmap creation, and step execution.",
     "gate_no_cards": "Describe your goal and draft a plan before step execution.",
     "gate_no_instruction": "Describe what the agent should do for this step.",
+    "hint_no_instruction": "Tip: describe what this step should do for a sharper result — or just start chatting.",
     "gate_not_verifying": "Checks have not started yet.",
     "action_open_settings": "Connect AI",
     "action_add_ai_cards": "Add steps with AI",
@@ -158,6 +159,16 @@
     "empty_no_session_title": "Start a work session",
     "empty_no_session_description": "After your AI connection is ready, describe a goal so DIVE can draft a plan and roadmap.",
     "provider_setup_title": "Connect AI to continue",
+    "region_aria": "Chat area",
+    "header_title": "Conversation",
+    "no_session": "No session",
+    "slide_panel_aria": "Open code and preview panel",
+    "code_label": "Code",
+    "preview_label": "Preview",
+    "empty_default_title": "Start a session to begin chatting",
+    "empty_default_description": "Enter a goal or pick a roadmap step",
+    "empty_hint": "In the sidebar, click + New session to begin",
+    "hint_dismiss_aria": "Dismiss hint",
     "input": {
       "placeholder": "Type a message...",
       "aria_label": "Message input",
@@ -165,8 +176,10 @@
       "prompt_helper_label": "Helper",
       "pre_send_check_aria": "Pre-send check (Ctrl+Shift+Enter)",
       "pre_send_check_label": "Check",
-      "model_select_aria": "Model picker (coming soon)",
+      "model_select_aria": "Active AI model",
       "model_select_default_label": "Pick model",
+      "model_connected_aria": "Connected AI: {{label}}",
+      "model_disconnected_label": "No AI connected",
       "send_aria": "Send message",
       "send_label": "Send"
     },
@@ -174,6 +187,32 @@
       "elapsed": "AI is working · {{seconds}}s elapsed",
       "cancel": "Stop",
       "cancel_requested": "Stop requested"
+    }
+  },
+  "card_state": {
+    "decomposed": {
+      "label": "Waiting",
+      "summary": "Waiting for a task — click a step to start"
+    },
+    "instructed": {
+      "label": "In progress",
+      "summary": "Task written — ready to run"
+    },
+    "verifying": {
+      "label": "Verifying",
+      "summary": "Verification in progress…"
+    },
+    "verified": {
+      "label": "Done",
+      "summary": "Passed AI review — manual check recommended"
+    },
+    "rejected": {
+      "label": "Rejected",
+      "summary": "Verification rejected — revise the task and retry"
+    },
+    "extended": {
+      "label": "Done",
+      "summary": "Step complete"
     }
   },
   "roadmap": {

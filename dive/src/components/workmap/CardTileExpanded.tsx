@@ -1,6 +1,7 @@
 import { cn } from "../../lib/utils";
 import { getCardStateMeta } from "./card-state-meta";
 import { CardStateBadge } from "./CardStateBadge";
+import { useT } from "../../i18n";
 import type { CardTileData } from "./types";
 
 interface CardTileExpandedProps {
@@ -10,15 +11,16 @@ interface CardTileExpandedProps {
 }
 
 export function CardTileExpanded({ card, disabled, onClick }: CardTileExpandedProps) {
+  const t = useT();
   const meta = getCardStateMeta(card.state);
-  const summary = card.summary ?? meta.defaultSummary;
+  const summary = card.summary ?? t(meta.defaultSummaryKey);
 
   return (
     <button
       type="button"
       onClick={() => onClick?.(card)}
       disabled={disabled}
-      aria-label={`${card.title} — ${meta.label}`}
+      aria-label={`${card.title} — ${t(meta.labelKey)}`}
       data-testid="card-tile"
       data-card-id={card.id}
       data-card-state={card.state}

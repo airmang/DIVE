@@ -10,34 +10,11 @@ import {
   selectHasConnectedProvider,
 } from "../../stores/project-session";
 import { NewProjectDialog } from "../onboarding/NewProjectDialog";
+import { providerDisplayName, modelDisplayName } from "../../lib/provider-format";
 import { useT } from "../../i18n";
 
 interface SidebarProps {
   className?: string;
-}
-
-const MODEL_LABELS: Record<string, string> = {
-  "big-pickle": "Big Pickle",
-  "minimax-m2.5-free": "MiniMax M2.5 Free",
-  "hy3-preview-free": "Hy3 Preview Free",
-  "gpt-5.5": "GPT-5.5",
-  "gpt-5.5-codex": "GPT-5.5 Codex",
-  "gpt-5.4": "GPT-5.4",
-  "gpt-5.4-mini": "GPT-5.4 Mini",
-};
-
-function providerDisplayName(kind: string) {
-  if (kind === "opencode_zen" || kind === "opencode-zen") return "opencode zen";
-  if (kind === "openrouter") return "OpenRouter";
-  if (kind === "openai") return "OpenAI";
-  if (kind === "anthropic") return "Anthropic";
-  if (kind === "codex") return "Codex";
-  return kind;
-}
-
-function modelDisplayName(model: string | null | undefined) {
-  if (!model) return null;
-  return MODEL_LABELS[model] ?? model;
 }
 
 export function Sidebar({ className }: SidebarProps) {

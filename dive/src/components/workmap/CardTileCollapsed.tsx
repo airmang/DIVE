@@ -1,6 +1,7 @@
 import { cn } from "../../lib/utils";
 import { getCardStateMeta } from "./card-state-meta";
 import { CardStateBadge } from "./CardStateBadge";
+import { useT } from "../../i18n";
 import type { CardTileData } from "./types";
 
 interface CardTileCollapsedProps {
@@ -10,6 +11,7 @@ interface CardTileCollapsedProps {
 }
 
 export function CardTileCollapsed({ card, disabled, onClick }: CardTileCollapsedProps) {
+  const t = useT();
   const meta = getCardStateMeta(card.state);
 
   return (
@@ -17,7 +19,7 @@ export function CardTileCollapsed({ card, disabled, onClick }: CardTileCollapsed
       type="button"
       onClick={() => onClick?.(card)}
       disabled={disabled}
-      aria-label={`${card.title} — ${meta.label}`}
+      aria-label={`${card.title} — ${t(meta.labelKey)}`}
       data-testid="card-tile"
       data-card-id={card.id}
       data-card-state={card.state}
