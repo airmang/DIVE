@@ -244,7 +244,7 @@ async fn write_http_response(
 ) -> std::io::Result<()> {
     let response = format!(
         "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.as_bytes().len()
+        body.len()
     );
     stream.write_all(response.as_bytes()).await
 }

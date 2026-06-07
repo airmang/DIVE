@@ -637,6 +637,7 @@ impl AgentLoop {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn finish_external_turn(
         &self,
         session_id: i64,
