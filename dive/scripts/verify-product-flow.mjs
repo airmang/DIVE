@@ -56,6 +56,9 @@ const planApproval = read("dive/src/components/product/PlanDraftApprovalScreen.t
 const planRecovery = read("dive/src/components/product/PlanDraftRecoveryScreen.tsx");
 const socraticPanel = read("dive/src/components/product/SocraticInterviewPanel.tsx");
 const roadmapRail = read("dive/src/components/product/RoadmapRail.tsx");
+const planView = read("dive/src/components/plan/PlanView.tsx");
+const planTimeline = read("dive/src/components/plan/PlanTimeline.tsx");
+const planStepActions = read("dive/src/components/plan/PlanStepActions.tsx");
 const stepDetail = read("dive/src/components/product/StepDetailSlideIn.tsx");
 const slideInStore = read("dive/src/stores/slideIn.ts");
 const slideInPanel = read("dive/src/components/slide-in/SlideInPanel.tsx");
@@ -221,15 +224,23 @@ check(
     '"roadmap_step_open"',
     '"roadmap_step_update_state"',
     "derivePlanRoadmapSteps",
+    "updateStepState",
   ]) &&
     includesAll(roadmapRail, [
-      'data-testid="roadmap-rail"',
-      'data-testid="roadmap-step-list"',
-      "onOpenPlanStep",
-      "onMarkPlanStepDone",
+      "<PlanView",
+      "onOpenStep: onOpenPlanStep",
       "onOpenSession",
+      "onCreatePlan",
     ]) &&
-    includesAll(productLayout, ["handleOpenPlanStep", "handleMarkPlanStepDone", "usePlanActivity"]),
+    includesAll(planView, ['data-testid="plan-view"', "<PlanTimeline", "actions.onOpenStep"]) &&
+    includesAll(planTimeline, ['data-testid="plan-timeline"', "<PlanStep"]) &&
+    includesAll(planStepActions, [
+      'data-testid="plan-step-action"',
+      'data-action="start"',
+      'data-action="resume"',
+      'data-action="open"',
+    ]) &&
+    includesAll(productLayout, ["handleOpenPlanStep", "usePlanActivity"]),
 );
 check(
   "opening a roadmap step seeds the build prompt with plan context",
