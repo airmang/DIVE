@@ -12,8 +12,8 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 
-const BUILTIN_DENYLIST = ["read", "bash", "edit", "write", "grep", "find", "ls"];
-const DEFAULT_DIVE_CONTEXT_TOOL = {
+export const BUILTIN_DENYLIST = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+export const DEFAULT_DIVE_CONTEXT_TOOL = {
   name: "dive_context",
   description:
     "Ask DIVE for supervised context. This is the only tool in the Phase 2 sidecar smoke path.",
@@ -22,23 +22,38 @@ const DEFAULT_DIVE_CONTEXT_TOOL = {
   }),
 };
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  crlfDelay: Infinity,
-});
-
 const pendingToolResults = new Map();
+const HEARTBEAT_INTERVAL_MS = 5000;
+let activeRun = null;
 
-function emit(message) {
+export function emit(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
-function redactError(error) {
+export async function withHeartbeat(requestId, phase, operation) {
+  const interval = setInterval(() => {
+    emit({
+      type: "heartbeat",
+      request_id: requestId,
+      turn_id: requestId,
+      phase,
+      ts: Date.now(),
+    });
+  }, HEARTBEAT_INTERVAL_MS);
+  interval.unref?.();
+  try {
+    return await operation();
+  } finally {
+    clearInterval(interval);
+  }
+}
+
+export function redactError(error) {
   const message = error instanceof Error ? error.message : String(error);
   return message.replace(/[A-Za-z0-9_-]{32,}/g, "[REDACTED]");
 }
 
-function makeNoDiscoveryResourceLoader() {
+export function makeNoDiscoveryResourceLoader() {
   return {
     getExtensions: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
     getSkills: () => ({ skills: [], diagnostics: [] }),
@@ -53,7 +68,7 @@ function makeNoDiscoveryResourceLoader() {
   };
 }
 
-function summarizeTools(session) {
+export function summarizeTools(session) {
   const tools = session?.agent?.state?.tools;
   if (!tools) return [];
   if (tools instanceof Map) return [...tools.keys()].sort();
@@ -61,7 +76,7 @@ function summarizeTools(session) {
   return Object.keys(tools).sort();
 }
 
-function waitForToolResult(toolCallId, signal) {
+export function waitForToolResult(toolCallId, signal) {
   return new Promise((resolve, reject) => {
     const cleanup = () => {
       pendingToolResults.delete(toolCallId);
@@ -79,13 +94,13 @@ function waitForToolResult(toolCallId, signal) {
   });
 }
 
-function normalizeParameters(schema) {
+export function normalizeParameters(schema) {
   if (!schema || typeof schema !== "object") return Type.Object({});
   if (schema.$id || schema.type) return Type.Unsafe(schema);
   return Type.Object({});
 }
 
-function makeDiveTool(requestId, toolSpec) {
+export function makeDiveTool(requestId, toolSpec) {
   const name = toolSpec.name;
   return defineTool({
     name,
@@ -101,7 +116,9 @@ function makeDiveTool(requestId, toolSpec) {
         name,
         params,
       });
-      const result = await waitForToolResult(toolCallId, signal);
+      const result = await withHeartbeat(requestId, "tool_wait", () =>
+        waitForToolResult(toolCallId, signal),
+      );
       if (!result.success) {
         return {
           content: [{ type: "text", text: result.content || "DIVE tool call failed" }],
@@ -117,20 +134,32 @@ function makeDiveTool(requestId, toolSpec) {
   });
 }
 
-function makeCustomTools(requestId, message) {
+export function makeCustomTools(requestId, message) {
   const specs = Array.isArray(message.tools) ? message.tools : [DEFAULT_DIVE_CONTEXT_TOOL];
   return specs.map((spec) => makeDiveTool(requestId, spec));
 }
 
-async function handleRun(message) {
+export async function handleRun(message) {
   const requestId = message.request_id ?? "run";
   let session;
+  const runState = {
+    requestId,
+    session: null,
+  };
+  activeRun = runState;
   try {
-    const authStorage = AuthStorage.create(message.auth_path);
+    const provider = message.provider ?? "openai-codex";
+    const modelId = message.model ?? "gpt-5.4-mini";
+    const authStorage = message.auth_path
+      ? AuthStorage.create(message.auth_path)
+      : AuthStorage.inMemory();
+    if (typeof message.api_key === "string" && message.api_key.length > 0) {
+      authStorage.setRuntimeApiKey(provider, message.api_key);
+    }
     const modelRegistry = ModelRegistry.inMemory(authStorage);
-    const model = getModel(message.provider ?? "openai-codex", message.model ?? "gpt-5.4-mini");
+    const model = getModel(provider, modelId);
     if (!model) {
-      throw new Error(`model not found: ${message.provider ?? "openai-codex"}/${message.model}`);
+      throw new Error(`model not found: ${provider}/${modelId}`);
     }
     const cwd = message.cwd ?? process.cwd();
     const settingsManager = SettingsManager.inMemory({
@@ -154,6 +183,7 @@ async function handleRun(message) {
       settingsManager,
     });
     session = created.session;
+    runState.session = session;
 
     const enabledTools = summarizeTools(session);
     emit({
@@ -165,17 +195,27 @@ async function handleRun(message) {
 
     let assistantText = "";
     session.subscribe((event) => {
-      if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
-        assistantText += event.assistantMessageEvent.delta;
+      const assistantEvent = event.assistantMessageEvent;
+      if (event.type !== "message_update" || !assistantEvent) {
+        return;
+      }
+      if (assistantEvent.type === "text_delta") {
+        assistantText += assistantEvent.delta;
         emit({
           type: "assistant_delta",
           request_id: requestId,
-          delta: event.assistantMessageEvent.delta,
+          delta: assistantEvent.delta,
+        });
+      } else if (assistantEvent.type === "thinking_delta") {
+        emit({
+          type: "reasoning_delta",
+          request_id: requestId,
+          delta: assistantEvent.delta,
         });
       }
     });
 
-    await session.prompt(message.prompt);
+    await withHeartbeat(requestId, "model_wait", () => session.prompt(message.prompt));
     emit({
       type: "turn_succeeded",
       request_id: requestId,
@@ -189,32 +229,61 @@ async function handleRun(message) {
     });
     process.exitCode = 1;
   } finally {
+    if (activeRun === runState) {
+      activeRun = null;
+    }
     session?.dispose();
   }
 }
 
-rl.on("line", (line) => {
-  if (!line.trim()) return;
-  let message;
-  try {
-    message = JSON.parse(line);
-  } catch (error) {
-    emit({ type: "error", message: `invalid JSON: ${redactError(error)}` });
-    return;
+export async function handleTurnCancel(message) {
+  const run = activeRun;
+  if (!run) return;
+  if (message.request_id && message.request_id !== run.requestId) return;
+  if (typeof run.session?.abort === "function") {
+    await run.session.abort();
   }
+  run.session?.dispose();
+}
 
-  if (message.type === "tool_result") {
-    const resolve = pendingToolResults.get(message.tool_call_id);
-    if (resolve) resolve(message);
-    return;
-  }
+export function startProtocol(input = process.stdin) {
+  const rl = readline.createInterface({
+    input,
+    crlfDelay: Infinity,
+  });
 
-  if (message.type === "run") {
-    handleRun(message).finally(() => {
-      rl.close();
-    });
-    return;
-  }
+  rl.on("line", (line) => {
+    if (!line.trim()) return;
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch (error) {
+      emit({ type: "error", message: `invalid JSON: ${redactError(error)}` });
+      return;
+    }
 
-  emit({ type: "error", message: `unknown message type: ${message.type}` });
-});
+    if (message.type === "tool_result") {
+      const resolve = pendingToolResults.get(message.tool_call_id);
+      if (resolve) resolve(message);
+      return;
+    }
+
+    if (message.type === "turn_cancel") {
+      handleTurnCancel(message).catch((error) => {
+        emit({ type: "error", message: `cancel failed: ${redactError(error)}` });
+      });
+      return;
+    }
+
+    if (message.type === "run") {
+      handleRun(message).finally(() => {
+        rl.close();
+      });
+      return;
+    }
+
+    emit({ type: "error", message: `unknown message type: ${message.type}` });
+  });
+
+  return rl;
+}

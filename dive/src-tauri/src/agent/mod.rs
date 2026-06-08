@@ -752,31 +752,54 @@ impl AgentLoop {
             });
         };
 
-        if let Err(crate::tools::ToolError::Blocked(reason)) = tool.validate(&args_value) {
-            emit(AgentEvent::ToolCallBlocked {
-                id: tc.id.clone(),
-                reason: reason.clone(),
-            });
-            self.log_event(
-                session_id,
-                "tool_call_blocked",
-                json!({
-                    "tool": tc.name,
-                    "rule": reason.rule,
-                    "pattern": reason.pattern,
-                    "runtime": "pi_sidecar",
-                }),
-            )?;
-            let msg = format!(
-                "tool call blocked by safety policy: {} (pattern: {})",
-                reason.rule, reason.pattern
-            );
-            return Ok(SupervisedToolResult {
-                content: msg.clone(),
-                success: false,
-                summary: msg.clone(),
-                full: json!({ "error": msg }),
-            });
+        match tool.validate(&args_value) {
+            Ok(()) => {}
+            Err(crate::tools::ToolError::Blocked(reason)) => {
+                emit(AgentEvent::ToolCallBlocked {
+                    id: tc.id.clone(),
+                    reason: reason.clone(),
+                });
+                self.log_event(
+                    session_id,
+                    "tool_call_blocked",
+                    json!({
+                        "tool": tc.name,
+                        "rule": reason.rule,
+                        "pattern": reason.pattern,
+                        "runtime": "pi_sidecar",
+                    }),
+                )?;
+                let msg = format!(
+                    "tool call blocked by safety policy: {} (pattern: {})",
+                    reason.rule, reason.pattern
+                );
+                return Ok(SupervisedToolResult {
+                    content: msg.clone(),
+                    success: false,
+                    summary: msg.clone(),
+                    full: json!({ "error": msg }),
+                });
+            }
+            Err(err) => {
+                let msg = format!("{err}");
+                emit(AgentEvent::ToolResult {
+                    call_id: tc.id.clone(),
+                    success: false,
+                    summary: msg.clone(),
+                    full: json!({ "error": msg.clone() }),
+                });
+                self.log_event(
+                    session_id,
+                    "tool_error",
+                    json!({ "tool": tc.name, "error": msg.clone(), "runtime": "pi_sidecar" }),
+                )?;
+                return Ok(SupervisedToolResult {
+                    content: msg.clone(),
+                    success: false,
+                    summary: msg.clone(),
+                    full: json!({ "error": msg }),
+                });
+            }
         }
 
         let decision = self.permission.intercept(tc, risk).await;

@@ -116,15 +116,7 @@ fn validate_command_no_shell(command: &str) -> Result<(), ToolError> {
         .unwrap_or(command)
         .to_ascii_lowercase();
     let executable = executable.strip_suffix(".exe").unwrap_or(&executable);
-    const SHELL_EXECUTABLES: &[&str] = &[
-        "bash",
-        "sh",
-        "zsh",
-        "fish",
-        "cmd",
-        "powershell",
-        "pwsh",
-    ];
+    const SHELL_EXECUTABLES: &[&str] = &["bash", "sh", "zsh", "fish", "cmd", "powershell", "pwsh"];
     if SHELL_EXECUTABLES.contains(&executable) {
         return Err(ToolError::InvalidInput(format!(
             "shell executable not allowed in command: {command}"

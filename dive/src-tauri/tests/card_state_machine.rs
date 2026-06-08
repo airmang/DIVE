@@ -193,14 +193,9 @@ fn card_state_machine_rejects_illegal_transitions() {
 #[test]
 fn approve_without_judgment_is_rejected_when_required() {
     let (state, card_id) = setup_verifying_card_with_passing_log();
-    let err = card_transition_no_checkpoint_impl(
-        &state,
-        card_id,
-        CardTransition::Approve,
-        None,
-        None,
-    )
-    .unwrap_err();
+    let err =
+        card_transition_no_checkpoint_impl(&state, card_id, CardTransition::Approve, None, None)
+            .unwrap_err();
     assert!(err.contains("judgment required"));
 }
 
@@ -212,14 +207,9 @@ fn approve_with_confirmed_judgment_persists_and_transitions() {
         note: None,
         decided_at: 1,
     };
-    let next = card_transition_no_checkpoint_impl(
-        &state,
-        card_id,
-        CardTransition::Approve,
-        None,
-        Some(j),
-    )
-    .unwrap();
+    let next =
+        card_transition_no_checkpoint_impl(&state, card_id, CardTransition::Approve, None, Some(j))
+            .unwrap();
     assert_eq!(next, CardState::Verified);
     let stored = load_card(&state, card_id).approval_judgment.unwrap();
     assert!(stored.contains("\"outcome\":\"approved\""));
@@ -233,14 +223,9 @@ fn revision_requested_requires_note_and_rejects_card() {
         note: Some("입력 검증 빠짐".into()),
         decided_at: 1,
     };
-    let next = card_transition_no_checkpoint_impl(
-        &state,
-        card_id,
-        CardTransition::Reject,
-        None,
-        Some(j),
-    )
-    .unwrap();
+    let next =
+        card_transition_no_checkpoint_impl(&state, card_id, CardTransition::Reject, None, Some(j))
+            .unwrap();
     assert_eq!(next, CardState::Rejected);
 }
 

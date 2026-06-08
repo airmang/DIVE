@@ -31,6 +31,10 @@ src-tauri/target
 src-tauri/gen
 src-tauri/WixTools
 
+# Compiled Pi sidecar (externalBin) — produced by pi-sidecar/build-sidecar.mjs
+src-tauri/binaries/
+pi-sidecar/build/
+
 # DIVE 런타임 디렉터리 (체크포인트 git 저장소, 로컬 DB 등 사용자별 데이터)
 # 명세 §6.5, §10.1 — 프로젝트 루트 .dive/ 는 추적 대상 아님
 .dive/

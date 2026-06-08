@@ -78,6 +78,12 @@ pub enum AppStateError {
 
 const PROJECT_NOT_SELECTED_MESSAGE: &str = "프로젝트를 선택하세요";
 const PROVIDER_RUNTIME_HYDRATE_TIMEOUT: Duration = Duration::from_secs(120);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeChoice {
+    Pi,
+    Legacy,
+}
 const PROVIDER_RUNTIME_HYDRATE_TIMEOUT_MESSAGE: &str =
     "AI 연결 정보를 불러오는 중 시간이 초과되었습니다. macOS 키체인 암호 창이 떠 있다면 로그인 암호를 입력하고 '항상 허용'을 선택한 뒤 다시 시도하세요.";
 
@@ -467,6 +473,39 @@ mod tests {
             safest_run_mode(backend_run_mode_floor(true), AgentRunMode::Verify),
             AgentRunMode::Verify
         );
+    }
+
+    mod select_runtime_tests {
+        use super::*;
+
+        #[test]
+        fn default_routes_eligible_provider_to_pi() {
+            assert_eq!(select_runtime(ProviderKind::Codex, None), RuntimeChoice::Pi);
+        }
+
+        #[test]
+        fn default_routes_ineligible_provider_to_legacy() {
+            assert_eq!(
+                select_runtime(ProviderKind::OpencodeZen, None),
+                RuntimeChoice::Legacy
+            );
+        }
+
+        #[test]
+        fn env_legacy_forces_legacy_even_for_eligible() {
+            assert_eq!(
+                select_runtime(ProviderKind::Codex, Some("legacy")),
+                RuntimeChoice::Legacy
+            );
+        }
+
+        #[test]
+        fn env_pi_forces_pi_for_dev_override() {
+            assert_eq!(
+                select_runtime(ProviderKind::Codex, Some("pi")),
+                RuntimeChoice::Pi
+            );
+        }
     }
 
     fn seed_session(state: &AppState, project_root: &std::path::Path) -> i64 {
@@ -917,11 +956,22 @@ fn safest_run_mode(backend: AgentRunMode, requested: AgentRunMode) -> AgentRunMo
     }
 }
 
-fn pi_sidecar_runtime_enabled() -> bool {
-    matches!(
-        std::env::var("DIVE_PI_RUNTIME").ok().as_deref(),
-        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
-    )
+/// `env_override` is `std::env::var("DIVE_RUNTIME").ok()` at the call site
+/// (passed in so this is unit-testable). Precedence:
+///   legacy override -> Legacy; pi override -> Pi (dev escape, caller still guards
+///   unsupported providers); no override -> parity allowlist decides.
+fn select_runtime(kind: ProviderKind, env_override: Option<&str>) -> RuntimeChoice {
+    match env_override {
+        Some("legacy") => RuntimeChoice::Legacy,
+        Some("pi") => RuntimeChoice::Pi,
+        _ => {
+            if crate::pi_sidecar::parity::pi_provider_descriptor(kind).is_some() {
+                RuntimeChoice::Pi
+            } else {
+                RuntimeChoice::Legacy
+            }
+        }
+    }
 }
 
 #[tauri::command]
@@ -998,7 +1048,17 @@ pub async fn chat_send(
         let _ = log_error_event(&state, Some(session_id), "provider", &msg);
         return Err(msg);
     }
-    let use_pi_sidecar_runtime = pi_sidecar_runtime_enabled() && snap.kind == ProviderKind::Codex;
+    let runtime_choice = select_runtime(
+        snap.kind.clone(),
+        std::env::var("DIVE_RUNTIME").ok().as_deref(),
+    );
+    let use_pi_sidecar_runtime = runtime_choice == RuntimeChoice::Pi;
+    tracing::info!(
+        session_id,
+        provider = ?snap.kind,
+        runtime = ?runtime_choice,
+        "ipc chat_send runtime selected"
+    );
     let pi_provider_config_id = snap.config_id;
     let project_root = state.project_root_required()?;
     let cancel = Arc::new(AtomicBool::new(false));
@@ -1034,6 +1094,8 @@ pub async fn chat_send(
         let _ = app_clone.emit(&format!("chat://event/{session_id}"), &envelope);
     };
     let res = if use_pi_sidecar_runtime {
+        let descriptor = crate::pi_sidecar::parity::pi_provider_descriptor(snap.kind.clone())
+            .expect("select_runtime guarantees eligibility");
         let provider_config_id = pi_provider_config_id
             .ok_or_else(|| "codex provider config id missing for Pi sidecar runtime".to_string())?;
         let runtime_state_root = app_data_dir_from_environment(&app)
@@ -1046,8 +1108,9 @@ pub async fn chat_send(
             model = %loop_.model,
             "ipc chat_send using Pi sidecar runtime"
         );
-        crate::pi_sidecar::run_codex_supervised_turn(
+        crate::pi_sidecar::run_supervised_turn(
             state.keyring.as_ref(),
+            &descriptor,
             provider_config_id,
             &loop_,
             session_id,
@@ -1066,9 +1129,7 @@ pub async fn chat_send(
             "stopped:stop".to_string()
         })
     } else {
-        loop_
-            .run(session_id, &text, &mut emit_event)
-            .await
+        loop_.run(session_id, &text, &mut emit_event).await
     };
 
     {
@@ -1394,9 +1455,7 @@ pub fn card_transition_no_checkpoint_impl(
     if judgment_gated && policy::require_approval_judgment(state)? {
         match &judgment {
             None => {
-                return Err(
-                    "judgment required: choose 확인함 or 우려 있음 before approving".into(),
-                )
+                return Err("judgment required: choose 확인함 or 우려 있음 before approving".into())
             }
             Some(j) => {
                 j.validate()?;

@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
+    "build:sidecar": "node pi-sidecar/build-sidecar.mjs",
     "tauri:build": "tauri build",
     "tauri:build:x64": "tauri build --target x86_64-pc-windows-msvc",
     "tauri:build:arm64": "tauri build --target aarch64-pc-windows-msvc --bundles nsis",

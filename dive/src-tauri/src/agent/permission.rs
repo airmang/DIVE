@@ -34,6 +34,11 @@ impl PermissionDecision {
 #[async_trait]
 pub trait PermissionHook: Send + Sync {
     async fn intercept(&self, call: &ToolCall, risk: RiskLevel) -> PermissionDecision;
+
+    fn cancel_pending(&self, ids: &[String]) -> usize {
+        let _ = ids;
+        0
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -141,6 +146,10 @@ impl PermissionHook for RunModePermissionHook {
             return PermissionDecision::denied(reason);
         }
         self.inner.intercept(call, risk).await
+    }
+
+    fn cancel_pending(&self, ids: &[String]) -> usize {
+        self.inner.cancel_pending(ids)
     }
 }
 
@@ -252,6 +261,13 @@ impl PendingApprovals {
         }
     }
 
+    pub fn cancel_many(&self, ids: &[String]) -> usize {
+        let Ok(mut guard) = self.inner.lock() else {
+            return 0;
+        };
+        ids.iter().filter_map(|id| guard.remove(id)).count()
+    }
+
     pub fn pending_count(&self) -> usize {
         self.inner.lock().map(|g| g.len()).unwrap_or(0)
     }
@@ -284,6 +300,10 @@ impl PermissionHook for AwaitUserHook {
             Ok(decision) => decision,
             Err(_) => PermissionDecision::denied("approval channel closed"),
         }
+    }
+
+    fn cancel_pending(&self, ids: &[String]) -> usize {
+        self.pending.cancel_many(ids)
     }
 }
 
@@ -326,6 +346,10 @@ impl PermissionHook for PolicyAwareHook {
             Ok(decision) => decision,
             Err(_) => PermissionDecision::denied("approval channel closed"),
         }
+    }
+
+    fn cancel_pending(&self, ids: &[String]) -> usize {
+        self.pending.cancel_many(ids)
     }
 }
 

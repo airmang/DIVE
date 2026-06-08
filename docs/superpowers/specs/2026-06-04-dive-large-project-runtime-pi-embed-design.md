@@ -115,6 +115,9 @@ Execution boundary:
 Cancellation and timeout:
 
 - `chat_cancel` already flips the Rust cancel token (`dive/src-tauri/src/ipc/mod.rs:1143`, `dive/src-tauri/src/ipc/mod.rs:1147`). The Pi sidecar path must additionally send `turn.cancel`.
+- Phase E uses a Pi turn wall-clock budget of 120 seconds. This is the Pi-side execution envelope that replaces the legacy `DEFAULT_MAX_ITERATIONS=10` loop bound for Pi turns; it covers the sidecar's internal multi-tool agentic loop from `run` until `turn_succeeded`.
+- The sidecar emits `heartbeat` every 5 seconds during model waits and DIVE tool-result waits. Rust treats a 20-second heartbeat gap during an active turn as a retryable Pi runtime error, kills the sidecar, clears pending approvals for observed tool-call IDs, and marks the active step blocked when a step is in progress.
+- Cancellation remains independent of the wall-clock budget and must interrupt a Pi turn mid-flight, including while Rust is parked on a user approval for a sidecar-requested tool.
 - Rust enforces a sidecar response timeout for startup, session configure, and tool execution. Tool execution timeout must not exceed the existing DIVE tool timeout envelope without a separate plan change.
 - If the sidecar ignores cancellation, Rust kills the sidecar process, logs a retryable runtime error, clears pending approvals, and leaves DIVE persisted state as the recovery point.
 
@@ -187,3 +190,10 @@ Remaining blockers and risks:
 - `run_process` is no-shell, but direct executable names such as `bash` and `sh` need explicit denial tests before Pi can be default.
 - Resource discovery is a safety risk. Default Pi discovery can load extensions, skills, prompts, context files, settings, credentials, custom models, and sessions. A no-op/custom loader is required before any model-visible turn.
 - Sidecar crash and cancellation semantics are unimplemented. Default flip is blocked until partial-turn, pending-tool, and mutating-tool no-replay behavior is tested.
+
+## Provider parity - resolved 2026-06-08
+
+- Pi SDK `0.78.0` exposes `AuthStorage.prototype.setRuntimeApiKey(provider, key)` and `removeRuntimeApiKey`, so API-key providers use an in-memory runtime override rather than a file-backed auth record.
+- `getModel(provider, model)` resolves for `openai`, `anthropic`, `openai-codex`, `openrouter`, and `google`; OpenRouter is first-class, and only `CustomOpenAi` still needs `ModelRegistry.registerProvider` or `registerApiProvider` with the DIVE base URL.
+- The current sidecar ignores `message.api_key`; `provider: "openai"` with a bogus key reaches `ready` and then fails with "No API key found for openai", so Phase A wires `setRuntimeApiKey` before model lookup.
+- The parity allowlist still expands only after real-key end-to-end smokes. Phase A keeps Codex as the only eligible descriptor while building the shared API-key plumbing for later OpenAI, Anthropic, and OpenRouter rows.

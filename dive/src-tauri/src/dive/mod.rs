@@ -1,7 +1,7 @@
 //! DIVE card lifecycle and plan-first helpers.
 
-pub mod assist;
 pub mod approval;
+pub mod assist;
 pub mod card_metrics;
 pub mod event_log;
 pub mod plan_interview;
@@ -10,8 +10,8 @@ pub mod prompt_check;
 pub mod state_machine;
 pub mod verify;
 
-pub use assist::{AiAssistEngine, AssistError, AssistedCard};
 pub use approval::{ApprovalJudgment, ApprovalOutcome};
+pub use assist::{AiAssistEngine, AssistError, AssistedCard};
 pub use card_metrics::card_tool_call_count;
 pub use plan_interview::{
     build_system_prompt as build_plan_interview_system_prompt, plan_interview_tool,
