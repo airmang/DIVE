@@ -484,6 +484,17 @@ mod tests {
         }
 
         #[test]
+        fn default_routes_first_class_api_key_providers_to_pi() {
+            for kind in [
+                ProviderKind::OpenAi,
+                ProviderKind::Anthropic,
+                ProviderKind::OpenRouter,
+            ] {
+                assert_eq!(select_runtime(kind, None), RuntimeChoice::Pi);
+            }
+        }
+
+        #[test]
         fn default_routes_ineligible_provider_to_legacy() {
             assert_eq!(
                 select_runtime(ProviderKind::OpencodeZen, None),
@@ -1097,7 +1108,7 @@ pub async fn chat_send(
         let descriptor = crate::pi_sidecar::parity::pi_provider_descriptor(snap.kind.clone())
             .expect("select_runtime guarantees eligibility");
         let provider_config_id = pi_provider_config_id
-            .ok_or_else(|| "codex provider config id missing for Pi sidecar runtime".to_string())?;
+            .ok_or_else(|| "provider config id missing for Pi sidecar runtime".to_string())?;
         let runtime_state_root = app_data_dir_from_environment(&app)
             .map_err(|e| e.to_string())?
             .join("runtime");

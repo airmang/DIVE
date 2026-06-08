@@ -15,20 +15,33 @@ pub struct PiProviderDescriptor {
     pub credential_mode: CredentialMode,
 }
 
-/// Returns `Some(descriptor)` ONLY for providers with proven Pi parity.
-/// `None` means "no Pi parity yet" -> caller must route to the legacy runtime.
-/// Extend this allowlist one provider at a time as Task D parity smokes pass.
+/// Returns `Some(descriptor)` for providers Pi can drive, `None` to fall back to
+/// the legacy runtime. The mapped `pi_provider_id`s are CONFIRMED via SDK probe
+/// (2026-06-08): `getModel(id, model)` resolves each without a base-URL override.
+/// Extend this allowlist one provider at a time as new providers are verified.
 pub fn pi_provider_descriptor(kind: ProviderKind) -> Option<PiProviderDescriptor> {
     match kind {
         ProviderKind::Codex => Some(PiProviderDescriptor {
             pi_provider_id: "openai-codex",
             credential_mode: CredentialMode::OauthFile,
         }),
-        // Added as each Task D real-key smoke passes (ids CONFIRMED via SDK probe 2026-06-08):
-        //   ProviderKind::OpenAi      => "openai"     / ApiKey  (getModel ok)
-        //   ProviderKind::Anthropic   => "anthropic"  / ApiKey  (getModel ok)
-        //   ProviderKind::OpenRouter  => "openrouter" / ApiKey  (getModel ok - first-class, NO base-URL hack)
+        // First-class ApiKey providers: the API key stored for the provider config
+        // is handed to the sidecar as a runtime override (see prepare_runtime_credential).
+        ProviderKind::OpenAi => Some(PiProviderDescriptor {
+            pi_provider_id: "openai",
+            credential_mode: CredentialMode::ApiKey,
+        }),
+        ProviderKind::Anthropic => Some(PiProviderDescriptor {
+            pi_provider_id: "anthropic",
+            credential_mode: CredentialMode::ApiKey,
+        }),
+        ProviderKind::OpenRouter => Some(PiProviderDescriptor {
+            pi_provider_id: "openrouter",
+            credential_mode: CredentialMode::ApiKey,
+        }),
+        // Not wired yet:
         //   ProviderKind::CustomOpenAi => register via ModelRegistry.registerProvider + base URL / ApiKey
+        //   ProviderKind::OpencodeZen  => pi-ai provider id unconfirmed (probe first)
         _ => None,
     }
 }
@@ -45,8 +58,22 @@ mod tests {
     }
 
     #[test]
+    fn first_class_api_key_providers_are_eligible() {
+        for (kind, id) in [
+            (ProviderKind::OpenAi, "openai"),
+            (ProviderKind::Anthropic, "anthropic"),
+            (ProviderKind::OpenRouter, "openrouter"),
+        ] {
+            let d = pi_provider_descriptor(kind).expect("first-class provider eligible");
+            assert_eq!(d.pi_provider_id, id);
+            assert!(matches!(d.credential_mode, CredentialMode::ApiKey));
+        }
+    }
+
+    #[test]
     fn unmapped_provider_is_not_eligible() {
-        // OpencodeZen has no proven Pi parity yet -> None (legacy fallback).
+        // No confirmed Pi parity yet -> None (legacy fallback).
         assert!(pi_provider_descriptor(ProviderKind::OpencodeZen).is_none());
+        assert!(pi_provider_descriptor(ProviderKind::CustomOpenAi).is_none());
     }
 }
