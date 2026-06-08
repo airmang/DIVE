@@ -95,6 +95,7 @@ const created = await createAgentSession({
   }),
 });
 
+let interviewSession;
 try {
   const enabledTools = summarizeTools(created.session);
   assert.deepEqual(enabledTools, DIVE_TOOLS);
@@ -106,7 +107,38 @@ try {
     );
   }
   console.log(`builtins-absent ok: ${enabledTools.join(",")}`);
+
+  // Interview-mode turns send an explicit empty `tools` array and must enable zero
+  // tools — NOT the smoke `dive_context` fallback. Regression guard for the strict
+  // enabled-tools parity check in src-tauri/src/pi_sidecar.rs.
+  const interview = await createAgentSession({
+    cwd,
+    agentDir,
+    model,
+    thinkingLevel: "off",
+    authStorage,
+    modelRegistry,
+    resourceLoader: makeNoDiscoveryResourceLoader(),
+    noTools: "builtin",
+    excludeTools: BUILTIN_DENYLIST,
+    customTools: makeCustomTools("interview-empty-tools", { tools: [] }),
+    sessionManager: SessionManager.inMemory(cwd),
+    settingsManager: SettingsManager.inMemory({
+      compaction: { enabled: false },
+      retry: { enabled: false, maxRetries: 0 },
+    }),
+  });
+  interviewSession = interview.session;
+  const interviewTools = summarizeTools(interview.session);
+  assert.deepEqual(interviewTools, [], "interview-mode turn must enable zero tools");
+  assert.equal(
+    interviewTools.includes("dive_context"),
+    false,
+    "dive_context smoke fallback must not leak into an explicit empty-tools turn",
+  );
+  console.log("interview-empty-tools ok: []");
 } finally {
   created.session?.dispose();
+  interviewSession?.dispose();
   fs.rmSync(cwd, { recursive: true, force: true });
 }

@@ -135,6 +135,10 @@ export function makeDiveTool(requestId, toolSpec) {
 }
 
 export function makeCustomTools(requestId, message) {
+  // An explicit `tools` array is used as-is — including `[]` for interview-mode turns,
+  // which must enable zero tools. The `dive_context` fallback applies ONLY when `tools`
+  // is absent, which is reserved for the Phase 2 smoke path; production run messages
+  // always send an explicit array (see build_run_message in src-tauri/src/pi_sidecar.rs).
   const specs = Array.isArray(message.tools) ? message.tools : [DEFAULT_DIVE_CONTEXT_TOOL];
   return specs.map((spec) => makeDiveTool(requestId, spec));
 }

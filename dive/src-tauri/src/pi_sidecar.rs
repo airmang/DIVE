@@ -1063,9 +1063,12 @@ fn build_run_message(
     if let Some(api_key) = api_key {
         message["api_key"] = json!(api_key);
     }
-    if !tools.is_empty() {
-        message["tools"] = json!(tools);
-    }
+    // Always send an explicit `tools` array, even when empty. The sidecar treats an
+    // ABSENT `tools` field as the smoke-path default (a single `dive_context` tool),
+    // so an interview-mode turn — which legitimately exposes zero tools — must
+    // serialize as `tools: []`. Omitting it makes the sidecar enable `dive_context`
+    // and trips the strict enabled-tools parity check.
+    message["tools"] = json!(tools);
 
     message
 }
@@ -1815,6 +1818,27 @@ function ready(message) {
         assert_eq!(msg["model"], "gpt-5.4-mini");
         assert_eq!(msg["api_key"], "sk-test");
         assert!(msg.get("auth_path").is_none() || msg["auth_path"].is_null());
+    }
+
+    #[test]
+    fn run_message_sends_explicit_empty_tools_for_interview_turns() {
+        // Interview-mode turns expose zero tools. The `tools` field must be present
+        // and empty so the sidecar does NOT fall back to its smoke `dive_context`
+        // default (which would fail the enabled-tools parity check).
+        let msg = build_run_message(
+            "req-interview",
+            &parity::PiProviderDescriptor {
+                pi_provider_id: "anthropic",
+                credential_mode: parity::CredentialMode::ApiKey,
+            },
+            "claude-test",
+            "/proj",
+            None,
+            Some("sk-test"),
+            "hi",
+            &[],
+        );
+        assert_eq!(msg["tools"], json!([]));
     }
 
     #[tokio::test]
