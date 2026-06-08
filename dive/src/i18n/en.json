@@ -313,7 +313,10 @@
     "blocked_title": "Blocked command — cannot run",
     "blocked_rule": "Block rule:",
     "blocked_pattern": "Pattern:",
-    "blocked_explain": "This command is blocked by the safety policy (§9.2) and cannot run, with or without your approval."
+    "blocked_explain": "This command is blocked by the safety policy (§9.2) and cannot run, with or without your approval.",
+    "why_label": "why",
+    "result_finished": "Finished",
+    "result_failed": "Failed"
   },
   "get_started": {
     "title": "Get started",

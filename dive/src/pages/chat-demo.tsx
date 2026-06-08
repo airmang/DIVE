@@ -10,11 +10,17 @@ import {
   ErrorMessage,
   MessageList,
   SystemMessage,
+  ToolActivity,
   ToolCallMessage,
   ToolResultMessage,
   UserMessage,
 } from "../components/chat";
-import type { ChatMessage } from "../components/chat";
+import type {
+  ChatMessage,
+  ReasoningMessageData,
+  ToolCallMessageData,
+  ToolResultMessageData,
+} from "../components/chat";
 
 function makeStaticSixMessages(): ChatMessage[] {
   const now = Date.now();
@@ -65,6 +71,108 @@ function makeStaticSixMessages(): ChatMessage[] {
   ];
 }
 
+interface ToolActivityDemo {
+  call: ToolCallMessageData;
+  reasoning?: ReasoningMessageData;
+  result?: ToolResultMessageData;
+}
+
+function makeToolActivityDemos(): ToolActivityDemo[] {
+  const now = Date.now();
+  const reasoning = (id: string, text: string): ReasoningMessageData => ({
+    id: `re-${id}`,
+    kind: "reasoning",
+    createdAt: now,
+    toolCallId: id,
+    text,
+  });
+  return [
+    {
+      // completed write — compact row with diff-style summary + why
+      call: {
+        id: "ta-1",
+        kind: "tool_call",
+        createdAt: now,
+        toolName: "write_file",
+        paramsPreview: "src/App.tsx",
+        status: "approved",
+        args: { path: "src/App.tsx", content: "…" },
+      },
+      reasoning: reasoning("ta-1", "카드 지시 구현 — src/App.tsx 생성"),
+      result: {
+        id: "tr-ta-1",
+        kind: "tool_result",
+        createdAt: now + 1,
+        toolName: "write_file",
+        success: true,
+        summary: "+12 −3",
+        full: { wrote: 12 },
+      },
+    },
+    {
+      // running command (no result yet)
+      call: {
+        id: "ta-2",
+        kind: "tool_call",
+        createdAt: now + 2,
+        toolName: "bash",
+        paramsPreview: "npm test",
+        status: "approved",
+      },
+      reasoning: reasoning("ta-2", "결과 검증 — 테스트 실행"),
+    },
+    {
+      // failed command
+      call: {
+        id: "ta-3",
+        kind: "tool_call",
+        createdAt: now + 3,
+        toolName: "bash",
+        paramsPreview: "npm run lint",
+        status: "approved",
+        args: { command: "npm run lint" },
+      },
+      reasoning: reasoning("ta-3", "린트 점검 — 펼쳐서 원인 확인"),
+      result: {
+        id: "tr-ta-3",
+        kind: "tool_result",
+        createdAt: now + 4,
+        toolName: "bash",
+        success: false,
+        summary: "exit 1",
+        full: { stderr: "2 problems" },
+      },
+    },
+    {
+      // pending approval — elevated PermissionCard
+      call: {
+        id: "ta-4",
+        kind: "tool_call",
+        createdAt: now + 5,
+        toolName: "write_file",
+        paramsPreview: "src/App.tsx",
+        status: "pending",
+        risk: "warn",
+        diffPreview: { path: "src/App.tsx", before: 'const t = "old"', after: 'const t = "DIVE"' },
+        args: { path: "src/App.tsx" },
+      },
+      reasoning: reasoning("ta-4", "변경 검증 — 덮어쓰기 승인 대기"),
+    },
+    {
+      // blocked — elevated danger card
+      call: {
+        id: "ta-5",
+        kind: "tool_call",
+        createdAt: now + 6,
+        toolName: "bash",
+        paramsPreview: "rm -rf /",
+        status: "blocked",
+        blockedReason: { rule: "destructive-shell", pattern: "rm -rf /" },
+      },
+    },
+  ];
+}
+
 function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
   const label = theme === "dark" ? "라이트 모드로" : "다크 모드로";
@@ -95,6 +203,7 @@ function Section({
 
 export default function ChatDemoPage() {
   const sixMessages = useMemo(() => makeStaticSixMessages(), []);
+  const TOOL_ACTIVITY_DEMOS = useMemo(() => makeToolActivityDemos(), []);
   const stream = useMockChatStream();
 
   const [integratedStream, setIntegratedStream] = useState(true);
@@ -133,6 +242,24 @@ export default function ChatDemoPage() {
             <ToolCallMessage message={sixMessages[3] as never} />
             <ToolResultMessage message={sixMessages[4] as never} />
             <ErrorMessage message={sixMessages[5] as never} onRetry={() => console.log("retry")} />
+          </div>
+        </Section>
+
+        <Section
+          title="1-b. ToolActivity — 통합 액션(컴팩트 행 + 왜 + 격상 카드)"
+          testId="demo-section-tool-activity"
+        >
+          <div className="flex flex-col gap-3" data-testid="tool-activity-container">
+            {TOOL_ACTIVITY_DEMOS.map((d) => (
+              <ToolActivity
+                key={d.call.id}
+                call={d.call}
+                reasoning={d.reasoning}
+                result={d.result}
+                onApprove={() => console.log("approve", d.call.id)}
+                onDeny={() => console.log("deny", d.call.id)}
+              />
+            ))}
           </div>
         </Section>
 

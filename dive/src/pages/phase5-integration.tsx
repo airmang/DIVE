@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Check } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
@@ -158,8 +159,8 @@ export default function Phase5IntegrationPage() {
               </div>
               <ul className="flex flex-col gap-0.5 text-[11px] text-fg-muted">
                 {f.checklist.map((item, i) => (
-                  <li key={i} className="flex gap-1">
-                    <span aria-hidden>✓</span>
+                  <li key={i} className="flex items-start gap-1.5">
+                    <Check className="mt-0.5 h-3 w-3 flex-none text-success" aria-hidden />
                     <span>{item}</span>
                   </li>
                 ))}

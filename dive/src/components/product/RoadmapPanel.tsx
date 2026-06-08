@@ -110,7 +110,7 @@ export function RoadmapPanel({
           </div>
           <span
             className={cn(
-              "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+              "inline-flex shrink-0 items-center gap-1 rounded-sm border px-2 py-0.5 text-[10px] font-semibold",
               OVERALL_PILL_CLASS[overall],
             )}
             data-testid="roadmap-overall-pill"
@@ -212,7 +212,7 @@ function StepListItem({ step, isActive, onSelect, t }: StepListItemProps) {
         </div>
         <span
           className={cn(
-            "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+            "inline-flex shrink-0 items-center gap-1 rounded-sm border px-2 py-0.5 text-[10px] font-semibold",
             STATUS_CLASS[status],
           )}
         >
@@ -222,7 +222,7 @@ function StepListItem({ step, isActive, onSelect, t }: StepListItemProps) {
       </div>
       {status === "review" && wasRejected ? (
         <div
-          className="mt-1 inline-flex items-center gap-1 rounded-full border border-danger/40 bg-danger/10 px-2 py-0.5 text-[10px] font-medium text-danger"
+          className="mt-1 inline-flex items-center gap-1 rounded-sm border border-danger/40 bg-danger/10 px-2 py-0.5 text-[10px] font-medium text-danger"
           data-testid="roadmap-step-review-rejected"
         >
           <AlertCircle className="h-3 w-3" aria-hidden />
@@ -260,7 +260,7 @@ function ActiveStepCard({ step, t }: ActiveStepCardProps) {
         </div>
         <span
           className={cn(
-            "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+            "inline-flex shrink-0 items-center gap-1 rounded-sm border px-2 py-0.5 text-[10px] font-semibold",
             STATUS_CLASS[status],
           )}
         >

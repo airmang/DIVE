@@ -106,7 +106,7 @@ export function StepDetailSlideIn({
           {status ? (
             <span
               className={cn(
-                "mt-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                "mt-2 inline-flex items-center gap-1 rounded-sm border px-2 py-0.5 text-[10px] font-semibold",
                 STATUS_CLASS[status],
               )}
               data-testid="step-detail-status"
@@ -298,7 +298,7 @@ function VerificationBlock({ verifyLog, verifyState, verifyError }: Verification
       <div className="flex flex-wrap items-center gap-2">
         <span
           className={cn(
-            "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+            "inline-flex items-center gap-1 rounded-sm border px-2 py-0.5 text-[10px] font-semibold",
             verifyLog.intent_match
               ? "border-info/60 bg-info/10 text-info"
               : "border-warn/60 bg-warn/10 text-warn",
@@ -312,7 +312,7 @@ function VerificationBlock({ verifyLog, verifyState, verifyError }: Verification
         </span>
         <span
           className={cn(
-            "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+            "inline-flex items-center gap-1 rounded-sm border px-2 py-0.5 text-[10px] font-semibold",
             verifyLog.test_result === "pass"
               ? "border-success/60 bg-success/10 text-success"
               : verifyLog.test_result === "fail"

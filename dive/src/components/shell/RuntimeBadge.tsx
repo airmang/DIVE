@@ -26,7 +26,7 @@ export function RuntimeBadge({ className }: RuntimeBadgeProps) {
             aria-label={tooltip}
             data-testid="runtime-badge"
             className={cn(
-              "inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent-subtle px-2 py-0.5",
+              "inline-flex items-center gap-1 rounded-sm border border-accent/40 bg-accent-subtle px-2 py-0.5",
               "text-[10px] font-semibold uppercase tracking-wide text-accent",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               className,

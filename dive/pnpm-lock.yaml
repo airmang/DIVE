@@ -60,6 +60,9 @@ importers:
       '@eslint/js':
         specifier: ^9.19.0
         version: 9.39.4
+      '@fontsource/ibm-plex-sans-kr':
+        specifier: ^5.2.8
+        version: 5.2.8
       '@tauri-apps/cli':
         specifier: ^2
         version: 2.11.0
@@ -412,6 +415,9 @@ packages:
 
   '@floating-ui/utils@0.2.11':
     resolution: {integrity: sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==}
+
+  '@fontsource/ibm-plex-sans-kr@5.2.8':
+    resolution: {integrity: sha512-U16zCX5J3s8H6OVm7apRZnLU493VFbkh/kf8ZaSeb53XJQJKfDqgZODqta2TG2MwZC7043xihL7OwErTuEtjBQ==}
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -2185,6 +2191,8 @@ snapshots:
       react-dom: 19.2.5(react@19.2.5)
 
   '@floating-ui/utils@0.2.11': {}
+
+  '@fontsource/ibm-plex-sans-kr@5.2.8': {}
 
   '@humanfs/core@0.19.2':
     dependencies:

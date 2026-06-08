@@ -4,14 +4,6 @@
  */
 
 @font-face {
-  font-family: "Pretendard Variable";
-  font-weight: 45 920;
-  font-style: normal;
-  font-display: swap;
-  src: url("../assets/fonts/PretendardVariable.woff2") format("woff2-variations");
-}
-
-@font-face {
   font-family: "JetBrains Mono";
   font-weight: 400;
   font-style: normal;
@@ -36,55 +28,54 @@
   :root.dark {
     color-scheme: dark;
 
-    --color-bg: 26 26 31;
-    --color-bg-panel: 37 36 44;
-    --color-bg-panel2: 45 44 54;
-    --color-border: 54 53 63;
+    --color-bg: 10 14 18;
+    --color-bg-panel: 15 20 25;
+    --color-bg-panel2: 19 26 33;
+    --color-border: 29 38 47;
 
-    --color-fg: 232 230 240;
-    --color-fg-muted: 142 140 154;
-    --color-fg-subtle: 106 104 117; /* derived: hint-level fg */
+    --color-fg: 215 224 232;
+    --color-fg-muted: 111 125 138;
+    --color-fg-subtle: 79 90 102; /* derived: hint-level fg */
 
-    --color-accent: 177 156 217;
-    --color-accent-hover: 196 180 227; /* lightened +10% */
-    --color-accent-active: 158 138 198; /* darkened -10% */
-    --color-accent-subtle: 46 40 64;
-    --color-accent-fg: 26 26 31; /* text on accent bg = bg */
+    --color-accent: 58 214 160; /* mint */
+    --color-accent-hover: 90 224 178; /* lightened */
+    --color-accent-active: 42 184 136; /* darkened */
+    --color-accent-subtle: 13 37 30;
+    --color-accent-fg: 6 20 14; /* near-black text on mint */
 
-    --color-success: 122 184 154;
-    --color-warn: 224 184 112;
-    --color-danger: 216 144 144;
-    --color-info: 138 168 208;
+    --color-success: 70 209 150;
+    --color-warn: 232 181 82;
+    --color-danger: 255 107 107;
+    --color-info: 91 140 255;
 
-    --color-ring: 177 156 217;
+    --color-ring: 58 214 160;
   }
 
-  /* Light reuses dark semantic tones (success/warn/danger/info)
-     since §2.3 defines no separate light values; still legible on FAFAFC. */
+  /* Light = cool-neutral recalibration of the console language (mint accent). */
   :root.light {
     color-scheme: light;
 
-    --color-bg: 250 250 252;
-    --color-bg-panel: 240 239 245;
+    --color-bg: 248 250 250;
+    --color-bg-panel: 238 242 242;
     --color-bg-panel2: 255 255 255; /* white card on light panel */
-    --color-border: 224 222 230;
+    --color-border: 214 222 224;
 
-    --color-fg: 42 41 51;
-    --color-fg-muted: 130 128 142;
-    --color-fg-subtle: 162 160 174;
+    --color-fg: 24 32 36;
+    --color-fg-muted: 90 104 112;
+    --color-fg-subtle: 130 144 152;
 
-    --color-accent: 155 133 199;
-    --color-accent-hover: 170 150 210;
-    --color-accent-active: 136 114 180;
-    --color-accent-subtle: 238 232 248;
+    --color-accent: 22 163 116; /* mint, darkened for light bg */
+    --color-accent-hover: 30 178 128;
+    --color-accent-active: 17 140 100;
+    --color-accent-subtle: 218 240 232;
     --color-accent-fg: 255 255 255;
 
-    --color-success: 90 154 124;
-    --color-warn: 196 154 80;
-    --color-danger: 192 112 112;
-    --color-info: 106 140 184;
+    --color-success: 22 163 116;
+    --color-warn: 176 132 40;
+    --color-danger: 200 70 70;
+    --color-info: 56 104 200;
 
-    --color-ring: 155 133 199;
+    --color-ring: 22 163 116;
   }
 
   html,

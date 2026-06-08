@@ -313,7 +313,10 @@
     "blocked_title": "차단된 명령 — 실행 불가",
     "blocked_rule": "차단 규칙:",
     "blocked_pattern": "패턴:",
-    "blocked_explain": "이 명령은 안전 정책(§9.2)에 의해 승인 여부와 무관하게 실행이 차단됩니다."
+    "blocked_explain": "이 명령은 안전 정책(§9.2)에 의해 승인 여부와 무관하게 실행이 차단됩니다.",
+    "why_label": "왜",
+    "result_finished": "완료",
+    "result_failed": "실패"
   },
   "get_started": {
     "title": "시작하기",

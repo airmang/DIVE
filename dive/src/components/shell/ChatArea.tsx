@@ -157,7 +157,7 @@ export function ChatArea({
           </span>
           {cardStateLabel ? (
             <span
-              className="rounded-full bg-bg-panel2 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-fg-muted"
+              className="rounded-sm bg-bg-panel2 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-fg-muted"
               data-testid="chat-card-state"
             >
               {cardStateLabel}

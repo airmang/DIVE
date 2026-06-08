@@ -40,8 +40,8 @@ const config: Config = {
       },
       fontFamily: {
         sans: [
-          "Pretendard Variable",
-          "Pretendard",
+          "IBM Plex Sans KR",
+          "IBM Plex Sans",
           "-apple-system",
           "BlinkMacSystemFont",
           "system-ui",
@@ -64,11 +64,11 @@ const config: Config = {
         "2xl": ["22px", { lineHeight: "1.3" }],
       },
       borderRadius: {
-        sm: "6px",
-        DEFAULT: "8px",
-        md: "8px",
-        lg: "12px",
-        xl: "16px",
+        sm: "2px",
+        DEFAULT: "3px",
+        md: "3px",
+        lg: "4px",
+        xl: "6px",
       },
       spacing: {
         1.5: "6px",
