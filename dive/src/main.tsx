@@ -8,7 +8,10 @@ interface StartupErrorBoundaryState {
   error: Error | null;
 }
 
-class StartupErrorBoundary extends React.Component<React.PropsWithChildren, StartupErrorBoundaryState> {
+class StartupErrorBoundary extends React.Component<
+  React.PropsWithChildren,
+  StartupErrorBoundaryState
+> {
   state: StartupErrorBoundaryState = { error: null };
 
   static getDerivedStateFromError(error: Error): StartupErrorBoundaryState {

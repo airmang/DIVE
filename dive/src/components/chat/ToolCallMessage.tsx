@@ -67,7 +67,9 @@ function ToolCallMessageImpl({ message, onApprove, onDeny }: Props) {
         >
           <header className="flex items-center gap-2 border-b border-danger/40 bg-danger/20 px-3 py-2">
             <Ban className="h-4 w-4 text-danger" aria-hidden />
-            <span className="text-sm font-semibold text-danger">{t("tool_call.blocked_title")}</span>
+            <span className="text-sm font-semibold text-danger">
+              {t("tool_call.blocked_title")}
+            </span>
             <Badge variant="danger" className="ml-auto">
               {t("tool_call.status.blocked")}
             </Badge>

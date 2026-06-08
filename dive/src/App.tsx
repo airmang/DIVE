@@ -24,7 +24,10 @@ const DevPromptHelperDemoPage = import.meta.env.DEV
 const SettingsPage = lazy(() => import("./pages/settings"));
 const Rc1MigrationDialog = lazy(() => import("./components/rc1/Rc1MigrationDialog"));
 
-function Rc1MigrationFallback({ result, onAcknowledge }: {
+function Rc1MigrationFallback({
+  result,
+  onAcknowledge,
+}: {
   result: Rc1MigrationResult;
   onAcknowledge: () => void;
 }) {

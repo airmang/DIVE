@@ -49,9 +49,7 @@ export function GetStartedChecklist({ model }: GetStartedChecklistProps) {
               aria-current={step.status === "current" ? "step" : undefined}
               className={cn(
                 "flex items-start gap-3 rounded-md border p-3",
-                step.status === "current"
-                  ? "border-accent bg-accent-subtle"
-                  : "border-transparent",
+                step.status === "current" ? "border-accent bg-accent-subtle" : "border-transparent",
                 step.status === "done" && "opacity-70",
                 step.status === "pending" && "opacity-50",
               )}

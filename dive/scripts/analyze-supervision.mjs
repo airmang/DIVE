@@ -32,9 +32,7 @@ const skippedApproved = cards.filter(
     card.approval_judgment &&
     ["approved", "approved_with_concern"].includes(card.approval_judgment.outcome),
 );
-const overTrust = skippedApproved.filter(
-  (card) => card.approval_judgment.outcome === "approved",
-);
+const overTrust = skippedApproved.filter((card) => card.approval_judgment.outcome === "approved");
 const overTrustRate = skippedApproved.length ? overTrust.length / skippedApproved.length : null;
 
 const steerEvents = events.filter((event) =>
@@ -52,7 +50,9 @@ const report = {
     approved_no_concern: overTrust.length,
   },
   metric_3_steer_events: steerCount,
-  metric_3_note: events.length ? "from event records" : "no event records in export - see research-measures steer",
+  metric_3_note: events.length
+    ? "from event records"
+    : "no event records in export - see research-measures steer",
 };
 
 console.log(JSON.stringify(report, null, 2));

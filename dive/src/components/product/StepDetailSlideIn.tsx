@@ -141,11 +141,7 @@ export function StepDetailSlideIn({
                   {t("roadmap.step_detail.trust_calibration_hint")}
                 </LearningHint>
                 <ApprovalJudgment
-                  prompt={
-                    verifyLog
-                      ? t("roadmap.step_detail.approval_prompt")
-                      : undefined
-                  }
+                  prompt={verifyLog ? t("roadmap.step_detail.approval_prompt") : undefined}
                   onDecide={onApprovalDecision}
                 />
               </div>

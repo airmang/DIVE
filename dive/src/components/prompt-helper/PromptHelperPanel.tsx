@@ -66,9 +66,7 @@ export function PromptHelperPanel({ open, context, onClose, onInsert }: Props) {
           </button>
         ))}
         {fallback ? (
-          <LearningHint className="text-[10px]">
-            {t("prompt_helper.fallback")}
-          </LearningHint>
+          <LearningHint className="text-[10px]">{t("prompt_helper.fallback")}</LearningHint>
         ) : null}
       </div>
     </aside>

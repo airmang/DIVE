@@ -145,7 +145,10 @@ export function ChatArea({
   }, [isRouting, isStreaming, routeStartedAt, runStartedAt]);
 
   return (
-    <section className={cn("flex h-full flex-col bg-bg", className)} aria-label={t("chat.region_aria")}>
+    <section
+      className={cn("flex h-full flex-col bg-bg", className)}
+      aria-label={t("chat.region_aria")}
+    >
       <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b px-6">
         <div className="flex items-baseline gap-3">
           <h1 className="text-lg font-bold text-fg">{t("chat.header_title")}</h1>

@@ -55,13 +55,7 @@ interface Props {
   mockResult?: PromptCheckResult;
 }
 
-export function PromptCheckDialog({
-  open,
-  initialText,
-  onOpenChange,
-  onApply,
-  mockResult,
-}: Props) {
+export function PromptCheckDialog({ open, initialText, onOpenChange, onApply, mockResult }: Props) {
   const t = useT();
   const locale = useLocale();
   const [result, setResult] = useState<PromptCheckResult | null>(null);

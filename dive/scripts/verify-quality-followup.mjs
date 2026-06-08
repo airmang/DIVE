@@ -59,7 +59,10 @@ check(
 );
 
 console.log("\n2. Non-initial surfaces are code-split");
-check("SettingsPage is lazy-loaded", /lazy\(\(\)\s*=>\s*import\(["']\.\/pages\/settings["']\)\)/.test(app));
+check(
+  "SettingsPage is lazy-loaded",
+  /lazy\(\(\)\s*=>\s*import\(["']\.\/pages\/settings["']\)\)/.test(app),
+);
 check(
   "Rc1MigrationDialog is lazy-loaded",
   /lazy\(\(\)\s*=>\s*import\(["']\.\/components\/rc1\/Rc1MigrationDialog["']\)\)/.test(app),
@@ -91,8 +94,14 @@ check(
 
 console.log("\n3. Cancel is checked at async wait boundaries");
 check("agent loop has cancel-aware helper", /wait_for_cancel/.test(agentLoop));
-check("provider chat wait is cancel-selected", /provider\.chat\(req\)[\s\S]{0,500}wait_for_cancel/.test(agentLoop));
-check("stream next wait is cancel-selected", /stream\.next\(\)[\s\S]{0,500}wait_for_cancel/.test(agentLoop));
+check(
+  "provider chat wait is cancel-selected",
+  /provider\.chat\(req\)[\s\S]{0,500}wait_for_cancel/.test(agentLoop),
+);
+check(
+  "stream next wait is cancel-selected",
+  /stream\.next\(\)[\s\S]{0,500}wait_for_cancel/.test(agentLoop),
+);
 check(
   "cancel test covers pending provider response",
   /cancel_while_waiting_for_provider_response/.test(agentLoopTest),

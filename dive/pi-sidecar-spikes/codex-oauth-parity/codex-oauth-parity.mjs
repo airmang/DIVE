@@ -55,10 +55,14 @@ outside the project tree with 0600 permissions, and removes it on exit unless
 }
 
 function readKeychainSecret(account) {
-  const result = spawnSync("security", ["find-generic-password", "-s", "DIVE", "-a", account, "-w"], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const result = spawnSync(
+    "security",
+    ["find-generic-password", "-s", "DIVE", "-a", account, "-w"],
+    {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   if (result.status !== 0) return undefined;
   const value = result.stdout.trim();
   return value.length > 0 ? value : undefined;
@@ -140,7 +144,9 @@ async function main() {
   const credentials = loadCredentials(args.providerConfigId);
   if (!credentials) {
     console.error("BLOCKED_NO_DIVE_CODEX_TOKENS: no DIVE Codex OAuth credentials were found.");
-    console.error("Checked DIVE keyring provider_config_id and env fallback; no raw secrets were printed.");
+    console.error(
+      "Checked DIVE keyring provider_config_id and env fallback; no raw secrets were printed.",
+    );
     process.exit(2);
   }
 
@@ -151,12 +157,18 @@ async function main() {
   const accountId = accessAccountId || idAccountId;
 
   if (!accountId) {
-    console.error("BLOCKED_ACCOUNT_ID: neither access token nor id token exposed a ChatGPT account id claim.");
+    console.error(
+      "BLOCKED_ACCOUNT_ID: neither access token nor id token exposed a ChatGPT account id claim.",
+    );
     process.exit(3);
   }
   if (!accessAccountId) {
-    console.error("BLOCKED_PI_ACCOUNT_ID_EXTRACTION: Pi extracts ChatGPT account id from the access token.");
-    console.error("DIVE can decode it from id_token, but Pi 0.78.0 has no public account-id injection hook.");
+    console.error(
+      "BLOCKED_PI_ACCOUNT_ID_EXTRACTION: Pi extracts ChatGPT account id from the access token.",
+    );
+    console.error(
+      "DIVE can decode it from id_token, but Pi 0.78.0 has no public account-id injection hook.",
+    );
     process.exit(4);
   }
 
@@ -223,7 +235,13 @@ async function main() {
     session = created.session;
 
     const enabledTools = summarizeTools(session);
-    console.log(JSON.stringify({ event: "session_created", model: `openai-codex/${args.model}`, enabledTools }));
+    console.log(
+      JSON.stringify({
+        event: "session_created",
+        model: `openai-codex/${args.model}`,
+        enabledTools,
+      }),
+    );
 
     let assistantText = "";
     session.subscribe((event) => {
@@ -234,7 +252,9 @@ async function main() {
 
     await session.prompt(args.prompt);
     if (assistantText.trim().length === 0) {
-      throw new Error("Pi prompt completed without assistant text; not counted as a successful model turn");
+      throw new Error(
+        "Pi prompt completed without assistant text; not counted as a successful model turn",
+      );
     }
     console.log(
       JSON.stringify({
@@ -256,6 +276,11 @@ async function main() {
 
 main().catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
-  console.error(JSON.stringify({ event: "spike_failed", message: message.replace(/[A-Za-z0-9_-]{32,}/g, REDACTED) }));
+  console.error(
+    JSON.stringify({
+      event: "spike_failed",
+      message: message.replace(/[A-Za-z0-9_-]{32,}/g, REDACTED),
+    }),
+  );
   process.exit(1);
 });
