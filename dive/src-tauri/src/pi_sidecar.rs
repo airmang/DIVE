@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,6 +31,10 @@ const PI_TURN_TIMEOUT: Duration = Duration::from_secs(120);
 const SIDECAR_HEARTBEAT_STALL_TIMEOUT: Duration = Duration::from_secs(20);
 const RUNTIME_STATE_PROTOCOL_VERSION: u32 = 1;
 const SIDECAR_CANCELLED: &str = "pi sidecar turn cancelled";
+/// Cap on sidecar events buffered while a DIVE tool is executing. Legitimate parallel
+/// tool calls stay well under this; exceeding it fails the turn (retryable) instead of
+/// letting the buffer grow unbounded under a misbehaving sidecar.
+const MAX_BUFFERED_SIDECAR_EVENTS: usize = 256;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PiSidecarSmokeResult {
@@ -676,6 +681,7 @@ async fn run_supervised_turn_inner(
         .map_err(|e| format!("write sidecar run message: {e}"))?;
 
     let mut sidecar_events = spawn_sidecar_stdout_reader(stdout);
+    let mut buffered_events = VecDeque::new();
     let mut enabled_tools = Vec::new();
     let mut ready_model = format!("{}/{model}", descriptor.pi_provider_id);
     let mut tool_calls_seen = 0usize;
@@ -688,11 +694,18 @@ async fn run_supervised_turn_inner(
 
     let read_loop = async {
         loop {
-            let cancel = wait_for_cancel(agent_loop.cancel.clone());
-            let event = tokio::select! {
-                event = next_sidecar_event(&mut sidecar_events, turn_started, timing) => event?,
-                _ = cancel => {
-                    return Err(SIDECAR_CANCELLED.to_string());
+            if agent_loop.cancel.load(Ordering::SeqCst) {
+                return Err(SIDECAR_CANCELLED.to_string());
+            }
+            let event = if let Some(event) = buffered_events.pop_front() {
+                event
+            } else {
+                let cancel = wait_for_cancel(agent_loop.cancel.clone());
+                tokio::select! {
+                    event = next_sidecar_event(&mut sidecar_events, turn_started, timing) => event?,
+                    _ = cancel => {
+                        return Err(SIDECAR_CANCELLED.to_string());
+                    }
                 }
             };
             match event {
@@ -740,10 +753,12 @@ async fn run_supervised_turn_inner(
                                         return Err(format!("pi sidecar error: {message}"));
                                     }
                                     other => {
-                                        return Err(format!(
-                                            "unexpected sidecar event while executing DIVE tool: {}",
-                                            sidecar_event_name(&other)
-                                        ));
+                                        if buffered_events.len() >= MAX_BUFFERED_SIDECAR_EVENTS {
+                                            return Err(format!(
+                                                "pi sidecar buffered too many events (>{MAX_BUFFERED_SIDECAR_EVENTS}) while executing a DIVE tool"
+                                            ));
+                                        }
+                                        buffered_events.push_back(other);
                                     }
                                 }
                             }
@@ -1408,6 +1423,18 @@ mod tests {
     impl PermissionHook for RecordingApproveHook {
         async fn intercept(&self, _call: &ToolCall, _risk: RiskLevel) -> PermissionDecision {
             self.calls.fetch_add(1, Ordering::SeqCst);
+            PermissionDecision::approved()
+        }
+    }
+
+    struct DelayedApproveHook {
+        delay: Duration,
+    }
+
+    #[async_trait]
+    impl PermissionHook for DelayedApproveHook {
+        async fn intercept(&self, _call: &ToolCall, _risk: RiskLevel) -> PermissionDecision {
+            tokio::time::sleep(self.delay).await;
             PermissionDecision::approved()
         }
     }
@@ -2501,6 +2528,92 @@ rl.on("line", (line) => {{
             mapped_reasoning.is_none(),
             "reasoning deltas must not create extra UI AgentEvents compared with legacy streaming"
         );
+    }
+
+    #[tokio::test]
+    async fn sidecar_tool_calls_arriving_during_tool_execution_are_buffered() {
+        let _serial = fake_sidecar_test_lock();
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(project.path().join("first.txt"), "one").unwrap();
+        std::fs::write(project.path().join("second.txt"), "two").unwrap();
+        let scripts = tempfile::tempdir().unwrap();
+        let script = write_fake_sidecar(
+            scripts.path(),
+            "queued-tool-calls.mjs",
+            &format!(
+                r#"{}
+let resultsSeen = 0;
+rl.on("line", (line) => {{
+  const message = JSON.parse(line);
+  if (message.type === "run") {{
+    ready(message);
+    emit({{
+      type: "tool_call",
+      request_id: message.request_id,
+      tool_call_id: "first_read",
+      name: "read_file",
+      params: {{ path: "first.txt" }}
+    }});
+    emit({{
+      type: "tool_call",
+      request_id: message.request_id,
+      tool_call_id: "second_read",
+      name: "read_file",
+      params: {{ path: "second.txt" }}
+    }});
+  }} else if (message.type === "tool_result") {{
+    resultsSeen += 1;
+    emit({{ type: "tool_call_end", request_id: "queued-tool-calls", tool_call_id: message.tool_call_id }});
+    if (resultsSeen === 2) {{
+      emit({{ type: "assistant_delta", request_id: "queued-tool-calls", delta: "done" }});
+      emit({{ type: "turn_succeeded", request_id: "queued-tool-calls", assistant_text: "done" }});
+    }}
+  }}
+}});
+"#,
+                fake_sidecar_prelude()
+            ),
+        );
+        let _guard = set_test_sidecar_script_path(script);
+        let (db, session_id) = create_test_db(project.path());
+        let loop_ = make_loop(
+            project.path(),
+            db,
+            session_id,
+            AgentRunMode::Plan,
+            run_mode_permission(
+                AgentRunMode::Plan,
+                false,
+                None,
+                Arc::new(DelayedApproveHook {
+                    delay: Duration::from_millis(50),
+                }),
+            ),
+            None,
+        );
+        let provider_config_id = 504;
+        let keyring = api_keyring(provider_config_id);
+        let mut events = Vec::new();
+        let result = run_supervised_turn(
+            &keyring,
+            &api_key_descriptor(),
+            provider_config_id,
+            &loop_,
+            session_id,
+            "read two files",
+            None,
+            &mut |event| events.push(event),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.assistant_text, "done");
+        assert_eq!(result.tool_calls_seen, 2);
+        let tool_results = events
+            .iter()
+            .filter(|event| matches!(event, AgentEvent::ToolResult { success: true, .. }))
+            .count();
+        assert_eq!(tool_results, 2);
     }
 
     #[tokio::test]
