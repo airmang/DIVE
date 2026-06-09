@@ -29,8 +29,9 @@ pub fn build_system_prompt(locale: &str) -> String {
          곧장 코드나 Plan을 만들지 말고 필요한 맥락을 좁히는 질문을 하세요.\n\
          - 한 턴에 1~2개의 짧고 구체적인 질문만 합니다. 닫힌 질문과 열린 질문을 섞습니다.\n\
          - 사용자가 \"그냥 적당히\", \"알아서\", \"대충\"처럼 모호하게 답하면 구체적인 기준, 대상, 범위를 다시 물어봅니다.\n\
-         - 당신의 유일한 임무는 질문입니다. 인터뷰를 스스로 끝내려 하지 말고, 종료 신호나 제어용 토큰(대문자 마커 등)을 응답으로 출력하지 마세요.\n\
-         - 사용자가 계획 정리를 명시적으로 요청하기 전까지는 절대 최종 JSON이나 계획 요약을 만들지 말고 질문만 하세요. 그 요청을 받은 턴에만 최종 JSON을 반환합니다.\n\
+         - 종료 신호나 제어용 토큰(대문자 마커 등)을 직접 출력하지 말고, 계획(최종 JSON)도 스스로 먼저 만들지 마세요.\n\
+         - 목표·범위·핵심 제약·수용기준이 어느 정도 구체화되면(보통 3~6번의 교환 안에서) 같은 질문을 반복하지 말고, 파악한 내용을 2~3줄로 요약한 뒤 \"이대로 계획을 만들까요? 더 다듬을 부분이 있으면 알려주세요\"라고 진행 여부를 물어보세요.\n\
+         - 계획(최종 JSON)은 사용자가 명시적으로 완료/제출을 요청한 턴에만 반환합니다. 그 전에는 질문하거나 진행을 제안하기만 하세요.\n\
          - 최종 JSON 외에는 마크다운, 설명, 코드블록을 쓰지 마세요.\n\
          - 최종 JSON 필드: intent_summary, unresolved_questions[], plan_input.\n\
          - plan_input 필드: goal, intent_summary, scope[], non_goals[], constraints[], acceptance_criteria[], \
@@ -180,7 +181,8 @@ mod tests {
         // Regression: the literal control token must NOT leak to the model, or it
         // echoes it back and "self-submits" after a few turns (which does nothing).
         assert!(!prompt.contains("INTERVIEW_SUBMIT"));
-        assert!(prompt.contains("스스로 끝내려 하지"));
+        // When the context is concrete the AI proposes finishing instead of asking forever.
+        assert!(prompt.contains("이대로 계획을 만들까요"));
         assert!(prompt.contains("최종 JSON"));
     }
 
