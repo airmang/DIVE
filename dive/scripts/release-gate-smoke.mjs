@@ -210,16 +210,24 @@ function elementId(element) {
   return element?.["element-6066-11e4-a52e-4f735466cecf"] ?? element?.ELEMENT;
 }
 
+async function findElement(selector) {
+  try {
+    const payload = await httpJson("POST", `/session/${sessionId}/element`, {
+      using: "css selector",
+      value: selector,
+    });
+    return elementId(payload.value) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function waitForElement(selector, timeoutMs = 30000) {
   const start = Date.now();
   let lastError = null;
   while (Date.now() - start < timeoutMs) {
     try {
-      const payload = await httpJson("POST", `/session/${sessionId}/element`, {
-        using: "css selector",
-        value: selector,
-      });
-      const id = elementId(payload.value);
+      const id = await findElement(selector);
       if (id) return id;
     } catch (err) {
       lastError = err;
@@ -229,9 +237,80 @@ async function waitForElement(selector, timeoutMs = 30000) {
   throw new Error(`Timed out waiting for ${selector}: ${lastError?.message ?? "not found"}`);
 }
 
-async function elementText(id) {
-  const payload = await httpJson("GET", `/session/${sessionId}/element/${id}/text`);
-  return String(payload.value ?? "");
+async function clickElement(id) {
+  await httpJson("POST", `/session/${sessionId}/element/${id}/click`, {});
+}
+
+async function executeScript(script, args = []) {
+  const payload = await httpJson("POST", `/session/${sessionId}/execute/sync`, {
+    script,
+    args,
+  });
+  return payload.value;
+}
+
+async function domSnapshot() {
+  try {
+    return await executeScript(`
+      const ids = [...document.querySelectorAll("[data-testid]")]
+        .slice(0, 40)
+        .map((el) => el.getAttribute("data-testid"));
+      return {
+        readyState: document.readyState,
+        url: location.href,
+        title: document.title,
+        bodyText: (document.body?.innerText || "").slice(0, 500),
+        testIds: ids,
+      };
+    `);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function waitForBodyText(pattern, timeoutMs = 45000) {
+  const start = Date.now();
+  let lastText = "";
+  let lastError = null;
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const text = String(
+        await executeScript('return document.body ? document.body.innerText : "";'),
+      );
+      lastText = text;
+      if (pattern.test(text)) return text;
+    } catch (err) {
+      lastError = err;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  const detail = lastError ? lastError.message : lastText.slice(0, 200);
+  throw new Error(`Timed out waiting for app body text: ${detail}`);
+}
+
+async function acknowledgeRc1MigrationIfPresent() {
+  const confirm =
+    (await findElement('[data-testid="rc1-migration-confirm"]')) ??
+    (await findElement('[data-testid="rc1-migration-fallback-confirm"]'));
+  if (!confirm) return false;
+  await clickElement(confirm);
+  return true;
+}
+
+async function waitForMainShell(timeoutMs = 60000) {
+  const start = Date.now();
+  let migrationAcknowledged = false;
+  while (Date.now() - start < timeoutMs) {
+    const shell = await findElement('[data-testid="main-shell"]');
+    if (shell) return { shell, migrationAcknowledged };
+    if (await acknowledgeRc1MigrationIfPresent()) {
+      migrationAcknowledged = true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(
+    `Timed out waiting for main shell after app launch: ${JSON.stringify(await domSnapshot())}`,
+  );
 }
 
 async function startDriver(application) {
@@ -278,18 +357,18 @@ async function installNsis(installer) {
 
 async function smokeInstalledApp(application) {
   await startDriver(application);
-  const body = await waitForElement("body", 45000);
-  const bodyText = await elementText(body);
+  await waitForElement("body", 45000);
+  const bodyText = await waitForBodyText(/DIVE|API|프로바이더|provider|프로젝트|project/i, 45000);
   if (!/DIVE|API|프로바이더|provider|프로젝트|project/i.test(bodyText)) {
     throw new Error(`unexpected app body text: ${bodyText.slice(0, 200)}`);
   }
-  await waitForElement('[data-testid="main-shell"]', 30000);
+  const { migrationAcknowledged } = await waitForMainShell(60000);
   const dataDir = appDataDir();
   const db = join(dataDir, "dive.db");
   if (!existsSync(db)) {
     throw new Error(`expected disk DB at ${db}`);
   }
-  return { dataDir, db };
+  return { dataDir, db, migrationAcknowledged };
 }
 
 async function main() {
@@ -367,6 +446,7 @@ async function main() {
   const smoke = await smokeInstalledApp(application);
   evidence.paths.db = smoke.db;
   record("tauri-driver startup + main shell", true, application);
+  record("first-run migration acknowledged", true, String(smoke.migrationAcknowledged));
   record("disk DB created", existsSync(smoke.db), smoke.db);
 
   await stopDriver();
