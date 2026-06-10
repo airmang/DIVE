@@ -14,6 +14,7 @@ const args = new Set(process.argv.slice(2));
 const preflightOnly = args.has("--preflight");
 const keepInstalled = args.has("--keep-installed");
 const jsonOut = argValue("--json-out");
+const webdriverRequestTimeoutMs = Number(process.env.DIVE_WEBDRIVER_REQUEST_TIMEOUT_MS ?? 30000);
 
 const results = [];
 const blockers = [];
@@ -53,6 +54,12 @@ function commandOutput(command, args, cwd = repoRoot) {
   const result = spawnSync(command, args, { cwd, encoding: "utf8", shell: false });
   if (result.status !== 0) return null;
   return result.stdout.trim() || null;
+}
+
+function resolveCommand(command) {
+  if (process.platform !== "win32") return command;
+  const found = commandOutput("where", [command]);
+  return found?.split(/\r?\n/).find(Boolean) ?? command;
 }
 
 function collectEvidence() {
@@ -193,17 +200,29 @@ async function findApplication() {
 }
 
 async function httpJson(method, path, body) {
-  const response = await fetch(`http://127.0.0.1:4444${path}`, {
-    method,
-    headers: { "content-type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
-  if (!response.ok) {
-    throw new Error(`${method} ${path} -> ${response.status}: ${text}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), webdriverRequestTimeoutMs);
+  try {
+    const response = await fetch(`http://127.0.0.1:4444${path}`, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    const payload = text ? JSON.parse(text) : null;
+    if (!response.ok) {
+      throw new Error(`${method} ${path} -> ${response.status}: ${text}`);
+    }
+    return payload;
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      throw new Error(`${method} ${path} timed out after ${webdriverRequestTimeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
   }
-  return payload;
 }
 
 function elementId(element) {
@@ -314,13 +333,19 @@ async function waitForMainShell(timeoutMs = 60000) {
 }
 
 async function startDriver(application) {
-  driver = spawn("tauri-driver", ["--port", "4444"], {
+  driver = spawn(resolveCommand("tauri-driver"), ["--port", "4444"], {
     stdio: ["ignore", "pipe", "pipe"],
-    shell: process.platform === "win32",
+    shell: false,
+    windowsHide: true,
   });
   driver.stdout.on("data", (chunk) => process.stdout.write(`[tauri-driver] ${chunk}`));
   driver.stderr.on("data", (chunk) => process.stderr.write(`[tauri-driver] ${chunk}`));
   await new Promise((resolve) => setTimeout(resolve, 1500));
+  if (driver.exitCode !== null || driver.signalCode !== null) {
+    throw new Error(
+      `tauri-driver exited before session start: code=${driver.exitCode} signal=${driver.signalCode}`,
+    );
+  }
   const payload = await httpJson("POST", "/session", {
     capabilities: {
       alwaysMatch: {
@@ -333,6 +358,31 @@ async function startDriver(application) {
     throw new Error(`tauri-driver did not return session id: ${JSON.stringify(payload)}`);
 }
 
+function waitForProcessExit(child, timeoutMs = 3000) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const onExit = () => {
+      clearTimeout(timeout);
+      resolve(true);
+    };
+    const timeout = setTimeout(() => {
+      child.off("exit", onExit);
+      resolve(false);
+    }, timeoutMs);
+    child.once("exit", onExit);
+  });
+}
+
+function killDriverSync(child = driver) {
+  if (!child) return;
+  try {
+    child.kill();
+  } catch {}
+  if (process.platform === "win32" && child.pid) {
+    spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+  }
+}
+
 async function stopDriver() {
   if (sessionId) {
     try {
@@ -341,8 +391,15 @@ async function stopDriver() {
     sessionId = null;
   }
   if (driver) {
-    driver.kill();
+    const activeDriver = driver;
     driver = null;
+    try {
+      activeDriver.kill();
+    } catch {}
+    if (!(await waitForProcessExit(activeDriver))) {
+      killDriverSync(activeDriver);
+      await waitForProcessExit(activeDriver, 1000);
+    }
   }
 }
 
@@ -471,9 +528,7 @@ async function main() {
   writeReport("full");
 }
 
-process.on("exit", () => {
-  if (driver) driver.kill();
-});
+process.on("exit", () => killDriverSync());
 process.on("SIGINT", async () => {
   await stopDriver();
   process.exit(130);
