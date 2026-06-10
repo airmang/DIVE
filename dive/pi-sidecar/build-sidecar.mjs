@@ -130,26 +130,44 @@ function roundTrip(binPath) {
   return new Promise((res, rej) => {
     const child = spawn(binPath, [], { stdio: ["pipe", "pipe", "pipe"] });
     let out = "";
+    let err = "";
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(value);
+    };
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      rej(new Error("round-trip timed out (binary did not answer stdin)"));
+      finish(rej, new Error(`round-trip timed out (binary did not answer stdin); stderr=${err}`));
     }, 15000);
     child.stdout.on("data", (d) => {
       out += d.toString();
       if (out.includes("\n")) {
-        clearTimeout(timer);
         child.kill("SIGKILL");
         const first = out.split("\n")[0];
         try {
           const msg = JSON.parse(first);
-          if (msg.type === "error" && /unknown message type: ping/.test(msg.message)) res();
-          else rej(new Error(`unexpected protocol reply: ${first}`));
+          if (msg.type === "error" && /unknown message type: ping/.test(msg.message)) finish(res);
+          else finish(rej, new Error(`unexpected protocol reply: ${first}`));
         } catch (e) {
-          rej(new Error(`non-JSON reply: ${first} (${e.message})`));
+          finish(rej, new Error(`non-JSON reply: ${first} (${e.message})`));
         }
       }
     });
-    child.on("error", rej);
+    child.stderr.on("data", (d) => {
+      err += d.toString();
+    });
+    child.on("exit", (code, signal) => {
+      if (!settled) {
+        finish(
+          rej,
+          new Error(`round-trip exited before reply: code=${code} signal=${signal}; stderr=${err}`),
+        );
+      }
+    });
+    child.on("error", (error) => finish(rej, error));
     child.stdin.write('{"type":"ping"}\n');
   });
 }
@@ -185,13 +203,14 @@ async function main() {
   // stub fs reads UNDER THAT SENTINEL ONLY — these are self-update / extension /
   // version-metadata reads that DIVE disables, so stubbing them is safe and does
   // not touch any real filesystem path the sidecar uses at runtime.
-  const SEA_DIR = "/__dive_sea__";
+  const SEA_DIR = isWin ? "C:/__dive_sea__" : "/__dive_sea__";
   const fsStubBanner =
     `(()=>{const fs=require("fs");const P=${JSON.stringify(SEA_DIR)};` +
     `for(const m of ["readFileSync","existsSync","statSync","readdirSync","realpathSync"]){` +
     `const o=fs[m];if(typeof o!=="function")continue;` +
     `fs[m]=function(p,...a){const s=typeof p==="string"?p:(p&&p.path);` +
-    `if(typeof s==="string"&&s.indexOf(P)===0){try{return o.call(fs,p,...a)}catch(e){` +
+    `const n=typeof s==="string"?s.replace(/\\\\/g,"/"):"";` +
+    `if(n.indexOf(P)===0){try{return o.call(fs,p,...a)}catch(e){` +
     `if(m==="existsSync")return false;` +
     `if(m==="readFileSync")return s.endsWith("package.json")?'{"name":"dive-pi-sidecar","version":"0.0.0"}':"";` +
     `if(m==="readdirSync")return [];return {}}}return o.call(fs,p,...a)}}})();`;
@@ -233,10 +252,10 @@ async function main() {
 
   // 5. Inject the blob with postject.
   console.log("[build-sidecar] injecting blob with postject …");
-  const postject = join(HERE, "node_modules", ".bin", "postject");
+  const postject = join(HERE, "node_modules", "postject", "dist", "cli.js");
   const postjectArgs = [outPath, "NODE_SEA_BLOB", blobPath, "--sentinel-fuse", SENTINEL];
   if (isMac) postjectArgs.push("--macho-segment-name", "NODE_SEA");
-  run(postject, postjectArgs);
+  run(process.execPath, [postject, ...postjectArgs]);
 
   // 6. macOS: ad-hoc re-sign so the OS will run the modified binary.
   if (isMac) run("codesign", ["--sign", "-", outPath]);

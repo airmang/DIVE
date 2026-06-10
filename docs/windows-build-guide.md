@@ -11,7 +11,7 @@
 - Visual Studio 2022 Build Tools 이상 + **C++ 데스크톱 개발** 워크로드
 - ARM64도 빌드하려면 **ARM64 빌드 도구** 컴포넌트 추가
 - Rust stable (1.80+), `rustup target add x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc`
-- Node.js 22+, pnpm 10+
+- Node.js 22.19+, pnpm 10+
 - Git for Windows
 
 ### 빌드 명령
@@ -21,8 +21,13 @@ cd dive
 pnpm install
 pnpm tauri:build:x64          # Windows x64 NSIS
 pnpm tauri:build:arm64        # Windows ARM64 NSIS (MSI 미지원, NSIS only)
-pnpm tauri:build:all          # 둘 다
+pnpm tauri:build:all          # CI/native matrix에서 양쪽 아키텍처 확인
 ```
+
+`tauri:build:*` scripts build the Pi sidecar first and bundle it through Tauri
+`externalBin`, so installed classroom PCs do not need Node.js. The sidecar build
+uses Node SEA and is host-native: build x64 on a Windows x64 runner and ARM64 on
+a Windows ARM64 runner.
 
 산출물:
 

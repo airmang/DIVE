@@ -29,7 +29,7 @@ jobs:
           version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.19.0
           cache: pnpm
           cache-dependency-path: dive/pnpm-lock.yaml
       - uses: dtolnay/rust-toolchain@stable
@@ -38,6 +38,11 @@ jobs:
       - name: Install frontend dependencies
         working-directory: dive
         run: pnpm install --frozen-lockfile
+      - name: Build Pi sidecar (${{ matrix.target }})
+        working-directory: dive
+        run: |
+          npm --prefix pi-sidecar ci
+          node pi-sidecar/build-sidecar.mjs --target ${{ matrix.target }}
       - name: Developer gate preflight
         working-directory: dive
         run: |

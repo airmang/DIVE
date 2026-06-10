@@ -23,7 +23,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.19.0
           cache: pnpm
           cache-dependency-path: dive/pnpm-lock.yaml
 
@@ -65,9 +65,21 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: npm
+          cache-dependency-path: dive/pi-sidecar/package-lock.json
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: dive/src-tauri
+
+      - name: Build Pi sidecar for Linux cargo checks
+        working-directory: dive
+        run: |
+          npm --prefix pi-sidecar ci
+          node pi-sidecar/build-sidecar.mjs
 
       - run: cargo fmt --all -- --check
 
@@ -105,7 +117,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.19.0
           cache: pnpm
           cache-dependency-path: dive/pnpm-lock.yaml
 
@@ -119,6 +131,11 @@ jobs:
           key: ${{ matrix.target }}
 
       - run: pnpm install --frozen-lockfile
+
+      - name: build Pi sidecar (${{ matrix.target }})
+        run: |
+          npm --prefix pi-sidecar ci
+          node pi-sidecar/build-sidecar.mjs --target ${{ matrix.target }}
 
       - name: tauri build (${{ matrix.target }})
         run: pnpm tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}

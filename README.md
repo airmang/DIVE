@@ -101,7 +101,7 @@ Internal research, diagnostics, classroom, teacher/student, and D/I/V/E state-ma
 상세 빌드 가이드는 [`dive/README.md`](./dive/README.md) · [`docs/packaging-windows.md`](./docs/packaging-windows.md)를 참조하세요.
 
 ```bash
-# 요구사항: Node 22+, pnpm 10+, Rust 1.80+
+# 요구사항: Node 22.19+, pnpm 10+, Rust 1.80+
 cd dive
 pnpm install
 pnpm tauri:dev        # 개발 모드 (hot reload)

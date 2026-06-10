@@ -121,6 +121,8 @@ function releaseGateWorkflowMatchesSop() {
     "pnpm format:check",
     "pnpm verify:production-wire",
     "pnpm verify:v4",
+    "npm --prefix pi-sidecar ci",
+    "node pi-sidecar/build-sidecar.mjs --target ${{ matrix.target }}",
     "windows-latest",
     "windows-11-arm",
     "x86_64-pc-windows-msvc",
@@ -353,6 +355,15 @@ async function main() {
   const application = await findApplication();
   if (!application) throw new Error("Installed DIVE executable not found; set DIVE_RELEASE_APP");
   evidence.paths.application = application;
+  const sidecar = join(dirname(application), "dive-pi-sidecar.exe");
+  evidence.paths.sidecar = sidecar;
+  const sidecarExists = existsSync(sidecar);
+  record(
+    "bundled Pi sidecar exists",
+    sidecarExists,
+    sidecarExists ? `${sidecar} (${statSync(sidecar).size} bytes)` : sidecar,
+  );
+  if (!sidecarExists) throw new Error(`bundled Pi sidecar not found: ${sidecar}`);
   const smoke = await smokeInstalledApp(application);
   evidence.paths.db = smoke.db;
   record("tauri-driver startup + main shell", true, application);

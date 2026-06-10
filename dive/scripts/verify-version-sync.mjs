@@ -4,8 +4,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-const repo = path.resolve(new URL("../..", import.meta.url).pathname);
+const repo = path.resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const expected = process.argv[2] ?? "1.0.0-rc.2";
 let pass = 0;
 let fail = 0;
@@ -59,7 +60,7 @@ function cargoVersion() {
 
 function lockVersion() {
   const lock = read("dive/src-tauri/Cargo.lock");
-  const section = lock.match(/\[\[package\]\]\nname = "dive"\nversion = "([^"]+)"/);
+  const section = lock.match(/\[\[package\]\]\r?\nname = "dive"\r?\nversion = "([^"]+)"/);
   return section?.[1] ?? null;
 }
 
@@ -486,6 +487,8 @@ check(
     "pnpm format:check",
     "pnpm verify:production-wire",
     "pnpm verify:v4",
+    "npm --prefix pi-sidecar ci",
+    "node pi-sidecar/build-sidecar.mjs --target ${{ matrix.target }}",
     "cargo fmt --all -- --check",
     "cargo test --features dev-mock --all-targets",
     "cargo clippy --features dev-mock --all-targets -- -D warnings",
