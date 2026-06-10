@@ -2,6 +2,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
+import { createServer } from "node:net";
 import os from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,11 +16,13 @@ const preflightOnly = args.has("--preflight");
 const keepInstalled = args.has("--keep-installed");
 const jsonOut = argValue("--json-out");
 const webdriverRequestTimeoutMs = Number(process.env.DIVE_WEBDRIVER_REQUEST_TIMEOUT_MS ?? 30000);
+const preferredWebdriverPort = Number(process.env.DIVE_WEBDRIVER_PORT ?? 4444);
 
 const results = [];
 const blockers = [];
 let sessionId = null;
 let driver = null;
+let driverPort = preferredWebdriverPort;
 let evidence = null;
 
 function argValue(name) {
@@ -199,11 +202,34 @@ async function findApplication() {
   );
 }
 
+function probeAvailablePort(port) {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen({ port, host: "127.0.0.1" }, () => {
+      const address = server.address();
+      const selectedPort = typeof address === "object" && address ? address.port : port;
+      server.close((err) => (err ? reject(err) : resolve(selectedPort)));
+    });
+    server.unref();
+  });
+}
+
+async function findWebdriverPort() {
+  try {
+    return await probeAvailablePort(preferredWebdriverPort);
+  } catch (err) {
+    if (err?.code !== "EADDRINUSE") throw err;
+    return probeAvailablePort(0);
+  }
+}
+
 async function httpJson(method, path, body) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), webdriverRequestTimeoutMs);
+  const url = `http://127.0.0.1:${driverPort}${path}`;
   try {
-    const response = await fetch(`http://127.0.0.1:4444${path}`, {
+    const response = await fetch(url, {
       method,
       headers: { "content-type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -212,12 +238,20 @@ async function httpJson(method, path, body) {
     const text = await response.text();
     const payload = text ? JSON.parse(text) : null;
     if (!response.ok) {
-      throw new Error(`${method} ${path} -> ${response.status}: ${text}`);
+      throw new Error(`${method} ${url} -> ${response.status}: ${text}`);
     }
     return payload;
   } catch (err) {
     if (err?.name === "AbortError") {
-      throw new Error(`${method} ${path} timed out after ${webdriverRequestTimeoutMs}ms`);
+      throw new Error(`${method} ${url} timed out after ${webdriverRequestTimeoutMs}ms`);
+    }
+    if (err instanceof TypeError && err.message === "fetch failed") {
+      const cause = err.cause;
+      const detail =
+        cause && typeof cause === "object"
+          ? [cause.code, cause.message].filter(Boolean).join(": ")
+          : err.message;
+      throw new Error(`${method} ${url} failed: ${detail || err.message}`);
     }
     throw err;
   } finally {
@@ -355,7 +389,8 @@ async function waitForMainShell(timeoutMs = 60000) {
 }
 
 async function startDriver(application) {
-  driver = spawn(resolveCommand("tauri-driver"), ["--port", "4444"], {
+  driverPort = await findWebdriverPort();
+  driver = spawn(resolveCommand("tauri-driver"), ["--port", String(driverPort)], {
     stdio: ["ignore", "pipe", "pipe"],
     shell: false,
     windowsHide: true,
