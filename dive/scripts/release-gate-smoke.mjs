@@ -256,8 +256,32 @@ async function waitForElement(selector, timeoutMs = 30000) {
   throw new Error(`Timed out waiting for ${selector}: ${lastError?.message ?? "not found"}`);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isStaleElementError(err) {
+  return err instanceof Error && /stale element reference/i.test(err.message);
+}
+
 async function clickElement(id) {
   await httpJson("POST", `/session/${sessionId}/element/${id}/click`, {});
+}
+
+async function clickSelector(selector, timeoutMs = 5000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const id = await findElement(selector);
+    if (!id) return false;
+    try {
+      await clickElement(id);
+      return true;
+    } catch (err) {
+      if (!isStaleElementError(err)) throw err;
+      await sleep(250);
+    }
+  }
+  return false;
 }
 
 async function executeScript(script, args = []) {
@@ -308,12 +332,10 @@ async function waitForBodyText(pattern, timeoutMs = 45000) {
 }
 
 async function acknowledgeRc1MigrationIfPresent() {
-  const confirm =
-    (await findElement('[data-testid="rc1-migration-confirm"]')) ??
-    (await findElement('[data-testid="rc1-migration-fallback-confirm"]'));
-  if (!confirm) return false;
-  await clickElement(confirm);
-  return true;
+  return (
+    (await clickSelector('[data-testid="rc1-migration-confirm"]')) ||
+    (await clickSelector('[data-testid="rc1-migration-fallback-confirm"]'))
+  );
 }
 
 async function waitForMainShell(timeoutMs = 60000) {
@@ -325,7 +347,7 @@ async function waitForMainShell(timeoutMs = 60000) {
     if (await acknowledgeRc1MigrationIfPresent()) {
       migrationAcknowledged = true;
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await sleep(500);
   }
   throw new Error(
     `Timed out waiting for main shell after app launch: ${JSON.stringify(await domSnapshot())}`,
