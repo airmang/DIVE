@@ -14,8 +14,8 @@ pub use error::AgentError;
 pub use event::{AgentEvent, DiffPreview};
 pub use permission::{
     AgentRunMode, AlwaysApproveHook, AlwaysDenyHook, AutoApprove, AutoApprovePolicy, AwaitUserHook,
-    PendingApprovals, PermissionDecision, PermissionHook, PolicyAwareHook, PolicyHook,
-    RunModePermissionHook, SafeOnlyHook,
+    PendingApprovalSnapshot, PendingApprovals, PermissionDecision, PermissionHook,
+    PermissionRequestContext, PolicyAwareHook, PolicyHook, RunModePermissionHook, SafeOnlyHook,
 };
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -282,7 +282,7 @@ impl AgentLoop {
                     tool: tc.name.clone(),
                     params_preview: preview.clone(),
                     risk,
-                    diff_preview,
+                    diff_preview: diff_preview.clone(),
                     args: args_value.clone(),
                 });
                 self.log_event(
@@ -331,7 +331,19 @@ impl AgentLoop {
                     continue;
                 }
 
-                let decision = self.permission.intercept(tc, risk).await;
+                let decision = self
+                    .permission
+                    .intercept(
+                        tc,
+                        risk,
+                        PermissionRequestContext {
+                            session_id,
+                            params_preview: preview.clone(),
+                            diff_preview: diff_preview.clone(),
+                            args: args_value.clone(),
+                        },
+                    )
+                    .await;
                 match decision {
                     PermissionDecision::Approved { modified_args } => {
                         emit(AgentEvent::ToolCallApproved { id: tc.id.clone() });
@@ -726,7 +738,7 @@ impl AgentLoop {
             tool: tc.name.clone(),
             params_preview: preview.clone(),
             risk,
-            diff_preview,
+            diff_preview: diff_preview.clone(),
             args: args_value.clone(),
         });
         self.log_event(
@@ -802,7 +814,19 @@ impl AgentLoop {
             }
         }
 
-        let decision = self.permission.intercept(tc, risk).await;
+        let decision = self
+            .permission
+            .intercept(
+                tc,
+                risk,
+                PermissionRequestContext {
+                    session_id,
+                    params_preview: preview.clone(),
+                    diff_preview: diff_preview.clone(),
+                    args: args_value.clone(),
+                },
+            )
+            .await;
         match decision {
             PermissionDecision::Approved { modified_args } => {
                 emit(AgentEvent::ToolCallApproved { id: tc.id.clone() });

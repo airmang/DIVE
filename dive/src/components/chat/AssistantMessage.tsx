@@ -15,7 +15,7 @@ function AssistantMessageImpl({ message }: Props) {
       data-streaming={message.streaming ? "true" : "false"}
       aria-busy={message.streaming ? "true" : "false"}
     >
-      <div className="max-w-[80%] rounded-lg bg-bg-panel px-4 py-2 text-fg">
+      <div className="max-w-full rounded-lg bg-bg-panel px-4 py-2 text-fg sm:max-w-[80%]">
         <p className="whitespace-pre-wrap break-words text-sm">
           <span data-testid="assistant-content">{message.content}</span>
           {message.streaming ? (

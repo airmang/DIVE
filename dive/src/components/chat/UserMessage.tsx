@@ -17,10 +17,10 @@ function UserMessageImpl({ message, onEdit, onResend }: Props) {
       data-kind="user"
       data-message-id={message.id}
     >
-      <div className="group relative max-w-[80%] rounded-lg bg-accent-subtle px-4 py-2 text-fg">
+      <div className="group relative max-w-full rounded-lg bg-accent-subtle px-4 py-2 text-fg sm:max-w-[80%]">
         <p className="whitespace-pre-wrap break-words text-sm">{message.content}</p>
         {onEdit || onResend ? (
-          <div className="absolute -top-3 right-1 hidden gap-1 group-hover:flex">
+          <div className="absolute -top-3 right-1 hidden gap-1 group-focus-within:flex group-hover:flex">
             {onEdit ? (
               <Button
                 variant="ghost"

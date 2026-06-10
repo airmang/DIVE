@@ -1,8 +1,6 @@
 export { MessageList } from "./MessageList";
 export { UserMessage } from "./UserMessage";
 export { AssistantMessage } from "./AssistantMessage";
-export { ToolCallMessage } from "./ToolCallMessage";
-export { ToolResultMessage } from "./ToolResultMessage";
 export { ToolActivity } from "./ToolActivity";
 export { SystemMessage } from "./SystemMessage";
 export { ErrorMessage } from "./ErrorMessage";

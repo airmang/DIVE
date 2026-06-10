@@ -132,6 +132,19 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: install tauri-driver and Edge driver helper
+        run: |
+          cargo install tauri-driver --locked
+          cargo install --git https://github.com/chippers/msedgedriver-tool
+          $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
+          $driverTool = Join-Path $cargoBin "msedgedriver-tool.exe"
+          if (-not (Test-Path $driverTool)) { throw "msedgedriver-tool.exe not found at $driverTool" }
+          & $driverTool
+          echo $cargoBin >> $env:GITHUB_PATH
+          $driver = Get-ChildItem -Path .,$env:USERPROFILE -Recurse -Filter msedgedriver.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $driver) { throw "msedgedriver.exe not found after msedgedriver-tool" }
+          echo $driver.Directory.FullName >> $env:GITHUB_PATH
+
       - name: build Pi sidecar (${{ matrix.target }})
         run: |
           npm --prefix pi-sidecar ci
@@ -140,10 +153,24 @@ jobs:
       - name: tauri build (${{ matrix.target }})
         run: pnpm tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
+      - name: installed-app smoke (${{ matrix.label }})
+        env:
+          DIVE_RELEASE_TESTER: github-actions-${{ matrix.label }}
+        run: pnpm release:smoke -- --json-out build-release-smoke-${{ matrix.label }}.json
+
       - name: upload NSIS installer
         uses: actions/upload-artifact@v4
         with:
           name: DIVE-${{ matrix.label }}-nsis
           path: dive/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: upload installed-app smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: DIVE-${{ matrix.label }}-installed-smoke
+          path: dive/build-release-smoke-${{ matrix.label }}.json
           if-no-files-found: error
           retention-days: 14

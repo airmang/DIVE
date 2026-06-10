@@ -1,7 +1,7 @@
 import { Moon, Sun } from "lucide-react";
 import { useTheme } from "../hooks/useTheme";
 import { Button } from "../components/ui/button";
-import { ToolCallMessage } from "../components/chat/ToolCallMessage";
+import { ToolActivity } from "../components/chat/ToolActivity";
 import type { ToolCallMessageData } from "../components/chat/types";
 
 function ThemeToggle() {
@@ -113,13 +113,13 @@ export default function ToolGuardDemoPage() {
         {BLOCKED_CASES.map((c) => (
           <section key={c.testId} data-testid={c.testId} className="space-y-2">
             <h3 className="text-sm font-semibold">{c.title}</h3>
-            <ToolCallMessage message={c.message} />
+            <ToolActivity call={c.message} />
           </section>
         ))}
 
         <section data-testid="case-normal" className="space-y-2">
           <h3 className="text-sm font-semibold">비교: 정상 승인된 도구 호출</h3>
-          <ToolCallMessage message={NORMAL_APPROVED} />
+          <ToolActivity call={NORMAL_APPROVED} />
         </section>
       </main>
     </div>

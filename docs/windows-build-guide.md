@@ -31,8 +31,8 @@ a Windows ARM64 runner.
 
 산출물:
 
-- `src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/dive_0.0.1_x64-setup.exe`
-- `src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/dive_0.0.1_arm64-setup.exe`
+- `src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/DIVE_1.0.0-rc.2_x64-setup.exe`
+- `src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/DIVE_1.0.0-rc.2_arm64-setup.exe`
 
 ### CI 빌드 (권장)
 
@@ -44,7 +44,7 @@ a Windows ARM64 runner.
 
 ### 2.1 인스톨러 실행
 
-1. `dive_0.0.1_x64-setup.exe` 더블클릭 (ARM64 기기면 ARM 인스톨러)
+1. `DIVE_1.0.0-rc.2_x64-setup.exe` 더블클릭 (ARM64 기기면 ARM 인스톨러)
 2. **Windows SmartScreen 경고** 표시:
    - "Windows가 PC를 보호했습니다" 화면 → **추가 정보** 클릭 → **실행** 클릭
    - 이는 EV 코드 서명 부재 때문이며, Phase 6에서 해결됩니다.
@@ -77,12 +77,12 @@ a Windows ARM64 runner.
 
 ### 3.2 네트워크 공유
 
-1. 교실 파일 서버에 `\\school-pc\dive\dive_0.0.1_x64-setup.exe` 배치
+1. 교실 파일 서버에 `\\school-pc\dive\DIVE_1.0.0-rc.2_x64-setup.exe` 배치
 2. 각 학생 PC에서 해당 경로로 접속해 실행
 
 ### 3.3 Intune / SCCM (IT 팀이 있는 학교)
 
-- MSI가 아닌 NSIS `.exe` 기반이라 silent install은 `dive_0.0.1_x64-setup.exe /S`
+- MSI가 아닌 NSIS `.exe` 기반이라 silent install은 `DIVE_1.0.0-rc.2_x64-setup.exe /S`
 - 배포 정책: "per-user install"로 학생 계정에만 설치 → 차시 끝나고 로그아웃 시 지워지지 않음
 
 ---

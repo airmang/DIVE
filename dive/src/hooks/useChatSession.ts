@@ -69,9 +69,26 @@ type AgentEventEnvelope = {
 
 type ChatEventPayload = AgentEvent | AgentEventEnvelope;
 
-function unwrapAgentEvent(payload: ChatEventPayload): AgentEvent {
-  return "event" in payload ? payload.event : payload;
+function unwrapAgentEvent(payload: ChatEventPayload, expectedSessionId: number): AgentEvent | null {
+  if ("event" in payload) {
+    return payload.session_id === expectedSessionId ? payload.event : null;
+  }
+  return payload;
 }
+
+type PendingToolCall = {
+  id: string;
+  sessionId: number;
+  tool: string;
+  paramsPreview: string;
+  risk: "safe" | "warn" | "danger";
+  diffPreview?: {
+    path: string;
+    before: string;
+    after: string;
+  } | null;
+  args: unknown;
+};
 
 export interface VerifyLogPayload {
   intent_match: boolean;
@@ -145,6 +162,35 @@ export interface SendUserMessageContext {
 
 type BeforeSendUserMessage = (context: SendUserMessageContext) => boolean | Promise<boolean>;
 
+function pendingToolCallToMessage(call: PendingToolCall): ToolCallMessageData {
+  return {
+    id: call.id,
+    kind: "tool_call",
+    createdAt: Date.now(),
+    toolName: call.tool,
+    paramsPreview: call.paramsPreview,
+    status: "pending",
+    risk: call.risk,
+    diffPreview: call.diffPreview ?? null,
+    args: call.args,
+  };
+}
+
+function mergeMessagesById(messages: ChatMessage[], additions: ChatMessage[]): ChatMessage[] {
+  const indexById = new Map(messages.map((message, index) => [message.id, index]));
+  const merged = [...messages];
+  for (const addition of additions) {
+    const existingIndex = indexById.get(addition.id);
+    if (existingIndex === undefined) {
+      indexById.set(addition.id, merged.length);
+      merged.push(addition);
+    } else {
+      merged[existingIndex] = addition;
+    }
+  }
+  return merged;
+}
+
 export function useChatSession(
   sessionId: number | null,
   onAgentEvent?: (event: AgentEvent) => void,
@@ -203,9 +249,26 @@ export function useChatSession(
     }, 45000);
   }, [appendErrorMessage, clearStallTimer]);
 
+  const refreshPendingApprovals = useCallback(async () => {
+    if (sessionId === null) return;
+    const api = apiRef.current;
+    if (!api) return;
+    const pending = await api.invoke<PendingToolCall[]>("pending_tool_calls", { sessionId });
+    if (pending.length === 0) return;
+    setState((s) => ({
+      ...s,
+      messages: mergeMessagesById(s.messages, pending.map(pendingToolCallToMessage)),
+      isStreaming: true,
+      runStartedAt: s.runStartedAt ?? Date.now(),
+      cancelRequested: false,
+    }));
+  }, [sessionId]);
+
   useEffect(() => {
     let unsub: (() => void) | null = null;
     let cancelled = false;
+    let historyLoaded = false;
+    const bufferedEvents: AgentEvent[] = [];
     clearStallTimer();
     setState({
       messages: [],
@@ -228,18 +291,59 @@ export function useChatSession(
         setState((s) => ({ ...s, isTauri: false, loadingHistory: false }));
         return;
       }
+      const applyEventSideEffects = (payload: AgentEvent) => {
+        if (
+          payload.type === "done" ||
+          payload.type === "error" ||
+          payload.type === "assistant_end" ||
+          payload.type === "tool_call_start" ||
+          payload.type === "tool_call_approved"
+        ) {
+          clearStallTimer();
+        } else {
+          armStallTimer();
+        }
+        onAgentEventRef.current?.(payload);
+      };
       try {
-        const history = await api.invoke<ChatMessage[]>("message_list", { sessionId });
+        unsub = await api.listen<ChatEventPayload>(`chat://event/${sessionId}`, (e) => {
+          const payload = unwrapAgentEvent(e.payload, sessionId);
+          if (payload === null) return;
+          if (!historyLoaded) {
+            bufferedEvents.push(payload);
+            return;
+          }
+          applyEventSideEffects(payload);
+          setState((prev) => reduce(prev, payload));
+        });
+        const [history, pending] = await Promise.all([
+          api.invoke<ChatMessage[]>("message_list", { sessionId }),
+          api.invoke<PendingToolCall[]>("pending_tool_calls", { sessionId }),
+        ]);
         if (cancelled) return;
-        setState((s) => ({
-          ...s,
-          messages: history,
-          isTauri: true,
-          error: null,
-          loadingHistory: false,
-        }));
+        historyLoaded = true;
+        const pendingMessages = pending.map(pendingToolCallToMessage);
+        const replayEvents = bufferedEvents.splice(0);
+        replayEvents.forEach(applyEventSideEffects);
+        setState((s) => {
+          let next: State = {
+            ...s,
+            messages: mergeMessagesById(history, pendingMessages),
+            isStreaming: pendingMessages.length > 0 || s.isStreaming,
+            isTauri: true,
+            error: null,
+            runStartedAt:
+              pendingMessages.length > 0 ? (s.runStartedAt ?? Date.now()) : s.runStartedAt,
+            loadingHistory: false,
+          };
+          for (const event of replayEvents) {
+            next = reduce(next, event);
+          }
+          return next;
+        });
       } catch (err) {
         if (cancelled) return;
+        historyLoaded = true;
         setState((s) => ({
           ...s,
           isTauri: true,
@@ -247,21 +351,6 @@ export function useChatSession(
           error: err instanceof Error ? err.message : String(err),
         }));
       }
-      unsub = await api.listen<ChatEventPayload>(`chat://event/${sessionId}`, (e) => {
-        const payload = unwrapAgentEvent(e.payload);
-        if (
-          payload.type === "done" ||
-          payload.type === "error" ||
-          payload.type === "assistant_end" ||
-          payload.type === "tool_call_start"
-        ) {
-          clearStallTimer();
-        } else {
-          armStallTimer();
-        }
-        onAgentEventRef.current?.(payload);
-        setState((prev) => reduce(prev, payload));
-      });
     })();
     return () => {
       cancelled = true;
@@ -325,9 +414,10 @@ export function useChatSession(
       } catch (err) {
         clearStallTimer();
         appendErrorMessage(err instanceof Error ? err.message : String(err), true);
+        await refreshPendingApprovals().catch(() => {});
       }
     },
-    [appendErrorMessage, armStallTimer, clearStallTimer, sessionId],
+    [appendErrorMessage, armStallTimer, clearStallTimer, refreshPendingApprovals, sessionId],
   );
 
   const retryLastUserMessage = useCallback(() => {
@@ -548,7 +638,13 @@ function reduce(prev: State, evt: AgentEvent): State {
         diffPreview: evt.diff_preview ?? null,
         args: evt.args,
       };
-      return { ...prev, messages: [...prev.messages, m] };
+      return {
+        ...prev,
+        messages: mergeMessagesById(prev.messages, [m]),
+        isStreaming: true,
+        runStartedAt: prev.runStartedAt ?? Date.now(),
+        cancelRequested: false,
+      };
     }
     case "tool_call_approved": {
       return {

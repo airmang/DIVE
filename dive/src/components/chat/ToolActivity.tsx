@@ -86,7 +86,7 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny }: Props)
         data-message-id={call.id}
         data-status={call.status}
       >
-        <div className="w-full max-w-[80%]">
+        <div className="w-full max-w-full sm:max-w-[80%]">
           {reasoning ? (
             <p className="mb-1.5 px-1 text-xs text-fg-subtle">
               <span className="font-semibold">↳ {t("tool_call.why_label")}</span> {reasoning.text}
@@ -109,7 +109,7 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny }: Props)
         data-status="blocked"
       >
         <div
-          className="w-full max-w-[80%] overflow-hidden rounded border border-danger/70 bg-danger/10"
+          className="w-full max-w-full overflow-hidden rounded border border-danger/70 bg-danger/10 sm:max-w-[80%]"
           data-testid="tool-call-blocked"
         >
           <header className="flex items-center gap-2 border-b border-danger/40 bg-danger/20 px-3 py-2">
@@ -178,7 +178,7 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny }: Props)
       data-message-id={call.id}
       data-status={call.status}
     >
-      <div className="w-full max-w-[80%]">
+      <div className="w-full max-w-full sm:max-w-[80%]">
         <div
           className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-bg-panel2"
           data-kind="tool_result"

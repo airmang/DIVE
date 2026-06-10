@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::oneshot;
 
+use super::event::DiffPreview;
 use crate::providers::ToolCall;
 use crate::tools::RiskLevel;
 
@@ -31,9 +32,61 @@ impl PermissionDecision {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct PermissionRequestContext {
+    pub session_id: i64,
+    pub params_preview: String,
+    pub diff_preview: Option<DiffPreview>,
+    pub args: Value,
+}
+
+impl PermissionRequestContext {
+    #[cfg(test)]
+    pub fn test(session_id: i64) -> Self {
+        Self {
+            session_id,
+            params_preview: "{}".into(),
+            diff_preview: None,
+            args: Value::Object(Default::default()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingApprovalSnapshot {
+    pub id: String,
+    pub session_id: i64,
+    pub tool: String,
+    pub params_preview: String,
+    pub risk: RiskLevel,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diff_preview: Option<DiffPreview>,
+    pub args: Value,
+}
+
+impl PendingApprovalSnapshot {
+    fn from_request(call: &ToolCall, risk: RiskLevel, context: PermissionRequestContext) -> Self {
+        Self {
+            id: call.id.clone(),
+            session_id: context.session_id,
+            tool: call.name.clone(),
+            params_preview: context.params_preview,
+            risk,
+            diff_preview: context.diff_preview,
+            args: context.args,
+        }
+    }
+}
+
 #[async_trait]
 pub trait PermissionHook: Send + Sync {
-    async fn intercept(&self, call: &ToolCall, risk: RiskLevel) -> PermissionDecision;
+    async fn intercept(
+        &self,
+        call: &ToolCall,
+        risk: RiskLevel,
+        context: PermissionRequestContext,
+    ) -> PermissionDecision;
 
     fn cancel_pending(&self, ids: &[String]) -> usize {
         let _ = ids;
@@ -136,7 +189,12 @@ impl RunModePermissionHook {
 
 #[async_trait]
 impl PermissionHook for RunModePermissionHook {
-    async fn intercept(&self, call: &ToolCall, risk: RiskLevel) -> PermissionDecision {
+    async fn intercept(
+        &self,
+        call: &ToolCall,
+        risk: RiskLevel,
+        context: PermissionRequestContext,
+    ) -> PermissionDecision {
         if let Some(reason) = self.mode.denies_pre_plan_mutation(
             &call.name,
             risk,
@@ -145,7 +203,7 @@ impl PermissionHook for RunModePermissionHook {
         ) {
             return PermissionDecision::denied(reason);
         }
-        self.inner.intercept(call, risk).await
+        self.inner.intercept(call, risk, context).await
     }
 
     fn cancel_pending(&self, ids: &[String]) -> usize {
@@ -190,7 +248,12 @@ pub struct SafeOnlyHook;
 
 #[async_trait]
 impl PermissionHook for SafeOnlyHook {
-    async fn intercept(&self, _call: &ToolCall, risk: RiskLevel) -> PermissionDecision {
+    async fn intercept(
+        &self,
+        _call: &ToolCall,
+        risk: RiskLevel,
+        _context: PermissionRequestContext,
+    ) -> PermissionDecision {
         match risk {
             RiskLevel::Safe => PermissionDecision::approved(),
             _ => PermissionDecision::denied("manual approval required"),
@@ -203,7 +266,12 @@ pub struct AlwaysApproveHook;
 
 #[async_trait]
 impl PermissionHook for AlwaysApproveHook {
-    async fn intercept(&self, _call: &ToolCall, _risk: RiskLevel) -> PermissionDecision {
+    async fn intercept(
+        &self,
+        _call: &ToolCall,
+        _risk: RiskLevel,
+        _context: PermissionRequestContext,
+    ) -> PermissionDecision {
         PermissionDecision::approved()
     }
 }
@@ -213,7 +281,12 @@ pub struct AlwaysDenyHook;
 
 #[async_trait]
 impl PermissionHook for AlwaysDenyHook {
-    async fn intercept(&self, _call: &ToolCall, _risk: RiskLevel) -> PermissionDecision {
+    async fn intercept(
+        &self,
+        _call: &ToolCall,
+        _risk: RiskLevel,
+        _context: PermissionRequestContext,
+    ) -> PermissionDecision {
         PermissionDecision::denied("test hook denies all")
     }
 }
@@ -225,7 +298,12 @@ pub struct PolicyHook {
 
 #[async_trait]
 impl PermissionHook for PolicyHook {
-    async fn intercept(&self, call: &ToolCall, risk: RiskLevel) -> PermissionDecision {
+    async fn intercept(
+        &self,
+        call: &ToolCall,
+        risk: RiskLevel,
+        _context: PermissionRequestContext,
+    ) -> PermissionDecision {
         self.policy
             .decide(&call.name, risk)
             .unwrap_or_else(|| PermissionDecision::denied("no policy match"))
@@ -237,7 +315,12 @@ impl PermissionHook for PolicyHook {
 /// through `tool_approve` / `tool_deny`.
 #[derive(Clone, Default)]
 pub struct PendingApprovals {
-    inner: Arc<Mutex<HashMap<String, oneshot::Sender<PermissionDecision>>>>,
+    inner: Arc<Mutex<HashMap<String, PendingApprovalEntry>>>,
+}
+
+struct PendingApprovalEntry {
+    tx: oneshot::Sender<PermissionDecision>,
+    snapshot: PendingApprovalSnapshot,
 }
 
 impl PendingApprovals {
@@ -245,18 +328,21 @@ impl PendingApprovals {
         Self::default()
     }
 
-    pub fn register(&self, id: &str) -> oneshot::Receiver<PermissionDecision> {
+    pub fn register(
+        &self,
+        snapshot: PendingApprovalSnapshot,
+    ) -> oneshot::Receiver<PermissionDecision> {
         let (tx, rx) = oneshot::channel();
         if let Ok(mut g) = self.inner.lock() {
-            g.insert(id.to_string(), tx);
+            g.insert(snapshot.id.clone(), PendingApprovalEntry { tx, snapshot });
         }
         rx
     }
 
     pub fn resolve(&self, id: &str, decision: PermissionDecision) -> bool {
-        let tx = self.inner.lock().ok().and_then(|mut g| g.remove(id));
-        match tx {
-            Some(tx) => tx.send(decision).is_ok(),
+        let entry = self.inner.lock().ok().and_then(|mut g| g.remove(id));
+        match entry {
+            Some(entry) => entry.tx.send(decision).is_ok(),
             None => false,
         }
     }
@@ -266,6 +352,29 @@ impl PendingApprovals {
             return 0;
         };
         ids.iter().filter_map(|id| guard.remove(id)).count()
+    }
+
+    pub fn cancel_session(&self, session_id: i64) -> usize {
+        let Ok(mut guard) = self.inner.lock() else {
+            return 0;
+        };
+        let ids = guard
+            .iter()
+            .filter(|(_, entry)| entry.snapshot.session_id == session_id)
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        ids.iter().filter_map(|id| guard.remove(id)).count()
+    }
+
+    pub fn list_for_session(&self, session_id: i64) -> Vec<PendingApprovalSnapshot> {
+        let Ok(guard) = self.inner.lock() else {
+            return Vec::new();
+        };
+        guard
+            .values()
+            .filter(|entry| entry.snapshot.session_id == session_id)
+            .map(|entry| entry.snapshot.clone())
+            .collect()
     }
 
     pub fn pending_count(&self) -> usize {
@@ -291,11 +400,18 @@ impl AwaitUserHook {
 
 #[async_trait]
 impl PermissionHook for AwaitUserHook {
-    async fn intercept(&self, call: &ToolCall, risk: RiskLevel) -> PermissionDecision {
+    async fn intercept(
+        &self,
+        call: &ToolCall,
+        risk: RiskLevel,
+        context: PermissionRequestContext,
+    ) -> PermissionDecision {
         if self.auto_approve_safe && matches!(risk, RiskLevel::Safe) {
             return PermissionDecision::approved();
         }
-        let rx = self.pending.register(&call.id);
+        let rx = self
+            .pending
+            .register(PendingApprovalSnapshot::from_request(call, risk, context));
         match rx.await {
             Ok(decision) => decision,
             Err(_) => PermissionDecision::denied("approval channel closed"),
@@ -332,7 +448,12 @@ impl PolicyAwareHook {
 
 #[async_trait]
 impl PermissionHook for PolicyAwareHook {
-    async fn intercept(&self, call: &ToolCall, risk: RiskLevel) -> PermissionDecision {
+    async fn intercept(
+        &self,
+        call: &ToolCall,
+        risk: RiskLevel,
+        context: PermissionRequestContext,
+    ) -> PermissionDecision {
         if let Ok(policy) = self.policy.read() {
             if let Some(decision) = policy.decide(&call.name, risk) {
                 return decision;
@@ -341,7 +462,9 @@ impl PermissionHook for PolicyAwareHook {
         if self.auto_approve_safe && matches!(risk, RiskLevel::Safe) {
             return PermissionDecision::approved();
         }
-        let rx = self.pending.register(&call.id);
+        let rx = self
+            .pending
+            .register(PendingApprovalSnapshot::from_request(call, risk, context));
         match rx.await {
             Ok(decision) => decision,
             Err(_) => PermissionDecision::denied("approval channel closed"),
@@ -370,14 +493,26 @@ mod tests {
     #[tokio::test]
     async fn plan_mode_allows_safe_read_tool() {
         let hook = RunModePermissionHook::new(AgentRunMode::Plan, Arc::new(AlwaysApproveHook));
-        let decision = hook.intercept(&call("read_file"), RiskLevel::Safe).await;
+        let decision = hook
+            .intercept(
+                &call("read_file"),
+                RiskLevel::Safe,
+                PermissionRequestContext::test(1),
+            )
+            .await;
         assert!(matches!(decision, PermissionDecision::Approved { .. }));
     }
 
     #[tokio::test]
     async fn plan_mode_denies_mutating_write_tool() {
         let hook = RunModePermissionHook::new(AgentRunMode::Plan, Arc::new(AlwaysApproveHook));
-        let decision = hook.intercept(&call("write_file"), RiskLevel::Warn).await;
+        let decision = hook
+            .intercept(
+                &call("write_file"),
+                RiskLevel::Warn,
+                PermissionRequestContext::test(1),
+            )
+            .await;
         match decision {
             PermissionDecision::Denied(reason) => {
                 assert!(reason.contains("plan"));
@@ -390,7 +525,13 @@ mod tests {
     #[tokio::test]
     async fn build_mode_denies_mutating_tool_without_approved_plan_and_step() {
         let hook = RunModePermissionHook::new(AgentRunMode::Build, Arc::new(AlwaysApproveHook));
-        let decision = hook.intercept(&call("write_file"), RiskLevel::Warn).await;
+        let decision = hook
+            .intercept(
+                &call("write_file"),
+                RiskLevel::Warn,
+                PermissionRequestContext::test(1),
+            )
+            .await;
         match decision {
             PermissionDecision::Denied(reason) => {
                 assert!(reason.contains("build mode"));
@@ -405,7 +546,13 @@ mod tests {
         let hook = RunModePermissionHook::new(AgentRunMode::Build, Arc::new(AlwaysApproveHook))
             .with_plan_accepted(true)
             .with_active_step_id(Some(1));
-        let decision = hook.intercept(&call("write_file"), RiskLevel::Warn).await;
+        let decision = hook
+            .intercept(
+                &call("write_file"),
+                RiskLevel::Warn,
+                PermissionRequestContext::test(1),
+            )
+            .await;
         assert!(matches!(decision, PermissionDecision::Approved { .. }));
     }
 }

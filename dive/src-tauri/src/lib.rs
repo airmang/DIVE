@@ -77,6 +77,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             ipc::message_list,
+            ipc::pending_tool_calls,
             ipc::chat_send,
             ipc::chat_cancel,
             ipc::tool_approve,

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "../components/ui/button";
 import { PermissionCard } from "../components/permission-card";
-import { ToolCallMessage } from "../components/chat/ToolCallMessage";
+import { ToolActivity } from "../components/chat/ToolActivity";
 import { McpProvenanceBadge } from "../components/mcp/McpProvenanceBadge";
 
 export default function McpDemoPage() {
@@ -22,7 +22,7 @@ export default function McpDemoPage() {
           <code>
             mcp__{"{server}"}__{"{tool}"}
           </code>
-          , 출처 배지, 권한 카드 3종, ToolCallMessage의 차단/승인 상태를 시각적으로 검증합니다. 실제
+          , 출처 배지, 권한 카드 3종, ToolActivity의 차단/승인 상태를 시각적으로 검증합니다. 실제
           LLM 호출 없이 정적 렌더만.
         </p>
 
@@ -91,8 +91,8 @@ export default function McpDemoPage() {
 
         <section className="flex flex-col gap-3" data-testid="section-messages">
           <h2 className="text-lg font-semibold">3. 차단·승인 상태 메시지</h2>
-          <ToolCallMessage
-            message={{
+          <ToolActivity
+            call={{
               kind: "tool_call",
               id: "m1",
               createdAt: 0,
@@ -101,8 +101,8 @@ export default function McpDemoPage() {
               status: "approved",
             }}
           />
-          <ToolCallMessage
-            message={{
+          <ToolActivity
+            call={{
               kind: "tool_call",
               id: "m2",
               createdAt: 0,

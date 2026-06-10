@@ -11,8 +11,6 @@ import {
   MessageList,
   SystemMessage,
   ToolActivity,
-  ToolCallMessage,
-  ToolResultMessage,
   UserMessage,
 } from "../components/chat";
 import type {
@@ -51,7 +49,7 @@ function makeStaticSixMessages(): ChatMessage[] {
       createdAt: now + 3,
       toolName: "list_dir",
       paramsPreview: 'path: "./src"',
-      status: "pending",
+      status: "approved",
     },
     {
       id: "demo-tool-result-1",
@@ -239,8 +237,10 @@ export default function ChatDemoPage() {
             <SystemMessage message={sixMessages[0] as never} />
             <UserMessage message={sixMessages[1] as never} />
             <AssistantMessage message={sixMessages[2] as never} />
-            <ToolCallMessage message={sixMessages[3] as never} />
-            <ToolResultMessage message={sixMessages[4] as never} />
+            <ToolActivity
+              call={sixMessages[3] as ToolCallMessageData}
+              result={sixMessages[4] as ToolResultMessageData}
+            />
             <ErrorMessage message={sixMessages[5] as never} onRetry={() => console.log("retry")} />
           </div>
         </Section>

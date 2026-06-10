@@ -24,6 +24,32 @@ use crate::ipc::AppState;
 use crate::workspace_plan as workspace_plan_service;
 
 const ROUTE_CANCELLED_MESSAGE: &str = "route chat cancelled";
+const MAX_PLAN_STEPS: usize = 8;
+const MAX_STEP_EXPECTED_FILES: usize = 8;
+const MAX_STEP_ACCEPTANCE_CRITERIA: usize = 8;
+const MAX_VERIFICATION_COMMAND_WORDS: usize = 24;
+const BROAD_SCOPE_MARKERS: &[&str] = &[
+    "desktop app",
+    "full app",
+    "full-stack",
+    "full stack",
+    "crud",
+    "calendar",
+    "notification",
+    "auth",
+    "database",
+    "end-to-end",
+    "end to end",
+    "데스크톱 앱",
+    "전체 앱",
+    "전체 기능",
+    "일정",
+    "캘린더",
+    "알림",
+    "인증",
+    "데이터베이스",
+    "완성",
+];
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct WorkspacePlanStatus {
@@ -193,8 +219,14 @@ pub async fn workspace_plan_generate_draft(
     state: State<'_, AppState>,
     interview_id: i64,
     plan_input: PlanDraftInput,
+    replace_approved: Option<bool>,
 ) -> Result<(PlanRow, Vec<StepRow>), String> {
-    workspace_plan_generate_draft_impl(&state, interview_id, plan_input)
+    workspace_plan_generate_draft_impl(
+        &state,
+        interview_id,
+        plan_input,
+        replace_approved.unwrap_or(false),
+    )
 }
 
 #[tauri::command]
@@ -469,9 +501,13 @@ pub fn workspace_plan_submit_interview_impl(
 pub fn workspace_plan_generate_draft_impl(
     state: &AppState,
     interview_id: i64,
-    plan_input: PlanDraftInput,
+    mut plan_input: PlanDraftInput,
+    replace_approved: bool,
 ) -> Result<(PlanRow, Vec<StepRow>), String> {
-    validate_unique_step_ids(&plan_input.steps)?;
+    validate_plan_draft(&plan_input)?;
+    for step in &mut plan_input.steps {
+        sanitize_step_verification(step);
+    }
     let mut db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.conn_mut();
     let interview = interview_dao::get_by_id(conn, interview_id)
@@ -481,7 +517,12 @@ pub fn workspace_plan_generate_draft_impl(
     if let Some(existing) =
         plan_dao::get_by_project(&tx, interview.project_id).map_err(|e| e.to_string())?
     {
-        if existing.status == "draft" {
+        // A draft is always replaced silently. An approved plan is only replaced
+        // when the caller explicitly opted in (the UI confirms first, since this
+        // discards the approved plan and its steps — Step/StepSessionMapping
+        // cascade on the Plan delete). Without opt-in we still refuse, so the UI
+        // can detect the case and prompt instead of silently destroying work.
+        if existing.status == "draft" || replace_approved {
             plan_dao::delete(&tx, existing.id).map_err(|e| e.to_string())?;
         } else {
             return Err(format!(
@@ -730,9 +771,10 @@ async fn wait_for_route_cancel(cancel: Arc<AtomicBool>) {
 pub fn workspace_plan_append_step_impl(
     state: &AppState,
     plan_id: i64,
-    draft: StepDraftInput,
+    mut draft: StepDraftInput,
 ) -> Result<StepRow, String> {
     validate_append_draft(&draft)?;
+    sanitize_step_verification(&mut draft);
     let mut db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.conn_mut();
     let tx = conn.transaction().map_err(|e| e.to_string())?;
@@ -741,6 +783,14 @@ pub fn workspace_plan_append_step_impl(
         .ok_or_else(|| format!("plan {plan_id} not found"))?;
     if plan.status != "approved" {
         return Err("plan must be approved before appending steps".into());
+    }
+    let existing_count = step_dao::list_by_plan(&tx, plan_id)
+        .map_err(|e| e.to_string())?
+        .len();
+    if existing_count >= MAX_PLAN_STEPS {
+        return Err(format!(
+            "plan exceeds DIVE execution envelope: at most {MAX_PLAN_STEPS} steps are allowed"
+        ));
     }
 
     validate_draft_dependencies(&tx, plan_id, &draft.dependencies)?;
@@ -1221,6 +1271,114 @@ fn validate_unique_step_ids(steps: &[StepDraftInput]) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_plan_draft(plan_input: &PlanDraftInput) -> Result<(), String> {
+    if plan_input.steps.is_empty() {
+        return Err("plan must include at least one step".into());
+    }
+    if plan_input.steps.len() > MAX_PLAN_STEPS {
+        return Err(format!(
+            "plan exceeds DIVE execution envelope: at most {MAX_PLAN_STEPS} steps are allowed"
+        ));
+    }
+    validate_unique_step_ids(&plan_input.steps)?;
+    for step in &plan_input.steps {
+        validate_step_envelope(step)?;
+    }
+    Ok(())
+}
+
+fn validate_step_envelope(step: &StepDraftInput) -> Result<(), String> {
+    if step.expected_files.len() > MAX_STEP_EXPECTED_FILES {
+        return Err(format!(
+            "step '{}' exceeds DIVE execution envelope: at most {MAX_STEP_EXPECTED_FILES} expected files per step",
+            step.step_id
+        ));
+    }
+    if step.acceptance_criteria.len() > MAX_STEP_ACCEPTANCE_CRITERIA {
+        return Err(format!(
+            "step '{}' exceeds DIVE execution envelope: at most {MAX_STEP_ACCEPTANCE_CRITERIA} acceptance criteria per step",
+            step.step_id
+        ));
+    }
+    let scope_score = broad_scope_score(step);
+    if scope_score >= 2 && step.expected_files.len() >= 4 {
+        return Err(format!(
+            "step '{}' is too broad for the DIVE execution envelope; split it into smaller file-focused steps",
+            step.step_id
+        ));
+    }
+    Ok(())
+}
+
+fn broad_scope_score(step: &StepDraftInput) -> usize {
+    let mut text = format!(
+        "{}\n{}\n{}\n{}",
+        step.title,
+        step.summary,
+        step.instruction_seed,
+        step.acceptance_criteria.join("\n")
+    )
+    .to_ascii_lowercase();
+    for item in &step.expected_files {
+        text.push('\n');
+        text.push_str(&item.to_ascii_lowercase());
+    }
+    BROAD_SCOPE_MARKERS
+        .iter()
+        .filter(|marker| text.contains(&marker.to_ascii_lowercase()))
+        .count()
+}
+
+/// Whether a verification_command fits DIVE's no-shell, single-command, 60s
+/// execution envelope. Used to *sanitize* (drop) rather than reject: a model
+/// emitting a shell-y command should not block the whole plan from generating.
+fn verification_command_is_envelope_safe(command: &str) -> bool {
+    let command = command.trim();
+    if command.is_empty() {
+        return true;
+    }
+    const FORBIDDEN_CHARS: &[char] = &['|', '&', ';', '<', '>', '(', ')', '$', '`', '\n', '\r'];
+    if command.chars().any(|c| FORBIDDEN_CHARS.contains(&c)) {
+        return false;
+    }
+    if command.split_whitespace().count() > MAX_VERIFICATION_COMMAND_WORDS {
+        return false;
+    }
+    let executable = command
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(".exe")
+        .to_ascii_lowercase();
+    !matches!(
+        executable.as_str(),
+        "bash" | "sh" | "zsh" | "fish" | "cmd" | "powershell" | "pwsh"
+    )
+}
+
+/// If a step's verification_command does not fit the execution envelope, drop it
+/// and downgrade verification to manual instead of rejecting the whole plan. The
+/// command is never executed once dropped, so this is safe; honest-verify
+/// already surfaces a manual/unverified step as "not externally verified",
+/// keeping the supervision signal honest while letting the plan generate on the
+/// first try. Returns true when the command was sanitized away.
+fn sanitize_step_verification(step: &mut StepDraftInput) -> bool {
+    let needs_sanitize = step
+        .verification_command
+        .as_deref()
+        .map(str::trim)
+        .filter(|command| !command.is_empty())
+        .is_some_and(|command| !verification_command_is_envelope_safe(command));
+    if needs_sanitize {
+        step.verification_command = None;
+        step.verification_type = Some("manual".to_string());
+    }
+    needs_sanitize
+}
+
 fn build_router_context(
     plan: &PlanRow,
     steps: &[StepRow],
@@ -1287,6 +1445,7 @@ fn validate_append_draft(draft: &StepDraftInput) -> Result<(), String> {
     if draft.instruction_seed.trim().is_empty() {
         return Err("step instruction_seed is required".into());
     }
+    validate_step_envelope(draft)?;
     Ok(())
 }
 
@@ -1330,5 +1489,87 @@ fn join_string_array(value: Option<&serde_json::Value>) -> Option<String> {
         None
     } else {
         Some(items.join("\n"))
+    }
+}
+
+#[cfg(test)]
+mod envelope_tests {
+    use super::*;
+
+    fn focused_step() -> StepDraftInput {
+        StepDraftInput {
+            title: "Add quiz question state".into(),
+            summary: "Store current question and selected answer.".into(),
+            instruction_seed: "Implement the current-question state in src/App.tsx only.".into(),
+            expected_files: vec!["src/App.tsx".into()],
+            acceptance_criteria: vec!["Selecting an answer updates visible state.".into()],
+            verification_command: Some("pnpm test".into()),
+            verification_type: Some("command".into()),
+            dependencies: Vec::new(),
+            parallel_group: None,
+            position: 1,
+            step_id: "step-001".into(),
+        }
+    }
+
+    #[test]
+    fn envelope_allows_small_file_focused_step() {
+        assert!(validate_step_envelope(&focused_step()).is_ok());
+    }
+
+    #[test]
+    fn envelope_rejects_broad_desktop_crud_calendar_step() {
+        let mut step = focused_step();
+        step.step_id = "step-broad".into();
+        step.title = "일정 관리 데스크톱 앱 완성".into();
+        step.summary = "CRUD, 알림, 캘린더, 데이터베이스를 한 번에 구현한다.".into();
+        step.instruction_seed =
+            "Build the full desktop app with calendar CRUD, notification reminders, and database persistence."
+                .into();
+        step.expected_files = vec![
+            "src/App.tsx".into(),
+            "src/calendar.ts".into(),
+            "src/database.ts".into(),
+            "src/notifications.ts".into(),
+        ];
+
+        let err = validate_step_envelope(&step).unwrap_err();
+        assert!(err.contains("too broad"));
+    }
+
+    #[test]
+    fn envelope_accepts_step_with_shell_verification_command() {
+        // A shell-y verification_command must no longer reject the whole step;
+        // it is sanitized away at persist time (see sanitize tests below).
+        let mut step = focused_step();
+        step.verification_command = Some("bash -lc 'pnpm test'".into());
+        assert!(validate_step_envelope(&step).is_ok());
+    }
+
+    #[test]
+    fn sanitize_drops_shell_verification_and_downgrades_to_manual() {
+        let mut step = focused_step();
+        step.verification_command = Some("bash -lc 'pnpm test'".into());
+        assert!(sanitize_step_verification(&mut step));
+        assert_eq!(step.verification_command, None);
+        assert_eq!(step.verification_type.as_deref(), Some("manual"));
+    }
+
+    #[test]
+    fn sanitize_drops_piped_command() {
+        let mut step = focused_step();
+        step.verification_command = Some("cat foo | grep bar".into());
+        assert!(sanitize_step_verification(&mut step));
+        assert_eq!(step.verification_command, None);
+        assert_eq!(step.verification_type.as_deref(), Some("manual"));
+    }
+
+    #[test]
+    fn sanitize_keeps_envelope_safe_command() {
+        let mut step = focused_step();
+        step.verification_command = Some("pnpm test".into());
+        assert!(!sanitize_step_verification(&mut step));
+        assert_eq!(step.verification_command.as_deref(), Some("pnpm test"));
+        assert_eq!(step.verification_type.as_deref(), Some("command"));
     }
 }

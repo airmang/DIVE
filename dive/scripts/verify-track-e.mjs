@@ -77,7 +77,7 @@ if (forbiddenGrep.trim()) {
 
 const forbiddenSafetyGates = [
   ["dive/src/components/permission-card/DangerCard.tsx", "Danger card"],
-  ["dive/src/components/chat/ToolCallMessage.tsx", "Tool call warning"],
+  ["dive/src/components/chat/ToolActivity.tsx", "Tool call warning"],
   ["dive/src/components/slide-in/RestoreConfirmDialog.tsx", "Restore warning"],
   ["dive/src/components/permission-card/DiffViewer.tsx", "Diff truncation notice"],
 ];

@@ -72,6 +72,9 @@ jobs:
           $driver = Get-ChildItem -Path .,$env:USERPROFILE -Recurse -Filter msedgedriver.exe -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $driver) { throw "msedgedriver.exe not found after msedgedriver-tool" }
           echo $driver.Directory.FullName >> $env:GITHUB_PATH
+      - name: Build Pi sidecar ${{ matrix.label }}
+        working-directory: dive
+        run: pnpm build:sidecar -- --target ${{ matrix.target }}
       - name: Build NSIS ${{ matrix.label }}
         working-directory: dive
         run: pnpm tauri build --target ${{ matrix.target }} --bundles nsis

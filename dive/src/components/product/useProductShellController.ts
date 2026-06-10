@@ -119,6 +119,10 @@ export function useProductShellController() {
     null,
   );
   const pendingPlanRouteRef = useRef<PendingPlanRouteConfirmation | null>(null);
+  const [pendingPlanReplace, setPendingPlanReplace] = useState<{
+    resolve: (confirmed: boolean) => void;
+  } | null>(null);
+  const pendingPlanReplaceRef = useRef<{ resolve: (confirmed: boolean) => void } | null>(null);
   const [checkpoints, setCheckpoints] = useState<CheckpointRowPayload[]>([]);
   const [checkpointsLoading, setCheckpointsLoading] = useState(false);
   const [checkpointsError, setCheckpointsError] = useState<string | null>(null);
@@ -194,6 +198,30 @@ export function useProductShellController() {
     setPendingPlanRoute(null);
   }, []);
 
+  useEffect(() => {
+    pendingPlanReplaceRef.current = pendingPlanReplace;
+  }, [pendingPlanReplace]);
+  useEffect(
+    () => () => {
+      pendingPlanReplaceRef.current?.resolve(false);
+    },
+    [],
+  );
+  const requestPlanReplaceConfirmation = useCallback(
+    () =>
+      new Promise<boolean>((resolve) => {
+        setPendingPlanReplace({ resolve });
+      }),
+    [],
+  );
+  const settlePlanReplaceConfirmation = useCallback((confirmed: boolean) => {
+    const pending = pendingPlanReplaceRef.current;
+    if (!pending) return;
+    pending.resolve(confirmed);
+    pendingPlanReplaceRef.current = null;
+    setPendingPlanReplace(null);
+  }, []);
+
   const handleBeforeChatSend = useCallback(
     async ({
       text,
@@ -266,7 +294,28 @@ export function useProductShellController() {
             intent_summary: draft.intentSummary,
             unresolved_questions: draft.unresolvedQuestions,
           });
-          const generated = await plan.generateDraft(interview.id, draft.planInput);
+          // A project already carrying an APPROVED plan would make plan
+          // generation hard-fail in the backend ("already has approved plan").
+          // We know this up front via plan.status, so confirm a deliberate
+          // replacement (discards the approved plan + its steps) before
+          // generating, instead of dead-ending the student on a raw error.
+          let replaceApproved = false;
+          if (plan.status?.has_approved_plan) {
+            replaceApproved = await requestPlanReplaceConfirmation();
+            if (!replaceApproved) {
+              toast({
+                variant: "info",
+                title: t("planning.replace.kept_title"),
+                description: t("planning.replace.kept_description"),
+              });
+              return;
+            }
+          }
+          const generated = await plan.generateDraft(
+            interview.id,
+            draft.planInput,
+            replaceApproved,
+          );
           setGeneratedPlanDraft(generated);
           await planRoadmap.refresh();
           toast({
@@ -496,9 +545,17 @@ export function useProductShellController() {
     (decision: ApprovalDecision) => {
       if (!currentCard) return;
       const judgment = { ...decision, decided_at: Date.now() };
-      const action = decision.outcome === "revision_requested" ? "request_changes" : "approve";
+      const isApprove = decision.outcome !== "revision_requested";
+      const action = isApprove ? "approve" : "request_changes";
+      // The ApprovalJudgment gate IS the deliberate human evaluation. honest-verify
+      // labels `intent_match` as the AI's self-reported CLAIM, and the thesis makes
+      // the human the final evaluator — so an explicit human approve (확인함 → 승인,
+      // or 우려 있음 → 그래도 승인) must take effect even when the AI self-reports
+      // intent unmet, instead of being blocked by the backend approve-eligibility
+      // gate. Blind approval isn't prevented here; it's recorded as the
+      // over-trust anti-metric (research design). Hence approveForce on approve.
       void roadmapModel
-        .transitionStep(currentCard.id, action, { judgment })
+        .transitionStep(currentCard.id, action, { judgment, approveForce: isApprove })
         .then(() => {
           if (decision.outcome === "revision_requested" && decision.note) {
             pushChatComposerSeed(decision.note);
@@ -693,6 +750,56 @@ export function useProductShellController() {
     ? roadmapModel.verifyStateForStep(currentCard.id)
     : "idle";
   const currentVerifyError = currentCard ? roadmapModel.verifyErrorForStep(currentCard.id) : null;
+
+  // F2 (2026-06-10 E2E): on the happy path a build step never reached the
+  // verified state, so the ApprovalJudgment gate — the core supervision moment —
+  // was unreachable (handleVerify was only wired into recovery). When a build
+  // turn finishes for the active step (still in `decomposed`), automatically
+  // drive enter_instruct → request_verify → card_verify and open the step
+  // detail so the honest-verify labels + the 확인/우려/수정요청 judgment surface.
+  // The student still makes the judgment; the gate is just no longer
+  // skippable/hidden. card_verify requires the card to be in Verifying
+  // (src-tauri/.../verify.rs), hence the two transitions. We intentionally do
+  // NOT gate on changed-files: that data may not have refreshed the instant the
+  // turn ends, and missing it would re-hide the gate (the exact F2 bug);
+  // card_verify honestly reports a no-output step so the student can pick 우려.
+  const autoSurfaceVerifyInFlightRef = useRef(false);
+  const prevChatStreamingRef = useRef(false);
+  const autoSurfaceVerify = useCallback(async () => {
+    const card = currentCard;
+    if (autoSurfaceVerifyInFlightRef.current) return;
+    if (!card || card.state !== "decomposed") return;
+    if (currentVerifyState === "running" || currentVerifyLog) return;
+    if (chat.error) return;
+    autoSurfaceVerifyInFlightRef.current = true;
+    try {
+      await chat.transitionCardRemote(card.id, "enter_instruct");
+      await chat.transitionCardRemote(card.id, "request_verify");
+      await roadmapModel.verifyStep(card.id);
+      dialogs.setStepDetailOpen(true);
+    } catch (err) {
+      showWorkmapError(err);
+    } finally {
+      autoSurfaceVerifyInFlightRef.current = false;
+    }
+  }, [
+    chat,
+    currentCard,
+    currentVerifyLog,
+    currentVerifyState,
+    dialogs,
+    roadmapModel,
+    showWorkmapError,
+  ]);
+
+  useEffect(() => {
+    const wasStreaming = prevChatStreamingRef.current;
+    prevChatStreamingRef.current = chat.isStreaming;
+    if (wasStreaming && !chat.isStreaming) {
+      void autoSurfaceVerify();
+    }
+  }, [autoSurfaceVerify, chat.isStreaming]);
+
   const handleEmptyStateAction = useCallback(() => {
     if (currentProjectId === null) {
       dialogs.setNewProjectOpen(true);
@@ -1270,6 +1377,11 @@ export function useProductShellController() {
         steps: planRoadmap.steps,
         onApprove: () => settlePlanRouteConfirmation(true),
         onReject: () => settlePlanRouteConfirmation(false),
+      },
+      planReplace: {
+        open: pendingPlanReplace !== null,
+        onConfirm: () => settlePlanReplaceConfirmation(true),
+        onCancel: () => settlePlanReplaceConfirmation(false),
       },
     },
     hiddenState: {

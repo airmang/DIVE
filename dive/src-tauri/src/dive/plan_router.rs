@@ -159,6 +159,9 @@ fn build_system_prompt() -> String {
      or anything that does not add concrete implementation work.\n\
      Use ROUTE add_step only when the user asks for a new concrete task that \
      belongs in the current approved plan.\n\
+     New steps must fit DIVE's execution envelope: one supervised turn, small \
+     file-focused scope, no shell scripts, and verification_command must be one \
+     no-shell command with explicit args and a 60 second budget.\n\
      Output formats:\n\
      ROUTE chat reason=\"short reason\"\n\
      ROUTE add_step title=\"...\" summary=\"...\" instruction_seed=\"...\" \
