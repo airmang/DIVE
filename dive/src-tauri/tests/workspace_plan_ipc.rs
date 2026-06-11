@@ -940,7 +940,7 @@ fn generate_draft_creates_plan_and_steps_in_one_transaction() {
             .unwrap();
 
     let (plan_row, steps) =
-        workspace_plan_generate_draft_impl(&state, submitted.id, draft_input()).unwrap();
+        workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
     assert_eq!(plan_row.project_id, project_id);
     assert_eq!(plan_row.interview_id, Some(submitted.id));
     assert_eq!(plan_row.status, "draft");
@@ -960,13 +960,13 @@ fn generate_draft_replaces_existing_draft_plan_for_project() {
     let submitted =
         workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
             .unwrap();
-    workspace_plan_generate_draft_impl(&state, submitted.id, draft_input()).unwrap();
+    workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
 
     let mut replacement = draft_input();
     replacement.goal = "Replacement draft".into();
     replacement.steps.truncate(1);
     let (second_plan, second_steps) =
-        workspace_plan_generate_draft_impl(&state, submitted.id, replacement).unwrap();
+        workspace_plan_generate_draft_impl(&state, submitted.id, replacement, false).unwrap();
 
     assert_eq!(second_plan.goal, "Replacement draft");
     assert_eq!(second_steps.len(), 1);
@@ -978,6 +978,45 @@ fn generate_draft_replaces_existing_draft_plan_for_project() {
             .unwrap()
             .is_none()
     );
+}
+
+#[test]
+fn generate_draft_refuses_approved_plan_without_replace_but_replaces_with_optin() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let interview =
+        workspace_plan_start_interview_impl(&state, project_id, "Build a roadmap".into()).unwrap();
+    let submitted =
+        workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
+            .unwrap();
+    let (first_plan, _) =
+        workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
+    workspace_plan_approve_impl(&state, first_plan.id).unwrap();
+
+    // Without opt-in: refuse rather than silently discard the approved plan.
+    let mut replacement = draft_input();
+    replacement.goal = "Replacement draft".into();
+    replacement.steps.truncate(1);
+    let err = workspace_plan_generate_draft_impl(&state, submitted.id, replacement.clone(), false)
+        .unwrap_err();
+    assert!(
+        err.contains("already has approved plan"),
+        "unexpected: {err}"
+    );
+
+    // With explicit replace_approved: replace the approved plan + its steps.
+    let (second_plan, second_steps) =
+        workspace_plan_generate_draft_impl(&state, submitted.id, replacement, true).unwrap();
+    assert_eq!(second_plan.goal, "Replacement draft");
+    assert_eq!(second_steps.len(), 1);
+    assert_eq!(second_plan.status, "draft", "replacement starts as a draft");
+
+    let db = state.db.lock().unwrap();
+    let plans = plan::list(db.conn()).unwrap();
+    assert_eq!(plans.len(), 1, "old approved plan should be gone");
+    assert_eq!(plans[0].id, second_plan.id);
+    assert_eq!(plans[0].goal, "Replacement draft");
 }
 
 #[test]
@@ -993,7 +1032,7 @@ fn generate_draft_rejects_duplicate_step_slug() {
     let mut input = draft_input();
     input.steps[1].step_id = input.steps[0].step_id.clone();
 
-    let err = workspace_plan_generate_draft_impl(&state, submitted.id, input).unwrap_err();
+    let err = workspace_plan_generate_draft_impl(&state, submitted.id, input, false).unwrap_err();
     assert!(err.contains("duplicate step_id"));
 
     let db = state.db.lock().unwrap();
@@ -1013,7 +1052,7 @@ fn discard_plan_removes_draft_plan_and_steps_but_keeps_interview() {
         workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
             .unwrap();
     let (plan_row, steps) =
-        workspace_plan_generate_draft_impl(&state, submitted.id, draft_input()).unwrap();
+        workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
     assert_eq!(steps.len(), 2);
 
     workspace_plan_discard_plan_impl(&state, plan_row.id).unwrap();
@@ -1043,7 +1082,7 @@ fn approve_updates_linked_submitted_interview_status() {
         workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
             .unwrap();
     let (plan_row, _) =
-        workspace_plan_generate_draft_impl(&state, submitted.id, draft_input()).unwrap();
+        workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
 
     let approved = workspace_plan_approve_impl(&state, plan_row.id).unwrap();
     assert_eq!(approved.status, "approved");

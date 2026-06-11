@@ -23,7 +23,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.19.0
           cache: pnpm
           cache-dependency-path: dive/pnpm-lock.yaml
 
@@ -65,9 +65,21 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: npm
+          cache-dependency-path: dive/pi-sidecar/package-lock.json
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: dive/src-tauri
+
+      - name: Build Pi sidecar for Linux cargo checks
+        working-directory: dive
+        run: |
+          npm --prefix pi-sidecar ci
+          node pi-sidecar/build-sidecar.mjs
 
       - run: cargo fmt --all -- --check
 
@@ -105,7 +117,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.19.0
           cache: pnpm
           cache-dependency-path: dive/pnpm-lock.yaml
 
@@ -120,13 +132,45 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: install tauri-driver and Edge driver helper
+        run: |
+          cargo install tauri-driver --locked
+          cargo install --git https://github.com/chippers/msedgedriver-tool
+          $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
+          $driverTool = Join-Path $cargoBin "msedgedriver-tool.exe"
+          if (-not (Test-Path $driverTool)) { throw "msedgedriver-tool.exe not found at $driverTool" }
+          & $driverTool
+          echo $cargoBin >> $env:GITHUB_PATH
+          $driver = Get-ChildItem -Path .,$env:USERPROFILE -Recurse -Filter msedgedriver.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $driver) { throw "msedgedriver.exe not found after msedgedriver-tool" }
+          echo $driver.Directory.FullName >> $env:GITHUB_PATH
+
+      - name: build Pi sidecar (${{ matrix.target }})
+        run: |
+          npm --prefix pi-sidecar ci
+          node pi-sidecar/build-sidecar.mjs --target ${{ matrix.target }}
+
       - name: tauri build (${{ matrix.target }})
         run: pnpm tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: installed-app smoke (${{ matrix.label }})
+        env:
+          DIVE_RELEASE_TESTER: github-actions-${{ matrix.label }}
+        run: pnpm release:smoke -- --json-out build-release-smoke-${{ matrix.label }}.json
 
       - name: upload NSIS installer
         uses: actions/upload-artifact@v4
         with:
           name: DIVE-${{ matrix.label }}-nsis
           path: dive/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: upload installed-app smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: DIVE-${{ matrix.label }}-installed-smoke
+          path: dive/build-release-smoke-${{ matrix.label }}.json
           if-no-files-found: error
           retention-days: 14

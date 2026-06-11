@@ -2,6 +2,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
+import { createServer } from "node:net";
 import os from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,11 +15,14 @@ const args = new Set(process.argv.slice(2));
 const preflightOnly = args.has("--preflight");
 const keepInstalled = args.has("--keep-installed");
 const jsonOut = argValue("--json-out");
+const webdriverRequestTimeoutMs = Number(process.env.DIVE_WEBDRIVER_REQUEST_TIMEOUT_MS ?? 30000);
+const preferredWebdriverPort = Number(process.env.DIVE_WEBDRIVER_PORT ?? 4444);
 
 const results = [];
 const blockers = [];
 let sessionId = null;
 let driver = null;
+let driverPort = preferredWebdriverPort;
 let evidence = null;
 
 function argValue(name) {
@@ -53,6 +57,12 @@ function commandOutput(command, args, cwd = repoRoot) {
   const result = spawnSync(command, args, { cwd, encoding: "utf8", shell: false });
   if (result.status !== 0) return null;
   return result.stdout.trim() || null;
+}
+
+function resolveCommand(command) {
+  if (process.platform !== "win32") return command;
+  const found = commandOutput("where", [command]);
+  return found?.split(/\r?\n/).find(Boolean) ?? command;
 }
 
 function collectEvidence() {
@@ -121,6 +131,8 @@ function releaseGateWorkflowMatchesSop() {
     "pnpm format:check",
     "pnpm verify:production-wire",
     "pnpm verify:v4",
+    "npm --prefix pi-sidecar ci",
+    "node pi-sidecar/build-sidecar.mjs --target ${{ matrix.target }}",
     "windows-latest",
     "windows-11-arm",
     "x86_64-pc-windows-msvc",
@@ -190,22 +202,77 @@ async function findApplication() {
   );
 }
 
-async function httpJson(method, path, body) {
-  const response = await fetch(`http://127.0.0.1:4444${path}`, {
-    method,
-    headers: { "content-type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
+function probeAvailablePort(port) {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen({ port, host: "127.0.0.1" }, () => {
+      const address = server.address();
+      const selectedPort = typeof address === "object" && address ? address.port : port;
+      server.close((err) => (err ? reject(err) : resolve(selectedPort)));
+    });
+    server.unref();
   });
-  const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
-  if (!response.ok) {
-    throw new Error(`${method} ${path} -> ${response.status}: ${text}`);
+}
+
+async function findWebdriverPort() {
+  try {
+    return await probeAvailablePort(preferredWebdriverPort);
+  } catch (err) {
+    if (err?.code !== "EADDRINUSE") throw err;
+    return probeAvailablePort(0);
   }
-  return payload;
+}
+
+async function httpJson(method, path, body) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), webdriverRequestTimeoutMs);
+  const url = `http://127.0.0.1:${driverPort}${path}`;
+  try {
+    const response = await fetch(url, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    const payload = text ? JSON.parse(text) : null;
+    if (!response.ok) {
+      throw new Error(`${method} ${url} -> ${response.status}: ${text}`);
+    }
+    return payload;
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      throw new Error(`${method} ${url} timed out after ${webdriverRequestTimeoutMs}ms`);
+    }
+    if (err instanceof TypeError && err.message === "fetch failed") {
+      const cause = err.cause;
+      const detail =
+        cause && typeof cause === "object"
+          ? [cause.code, cause.message].filter(Boolean).join(": ")
+          : err.message;
+      throw new Error(`${method} ${url} failed: ${detail || err.message}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function elementId(element) {
   return element?.["element-6066-11e4-a52e-4f735466cecf"] ?? element?.ELEMENT;
+}
+
+async function findElement(selector) {
+  try {
+    const payload = await httpJson("POST", `/session/${sessionId}/element`, {
+      using: "css selector",
+      value: selector,
+    });
+    return elementId(payload.value) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function waitForElement(selector, timeoutMs = 30000) {
@@ -213,11 +280,7 @@ async function waitForElement(selector, timeoutMs = 30000) {
   let lastError = null;
   while (Date.now() - start < timeoutMs) {
     try {
-      const payload = await httpJson("POST", `/session/${sessionId}/element`, {
-        using: "css selector",
-        value: selector,
-      });
-      const id = elementId(payload.value);
+      const id = await findElement(selector);
       if (id) return id;
     } catch (err) {
       lastError = err;
@@ -227,19 +290,119 @@ async function waitForElement(selector, timeoutMs = 30000) {
   throw new Error(`Timed out waiting for ${selector}: ${lastError?.message ?? "not found"}`);
 }
 
-async function elementText(id) {
-  const payload = await httpJson("GET", `/session/${sessionId}/element/${id}/text`);
-  return String(payload.value ?? "");
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isStaleElementError(err) {
+  return err instanceof Error && /stale element reference/i.test(err.message);
+}
+
+async function clickElement(id) {
+  await httpJson("POST", `/session/${sessionId}/element/${id}/click`, {});
+}
+
+async function clickSelector(selector, timeoutMs = 5000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const id = await findElement(selector);
+    if (!id) return false;
+    try {
+      await clickElement(id);
+      return true;
+    } catch (err) {
+      if (!isStaleElementError(err)) throw err;
+      await sleep(250);
+    }
+  }
+  return false;
+}
+
+async function executeScript(script, args = []) {
+  const payload = await httpJson("POST", `/session/${sessionId}/execute/sync`, {
+    script,
+    args,
+  });
+  return payload.value;
+}
+
+async function domSnapshot() {
+  try {
+    return await executeScript(`
+      const ids = [...document.querySelectorAll("[data-testid]")]
+        .slice(0, 40)
+        .map((el) => el.getAttribute("data-testid"));
+      return {
+        readyState: document.readyState,
+        url: location.href,
+        title: document.title,
+        bodyText: (document.body?.innerText || "").slice(0, 500),
+        testIds: ids,
+      };
+    `);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function waitForBodyText(pattern, timeoutMs = 45000) {
+  const start = Date.now();
+  let lastText = "";
+  let lastError = null;
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const text = String(
+        await executeScript('return document.body ? document.body.innerText : "";'),
+      );
+      lastText = text;
+      if (pattern.test(text)) return text;
+    } catch (err) {
+      lastError = err;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  const detail = lastError ? lastError.message : lastText.slice(0, 200);
+  throw new Error(`Timed out waiting for app body text: ${detail}`);
+}
+
+async function acknowledgeRc1MigrationIfPresent() {
+  return (
+    (await clickSelector('[data-testid="rc1-migration-confirm"]')) ||
+    (await clickSelector('[data-testid="rc1-migration-fallback-confirm"]'))
+  );
+}
+
+async function waitForMainShell(timeoutMs = 60000) {
+  const start = Date.now();
+  let migrationAcknowledged = false;
+  while (Date.now() - start < timeoutMs) {
+    const shell = await findElement('[data-testid="main-shell"]');
+    if (shell) return { shell, migrationAcknowledged };
+    if (await acknowledgeRc1MigrationIfPresent()) {
+      migrationAcknowledged = true;
+    }
+    await sleep(500);
+  }
+  throw new Error(
+    `Timed out waiting for main shell after app launch: ${JSON.stringify(await domSnapshot())}`,
+  );
 }
 
 async function startDriver(application) {
-  driver = spawn("tauri-driver", ["--port", "4444"], {
+  driverPort = await findWebdriverPort();
+  driver = spawn(resolveCommand("tauri-driver"), ["--port", String(driverPort)], {
     stdio: ["ignore", "pipe", "pipe"],
-    shell: process.platform === "win32",
+    shell: false,
+    windowsHide: true,
   });
   driver.stdout.on("data", (chunk) => process.stdout.write(`[tauri-driver] ${chunk}`));
   driver.stderr.on("data", (chunk) => process.stderr.write(`[tauri-driver] ${chunk}`));
   await new Promise((resolve) => setTimeout(resolve, 1500));
+  if (driver.exitCode !== null || driver.signalCode !== null) {
+    throw new Error(
+      `tauri-driver exited before session start: code=${driver.exitCode} signal=${driver.signalCode}`,
+    );
+  }
   const payload = await httpJson("POST", "/session", {
     capabilities: {
       alwaysMatch: {
@@ -252,6 +415,31 @@ async function startDriver(application) {
     throw new Error(`tauri-driver did not return session id: ${JSON.stringify(payload)}`);
 }
 
+function waitForProcessExit(child, timeoutMs = 3000) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const onExit = () => {
+      clearTimeout(timeout);
+      resolve(true);
+    };
+    const timeout = setTimeout(() => {
+      child.off("exit", onExit);
+      resolve(false);
+    }, timeoutMs);
+    child.once("exit", onExit);
+  });
+}
+
+function killDriverSync(child = driver) {
+  if (!child) return;
+  try {
+    child.kill();
+  } catch {}
+  if (process.platform === "win32" && child.pid) {
+    spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+  }
+}
+
 async function stopDriver() {
   if (sessionId) {
     try {
@@ -260,8 +448,15 @@ async function stopDriver() {
     sessionId = null;
   }
   if (driver) {
-    driver.kill();
+    const activeDriver = driver;
     driver = null;
+    try {
+      activeDriver.kill();
+    } catch {}
+    if (!(await waitForProcessExit(activeDriver))) {
+      killDriverSync(activeDriver);
+      await waitForProcessExit(activeDriver, 1000);
+    }
   }
 }
 
@@ -276,18 +471,18 @@ async function installNsis(installer) {
 
 async function smokeInstalledApp(application) {
   await startDriver(application);
-  const body = await waitForElement("body", 45000);
-  const bodyText = await elementText(body);
+  await waitForElement("body", 45000);
+  const bodyText = await waitForBodyText(/DIVE|API|프로바이더|provider|프로젝트|project/i, 45000);
   if (!/DIVE|API|프로바이더|provider|프로젝트|project/i.test(bodyText)) {
     throw new Error(`unexpected app body text: ${bodyText.slice(0, 200)}`);
   }
-  await waitForElement('[data-testid="main-shell"]', 30000);
+  const { migrationAcknowledged } = await waitForMainShell(60000);
   const dataDir = appDataDir();
   const db = join(dataDir, "dive.db");
   if (!existsSync(db)) {
     throw new Error(`expected disk DB at ${db}`);
   }
-  return { dataDir, db };
+  return { dataDir, db, migrationAcknowledged };
 }
 
 async function main() {
@@ -353,9 +548,19 @@ async function main() {
   const application = await findApplication();
   if (!application) throw new Error("Installed DIVE executable not found; set DIVE_RELEASE_APP");
   evidence.paths.application = application;
+  const sidecar = join(dirname(application), "dive-pi-sidecar.exe");
+  evidence.paths.sidecar = sidecar;
+  const sidecarExists = existsSync(sidecar);
+  record(
+    "bundled Pi sidecar exists",
+    sidecarExists,
+    sidecarExists ? `${sidecar} (${statSync(sidecar).size} bytes)` : sidecar,
+  );
+  if (!sidecarExists) throw new Error(`bundled Pi sidecar not found: ${sidecar}`);
   const smoke = await smokeInstalledApp(application);
   evidence.paths.db = smoke.db;
   record("tauri-driver startup + main shell", true, application);
+  record("first-run migration acknowledged", true, String(smoke.migrationAcknowledged));
   record("disk DB created", existsSync(smoke.db), smoke.db);
 
   await stopDriver();
@@ -380,9 +585,7 @@ async function main() {
   writeReport("full");
 }
 
-process.on("exit", () => {
-  if (driver) driver.kill();
-});
+process.on("exit", () => killDriverSync());
 process.on("SIGINT", async () => {
   await stopDriver();
   process.exit(130);

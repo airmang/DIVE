@@ -1,10 +1,13 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { AlertCircle } from "lucide-react";
 import type { ChatMessage } from "./types";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
 import { ToolActivity } from "./ToolActivity";
 import { SystemMessage } from "./SystemMessage";
 import { ErrorMessage } from "./ErrorMessage";
+import { filterInterviewNoise } from "./filterInterviewNoise";
+import { useT } from "../../i18n";
 
 interface Props {
   messages: ChatMessage[];
@@ -29,11 +32,17 @@ function MessageListImpl({
   onDenyToolCall,
   maxRendered = 200,
 }: Props) {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const pendingNodeRefs = useRef(new Map<string, HTMLDivElement>());
   const [autoScroll, setAutoScroll] = useState(true);
 
-  const visible = messages.length > maxRendered ? messages.slice(-maxRendered) : messages;
+  const rendered = filterInterviewNoise(messages);
+  const visible = rendered.length > maxRendered ? rendered.slice(-maxRendered) : rendered;
+  const pendingApproval = visible.find(
+    (message) => message.kind === "tool_call" && message.status === "pending",
+  );
 
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
@@ -54,6 +63,25 @@ function MessageListImpl({
     return () => el.removeEventListener("scroll", handleScroll);
   }, [handleScroll]);
 
+  const setPendingNode = useCallback(
+    (id: string) => (node: HTMLDivElement | null) => {
+      if (node) {
+        pendingNodeRefs.current.set(id, node);
+      } else {
+        pendingNodeRefs.current.delete(id);
+      }
+    },
+    [],
+  );
+
+  const scrollToPendingApproval = useCallback(() => {
+    if (!pendingApproval) return;
+    pendingNodeRefs.current.get(pendingApproval.id)?.scrollIntoView({
+      block: "center",
+      behavior: "smooth",
+    });
+  }, [pendingApproval]);
+
   return (
     <div
       ref={containerRef}
@@ -65,6 +93,18 @@ function MessageListImpl({
       data-auto-scroll={autoScroll ? "true" : "false"}
     >
       <div className="mx-auto flex max-w-3xl flex-col gap-4">
+        {pendingApproval && !autoScroll ? (
+          <button
+            type="button"
+            className="sticky top-2 z-10 flex min-h-11 items-center gap-2 self-center rounded-md border border-warn/50 bg-bg-panel px-3 py-2 text-sm font-medium text-fg shadow-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            onClick={scrollToPendingApproval}
+            aria-label={t("chat.pending_approval_jump_aria")}
+            data-testid="pending-approval-jump"
+          >
+            <AlertCircle className="h-4 w-4 shrink-0 text-warn" aria-hidden />
+            <span>{t("chat.pending_approval_jump")}</span>
+          </button>
+        ) : null}
         {(() => {
           // Group reasoning + tool_call + tool_result by call_id into one ToolActivity.
           // reasoning carries toolCallId; tool_result id is `tr-<call_id>`.
@@ -95,14 +135,19 @@ function MessageListImpl({
                 const reasoning = reasoningByCall.get(msg.id);
                 const result = resultByCall.get(msg.id);
                 return (
-                  <ToolActivity
+                  <div
                     key={msg.id}
-                    call={msg}
-                    reasoning={reasoning?.kind === "reasoning" ? reasoning : undefined}
-                    result={result?.kind === "tool_result" ? result : undefined}
-                    onApprove={onApproveToolCall}
-                    onDeny={onDenyToolCall}
-                  />
+                    ref={msg.status === "pending" ? setPendingNode(msg.id) : undefined}
+                    data-pending-approval={msg.status === "pending" ? "true" : undefined}
+                  >
+                    <ToolActivity
+                      call={msg}
+                      reasoning={reasoning?.kind === "reasoning" ? reasoning : undefined}
+                      result={result?.kind === "tool_result" ? result : undefined}
+                      onApprove={onApproveToolCall}
+                      onDeny={onDenyToolCall}
+                    />
+                  </div>
                 );
               }
               case "tool_result":

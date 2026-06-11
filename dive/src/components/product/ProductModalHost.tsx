@@ -1,6 +1,7 @@
 import { NewProjectDialog } from "../onboarding/NewProjectDialog";
 import { OnboardingDialog } from "../onboarding/OnboardingDialog";
 import { PlanRouteConfirmModal } from "./PlanRouteConfirmModal";
+import { PlanReplaceConfirmModal } from "./PlanReplaceConfirmModal";
 import type { ProductShellController } from "./useProductShellController";
 
 interface ProductModalHostProps {
@@ -13,6 +14,7 @@ export function ProductModalHost({ modals }: ProductModalHostProps) {
       <OnboardingDialog {...modals.onboarding} />
       <NewProjectDialog {...modals.newProject} />
       <PlanRouteConfirmModal {...modals.planRoute} />
+      <PlanReplaceConfirmModal {...modals.planReplace} />
     </>
   );
 }

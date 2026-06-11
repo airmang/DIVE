@@ -41,8 +41,9 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::agent::{
-    AgentEvent, AgentLoop, AgentRunMode, AutoApprovePolicy, PendingApprovals, PermissionDecision,
-    PermissionHook, PolicyAwareHook, RunModePermissionHook, StepContext,
+    AgentEvent, AgentLoop, AgentRunMode, AutoApprovePolicy, PendingApprovalSnapshot,
+    PendingApprovals, PermissionDecision, PermissionHook, PolicyAwareHook, RunModePermissionHook,
+    StepContext,
 };
 use crate::auth::{self, Keyring, LocalFileKeyring, OsKeyring};
 use crate::db::dao::{
@@ -86,6 +87,50 @@ pub enum RuntimeChoice {
 }
 const PROVIDER_RUNTIME_HYDRATE_TIMEOUT_MESSAGE: &str =
     "AI 연결 정보를 불러오는 중 시간이 초과되었습니다. macOS 키체인 암호 창이 떠 있다면 로그인 암호를 입력하고 '항상 허용'을 선택한 뒤 다시 시도하세요.";
+
+const SESSION_TURN_IN_PROGRESS_MESSAGE: &str =
+    "이 세션에서 이전 작업이 아직 진행 중입니다. 승인 대기 중인 작업을 먼저 승인하거나 거부하세요.";
+
+struct ActiveTurnGuard {
+    cancels: Arc<Mutex<HashMap<i64, Arc<AtomicBool>>>>,
+    session_id: i64,
+    token: Arc<AtomicBool>,
+}
+
+impl ActiveTurnGuard {
+    fn begin(state: &AppState, session_id: i64) -> Result<Self, String> {
+        let token = Arc::new(AtomicBool::new(false));
+        let mut guard = state.cancels.lock().map_err(|e| e.to_string())?;
+        if guard.contains_key(&session_id) {
+            return Err(SESSION_TURN_IN_PROGRESS_MESSAGE.into());
+        }
+        guard.insert(session_id, token.clone());
+        Ok(Self {
+            cancels: state.cancels.clone(),
+            session_id,
+            token,
+        })
+    }
+
+    fn token(&self) -> Arc<AtomicBool> {
+        self.token.clone()
+    }
+}
+
+impl Drop for ActiveTurnGuard {
+    fn drop(&mut self) {
+        let Ok(mut guard) = self.cancels.lock() else {
+            return;
+        };
+        let should_remove = guard
+            .get(&self.session_id)
+            .map(|current| Arc::ptr_eq(current, &self.token))
+            .unwrap_or(false);
+        if should_remove {
+            guard.remove(&self.session_id);
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -511,10 +556,18 @@ mod tests {
         }
 
         #[test]
-        fn env_pi_forces_pi_for_dev_override() {
+        fn env_pi_forces_pi_for_eligible_provider() {
             assert_eq!(
                 select_runtime(ProviderKind::Codex, Some("pi")),
                 RuntimeChoice::Pi
+            );
+        }
+
+        #[test]
+        fn env_pi_falls_back_to_legacy_for_ineligible_provider() {
+            assert_eq!(
+                select_runtime(ProviderKind::OpencodeZen, Some("pi")),
+                RuntimeChoice::Legacy
             );
         }
     }
@@ -850,6 +903,67 @@ mod tests {
         assert!(matches!(history[1], ChatHistoryMessage::Assistant { .. }));
     }
 
+    #[test]
+    fn pending_tool_calls_are_rehydratable_by_session() {
+        let state = AppState::dev_mock();
+        let first = PendingApprovalSnapshot {
+            id: "call-1".into(),
+            session_id: 10,
+            tool: "mkdir".into(),
+            params_preview: "path: output".into(),
+            risk: crate::tools::RiskLevel::Warn,
+            diff_preview: None,
+            args: serde_json::json!({ "path": "output" }),
+        };
+        let second = PendingApprovalSnapshot {
+            id: "call-2".into(),
+            session_id: 20,
+            tool: "write_file".into(),
+            params_preview: "path: index.html".into(),
+            risk: crate::tools::RiskLevel::Warn,
+            diff_preview: None,
+            args: serde_json::json!({ "path": "index.html" }),
+        };
+        let _first_rx = state.pending_approvals.register(first);
+        let _second_rx = state.pending_approvals.register(second);
+
+        let pending = state.pending_approvals.list_for_session(10);
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].id, "call-1");
+        assert_eq!(pending[0].tool, "mkdir");
+
+        assert_eq!(state.pending_approvals.cancel_session(10), 1);
+        assert_eq!(state.pending_approvals.pending_count(), 1);
+        assert_eq!(state.pending_approvals.list_for_session(10).len(), 0);
+        assert_eq!(state.pending_approvals.list_for_session(20).len(), 1);
+    }
+
+    #[test]
+    fn active_turn_guard_rejects_concurrent_turn_and_removes_only_own_token() {
+        let state = AppState::dev_mock();
+        let first = ActiveTurnGuard::begin(&state, 42).unwrap();
+        let err = match ActiveTurnGuard::begin(&state, 42) {
+            Ok(_) => panic!("concurrent turn should be rejected"),
+            Err(err) => err,
+        };
+        assert!(err.contains("이전 작업"));
+
+        let replacement = Arc::new(AtomicBool::new(false));
+        {
+            let mut guard = state.cancels.lock().unwrap();
+            guard.insert(42, replacement.clone());
+        }
+        drop(first);
+        {
+            let guard = state.cancels.lock().unwrap();
+            assert!(guard
+                .get(&42)
+                .map(|token| Arc::ptr_eq(token, &replacement))
+                .unwrap_or(false));
+        }
+        state.cancels.lock().unwrap().remove(&42);
+    }
+
     fn transition_name(transition: CardTransition) -> &'static str {
         match transition {
             CardTransition::EnterInstruct => "enter",
@@ -969,12 +1083,22 @@ fn safest_run_mode(backend: AgentRunMode, requested: AgentRunMode) -> AgentRunMo
 
 /// `env_override` is `std::env::var("DIVE_RUNTIME").ok()` at the call site
 /// (passed in so this is unit-testable). Precedence:
-///   legacy override -> Legacy; pi override -> Pi (dev escape, caller still guards
-///   unsupported providers); no override -> parity allowlist decides.
+///   legacy override -> Legacy; pi override -> Pi only for providers with a Pi
+///   descriptor, otherwise Legacy; no override -> parity allowlist decides.
 fn select_runtime(kind: ProviderKind, env_override: Option<&str>) -> RuntimeChoice {
     match env_override {
         Some("legacy") => RuntimeChoice::Legacy,
-        Some("pi") => RuntimeChoice::Pi,
+        Some("pi") => {
+            if crate::pi_sidecar::parity::pi_provider_descriptor(kind.clone()).is_some() {
+                RuntimeChoice::Pi
+            } else {
+                tracing::warn!(
+                    provider = kind.as_str(),
+                    "DIVE_RUNTIME=pi ignored because provider has no Pi sidecar descriptor"
+                );
+                RuntimeChoice::Legacy
+            }
+        }
         _ => {
             if crate::pi_sidecar::parity::pi_provider_descriptor(kind).is_some() {
                 RuntimeChoice::Pi
@@ -1049,6 +1173,7 @@ pub async fn chat_send(
         Some(requested) => safest_run_mode(backend_run_mode, requested),
         None => backend_run_mode,
     };
+    let active_turn = ActiveTurnGuard::begin(&state, session_id)?;
     let snap = state.ensure_provider_runtime().await?;
     if snap.kind.is_none() {
         let msg = crate::providers::ProviderError::NotConfigured.to_string();
@@ -1072,11 +1197,7 @@ pub async fn chat_send(
     );
     let pi_provider_config_id = snap.config_id;
     let project_root = state.project_root_required()?;
-    let cancel = Arc::new(AtomicBool::new(false));
-    {
-        let mut guard = state.cancels.lock().map_err(|e| e.to_string())?;
-        guard.insert(session_id, cancel.clone());
-    }
+    let cancel = active_turn.token();
     let loop_ = AgentLoop::builder()
         .provider(snap.provider)
         .registry(state.registry.clone())
@@ -1142,11 +1263,6 @@ pub async fn chat_send(
     } else {
         loop_.run(session_id, &text, &mut emit_event).await
     };
-
-    {
-        let mut guard = state.cancels.lock().map_err(|e| e.to_string())?;
-        guard.remove(&session_id);
-    }
 
     match res {
         Ok(_) => {
@@ -1287,11 +1403,21 @@ pub async fn message_list(
 }
 
 #[tauri::command]
+pub async fn pending_tool_calls(
+    state: State<'_, AppState>,
+    session_id: i64,
+) -> Result<Vec<PendingApprovalSnapshot>, String> {
+    Ok(state.pending_approvals.list_for_session(session_id))
+}
+
+#[tauri::command]
 pub async fn chat_cancel(state: State<'_, AppState>, session_id: i64) -> Result<(), String> {
     let guard = state.cancels.lock().map_err(|e| e.to_string())?;
     if let Some(token) = guard.get(&session_id) {
         token.store(true, std::sync::atomic::Ordering::SeqCst);
     }
+    drop(guard);
+    state.pending_approvals.cancel_session(session_id);
     Ok(())
 }
 

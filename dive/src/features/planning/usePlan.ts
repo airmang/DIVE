@@ -118,11 +118,12 @@ export function usePlan(projectId: number | null) {
   );
 
   const generateDraft = useCallback(
-    async (interviewId: number, planInput: PlanDraftInput) => {
+    async (interviewId: number, planInput: PlanDraftInput, replaceApproved = false) => {
       if (!api) throw new Error("Tauri IPC unavailable");
       const raw = await api.invoke<unknown>("workspace_plan_generate_draft", {
         interviewId,
         planInput,
+        replaceApproved,
       });
       await refresh();
       return normalizeGeneratedDraft(raw);

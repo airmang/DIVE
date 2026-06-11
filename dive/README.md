@@ -25,7 +25,7 @@ Existing workmap/card state remains available as internal implementation vocabul
 
 | Item      | Version | Notes                                |
 | --------- | ------- | ------------------------------------ |
-| Node.js   | 22+     | Vite 7, ESLint 9 flat config         |
+| Node.js   | 22.19+  | Vite 7, ESLint 9, Pi sidecar build   |
 | pnpm      | 10+     | Only supported package manager       |
 | Rust      | 1.80+   | No pinned `rust-toolchain` currently |
 | Tauri CLI | 2.x     | Invoked through `pnpm tauri`         |
@@ -110,6 +110,10 @@ pnpm tauri:build:arm64
 # output: src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*.exe
 ```
 
+The Windows build scripts compile and bundle the Pi sidecar first, so the installed
+app does not require a separate Node.js runtime. Node SEA sidecar builds are
+host-native; build each Windows architecture on its matching runner or machine.
+
 ### Both Windows targets
 
 ```bash
@@ -117,6 +121,8 @@ pnpm tauri:build:all
 ```
 
 CI builds Windows x64 and ARM64 installers through `.github/workflows/build.yml`.
+Use the CI matrix for both Windows architectures; the Pi sidecar uses Node SEA
+and must be built on a matching host architecture.
 
 ---
 

@@ -11,7 +11,7 @@
 - Visual Studio 2022 Build Tools 이상 + **C++ 데스크톱 개발** 워크로드
 - ARM64도 빌드하려면 **ARM64 빌드 도구** 컴포넌트 추가
 - Rust stable (1.80+), `rustup target add x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc`
-- Node.js 22+, pnpm 10+
+- Node.js 22.19+, pnpm 10+
 - Git for Windows
 
 ### 빌드 명령
@@ -21,13 +21,18 @@ cd dive
 pnpm install
 pnpm tauri:build:x64          # Windows x64 NSIS
 pnpm tauri:build:arm64        # Windows ARM64 NSIS (MSI 미지원, NSIS only)
-pnpm tauri:build:all          # 둘 다
+pnpm tauri:build:all          # CI/native matrix에서 양쪽 아키텍처 확인
 ```
+
+`tauri:build:*` scripts build the Pi sidecar first and bundle it through Tauri
+`externalBin`, so installed classroom PCs do not need Node.js. The sidecar build
+uses Node SEA and is host-native: build x64 on a Windows x64 runner and ARM64 on
+a Windows ARM64 runner.
 
 산출물:
 
-- `src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/dive_0.0.1_x64-setup.exe`
-- `src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/dive_0.0.1_arm64-setup.exe`
+- `src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/DIVE_1.0.0-rc.2_x64-setup.exe`
+- `src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/DIVE_1.0.0-rc.2_arm64-setup.exe`
 
 ### CI 빌드 (권장)
 
@@ -39,7 +44,7 @@ pnpm tauri:build:all          # 둘 다
 
 ### 2.1 인스톨러 실행
 
-1. `dive_0.0.1_x64-setup.exe` 더블클릭 (ARM64 기기면 ARM 인스톨러)
+1. `DIVE_1.0.0-rc.2_x64-setup.exe` 더블클릭 (ARM64 기기면 ARM 인스톨러)
 2. **Windows SmartScreen 경고** 표시:
    - "Windows가 PC를 보호했습니다" 화면 → **추가 정보** 클릭 → **실행** 클릭
    - 이는 EV 코드 서명 부재 때문이며, Phase 6에서 해결됩니다.
@@ -72,12 +77,12 @@ pnpm tauri:build:all          # 둘 다
 
 ### 3.2 네트워크 공유
 
-1. 교실 파일 서버에 `\\school-pc\dive\dive_0.0.1_x64-setup.exe` 배치
+1. 교실 파일 서버에 `\\school-pc\dive\DIVE_1.0.0-rc.2_x64-setup.exe` 배치
 2. 각 학생 PC에서 해당 경로로 접속해 실행
 
 ### 3.3 Intune / SCCM (IT 팀이 있는 학교)
 
-- MSI가 아닌 NSIS `.exe` 기반이라 silent install은 `dive_0.0.1_x64-setup.exe /S`
+- MSI가 아닌 NSIS `.exe` 기반이라 silent install은 `DIVE_1.0.0-rc.2_x64-setup.exe /S`
 - 배포 정책: "per-user install"로 학생 계정에만 설치 → 차시 끝나고 로그아웃 시 지워지지 않음
 
 ---

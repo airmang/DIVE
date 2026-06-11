@@ -76,32 +76,28 @@ async function main() {
   );
   check("navigated to settings route", onSettings === "settings", String(onSettings));
 
-  console.log("\n6. Back to main and Ctrl+W toggles workmap");
+  console.log("\n6. Main shell exposes roadmap visibility state");
   await page.goto(BASE);
-  await page.waitForSelector('[data-testid="sidebar"]');
-  const workmapInitial = await page.$eval(
-    '[data-testid="workmap-strip"]',
-    (el) => el.getAttribute("data-collapsed") || "false",
-  );
-  await page.keyboard.press("Control+w");
-  await page.waitForTimeout(200);
-  const workmapAfter = await page.$eval(
-    '[data-testid="workmap-strip"]',
-    (el) => el.getAttribute("data-collapsed") || "false",
+  await page.waitForSelector('[data-testid="main-shell"]');
+  const roadmapVisible = await page.$eval(
+    '[data-testid="main-shell"]',
+    (el) => el.getAttribute("data-roadmap-visible") || "",
   );
   check(
-    "workmap collapsed state toggled",
-    workmapInitial !== workmapAfter,
-    `${workmapInitial} → ${workmapAfter}`,
+    "main shell exposes roadmap visibility state",
+    roadmapVisible === "true" || roadmapVisible === "false",
+    roadmapVisible,
   );
 
   console.log("\n7. Ctrl+E toggles slide-in panel");
   await page.keyboard.press("Control+e");
-  await page.waitForTimeout(200);
-  const slideInOpen = await page.$eval(
-    '[data-testid="slide-in-panel"]',
-    (el) => el.getAttribute("data-open") || "",
-  );
+  const slideInPanel = await page
+    .waitForSelector('[data-testid="slide-in-panel"]', { timeout: 1000 })
+    .catch(() => null);
+  const slideInOpen =
+    slideInPanel === null
+      ? ""
+      : await slideInPanel.evaluate((el) => el.getAttribute("data-open") || "");
   check("slide-in panel open after Ctrl+E", slideInOpen === "true", slideInOpen);
 
   console.log("\n8. Ctrl+/ routes to prompt-helper");

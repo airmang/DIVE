@@ -274,6 +274,8 @@
     "empty_hint": "In the sidebar, click + New session to begin",
     "hint_dismiss_aria": "Dismiss hint",
     "history_loading_aria": "Loading conversation history",
+    "pending_approval_jump": "Show pending approval",
+    "pending_approval_jump_aria": "Jump to the pending tool approval card",
     "stall_timeout": "The AI response stalled. Check your network or the model status, then try again.",
     "input": {
       "placeholder": "Type a message...",
@@ -539,7 +541,7 @@
       "send_answer": "Send",
       "complete": "Finish interview",
       "question_fallback": "Latest interview question",
-      "submit_prompt": "[INTERVIEW_SUBMIT]\nGoal: {{goal}}\nSummarize the interview and return compact JSON only with intent_summary, unresolved_questions, and a workspace_plan_generate_draft-compatible plan_input. Limit plan_input.steps to 2-4 items and do not include Markdown fences or prose.",
+      "submit_prompt": "[INTERVIEW_SUBMIT]\nGoal: {{goal}}\nSummarize the interview and return compact JSON only with intent_summary, unresolved_questions, and a workspace_plan_generate_draft-compatible plan_input. Prefer 2-6 plan_input.steps and never exceed 8. Each step must be small enough for one supervised turn. verification_command must be one no-shell command with explicit args. Do not include Markdown fences or prose.",
       "adjust_failure_seed": "Re-open the plan interview for {{title}}. The issue to resolve is: {{reason}}",
       "vague_answer_error": "Please be more specific about the audience, scope, success criteria, or constraints.",
       "start_failed_title": "Could not start interview",
@@ -547,7 +549,7 @@
       "draft_ready_title": "Plan draft ready",
       "draft_ready_description": "Review the generated plan before approving it.",
       "draft_failed_title": "Could not create plan draft",
-      "compact_retry_prompt": "The previous plan JSON generation failed. Reason: {{reason}}\nGoal: {{goal}}\nReturn complete, short JSON only. plan_input must contain exactly 2-4 steps, and each step must include title, summary, instruction_seed, expected_files, acceptance_criteria, and verification_command. Do not include prose or Markdown fences.",
+      "compact_retry_prompt": "The previous plan JSON generation failed. Reason: {{reason}}\nGoal: {{goal}}\nReturn complete, short JSON only. plan_input should contain 2-6 steps and must never exceed 8. Each step must include title, summary, instruction_seed, expected_files, acceptance_criteria, and verification_command, and must be small enough for one supervised turn. verification_command must be one no-shell command with explicit args. Do not include prose or Markdown fences.",
       "recovery": {
         "retry": "Regenerate short JSON",
         "hints": "If the model response is too long, ask only for a compact plan draft.|If it fails again, split the goal into a smaller scope.",
@@ -586,6 +588,14 @@
       "revision_prompt": "[INTERVIEW_SUBMIT]\nRegenerate the current workspace plan draft using this user feedback:\n{{feedback}}\n\nCurrent draft JSON:\n{{draft}}\n\nReturn only JSON with intent_summary, unresolved_questions, and plan_input.",
       "approve_failed_title": "Could not approve plan",
       "discard_failed_title": "Could not discard plan"
+    },
+    "replace": {
+      "title": "This project already has an approved plan",
+      "description": "Generating a new plan replaces the approved one and deletes its steps (chat history and checkpoints are kept). Replace it?",
+      "confirm_button": "Replace with the new plan",
+      "cancel_button": "Keep the current plan",
+      "kept_title": "Kept the current plan",
+      "kept_description": "No new plan was created. Continue with the existing plan."
     },
     "route": {
       "routing_status": "Routing…",

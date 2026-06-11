@@ -227,6 +227,31 @@ async fn next_sidecar_event(
     }
 }
 
+/// Wait for the next sidecar event while a DIVE tool (which may block on a human
+/// approval card) is executing. The 120s turn budget is intentionally NOT
+/// enforced here: a student deliberating on an approval is the supervision the
+/// product is teaching, so their thinking time must not kill the turn. Sidecar
+/// liveness is still guarded by the heartbeat-stall timeout (the sidecar
+/// heartbeats every 5s while awaiting the tool result), so a dead sidecar is
+/// caught even while we wait on the human.
+async fn next_sidecar_event_during_tool(
+    rx: &mut mpsc::Receiver<SidecarReadMessage>,
+    timing: SidecarTiming,
+) -> Result<SidecarEvent, String> {
+    match timeout(timing.heartbeat_stall_timeout, rx.recv()).await {
+        Ok(Some(SidecarReadMessage::Event(event))) => Ok(event),
+        Ok(Some(SidecarReadMessage::Eof)) => {
+            Err("pi sidecar stdout closed before turn completion".to_string())
+        }
+        Ok(Some(SidecarReadMessage::Error(err))) => Err(err),
+        Ok(None) => Err("pi sidecar event reader stopped before turn completion".to_string()),
+        Err(_) => Err(format!(
+            "pi sidecar heartbeat stalled for {}ms",
+            timing.heartbeat_stall_timeout.as_millis()
+        )),
+    }
+}
+
 fn sidecar_event_name(event: &SidecarEvent) -> &'static str {
     match event {
         SidecarEvent::Ready { .. } => "ready",
@@ -690,7 +715,10 @@ async fn run_supervised_turn_inner(
     let mut tool_calls = Vec::new();
     let mut pending_tool_call_ids = Vec::new();
     let timing = sidecar_timing();
-    let turn_started = Instant::now();
+    // The turn budget measures the model/sidecar's own wall-clock time. It is
+    // advanced past any time spent awaiting a human approval (see the tool loop
+    // below), so deliberating on an approval card never expires the turn.
+    let mut budget_anchor = Instant::now();
 
     let read_loop = async {
         loop {
@@ -702,7 +730,7 @@ async fn run_supervised_turn_inner(
             } else {
                 let cancel = wait_for_cancel(agent_loop.cancel.clone());
                 tokio::select! {
-                    event = next_sidecar_event(&mut sidecar_events, turn_started, timing) => event?,
+                    event = next_sidecar_event(&mut sidecar_events, budget_anchor, timing) => event?,
                     _ = cancel => {
                         return Err(SIDECAR_CANCELLED.to_string());
                     }
@@ -739,9 +767,13 @@ async fn run_supervised_turn_inner(
                     tool_calls.push(tc.clone());
                     let execute = agent_loop.execute_supervised_tool_call(session_id, &tc, emit);
                     tokio::pin!(execute);
+                    // Time spent here (incl. waiting on the human approval card)
+                    // is excluded from the turn budget; advance the anchor by it
+                    // once the tool resolves.
+                    let tool_exec_started = Instant::now();
                     let out = loop {
                         let cancel = wait_for_cancel(agent_loop.cancel.clone());
-                        let event = next_sidecar_event(&mut sidecar_events, turn_started, timing);
+                        let event = next_sidecar_event_during_tool(&mut sidecar_events, timing);
                         tokio::select! {
                             result = &mut execute => {
                                 break result.map_err(|e| e.to_string())?;
@@ -767,6 +799,7 @@ async fn run_supervised_turn_inner(
                             }
                         }
                     };
+                    budget_anchor += tool_exec_started.elapsed();
                     let result = json!({
                         "type": "tool_result",
                         "tool_call_id": tool_call_id,
@@ -1410,7 +1443,7 @@ mod tests {
 
     use crate::agent::{
         AgentRunMode, AlwaysApproveHook, AwaitUserHook, PendingApprovals, PermissionDecision,
-        PermissionHook, RunModePermissionHook, StepContext,
+        PermissionHook, PermissionRequestContext, RunModePermissionHook, StepContext,
     };
     use crate::db::models::{CardState, NewCard};
     use crate::tools::RiskLevel;
@@ -1421,8 +1454,32 @@ mod tests {
 
     #[async_trait]
     impl PermissionHook for RecordingApproveHook {
-        async fn intercept(&self, _call: &ToolCall, _risk: RiskLevel) -> PermissionDecision {
+        async fn intercept(
+            &self,
+            _call: &ToolCall,
+            _risk: RiskLevel,
+            _context: PermissionRequestContext,
+        ) -> PermissionDecision {
             self.calls.fetch_add(1, Ordering::SeqCst);
+            PermissionDecision::approved()
+        }
+    }
+
+    /// Approves only after `delay`, modelling a student who deliberates on the
+    /// approval card longer than the turn budget.
+    struct SlowApproveHook {
+        delay: Duration,
+    }
+
+    #[async_trait]
+    impl PermissionHook for SlowApproveHook {
+        async fn intercept(
+            &self,
+            _call: &ToolCall,
+            _risk: RiskLevel,
+            _context: PermissionRequestContext,
+        ) -> PermissionDecision {
+            tokio::time::sleep(self.delay).await;
             PermissionDecision::approved()
         }
     }
@@ -1433,7 +1490,12 @@ mod tests {
 
     #[async_trait]
     impl PermissionHook for DelayedApproveHook {
-        async fn intercept(&self, _call: &ToolCall, _risk: RiskLevel) -> PermissionDecision {
+        async fn intercept(
+            &self,
+            _call: &ToolCall,
+            _risk: RiskLevel,
+            _context: PermissionRequestContext,
+        ) -> PermissionDecision {
             tokio::time::sleep(self.delay).await;
             PermissionDecision::approved()
         }
@@ -2818,6 +2880,94 @@ rl.on("line", (line) => {{
             .as_deref()
             .unwrap_or("")
             .contains("turn timed out"));
+    }
+
+    #[tokio::test]
+    async fn slow_human_approval_does_not_expire_the_turn_budget() {
+        // Regression for Critical-5 (2026-06-10): the 120s Pi turn budget used to
+        // include human approval time, so a student deliberating on a permission
+        // card past the budget killed the turn and discarded the approved write.
+        // Here the turn budget is 200ms but the approval takes 600ms; the turn
+        // must still succeed and the file must be written.
+        let _serial = fake_sidecar_test_lock();
+        let project = tempfile::tempdir().unwrap();
+        let scripts = tempfile::tempdir().unwrap();
+        let script = write_fake_sidecar(
+            scripts.path(),
+            "slow-approval.mjs",
+            &format!(
+                r#"{}
+rl.on("line", (line) => {{
+  const message = JSON.parse(line);
+  if (message.type === "run") {{
+    ready(message);
+    emit({{
+      type: "tool_call",
+      request_id: message.request_id,
+      tool_call_id: "slow_call",
+      name: "write_file",
+      params: {{ path: "slow.txt", content: "approved" }}
+    }});
+  }} else if (message.type === "tool_result") {{
+    emit({{ type: "turn_succeeded", request_id: message.request_id, assistant_text: "done" }});
+  }}
+}});
+"#,
+                fake_sidecar_prelude()
+            ),
+        );
+        let _guard = set_test_sidecar_script_path(script);
+        // Tiny turn budget, generous heartbeat-stall so only the budget could
+        // (wrongly) fire during the approval wait.
+        let _timing = set_test_sidecar_timing(Duration::from_millis(200), Duration::from_secs(60));
+        let (db, session_id) = create_test_db(project.path());
+        insert_current_card(&db, session_id, "slow-approval");
+        let loop_ = make_loop(
+            project.path(),
+            db,
+            session_id,
+            AgentRunMode::Build,
+            run_mode_permission(
+                AgentRunMode::Build,
+                true,
+                Some(1),
+                Arc::new(SlowApproveHook {
+                    delay: Duration::from_millis(600),
+                }),
+            ),
+            None,
+        );
+        let provider_config_id = 507;
+        let keyring = api_keyring(provider_config_id);
+        let state_root = tempfile::tempdir().unwrap();
+        let mut events = Vec::new();
+        let result = run_supervised_turn(
+            &keyring,
+            &api_key_descriptor(),
+            provider_config_id,
+            &loop_,
+            session_id,
+            "write a file but approve slowly",
+            Some(state_root.path().to_path_buf()),
+            &mut |event| events.push(event),
+        )
+        .await
+        .expect("slow approval should not time out the turn");
+
+        assert_eq!(result.tool_calls_seen, 1);
+        assert_eq!(
+            std::fs::read_to_string(project.path().join("slow.txt")).unwrap(),
+            "approved"
+        );
+        assert!(events.iter().any(|event| matches!(
+            event,
+            AgentEvent::ToolResult { call_id, success: true, .. } if call_id == "slow_call"
+        )));
+        let state: PiRuntimeState = serde_json::from_slice(
+            &std::fs::read(runtime_state_path(state_root.path(), session_id)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(state.status, "completed");
     }
 
     #[tokio::test]

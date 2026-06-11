@@ -29,7 +29,7 @@ jobs:
           version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.19.0
           cache: pnpm
           cache-dependency-path: dive/pnpm-lock.yaml
       - uses: dtolnay/rust-toolchain@stable
@@ -38,6 +38,11 @@ jobs:
       - name: Install frontend dependencies
         working-directory: dive
         run: pnpm install --frozen-lockfile
+      - name: Build Pi sidecar (${{ matrix.target }})
+        working-directory: dive
+        run: |
+          npm --prefix pi-sidecar ci
+          node pi-sidecar/build-sidecar.mjs --target ${{ matrix.target }}
       - name: Developer gate preflight
         working-directory: dive
         run: |
@@ -67,6 +72,9 @@ jobs:
           $driver = Get-ChildItem -Path .,$env:USERPROFILE -Recurse -Filter msedgedriver.exe -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $driver) { throw "msedgedriver.exe not found after msedgedriver-tool" }
           echo $driver.Directory.FullName >> $env:GITHUB_PATH
+      - name: Build Pi sidecar ${{ matrix.label }}
+        working-directory: dive
+        run: pnpm build:sidecar -- --target ${{ matrix.target }}
       - name: Build NSIS ${{ matrix.label }}
         working-directory: dive
         run: pnpm tauri build --target ${{ matrix.target }} --bundles nsis

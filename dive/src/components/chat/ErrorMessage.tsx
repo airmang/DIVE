@@ -27,7 +27,7 @@ function ErrorMessageImpl({ message, onRetry }: Props) {
       data-message-id={message.id}
       role="alert"
     >
-      <div className="flex w-full max-w-[80%] items-start gap-3 rounded-lg border border-danger/40 bg-danger/10 px-4 py-2">
+      <div className="flex w-full max-w-full items-start gap-3 rounded-lg border border-danger/40 bg-danger/10 px-4 py-2 sm:max-w-[80%]">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-hidden />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-danger">{t(classified.titleKey)}</p>

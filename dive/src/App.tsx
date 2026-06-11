@@ -15,9 +15,7 @@ type ResolvedRoute =
   | { kind: "internal"; route: "diagnostics-survey" };
 
 const DevDemoShell = import.meta.env.DEV ? lazy(() => import("./components/demo/DemoShell")) : null;
-const DevResearchSurveyPage = import.meta.env.DEV
-  ? lazy(() => import("./pages/research-survey"))
-  : null;
+const ResearchSurveyPage = lazy(() => import("./pages/research-survey"));
 const DevPromptHelperDemoPage = import.meta.env.DEV
   ? lazy(() => import("./pages/prompt-helper-demo"))
   : null;
@@ -70,7 +68,7 @@ function resolveRoute(
   }
 
   const internalRoute = params.get("internal");
-  if (import.meta.env.DEV && internalRoute === "diagnostics-survey") {
+  if (internalRoute === "diagnostics-survey") {
     return { kind: "internal", route: "diagnostics-survey" };
   }
 
@@ -136,10 +134,10 @@ function App() {
         <DevPromptHelperDemoPage />
       </Suspense>
     );
-  } else if (route.kind === "internal" && import.meta.env.DEV && DevResearchSurveyPage) {
+  } else if (route.kind === "internal") {
     content = (
       <Suspense fallback={<MainShell />}>
-        <DevResearchSurveyPage />
+        <ResearchSurveyPage />
       </Suspense>
     );
   } else {

@@ -46,7 +46,7 @@ const providerBanner = read("dive/src/components/product/ProviderSetupBanner.tsx
 const providerIpc = read("dive/src-tauri/src/ipc/provider.rs");
 const chatArea = read("dive/src/components/shell/ChatArea.tsx");
 const messageList = read("dive/src/components/chat/MessageList.tsx");
-const toolCallMessage = read("dive/src/components/chat/ToolCallMessage.tsx");
+const toolActivity = read("dive/src/components/chat/ToolActivity.tsx");
 const permissionCard = read("dive/src/components/permission-card/PermissionCard.tsx");
 const safeCard = read("dive/src/components/permission-card/SafeCard.tsx");
 const warnCard = read("dive/src/components/permission-card/WarnCard.tsx");
@@ -82,6 +82,7 @@ const registeredCommands = [
   "ipc::session_list",
   "ipc::provider_connect",
   "ipc::provider_list",
+  "ipc::pending_tool_calls",
   "ipc::chat_send",
   "ipc::tool_approve",
   "ipc::tool_deny",
@@ -267,6 +268,18 @@ check(
 );
 
 check(
+  "interview-submit machinery is hidden from the chat transcript",
+  includesAll(read("dive/src/components/chat/filterInterviewNoise.ts"), [
+    "INTERVIEW_SUBMIT",
+    "filterInterviewNoise",
+    // Structural detection: the conversational-accept path emits the plan JSON
+    // without the [INTERVIEW_SUBMIT] marker (2026-06-10 E2E run-2 FAIL).
+    "looksLikePlanDraftJson",
+    '"plan_input"',
+  ]) && includesAll(messageList, ["filterInterviewNoise"]),
+);
+
+check(
   "tool permission approval path renders permission cards and calls approve/deny IPC",
   includesAll(chatSession, [
     "tool_call_start",
@@ -277,8 +290,9 @@ check(
     "diff_preview",
   ]) &&
     includesAll(chatArea, ["onApproveToolCall", "onDenyToolCall"]) &&
-    includesAll(messageList, ["<ToolCallMessage", "onApproveToolCall", "onDenyToolCall"]) &&
-    includesAll(toolCallMessage, ["<PermissionCard", "onApprove", "onDeny"]) &&
+    includesAll(chatSession, ['"pending_tool_calls"', "pendingToolCallToMessage"]) &&
+    includesAll(messageList, ["<ToolActivity", "onApproveToolCall", "onDenyToolCall"]) &&
+    includesAll(toolActivity, ["<PermissionCard", "onApprove", "onDeny"]) &&
     includesAll(permissionCard, ["<SafeCard", "<WarnCard", "<DangerCard"]) &&
     [safeCard, warnCard, dangerCard].every((source) =>
       includesAll(source, ['data-testid="card-approve"', 'data-testid="card-deny"']),
@@ -330,6 +344,33 @@ check(
       "ApprovalJudgment",
     ]) &&
     includesAll(controller, ["handleVerify", "currentVerifyLog", "currentVerifyState"]),
+);
+
+check(
+  "finished build step auto-surfaces the verify + judgment gate (F2)",
+  includesAll(controller, [
+    "autoSurfaceVerify",
+    '"enter_instruct"',
+    '"request_verify"',
+    "roadmapModel.verifyStep",
+    "setStepDetailOpen(true)",
+  ]),
+);
+
+check(
+  "interview on a project with an approved plan confirms replacement instead of dead-ending",
+  includesAll(controller, [
+    "has_approved_plan",
+    "requestPlanReplaceConfirmation",
+    "replaceApproved",
+  ]) &&
+    includesAll(read("dive/src-tauri/src/ipc/workspace_plan.rs"), [
+      "replace_approved",
+      "|| replace_approved",
+    ]) &&
+    includesAll(read("dive/src/components/product/ProductModalHost.tsx"), [
+      "PlanReplaceConfirmModal",
+    ]),
 );
 
 check(
