@@ -32,6 +32,7 @@ function includesAll(source, needles) {
 const lib = read("dive/src-tauri/src/lib.rs");
 const projectSession = read("dive/src/stores/project-session.ts");
 const controller = read("dive/src/components/product/useProductShellController.ts");
+const planStepLogic = read("dive/src/components/product/productShellPlanStepLogic.ts");
 const productLayout = read("dive/src/components/product/ProductShellLayout.tsx");
 const chatSession = read("dive/src/hooks/useChatSession.ts");
 const workmap = read("dive/src/hooks/useWorkmap.ts");
@@ -248,10 +249,13 @@ check(
   includesAll(controller, [
     "buildPlanStepExecutionPrompt",
     "pendingAutoRunPlanStepBySession",
-    "Expected files:",
-    "Acceptance criteria:",
     'chat.sendUserMessage(buildPlanStepExecutionPrompt(item), "build", true, item.step.id)',
-  ]),
+  ]) &&
+    includesAll(planStepLogic, [
+      "buildPlanStepExecutionPrompt",
+      "Expected files:",
+      "Acceptance criteria:",
+    ]),
 );
 check(
   "approved-plan chat routing asks before adding new plan steps",

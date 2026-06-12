@@ -89,7 +89,7 @@ check(
     controller,
   ) &&
     /files: currentFiles/.test(controller) &&
-    /currentFiles\.length > 0 \? null/.test(controller),
+    /currentFiles\.length > 0\s*\?\s*null/.test(controller),
 );
 check(
   "ChatArea renders a routing running status",
