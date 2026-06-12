@@ -5,7 +5,7 @@ export type CodeEmptyReason = "no_output" | "blocked_no_output";
 
 export interface ChangedFile {
   path: string;
-  diff: DiffPreviewData;
+  diff: DiffPreviewData | null;
 }
 
 export interface TerminalLine {

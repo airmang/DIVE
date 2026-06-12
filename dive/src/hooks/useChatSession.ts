@@ -10,6 +10,7 @@ import type {
   UserMessageData,
 } from "../components/chat/types";
 import { translate, useLocaleStore } from "../i18n";
+import { useSlideInStore } from "../stores/slideIn";
 
 /**
  * Mirror of `AgentEvent` (Rust src-tauri/src/agent/event.rs). Variants match
@@ -191,6 +192,39 @@ function mergeMessagesById(messages: ChatMessage[], additions: ChatMessage[]): C
   return merged;
 }
 
+function stringFromRecord(value: unknown, key: string): string | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = (value as Record<string, unknown>)[key];
+  return typeof candidate === "string" && candidate.length > 0 ? candidate : null;
+}
+
+function splitTerminalLines(text: string): string[] {
+  return text.split(/\r?\n/).filter((line) => line.length > 0).slice(0, 200);
+}
+
+function appendToolResultToTerminal(evt: Extract<AgentEvent, { type: "tool_result" }>) {
+  const { pushTerminalLine } = useSlideInStore.getState();
+  const command = stringFromRecord(evt.full, "command");
+  const stdout = stringFromRecord(evt.full, "stdout");
+  const stderr = stringFromRecord(evt.full, "stderr");
+  const prefix = evt.success ? "ok" : "fail";
+
+  pushTerminalLine({
+    kind: evt.success ? "info" : "stderr",
+    text: command ? `$ ${command} — ${evt.summary}` : `[${prefix}] ${evt.summary}`,
+  });
+  if (stdout) {
+    for (const line of splitTerminalLines(stdout)) {
+      pushTerminalLine({ kind: "stdout", text: line });
+    }
+  }
+  if (stderr) {
+    for (const line of splitTerminalLines(stderr)) {
+      pushTerminalLine({ kind: "stderr", text: line });
+    }
+  }
+}
+
 export function useChatSession(
   sessionId: number | null,
   onAgentEvent?: (event: AgentEvent) => void,
@@ -292,6 +326,9 @@ export function useChatSession(
         return;
       }
       const applyEventSideEffects = (payload: AgentEvent) => {
+        if (payload.type === "tool_result") {
+          appendToolResultToTerminal(payload);
+        }
         if (
           payload.type === "done" ||
           payload.type === "error" ||

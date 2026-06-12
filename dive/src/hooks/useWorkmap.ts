@@ -77,11 +77,7 @@ function parseChangedFiles(row: CardRow | undefined): ChangedFile[] {
       return [
         {
           path: item,
-          diff: {
-            path: item,
-            before: "",
-            after: "",
-          },
+          diff: null,
         },
       ];
     }
@@ -96,14 +92,19 @@ function parseChangedFiles(row: CardRow | undefined): ChangedFile[] {
     };
     if (typeof candidate.path !== "string") return [];
     const diff = candidate.diff;
+    const before = diff?.before;
+    const after = diff?.after;
+    const hasDiff = typeof before === "string" && typeof after === "string";
     return [
       {
         path: candidate.path,
-        diff: {
-          path: typeof diff?.path === "string" ? diff.path : candidate.path,
-          before: typeof diff?.before === "string" ? diff.before : "",
-          after: typeof diff?.after === "string" ? diff.after : "",
-        },
+        diff: hasDiff
+          ? {
+              path: typeof diff?.path === "string" ? diff.path : candidate.path,
+              before,
+              after,
+            }
+          : null,
       },
     ];
   });

@@ -1,4 +1,6 @@
 use rusqlite::{params, Connection, OptionalExtension};
+use serde_json::Value;
+use std::collections::HashSet;
 
 use crate::db::dao::{optional_json_to_string, parse_optional_json};
 use crate::db::models::{CardRow, CardState, NewCard};
@@ -100,30 +102,42 @@ pub fn append_changed_files(
     id: i64,
     paths: &[String],
 ) -> Result<Vec<String>, DbError> {
+    let entries = paths
+        .iter()
+        .filter_map(|path| normalize_changed_path(path).map(Value::String))
+        .collect::<Vec<_>>();
+    let merged = append_changed_file_entries(conn, id, &entries)?;
+    Ok(merged.iter().filter_map(path_from_changed_item).collect())
+}
+
+pub fn append_changed_file_entries(
+    conn: &Connection,
+    id: i64,
+    entries: &[Value],
+) -> Result<Vec<Value>, DbError> {
     let Some(existing) = get_by_id(conn, id)? else {
         return Ok(Vec::new());
     };
-    let mut merged = existing
+    let mut seen = HashSet::new();
+    let mut merged = Vec::new();
+    for item in existing
         .changed_files
         .as_ref()
         .and_then(|value| value.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| item.as_str().map(str::to_owned))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    for path in paths {
-        let normalized = path.trim().replace('\\', "/");
-        if normalized.is_empty()
-            || normalized.starts_with('/')
-            || normalized.split('/').any(|part| part == "..")
-        {
-            continue;
+        .into_iter()
+        .flatten()
+    {
+        if let Some(path) = path_from_changed_item(item) {
+            if seen.insert(path) {
+                merged.push(item.clone());
+            }
         }
-        if !merged.iter().any(|existing| existing == &normalized) {
-            merged.push(normalized);
+    }
+    for entry in entries {
+        if let Some(path) = path_from_changed_item(entry) {
+            if seen.insert(path.clone()) {
+                merged.push(normalize_changed_entry(entry, &path));
+            }
         }
     }
     let changed_files = serde_json::to_string(&merged)?;
@@ -132,6 +146,40 @@ pub fn append_changed_files(
         params![changed_files, now_ms(), id],
     )?;
     Ok(merged)
+}
+
+fn path_from_changed_item(item: &Value) -> Option<String> {
+    match item {
+        Value::String(path) => normalize_changed_path(path),
+        Value::Object(map) => map
+            .get("path")
+            .and_then(Value::as_str)
+            .and_then(normalize_changed_path),
+        _ => None,
+    }
+}
+
+fn normalize_changed_entry(entry: &Value, normalized_path: &str) -> Value {
+    match entry {
+        Value::Object(map) => {
+            let mut next = map.clone();
+            next.insert("path".into(), Value::String(normalized_path.to_string()));
+            Value::Object(next)
+        }
+        _ => Value::String(normalized_path.to_string()),
+    }
+}
+
+fn normalize_changed_path(path: &str) -> Option<String> {
+    let normalized = path.trim().replace('\\', "/");
+    if normalized.is_empty()
+        || normalized.starts_with('/')
+        || normalized.split('/').any(|part| part == "..")
+    {
+        None
+    } else {
+        Some(normalized)
+    }
 }
 pub fn delete(conn: &Connection, id: i64) -> Result<(), DbError> {
     conn.execute("DELETE FROM Card WHERE id = ?", [id])?;
@@ -271,5 +319,49 @@ mod tests {
         )
         .unwrap();
         assert_eq!(merged, vec!["a.rs", "src/App.tsx"]);
+    }
+
+    #[test]
+    fn append_changed_file_entries_preserves_diff_objects() {
+        let (db, _tmp) = fresh_db();
+        let (_, session_id) = seed_project_session(db.conn());
+        let id = insert(
+            db.conn(),
+            &NewCard {
+                session_id,
+                title: "c".into(),
+                instruction: Some("i".into()),
+                assist_summary: None,
+                acceptance_criteria: None,
+                retrospective: None,
+                change_summary: None,
+                state: CardState::Decomposed,
+                verify_log: None,
+                changed_files: Some(json!(["src/existing.rs"])),
+                test_command: None,
+                approval_judgment: None,
+                position: 1,
+            },
+        )
+        .unwrap();
+
+        let merged = append_changed_file_entries(
+            db.conn(),
+            id,
+            &[json!({
+                "path": "src/new.rs",
+                "diff": {
+                    "path": "src/new.rs",
+                    "before": "old",
+                    "after": "new"
+                }
+            })],
+        )
+        .unwrap();
+
+        assert_eq!(merged[0], json!("src/existing.rs"));
+        assert_eq!(merged[1]["path"], "src/new.rs");
+        assert_eq!(merged[1]["diff"]["before"], "old");
+        assert_eq!(merged[1]["diff"]["after"], "new");
     }
 }

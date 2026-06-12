@@ -404,7 +404,12 @@ impl AgentLoop {
                             success = out.success,
                             "tool execution completed"
                         );
-                        self.record_changed_files(session_id, &tc.name, &out.full)?;
+                        self.record_changed_files(
+                            session_id,
+                            &tc.name,
+                            &out.full,
+                            diff_preview.as_ref(),
+                        )?;
                         self.log_event(
                             session_id,
                             "tool_result",
@@ -892,7 +897,7 @@ impl AgentLoop {
                     runtime = "pi_sidecar",
                     "tool execution completed"
                 );
-                self.record_changed_files(session_id, &tc.name, &out.full)?;
+                self.record_changed_files(session_id, &tc.name, &out.full, diff_preview.as_ref())?;
                 self.log_event(
                     session_id,
                     "tool_result",
@@ -1081,6 +1086,7 @@ impl AgentLoop {
         session_id: i64,
         tool_name: &str,
         full: &Value,
+        diff_preview: Option<&DiffPreview>,
     ) -> Result<(), AgentError> {
         let Some(card_id) = self.current_card_id(session_id)? else {
             return Ok(());
@@ -1089,11 +1095,28 @@ impl AgentLoop {
         if paths.is_empty() {
             return Ok(());
         }
+        let entries = paths
+            .iter()
+            .map(|path| {
+                if let Some(diff) = diff_preview.filter(|diff| diff.path == *path) {
+                    json!({
+                        "path": path,
+                        "diff": {
+                            "path": diff.path,
+                            "before": diff.before,
+                            "after": diff.after,
+                        }
+                    })
+                } else {
+                    Value::String(path.clone())
+                }
+            })
+            .collect::<Vec<_>>();
         let db = self
             .db
             .lock()
             .map_err(|_| AgentError::Internal("db mutex poisoned".into()))?;
-        let merged = card::append_changed_files(db.conn(), card_id, &paths)?;
+        let merged = card::append_changed_file_entries(db.conn(), card_id, &entries)?;
         drop(db);
         self.log_event(
             session_id,

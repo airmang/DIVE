@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { AlertCircle, Terminal } from "lucide-react";
+import { AlertCircle, FileCode, Terminal } from "lucide-react";
 import { DiffViewer } from "../permission-card";
 import { useSlideInStore } from "../../stores/slideIn";
 import { cn } from "../../lib/utils";
@@ -75,8 +75,8 @@ export function CodeTab() {
       >
         <ul>
           {sortedFiles.map((f) => {
-            const adds = countOp(f.diff.before, f.diff.after, "add");
-            const dels = countOp(f.diff.before, f.diff.after, "del");
+            const adds = f.diff ? countOp(f.diff.before, f.diff.after, "add") : null;
+            const dels = f.diff ? countOp(f.diff.before, f.diff.after, "del") : null;
             const active = current?.path === f.path;
             return (
               <li key={f.path}>
@@ -93,11 +93,15 @@ export function CodeTab() {
                   )}
                 >
                   <div className="truncate font-mono">{f.path}</div>
-                  <div className="mt-0.5 font-mono text-[10px]">
-                    <span className="text-success">+{adds}</span>
-                    {"  "}
-                    <span className="text-danger">−{dels}</span>
-                  </div>
+                  {adds !== null && dels !== null ? (
+                    <div className="mt-0.5 font-mono text-[10px]">
+                      <span className="text-success">+{adds}</span>
+                      {"  "}
+                      <span className="text-danger">−{dels}</span>
+                    </div>
+                  ) : (
+                    <div className="mt-0.5 text-[10px] text-fg-subtle">diff 미수집</div>
+                  )}
                 </button>
               </li>
             );
@@ -113,7 +117,29 @@ export function CodeTab() {
             {changeSummary}
           </p>
         ) : null}
-        {current ? <DiffViewer diff={current.diff} /> : null}
+        {current?.diff ? <DiffViewer diff={current.diff} /> : null}
+        {current && !current.diff ? <DiffUnavailable path={current.path} /> : null}
+      </div>
+    </div>
+  );
+}
+
+function DiffUnavailable({ path }: { path: string }) {
+  return (
+    <div
+      className="rounded-md border bg-bg-panel2 px-4 py-3 text-sm"
+      data-testid="diff-unavailable"
+      data-file-path={path}
+    >
+      <div className="flex items-start gap-2">
+        <FileCode className="mt-0.5 h-4 w-4 shrink-0 text-fg-muted" aria-hidden />
+        <div>
+          <p className="font-semibold text-fg">변경 파일로 기록됨</p>
+          <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+            이 항목은 체크포인트나 이전 버전 데이터에서 경로만 저장되어 줄 단위 diff가 없습니다.
+            더 이상 +0/−0으로 표시하지 않습니다.
+          </p>
+        </div>
       </div>
     </div>
   );
