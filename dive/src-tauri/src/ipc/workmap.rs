@@ -201,6 +201,16 @@ pub async fn card_tool_call_stats(
     card_tool_call_stats_impl(&state, card_id)
 }
 
+#[tauri::command]
+pub async fn workmap_set_current_card(
+    state: State<'_, AppState>,
+    session_id: i64,
+    card_id: Option<i64>,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    workmap_dao::set_current_card(db.conn(), session_id, card_id).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
