@@ -1,0 +1,461 @@
+import { sortProvocationCards } from "./priority";
+import { hasConcreteVerificationEvidence } from "./verificationStatus";
+import type {
+  ChangedFileCategory,
+  DiveStage,
+  ProvocationAction,
+  ProvocationCard,
+  ProvocationChangedFile,
+  ProvocationContext,
+  ProvocationEvidence,
+  ProvocationPlanStep,
+  ProvocationSeverity,
+} from "./types";
+
+const DEFAULT_CREATED_AT = "1970-01-01T00:00:00.000Z";
+
+const FEATURE_KEYWORDS = [
+  "로그인",
+  "회원가입",
+  "관리자",
+  "대시보드",
+  "결제",
+  "db",
+  "database",
+  "데이터베이스",
+  "배포",
+  "deploy",
+  "auth",
+  "admin",
+  "dashboard",
+  "payment",
+  "routing",
+  "settings",
+  "export",
+  "preview",
+];
+
+const SCOPE_CONNECTORS = [
+  "그리고",
+  "또",
+  "또한",
+  "추가로",
+  "게다가",
+  "as well as",
+  "and also",
+  "also add",
+];
+
+const VAGUE_GOAL_TERMS = [
+  "좋게",
+  "예쁘게",
+  "잘 되게",
+  "알아서",
+  "완성해줘",
+  "개선해줘",
+  "고쳐줘",
+  "대충",
+  "better",
+  "nice",
+  "polish",
+  "improve",
+  "finish it",
+  "make it work",
+];
+
+const VERIFICATION_TERMS = [
+  "검증",
+  "확인",
+  "테스트",
+  "실행",
+  "미리보기",
+  "프리뷰",
+  "비교",
+  "재현",
+  "test",
+  "run",
+  "preview",
+  "verify",
+  "check",
+  "assert",
+  "compare",
+  "repro",
+];
+
+const HIGH_RISK_PATH_PATTERNS = [
+  /(^|\/)package\.json$/i,
+  /(^|\/)(pnpm-lock|package-lock|yarn)\.lock$/i,
+  /(^|\/)\.env($|\.)/i,
+  /(^|\/)(vite|webpack|rollup|eslint|tsconfig|tailwind|postcss)\.[cm]?[jt]s$/i,
+  /(^|\/)(schema|migration|migrations|db|database)(\/|\.|$)/i,
+  /(^|\/)(auth|oauth|permission|policy|security)(\/|\.|$)/i,
+];
+
+const GOAL_CATEGORY_TERMS: Record<ChangedFileCategory, string[]> = {
+  ui: ["ui", "화면", "버튼", "스타일", "텍스트", "레이아웃", "css", "component"],
+  logic: ["logic", "로직", "동작", "behavior", "state"],
+  config: ["config", "설정", "환경", "빌드", "vite", "tsconfig"],
+  dependency: ["dependency", "dependencies", "의존성", "패키지", "package"],
+  auth: ["auth", "login", "oauth", "로그인", "인증"],
+  db: ["db", "database", "데이터베이스", "schema", "migration"],
+  test: ["test", "테스트", "spec", "검증"],
+  routing: ["route", "routing", "라우팅", "페이지"],
+  unknown: [],
+};
+
+function normalizedText(value: string | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function combinedTaskText(context: ProvocationContext): string {
+  return [context.goalText, context.currentFeatureTitle, context.promptDraft]
+    .map((item) => item?.trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+function countTermHits(text: string, terms: string[]): number {
+  const lower = text.toLowerCase();
+  return terms.filter((term) => lower.includes(term.toLowerCase())).length;
+}
+
+function bulletCount(text: string): number {
+  return text
+    .split(/\r?\n/)
+    .filter((line) => /^\s*(?:[-*•]|\d+[.)])\s+\S+/.test(line))
+    .length;
+}
+
+function criteriaPresent(criteria: string[] | undefined): boolean {
+  return Boolean(criteria?.some((item) => item.trim().length > 0));
+}
+
+function idFor(type: ProvocationCard["type"], context: ProvocationContext): string {
+  const task = context.taskId ?? context.featureId ?? "context";
+  return `${type}:${context.stage}:${task}`;
+}
+
+function card({
+  context,
+  type,
+  severity,
+  stage,
+  title,
+  message,
+  evidence,
+  actions,
+  guided,
+  metadata,
+}: {
+  context: ProvocationContext;
+  type: ProvocationCard["type"];
+  severity: ProvocationSeverity;
+  stage?: DiveStage;
+  title: string;
+  message: string;
+  evidence: ProvocationEvidence[];
+  actions: ProvocationAction[];
+  guided: string;
+  metadata?: Record<string, unknown>;
+}): ProvocationCard {
+  return {
+    id: idFor(type, context),
+    type,
+    stage: stage ?? context.stage,
+    severity,
+    title,
+    message,
+    evidence,
+    actions,
+    modeCopy: {
+      guided,
+    },
+    metadata,
+    createdAt: DEFAULT_CREATED_AT,
+  };
+}
+
+function action(id: string, label: string, kind: ProvocationAction["kind"], requiresReason = false) {
+  return { id, label, kind, requiresReason };
+}
+
+function hasVerificationStep(steps: ProvocationPlanStep[] | undefined): boolean {
+  return Boolean(
+    steps?.some((step) => {
+      const haystack = `${step.kind ?? ""} ${step.text}`.toLowerCase();
+      return VERIFICATION_TERMS.some((term) => haystack.includes(term.toLowerCase()));
+    }),
+  );
+}
+
+function categorizePath(path: string): ChangedFileCategory {
+  const lower = path.toLowerCase();
+  if (HIGH_RISK_PATH_PATTERNS.some((pattern) => pattern.test(path))) {
+    if (/(package|lock)/i.test(path)) return "dependency";
+    if (/(auth|oauth|permission|policy|security)/i.test(path)) return "auth";
+    if (/(schema|migration|db|database)/i.test(path)) return "db";
+    return "config";
+  }
+  if (/\.(css|scss|tsx|jsx)$/.test(lower)) return "ui";
+  if (/(\.test\.|\.spec\.)/.test(lower)) return "test";
+  if (/(route|router|page)/.test(lower)) return "routing";
+  if (/\.(ts|js|rs)$/.test(lower)) return "logic";
+  return "unknown";
+}
+
+function highRiskFile(file: ProvocationChangedFile): boolean {
+  return Boolean(
+    file.changeType === "deleted" ||
+      file.category === "dependency" ||
+      file.category === "config" ||
+      file.category === "auth" ||
+      file.category === "db" ||
+      HIGH_RISK_PATH_PATTERNS.some((pattern) => pattern.test(file.path)),
+  );
+}
+
+function pathMatchesTarget(file: ProvocationChangedFile, targetFiles: string[] | undefined): boolean {
+  if (!targetFiles || targetFiles.length === 0) return false;
+  return targetFiles.some((target) => {
+    const normalizedTarget = target.trim();
+    if (!normalizedTarget) return false;
+    return file.path === normalizedTarget || file.path.endsWith(`/${normalizedTarget}`);
+  });
+}
+
+function categoryMatchesGoal(file: ProvocationChangedFile, goal: string): boolean {
+  const category = file.category ?? categorizePath(file.path);
+  const terms = GOAL_CATEGORY_TERMS[category] ?? [];
+  return terms.some((term) => goal.includes(term.toLowerCase()));
+}
+
+function unrelatedChangedFiles(context: ProvocationContext): ProvocationChangedFile[] {
+  const goal = normalizedText(combinedTaskText(context));
+  return (context.changedFiles ?? []).filter((file) => {
+    if (pathMatchesTarget(file, context.targetFiles)) return false;
+    if (categoryMatchesGoal(file, goal)) return false;
+    return highRiskFile(file);
+  });
+}
+
+function compactFileList(files: ProvocationChangedFile[]): string {
+  return files
+    .slice(0, 3)
+    .map((file) => file.path)
+    .join(", ");
+}
+
+function normalizedErrorKey(error: { message: string; normalizedMessage?: string }): string {
+  return (error.normalizedMessage ?? error.message).trim().toLowerCase().slice(0, 240);
+}
+
+export function oversizedScopeRule(context: ProvocationContext): ProvocationCard | null {
+  const text = combinedTaskText(context);
+  if (!text.trim()) return null;
+
+  const features = countTermHits(text, FEATURE_KEYWORDS);
+  const connectors = countTermHits(text, SCOPE_CONNECTORS);
+  const bullets = bulletCount(text);
+  const planSteps = context.planSteps?.length ?? 0;
+
+  if (bullets <= 3 && !(features >= 3 && connectors >= 1) && planSteps < 7) {
+    return null;
+  }
+
+  const evidence: ProvocationEvidence[] = [];
+  if (features >= 3) {
+    evidence.push({ source: "prompt", label: "여러 기능 신호", value: `${features}개` });
+  }
+  if (connectors >= 1) {
+    evidence.push({ source: "prompt", label: "연결어", value: `${connectors}개` });
+  }
+  if (bullets > 3) {
+    evidence.push({ source: "prompt", label: "기능 bullet", value: `${bullets}개` });
+  }
+  if (planSteps >= 7) {
+    evidence.push({ source: "plan", label: "단일 작업 아래 plan step", value: `${planSteps}개` });
+  }
+
+  return card({
+    context,
+    type: "oversized_scope",
+    severity: "caution",
+    title: "작업 범위가 너무 큽니다",
+    message:
+      "이 요청은 기능 하나가 아니라 여러 작업을 한 번에 맡기는 형태입니다. 실패하면 어디서 잘못됐는지 추적하기 어렵습니다.",
+    evidence,
+    guided: "범위를 작게 나누면 AI 결과를 파일, 동작, 검증 기준별로 확인하기 쉬워집니다.",
+    actions: [
+      action("split", "기능으로 나누기", "split_scope"),
+      action("first", "첫 기능만 요청하기", "split_scope"),
+      action("continue", "그대로 진행", "continue_with_risk"),
+    ],
+  });
+}
+
+export function missingAcceptanceCriteriaRule(
+  context: ProvocationContext,
+): ProvocationCard | null {
+  const text = combinedTaskText(context);
+  if (!text.trim() || criteriaPresent(context.acceptanceCriteria)) return null;
+
+  const vagueHits = countTermHits(text, VAGUE_GOAL_TERMS);
+  const evidence: ProvocationEvidence[] = [
+    { source: "goal", label: "완료 기준", value: "없음" },
+  ];
+  if (vagueHits > 0) {
+    evidence.push({ source: "goal", label: "모호한 표현", value: `${vagueHits}개` });
+  }
+
+  return card({
+    context,
+    type: "missing_acceptance_criteria",
+    severity: "caution",
+    title: "완료 기준이 없습니다",
+    message: "나중에 AI 결과를 검증하려면, 무엇이 보이면 끝난 것인지 먼저 정해야 합니다.",
+    evidence,
+    guided: "완료 기준은 AI가 만든 결과를 사용자 눈으로 확인할 수 있는 관찰 가능한 문장이어야 합니다.",
+    actions: [
+      action("add", "완료 기준 추가", "add_acceptance_criteria"),
+      action("example", "예시 입력/출력 추가", "add_acceptance_criteria"),
+      action("continue", "그대로 진행", "continue_with_risk"),
+    ],
+  });
+}
+
+export function missingVerificationStepRule(context: ProvocationContext): ProvocationCard | null {
+  const steps = context.planSteps ?? [];
+  if (steps.length === 0 || hasVerificationStep(steps)) return null;
+
+  return card({
+    context,
+    type: "missing_verification_step",
+    severity: "caution",
+    title: "검증 단계가 빠졌습니다",
+    message: "이 계획에는 만드는 단계는 있지만, 틀렸음을 확인하는 단계가 없습니다.",
+    evidence: [
+      { source: "plan", label: "plan step", value: `${steps.length}개` },
+      { source: "plan", label: "검증/실행/테스트 단계", value: "없음" },
+    ],
+    guided: "AI가 만든 뒤 무엇을 실행하거나 비교해야 하는지 계획에 있어야 승인 판단이 쉬워집니다.",
+    actions: [
+      action("add", "검증 단계 추가", "add_verification_step"),
+      action("test", "테스트/프리뷰 확인 추가", "add_verification_step"),
+      action("continue", "그대로 승인", "continue_with_risk"),
+    ],
+  });
+}
+
+export function diffScopeDriftRule(context: ProvocationContext): ProvocationCard | null {
+  const files = context.changedFiles ?? [];
+  if (files.length === 0) return null;
+
+  const unrelated = unrelatedChangedFiles(context);
+  if (unrelated.length === 0) return null;
+
+  const highRisk = unrelated.some(highRiskFile);
+
+  return card({
+    context,
+    type: "diff_scope_drift",
+    severity: highRisk ? "risk" : "caution",
+    title: "목표 밖 변경이 섞였을 수 있습니다",
+    message: "현재 목표와 직접 관련 없어 보이는 파일이 함께 바뀌었습니다. 이 변경이 꼭 필요한지 확인하세요.",
+    evidence: [
+      { source: "diff", label: "관련 확인 필요 파일", value: compactFileList(unrelated) },
+      { source: "goal", label: "목표/대상 파일과 직접 연결", value: "확인되지 않음" },
+    ],
+    guided: "목표 밖 파일이 바뀌면 작동은 되어 보여도 설정, 인증, 데이터, 의존성 쪽 부작용이 생길 수 있습니다.",
+    actions: [
+      action("diff", "파일별 Diff 보기", "open_diff"),
+      action("rationale", "AI에게 변경 이유 묻기", "ask_ai_for_rationale"),
+      action("revert", "관련 없는 변경 되돌리기", "revert_unrelated_changes"),
+      action("risk", "위험 감수하고 수용", "continue_with_risk", true),
+    ],
+    metadata: {
+      highRisk,
+      changedFileCount: unrelated.length,
+    },
+  });
+}
+
+export function aiSelfReportOnlyRule(context: ProvocationContext): ProvocationCard | null {
+  if (!context.verification?.aiClaimedDone || hasConcreteVerificationEvidence(context)) {
+    return null;
+  }
+
+  return card({
+    context,
+    type: "ai_self_report_only",
+    severity: "risk",
+    title: "AI의 완료 보고만 있습니다",
+    message: "AI의 '완료했습니다'는 검증 증거가 아닙니다. 지금 확인된 것은 AI의 주장뿐입니다.",
+    evidence: [
+      { source: "agent", label: "AI 완료 보고", value: "있음" },
+      { source: "verification", label: "Diff/실행/프리뷰/테스트 증거", value: "없음" },
+    ],
+    guided: "검증은 AI의 말이 아니라 사용자가 본 diff, 실행 결과, 프리뷰, 테스트 같은 외부 증거로 구분해야 합니다.",
+    actions: [
+      action("run", "앱 실행", "run_app"),
+      action("preview", "프리뷰 확인", "open_preview"),
+      action("test", "테스트 실행", "run_tests"),
+      action("risk", "미검증 상태로 승인", "continue_with_risk", true),
+    ],
+  });
+}
+
+export function regenerationLoopRule(context: ProvocationContext): ProvocationCard | null {
+  const retryCount = context.retryCountForCurrentError ?? 0;
+  const errors = context.recentErrors ?? [];
+  const counts = new Map<string, number>();
+  for (const error of errors) {
+    const key = normalizedErrorKey(error);
+    if (!key) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const repeatedErrorCount = Math.max(0, ...counts.values());
+
+  if (retryCount < 3 && repeatedErrorCount < 3) return null;
+
+  const evidence: ProvocationEvidence[] = [];
+  if (retryCount >= 3) {
+    evidence.push({ source: "history", label: "같은 실패 재시도", value: `${retryCount}회` });
+  }
+  if (repeatedErrorCount >= 3) {
+    evidence.push({ source: "terminal", label: "반복 오류", value: `${repeatedErrorCount}회` });
+  }
+
+  return card({
+    context,
+    type: "regeneration_loop",
+    severity: "risk",
+    title: "재생성 반복 상태입니다",
+    message: "지금은 계속 '고쳐줘'를 반복할 때가 아니라, 오류를 좁히거나 마지막 변경을 되돌릴 때입니다.",
+    evidence,
+    guided: "같은 오류가 반복될 때는 새 코드를 더 만들기보다 재현 조건과 마지막 변경을 좁히는 편이 안전합니다.",
+    actions: [
+      action("rollback", "마지막 변경 되돌리기", "rollback_last_change"),
+      action("log", "에러 로그 정리", "create_repro_steps"),
+      action("repro", "재현 단계 만들기", "create_repro_steps"),
+      action("split", "범위 줄여 다시 요청", "split_scope"),
+    ],
+  });
+}
+
+export const PROVOCATION_RULES = [
+  diffScopeDriftRule,
+  aiSelfReportOnlyRule,
+  regenerationLoopRule,
+  missingVerificationStepRule,
+  missingAcceptanceCriteriaRule,
+  oversizedScopeRule,
+] as const;
+
+export function generateProvocationCards(context: ProvocationContext): ProvocationCard[] {
+  const cards = PROVOCATION_RULES.map((rule) => rule(context)).filter(
+    (candidate): candidate is ProvocationCard => candidate !== null,
+  );
+  const visible =
+    context.mode === "expert" ? cards.filter((candidate) => candidate.severity === "risk") : cards;
+  return sortProvocationCards(visible);
+}

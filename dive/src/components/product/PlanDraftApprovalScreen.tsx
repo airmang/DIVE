@@ -5,11 +5,23 @@ import type { InterviewRow, PlanGenerationResult } from "../../features/planning
 import { useTutorialEnabled } from "../../stores/ui-preferences";
 import { Button } from "../ui/button";
 import { PlanDraftDependencyMap } from "./PlanDraftDependencyMap";
+import {
+  ProvocationCardHost,
+  generateProvocationCards,
+  type ProvocationAction,
+  type ScaffoldMode,
+} from "../../features/provocation";
 
 interface PlanDraftApprovalScreenProps {
   draft: PlanGenerationResult;
   interview: InterviewRow | null;
   busy?: boolean;
+  provocation?: {
+    enabled: boolean;
+    mode: ScaffoldMode;
+    projectId?: number | null;
+    sessionId?: number | null;
+  };
   onApprove: () => void;
   onRequestRevision: (feedback: string) => void;
   onDiscard: () => void;
@@ -93,6 +105,7 @@ export function PlanDraftApprovalScreen({
   draft,
   interview,
   busy = false,
+  provocation,
   onApprove,
   onRequestRevision,
   onDiscard,
@@ -105,6 +118,39 @@ export function PlanDraftApprovalScreen({
   const markdown = useMemo(() => buildPlanMarkdown(draft), [draft]);
   const plan = draft.plan;
   const approveBlocked = tutorialEnabled && critique !== "none";
+  const provocationCards = useMemo(() => {
+    if (!provocation?.enabled) return [];
+    return generateProvocationCards({
+      mode: provocation.mode,
+      stage: "instruct",
+      projectId: provocation.projectId,
+      sessionId: provocation.sessionId,
+      featureId: plan.id,
+      goalText: plan.goal,
+      acceptanceCriteria: stringArray(plan.acceptance_criteria),
+      planSteps: draft.steps.map((step) => ({
+        id: String(step.id),
+        text: [
+          step.step_id,
+          step.title,
+          step.summary,
+          step.instruction_seed,
+          step.verification_kind,
+          step.verification_command,
+          step.verification_manual_check,
+        ]
+          .filter(Boolean)
+          .join(" "),
+        kind: step.verification_kind ?? undefined,
+      })),
+    });
+  }, [draft.steps, plan.acceptance_criteria, plan.goal, plan.id, provocation]);
+
+  const handleProvocationAction = (action: ProvocationAction) => {
+    if (action.kind === "add_verification_step") {
+      setFeedback("검증 단계가 필요합니다. 실행/프리뷰/테스트 중 무엇으로 확인할지 계획에 추가해 주세요.");
+    }
+  };
 
   return (
     <div className="h-full overflow-y-auto bg-bg" data-testid="plan-draft-approval">
@@ -130,6 +176,19 @@ export function PlanDraftApprovalScreen({
             </Button>
           </div>
         </header>
+
+        <ProvocationCardHost
+          cards={provocationCards}
+          context={{
+            mode: provocation?.mode,
+            stage: "instruct",
+            projectId: provocation?.projectId,
+            sessionId: provocation?.sessionId,
+            featureId: plan.id,
+          }}
+          mode={provocation?.mode ?? "standard"}
+          onAction={handleProvocationAction}
+        />
 
         {tutorialEnabled ? (
           <div

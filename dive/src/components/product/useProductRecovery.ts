@@ -64,7 +64,7 @@ export function useProductRecovery(input: {
     } finally {
       setCheckpointsLoading(false);
     }
-  }, [input.chat.listCheckpoints, input.currentSessionId]);
+  }, [input.chat, input.currentSessionId]);
 
   useEffect(() => {
     void refreshCheckpoints();

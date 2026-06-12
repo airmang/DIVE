@@ -85,6 +85,8 @@ export function useProductShellController() {
   const setCurrentCardLocal = useWorkmapStore((s) => s.setCurrentCardLocal);
   const currentProjectId = useProjectSessionStore((s) => s.currentProjectId);
   const currentSessionId = useProjectSessionStore((s) => s.currentSessionId);
+  const enableProvocationCards = useUiPreferencesStore((s) => s.enableProvocationCards);
+  const provocationScaffoldMode = useUiPreferencesStore((s) => s.provocationScaffoldMode);
   const currentProjectName = useProjectSessionStore(
     (s) => s.projects.find((p) => p.id === s.currentProjectId)?.name ?? null,
   );
@@ -913,6 +915,12 @@ export function useProductShellController() {
             started: activeInterview !== null,
             loading: chat.isStreaming,
             disabled: interviewPanelDisabled,
+            provocation: {
+              enabled: enableProvocationCards,
+              mode: provocationScaffoldMode,
+              projectId: currentProjectId,
+              sessionId: currentSessionId,
+            },
             onSubmitGoal: handleStartInterview,
             onSubmitAnswer: handleSubmitInterviewAnswer,
             onComplete: handleCompleteInterview,
@@ -941,6 +949,13 @@ export function useProductShellController() {
       composerHint,
       context: promptContext,
       emptyState,
+      provocation: {
+        enabled: enableProvocationCards,
+        mode: provocationScaffoldMode,
+        projectId: currentProjectId,
+        sessionId: currentSessionId,
+        goalText: currentCard?.title ?? currentSessionTitle,
+      },
       planDraftApproval: generatedPlanDraft
         ? createElement(
             Suspense,
@@ -949,6 +964,12 @@ export function useProductShellController() {
               draft: generatedPlanDraft,
               interview: activeInterview,
               busy: chat.isStreaming,
+              provocation: {
+                enabled: enableProvocationCards,
+                mode: provocationScaffoldMode,
+                projectId: currentProjectId,
+                sessionId: currentSessionId,
+              },
               onApprove: handleApproveGeneratedPlan,
               onRequestRevision: handleRequestPlanRevision,
               onDiscard: handleDiscardGeneratedPlan,
@@ -987,6 +1008,13 @@ export function useProductShellController() {
       onOpenCode: () => {
         if (!currentCard) return;
         handleOpenCodeForCard(currentCard.id);
+      },
+      onOpenPreview: openResultPanelWithContext,
+      provocation: {
+        enabled: enableProvocationCards,
+        mode: provocationScaffoldMode,
+        projectId: currentProjectId,
+        sessionId: currentSessionId,
       },
       onApprovalDecision: handleApprovalDecision,
       onGoToChat: handleGoToChatFromStepDetail,

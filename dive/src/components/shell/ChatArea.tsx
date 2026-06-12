@@ -13,6 +13,7 @@ import type { ChatMessage } from "../chat/types";
 import type { PromptContext } from "../../lib/prompt-templates";
 import { useT } from "../../i18n";
 import type { RuntimeSelection } from "../../hooks/useChatSession";
+import type { ScaffoldMode } from "../../features/provocation";
 
 /** Placeholder rows shown while a session's persisted history is loading. */
 function MessageHistorySkeleton({ label }: { label: string }) {
@@ -82,6 +83,13 @@ interface ChatAreaProps {
     onAction?: () => void;
   };
   planDraftApproval?: ReactNode;
+  provocation?: {
+    enabled: boolean;
+    mode: ScaffoldMode;
+    projectId?: number | null;
+    sessionId?: number | null;
+    goalText?: string | null;
+  };
 }
 
 export function ChatArea({
@@ -116,6 +124,7 @@ export function ChatArea({
   context,
   emptyState,
   planDraftApproval,
+  provocation,
 }: ChatAreaProps) {
   const t = useT();
   const [now, setNow] = useState(() => Date.now());
@@ -238,6 +247,7 @@ export function ChatArea({
             onRetryError={onRetryError}
             onApproveToolCall={onApproveToolCall}
             onDenyToolCall={onDenyToolCall}
+            provocation={provocation}
           />
         ) : (
           <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 px-6 text-center">

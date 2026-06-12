@@ -8,6 +8,16 @@ import type { ChangedFile } from "../slide-in/types";
 import { ApprovalJudgment, type ApprovalDecision } from "../workmap/ApprovalJudgment";
 import type { VerifyLogView } from "../workmap/types";
 import { useT } from "../../i18n";
+import {
+  ProvocationCardHost,
+  deriveVerificationStatuses,
+  generateProvocationCards,
+  normalizeChangedFile,
+  type ProvocationAction,
+  type ProvocationContext,
+  type ScaffoldMode,
+  type VerificationStatusItem,
+} from "../../features/provocation";
 
 export interface StepDetailSlideInProps {
   open: boolean;
@@ -19,8 +29,15 @@ export interface StepDetailSlideInProps {
   changedFiles: ChangedFile[];
   onOpenChange: (open: boolean) => void;
   onOpenCode: () => void;
+  onOpenPreview?: () => void;
   onApprovalDecision: (decision: ApprovalDecision) => void;
   onGoToChat: () => void;
+  provocation?: {
+    enabled: boolean;
+    mode: ScaffoldMode;
+    projectId?: number | null;
+    sessionId?: number | null;
+  };
 }
 
 const STATUS_CLASS: Record<RoadmapStepStatus, string> = {
@@ -48,8 +65,10 @@ export function StepDetailSlideIn({
   changedFiles,
   onOpenChange,
   onOpenCode,
+  onOpenPreview,
   onApprovalDecision,
   onGoToChat,
+  provocation,
 }: StepDetailSlideInProps) {
   const t = useT();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -73,6 +92,50 @@ export function StepDetailSlideIn({
   const status = step?.status ?? null;
   const isReview = status === "review";
   const hasChangedFiles = changedFiles.length > 0;
+  const provocationContext: ProvocationContext | null =
+    step && provocation?.enabled
+      ? {
+          mode: provocation.mode,
+          stage: isReview ? "finalApproval" : "verify",
+          projectId: provocation.projectId,
+          sessionId: provocation.sessionId,
+          taskId: step.id,
+          goalText: [step.title, step.description].filter(Boolean).join("\n"),
+          acceptanceCriteria: step.acceptanceCriteria ? [step.acceptanceCriteria] : [],
+          planSteps: [
+            {
+              id: String(step.id),
+              text: [step.title, step.description, step.assistSummary, step.testCommand]
+                .filter(Boolean)
+                .join(" "),
+            },
+          ],
+          changedFiles: changedFiles.map((file) => normalizeChangedFile({ path: file.path })),
+          verification: {
+            aiClaimedDone: Boolean(verifyLog?.intent_match),
+            automatedTestsPassed: verifyLog?.test_result === "pass",
+            externalTestRun: verifyLog ? verifyLog.test_result !== "skipped" : undefined,
+          },
+        }
+      : null;
+  const provocationCards = provocationContext ? generateProvocationCards(provocationContext) : [];
+  const verificationStatuses = provocationContext
+    ? deriveVerificationStatuses(provocationContext)
+    : [];
+
+  const handleProvocationAction = (action: ProvocationAction) => {
+    if (action.kind === "open_diff") {
+      onOpenCode();
+      return;
+    }
+    if (action.kind === "open_preview" || action.kind === "run_app") {
+      onOpenPreview?.();
+      return;
+    }
+    if (action.kind === "ask_ai_for_rationale" || action.kind === "add_verification_step") {
+      onGoToChat();
+    }
+  };
 
   return (
     <aside
@@ -133,6 +196,25 @@ export function StepDetailSlideIn({
           <LearningHint className="rounded-md border border-info/40 bg-info/5 px-3 py-2 text-[11px]">
             {t("roadmap.step_detail.read_only_note")}
           </LearningHint>
+
+          {verificationStatuses.length > 0 ? (
+            <div
+              className="mt-3 flex flex-wrap gap-1.5"
+              data-testid="step-detail-verification-statuses"
+            >
+              {verificationStatuses.map((item) => (
+                <VerificationStatusChip key={item.id} item={item} />
+              ))}
+            </div>
+          ) : null}
+
+          <ProvocationCardHost
+            className="mt-3"
+            cards={provocationCards}
+            context={provocationContext ?? undefined}
+            mode={provocation?.mode ?? "standard"}
+            onAction={handleProvocationAction}
+          />
 
           <div className="mt-3 flex flex-wrap gap-2">
             {isReview ? (
@@ -258,6 +340,29 @@ export function StepDetailSlideIn({
         </div>
       )}
     </aside>
+  );
+}
+
+const VERIFY_STATUS_CLASS: Record<VerificationStatusItem["tone"], string> = {
+  info: "border-info/50 bg-info/10 text-info",
+  success: "border-success/60 bg-success/10 text-success",
+  warn: "border-warn/60 bg-warn/10 text-warn",
+  risk: "border-danger/60 bg-danger/10 text-danger",
+};
+
+function VerificationStatusChip({ item }: { item: VerificationStatusItem }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-sm border px-2 py-0.5 text-[10px] font-semibold",
+        VERIFY_STATUS_CLASS[item.tone],
+      )}
+      data-testid="verification-status-chip"
+      data-status-id={item.id}
+      data-evidence-backed={item.evidenceBacked ? "true" : "false"}
+    >
+      {item.label}
+    </span>
   );
 }
 

@@ -19,6 +19,12 @@ import type { PermissionCardData } from "../permission-card";
 import { formatRaw } from "../permission-card/explain";
 import { McpProvenanceBadge } from "../mcp/McpProvenanceBadge";
 import { useT } from "../../i18n";
+import {
+  ProvocationCardHost,
+  generateProvocationCards,
+  normalizeChangedFile,
+  type ScaffoldMode,
+} from "../../features/provocation";
 
 /**
  * ToolActivity — a single tool action rendered as one unit.
@@ -39,6 +45,13 @@ interface Props {
   result?: ToolResultMessageData;
   onApprove?: (toolCallId: string, modifiedArgs?: unknown) => void;
   onDeny?: (toolCallId: string, reason?: string) => void;
+  provocation?: {
+    enabled: boolean;
+    mode: ScaffoldMode;
+    projectId?: number | null;
+    sessionId?: number | null;
+    goalText?: string | null;
+  };
 }
 
 function toolIcon(toolName: string): LucideIcon {
@@ -59,7 +72,7 @@ function toolIcon(toolName: string): LucideIcon {
   }
 }
 
-function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny }: Props) {
+function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocation }: Props) {
   const t = useT();
 
   const showCard =
@@ -78,6 +91,18 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny }: Props)
       diffPreview: call.diffPreview ?? null,
       args: call.args,
     };
+    const provocationCards =
+      provocation?.enabled && call.diffPreview
+        ? generateProvocationCards({
+            mode: provocation.mode,
+            stage: "execute",
+            projectId: provocation.projectId,
+            sessionId: provocation.sessionId,
+            taskId: call.id,
+            goalText: provocation.goalText ?? undefined,
+            changedFiles: [normalizeChangedFile({ path: call.diffPreview.path })],
+          })
+        : [];
     return (
       <article
         className="flex w-full items-start justify-center"
@@ -93,6 +118,19 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny }: Props)
             </p>
           ) : null}
           <PermissionCard card={card} onApprove={onApprove} onDeny={onDeny} />
+          <ProvocationCardHost
+            className="mt-2"
+            cards={provocationCards}
+            context={{
+              mode: provocation?.mode,
+              stage: "execute",
+              projectId: provocation?.projectId,
+              sessionId: provocation?.sessionId,
+              taskId: call.id,
+              goalText: provocation?.goalText ?? undefined,
+            }}
+            mode={provocation?.mode ?? "standard"}
+          />
         </div>
       </article>
     );

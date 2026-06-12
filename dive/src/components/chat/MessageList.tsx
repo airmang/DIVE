@@ -9,6 +9,7 @@ import { SystemMessage } from "./SystemMessage";
 import { ErrorMessage } from "./ErrorMessage";
 import { filterInterviewNoise } from "./filterInterviewNoise";
 import { useT } from "../../i18n";
+import type { ScaffoldMode } from "../../features/provocation";
 
 interface Props {
   messages: ChatMessage[];
@@ -17,6 +18,13 @@ interface Props {
   onResendUser?: (id: string) => void;
   onApproveToolCall?: (toolCallId: string, modifiedArgs?: unknown) => void;
   onDenyToolCall?: (toolCallId: string, reason?: string) => void;
+  provocation?: {
+    enabled: boolean;
+    mode: ScaffoldMode;
+    projectId?: number | null;
+    sessionId?: number | null;
+    goalText?: string | null;
+  };
   /** Cap DOM nodes to last N. Real virtualization lands in task 4-4. */
   maxRendered?: number;
 }
@@ -37,6 +45,7 @@ function MessageListImpl({
   onResendUser,
   onApproveToolCall,
   onDenyToolCall,
+  provocation,
   maxRendered = 200,
 }: Props) {
   const t = useT();
@@ -137,6 +146,7 @@ function MessageListImpl({
                   result={result?.kind === "tool_result" ? result : undefined}
                   onApprove={onApproveToolCall}
                   onDeny={onDenyToolCall}
+                  provocation={provocation}
                 />
               </div>
             );

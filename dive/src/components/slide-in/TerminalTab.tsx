@@ -1,13 +1,33 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useSlideInStore } from "../../stores/slideIn";
 import { Button } from "../ui/button";
+import { useProvocationCardsEnabled, useProvocationScaffoldMode } from "../../stores/ui-preferences";
+import { ProvocationCardHost, generateProvocationCards } from "../../features/provocation";
 
 export function TerminalTab() {
   const lines = useSlideInStore((s) => s.terminalLines);
   const clear = useSlideInStore((s) => s.clearTerminal);
+  const provocationEnabled = useProvocationCardsEnabled();
+  const provocationMode = useProvocationScaffoldMode();
   const sentinelRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
+  const provocationCards = useMemo(() => {
+    if (!provocationEnabled) return [];
+    const recentErrors = lines
+      .filter((line) => line.kind === "stderr")
+      .slice(-12)
+      .map((line) => ({
+        message: line.text,
+        normalizedMessage: line.text.replace(/\d+/g, "#"),
+        occurredAt: new Date(line.timestamp).toISOString(),
+      }));
+    return generateProvocationCards({
+      mode: provocationMode,
+      stage: "execute",
+      recentErrors,
+    });
+  }, [lines, provocationEnabled, provocationMode]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -40,6 +60,15 @@ export function TerminalTab() {
           지우기
         </Button>
       </header>
+      <ProvocationCardHost
+        className="border-b bg-bg-panel px-3 py-2"
+        cards={provocationCards}
+        context={{
+          mode: provocationMode,
+          stage: "execute",
+        }}
+        mode={provocationMode}
+      />
       <div
         ref={containerRef}
         className="flex-1 overflow-auto bg-bg px-3 py-2"

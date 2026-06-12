@@ -181,6 +181,42 @@ fn seed_card(state: &AppState, session_id: i64, title: &str, card_state: CardSta
 }
 
 #[test]
+fn provocation_events_are_exported_with_session_event_log() {
+    let state = AppState::dev_mock();
+    let tmp = tempfile::tempdir().unwrap();
+    state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+    let session_id = seed_session(&state, tmp.path());
+
+    super::log_event(
+        &state,
+        Some(session_id),
+        "provocation.card_shown",
+        serde_json::json!({
+            "cardId": "ai_self_report_only:finalApproval:10",
+            "cardType": "ai_self_report_only",
+            "stage": "finalApproval",
+            "severity": "risk",
+            "evidence": [{"label": "AI 완료 보고", "value": "있음", "source": "agent"}],
+        }),
+    )
+    .unwrap();
+
+    let options = crate::export::ExportOptions {
+        hash_user_text: false,
+        hash_file_paths: false,
+        hash_ids: false,
+        ..Default::default()
+    };
+    let exported = crate::export::ExportEngine::new(state.db.clone())
+        .export_session_with_salt(session_id, &options, "test-salt")
+        .unwrap();
+
+    assert!(exported.contains("\"kind\":\"event\""));
+    assert!(exported.contains("\"type\":\"provocation.card_shown\""));
+    assert!(exported.contains("\"cardType\":\"ai_self_report_only\""));
+}
+
+#[test]
 fn card_transitions_create_dive_stage_auto_checkpoints() {
     let state = AppState::dev_mock();
     let tmp = tempfile::tempdir().unwrap();

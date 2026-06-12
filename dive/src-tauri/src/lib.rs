@@ -102,6 +102,7 @@ pub fn run() {
             ipc::openrouter_revoke_all,
             ipc::openrouter_list_keys,
             ipc::export_session,
+            ipc::provocation_log_event,
             ipc::project_create,
             ipc::project_list,
             ipc::project_get,
