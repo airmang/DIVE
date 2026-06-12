@@ -146,6 +146,7 @@ interface State {
     apiKey: string,
     baseUrl?: string,
   ) => Promise<ProviderSummary | null>;
+  selectProvider: (providerId: number) => Promise<ProviderSummary | null>;
   disconnectProvider: (providerId: number) => Promise<void>;
   setOnboarded: (v: boolean) => void;
   isOnboarded: () => boolean;
@@ -566,7 +567,10 @@ export const useProjectSessionStore = create<State>((set, get) => ({
             is_active: true,
             selected_model: null,
           };
-          mock.providers.push(row);
+          mock.providers = [
+            ...mock.providers.map((provider) => ({ ...provider, is_active: false })),
+            row,
+          ];
           saveMock(mock);
           return row;
         },
@@ -576,6 +580,38 @@ export const useProjectSessionStore = create<State>((set, get) => ({
         providers: [...s.providers.map((provider) => ({ ...provider, is_active: false })), row],
       }));
       if (row.is_connected) setOnboardedFlag(true);
+      return row;
+    }),
+
+  selectProvider: async (providerId) =>
+    runStoreAction(set, async () => {
+      const api = await loadTauri();
+      const row = await withTauriOrDemoMock<ProviderSummary | null>(
+        api,
+        () =>
+          api!.invoke<ProviderSummary>("provider_select", {
+            providerConfigId: providerId,
+          }),
+        () => {
+          const mock = loadMock();
+          const selected = mock.providers.find((provider) => provider.id === providerId) ?? null;
+          if (!selected || !selected.is_connected) return null;
+          mock.providers = mock.providers.map((provider) => ({
+            ...provider,
+            is_active: provider.id === providerId,
+          }));
+          saveMock(mock);
+          return { ...selected, is_active: true };
+        },
+      );
+      if (!row) return null;
+      set((s) => ({
+        providers: s.providers.map((provider) => ({
+          ...provider,
+          is_active: provider.id === providerId,
+        })),
+      }));
+      setOnboardedFlag(true);
       return row;
     }),
 

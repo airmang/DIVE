@@ -122,6 +122,7 @@ export function SettingsPage() {
   const loadAll = useProjectSessionStore((s) => s.loadAll);
   const providers = useProjectSessionStore((s) => s.providers);
   const connectProvider = useProjectSessionStore((s) => s.connectProvider);
+  const selectProvider = useProjectSessionStore((s) => s.selectProvider);
   const disconnectProvider = useProjectSessionStore((s) => s.disconnectProvider);
 
   const [policy, setPolicy] = useState<PolicyDto>({ rules: {}, default: null });
@@ -133,6 +134,7 @@ export function SettingsPage() {
   const [expandedKind, setExpandedKind] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [connecting, setConnecting] = useState(false);
+  const [selectingProviderId, setSelectingProviderId] = useState<number | null>(null);
   const [codexDialogOpen, setCodexDialogOpen] = useState(false);
 
   useEffect(() => {
@@ -282,6 +284,16 @@ export function SettingsPage() {
     }
     if (!window.confirm(t("settings.disconnect_confirm", { kind: row.kind }))) return;
     await disconnectProvider(row.id);
+  };
+
+  const handleSelectProvider = async (row: ProviderSummary) => {
+    setSelectingProviderId(row.id);
+    try {
+      await selectProvider(row.id);
+      await loadAll();
+    } finally {
+      setSelectingProviderId(null);
+    }
   };
 
   const backToShell = () => {
@@ -449,9 +461,12 @@ export function SettingsPage() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" data-testid="provider-cards">
             {PROVIDER_KINDS.map((p) => {
               const isCodex = p.kind === "codex";
-              const connected = providers.find((x) => x.kind === p.kind && x.is_connected);
+              const connected =
+                providers.find((x) => x.kind === p.kind && x.is_connected && x.is_active) ??
+                providers.find((x) => x.kind === p.kind && x.is_connected);
               const codexAccountId = isCodex ? connected?.account_id : null;
               const expanded = expandedKind === p.kind;
+              const isActive = connected?.is_active === true;
               return (
                 <Card
                   key={p.kind}
@@ -459,6 +474,7 @@ export function SettingsPage() {
                   data-testid="provider-card"
                   data-provider-kind={p.kind}
                   data-connected={connected ? "true" : "false"}
+                  data-active={isActive ? "true" : "false"}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
@@ -478,6 +494,14 @@ export function SettingsPage() {
                               : t("settings.provider_disconnected_aria")
                           }
                         />
+                        {isActive ? (
+                          <span
+                            className="rounded-sm bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent"
+                            data-testid="provider-active-badge"
+                          >
+                            {t("settings.active_provider")}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="text-[11px] text-fg-muted">{t(p.hintKey)}</div>
                       {usesNonDefaultProviderHost(connected) ? (
@@ -509,17 +533,33 @@ export function SettingsPage() {
                       ) : null}
                     </div>
                     {connected ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          void (isCodex ? handleCodexDisconnect() : handleDisconnect(connected))
-                        }
-                        data-testid="provider-disconnect"
-                        data-provider-kind={p.kind}
-                      >
-                        {t("settings.disconnect")}
-                      </Button>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {!isActive ? (
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={() => void handleSelectProvider(connected)}
+                            disabled={selectingProviderId === connected.id}
+                            data-testid="provider-select"
+                            data-provider-kind={p.kind}
+                          >
+                            {selectingProviderId === connected.id
+                              ? t("settings.selecting_provider")
+                              : t("settings.use_provider")}
+                          </Button>
+                        ) : null}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            void (isCodex ? handleCodexDisconnect() : handleDisconnect(connected))
+                          }
+                          data-testid="provider-disconnect"
+                          data-provider-kind={p.kind}
+                        >
+                          {t("settings.disconnect")}
+                        </Button>
+                      </div>
                     ) : (
                       <Button
                         variant="outline"

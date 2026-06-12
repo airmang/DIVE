@@ -122,6 +122,7 @@ pub fn run() {
             ipc::provider_list_models,
             ipc::provider_set_model,
             ipc::provider_select_runtime,
+            ipc::provider_select,
             ipc::provider_disconnect,
             ipc::provider_policy_get,
             ipc::provider_policy_set,

@@ -21,12 +21,28 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use rand::RngCore;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
 pub use codex_oauth::{CodexOAuth, CodexTokens, OAuthError, PkcePair};
 pub use error::AuthError;
 pub use openrouter_provisioning::{
     ChildKey, ChildKeySummary, OpenRouterProvisioning, ProvisioningError,
 };
 pub use scope::SecretScope;
+
+const FILE_SECRET_MARKER_PREFIX: &str = "DIVE_FILE_SECRET_V1:";
+const FILE_SECRET_DIR_ENV: &str = "DIVE_FILE_SECRET_DIR";
+
+#[derive(Debug, Serialize, Deserialize)]
+struct FileSecret {
+    version: u8,
+    scope_hash: String,
+    nonce: String,
+    data: String,
+}
 
 pub fn store_codex_tokens(
     keyring: &dyn Keyring,
@@ -103,24 +119,282 @@ impl OsKeyring {
 
 impl Keyring for OsKeyring {
     fn store(&self, scope: &SecretScope, secret: &str) -> Result<(), AuthError> {
-        Self::entry(scope)?.set_password(secret)?;
-        Ok(())
+        let entry = Self::entry(scope)?;
+        let previous = match entry.get_password() {
+            Ok(secret) => Some(secret),
+            Err(keyring::Error::NoEntry) => None,
+            Err(_) => None,
+        };
+
+        match entry.set_password(secret) {
+            Ok(()) => {
+                if let Some(marker) = previous.as_deref() {
+                    delete_file_secret_marker(marker)?;
+                }
+                Ok(())
+            }
+            Err(err) if should_store_as_file_secret(scope, secret, &err) => {
+                let marker = write_file_secret(scope, secret)?;
+                if let Err(marker_err) = Self::entry(scope)?.set_password(&marker) {
+                    delete_file_secret_marker(&marker)?;
+                    return Err(AuthError::Keyring(marker_err));
+                }
+                if let Some(previous_marker) = previous.as_deref() {
+                    delete_file_secret_marker(previous_marker)?;
+                }
+                Ok(())
+            }
+            Err(err) => Err(AuthError::Keyring(err)),
+        }
     }
 
     fn load(&self, scope: &SecretScope) -> Result<Option<String>, AuthError> {
         match Self::entry(scope)?.get_password() {
-            Ok(secret) => Ok(Some(secret)),
+            Ok(secret) => {
+                if secret.starts_with(FILE_SECRET_MARKER_PREFIX) {
+                    return read_file_secret(scope, &secret).map(Some);
+                }
+                Ok(Some(secret))
+            }
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(err) => Err(AuthError::Keyring(err)),
         }
     }
 
     fn delete(&self, scope: &SecretScope) -> Result<(), AuthError> {
+        let marker = match Self::entry(scope)?.get_password() {
+            Ok(secret) if secret.starts_with(FILE_SECRET_MARKER_PREFIX) => Some(secret),
+            _ => None,
+        };
         match Self::entry(scope)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(err) => Err(AuthError::Keyring(err)),
+        }?;
+        if let Some(marker) = marker {
+            delete_file_secret_marker(&marker)?;
+        }
+        Ok(())
+    }
+}
+
+fn should_store_as_file_secret(scope: &SecretScope, secret: &str, err: &keyring::Error) -> bool {
+    matches!(
+        scope,
+        SecretScope::CodexAccessToken { .. }
+            | SecretScope::CodexRefreshToken { .. }
+            | SecretScope::CodexIdToken { .. }
+    ) && (secret.encode_utf16().count() > 2_000 || err.to_string().contains("platform limit"))
+}
+
+fn write_file_secret(scope: &SecretScope, secret: &str) -> Result<String, AuthError> {
+    let scope_hash = file_secret_scope_hash(scope);
+    let mut nonce_bytes = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    let nonce = URL_SAFE_NO_PAD.encode(nonce_bytes);
+    let id = format!("{scope_hash}-{nonce}");
+    let path = file_secret_path(&id)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| AuthError::BackendUnavailable(err.to_string()))?;
+    }
+    let protected = protect_file_secret(secret.as_bytes())?;
+    let body = FileSecret {
+        version: 1,
+        scope_hash,
+        nonce,
+        data: URL_SAFE_NO_PAD.encode(protected),
+    };
+    let raw = serde_json::to_vec_pretty(&body)
+        .map_err(|err| AuthError::BackendUnavailable(err.to_string()))?;
+    std::fs::write(&path, raw).map_err(|err| AuthError::BackendUnavailable(err.to_string()))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(&path, permissions)
+            .map_err(|err| AuthError::BackendUnavailable(err.to_string()))?;
+    }
+
+    Ok(format!("{FILE_SECRET_MARKER_PREFIX}{id}"))
+}
+
+fn read_file_secret(scope: &SecretScope, marker: &str) -> Result<String, AuthError> {
+    let id = marker
+        .strip_prefix(FILE_SECRET_MARKER_PREFIX)
+        .ok_or_else(|| AuthError::BackendUnavailable("invalid file secret marker".into()))?;
+    let path = file_secret_path(id)?;
+    let raw = std::fs::read(&path).map_err(|err| AuthError::BackendUnavailable(err.to_string()))?;
+    let body: FileSecret = serde_json::from_slice(&raw)
+        .map_err(|err| AuthError::BackendUnavailable(err.to_string()))?;
+    if body.version != 1 || body.scope_hash != file_secret_scope_hash(scope) {
+        return Err(AuthError::BackendUnavailable(
+            "file secret scope mismatch".into(),
+        ));
+    }
+    let protected = URL_SAFE_NO_PAD
+        .decode(body.data.as_bytes())
+        .map_err(|err| AuthError::BackendUnavailable(err.to_string()))?;
+    let plain = unprotect_file_secret(&protected)?;
+    String::from_utf8(plain).map_err(|err| AuthError::BackendUnavailable(err.to_string()))
+}
+
+fn delete_file_secret_marker(marker: &str) -> Result<(), AuthError> {
+    let Some(id) = marker.strip_prefix(FILE_SECRET_MARKER_PREFIX) else {
+        return Ok(());
+    };
+    let path = file_secret_path(id)?;
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(AuthError::BackendUnavailable(err.to_string())),
+    }
+}
+
+fn file_secret_path(id: &str) -> Result<PathBuf, AuthError> {
+    if !id
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        return Err(AuthError::BackendUnavailable(
+            "invalid file secret id".into(),
+        ));
+    }
+    Ok(file_secret_dir()?.join(format!("{id}.json")))
+}
+
+fn file_secret_dir() -> Result<PathBuf, AuthError> {
+    if let Ok(path) = std::env::var(FILE_SECRET_DIR_ENV) {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            return Ok(PathBuf::from(trimmed));
         }
     }
+
+    #[cfg(windows)]
+    {
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            return Ok(PathBuf::from(local_app_data)
+                .join("com.coreelab.dive")
+                .join("secrets"));
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        if let Ok(xdg_data_home) = std::env::var("XDG_DATA_HOME") {
+            return Ok(PathBuf::from(xdg_data_home)
+                .join("com.coreelab.dive")
+                .join("secrets"));
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            return Ok(PathBuf::from(home)
+                .join(".local")
+                .join("share")
+                .join("com.coreelab.dive")
+                .join("secrets"));
+        }
+    }
+
+    Err(AuthError::BackendUnavailable(
+        "cannot resolve file secret directory".into(),
+    ))
+}
+
+fn file_secret_scope_hash(scope: &SecretScope) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(scope.service().as_bytes());
+    hasher.update([0]);
+    hasher.update(scope.account().as_bytes());
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+#[cfg(windows)]
+fn protect_file_secret(plain: &[u8]) -> Result<Vec<u8>, AuthError> {
+    use std::ptr;
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Cryptography::{
+        CryptProtectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+    };
+
+    let input = CRYPT_INTEGER_BLOB {
+        cbData: plain.len() as u32,
+        pbData: plain.as_ptr() as *mut u8,
+    };
+    let mut output = CRYPT_INTEGER_BLOB::default();
+    let ok = unsafe {
+        CryptProtectData(
+            &input,
+            ptr::null(),
+            ptr::null(),
+            ptr::null(),
+            ptr::null(),
+            CRYPTPROTECT_UI_FORBIDDEN,
+            &mut output,
+        )
+    };
+    if ok == 0 {
+        return Err(AuthError::BackendUnavailable(
+            std::io::Error::last_os_error().to_string(),
+        ));
+    }
+    let bytes =
+        unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec() };
+    unsafe {
+        LocalFree(output.pbData.cast());
+    }
+    Ok(bytes)
+}
+
+#[cfg(windows)]
+fn unprotect_file_secret(protected: &[u8]) -> Result<Vec<u8>, AuthError> {
+    use std::ptr;
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Cryptography::{
+        CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+    };
+
+    let input = CRYPT_INTEGER_BLOB {
+        cbData: protected.len() as u32,
+        pbData: protected.as_ptr() as *mut u8,
+    };
+    let mut output = CRYPT_INTEGER_BLOB::default();
+    let ok = unsafe {
+        CryptUnprotectData(
+            &input,
+            ptr::null_mut(),
+            ptr::null(),
+            ptr::null(),
+            ptr::null(),
+            CRYPTPROTECT_UI_FORBIDDEN,
+            &mut output,
+        )
+    };
+    if ok == 0 {
+        return Err(AuthError::BackendUnavailable(
+            std::io::Error::last_os_error().to_string(),
+        ));
+    }
+    let bytes =
+        unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec() };
+    unsafe {
+        LocalFree(output.pbData.cast());
+    }
+    Ok(bytes)
+}
+
+#[cfg(not(windows))]
+fn protect_file_secret(plain: &[u8]) -> Result<Vec<u8>, AuthError> {
+    Ok(plain.to_vec())
+}
+
+#[cfg(not(windows))]
+fn unprotect_file_secret(protected: &[u8]) -> Result<Vec<u8>, AuthError> {
+    Ok(protected.to_vec())
 }
 
 /// 반복 수동 QA 전용 로컬 파일 secret store.
@@ -320,6 +594,8 @@ pub fn delete_provider_api_key(
 mod tests {
     use super::*;
 
+    static FILE_SECRET_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn sample_scopes() -> Vec<SecretScope> {
         vec![
             SecretScope::ProviderApiKey {
@@ -450,6 +726,48 @@ mod tests {
             )
             .unwrap();
         assert!(load_codex_tokens(&keyring, 42).unwrap().is_none());
+    }
+
+    #[test]
+    fn file_secret_roundtrip_hides_large_codex_token_from_keyring_limit() {
+        let _guard = FILE_SECRET_ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var(FILE_SECRET_DIR_ENV, dir.path());
+        let scope = SecretScope::CodexAccessToken {
+            provider_config_id: 77,
+        };
+        let secret = format!("token.{}", "x".repeat(6_000));
+
+        let marker = write_file_secret(&scope, &secret).unwrap();
+
+        assert!(marker.starts_with(FILE_SECRET_MARKER_PREFIX));
+        assert_eq!(read_file_secret(&scope, &marker).unwrap(), secret);
+        let id = marker.strip_prefix(FILE_SECRET_MARKER_PREFIX).unwrap();
+        let raw = std::fs::read_to_string(file_secret_path(id).unwrap()).unwrap();
+        assert!(!raw.contains(&secret));
+
+        delete_file_secret_marker(&marker).unwrap();
+        assert!(!file_secret_path(id).unwrap().exists());
+        std::env::remove_var(FILE_SECRET_DIR_ENV);
+    }
+
+    #[test]
+    fn file_secret_rejects_wrong_scope() {
+        let _guard = FILE_SECRET_ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var(FILE_SECRET_DIR_ENV, dir.path());
+        let scope = SecretScope::CodexAccessToken {
+            provider_config_id: 77,
+        };
+        let other_scope = SecretScope::CodexAccessToken {
+            provider_config_id: 78,
+        };
+
+        let marker = write_file_secret(&scope, "secret").unwrap();
+
+        assert!(read_file_secret(&other_scope, &marker).is_err());
+        delete_file_secret_marker(&marker).unwrap();
+        std::env::remove_var(FILE_SECRET_DIR_ENV);
     }
 
     #[test]

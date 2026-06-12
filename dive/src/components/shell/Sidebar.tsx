@@ -10,7 +10,11 @@ import {
   selectHasConnectedProvider,
 } from "../../stores/project-session";
 import { NewProjectDialog } from "../onboarding/NewProjectDialog";
-import { providerDisplayName, modelDisplayName } from "../../lib/provider-format";
+import {
+  findConnectedProvider,
+  providerDisplayName,
+  modelDisplayName,
+} from "../../lib/provider-format";
 import { useT } from "../../i18n";
 
 interface SidebarProps {
@@ -59,7 +63,7 @@ export function Sidebar({ className }: SidebarProps) {
     await deleteSession(id);
   };
 
-  const connectedProvider = providers.find((p) => p.is_connected);
+  const connectedProvider = findConnectedProvider(providers);
   const selectedModelLabel = modelDisplayName(connectedProvider?.selected_model);
   const providerLabel =
     selectedModelLabel ??
