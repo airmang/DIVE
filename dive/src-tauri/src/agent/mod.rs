@@ -163,6 +163,8 @@ impl AgentLoop {
         } else {
             self.registry.tool_defs()
         };
+        let mut last_tool_signature: Option<String> = None;
+        let mut repeated_tool_turns = 0_u32;
 
         for iter in 0..self.max_iterations {
             self.check_cancel()?;
@@ -245,6 +247,43 @@ impl AgentLoop {
                     }),
                 )?;
                 return Ok(format!("stopped:{}", finish_reason_str(finish_reason)));
+            }
+
+            let tool_signature = tool_calls
+                .iter()
+                .map(|tc| format!("{}:{}", tc.name, tc.arguments))
+                .collect::<Vec<_>>()
+                .join("\n");
+            if last_tool_signature.as_deref() == Some(tool_signature.as_str()) {
+                repeated_tool_turns += 1;
+            } else {
+                repeated_tool_turns = 0;
+                last_tool_signature = Some(tool_signature);
+            }
+            if repeated_tool_turns >= 2 {
+                let reason = "repeated_tool_calls";
+                emit(AgentEvent::Done {
+                    reason: reason.into(),
+                });
+                self.log_event(
+                    session_id,
+                    "stage_exit",
+                    json!({
+                        "run_mode": self.run_mode.as_str(),
+                        "reason": reason,
+                    }),
+                )?;
+                self.log_event(
+                    session_id,
+                    "error_occurred",
+                    dive_event_log::error_payload(
+                        "agent_loop",
+                        "step stalled: repeated tool calls without a final response",
+                    ),
+                )?;
+                return Err(AgentError::Internal(
+                    "step stalled: repeated tool calls without a final response".into(),
+                ));
             }
 
             for tc in &tool_calls {
@@ -1156,6 +1195,9 @@ impl AgentLoop {
             if let Some(files) = &ctx.expected_files {
                 prompt_parts.push(format!("예상 변경 파일: {}", files));
             }
+            prompt_parts.push(
+                "단계 종료 규칙: 수용 기준을 충족했거나 더 이상 필요한 도구 호출이 없으면 즉시 도구 호출을 멈추고 최종 응답으로 변경 내용, 검증/미검증 근거, 남은 리스크를 요약하세요. 같은 정보를 반복 확인하기 위해 동일한 도구 호출을 반복하지 마세요.".to_string(),
+            );
         }
 
         let instruction = card.instruction.as_deref().unwrap_or("").trim();

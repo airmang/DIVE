@@ -338,7 +338,9 @@ pub(super) fn mark_step_blocked_after_recoverable_error(
     let recoverable_provider_error = lower.contains("429")
         || lower.contains("rate limit")
         || lower.contains("quota")
-        || lower.contains("freeusagelimiterror");
+        || lower.contains("freeusagelimiterror")
+        || lower.contains("max iterations")
+        || lower.contains("repeated tool calls");
     if !recoverable_provider_error {
         return Ok(());
     }

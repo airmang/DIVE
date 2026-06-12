@@ -121,7 +121,7 @@ export function useMockChatStream({
         );
         schedule(() => {
           const resultMsg: ToolResultMessageData = {
-            id: uid("tr"),
+            id: `tr-${callMsg.id}`,
             kind: "tool_result",
             createdAt: Date.now(),
             toolName: "list_dir",

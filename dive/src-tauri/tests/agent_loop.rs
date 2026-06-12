@@ -331,6 +331,71 @@ async fn scenario_b_tool_call_then_followup() {
 }
 
 #[tokio::test]
+async fn repeated_identical_tool_calls_stop_before_spinning() {
+    let (db, _db_file, root, sid) = fresh_env();
+    let repeated_turn = |id: &str| {
+        vec![
+            ChatEvent::ToolCallStart {
+                id: id.to_string(),
+                name: "list_dir".into(),
+            },
+            ChatEvent::ToolCallDelta {
+                id: id.to_string(),
+                arguments_delta: r#"{"path":"."}"#.into(),
+            },
+            ChatEvent::ToolCallEnd { id: id.to_string() },
+            ChatEvent::Done {
+                finish_reason: FinishReason::ToolCalls,
+            },
+        ]
+    };
+    let mock = Arc::new(MockProvider::new(vec![
+        repeated_turn("call-1"),
+        repeated_turn("call-2"),
+        repeated_turn("call-3"),
+        vec![
+            ChatEvent::TextDelta("This should not be reached.".into()),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ],
+    ]));
+    let loop_ = AgentLoop::builder()
+        .provider(mock.clone())
+        .registry(Arc::new(ToolRegistry::with_builtins()))
+        .permission(Arc::new(AlwaysApproveHook))
+        .db(db.clone())
+        .tool_ctx(ToolContext::new(root.path(), sid))
+        .model("mock-model")
+        .cancel(Arc::new(AtomicBool::new(false)))
+        .run_mode(AgentRunMode::Build)
+        .plan_accepted(true)
+        .max_iterations(5)
+        .build()
+        .unwrap();
+
+    let mut events = Vec::new();
+    let result = loop_
+        .run(sid, "keep checking", &mut |e| events.push(e))
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(AgentError::Internal(message)) if message.contains("repeated tool calls")
+    ));
+    assert_eq!(mock.request_count(), 3);
+    assert!(events.iter().any(
+        |event| matches!(event, AgentEvent::Done { reason } if reason == "repeated_tool_calls")
+    ));
+
+    let db_guard = db.lock().unwrap();
+    let logs = event_log::list_by_session(db_guard.conn(), sid).unwrap();
+    assert!(logs
+        .iter()
+        .any(|row| row.r#type == "stage_exit" && row.payload["reason"] == "repeated_tool_calls"));
+}
+
+#[tokio::test]
 async fn tool_call_followup_replays_reasoning_content_and_writes_index() {
     let (db, _db_file, root, sid) = fresh_env();
 

@@ -376,6 +376,8 @@ async fn agent_loop_injects_active_step_context_into_system_prompt() {
     assert!(system_content.contains("Write plan files"));
     assert!(system_content.contains("plan.json exists"));
     assert!(system_content.contains(".dive/plan.json"));
+    assert!(system_content.contains("단계 종료 규칙"));
+    assert!(system_content.contains("동일한 도구 호출을 반복하지 마세요"));
 }
 
 #[tokio::test]

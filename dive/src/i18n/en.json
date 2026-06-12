@@ -322,6 +322,10 @@
     "blocked_pattern": "Pattern:",
     "blocked_explain": "This command is blocked by the safety policy (§9.2) and cannot run, with or without your approval.",
     "why_label": "why",
+    "group_summary": "{{count}} tool use(s)",
+    "group_summary_pending": "{{count}} tool use(s) awaiting approval",
+    "group_summary_running": "{{count}} tool use(s) running",
+    "group_summary_failed": "{{count}} tool use(s) need attention",
     "result_finished": "Finished",
     "result_failed": "Failed"
   },

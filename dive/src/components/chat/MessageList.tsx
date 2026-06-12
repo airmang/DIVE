@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, ChevronDown } from "lucide-react";
+import type { ReactNode } from "react";
 import type { ChatMessage } from "./types";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
@@ -22,6 +23,12 @@ interface Props {
 
 /** Scroll distance from bottom that still counts as "pinned". */
 const AUTO_SCROLL_THRESHOLD_PX = 50;
+
+function isToolRelated(message: ChatMessage): boolean {
+  return (
+    message.kind === "reasoning" || message.kind === "tool_call" || message.kind === "tool_result"
+  );
+}
 
 function MessageListImpl({
   messages,
@@ -115,50 +122,126 @@ function MessageListImpl({
             else if (m.kind === "tool_result") resultByCall.set(m.id.replace(/^tr-/, ""), m);
           }
 
-          return visible.map((msg) => {
+          const renderToolActivity = (msg: Extract<ChatMessage, { kind: "tool_call" }>) => {
+            const reasoning = reasoningByCall.get(msg.id);
+            const result = resultByCall.get(msg.id);
+            return (
+              <div
+                key={msg.id}
+                ref={msg.status === "pending" ? setPendingNode(msg.id) : undefined}
+                data-pending-approval={msg.status === "pending" ? "true" : undefined}
+              >
+                <ToolActivity
+                  call={msg}
+                  reasoning={reasoning?.kind === "reasoning" ? reasoning : undefined}
+                  result={result?.kind === "tool_result" ? result : undefined}
+                  onApprove={onApproveToolCall}
+                  onDeny={onDenyToolCall}
+                />
+              </div>
+            );
+          };
+
+          const renderToolGroup = (
+            calls: Extract<ChatMessage, { kind: "tool_call" }>[],
+            key: string,
+          ) => {
+            const hasPending = calls.some((call) => call.status === "pending");
+            const hasRunning = calls.some(
+              (call) => call.status === "approved" && !resultByCall.has(call.id),
+            );
+            const failedCount = calls.filter((call) => {
+              const result = resultByCall.get(call.id);
+              return result?.kind === "tool_result" && !result.success;
+            }).length;
+            const summaryKey = hasPending
+              ? "tool_call.group_summary_pending"
+              : hasRunning
+                ? "tool_call.group_summary_running"
+                : failedCount > 0
+                  ? "tool_call.group_summary_failed"
+                  : "tool_call.group_summary";
+            return (
+              <details
+                key={key}
+                className="group rounded-md border border-border bg-bg-panel2/50 px-3 py-2"
+                data-testid="tool-activity-list"
+                open={hasPending || hasRunning ? true : undefined}
+              >
+                <summary className="flex min-h-8 cursor-pointer list-none items-center gap-2 text-sm font-medium text-fg marker:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg">
+                  <ChevronDown
+                    className="h-4 w-4 text-fg-subtle transition-transform group-open:rotate-180"
+                    aria-hidden
+                  />
+                  <span>{t(summaryKey, { count: calls.length })}</span>
+                </summary>
+                <div className="mt-2 flex flex-col gap-2">{calls.map(renderToolActivity)}</div>
+              </details>
+            );
+          };
+
+          const collectToolCalls = (start: number) => {
+            const calls: Extract<ChatMessage, { kind: "tool_call" }>[] = [];
+            let cursor = start;
+            while (cursor < visible.length && isToolRelated(visible[cursor])) {
+              const candidate = visible[cursor];
+              if (candidate.kind === "tool_call") calls.push(candidate);
+              cursor += 1;
+            }
+            return { calls, nextIndex: cursor };
+          };
+
+          const items: ReactNode[] = [];
+          for (let index = 0; index < visible.length; index += 1) {
+            const msg = visible[index];
             switch (msg.kind) {
               case "user":
-                return (
+                items.push(
                   <UserMessage
                     key={msg.id}
                     message={msg}
                     onEdit={onEditUser}
                     onResend={onResendUser}
-                  />
+                  />,
                 );
+                break;
               case "assistant":
-                return <AssistantMessage key={msg.id} message={msg} />;
+                if (index + 1 < visible.length && isToolRelated(visible[index + 1])) {
+                  const { calls, nextIndex } = collectToolCalls(index + 1);
+                  if (calls.length > 0) {
+                    items.push(renderToolGroup(calls, `tools-before-${msg.id}`));
+                    items.push(<AssistantMessage key={msg.id} message={msg} />);
+                    index = nextIndex - 1;
+                    break;
+                  }
+                }
+                items.push(<AssistantMessage key={msg.id} message={msg} />);
+                break;
               case "reasoning":
                 // Rendered inside its ToolActivity (grouped by toolCallId).
-                return null;
+                break;
               case "tool_call": {
-                const reasoning = reasoningByCall.get(msg.id);
-                const result = resultByCall.get(msg.id);
-                return (
-                  <div
-                    key={msg.id}
-                    ref={msg.status === "pending" ? setPendingNode(msg.id) : undefined}
-                    data-pending-approval={msg.status === "pending" ? "true" : undefined}
-                  >
-                    <ToolActivity
-                      call={msg}
-                      reasoning={reasoning?.kind === "reasoning" ? reasoning : undefined}
-                      result={result?.kind === "tool_result" ? result : undefined}
-                      onApprove={onApproveToolCall}
-                      onDeny={onDenyToolCall}
-                    />
-                  </div>
-                );
+                const { calls, nextIndex } = collectToolCalls(index);
+                if (calls.length > 0) {
+                  items.push(
+                    renderToolGroup(calls, `tools-${calls.map((call) => call.id).join("-")}`),
+                  );
+                  index = nextIndex - 1;
+                }
+                break;
               }
               case "tool_result":
                 // Rendered inside its ToolActivity (grouped by call_id).
-                return null;
+                break;
               case "system":
-                return <SystemMessage key={msg.id} message={msg} />;
+                items.push(<SystemMessage key={msg.id} message={msg} />);
+                break;
               case "error":
-                return <ErrorMessage key={msg.id} message={msg} onRetry={onRetryError} />;
+                items.push(<ErrorMessage key={msg.id} message={msg} onRetry={onRetryError} />);
+                break;
             }
-          });
+          }
+          return items;
         })()}
         <div ref={sentinelRef} aria-hidden />
       </div>
