@@ -158,7 +158,9 @@ fn build_system_prompt() -> String {
      Use ROUTE chat for questions, status checks, clarifications, discussion, \
      or anything that does not add concrete implementation work.\n\
      Use ROUTE add_step only when the user asks for a new concrete task that \
-     belongs in the current approved plan.\n\
+     belongs in the current approved plan. If the user asks to run, continue, \
+     inspect, verify, revise, or repeat work already covered by an existing \
+     listed step, use ROUTE chat instead.\n\
      New steps must fit DIVE's execution envelope: one supervised turn, small \
      file-focused scope, no shell scripts, and verification_command must be one \
      no-shell command with explicit args and a 60 second budget.\n\

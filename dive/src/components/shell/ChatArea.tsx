@@ -1,4 +1,4 @@
-import { AlertCircle, Lightbulb, MessagesSquare, PanelRight, X } from "lucide-react";
+import { AlertCircle, Eye, Lightbulb, MessagesSquare, PanelRight, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
@@ -40,6 +40,8 @@ export type ChatStageBannerTone = "info" | "warn" | "success";
 export interface ChatStageBanner {
   tone: ChatStageBannerTone;
   message: string;
+  actionLabel?: string;
+  onAction?: () => void;
 }
 
 interface ChatAreaProps {
@@ -53,6 +55,7 @@ interface ChatAreaProps {
   stageBanner?: ChatStageBanner | null;
   onSendMessage?: (text: string) => void;
   onOpenSlidePanel?: () => void;
+  onOpenResultPanel?: () => void;
   onRetryError?: (id: string) => void;
   onApproveToolCall?: (toolCallId: string, modifiedArgs?: unknown) => void;
   onDenyToolCall?: (toolCallId: string, reason?: string) => void;
@@ -90,6 +93,7 @@ export function ChatArea({
   stageBanner,
   onSendMessage,
   onOpenSlidePanel,
+  onOpenResultPanel,
   onRetryError,
   onApproveToolCall,
   onDenyToolCall,
@@ -166,6 +170,17 @@ export function ChatArea({
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <RuntimeBadge />
+          {onOpenResultPanel ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onOpenResultPanel}
+              aria-label={t("chat.result_panel_aria")}
+            >
+              <Eye />
+              <span>{t("chat.result_label")}</span>
+            </Button>
+          ) : null}
           <Button
             variant="outline"
             size="sm"
@@ -192,6 +207,18 @@ export function ChatArea({
         >
           <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
           <span className="text-fg">{stageBanner.message}</span>
+          {stageBanner.actionLabel && stageBanner.onAction ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={stageBanner.onAction}
+              className="ml-auto h-7"
+              data-testid="chat-stage-banner-action"
+            >
+              <Eye />
+              {stageBanner.actionLabel}
+            </Button>
+          ) : null}
         </div>
       ) : null}
 

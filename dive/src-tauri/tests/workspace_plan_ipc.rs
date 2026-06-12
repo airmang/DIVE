@@ -487,6 +487,40 @@ async fn route_chat_parses_add_step_and_generates_next_step_id() {
 }
 
 #[tokio::test]
+async fn route_chat_downgrades_duplicate_step_to_chat() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta("ROUTE add_step title=\"Step step-001\" summary=\"Repeat existing step.\" instruction_seed=\"Do step-001\" expected_files=[\"src/auth.ts\"] acceptance_criteria=[\"Users can sign in.\"] verification_type=\"manual\" verification_command=\"\" dependencies=[] parallel_group=null reason=\"new implementation request\"".into()),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    insert_step(&state, plan_id, "step-001", &[]);
+
+    let decision = workspace_plan_route_chat_impl(
+        &state,
+        project_id,
+        "1단계를 다시 만들어줘".into(),
+        None,
+    )
+    .await
+    .unwrap();
+
+    match decision {
+        RouteDecision::Chat { reason } => {
+            assert!(reason.contains("already covered by step-001"));
+        }
+        other => panic!("expected duplicate route to become chat, got {other:?}"),
+    }
+    assert_eq!(workspace_plan_list_steps_impl(&state, plan_id).unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn route_chat_cancel_while_waiting_for_provider_response() {
     let tmp = tempfile::tempdir().unwrap();
     let provider_called = Arc::new(AtomicBool::new(false));
@@ -607,6 +641,29 @@ fn append_step_rejects_invalid_dependencies() {
     .unwrap_err();
 
     assert!(err.contains("invalid dependency"));
+    assert_eq!(
+        workspace_plan_list_steps_impl(&state, plan_id)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn append_step_rejects_duplicate_title() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    insert_step(&state, plan_id, "step-001", &[]);
+
+    let mut duplicate = append_step_draft(vec![]);
+    duplicate.title = "Step step-001".into();
+    duplicate.instruction_seed = "Create another copy of the first step.".into();
+
+    let err = workspace_plan_append_step_impl(&state, plan_id, duplicate).unwrap_err();
+
+    assert!(err.contains("step already exists"));
     assert_eq!(
         workspace_plan_list_steps_impl(&state, plan_id)
             .unwrap()

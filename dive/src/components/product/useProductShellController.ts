@@ -310,6 +310,17 @@ export function useProductShellController() {
   const closeSlideIn = useSlideInStore((s) => s.close);
   const slideInOpen = useSlideInStore((s) => s.isOpen);
 
+  const openResultPanelWithContext = useCallback(() => {
+    const currentFiles = currentCard ? roadmapModel.changedFilesForStep(currentCard.id) : [];
+    openSlideIn({
+      tab: "preview",
+      files: currentFiles,
+      changeSummary: currentCard?.changeSummary ?? null,
+      emptyReason: currentFiles.length > 0 ? null : "no_output",
+      replaceFiles: true,
+    });
+  }, [currentCard, openSlideIn, roadmapModel]);
+
   const promptContext = useMemo(
     () => promptContextFor(currentCard, cards.length, allVerified),
     [currentCard, cards.length, allVerified],
@@ -634,6 +645,7 @@ export function useProductShellController() {
     onSessionAction: () => {
       if (currentProjectId !== null) void createSession(currentProjectId);
     },
+    onOpenResultPanel: openResultPanelWithContext,
     t,
   });
 
@@ -890,6 +902,7 @@ export function useProductShellController() {
       stageBanner,
       onSendMessage: sendMessage,
       onOpenSlidePanel: openCodePanelWithContext,
+      onOpenResultPanel: openResultPanelWithContext,
       onRetryError: handleRetryError,
       onApproveToolCall: (toolCallId: string, modifiedArgs?: unknown) =>
         void chat.approveToolCall(toolCallId, modifiedArgs),

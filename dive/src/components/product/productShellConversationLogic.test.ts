@@ -14,18 +14,36 @@ const t = (key: string) => key;
 
 describe("product shell conversation logic", () => {
   it("derives stage banners for empty, selected, and complete card states", () => {
+    const noop = vi.fn();
     expect(
-      deriveStageBanner({ cardCount: 0, currentCard: null, allVerified: false, t }),
+      deriveStageBanner({
+        cardCount: 0,
+        currentCard: null,
+        allVerified: false,
+        onOpenResultPanel: noop,
+        t,
+      }),
     ).toBeNull();
-    expect(deriveStageBanner({ cardCount: 2, currentCard: null, allVerified: true, t })).toEqual({
+    expect(
+      deriveStageBanner({
+        cardCount: 2,
+        currentCard: null,
+        allVerified: true,
+        onOpenResultPanel: noop,
+        t,
+      }),
+    ).toEqual({
       tone: "success",
       message: "stage.banner_all_verified",
+      actionLabel: "chat.result_label",
+      onAction: noop,
     });
     expect(
       deriveStageBanner({
         cardCount: 1,
         currentCard: { state: "instructed", summary: " " },
         allVerified: false,
+        onOpenResultPanel: noop,
         t,
       }),
     ).toEqual({ tone: "warn", message: "stage.banner_instructed_empty" });

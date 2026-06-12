@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useSlideInStore } from "../../stores/slideIn";
 import { Button } from "../ui/button";
 
+const PREVIEW_CANDIDATES = ["http://127.0.0.1:5173", "http://localhost:5173"];
+
 function isSafeUrl(raw: string): boolean {
   try {
     const u = new URL(raw);
@@ -29,6 +31,12 @@ export function PreviewTab() {
     }
     setError(null);
     setPreviewUrl(trimmed);
+  };
+
+  const loadCandidate = (url: string) => {
+    setInput(url);
+    setError(null);
+    setPreviewUrl(url);
   };
 
   return (
@@ -72,9 +80,25 @@ export function PreviewTab() {
             className="flex h-full items-center justify-center p-6 text-center"
             data-testid="preview-empty"
           >
-            <p className="text-sm text-fg-muted">
-              웹 프로젝트만 지원합니다. URL을 입력해 열어보세요.
-            </p>
+            <div className="max-w-sm">
+              <p className="text-sm font-semibold text-fg">결과를 볼 로컬 주소를 선택하세요.</p>
+              <p className="mt-2 text-sm text-fg-muted">
+                웹 프로젝트 서버가 실행 중이면 아래 기본 주소로 바로 확인할 수 있습니다.
+              </p>
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
+                {PREVIEW_CANDIDATES.map((url) => (
+                  <Button
+                    key={url}
+                    size="sm"
+                    variant="outline"
+                    onClick={() => loadCandidate(url)}
+                    data-testid="preview-candidate"
+                  >
+                    {url}
+                  </Button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </div>

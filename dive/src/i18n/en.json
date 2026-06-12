@@ -269,6 +269,8 @@
     "no_session": "No session",
     "slide_panel_aria": "Open code and preview panel",
     "code_preview_label": "Code & preview",
+    "result_panel_aria": "Open result preview panel",
+    "result_label": "View result",
     "empty_default_title": "Start a session to begin chatting",
     "empty_default_description": "Enter a goal or pick a roadmap step",
     "empty_hint": "In the sidebar, click + New session to begin",

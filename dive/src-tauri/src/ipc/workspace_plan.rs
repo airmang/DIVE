@@ -730,8 +730,17 @@ async fn workspace_plan_route_chat_inner(
         PlanRouterDecision::Chat { reason } => Ok(RouteDecision::Chat { reason }),
         PlanRouterDecision::AddStep { draft, reason } => {
             let db = state.db.lock().map_err(|e| e.to_string())?;
+            let draft = step_draft_input_from_router(db.conn(), plan_id, *draft)?;
+            if let Some(existing) = find_duplicate_step(db.conn(), plan_id, &draft)? {
+                return Ok(RouteDecision::Chat {
+                    reason: format!(
+                        "already covered by {}: {}",
+                        existing.step_id, existing.title
+                    ),
+                });
+            }
             Ok(RouteDecision::AddStep {
-                draft: Box::new(step_draft_input_from_router(db.conn(), plan_id, *draft)?),
+                draft: Box::new(draft),
                 reason,
             })
         }
@@ -794,6 +803,12 @@ pub fn workspace_plan_append_step_impl(
     }
 
     validate_draft_dependencies(&tx, plan_id, &draft.dependencies)?;
+    if let Some(existing) = find_duplicate_step(&tx, plan_id, &draft)? {
+        return Err(format!(
+            "step already exists: {} ({})",
+            existing.step_id, existing.title
+        ));
+    }
     let step_id = step_dao::next_step_id(&tx, plan_id).map_err(|e| e.to_string())?;
     let position = step_dao::next_position(&tx, plan_id).map_err(|e| e.to_string())?;
     let inserted_id = step_dao::insert(
@@ -1433,6 +1448,43 @@ fn step_draft_input_from_router(
         position: step_dao::next_position(conn, plan_id).map_err(|e| e.to_string())?,
         step_id: step_dao::next_step_id(conn, plan_id).map_err(|e| e.to_string())?,
     })
+}
+
+fn find_duplicate_step(
+    conn: &rusqlite::Connection,
+    plan_id: i64,
+    draft: &StepDraftInput,
+) -> Result<Option<StepRow>, String> {
+    let draft_title = normalize_step_text(&draft.title);
+    let draft_instruction = normalize_step_text(&draft.instruction_seed);
+    let draft_summary = normalize_step_text(&draft.summary);
+
+    for step in step_dao::list_by_plan(conn, plan_id).map_err(|e| e.to_string())? {
+        let title_matches =
+            !draft_title.is_empty() && draft_title == normalize_step_text(&step.title);
+        let instruction_matches = step
+            .instruction_seed
+            .as_deref()
+            .map(normalize_step_text)
+            .is_some_and(|existing| !draft_instruction.is_empty() && existing == draft_instruction);
+        let summary_matches = step
+            .summary
+            .as_deref()
+            .map(normalize_step_text)
+            .is_some_and(|existing| !draft_summary.is_empty() && existing == draft_summary);
+        if title_matches || instruction_matches || summary_matches {
+            return Ok(Some(step));
+        }
+    }
+    Ok(None)
+}
+
+fn normalize_step_text(value: &str) -> String {
+    value
+        .chars()
+        .flat_map(char::to_lowercase)
+        .filter(|ch| ch.is_alphanumeric())
+        .collect()
 }
 
 fn validate_append_draft(draft: &StepDraftInput) -> Result<(), String> {
