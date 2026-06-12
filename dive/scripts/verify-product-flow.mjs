@@ -32,6 +32,9 @@ function includesAll(source, needles) {
 const lib = read("dive/src-tauri/src/lib.rs");
 const projectSession = read("dive/src/stores/project-session.ts");
 const controller = read("dive/src/components/product/useProductShellController.ts");
+const planStepLogic = read("dive/src/components/product/productShellPlanStepLogic.ts");
+const planStepRuntime = read("dive/src/components/product/useProductPlanStepRuntime.ts");
+const productRecovery = read("dive/src/components/product/useProductRecovery.ts");
 const productLayout = read("dive/src/components/product/ProductShellLayout.tsx");
 const chatSession = read("dive/src/hooks/useChatSession.ts");
 const workmap = read("dive/src/hooks/useWorkmap.ts");
@@ -245,13 +248,16 @@ check(
 );
 check(
   "opening a roadmap step seeds the build prompt with plan context",
-  includesAll(controller, [
+  includesAll(planStepRuntime, [
     "buildPlanStepExecutionPrompt",
     "pendingAutoRunPlanStepBySession",
-    "Expected files:",
-    "Acceptance criteria:",
-    'chat.sendUserMessage(buildPlanStepExecutionPrompt(item), "build", true, item.step.id)',
-  ]),
+    "input.chat.sendUserMessage",
+  ]) &&
+    includesAll(planStepLogic, [
+      "buildPlanStepExecutionPrompt",
+      "Expected files:",
+      "Acceptance criteria:",
+    ]),
 );
 check(
   "approved-plan chat routing asks before adding new plan steps",
@@ -381,7 +387,7 @@ check(
     '"checkpoint_restore"',
     "CheckpointRowPayload",
   ]) &&
-    includesAll(controller, [
+    includesAll(productRecovery, [
       "handleManualCheckpoint",
       "refreshCheckpoints",
       "handleRestoreCheckpoint",
