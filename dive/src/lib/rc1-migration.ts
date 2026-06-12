@@ -32,7 +32,8 @@ export function runRc1Migration(storage: Storage | null = browserStorage()): Rc1
   }
 
   const preservedKeys = RC1_PRESERVED_KEYS.filter((key) => storage.getItem(key) !== null);
-  return { needed: true, removedKeys, preservedKeys };
+  storage.setItem(RC1_MIGRATION_KEY, "true");
+  return { needed: false, removedKeys, preservedKeys };
 }
 
 export function acknowledgeRc1Migration(storage: Storage | null = browserStorage()) {

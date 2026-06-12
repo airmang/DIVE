@@ -9,16 +9,21 @@ import "./styles/globals.css";
 
 interface StartupErrorBoundaryState {
   error: Error | null;
+  componentStack: string | null;
 }
 
 class StartupErrorBoundary extends React.Component<
   React.PropsWithChildren,
   StartupErrorBoundaryState
 > {
-  state: StartupErrorBoundaryState = { error: null };
+  state: StartupErrorBoundaryState = { error: null, componentStack: null };
 
   static getDerivedStateFromError(error: Error): StartupErrorBoundaryState {
-    return { error };
+    return { error, componentStack: null };
+  }
+
+  componentDidCatch(_error: Error, errorInfo: React.ErrorInfo) {
+    this.setState({ componentStack: errorInfo.componentStack ?? null });
   }
 
   render() {
@@ -35,6 +40,7 @@ class StartupErrorBoundary extends React.Component<
             </p>
             <pre className="mt-4 max-h-64 overflow-auto rounded bg-bg-subtle p-3 text-xs text-fg-muted">
               {this.state.error.message}
+              {this.state.componentStack ? `\n${this.state.componentStack}` : ""}
             </pre>
           </section>
         </main>

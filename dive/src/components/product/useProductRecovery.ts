@@ -50,8 +50,8 @@ export function useProductRecovery(input: {
 
   const refreshCheckpoints = useCallback(async () => {
     if (input.currentSessionId === null) {
-      setCheckpoints([]);
-      setCheckpointsError(null);
+      setCheckpoints((current) => (current.length === 0 ? current : []));
+      setCheckpointsError((current) => (current === null ? current : null));
       return;
     }
     setCheckpointsLoading(true);
@@ -64,7 +64,7 @@ export function useProductRecovery(input: {
     } finally {
       setCheckpointsLoading(false);
     }
-  }, [input.chat, input.currentSessionId]);
+  }, [input.chat.listCheckpoints, input.currentSessionId]);
 
   useEffect(() => {
     void refreshCheckpoints();
