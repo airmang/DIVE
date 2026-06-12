@@ -1,27 +1,53 @@
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(test)]
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+#[cfg(test)]
 use std::sync::Arc;
 #[cfg(test)]
 use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use base64::Engine as _;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
-use tokio::sync::mpsc;
 use tokio::time::{timeout, Duration, Instant};
 
 use crate::agent::{AgentError, AgentEvent, AgentLoop};
 use crate::auth::{self, Keyring};
 use crate::providers::{FinishReason, Message as ProviderMessage, ToolCall, ToolDef};
 
+mod command;
+mod credential;
+mod protocol;
+mod runtime_state;
+mod transport;
+
 pub mod parity;
 
-use parity::{CredentialMode, PiProviderDescriptor};
+#[cfg(test)]
+use command::set_test_sidecar_script_path;
+use command::{bundled_sidecar_path, resolve_sidecar_command};
+use credential::{
+    decode_jwt_exp_ms, default_expiry_ms, file_mode_string, now_epoch_ms,
+    prepare_runtime_credential, write_codex_auth_file, TempAuthDir,
+};
+#[cfg(test)]
+use parity::CredentialMode;
+use parity::PiProviderDescriptor;
+use protocol::{map_sidecar_delta_event, SidecarEvent};
+pub use runtime_state::PiRuntimeState;
+use runtime_state::{
+    mark_active_step_blocked_by_pi_runtime_error, runtime_state_path, write_runtime_state,
+    RUNTIME_STATE_PROTOCOL_VERSION,
+};
+#[cfg(test)]
+use transport::set_test_sidecar_timing;
+use transport::{
+    next_sidecar_event, next_sidecar_event_during_tool, redact_line, send_sidecar_cancel,
+    sidecar_timing, spawn_sidecar_stdout_reader, wait_for_cancel,
+};
 
 const PROVIDER_ID: &str = "openai-codex";
 const DEFAULT_MODEL: &str = "gpt-5.4-mini";
@@ -29,7 +55,6 @@ const SMOKE_MARKER: &str = "DIVE_PI_SIDECAR_TOOL_OK";
 const SMOKE_PROMPT: &str = "Use the dive_context tool exactly once with request \"phase2-smoke\". After the tool result, reply exactly DIVE_PI_SIDECAR_TOOL_OK and nothing else.";
 const PI_TURN_TIMEOUT: Duration = Duration::from_secs(120);
 const SIDECAR_HEARTBEAT_STALL_TIMEOUT: Duration = Duration::from_secs(20);
-const RUNTIME_STATE_PROTOCOL_VERSION: u32 = 1;
 const SIDECAR_CANCELLED: &str = "pi sidecar turn cancelled";
 /// Cap on sidecar events buffered while a DIVE tool is executing. Legitimate parallel
 /// tool calls stay well under this; exceeding it fails the turn (retryable) instead of
@@ -54,283 +79,6 @@ pub struct PiSidecarTurnResult {
     pub enabled_tools: Vec<String>,
     pub tool_calls_seen: usize,
     pub assistant_text: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PiRuntimeState {
-    pub protocol_version: u32,
-    pub session_id: i64,
-    pub request_id: String,
-    pub provider_config_id: i64,
-    pub provider: String,
-    pub model: String,
-    pub cwd: String,
-    pub tool_names: Vec<String>,
-    pub message_count: usize,
-    pub auth_file_mode: String,
-    pub status: String,
-    pub tool_calls_seen: usize,
-    pub started_at: u64,
-    pub updated_at: u64,
-    pub completed_at: Option<u64>,
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum SidecarEvent {
-    Ready {
-        model: String,
-        enabled_tools: Vec<String>,
-    },
-    ToolCall {
-        tool_call_id: String,
-        name: String,
-        #[allow(dead_code)]
-        params: serde_json::Value,
-    },
-    AssistantDelta {
-        delta: String,
-    },
-    ReasoningDelta {
-        delta: String,
-    },
-    ToolCallEnd {
-        #[allow(dead_code)]
-        tool_call_id: String,
-    },
-    TurnSucceeded {
-        assistant_text: String,
-    },
-    Error {
-        message: String,
-    },
-    Heartbeat {
-        #[allow(dead_code)]
-        request_id: Option<String>,
-        #[allow(dead_code)]
-        turn_id: Option<String>,
-        #[allow(dead_code)]
-        ts: Option<u64>,
-    },
-}
-
-fn map_sidecar_delta_event(event: &SidecarEvent, assistant_id: &str) -> Option<AgentEvent> {
-    match event {
-        SidecarEvent::AssistantDelta { delta } => Some(AgentEvent::AssistantDelta {
-            id: assistant_id.to_string(),
-            delta: delta.clone(),
-        }),
-        // Legacy provider streaming stores reasoning deltas for assistant-message
-        // persistence, but does not emit a UI-facing AgentEvent per token.
-        SidecarEvent::ReasoningDelta { .. } => None,
-        _ => None,
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct SidecarTiming {
-    turn_timeout: Duration,
-    heartbeat_stall_timeout: Duration,
-}
-
-fn sidecar_timing() -> SidecarTiming {
-    #[cfg(test)]
-    {
-        if let Some(timing) = TEST_SIDECAR_TIMING
-            .get_or_init(|| Mutex::new(None))
-            .lock()
-            .ok()
-            .and_then(|guard| *guard)
-        {
-            return timing;
-        }
-    }
-
-    SidecarTiming {
-        turn_timeout: PI_TURN_TIMEOUT,
-        heartbeat_stall_timeout: SIDECAR_HEARTBEAT_STALL_TIMEOUT,
-    }
-}
-
-enum SidecarReadMessage {
-    Event(SidecarEvent),
-    Eof,
-    Error(String),
-}
-
-fn spawn_sidecar_stdout_reader(
-    stdout: tokio::process::ChildStdout,
-) -> mpsc::Receiver<SidecarReadMessage> {
-    let (tx, rx) = mpsc::channel(64);
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stdout).lines();
-        loop {
-            match reader.next_line().await {
-                Ok(Some(line)) => {
-                    let message = match serde_json::from_str::<SidecarEvent>(&line) {
-                        Ok(event) => SidecarReadMessage::Event(event),
-                        Err(err) => SidecarReadMessage::Error(format!(
-                            "parse sidecar event: {err}: {}",
-                            redact_line(&line)
-                        )),
-                    };
-                    if tx.send(message).await.is_err() {
-                        return;
-                    }
-                }
-                Ok(None) => {
-                    let _ = tx.send(SidecarReadMessage::Eof).await;
-                    return;
-                }
-                Err(err) => {
-                    let _ = tx
-                        .send(SidecarReadMessage::Error(format!(
-                            "read sidecar event: {err}"
-                        )))
-                        .await;
-                    return;
-                }
-            }
-        }
-    });
-    rx
-}
-
-fn remaining_turn_budget(started: Instant, timeout: Duration) -> Result<Duration, String> {
-    timeout
-        .checked_sub(started.elapsed())
-        .ok_or_else(|| "pi sidecar turn timed out".to_string())
-}
-
-async fn next_sidecar_event(
-    rx: &mut mpsc::Receiver<SidecarReadMessage>,
-    started: Instant,
-    timing: SidecarTiming,
-) -> Result<SidecarEvent, String> {
-    let remaining = remaining_turn_budget(started, timing.turn_timeout)?;
-    let wait_for = remaining.min(timing.heartbeat_stall_timeout);
-    match timeout(wait_for, rx.recv()).await {
-        Ok(Some(SidecarReadMessage::Event(event))) => Ok(event),
-        Ok(Some(SidecarReadMessage::Eof)) => {
-            Err("pi sidecar stdout closed before turn completion".to_string())
-        }
-        Ok(Some(SidecarReadMessage::Error(err))) => Err(err),
-        Ok(None) => Err("pi sidecar event reader stopped before turn completion".to_string()),
-        Err(_) if started.elapsed() >= timing.turn_timeout => {
-            Err("pi sidecar turn timed out".to_string())
-        }
-        Err(_) => Err(format!(
-            "pi sidecar heartbeat stalled for {}ms",
-            timing.heartbeat_stall_timeout.as_millis()
-        )),
-    }
-}
-
-/// Wait for the next sidecar event while a DIVE tool (which may block on a human
-/// approval card) is executing. The 120s turn budget is intentionally NOT
-/// enforced here: a student deliberating on an approval is the supervision the
-/// product is teaching, so their thinking time must not kill the turn. Sidecar
-/// liveness is still guarded by the heartbeat-stall timeout (the sidecar
-/// heartbeats every 5s while awaiting the tool result), so a dead sidecar is
-/// caught even while we wait on the human.
-async fn next_sidecar_event_during_tool(
-    rx: &mut mpsc::Receiver<SidecarReadMessage>,
-    timing: SidecarTiming,
-) -> Result<SidecarEvent, String> {
-    match timeout(timing.heartbeat_stall_timeout, rx.recv()).await {
-        Ok(Some(SidecarReadMessage::Event(event))) => Ok(event),
-        Ok(Some(SidecarReadMessage::Eof)) => {
-            Err("pi sidecar stdout closed before turn completion".to_string())
-        }
-        Ok(Some(SidecarReadMessage::Error(err))) => Err(err),
-        Ok(None) => Err("pi sidecar event reader stopped before turn completion".to_string()),
-        Err(_) => Err(format!(
-            "pi sidecar heartbeat stalled for {}ms",
-            timing.heartbeat_stall_timeout.as_millis()
-        )),
-    }
-}
-
-fn sidecar_event_name(event: &SidecarEvent) -> &'static str {
-    match event {
-        SidecarEvent::Ready { .. } => "ready",
-        SidecarEvent::ToolCall { .. } => "tool_call",
-        SidecarEvent::AssistantDelta { .. } => "assistant_delta",
-        SidecarEvent::ReasoningDelta { .. } => "reasoning_delta",
-        SidecarEvent::ToolCallEnd { .. } => "tool_call_end",
-        SidecarEvent::TurnSucceeded { .. } => "turn_succeeded",
-        SidecarEvent::Error { .. } => "error",
-        SidecarEvent::Heartbeat { .. } => "heartbeat",
-    }
-}
-
-struct TempAuthDir {
-    path: PathBuf,
-}
-
-impl TempAuthDir {
-    fn create() -> Result<Self, String> {
-        let path = std::env::temp_dir().join(format!("dive-pi-sidecar-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir(&path).map_err(|e| format!("temp auth dir: {e}"))?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
-                .map_err(|e| format!("chmod temp auth dir: {e}"))?;
-        }
-        Ok(Self { path })
-    }
-
-    fn auth_path(&self) -> PathBuf {
-        self.path.join("auth.json")
-    }
-
-    fn agent_dir(&self) -> PathBuf {
-        self.path.join("agent")
-    }
-}
-
-impl Drop for TempAuthDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.path);
-    }
-}
-
-enum RuntimeCredential {
-    OauthFile {
-        _temp: TempAuthDir,
-        auth_path: PathBuf,
-        auth_file_mode: String,
-    },
-    ApiKey {
-        api_key: String,
-        auth_file_mode: String,
-    },
-}
-
-impl RuntimeCredential {
-    fn auth_path(&self) -> Option<&Path> {
-        match self {
-            Self::OauthFile { auth_path, .. } => Some(auth_path.as_path()),
-            Self::ApiKey { .. } => None,
-        }
-    }
-
-    fn api_key(&self) -> Option<&str> {
-        match self {
-            Self::OauthFile { .. } => None,
-            Self::ApiKey { api_key, .. } => Some(api_key),
-        }
-    }
-
-    fn auth_file_mode(&self) -> &str {
-        match self {
-            Self::OauthFile { auth_file_mode, .. } | Self::ApiKey { auth_file_mode, .. } => {
-                auth_file_mode
-            }
-        }
-    }
 }
 
 pub async fn run_codex_smoke(
@@ -969,114 +717,6 @@ async fn run_supervised_turn_inner(
     })
 }
 
-fn write_codex_auth_file(
-    path: &Path,
-    access_token: &str,
-    refresh_token: &str,
-    expires: u64,
-    account_id: &str,
-) -> Result<(), String> {
-    let body = json!({
-        PROVIDER_ID: {
-            "type": "oauth",
-            "access": access_token,
-            "refresh": refresh_token,
-            "expires": expires,
-            "accountId": account_id,
-        }
-    });
-    std::fs::write(
-        path,
-        format!("{}\n", serde_json::to_string_pretty(&body).unwrap()),
-    )
-    .map_err(|e| format!("write pi auth.json: {e}"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-            .map_err(|e| format!("chmod pi auth.json: {e}"))?;
-    }
-    Ok(())
-}
-
-fn runtime_state_path(root: &Path, session_id: i64) -> PathBuf {
-    root.join("pi-sidecar")
-        .join("sessions")
-        .join(session_id.to_string())
-        .join("state.json")
-}
-
-fn write_runtime_state(path: &Path, state: &PiRuntimeState) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| "runtime state path has no parent".to_string())?;
-    std::fs::create_dir_all(parent).map_err(|e| format!("create runtime state dir: {e}"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))
-            .map_err(|e| format!("chmod runtime state dir: {e}"))?;
-    }
-    std::fs::write(
-        path,
-        format!("{}\n", serde_json::to_string_pretty(state).unwrap()),
-    )
-    .map_err(|e| format!("write runtime state: {e}"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-            .map_err(|e| format!("chmod runtime state: {e}"))?;
-    }
-    Ok(())
-}
-
-fn mark_active_step_blocked_by_pi_runtime_error(
-    agent_loop: &AgentLoop,
-    session_id: i64,
-    message: &str,
-) -> Result<(), String> {
-    let Some(step_context) = agent_loop.step_context.as_ref() else {
-        return Ok(());
-    };
-
-    let db = agent_loop.db.lock().map_err(|e| e.to_string())?;
-    let Some(mapping) =
-        crate::db::dao::step_session_mapping::get_by_step(db.conn(), step_context.step_id)
-            .map_err(|e| e.to_string())?
-    else {
-        return Ok(());
-    };
-    if mapping.status == "done" || mapping.status == "shipped" {
-        return Ok(());
-    }
-
-    crate::db::dao::step_session_mapping::update_status(db.conn(), mapping.id, "blocked")
-        .map_err(|e| e.to_string())?;
-    let step = crate::db::dao::step::get_by_id(db.conn(), step_context.step_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("step {} not found", step_context.step_id))?;
-    let plan = crate::db::dao::plan::get_by_id(db.conn(), step.plan_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("plan {} not found", step.plan_id))?;
-    let _ = crate::dive::event_log::append_to_conn(
-        db.conn(),
-        mapping.session_id.or(Some(session_id)),
-        "plan_step_state_changed",
-        serde_json::json!({
-            "project_id": plan.project_id,
-            "plan_id": plan.id,
-            "step_id": step.id,
-            "stable_step_id": step.step_id,
-            "step_title": step.title,
-            "message": "Step blocked by retryable Pi runtime error",
-            "reason": crate::telemetry::redact_log_text(message),
-            "runtime": "pi_sidecar",
-        }),
-    );
-    Ok(())
-}
-
 #[allow(clippy::too_many_arguments)]
 fn build_run_message(
     request_id: &str,
@@ -1119,101 +759,6 @@ fn build_run_message(
     message["tools"] = json!(tools);
 
     message
-}
-
-async fn wait_for_cancel(cancel: Arc<AtomicBool>) {
-    while !cancel.load(Ordering::SeqCst) {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-}
-
-async fn send_sidecar_cancel(
-    stdin: &mut tokio::process::ChildStdin,
-    request_id: &str,
-    reason: &str,
-) {
-    let message = json!({
-        "type": "turn_cancel",
-        "request_id": request_id,
-        "reason": reason,
-    });
-    let _ = stdin.write_all(format!("{message}\n").as_bytes()).await;
-}
-
-fn prepare_runtime_credential(
-    keyring: &dyn Keyring,
-    descriptor: &PiProviderDescriptor,
-    provider_config_id: i64,
-) -> Result<RuntimeCredential, String> {
-    match descriptor.credential_mode {
-        CredentialMode::OauthFile => {
-            let (access_token, refresh_token, account_id, expires) =
-                load_codex_auth_entry(keyring, provider_config_id)?;
-            let temp = TempAuthDir::create()?;
-            std::fs::create_dir_all(temp.agent_dir()).map_err(|e| format!("agent dir: {e}"))?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(temp.agent_dir(), std::fs::Permissions::from_mode(0o700))
-                    .map_err(|e| format!("chmod agent dir: {e}"))?;
-            }
-            write_codex_auth_file(
-                &temp.auth_path(),
-                &access_token,
-                &refresh_token,
-                expires,
-                &account_id,
-            )?;
-
-            let auth_file_mode = file_mode_string(&temp.auth_path())?;
-            Ok(RuntimeCredential::OauthFile {
-                auth_path: temp.auth_path(),
-                auth_file_mode,
-                _temp: temp,
-            })
-        }
-        CredentialMode::ApiKey => {
-            let api_key = auth::load_provider_api_key(keyring, provider_config_id)
-                .map_err(|e| format!("keyring: {e}"))?
-                .ok_or_else(|| format!("API key not found for provider {provider_config_id}"))?;
-            Ok(RuntimeCredential::ApiKey {
-                api_key,
-                auth_file_mode: "runtime-api-key".to_string(),
-            })
-        }
-    }
-}
-
-fn load_codex_auth_entry(
-    keyring: &dyn Keyring,
-    provider_config_id: i64,
-) -> Result<(String, String, String, u64), String> {
-    let (access_token, refresh_token, id_token) =
-        auth::load_codex_tokens(keyring, provider_config_id)
-            .map_err(|e| format!("keyring: {e}"))?
-            .ok_or_else(|| {
-                format!("codex OAuth tokens not found for provider {provider_config_id}")
-            })?;
-
-    let access_account_id = auth::codex_oauth::decode_account_id(&access_token).ok();
-    let id_account_id = if id_token.trim().is_empty() {
-        None
-    } else {
-        auth::codex_oauth::decode_account_id(&id_token).ok()
-    };
-    let account_id = access_account_id
-        .clone()
-        .or(id_account_id)
-        .ok_or_else(|| "codex OAuth tokens do not expose a ChatGPT account id".to_string())?;
-
-    if access_account_id.is_none() {
-        return Err(
-            "Pi Codex OAuth requires the ChatGPT account id claim in the access token".to_string(),
-        );
-    }
-
-    let expires = decode_jwt_exp_ms(&access_token).unwrap_or_else(default_expiry_ms);
-    Ok((access_token, refresh_token, account_id, expires))
 }
 
 fn sorted_tool_names(tools: &[ToolDef]) -> Vec<String> {
@@ -1260,174 +805,6 @@ fn render_messages_for_pi(messages: &[ProviderMessage]) -> String {
     }
     rendered.push_str("Respond to the latest user message now.");
     rendered
-}
-
-fn default_sidecar_script_path() -> Result<PathBuf, String> {
-    #[cfg(test)]
-    {
-        if let Some(path) = TEST_SIDECAR_SCRIPT_PATH
-            .get_or_init(|| Mutex::new(None))
-            .lock()
-            .map_err(|e| format!("test sidecar script lock: {e}"))?
-            .clone()
-        {
-            return Ok(path);
-        }
-    }
-
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let dive_dir = manifest_dir
-        .parent()
-        .ok_or_else(|| "cannot resolve DIVE app directory".to_string())?;
-    let script = dive_dir.join("pi-sidecar").join("src").join("main.mjs");
-    if !script.exists() {
-        return Err(format!("pi sidecar script not found: {}", script.display()));
-    }
-    Ok(script)
-}
-
-/// How to launch the sidecar process: a program plus any leading args.
-struct SidecarCommand {
-    program: String,
-    prefix_args: Vec<String>,
-}
-
-/// Candidate path of the compiled sidecar binary shipped next to the app
-/// executable via Tauri `externalBin`. `None` in contexts without a resolvable
-/// executable path (e.g. some test harnesses).
-fn bundled_sidecar_path() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let dir = exe.parent()?;
-    let name = if cfg!(windows) {
-        "dive-pi-sidecar.exe"
-    } else {
-        "dive-pi-sidecar"
-    };
-    Some(dir.join(name))
-}
-
-/// Resolve how to spawn the sidecar. The packaged app ships a compiled
-/// standalone binary (`externalBin`) and runs it directly; development (and any
-/// build without the bundled binary present) falls back to `node <script>`.
-fn resolve_sidecar_command(bundled: Option<PathBuf>) -> Result<SidecarCommand, String> {
-    if let Some(bin) = bundled {
-        if bin.exists() {
-            return Ok(SidecarCommand {
-                program: bin.display().to_string(),
-                prefix_args: Vec::new(),
-            });
-        }
-    }
-    let script_path = default_sidecar_script_path()?;
-    Ok(SidecarCommand {
-        program: "node".to_string(),
-        prefix_args: vec![script_path.display().to_string()],
-    })
-}
-
-#[cfg(test)]
-static TEST_SIDECAR_SCRIPT_PATH: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
-
-#[cfg(test)]
-static TEST_SIDECAR_TIMING: OnceLock<Mutex<Option<SidecarTiming>>> = OnceLock::new();
-
-#[cfg(test)]
-struct TestSidecarScriptPathGuard;
-
-#[cfg(test)]
-struct TestSidecarTimingGuard;
-
-#[cfg(test)]
-fn set_test_sidecar_script_path(path: PathBuf) -> TestSidecarScriptPathGuard {
-    let lock = TEST_SIDECAR_SCRIPT_PATH.get_or_init(|| Mutex::new(None));
-    *lock.lock().unwrap() = Some(path);
-    TestSidecarScriptPathGuard
-}
-
-#[cfg(test)]
-fn set_test_sidecar_timing(
-    turn_timeout: Duration,
-    heartbeat_stall_timeout: Duration,
-) -> TestSidecarTimingGuard {
-    let lock = TEST_SIDECAR_TIMING.get_or_init(|| Mutex::new(None));
-    *lock.lock().unwrap() = Some(SidecarTiming {
-        turn_timeout,
-        heartbeat_stall_timeout,
-    });
-    TestSidecarTimingGuard
-}
-
-#[cfg(test)]
-impl Drop for TestSidecarScriptPathGuard {
-    fn drop(&mut self) {
-        if let Some(lock) = TEST_SIDECAR_SCRIPT_PATH.get() {
-            *lock.lock().unwrap() = None;
-        }
-    }
-}
-
-#[cfg(test)]
-impl Drop for TestSidecarTimingGuard {
-    fn drop(&mut self) {
-        if let Some(lock) = TEST_SIDECAR_TIMING.get() {
-            *lock.lock().unwrap() = None;
-        }
-    }
-}
-
-fn decode_jwt_exp_ms(token: &str) -> Option<u64> {
-    let payload = token.split('.').nth(1)?;
-    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload.as_bytes())
-        .ok()?;
-    let claims: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-    claims.get("exp")?.as_u64().map(|seconds| seconds * 1000)
-}
-
-fn default_expiry_ms() -> u64 {
-    now_epoch_ms() + 55 * 60 * 1000
-}
-
-fn now_epoch_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0)
-}
-
-fn file_mode_string(path: &Path) -> Result<String, String> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(path)
-            .map_err(|e| format!("stat pi auth.json: {e}"))?
-            .permissions()
-            .mode()
-            & 0o777;
-        Ok(format!("{mode:o}"))
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
-        Ok("platform-default".to_string())
-    }
-}
-
-fn redact_line(line: &str) -> String {
-    line.split_whitespace()
-        .map(|part| {
-            if part.len() >= 32
-                && part
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
-            {
-                "[REDACTED]"
-            } else {
-                part
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 #[cfg(test)]
@@ -1788,24 +1165,6 @@ function ready(message) {
     }
 
     #[test]
-    fn writes_pi_codex_auth_file_shape_with_private_mode() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("auth.json");
-        write_codex_auth_file(&path, "access-token", "refresh-token", 12345, "acct_123").unwrap();
-
-        let value: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(value[PROVIDER_ID]["type"], "oauth");
-        assert_eq!(value[PROVIDER_ID]["access"], "access-token");
-        assert_eq!(value[PROVIDER_ID]["refresh"], "refresh-token");
-        assert_eq!(value[PROVIDER_ID]["expires"], 12345);
-        assert_eq!(value[PROVIDER_ID]["accountId"], "acct_123");
-
-        #[cfg(unix)]
-        assert_eq!(file_mode_string(&path).unwrap(), "600");
-    }
-
-    #[test]
     fn renders_external_messages_for_pi_with_role_boundaries() {
         let rendered = render_messages_for_pi(&[
             ProviderMessage::System {
@@ -1818,25 +1177,6 @@ function ready(message) {
         assert!(rendered.contains("<system>\nsystem hint\n</system>"));
         assert!(rendered.contains("<user>\nlatest request\n</user>"));
         assert!(rendered.contains("Use only the DIVE tools"));
-    }
-
-    #[test]
-    fn dev_resolution_falls_back_to_node_with_a_script() {
-        let cmd = resolve_sidecar_command(None).expect("dev resolution");
-        assert_eq!(cmd.program, "node");
-        assert_eq!(cmd.prefix_args.len(), 1);
-        assert!(cmd.prefix_args[0].ends_with(".mjs"));
-    }
-
-    #[test]
-    fn release_resolution_uses_bundled_binary_when_present() {
-        // A path that exists stands in for a shipped bundled binary.
-        let present = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
-            .join("pi_sidecar.rs");
-        let cmd = resolve_sidecar_command(Some(present.clone())).expect("release resolution");
-        assert_eq!(cmd.program, present.display().to_string());
-        assert!(cmd.prefix_args.is_empty());
     }
 
     #[test]
@@ -1854,38 +1194,6 @@ function ready(message) {
             },
         ];
         assert_eq!(sorted_tool_names(&tools), ["read_file", "write_file"]);
-    }
-
-    #[test]
-    fn runtime_state_is_private_and_secret_free() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = runtime_state_path(dir.path(), 42);
-        let state = PiRuntimeState {
-            protocol_version: RUNTIME_STATE_PROTOCOL_VERSION,
-            session_id: 42,
-            request_id: "req-test".into(),
-            provider_config_id: 2,
-            provider: PROVIDER_ID.into(),
-            model: DEFAULT_MODEL.into(),
-            cwd: "/tmp/project".into(),
-            tool_names: vec!["read_file".into()],
-            message_count: 3,
-            auth_file_mode: "600".into(),
-            status: "running".into(),
-            tool_calls_seen: 0,
-            started_at: 1,
-            updated_at: 2,
-            completed_at: None,
-            error: None,
-        };
-        write_runtime_state(&path, &state).unwrap();
-        let raw = std::fs::read_to_string(&path).unwrap();
-        assert!(raw.contains("\"status\": \"running\""));
-        assert!(!raw.contains("access"));
-        assert!(!raw.contains("refresh"));
-        assert!(!raw.contains("accountId"));
-        #[cfg(unix)]
-        assert_eq!(file_mode_string(&path).unwrap(), "600");
     }
 
     #[test]
