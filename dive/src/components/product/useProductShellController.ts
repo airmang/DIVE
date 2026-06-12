@@ -20,49 +20,29 @@ import {
 } from "../../stores/workmap";
 import { selectHasConnectedProvider, useProjectSessionStore } from "../../stores/project-session";
 import { cockpitProviderLabel } from "../../lib/provider-format";
-import type { GetStartedModel } from "./GetStartedChecklist";
 import { useToast } from "../toast/toast-context";
 import { getCardStateMeta } from "../workmap/card-state-meta";
 import { useT } from "../../i18n";
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts";
 import { usePlanRoadmap, useRoadmap } from "../../features/roadmap";
-import type { StepSessionMappingRow } from "../../features/roadmap";
 import { usePlan, usePlanRouter, type RouteDecision } from "../../features/planning";
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
 import {
   usePlanInterviewLLM,
   type PlanDraftLlmErrorReason,
 } from "../../features/planning/usePlanInterviewLLM";
-import { useChatSession, type CheckpointRowPayload } from "../../hooks/useChatSession";
+import { useChatSession } from "../../hooks/useChatSession";
 import { refreshMenuRecents, useMenuEvents } from "../../lib/menu-events";
 import { pickFolder } from "../../lib/tauri-dialog";
 import { useTheme } from "../../hooks/useTheme";
 import { hasRecognizedDemoRoute } from "../../lib/dev-demo";
 import { useUiPreferencesStore } from "../../stores/ui-preferences";
-import type { FailedStepRecovery } from "./RecoveryPanel";
 import { useProductShellDialogs } from "./useProductShellDialogs";
 import { PlanDraftRecoveryScreen } from "./PlanDraftRecoveryScreen";
 import { SocraticInterviewPanel } from "./SocraticInterviewPanel";
-import {
-  buildPlanStepExecutionPrompt,
-  deriveActivePlanStepIdForChat,
-  pruneCaughtUpPlanStepSessionMap,
-} from "./productShellPlanStepLogic";
-import {
-  checkpointToRecoveryItem,
-  compactFailureReason,
-  deriveFailureReason,
-  latestToolFailureSummary,
-} from "./productShellRecoveryLogic";
-import {
-  deriveComposerHint,
-  deriveEmptyState,
-  deriveGetStartedModel,
-  deriveInputBlocked,
-  deriveStageBanner,
-  findLatestInterviewQuestion,
-  shouldShowInterviewPanel,
-} from "./productShellConversationLogic";
+import { useProductPlanStepRuntime } from "./useProductPlanStepRuntime";
+import { useProductConversationModel } from "./useProductConversationModel";
+import { useProductRecovery } from "./useProductRecovery";
 
 const PlanDraftApprovalScreen = lazy(() =>
   import("./PlanDraftApprovalScreen").then((module) => ({
@@ -81,7 +61,6 @@ export function useProductShellController() {
   const t = useT();
   const dialogs = useProductShellDialogs();
   const setOnboardingOpen = dialogs.setOnboardingOpen;
-  const [lastManualCheckpointLabel, setLastManualCheckpointLabel] = useState<string | null>(null);
   const [activeInterview, setActiveInterview] = useState<InterviewRow | null>(null);
   const activeInterviewRef = useRef<InterviewRow | null>(null);
   const [generatedPlanDraft, setGeneratedPlanDraft] = useState<PlanGenerationResult | null>(null);
@@ -97,16 +76,6 @@ export function useProductShellController() {
     resolve: (confirmed: boolean) => void;
   } | null>(null);
   const pendingPlanReplaceRef = useRef<{ resolve: (confirmed: boolean) => void } | null>(null);
-  const [checkpoints, setCheckpoints] = useState<CheckpointRowPayload[]>([]);
-  const [checkpointsLoading, setCheckpointsLoading] = useState(false);
-  const [checkpointsError, setCheckpointsError] = useState<string | null>(null);
-  const [restoringCheckpointId, setRestoringCheckpointId] = useState<number | null>(null);
-  const [justOpenedPlanStepBySession, setJustOpenedPlanStepBySession] = useState<
-    Record<number, number>
-  >({});
-  const [pendingAutoRunPlanStepBySession, setPendingAutoRunPlanStepBySession] = useState<
-    Record<number, number>
-  >({});
   const wasStreaming = useRef(false);
 
   const projectSessionLoaded = useProjectSessionStore((s) => s.loaded);
@@ -320,73 +289,22 @@ export function useProductShellController() {
     },
   });
   const chat = useChatSession(currentSessionId, planInterviewObserver, handleBeforeChatSend);
-  const listCheckpoints = chat.listCheckpoints;
 
   useEffect(() => {
     activeInterviewRef.current = activeInterview;
   }, [activeInterview]);
-  const refreshCheckpoints = useCallback(async () => {
-    if (currentSessionId === null) {
-      setCheckpoints([]);
-      setCheckpointsError(null);
-      return;
-    }
-    setCheckpointsLoading(true);
-    try {
-      const rows = await listCheckpoints();
-      setCheckpoints(rows);
-      setCheckpointsError(null);
-    } catch (err) {
-      setCheckpointsError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCheckpointsLoading(false);
-    }
-  }, [currentSessionId, listCheckpoints]);
 
   const cards = roadmapModel.workmapCompat.cards;
   const currentCard = useWorkmapStore(selectCurrentCard);
   const currentCardId = roadmapModel.activeStepId;
   const allVerified = useWorkmapStore(selectAllCardsVerified);
-  const rememberJustOpenedPlanStepMapping = useCallback((mapping: StepSessionMappingRow) => {
-    const sessionId = mapping.session_id;
-    if (sessionId === null) return;
-    setJustOpenedPlanStepBySession((current) => ({
-      ...current,
-      [sessionId]: mapping.step_id,
-    }));
-    setPendingAutoRunPlanStepBySession((current) => ({
-      ...current,
-      [sessionId]: mapping.step_id,
-    }));
-  }, []);
-  const activePlanStepIdForChat = useMemo(() => {
-    return deriveActivePlanStepIdForChat({
-      currentSessionId,
-      justOpenedPlanStepBySession,
-      currentCard,
-      planRoadmapSteps: planRoadmap.steps,
-    });
-  }, [currentCard, currentSessionId, justOpenedPlanStepBySession, planRoadmap.steps]);
+  const { activePlanStepIdForChat, rememberJustOpenedPlanStepMapping } = useProductPlanStepRuntime({
+    currentSessionId,
+    currentCard,
+    planRoadmapSteps: planRoadmap.steps,
+    chat,
+  });
   const planAccepted = planRoadmap.hasPlan;
-
-  useEffect(() => {
-    setJustOpenedPlanStepBySession((current) => {
-      return pruneCaughtUpPlanStepSessionMap(current, planRoadmap.steps);
-    });
-  }, [planRoadmap.steps]);
-
-  useEffect(() => {
-    void refreshCheckpoints();
-  }, [refreshCheckpoints]);
-
-  useEffect(() => {
-    if (wasStreaming.current && !chat.isStreaming) {
-      void roadmapModel.refresh();
-      void planRoadmap.refresh();
-      void refreshCheckpoints();
-    }
-    wasStreaming.current = chat.isStreaming;
-  }, [chat.isStreaming, refreshCheckpoints, roadmapModel, planRoadmap]);
 
   const openSlideIn = useSlideInStore((s) => s.open);
   const closeSlideIn = useSlideInStore((s) => s.close);
@@ -395,25 +313,6 @@ export function useProductShellController() {
   const promptContext = useMemo(
     () => promptContextFor(currentCard, cards.length, allVerified),
     [currentCard, cards.length, allVerified],
-  );
-
-  useEffect(() => {
-    if (currentSessionId === null || chat.isStreaming || !chat.isTauri) return;
-    const stepId = pendingAutoRunPlanStepBySession[currentSessionId];
-    if (stepId === undefined) return;
-    const item = planRoadmap.steps.find((candidate) => candidate.step.id === stepId);
-    if (!item) return;
-    setPendingAutoRunPlanStepBySession((current) => {
-      const next = { ...current };
-      delete next[currentSessionId];
-      return next;
-    });
-    void chat.sendUserMessage(buildPlanStepExecutionPrompt(item), "build", true, item.step.id);
-  }, [chat, currentSessionId, pendingAutoRunPlanStepBySession, planRoadmap.steps]);
-
-  const stageBanner = useMemo(
-    () => deriveStageBanner({ cardCount: cards.length, currentCard, allVerified, t }),
-    [cards.length, currentCard, allVerified, t],
   );
 
   const showWorkmapError = useCallback(
@@ -501,31 +400,6 @@ export function useProductShellController() {
     dialogs.setStepDetailOpen(false);
   }, [dialogs, requestChatFocus]);
 
-  const handleManualCheckpoint = useCallback(() => {
-    const label = currentCard
-      ? t("checkpoint.manual_label_with_card", { title: currentCard.title })
-      : t("checkpoint.manual_label");
-    void (async () => {
-      try {
-        const row = await chat.createCheckpoint(currentCard?.id ?? null, label);
-        const savedLabel = row?.label ?? label;
-        setLastManualCheckpointLabel(savedLabel);
-        void refreshCheckpoints();
-        toast({
-          variant: "success",
-          title: t("checkpoint.manual_saved"),
-          description: savedLabel,
-        });
-      } catch (err) {
-        toast({
-          variant: "error",
-          title: t("toast.checkpoint_save_failed"),
-          description: err instanceof Error ? err.message : String(err),
-        });
-      }
-    })();
-  }, [chat, currentCard, refreshCheckpoints, toast, t]);
-
   const openSettingsRoute = useCallback(() => {
     const url = new URL(window.location.href);
     url.searchParams.delete("demo");
@@ -612,20 +486,6 @@ export function useProductShellController() {
         title: t("toast.about_title"),
         description: t("toast.about_description"),
       }),
-  });
-
-  useGlobalShortcuts({
-    onManualCheckpoint: handleManualCheckpoint,
-    onNewProject: () => dialogs.setNewProjectOpen(true),
-    onOpenSettings: openSettingsRoute,
-    onOpenPromptHelper: openPromptHelperRoute,
-    onToggleSlidePanel: () => {
-      if (slideInOpen) {
-        closeSlideIn();
-      } else {
-        openSlideIn({ tab: "code" });
-      }
-    },
   });
 
   const handleVerify = useCallback(
@@ -735,79 +595,38 @@ export function useProductShellController() {
     }
     void createSession(currentProjectId);
   }, [createSession, currentProjectId, dialogs]);
-  const inputBlocked = useMemo(() => {
-    return deriveInputBlocked({
-      isDemoRoute,
-      currentProjectId,
-      currentSessionId,
-      hasConnectedProvider,
-      onEmptyStateAction: handleEmptyStateAction,
-      onOpenSettings: openSettingsRoute,
-      t,
-    });
-  }, [
-    currentProjectId,
-    currentSessionId,
-    handleEmptyStateAction,
-    hasConnectedProvider,
-    isDemoRoute,
-    openSettingsRoute,
-    t,
-  ]);
-
-  // C1: a missing step instruction is coaching, not a wall. Cockpit-first means
-  // chat is never blocked just because a card has no instruction yet — we surface
-  // a dismissible, non-blocking hint instead. (Card-summary persistence still
-  // records whether an instruction was written, so research telemetry is intact.)
-  const composerHint = useMemo(() => {
-    return deriveComposerHint({
-      currentCard,
-      onWriteInstruction: () => dialogs.setStepDetailOpen(true),
-      t,
-    });
-  }, [currentCard, dialogs, t]);
-
-  const emptyState = useMemo(() => {
-    return deriveEmptyState({
-      currentProjectId,
-      currentSessionId,
-      onEmptyStateAction: handleEmptyStateAction,
-      t,
-    });
-  }, [currentProjectId, currentSessionId, handleEmptyStateAction, t]);
-
-  // C2: one cockpit-center checklist (project -> AI -> session) replaces the
-  // scattered first-run anchors. null once all prerequisites are met (or on demo
-  // routes); otherwise the first unmet step is "current".
-  const getStarted = useMemo<GetStartedModel | null>(() => {
-    return deriveGetStartedModel({
-      isDemoRoute,
-      projectSessionLoaded,
-      currentProjectId,
-      hasConnectedProvider,
-      currentSessionId,
-      currentProjectName,
-      providerDoneHint: cockpitProviderLabel(providers),
-      onProjectAction: handleEmptyStateAction,
-      onProviderAction: () => setOnboardingOpen(true),
-      onSessionAction: () => {
-        if (currentProjectId !== null) void createSession(currentProjectId);
-      },
-      t,
-    });
-  }, [
+  const {
+    stageBanner,
+    inputBlocked,
+    composerHint,
+    emptyState,
+    getStarted,
+    latestInterviewQuestion,
+    showInterviewPanel,
+    showProviderSetupBanner,
+  } = useProductConversationModel({
     isDemoRoute,
     projectSessionLoaded,
     currentProjectId,
-    hasConnectedProvider,
     currentSessionId,
     currentProjectName,
-    providers,
-    handleEmptyStateAction,
-    setOnboardingOpen,
-    createSession,
+    hasConnectedProvider,
+    providerDoneHint: cockpitProviderLabel(providers),
+    cardCount: cards.length,
+    currentCard,
+    allVerified,
+    messages: chat.messages,
+    generatedPlanDraftPresent: generatedPlanDraft !== null,
+    planStatus: plan.status,
+    onEmptyStateAction: handleEmptyStateAction,
+    onOpenSettings: openSettingsRoute,
+    onWriteInstruction: () => dialogs.setStepDetailOpen(true),
+    onProviderAction: () => setOnboardingOpen(true),
+    onSessionAction: () => {
+      if (currentProjectId !== null) void createSession(currentProjectId);
+    },
     t,
-  ]);
+  });
 
   const handleCreatePlanFromRail = useCallback(() => {
     if (currentProjectId === null || currentSessionId === null) {
@@ -866,100 +685,60 @@ export function useProductShellController() {
     [chat],
   );
 
-  const recoveryCheckpoints = useMemo(
-    () => checkpoints.map(checkpointToRecoveryItem),
-    [checkpoints],
-  );
+  const interviewPanelDisabled = currentSessionId === null || !hasConnectedProvider;
 
-  const handleRestoreCheckpoint = useCallback(
-    async (checkpointId: number) => {
-      setRestoringCheckpointId(checkpointId);
-      try {
-        await chat.restoreCheckpoint(checkpointId);
-        toast({
-          variant: "success",
-          title: t("recovery.restore_success_title"),
-          description: t("recovery.restore_success_description"),
-        });
-        await roadmapModel.refresh();
-        await refreshCheckpoints();
-      } catch (err) {
-        toast({
-          variant: "error",
-          title: t("recovery.restore_unavailable_title"),
-          description: err instanceof Error ? err.message : String(err),
-        });
-      } finally {
-        setRestoringCheckpointId(null);
+  const {
+    lastManualCheckpointLabel,
+    recoveryCheckpoints,
+    checkpointsLoading,
+    checkpointsError,
+    restoringCheckpointId,
+    failedStepRecovery,
+    refreshCheckpoints,
+    handleManualCheckpoint,
+    handleRestoreCheckpoint,
+  } = useProductRecovery({
+    chat,
+    currentSessionId,
+    currentCard,
+    currentVerifyLog,
+    currentVerifyState,
+    currentVerifyError,
+    planAccepted,
+    activePlanStepIdForChat,
+    onRefreshRoadmap: roadmapModel.refresh,
+    onVerifyCurrentStep: () => {
+      if (!currentCard) return;
+      void handleVerify(currentCard.id);
+    },
+    onRetryError: handleRetryError,
+    onOpenPlanInterview: openPlanInterview,
+    toast,
+    t,
+  });
+
+  useEffect(() => {
+    if (wasStreaming.current && !chat.isStreaming) {
+      void roadmapModel.refresh();
+      void planRoadmap.refresh();
+      void refreshCheckpoints();
+    }
+    wasStreaming.current = chat.isStreaming;
+  }, [chat.isStreaming, refreshCheckpoints, roadmapModel, planRoadmap]);
+
+  useGlobalShortcuts({
+    onManualCheckpoint: handleManualCheckpoint,
+    onNewProject: () => dialogs.setNewProjectOpen(true),
+    onOpenSettings: openSettingsRoute,
+    onOpenPromptHelper: openPromptHelperRoute,
+    onToggleSlidePanel: () => {
+      if (slideInOpen) {
+        closeSlideIn();
+      } else {
+        openSlideIn({ tab: "code" });
       }
     },
-    [chat, refreshCheckpoints, roadmapModel, t, toast],
-  );
-
-  const handleExplainRecovery = useCallback(
-    (reason: string) => {
-      const stepTitle = currentCard?.title ?? t("roadmap.current_step_fallback");
-      void chat.sendUserMessage(
-        t("recovery.explain_failure_prompt", { title: stepTitle, reason }),
-        undefined,
-        planAccepted || activePlanStepIdForChat !== undefined,
-        activePlanStepIdForChat,
-      );
-    },
-    [activePlanStepIdForChat, chat, currentCard, planAccepted, t],
-  );
-
-  const handleRetryRecovery = useCallback(() => {
-    if (currentCard && (currentVerifyLog || currentVerifyState === "error")) {
-      void handleVerify(currentCard.id);
-      return;
-    }
-    handleRetryError();
-  }, [currentCard, currentVerifyLog, currentVerifyState, handleRetryError, handleVerify]);
-
-  const handleAdjustPlanRecovery = useCallback(
-    (reason: string) => {
-      const stepTitle = currentCard?.title ?? t("roadmap.current_step_fallback");
-      openPlanInterview(t("planning.interview.adjust_failure_seed", { title: stepTitle, reason }));
-    },
-    [currentCard, openPlanInterview, t],
-  );
-
-  const failureReason = deriveFailureReason({
-    currentVerifyError,
-    currentVerifyLog,
-    currentCardState: currentCard?.state,
-    latestToolFailureSummary: latestToolFailureSummary(chat.messages),
-    rejectedReason: t("recovery.rejected_reason"),
-    verifyDidNotPassFallback: (result) => t("recovery.verify_did_not_pass", { result }),
   });
-  const failedStepRecovery: FailedStepRecovery | null =
-    currentCard && failureReason
-      ? {
-          stepTitle: currentCard.title,
-          reason: compactFailureReason(failureReason),
-          onExplainError: () => handleExplainRecovery(failureReason),
-          onRetry: handleRetryRecovery,
-          onAdjustPlan: () => handleAdjustPlanRecovery(failureReason),
-        }
-      : null;
-
-  const showProviderSetupBanner =
-    projectSessionLoaded && !isDemoRoute && currentProjectId !== null && !hasConnectedProvider;
-
-  const latestInterviewQuestion = useMemo(
-    () => findLatestInterviewQuestion(chat.messages, t("planning.interview.question_fallback")),
-    [chat.messages, t],
-  );
-
-  const planStatus = plan.status;
-  const showInterviewPanel = shouldShowInterviewPanel({
-    isDemoRoute,
-    currentProjectId,
-    generatedPlanDraftPresent: generatedPlanDraft !== null,
-    planStatus,
-  });
-  const interviewPanelDisabled = currentSessionId === null || !hasConnectedProvider;
 
   const handleStartInterview = useCallback(
     (goal: string) => {
