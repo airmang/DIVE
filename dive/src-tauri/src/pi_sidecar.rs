@@ -1051,6 +1051,7 @@ mod tests {
     fn event_kind(event: &AgentEvent) -> &'static str {
         match event {
             AgentEvent::UserMessage { .. } => "user_message",
+            AgentEvent::RuntimeSelected { .. } => "runtime_selected",
             AgentEvent::AssistantStart { .. } => "assistant_start",
             AgentEvent::AssistantDelta { .. } => "assistant_delta",
             AgentEvent::AssistantEnd { .. } => "assistant_end",

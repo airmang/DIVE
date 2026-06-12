@@ -120,6 +120,7 @@ pub fn run() {
             ipc::provider_disconnect,
             ipc::provider_policy_get,
             ipc::provider_policy_set,
+            ipc::preview_start,
             ipc::research_settings_get,
             ipc::research_settings_set,
             ipc::checkpoint_timeline,

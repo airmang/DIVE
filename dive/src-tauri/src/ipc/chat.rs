@@ -13,6 +13,7 @@ use crate::db::dao::{
     step_session_mapping as mapping_dao,
 };
 use crate::db::models::MessageRow;
+use crate::db::now_ms;
 use crate::dive::event_log as dive_event_log;
 use crate::tools::ToolContext;
 
@@ -124,6 +125,20 @@ pub(super) fn select_runtime(kind: ProviderKind, env_override: Option<&str>) -> 
             } else {
                 RuntimeChoice::Legacy
             }
+        }
+    }
+}
+
+fn runtime_selection_reason(kind: &ProviderKind, choice: RuntimeChoice) -> String {
+    match (std::env::var("DIVE_RUNTIME").ok().as_deref(), choice) {
+        (Some("legacy"), RuntimeChoice::Legacy) => "DIVE_RUNTIME=legacy forced legacy loop".into(),
+        (Some("pi"), RuntimeChoice::Pi) => "DIVE_RUNTIME=pi forced Pi sidecar runtime".into(),
+        (Some("pi"), RuntimeChoice::Legacy) => {
+            format!("provider {} has no Pi sidecar descriptor", kind.as_str())
+        }
+        (_, RuntimeChoice::Pi) => "provider is eligible for Pi sidecar runtime".into(),
+        (_, RuntimeChoice::Legacy) => {
+            format!("provider {} falls back to DIVE legacy loop", kind.as_str())
         }
     }
 }
@@ -244,6 +259,16 @@ pub async fn chat_send(
         };
         let _ = app_clone.emit(&format!("chat://event/{session_id}"), &envelope);
     };
+    emit_event(AgentEvent::RuntimeSelected {
+        runtime: match runtime_choice {
+            RuntimeChoice::Pi => "pi_sidecar".into(),
+            RuntimeChoice::Legacy => "legacy_loop".into(),
+        },
+        provider: snap.kind.as_str().into(),
+        model: loop_.model.clone(),
+        reason: runtime_selection_reason(&snap.kind, runtime_choice),
+        created_at: now_ms(),
+    });
     let res = if use_pi_sidecar_runtime {
         let descriptor = crate::pi_sidecar::parity::pi_provider_descriptor(snap.kind.clone())
             .expect("select_runtime guarantees eligibility");

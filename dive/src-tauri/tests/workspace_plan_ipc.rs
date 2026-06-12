@@ -502,14 +502,10 @@ async fn route_chat_downgrades_duplicate_step_to_chat() {
     let plan_id = seed_plan(&state, project_id, "approved");
     insert_step(&state, plan_id, "step-001", &[]);
 
-    let decision = workspace_plan_route_chat_impl(
-        &state,
-        project_id,
-        "1단계를 다시 만들어줘".into(),
-        None,
-    )
-    .await
-    .unwrap();
+    let decision =
+        workspace_plan_route_chat_impl(&state, project_id, "1단계를 다시 만들어줘".into(), None)
+            .await
+            .unwrap();
 
     match decision {
         RouteDecision::Chat { reason } => {
@@ -517,7 +513,12 @@ async fn route_chat_downgrades_duplicate_step_to_chat() {
         }
         other => panic!("expected duplicate route to become chat, got {other:?}"),
     }
-    assert_eq!(workspace_plan_list_steps_impl(&state, plan_id).unwrap().len(), 1);
+    assert_eq!(
+        workspace_plan_list_steps_impl(&state, plan_id)
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[tokio::test]

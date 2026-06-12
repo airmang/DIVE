@@ -12,6 +12,7 @@ import { MessageList } from "../chat/MessageList";
 import type { ChatMessage } from "../chat/types";
 import type { PromptContext } from "../../lib/prompt-templates";
 import { useT } from "../../i18n";
+import type { RuntimeSelection } from "../../hooks/useChatSession";
 
 /** Placeholder rows shown while a session's persisted history is loading. */
 function MessageHistorySkeleton({ label }: { label: string }) {
@@ -61,6 +62,7 @@ interface ChatAreaProps {
   onDenyToolCall?: (toolCallId: string, reason?: string) => void;
   interviewPanel?: ReactNode;
   modelLabel?: string;
+  runtimeSelection?: RuntimeSelection | null;
   isStreaming?: boolean;
   runStartedAt?: number | null;
   cancelRequested?: boolean;
@@ -99,6 +101,7 @@ export function ChatArea({
   onDenyToolCall,
   interviewPanel,
   modelLabel,
+  runtimeSelection = null,
   isStreaming = false,
   runStartedAt = null,
   cancelRequested = false,
@@ -169,7 +172,7 @@ export function ChatArea({
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-3">
-          <RuntimeBadge />
+          <RuntimeBadge selection={runtimeSelection} />
           {onOpenResultPanel ? (
             <Button
               variant="outline"

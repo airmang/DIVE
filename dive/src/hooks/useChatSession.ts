@@ -23,6 +23,14 @@ type AgentEvent =
       content: string;
       created_at: number;
     }
+  | {
+      type: "runtime_selected";
+      runtime: "pi_sidecar" | "legacy_loop" | string;
+      provider: string;
+      model: string;
+      reason: string;
+      created_at: number;
+    }
   | { type: "assistant_start"; id: string; created_at: number }
   | { type: "assistant_delta"; id: string; delta: string }
   | { type: "assistant_end"; id: string; content: string; finish_reason?: string }
@@ -69,6 +77,14 @@ type AgentEventEnvelope = {
 };
 
 type ChatEventPayload = AgentEvent | AgentEventEnvelope;
+
+export interface RuntimeSelection {
+  runtime: "pi_sidecar" | "legacy_loop" | string;
+  provider: string;
+  model: string;
+  reason: string;
+  selectedAt: number;
+}
 
 function unwrapAgentEvent(payload: ChatEventPayload, expectedSessionId: number): AgentEvent | null {
   if ("event" in payload) {
@@ -148,6 +164,7 @@ interface State {
   isStreaming: boolean;
   isTauri: boolean;
   error: string | null;
+  runtimeSelection: RuntimeSelection | null;
   runStartedAt: number | null;
   cancelRequested: boolean;
   /** True while a session's persisted history is being fetched (drives the skeleton). */
@@ -236,6 +253,7 @@ export function useChatSession(
     isStreaming: false,
     isTauri: false,
     error: null,
+    runtimeSelection: null,
     runStartedAt: null,
     cancelRequested: false,
     loadingHistory: false,
@@ -309,6 +327,7 @@ export function useChatSession(
       isStreaming: false,
       isTauri: false,
       error: null,
+      runtimeSelection: null,
       runStartedAt: null,
       cancelRequested: false,
       loadingHistory: sessionId !== null,
@@ -604,6 +623,32 @@ function reduce(prev: State, evt: AgentEvent): State {
         content: evt.content,
       };
       return { ...prev, messages: [...prev.messages, m] };
+    }
+    case "runtime_selected": {
+      const selection: RuntimeSelection = {
+        runtime: evt.runtime,
+        provider: evt.provider,
+        model: evt.model,
+        reason: evt.reason,
+        selectedAt: evt.created_at,
+      };
+      const label =
+        evt.runtime === "pi_sidecar"
+          ? "Pi sidecar runtime"
+          : evt.runtime === "legacy_loop"
+            ? "DIVE legacy loop"
+            : evt.runtime;
+      const m: SystemMessageData = {
+        id: `runtime-${evt.created_at}`,
+        kind: "system",
+        createdAt: evt.created_at,
+        content: `Runtime: ${label} · ${evt.provider}/${evt.model} · ${evt.reason}`,
+      };
+      return {
+        ...prev,
+        runtimeSelection: selection,
+        messages: mergeMessagesById(prev.messages, [m]),
+      };
     }
     case "assistant_start": {
       const m: AssistantMessageData = {

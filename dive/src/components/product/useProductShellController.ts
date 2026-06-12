@@ -923,6 +923,7 @@ export function useProductShellController() {
           ? t("planning.route.cancel_requested_status")
           : t("planning.route.routing_status")
         : (cockpitProviderLabel(providers) ?? t("chat.input.model_disconnected_label")),
+      runtimeSelection: chat.runtimeSelection,
       isStreaming: chat.isStreaming,
       runStartedAt: chat.runStartedAt,
       cancelRequested: chat.cancelRequested,

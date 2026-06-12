@@ -17,6 +17,7 @@ use crate::tools::ToolRegistry;
 #[cfg(any(test, feature = "dev-mock"))]
 use crate::providers::MockProvider;
 
+use super::preview::PreviewProcess;
 use super::{ProviderKind, ProviderRuntime};
 
 #[derive(Debug, thiserror::Error)]
@@ -101,6 +102,7 @@ pub struct AppState {
     pub require_approval_judgment: Arc<RwLock<bool>>,
     pub pending_approvals: PendingApprovals,
     pub project_root: Arc<RwLock<PathBuf>>,
+    pub(crate) preview_process: Arc<Mutex<Option<PreviewProcess>>>,
     pub cancels: Arc<Mutex<HashMap<i64, Arc<AtomicBool>>>>,
     pub route_cancels: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     pub keyring: Arc<dyn Keyring>,
@@ -132,6 +134,7 @@ impl AppState {
             require_approval_judgment: Arc::new(RwLock::new(true)),
             pending_approvals: pending,
             project_root: Arc::new(RwLock::new(project_root)),
+            preview_process: Arc::new(Mutex::new(None)),
             cancels: Arc::new(Mutex::new(HashMap::new())),
             route_cancels: Arc::new(Mutex::new(HashMap::new())),
             keyring: Arc::new(OsKeyring::new()),
@@ -185,6 +188,7 @@ impl AppState {
             require_approval_judgment: Arc::new(RwLock::new(true)),
             pending_approvals: pending,
             project_root: Arc::new(RwLock::new(project_root)),
+            preview_process: Arc::new(Mutex::new(None)),
             cancels: Arc::new(Mutex::new(HashMap::new())),
             route_cancels: Arc::new(Mutex::new(HashMap::new())),
             keyring,

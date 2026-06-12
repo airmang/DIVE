@@ -14,6 +14,13 @@ pub enum AgentEvent {
         content: String,
         created_at: i64,
     },
+    RuntimeSelected {
+        runtime: String,
+        provider: String,
+        model: String,
+        reason: String,
+        created_at: i64,
+    },
     AssistantStart {
         id: String,
         created_at: i64,

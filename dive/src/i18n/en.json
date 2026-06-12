@@ -301,7 +301,10 @@
   },
   "runtime": {
     "supervised_label": "Supervised",
-    "supervised_tooltip": "DIVE runs the agent in a supervised runtime. Every action it wants to take — editing files, running commands — needs your approval first. You stay in control."
+    "supervised_tooltip": "DIVE runs the agent in a supervised runtime. Every action it wants to take — editing files, running commands — needs your approval first. You stay in control.",
+    "pi_label": "Pi runtime",
+    "legacy_label": "Legacy loop",
+    "selected_tooltip": "This response is running through {{runtime}}. Provider: {{provider}}, model: {{model}}. Reason: {{reason}}"
   },
   "tool_call": {
     "status": {

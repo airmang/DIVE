@@ -301,7 +301,10 @@
   },
   "runtime": {
     "supervised_label": "감독 모드",
-    "supervised_tooltip": "DIVE는 에이전트를 감독 런타임에서 실행합니다. 파일 수정·명령 실행 등 에이전트가 하려는 모든 작업은 먼저 당신의 승인이 필요합니다. 통제권은 당신에게 있습니다."
+    "supervised_tooltip": "DIVE는 에이전트를 감독 런타임에서 실행합니다. 파일 수정·명령 실행 등 에이전트가 하려는 모든 작업은 먼저 당신의 승인이 필요합니다. 통제권은 당신에게 있습니다.",
+    "pi_label": "Pi runtime",
+    "legacy_label": "Legacy loop",
+    "selected_tooltip": "이번 응답은 {{runtime}}에서 실행 중입니다. Provider: {{provider}}, model: {{model}}. 이유: {{reason}}"
   },
   "tool_call": {
     "status": {
