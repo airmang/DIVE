@@ -46,6 +46,7 @@ const ko = read("src/i18n/ko.json");
 const en = read("src/i18n/en.json");
 const tauriLib = read("src-tauri/src/lib.rs");
 const ipcMod = read("src-tauri/src/ipc/mod.rs");
+const ipcState = read("src-tauri/src/ipc/state.rs");
 const workspacePlan = read("src-tauri/src/ipc/workspace_plan.rs");
 const planRouter = read("src-tauri/src/dive/plan_router.rs");
 const workspacePlanTest = read("src-tauri/tests/workspace_plan_ipc.rs");
@@ -118,7 +119,7 @@ check(
 );
 
 console.log("\n3. Backend route-chat cancellation is route-specific");
-check("AppState has route cancel registry", /route_cancels/.test(ipcMod));
+check("AppState has route cancel registry", /route_cancels/.test(ipcState));
 check(
   "route cancel command is registered",
   /workspace_plan_route_cancel/.test(tauriLib) && /workspace_plan_route_cancel/.test(workspacePlan),
