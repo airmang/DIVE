@@ -35,4 +35,10 @@ export default tseslint.config(
       globals: globals.node,
     },
   },
+  {
+    files: ["src/**/*.test.{ts,tsx}"],
+    languageOptions: {
+      globals: globals.vitest,
+    },
+  },
 );
