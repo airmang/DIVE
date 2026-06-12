@@ -62,6 +62,19 @@ pub fn get_by_step(
         .optional()?)
 }
 
+pub fn get_by_card(
+    conn: &Connection,
+    card_id: i64,
+) -> Result<Option<StepSessionMappingRow>, DbError> {
+    Ok(conn
+        .query_row(
+            "SELECT id, step_id, session_id, card_id, state_path, status, started_at, completed_at, checkpoint_ids, verification_status, verification_evidence, user_decision, created_at, updated_at FROM StepSessionMapping WHERE card_id = ?",
+            [card_id],
+            query_map_row,
+        )
+        .optional()?)
+}
+
 pub fn list(conn: &Connection) -> Result<Vec<StepSessionMappingRow>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, step_id, session_id, card_id, state_path, status, started_at, completed_at, checkpoint_ids, verification_status, verification_evidence, user_decision, created_at, updated_at FROM StepSessionMapping ORDER BY id",

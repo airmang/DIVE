@@ -9,7 +9,7 @@ pub fn default_model_for_kind(kind: &str) -> &'static str {
         // but default to the general-purpose tier for first-run affordability.
         "anthropic" => "claude-sonnet-4-6",
         "openai" => "gpt-5.4",
-        "openrouter" => "openai/gpt-5.4",
+        "openrouter" => "mistralai/ministral-3b-2512",
         "opencode-zen" | "opencode_zen" => "big-pickle",
         "custom-openai" | "custom_openai" => "gpt-5.4",
         "codex" => "gpt-5.5-codex",

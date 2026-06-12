@@ -290,6 +290,127 @@ fn card_transitions_create_dive_stage_auto_checkpoints() {
 }
 
 #[test]
+fn approving_plan_step_card_unlocks_dependent_next_step() {
+    let state = AppState::dev_mock();
+    let tmp = tempfile::tempdir().unwrap();
+    state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+    let session_id = seed_session(&state, tmp.path());
+    let project_id = {
+        let db = state.db.lock().unwrap();
+        crate::db::dao::session::get_by_id(db.conn(), session_id)
+            .unwrap()
+            .unwrap()
+            .project_id
+    };
+    let card_id = seed_card(&state, session_id, "First", CardState::Verifying);
+    let (step1_id, step2_id) = {
+        let db = state.db.lock().unwrap();
+        let plan_id = crate::db::dao::plan::insert(
+            db.conn(),
+            &crate::db::models::NewPlan {
+                project_id,
+                interview_id: None,
+                goal: "build dependent steps".into(),
+                intent_summary: None,
+                scope: Some(serde_json::json!([])),
+                non_goals: Some(serde_json::json!([])),
+                constraints: Some(serde_json::json!([])),
+                acceptance_criteria: Some(serde_json::json!([])),
+                status: "approved".into(),
+            },
+        )
+        .unwrap();
+        let step1_id = crate::db::dao::step::insert(
+            db.conn(),
+            &crate::db::models::NewStep {
+                plan_id,
+                step_id: "step-001".into(),
+                title: "First".into(),
+                summary: None,
+                instruction_seed: Some("Do first".into()),
+                expected_files: Some(serde_json::json!([])),
+                acceptance_criteria: Some(serde_json::json!([])),
+                verification_kind: None,
+                verification_command: None,
+                verification_manual_check: None,
+                dependencies: Some(serde_json::json!([])),
+                parallel_group: None,
+                position: 1,
+            },
+        )
+        .unwrap();
+        let step2_id = crate::db::dao::step::insert(
+            db.conn(),
+            &crate::db::models::NewStep {
+                plan_id,
+                step_id: "step-002".into(),
+                title: "Second".into(),
+                summary: None,
+                instruction_seed: Some("Do second".into()),
+                expected_files: Some(serde_json::json!([])),
+                acceptance_criteria: Some(serde_json::json!([])),
+                verification_kind: None,
+                verification_command: None,
+                verification_manual_check: None,
+                dependencies: Some(serde_json::json!(["step-001"])),
+                parallel_group: None,
+                position: 2,
+            },
+        )
+        .unwrap();
+        mapping_dao::insert(
+            db.conn(),
+            &crate::db::models::NewStepSessionMapping {
+                step_id: step1_id,
+                session_id: Some(session_id),
+                card_id: Some(card_id),
+                state_path: Some("step-001".into()),
+                status: "in_progress".into(),
+                started_at: Some(crate::db::now_ms()),
+                completed_at: None,
+                checkpoint_ids: Some(serde_json::json!([])),
+                verification_status: None,
+                verification_evidence: None,
+                user_decision: None,
+            },
+        )
+        .unwrap();
+        (step1_id, step2_id)
+    };
+
+    card_transition_with_checkpoint_impl(
+        &state,
+        card_id,
+        CardTransition::Approve,
+        Some(true),
+        Some(crate::dive::ApprovalJudgment {
+            outcome: crate::dive::ApprovalOutcome::Approved,
+            note: None,
+            decided_at: 1,
+        }),
+    )
+    .unwrap();
+
+    let status = super::workspace_plan_status_impl(&state, project_id).unwrap();
+    assert_eq!(status.done_count, 1);
+    assert_eq!(status.ready_count, 1);
+    {
+        let db = state.db.lock().unwrap();
+        assert_eq!(
+            mapping_dao::get_by_step(db.conn(), step1_id)
+                .unwrap()
+                .unwrap()
+                .status,
+            "done"
+        );
+    }
+
+    let opened = super::roadmap_step_open_impl(&state, step2_id).unwrap();
+    assert_eq!(opened.step_id, step2_id);
+    assert_eq!(opened.status, "in_progress");
+}
+
+#[test]
 fn card_update_test_command_saves_trims_clears_and_logs() {
     let state = AppState::dev_mock();
     let tmp = tempfile::tempdir().unwrap();

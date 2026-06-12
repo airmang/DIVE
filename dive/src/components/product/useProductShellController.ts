@@ -383,7 +383,8 @@ export function useProductShellController() {
       // over-trust anti-metric (research design). Hence approveForce on approve.
       void roadmapModel
         .transitionStep(currentCard.id, action, { judgment, approveForce: isApprove })
-        .then(() => {
+        .then(async () => {
+          await planRoadmap.refresh();
           if (decision.outcome === "revision_requested" && decision.note) {
             pushChatComposerSeed(decision.note);
             requestChatFocus();
@@ -392,7 +393,15 @@ export function useProductShellController() {
         })
         .catch(showWorkmapError);
     },
-    [currentCard, dialogs, pushChatComposerSeed, requestChatFocus, roadmapModel, showWorkmapError],
+    [
+      currentCard,
+      dialogs,
+      planRoadmap,
+      pushChatComposerSeed,
+      requestChatFocus,
+      roadmapModel,
+      showWorkmapError,
+    ],
   );
 
   const handleGoToChatFromStepDetail = useCallback(() => {

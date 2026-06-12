@@ -36,6 +36,7 @@ function fallbackModels(providerKind: string): ModelInfo[] {
   }
   if (providerKind === "openrouter") {
     return [
+      { id: "mistralai/ministral-3b-2512", display_name: "Mistral · Ministral 3B 2512" },
       { id: "openai/gpt-5.5", display_name: "OpenAI · GPT-5.5" },
       { id: "openai/gpt-5.3-codex", display_name: "OpenAI · GPT-5.3 Codex" },
       { id: "openai/gpt-5.4", display_name: "OpenAI · GPT-5.4" },

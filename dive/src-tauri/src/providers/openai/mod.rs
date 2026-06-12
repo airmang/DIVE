@@ -230,6 +230,7 @@ fn default_openai_models() -> Vec<ModelInfo> {
 
 fn openrouter_models() -> Vec<ModelInfo> {
     models_from_pairs(&[
+        ("mistralai/ministral-3b-2512", "Mistral · Ministral 3B 2512"),
         ("openai/gpt-5.5", "OpenAI · GPT-5.5"),
         ("openai/gpt-5.3-codex", "OpenAI · GPT-5.3 Codex"),
         ("openai/gpt-5.4", "OpenAI · GPT-5.4"),

@@ -1,8 +1,8 @@
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::db::dao::card as card_dao;
-use crate::db::models::{CardState, CheckpointRow, NewCard};
+use crate::db::dao::{card as card_dao, step_session_mapping as mapping_dao};
+use crate::db::models::{CardState, CheckpointRow, NewCard, NewStepSessionMapping};
 use crate::dive::{apply_transition, CardTransition};
 
 use super::{log_error_event, log_event, policy, AppState};
@@ -341,6 +341,7 @@ pub(super) fn card_transition_with_checkpoint_impl(
     };
     let next =
         card_transition_no_checkpoint_impl(state, card_id, transition, approve_force, judgment)?;
+    sync_plan_step_mapping_for_card_transition(state, card_id, next)?;
     log_event(
         state,
         Some(session_id),
@@ -398,6 +399,52 @@ pub(super) fn card_transition_with_checkpoint_impl(
         )?;
     }
     Ok((next, checkpoint))
+}
+
+fn sync_plan_step_mapping_for_card_transition(
+    state: &AppState,
+    card_id: i64,
+    next: CardState,
+) -> Result<(), String> {
+    let status = match next {
+        CardState::Verified => "done",
+        CardState::Extended => "shipped",
+        CardState::Decomposed
+        | CardState::Instructed
+        | CardState::Verifying
+        | CardState::Rejected => return Ok(()),
+    };
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let Some(mapping) = mapping_dao::get_by_card(db.conn(), card_id).map_err(|e| e.to_string())?
+    else {
+        return Ok(());
+    };
+    if mapping.status == status {
+        return Ok(());
+    }
+    let done = status == "done" || status == "shipped";
+    mapping_dao::update(
+        db.conn(),
+        mapping.id,
+        &NewStepSessionMapping {
+            step_id: mapping.step_id,
+            session_id: mapping.session_id,
+            card_id: mapping.card_id,
+            state_path: mapping.state_path,
+            status: status.into(),
+            started_at: mapping.started_at,
+            completed_at: if done {
+                Some(crate::db::now_ms())
+            } else {
+                mapping.completed_at
+            },
+            checkpoint_ids: mapping.checkpoint_ids,
+            verification_status: mapping.verification_status,
+            verification_evidence: mapping.verification_evidence,
+            user_decision: mapping.user_decision,
+        },
+    )
+    .map_err(|e| e.to_string())
 }
 
 fn auto_checkpoint_label(transition: CardTransition, card_title: &str) -> Option<String> {
