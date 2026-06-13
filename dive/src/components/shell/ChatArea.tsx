@@ -100,6 +100,7 @@ interface ChatAreaProps {
     changedFiles?: ProvocationChangedFile[];
     targetFiles?: string[];
     planSteps?: ProvocationPlanStep[];
+    checkpointAvailable?: boolean | null;
     onOpenRecovery?: () => void;
   };
 }

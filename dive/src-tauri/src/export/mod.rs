@@ -218,6 +218,7 @@ impl ExportEngine {
                     "approval_judgment_metrics": c.approval_judgment.as_ref().and_then(|s| approval_judgment_metrics(s)),
                     "approval_provenance": c.approval_provenance.as_ref().and_then(|s| approval_provenance_emit(s, options.hash_user_text, salt)),
                     "verification_evidence_summary": c.approval_provenance.as_ref().and_then(|s| verification_evidence_summary_emit(s)),
+                    "agency": card_agency_emit(&c),
                     "change_summary": c.change_summary.as_ref().map(|s| anonymize::maybe_hash_text(options.hash_user_text, s, salt)),
                     "position": c.position,
                     "created_at": c.created_at,
@@ -228,7 +229,7 @@ impl ExportEngine {
 
         let mut stmt = conn
             .prepare(
-                "SELECT id, step_id, card_id, state_path, status, completed_at, verification_status, verification_evidence, user_decision, created_at, updated_at FROM StepSessionMapping WHERE session_id = ? ORDER BY id",
+                "SELECT id, step_id, card_id, state_path, status, completed_at, checkpoint_ids, verification_status, verification_evidence, user_decision, created_at, updated_at FROM StepSessionMapping WHERE session_id = ? ORDER BY id",
             )
             .map_err(|e| ExportError::Db(e.to_string()))?;
         let rows = stmt
@@ -240,11 +241,12 @@ impl ExportEngine {
                     state_path: row.get::<_, Option<String>>(3)?,
                     status: row.get(4)?,
                     completed_at: row.get::<_, Option<i64>>(5)?,
-                    verification_status: row.get::<_, Option<String>>(6)?,
-                    verification_evidence: row.get::<_, Option<String>>(7)?,
-                    user_decision: row.get::<_, Option<String>>(8)?,
-                    created_at: row.get(9)?,
-                    updated_at: row.get(10)?,
+                    checkpoint_ids: row.get::<_, Option<String>>(6)?,
+                    verification_status: row.get::<_, Option<String>>(7)?,
+                    verification_evidence: row.get::<_, Option<String>>(8)?,
+                    user_decision: row.get::<_, Option<String>>(9)?,
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
                 })
             })
             .map_err(|e| ExportError::Db(e.to_string()))?;
@@ -260,9 +262,12 @@ impl ExportEngine {
                     "state_path": mapping.state_path.as_ref().map(|s| anonymize::maybe_hash_text(options.hash_user_text, s, salt)),
                     "status": mapping.status,
                     "completed_at": mapping.completed_at,
+                    "checkpoint_count": checkpoint_count(&mapping.checkpoint_ids),
+                    "rollback_available": checkpoint_count(&mapping.checkpoint_ids) > 0,
                     "verification_status": mapping.verification_status,
                     "verification_evidence": mapping.verification_evidence.as_ref().and_then(|s| serde_json::from_str::<Value>(s).ok()),
                     "user_decision": mapping.user_decision.as_ref().and_then(|s| serde_json::from_str::<Value>(s).ok()),
+                    "agency": step_mapping_agency_emit(&mapping),
                     "created_at": mapping.created_at,
                     "updated_at": mapping.updated_at,
                 }),
@@ -401,6 +406,11 @@ impl ExportEngine {
                         "git_sha": git_sha,
                         "kind_label": kind,
                         "label": label.as_ref().map(|s| anonymize::maybe_hash_text(options.hash_user_text, s, salt)),
+                        "agency": {
+                            "component": "rollback",
+                            "state": "rollback_available",
+                            "rollbackAvailable": true,
+                        },
                         "created_at": created_at,
                     }),
                 )?;
@@ -428,6 +438,7 @@ impl ExportEngine {
                     row.map_err(|e| ExportError::Db(e.to_string()))?;
                 let payload_json = serde_json::from_str::<Value>(&payload)
                     .map(|value| {
+                        let value = crate::dive::event_log::enrich_agency_payload(&ty, value);
                         let value = if ty.starts_with("provocation.") {
                             sanitize_provocation_event_payload(&value)
                         } else {
@@ -536,6 +547,94 @@ fn approval_provenance_emit(raw: &str, hash_user_text: bool, salt: &str) -> Opti
 fn verification_evidence_summary_emit(raw: &str) -> Option<Value> {
     let v: Value = serde_json::from_str(raw).ok()?;
     v.get("evidenceSummary").cloned()
+}
+
+fn card_agency_emit(card: &CardEmit) -> Option<Value> {
+    if let Some(provenance) = card
+        .approval_provenance
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+    {
+        let verification_state = provenance.get("verificationState").and_then(Value::as_str);
+        return Some(json!({
+            "component": "decision",
+            "state": verification_state.and_then(agency_state_from_verification_state),
+            "verificationState": verification_state,
+            "riskAccepted": provenance.get("riskAccepted").and_then(Value::as_bool).unwrap_or(false),
+            "evidenceSummary": provenance.get("evidenceSummary").cloned().unwrap_or(Value::Null),
+        }));
+    }
+
+    if let Some(verify_log) = card
+        .verify_log
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+    {
+        let test_result = verify_log.get("test_result").and_then(Value::as_str);
+        return Some(json!({
+            "component": "verify",
+            "state": agency_state_from_test_result(test_result),
+            "testResult": test_result,
+            "aiSelfReport": verify_log.get("intent_match").and_then(Value::as_bool).unwrap_or(false),
+        }));
+    }
+
+    if card
+        .changed_files
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+        .and_then(|value| value.as_array().map(|items| !items.is_empty()))
+        .unwrap_or(false)
+    {
+        return Some(json!({
+            "component": "diff",
+            "state": "diff_review_needed",
+        }));
+    }
+
+    None
+}
+
+fn step_mapping_agency_emit(mapping: &StepMappingEmit) -> Option<Value> {
+    let rollback_available = checkpoint_count(&mapping.checkpoint_ids) > 0;
+    let verification_state = mapping.verification_status.as_deref();
+    if verification_state.is_none() && !rollback_available {
+        return None;
+    }
+    let state = verification_state
+        .and_then(agency_state_from_verification_state)
+        .or_else(|| rollback_available.then_some("rollback_available"));
+    Some(json!({
+        "component": if verification_state.is_some() { "decision" } else { "rollback" },
+        "state": state,
+        "verificationState": verification_state,
+        "rollbackAvailable": rollback_available,
+    }))
+}
+
+fn checkpoint_count(raw: &Option<String>) -> usize {
+    raw.as_deref()
+        .and_then(|value| serde_json::from_str::<Value>(value).ok())
+        .and_then(|value| value.as_array().map(Vec::len))
+        .unwrap_or(0)
+}
+
+fn agency_state_from_verification_state(state: &str) -> Option<&'static str> {
+    match state {
+        "verified_with_evidence" => Some("verified_with_evidence"),
+        "unverified_risk_accepted" => Some("approved_with_risk"),
+        "failed_but_accepted" => Some("verification_failed"),
+        _ => None,
+    }
+}
+
+fn agency_state_from_test_result(test_result: Option<&str>) -> Option<&'static str> {
+    match test_result {
+        Some("pass") => Some("verified_with_evidence"),
+        Some("fail") => Some("verification_failed"),
+        Some("skipped") => Some("ai_self_report_only"),
+        _ => Some("verification_needed"),
+    }
 }
 
 pub(crate) fn sanitize_provocation_event_payload(value: &Value) -> Value {
@@ -670,6 +769,7 @@ struct StepMappingEmit {
     state_path: Option<String>,
     status: String,
     completed_at: Option<i64>,
+    checkpoint_ids: Option<String>,
     verification_status: Option<String>,
     verification_evidence: Option<String>,
     user_decision: Option<String>,

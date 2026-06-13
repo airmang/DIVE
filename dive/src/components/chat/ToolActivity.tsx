@@ -20,7 +20,7 @@ import type {
 } from "./types";
 import { Badge } from "../ui/badge";
 import { PermissionCard } from "../permission-card";
-import type { PermissionCardData } from "../permission-card";
+import type { PermissionActionContext, PermissionCardData } from "../permission-card";
 import { formatRaw } from "../permission-card/explain";
 import { McpProvenanceBadge } from "../mcp/McpProvenanceBadge";
 import { useT } from "../../i18n";
@@ -70,6 +70,7 @@ interface Props {
     changedFiles?: ProvocationChangedFile[];
     targetFiles?: string[];
     planSteps?: ProvocationPlanStep[];
+    checkpointAvailable?: boolean | null;
     onOpenRecovery?: () => void;
   };
 }
@@ -86,6 +87,48 @@ function pathFromArgs(args: unknown): string | null {
   if (!args || typeof args !== "object") return null;
   const path = (args as Record<string, unknown>).path;
   return typeof path === "string" && path.trim().length > 0 ? path : null;
+}
+
+function filesFromArgs(args: unknown): string[] {
+  if (!args || typeof args !== "object") return [];
+  const record = args as Record<string, unknown>;
+  const paths = new Set<string>();
+  const path = record.path;
+  if (typeof path === "string" && path.trim()) paths.add(path.trim());
+  for (const key of ["paths", "files", "readFiles", "writeFiles"]) {
+    const value = record[key];
+    if (!Array.isArray(value)) continue;
+    for (const item of value) {
+      if (typeof item === "string" && item.trim()) paths.add(item.trim());
+    }
+  }
+  return [...paths];
+}
+
+function actionContextForCall(
+  call: ToolCallMessageData,
+  expectedFiles: string[],
+  checkpointAvailable: boolean | null | undefined,
+): PermissionActionContext {
+  const argFiles = filesFromArgs(call.args);
+  const diffPath = call.diffPreview?.path ?? pathFromArgs(call.args);
+  const diffFiles = diffPath ? [diffPath] : [];
+  const mutatesFiles =
+    call.toolName === "write_file" ||
+    call.toolName === "edit_file" ||
+    call.toolName === "delete_file" ||
+    call.toolName === "mkdir";
+  const readsFiles =
+    call.toolName === "read_file" ||
+    call.toolName === "list_dir" ||
+    call.toolName === "search_files";
+  return {
+    expectedFiles,
+    readFiles: readsFiles ? argFiles : [],
+    writeFiles: mutatesFiles ? [...new Set([...argFiles, ...diffFiles])] : [],
+    diffPreviewPath: call.diffPreview?.path ?? null,
+    checkpointAvailable: checkpointAvailable ?? null,
+  };
 }
 
 function changeTypeForCall(call: ToolCallMessageData): ProvocationChangedFile["changeType"] {
@@ -204,6 +247,10 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
   const targetFiles = useMemo(
     () => [...new Set((provocation?.targetFiles ?? []).filter((path) => path.trim().length > 0))],
     [provocation?.targetFiles],
+  );
+  const permissionActionContext = useMemo(
+    () => actionContextForCall(call, targetFiles, provocation?.checkpointAvailable),
+    [call, provocation?.checkpointAvailable, targetFiles],
   );
   const provocationContext = useMemo(
     () =>
@@ -353,6 +400,7 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
       risk: call.risk!,
       diffPreview: call.diffPreview ?? null,
       args: call.args,
+      actionContext: permissionActionContext,
     };
     return (
       <article

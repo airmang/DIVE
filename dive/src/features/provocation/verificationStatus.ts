@@ -15,7 +15,24 @@ function hasManualChecks(verification: ProvocationVerification | undefined): boo
 export function hasAiSelfReport(context: ProvocationContext): boolean {
   return Boolean(
     context.verification?.aiClaimedDone ||
-      context.assistantReports?.some((item) => item.source === "assistant_message"),
+    context.assistantReports?.some((item) => item.source === "assistant_message"),
+  );
+}
+
+export function hasObservedVerificationEvidence(context: ProvocationContext): boolean {
+  const provenance = context.approvalProvenance ?? context.verification?.approvalProvenance;
+  if (provenance) return provenance.evidenceSummary.concreteEvidence;
+  const verification = context.verification;
+  return Boolean(
+    verification?.diffReviewed ||
+    verification?.appLaunched ||
+    verification?.previewChecked ||
+    verification?.automatedTestsPassed ||
+    verification?.externalTestRun ||
+    hasManualChecks(verification) ||
+    context.userHasViewedDiff ||
+    context.userHasViewedPreview ||
+    context.userHasViewedTestResult,
   );
 }
 
@@ -24,15 +41,13 @@ export function hasConcreteVerificationEvidence(context: ProvocationContext): bo
   if (provenance) return provenance.evidenceSummary.concreteEvidence;
   const verification = context.verification;
   return Boolean(
-    verification?.diffReviewed ||
-      verification?.appLaunched ||
-      verification?.previewChecked ||
-      verification?.automatedTestsPassed ||
-      verification?.externalTestRun ||
-      hasManualChecks(verification) ||
-      context.userHasViewedDiff ||
-      context.userHasViewedPreview ||
-      context.userHasViewedTestResult,
+    verification?.appLaunched ||
+    verification?.previewChecked ||
+    verification?.automatedTestsPassed ||
+    verification?.externalTestRun ||
+    hasManualChecks(verification) ||
+    context.userHasViewedPreview ||
+    context.userHasViewedTestResult,
   );
 }
 
@@ -56,7 +71,10 @@ function statusSource(id: VerificationStatusItem["id"]): VerificationProvenanceI
   }
 }
 
-function toProvenanceItem(item: VerificationStatusItem, recordedAt?: number): VerificationProvenanceItem {
+function toProvenanceItem(
+  item: VerificationStatusItem,
+  recordedAt?: number,
+): VerificationProvenanceItem {
   return {
     ...item,
     source: statusSource(item.id),
@@ -72,9 +90,9 @@ function pushUniqueStatus(statuses: VerificationStatusItem[], item: Verification
 function deriveCurrentVerificationStatuses(context: ProvocationContext): VerificationStatusItem[] {
   const verification = context.verification;
   const statuses: VerificationStatusItem[] = [];
-  const concreteEvidence = hasConcreteVerificationEvidence(context);
+  const observedEvidence = hasObservedVerificationEvidence(context);
 
-  if (hasAiSelfReport(context) && !concreteEvidence) {
+  if (hasAiSelfReport(context) && !observedEvidence) {
     pushUniqueStatus(statuses, {
       id: "ai_self_report_only",
       label: "AI 자가보고만 있음",
@@ -171,23 +189,21 @@ export function summarizeVerificationEvidence(
     .map((item) => item.label);
   return {
     concreteEvidence: Boolean(
-      verification?.diffReviewed ||
-        verification?.appLaunched ||
-        verification?.previewChecked ||
-        verification?.automatedTestsPassed ||
-        verification?.externalTestRun ||
-        hasManualChecks(verification) ||
-        context.userHasViewedDiff ||
-        context.userHasViewedPreview ||
-        context.userHasViewedTestResult,
+      verification?.appLaunched ||
+      verification?.previewChecked ||
+      verification?.automatedTestsPassed ||
+      verification?.externalTestRun ||
+      hasManualChecks(verification) ||
+      context.userHasViewedPreview ||
+      context.userHasViewedTestResult,
     ),
     aiSelfReport: hasAiSelfReport(context),
     automatedTestsPassed: Boolean(verification?.automatedTestsPassed),
     externalTestRun:
       verification?.externalTestRun === undefined ? null : Boolean(verification.externalTestRun),
     testResult: verification?.testResult ?? null,
-    manualEvidenceCount: verification?.manualChecks?.filter((item) => item.trim().length > 0)
-      .length ?? 0,
+    manualEvidenceCount:
+      verification?.manualChecks?.filter((item) => item.trim().length > 0).length ?? 0,
     evidenceLabels,
   };
 }

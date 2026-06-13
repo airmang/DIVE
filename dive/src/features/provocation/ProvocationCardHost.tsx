@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "../../lib/utils";
 import { logProvocationEvent } from "./logging";
-import { selectPrimaryProvocationCard, sortProvocationCards } from "./priority";
+import {
+  selectPrimaryProvocationCard,
+  shouldShowProvocationCardInMode,
+  sortProvocationCards,
+} from "./priority";
 import { ProvocationCard } from "./ProvocationCard";
 import type {
   ProvocationAction,
@@ -30,7 +34,7 @@ export function ProvocationCardHost({
   const visibleCards = useMemo(
     () =>
       sortProvocationCards(cards).filter(
-        (card) => !dismissed.has(card.id) && (mode !== "expert" || card.severity === "risk"),
+        (card) => !dismissed.has(card.id) && shouldShowProvocationCardInMode(card, mode),
       ),
     [cards, dismissed, mode],
   );

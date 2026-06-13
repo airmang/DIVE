@@ -3,10 +3,26 @@ import type {
   ProvocationCard,
   ProvocationContext,
   ProvocationEvidence,
+  ProvocationActionKind,
   ProvocationVerification,
   ScaffoldMode,
 } from "./types";
 import { deriveVerificationStatuses, summarizeVerificationEvidence } from "./verificationStatus";
+
+type AgencyComponent = "intent" | "plan" | "action" | "diff" | "verify" | "decision" | "rollback";
+
+type AgencyState =
+  | "intent_needed"
+  | "plan_review_needed"
+  | "approval_required"
+  | "running"
+  | "diff_review_needed"
+  | "verification_needed"
+  | "verified_with_evidence"
+  | "ai_self_report_only"
+  | "verification_failed"
+  | "rollback_available"
+  | "approved_with_risk";
 
 export type ProvocationLogEventType =
   | "provocation.card_shown"
@@ -225,6 +241,106 @@ function syntheticActionForEvent(eventType: ProvocationLogEventType): Provocatio
   return null;
 }
 
+const CARD_AGENCY_COMPONENT: Record<ProvocationCard["type"], AgencyComponent> = {
+  oversized_scope: "intent",
+  missing_acceptance_criteria: "intent",
+  missing_verification_step: "plan",
+  diff_scope_drift: "diff",
+  ai_self_report_only: "verify",
+  regeneration_loop: "rollback",
+};
+
+const CARD_AGENCY_STATE: Record<ProvocationCard["type"], AgencyState> = {
+  oversized_scope: "intent_needed",
+  missing_acceptance_criteria: "intent_needed",
+  missing_verification_step: "verification_needed",
+  diff_scope_drift: "diff_review_needed",
+  ai_self_report_only: "ai_self_report_only",
+  regeneration_loop: "verification_failed",
+};
+
+const ACTION_AGENCY_COMPONENT: Partial<Record<ProvocationActionKind, AgencyComponent>> = {
+  add_acceptance_criteria: "intent",
+  split_scope: "intent",
+  add_verification_step: "plan",
+  open_diff: "diff",
+  ask_ai_for_rationale: "action",
+  revert_unrelated_changes: "rollback",
+  run_app: "verify",
+  run_tests: "verify",
+  open_preview: "verify",
+  create_repro_steps: "rollback",
+  rollback_last_change: "rollback",
+  retry_with_ai: "rollback",
+  continue_with_risk: "decision",
+};
+
+function agencyComponentFor(card: ProvocationCard, action: ProvocationAction | null): AgencyComponent {
+  return (action ? ACTION_AGENCY_COMPONENT[action.kind] : null) ?? CARD_AGENCY_COMPONENT[card.type];
+}
+
+function agencyStateFor(
+  card: ProvocationCard,
+  verificationStatus: ReturnType<typeof summarizeVerification>,
+  riskAccepted: boolean,
+): AgencyState {
+  if (verificationStatus?.verificationState === "verified_with_evidence") {
+    return "verified_with_evidence";
+  }
+  if (verificationStatus?.verificationState === "failed_but_accepted") {
+    return "verification_failed";
+  }
+  if (riskAccepted || verificationStatus?.verificationState === "unverified_risk_accepted") {
+    return "approved_with_risk";
+  }
+  return CARD_AGENCY_STATE[card.type];
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+}
+
+function affectedFilesFor(card: ProvocationCard, context: Partial<ProvocationContext> | undefined) {
+  const metadata = card.metadata ?? {};
+  const changedFiles = [
+    ...new Set([
+      ...stringList(metadata.changedFiles),
+      ...(context?.changedFiles?.map((file) => file.path).filter(Boolean) ?? []),
+    ]),
+  ];
+  const targetFiles = [
+    ...new Set([...stringList(metadata.targetFiles), ...(context?.targetFiles ?? [])]),
+  ];
+  const highRiskFiles = stringList(metadata.highRiskFiles);
+
+  if (changedFiles.length === 0 && targetFiles.length === 0 && highRiskFiles.length === 0) {
+    return null;
+  }
+
+  return {
+    changedFiles,
+    targetFiles,
+    highRiskFiles,
+  };
+}
+
+function affectedCommandsFor(card: ProvocationCard, context: Partial<ProvocationContext> | undefined) {
+  const commands = stringList(card.metadata?.affectedCommands);
+  if (commands.length > 0) {
+    return commands.map((command) => ({
+      kind: "command",
+      redacted: true,
+      charCount: command.length,
+    }));
+  }
+  if (context?.verification?.externalTestRun !== undefined || context?.verification?.testResult) {
+    return [{ kind: "verification", redacted: true }];
+  }
+  return [];
+}
+
 export function buildProvocationLogPayload(input: ProvocationLogInput) {
   const { card, context, mode, action, reason } = input;
   const selectedAction = action ?? syntheticActionForEvent(input.eventType);
@@ -236,6 +352,8 @@ export function buildProvocationLogPayload(input: ProvocationLogInput) {
     selectedAction?.kind === "continue_with_risk" && Boolean(trimmedReason)
       ? true
       : Boolean(verificationStatus?.riskAccepted);
+  const agencyComponent = agencyComponentFor(card, selectedAction);
+  const agencyState = agencyStateFor(card, verificationStatus, riskAccepted);
 
   return {
     schemaVersion: 1,
@@ -253,6 +371,11 @@ export function buildProvocationLogPayload(input: ProvocationLogInput) {
     stage: card.stage,
     severity: card.severity,
     mode,
+    agencyComponent,
+    agencyState,
+    riskLevel: card.severity,
+    affectedFiles: affectedFilesFor(card, context),
+    affectedCommands: affectedCommandsFor(card, context),
     evidence,
     evidenceSummary: {
       schemaVersion: 1,
@@ -271,6 +394,17 @@ export function buildProvocationLogPayload(input: ProvocationLogInput) {
     reasonRequired: Boolean(selectedAction?.requiresReason),
     reasonPresent: Boolean(trimmedReason),
     reason: trimmedReason,
+    decision: selectedAction
+      ? {
+          event: input.eventType.replace("provocation.", ""),
+          actionKind: selectedAction.kind,
+          actionId: selectedAction.id,
+        }
+      : {
+          event: input.eventType.replace("provocation.", ""),
+          actionKind: null,
+          actionId: null,
+        },
     requiredReason: {
       required: Boolean(selectedAction?.requiresReason),
       provided: Boolean(trimmedReason),

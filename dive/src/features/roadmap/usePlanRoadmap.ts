@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { WorkspacePlanStatus } from "../planning";
+import { deriveAgencyStateView } from "./agencyStatus";
+import type { AgencyStateView } from "./types";
 
 export const PLAN_ROADMAP_REFRESH_EVENT = "dive:plan-roadmap-refresh";
 
@@ -64,6 +66,7 @@ export interface PlanRoadmapStep {
   step: PlanStepRow;
   mapping: StepSessionMappingRow | null;
   status: PlanRoadmapStatus;
+  agency?: AgencyStateView;
   blockedDependencies: string[];
   parallelBucket: string | null;
 }
@@ -94,7 +97,20 @@ export function derivePlanRoadmapSteps(
         mapping.status === "done" || mapping.status === "shipped" || mapping.status === "blocked"
           ? mapping.status
           : "in_progress";
-      return { step, mapping, status, blockedDependencies: [], parallelBucket: null };
+      return {
+        step,
+        mapping,
+        status,
+        agency: deriveAgencyStateView({
+          goalText: [step.title, step.summary].filter(Boolean).join("\n"),
+          acceptanceCriteria: stringArray(step.acceptance_criteria),
+          status,
+          verificationState: mapping.verification_status,
+          checkpointAvailable: stringArray(mapping.checkpoint_ids).length > 0,
+        }),
+        blockedDependencies: [],
+        parallelBucket: null,
+      };
     }
 
     const blockedDependencies = stringArray(step.dependencies).filter(
@@ -105,6 +121,12 @@ export function derivePlanRoadmapSteps(
       step,
       mapping,
       status,
+      agency: deriveAgencyStateView({
+        goalText: [step.title, step.summary].filter(Boolean).join("\n"),
+        acceptanceCriteria: stringArray(step.acceptance_criteria),
+        planDraftPending: status === "ready" || status === "blocked",
+        status,
+      }),
       blockedDependencies,
       parallelBucket: null,
     };

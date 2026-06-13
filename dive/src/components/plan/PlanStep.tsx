@@ -2,7 +2,7 @@ import { GitBranch } from "lucide-react";
 import { forwardRef } from "react";
 import { useT } from "../../i18n";
 import { cn } from "../../lib/utils";
-import type { PlanRoadmapStep } from "../../features/roadmap";
+import { agencyToneClass, type PlanRoadmapStep } from "../../features/roadmap";
 import { planStatusMeta } from "./plan-status-meta";
 import { PlanStepActions } from "./PlanStepActions";
 import { PlanStepNode } from "./PlanStepNode";
@@ -130,6 +130,18 @@ export const PlanStep = forwardRef<HTMLDivElement, PlanStepProps>(function PlanS
           {parallel ? (
             <span className="shrink-0 whitespace-nowrap border border-accent/45 bg-accent-subtle px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.14em] text-fg">
               {t("plan_view.parallel_tag")}
+            </span>
+          ) : null}
+          {item.agency?.primary ? (
+            <span
+              className={cn(
+                "shrink-0 whitespace-nowrap border px-1.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-[0.08em]",
+                agencyToneClass(item.agency.primary.tone),
+              )}
+              data-testid="plan-step-agency-state"
+              data-agency-state={item.agency.primary.id}
+            >
+              {item.agency.primary.label}
             </span>
           ) : null}
           <span className="flex-1" />

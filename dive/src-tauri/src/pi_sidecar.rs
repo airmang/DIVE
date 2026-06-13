@@ -2304,6 +2304,7 @@ rl.on("line", (line) => {{
   const message = JSON.parse(line);
   if (message.type !== "run") return;
   ready(message);
+  emit({{ type: "assistant_delta", request_id: message.request_id, delta: "." }});
   setInterval(() => emit({{ type: "heartbeat", request_id: message.request_id, ts: Date.now() }}), 20);
   setInterval(() => emit({{ type: "assistant_delta", request_id: message.request_id, delta: "." }}), 20);
 }});

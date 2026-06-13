@@ -106,26 +106,31 @@ export function RecoveryPanel({
               <p className="mt-1 line-clamp-3 text-danger">{failedStep.reason}</p>
             </div>
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <Button size="sm" variant="outline" onClick={failedStep.onExplainError}>
-              {t("recovery.explain_error")}
-            </Button>
-            <Button size="sm" variant="outline" onClick={failedStep.onRetry}>
-              {t("common.retry")}
-            </Button>
-            <Button size="sm" variant="outline" onClick={failedStep.onAdjustPlan}>
-              {t("recovery.adjust_plan")}
-            </Button>
+          <div className="mt-3 grid gap-2" data-testid="failed-step-actions">
             <Button
               size="sm"
-              variant="danger"
+              variant={undoAvailable ? "danger" : "outline"}
               disabled={!undoAvailable}
               onClick={() => latest && setConfirmRestoreId(latest.id)}
               data-testid="failed-step-undo"
             >
-              {t("recovery.undo")}
+              {undoAvailable ? t("recovery.undo_last_change") : t("recovery.rollback_unavailable")}
+            </Button>
+            <Button size="sm" variant="outline" onClick={failedStep.onExplainError}>
+              {t("recovery.explain_error")}
+            </Button>
+            <Button size="sm" variant="outline" onClick={failedStep.onAdjustPlan}>
+              {t("recovery.adjust_plan")}
+            </Button>
+            <Button size="sm" variant="outline" onClick={failedStep.onRetry}>
+              {t("recovery.retry_ai")}
             </Button>
           </div>
+          {!undoAvailable ? (
+            <p className="mt-2 text-[11px] text-fg-muted" data-testid="failed-step-no-undo">
+              {t("recovery.rollback_unavailable_body")}
+            </p>
+          ) : null}
         </div>
       ) : null}
 

@@ -1,19 +1,28 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, Circle, Clock3, ExternalLink, FileCode, X } from "lucide-react";
 import { Button } from "../ui/button";
 import { LearningHint } from "../ui/learning-hint";
 import { cn } from "../../lib/utils";
-import { type RoadmapStep, type RoadmapStepStatus } from "../../features/roadmap";
+import {
+  agencyToneClass,
+  deriveAgencyStateView,
+  type AgencyStateItem,
+  type RoadmapStep,
+  type RoadmapStepStatus,
+} from "../../features/roadmap";
 import type { ChangedFile } from "../slide-in/types";
-import { ApprovalJudgment, type ApprovalDecision } from "../workmap/ApprovalJudgment";
+import type { ApprovalDecision } from "../workmap/ApprovalJudgment";
 import type { VerifyLogView } from "../workmap/types";
 import { useT } from "../../i18n";
+import { useChatComposerStore } from "../../stores/chatComposer";
+import { DecisionGate } from "./DecisionGate";
 import {
   ProvocationCardHost,
   deriveVerificationStatuses,
   generateProvocationCards,
   normalizeChangedFile,
   type ProvocationAction,
+  type ProvocationCard,
   type ProvocationContext,
   type ScaffoldMode,
   type VerificationStatusItem,
@@ -27,11 +36,23 @@ export interface StepDetailSlideInProps {
   verifyState: "idle" | "running" | "error";
   verifyError: string | null;
   changedFiles: ChangedFile[];
+  planContext?: {
+    expectedFiles: string[];
+    verificationCommand?: string | null;
+    verificationManualCheck?: string | null;
+    verificationKind?: string | null;
+    dependencies?: string[];
+    parallelGroup?: string | null;
+    purpose?: string | null;
+  };
   onOpenChange: (open: boolean) => void;
   onOpenCode: () => void;
   onOpenPreview?: () => void;
+  onOpenRecovery: () => void;
+  onVerifyFirst: () => void;
   onApprovalDecision: (decision: ApprovalDecision) => void;
   onGoToChat: () => void;
+  rollbackAvailable: boolean;
   provocation?: {
     enabled: boolean;
     mode: ScaffoldMode;
@@ -48,6 +69,24 @@ const STATUS_CLASS: Record<RoadmapStepStatus, string> = {
   shipped: "border-success/70 bg-success/15 text-success",
 };
 
+function uniqueStrings(items: string[]): string[] {
+  return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
+}
+
+function metadataStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+}
+
+function highRiskFilesFromCards(cards: ProvocationCard[]): string[] {
+  return uniqueStrings(
+    cards
+      .filter((card) => card.type === "diff_scope_drift" && card.severity === "risk")
+      .flatMap((card) => metadataStringArray(card.metadata?.highRiskFiles)),
+  );
+}
+
 function statusIcon(status: RoadmapStepStatus) {
   if (status === "shipped" || status === "done") return <CheckCircle2 aria-hidden />;
   if (status === "review") return <Clock3 aria-hidden />;
@@ -63,16 +102,22 @@ export function StepDetailSlideIn({
   verifyState,
   verifyError,
   changedFiles,
+  planContext,
   onOpenChange,
   onOpenCode,
   onOpenPreview,
+  onOpenRecovery,
+  onVerifyFirst,
   onApprovalDecision,
   onGoToChat,
+  rollbackAvailable,
   provocation,
 }: StepDetailSlideInProps) {
   const t = useT();
+  const pushComposerSeed = useChatComposerStore((s) => s.pushSeed);
   const panelRef = useRef<HTMLDivElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const [diffViewedStepIds, setDiffViewedStepIds] = useState<Set<number>>(() => new Set());
 
   useEffect(() => {
     if (!open) return;
@@ -92,6 +137,20 @@ export function StepDetailSlideIn({
   const status = step?.status ?? null;
   const isReview = status === "review";
   const hasChangedFiles = changedFiles.length > 0;
+  const diffViewed = step ? diffViewedStepIds.has(step.id) : false;
+  const expectedFiles = useMemo(
+    () => uniqueStrings(planContext?.expectedFiles ?? []),
+    [planContext?.expectedFiles],
+  );
+  const actualChangedFiles = useMemo(
+    () => uniqueStrings(changedFiles.map((file) => file.path)),
+    [changedFiles],
+  );
+  const verificationPlanText =
+    planContext?.verificationCommand?.trim() ||
+    planContext?.verificationManualCheck?.trim() ||
+    planContext?.verificationKind?.trim() ||
+    null;
   const provocationContext: ProvocationContext | null =
     step && provocation?.enabled
       ? {
@@ -105,42 +164,105 @@ export function StepDetailSlideIn({
           planSteps: [
             {
               id: String(step.id),
-              text: [step.title, step.description, step.assistSummary, step.testCommand]
+              text: [
+                step.title,
+                step.description,
+                step.assistSummary,
+                step.testCommand,
+                planContext?.purpose,
+                verificationPlanText,
+              ]
                 .filter(Boolean)
                 .join(" "),
+              expectedFiles,
+              verificationCommand: planContext?.verificationCommand ?? step.testCommand,
+              verificationManualCheck: planContext?.verificationManualCheck ?? null,
+              kind: planContext?.verificationKind ?? undefined,
+              dependencies: planContext?.dependencies ?? [],
+              parallelGroup: planContext?.parallelGroup ?? null,
             },
           ],
           changedFiles: changedFiles.map((file) => normalizeChangedFile({ path: file.path })),
+          targetFiles: expectedFiles,
           approvalProvenance: step.approvalProvenance,
           verification: {
             aiClaimedDone: Boolean(verifyLog?.intent_match),
+            diffReviewed: diffViewed,
             automatedTestsPassed: verifyLog?.test_result === "pass",
             testResult: verifyLog?.test_result,
             externalTestRun: verifyLog ? verifyLog.test_result !== "skipped" : undefined,
-            failedButAccepted:
-              step.approvalProvenance?.verificationState === "failed_but_accepted",
+            failedButAccepted: step.approvalProvenance?.verificationState === "failed_but_accepted",
             approvedWithRisk: Boolean(step.approvalProvenance?.riskAccepted),
             approvalProvenance: step.approvalProvenance,
           },
+          userHasViewedDiff: diffViewed,
         }
       : null;
   const provocationCards = provocationContext ? generateProvocationCards(provocationContext) : [];
+  const unexpectedHighRiskFiles = highRiskFilesFromCards(provocationCards);
   const verificationStatuses = provocationContext
     ? deriveVerificationStatuses(provocationContext)
     : [];
+  const agencyState = step
+    ? deriveAgencyStateView({
+        goalText: [step.title, step.description].filter(Boolean).join("\n"),
+        acceptanceCriteria: step.acceptanceCriteria,
+        status,
+        changedFiles,
+        diffViewed,
+        verifyLog,
+        approvalProvenance: step.approvalProvenance,
+        running: verifyState === "running",
+      })
+    : null;
 
   const handleProvocationAction = (action: ProvocationAction) => {
     if (action.kind === "open_diff") {
-      onOpenCode();
+      handleOpenCode();
       return;
     }
     if (action.kind === "open_preview" || action.kind === "run_app") {
       onOpenPreview?.();
       return;
     }
+    if (action.kind === "rollback_last_change" || action.kind === "revert_unrelated_changes") {
+      onOpenRecovery();
+      return;
+    }
+    if (action.kind === "create_repro_steps") {
+      pushComposerSeed(
+        "반복되는 오류를 기준으로 재현 단계, 가장 작은 확인 명령, 마지막 변경에서 볼 부분을 정리해줘.",
+      );
+      onGoToChat();
+      return;
+    }
+    if (action.kind === "split_scope") {
+      pushComposerSeed("현재 실패를 더 작은 범위 하나로 줄여서 다시 요청할 문장을 만들어줘.");
+      onGoToChat();
+      return;
+    }
+    if (action.kind === "retry_with_ai") {
+      pushComposerSeed(
+        "복구 지점, 재현 단계, 범위 축소 여부를 먼저 확인한 뒤 같은 실패를 피해서 다시 고쳐줘.",
+      );
+      onGoToChat();
+      return;
+    }
     if (action.kind === "ask_ai_for_rationale" || action.kind === "add_verification_step") {
       onGoToChat();
     }
+  };
+
+  const handleOpenCode = () => {
+    if (step) {
+      setDiffViewedStepIds((current) => {
+        if (current.has(step.id)) return current;
+        const next = new Set(current);
+        next.add(step.id);
+        return next;
+      });
+    }
+    onOpenCode();
   };
 
   return (
@@ -214,6 +336,14 @@ export function StepDetailSlideIn({
             </div>
           ) : null}
 
+          {agencyState && agencyState.items.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-1.5" data-testid="step-detail-agency-states">
+              {agencyState.items.map((item) => (
+                <AgencyStateChip key={item.id} item={item} />
+              ))}
+            </div>
+          ) : null}
+
           <ProvocationCardHost
             className="mt-3"
             cards={provocationCards}
@@ -224,15 +354,24 @@ export function StepDetailSlideIn({
 
           <div className="mt-3 flex flex-wrap gap-2">
             {isReview ? (
-              <div className="flex flex-col gap-2">
-                <LearningHint data-testid="trust-calibration-hint">
-                  {t("roadmap.step_detail.trust_calibration_hint")}
-                </LearningHint>
-                <ApprovalJudgment
-                  prompt={verifyLog ? t("roadmap.step_detail.approval_prompt") : undefined}
-                  onDecide={onApprovalDecision}
-                />
-              </div>
+              <DecisionGate
+                verificationStatuses={verificationStatuses}
+                agencyState={agencyState}
+                provocationCards={provocationCards}
+                verifyLog={verifyLog}
+                rollbackAvailable={rollbackAvailable}
+                verifyRunning={verifyState === "running"}
+                onApprove={() => onApprovalDecision({ outcome: "approved", note: null })}
+                onAcceptRisk={(reason) =>
+                  onApprovalDecision({ outcome: "approved_with_concern", note: reason })
+                }
+                onRequestChanges={() =>
+                  onApprovalDecision({ outcome: "revision_requested", note: null })
+                }
+                onVerifyFirst={onVerifyFirst}
+                onRevert={onOpenRecovery}
+                onStop={(note) => onApprovalDecision({ outcome: "revision_requested", note })}
+              />
             ) : (
               <Button
                 variant="outline"
@@ -248,7 +387,7 @@ export function StepDetailSlideIn({
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={onOpenCode}
+                onClick={handleOpenCode}
                 data-testid="step-detail-open-code"
               >
                 <FileCode />
@@ -259,6 +398,23 @@ export function StepDetailSlideIn({
           <LearningHint className="mt-2 text-[11px]">
             {t("roadmap.step_detail.go_to_chat_hint")}
           </LearningHint>
+
+          {expectedFiles.length > 0 ||
+          actualChangedFiles.length > 0 ||
+          verificationStatuses.length > 0 ||
+          isReview ? (
+            <Section title={t("roadmap.step_detail.section_change_bundle")}>
+              <ChangeEvidenceBundle
+                expectedFiles={expectedFiles}
+                actualChangedFiles={actualChangedFiles}
+                unexpectedHighRiskFiles={unexpectedHighRiskFiles}
+                verificationStatuses={verificationStatuses}
+                rollbackAvailable={rollbackAvailable}
+                diffViewed={diffViewed}
+                verificationPlanText={verificationPlanText}
+              />
+            </Section>
+          ) : null}
 
           {step.description ? (
             <Section title={t("roadmap.step_detail.section_goal")}>
@@ -370,6 +526,146 @@ function VerificationStatusChip({ item }: { item: VerificationStatusItem }) {
       {item.label}
     </span>
   );
+}
+
+function AgencyStateChip({ item }: { item: AgencyStateItem }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-sm border px-2 py-0.5 text-[10px] font-semibold",
+        agencyToneClass(item.tone),
+      )}
+      data-testid="agency-state-chip"
+      data-agency-state={item.id}
+      data-agency-component={item.component}
+      data-evidence-backed={item.evidenceBacked ? "true" : "false"}
+    >
+      {item.label}
+    </span>
+  );
+}
+
+function ChangeEvidenceBundle({
+  expectedFiles,
+  actualChangedFiles,
+  unexpectedHighRiskFiles,
+  verificationStatuses,
+  rollbackAvailable,
+  diffViewed,
+  verificationPlanText,
+}: {
+  expectedFiles: string[];
+  actualChangedFiles: string[];
+  unexpectedHighRiskFiles: string[];
+  verificationStatuses: VerificationStatusItem[];
+  rollbackAvailable: boolean;
+  diffViewed: boolean;
+  verificationPlanText: string | null;
+}) {
+  const t = useT();
+  return (
+    <div className="space-y-3 text-xs" data-testid="step-detail-change-bundle">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <BundleList
+          testId="step-detail-expected-files"
+          title={t("roadmap.step_detail.bundle_expected_files")}
+          items={expectedFiles}
+          empty={t("roadmap.step_detail.bundle_none")}
+        />
+        <BundleList
+          testId="step-detail-actual-files"
+          title={t("roadmap.step_detail.bundle_actual_files")}
+          items={actualChangedFiles}
+          empty={t("roadmap.step_detail.bundle_none")}
+        />
+      </div>
+      <div
+        className={cn(
+          "rounded-sm border px-2 py-2",
+          unexpectedHighRiskFiles.length > 0
+            ? "border-danger/50 bg-danger/5 text-danger"
+            : "border-border bg-bg/60 text-fg-muted",
+        )}
+        data-testid="step-detail-unexpected-high-risk-files"
+        data-count={unexpectedHighRiskFiles.length}
+      >
+        <p className="font-semibold text-fg">
+          {t("roadmap.step_detail.bundle_unexpected_high_risk")}
+        </p>
+        <p className="mt-1 break-words font-mono">
+          {unexpectedHighRiskFiles.length > 0
+            ? compactBundleItems(unexpectedHighRiskFiles)
+            : t("roadmap.step_detail.bundle_none")}
+        </p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="rounded-sm border bg-bg/60 px-2 py-2" data-testid="step-detail-diff-viewed">
+          <p className="font-semibold text-fg">{t("roadmap.step_detail.bundle_diff_review")}</p>
+          <p className="mt-1 text-fg-muted">
+            {diffViewed
+              ? t("roadmap.step_detail.bundle_diff_reviewed")
+              : t("roadmap.step_detail.bundle_diff_not_reviewed")}
+          </p>
+        </div>
+        <div
+          className="rounded-sm border bg-bg/60 px-2 py-2"
+          data-testid="step-detail-rollback-availability"
+        >
+          <p className="font-semibold text-fg">{t("roadmap.step_detail.bundle_rollback")}</p>
+          <p className="mt-1 text-fg-muted">
+            {rollbackAvailable
+              ? t("roadmap.step_detail.bundle_rollback_available")
+              : t("roadmap.step_detail.bundle_rollback_unavailable")}
+          </p>
+        </div>
+      </div>
+      <div className="rounded-sm border bg-bg/60 px-2 py-2">
+        <p className="font-semibold text-fg">{t("roadmap.step_detail.bundle_verification")}</p>
+        {verificationPlanText ? (
+          <p className="mt-1 break-words font-mono text-[11px] text-fg-muted">
+            {verificationPlanText}
+          </p>
+        ) : null}
+        {verificationStatuses.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {verificationStatuses.map((item) => (
+              <VerificationStatusChip key={item.id} item={item} />
+            ))}
+          </div>
+        ) : (
+          <p className="mt-1 text-fg-muted">
+            {t("roadmap.step_detail.bundle_verification_missing")}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BundleList({
+  title,
+  items,
+  empty,
+  testId,
+}: {
+  title: string;
+  items: string[];
+  empty: string;
+  testId: string;
+}) {
+  return (
+    <div className="rounded-sm border bg-bg/60 px-2 py-2" data-testid={testId}>
+      <p className="font-semibold text-fg">{title}</p>
+      <p className="mt-1 break-words font-mono text-fg-muted">
+        {items.length > 0 ? compactBundleItems(items) : empty}
+      </p>
+    </div>
+  );
+}
+
+function compactBundleItems(items: string[]): string {
+  if (items.length <= 4) return items.join(", ");
+  return `${items.slice(0, 4).join(", ")} +${items.length - 4}`;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

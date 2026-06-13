@@ -1,5 +1,5 @@
-import { sortProvocationCards } from "./priority";
-import { hasAiSelfReport, hasConcreteVerificationEvidence } from "./verificationStatus";
+import { shouldShowProvocationCardInMode, sortProvocationCards } from "./priority";
+import { hasAiSelfReport, hasObservedVerificationEvidence } from "./verificationStatus";
 import type {
   ChangedFileCategory,
   DiveStage,
@@ -233,7 +233,15 @@ function action(
 function hasVerificationStep(steps: ProvocationPlanStep[] | undefined): boolean {
   return Boolean(
     steps?.some((step) => {
-      const haystack = `${step.kind ?? ""} ${step.text}`.toLowerCase();
+      const explicitVerification = [
+        step.kind,
+        step.verificationCommand,
+        step.verificationManualCheck,
+      ]
+        .map((item) => item?.trim())
+        .filter((item): item is string => Boolean(item && item !== "none"));
+      if (explicitVerification.length > 0) return true;
+      const haystack = step.text.toLowerCase();
       return VERIFICATION_TERMS.some((term) => haystack.includes(term.toLowerCase()));
     }),
   );
@@ -487,7 +495,7 @@ export function diffScopeDriftRule(context: ProvocationContext): ProvocationCard
 }
 
 export function aiSelfReportOnlyRule(context: ProvocationContext): ProvocationCard | null {
-  if (!hasAiSelfReport(context) || hasConcreteVerificationEvidence(context)) {
+  if (!hasAiSelfReport(context) || hasObservedVerificationEvidence(context)) {
     return null;
   }
 
@@ -564,9 +572,9 @@ export function regenerationLoopRule(context: ProvocationContext): ProvocationCa
       "같은 오류가 반복될 때는 새 코드를 더 만들기보다 재현 조건과 마지막 변경을 좁히는 편이 안전합니다.",
     actions: [
       action("rollback", "마지막 변경 되돌리기", "rollback_last_change"),
-      action("log", "에러 로그 정리", "create_repro_steps"),
-      action("repro", "재현 단계 만들기", "create_repro_steps"),
-      action("split", "범위 줄여 다시 요청", "split_scope"),
+      action("repro", "에러 로그 요약 / 재현 단계 만들기", "create_repro_steps"),
+      action("split", "범위 줄이기 / 계획 조정", "split_scope"),
+      action("retry", "AI 재시도", "retry_with_ai"),
     ],
     metadata: {
       retrySignalCount: retrySignals.length,
@@ -589,7 +597,8 @@ export function generateProvocationCards(context: ProvocationContext): Provocati
   const cards = PROVOCATION_RULES.map((rule) => rule(context)).filter(
     (candidate): candidate is ProvocationCard => candidate !== null,
   );
-  const visible =
-    context.mode === "expert" ? cards.filter((candidate) => candidate.severity === "risk") : cards;
+  const visible = cards.filter((candidate) =>
+    shouldShowProvocationCardInMode(candidate, context.mode),
+  );
   return sortProvocationCards(visible);
 }

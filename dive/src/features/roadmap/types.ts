@@ -4,6 +4,45 @@ import type { CardTransitionKind } from "../../stores/workmap";
 import type { ChangedFile } from "../../components/slide-in/types";
 import type { ApprovalProvenance } from "../provocation";
 
+export type AgencyStateId =
+  | "intent_needed"
+  | "plan_review_needed"
+  | "approval_required"
+  | "running"
+  | "diff_review_needed"
+  | "verification_needed"
+  | "verified_with_evidence"
+  | "ai_self_report_only"
+  | "verification_failed"
+  | "rollback_available"
+  | "approved_with_risk";
+
+export type AgencyComponent =
+  | "intent"
+  | "plan"
+  | "action"
+  | "diff"
+  | "verify"
+  | "decision"
+  | "rollback";
+
+export type AgencyTone = "info" | "success" | "warn" | "risk";
+
+export interface AgencyStateItem {
+  id: AgencyStateId;
+  component: AgencyComponent;
+  label: string;
+  tone: AgencyTone;
+  evidenceBacked: boolean;
+  priority: number;
+}
+
+export interface AgencyStateView {
+  primary: AgencyStateItem | null;
+  items: AgencyStateItem[];
+  hasRisk: boolean;
+}
+
 /**
  * User-facing Roadmap step status (redesign §3.5).
  *
@@ -43,6 +82,7 @@ export interface RoadmapStep {
   changeSummary: string | null;
   testCommand: string | null;
   approvalProvenance: ApprovalProvenance | null;
+  agency?: AgencyStateView;
   status: RoadmapStepStatus;
   /**
    * True when `status === "review"` was reached via a prior rejection

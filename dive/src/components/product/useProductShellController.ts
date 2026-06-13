@@ -63,6 +63,12 @@ interface PendingPlanRouteConfirmation {
   resolve: (approved: boolean) => void;
 }
 
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+}
+
 export function useProductShellController() {
   const t = useT();
   const dialogs = useProductShellDialogs();
@@ -328,6 +334,28 @@ export function useProductShellController() {
         : [],
     [activePlanStep],
   );
+  const currentPlanRoadmapStep = useMemo(() => {
+    if (!currentCard) return null;
+    return (
+      planRoadmap.steps.find((item) => item.mapping?.card_id === currentCard.id) ??
+      (activePlanStepIdForChat === undefined
+        ? null
+        : (planRoadmap.steps.find((item) => item.step.id === activePlanStepIdForChat) ?? null))
+    );
+  }, [activePlanStepIdForChat, currentCard, planRoadmap.steps]);
+  const currentPlanStepContext = useMemo(() => {
+    const step = currentPlanRoadmapStep?.step;
+    if (!step) return undefined;
+    return {
+      expectedFiles: stringArray(step.expected_files),
+      verificationCommand: step.verification_command,
+      verificationManualCheck: step.verification_manual_check,
+      verificationKind: step.verification_kind,
+      dependencies: stringArray(step.dependencies),
+      parallelGroup: step.parallel_group,
+      purpose: step.summary,
+    };
+  }, [currentPlanRoadmapStep]);
   const planAccepted = planRoadmap.hasPlan;
 
   const openSlideIn = useSlideInStore((s) => s.open);
@@ -1023,6 +1051,7 @@ export function useProductShellController() {
           : [],
         targetFiles: activePlanStepTargetFiles,
         planSteps: activePlanStep ? [normalizePlanStep(activePlanStep.step)] : [],
+        checkpointAvailable: recoveryCheckpoints.length > 0,
         onOpenRecovery: () => dialogs.setRecoveryOpen(true),
       },
       planDraftApproval: generatedPlanDraft
@@ -1073,12 +1102,22 @@ export function useProductShellController() {
       verifyState: currentVerifyState,
       verifyError: currentVerifyError,
       changedFiles: currentCard ? roadmapModel.changedFilesForStep(currentCard.id) : [],
+      planContext: currentPlanStepContext,
       onOpenChange: handleStepDetailOpenChange,
       onOpenCode: () => {
         if (!currentCard) return;
         handleOpenCodeForCard(currentCard.id);
       },
       onOpenPreview: openResultPanelWithContext,
+      onOpenRecovery: () => {
+        dialogs.setStepDetailOpen(false);
+        dialogs.setRecoveryOpen(true);
+      },
+      onVerifyFirst: () => {
+        if (!currentCard) return;
+        void handleVerify(currentCard.id);
+      },
+      rollbackAvailable: recoveryCheckpoints.length > 0,
       provocation: {
         enabled: enableProvocationCards,
         mode: provocationScaffoldMode,

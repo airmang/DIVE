@@ -1,6 +1,7 @@
 export * from "./actionFailure";
 export * from "./activityLabels";
 export * from "./types";
+export * from "./agencyStatus";
 export * from "./statusMapping";
 export * from "./useRoadmap";
 export * from "./usePlanDashboard";

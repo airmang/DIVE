@@ -47,6 +47,7 @@ export type ProvocationActionKind =
   | "open_preview"
   | "create_repro_steps"
   | "rollback_last_change"
+  | "retry_with_ai"
   | "continue_with_risk"
   | "dismiss"
   | "mark_irrelevant";
@@ -81,6 +82,10 @@ export interface ProvocationPlanStep {
   text: string;
   kind?: string;
   expectedFiles?: string[];
+  verificationCommand?: string | null;
+  verificationManualCheck?: string | null;
+  dependencies?: string[];
+  parallelGroup?: string | number | null;
 }
 
 export type ChangedFileCategory =

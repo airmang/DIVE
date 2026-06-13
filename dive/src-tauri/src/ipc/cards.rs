@@ -301,10 +301,13 @@ fn build_approval_provenance(
         Some("skipped") | None => false,
         Some(_) => true,
     };
-    let has_client_concrete_evidence = statuses
-        .iter()
-        .any(|status| status.get("evidenceBacked").and_then(Value::as_bool) == Some(true));
-    let concrete_evidence = automated_tests_passed || has_client_concrete_evidence;
+    let has_client_completion_evidence = statuses.iter().any(|status| {
+        matches!(
+            status.get("id").and_then(Value::as_str),
+            Some("app_launched") | Some("preview_checked")
+        )
+    });
+    let concrete_evidence = automated_tests_passed || has_client_completion_evidence;
 
     if verify_log
         .as_ref()

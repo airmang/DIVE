@@ -13,6 +13,15 @@ export interface PermissionCardData {
   risk: RiskLevel;
   diffPreview: DiffPreviewData | null;
   args: unknown;
+  actionContext?: PermissionActionContext;
+}
+
+export interface PermissionActionContext {
+  readFiles?: string[];
+  writeFiles?: string[];
+  expectedFiles?: string[];
+  diffPreviewPath?: string | null;
+  checkpointAvailable?: boolean | null;
 }
 
 export interface PermissionCardProps {

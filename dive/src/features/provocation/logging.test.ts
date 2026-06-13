@@ -107,4 +107,51 @@ describe("provocation lifecycle logging payloads", () => {
     expect(dismissed.lifecycleEvent).toBe("dismissed");
     expect(irrelevant.lifecycleEvent).toBe("marked_irrelevant");
   });
+
+  it("adds stable agency metadata without raw file or command bodies", () => {
+    const payload = buildProvocationLogPayload({
+      eventType: "provocation.continued_with_risk",
+      card: card({
+        type: "diff_scope_drift",
+        stage: "execute",
+        evidence: [{ source: "diff", label: "변경 파일", value: "package.json" }],
+        metadata: {
+          changedFiles: ["src/App.tsx", "package.json"],
+          targetFiles: ["src/App.tsx"],
+          highRiskFiles: ["package.json"],
+          affectedCommands: ["pnpm install --registry https://example.invalid"],
+        },
+      }),
+      mode: "standard",
+      action: {
+        id: "continue",
+        kind: "continue_with_risk",
+        label: "위험을 감수하고 계속",
+        requiresReason: true,
+      },
+      reason: "의존성 변경이 목표 범위에 필요함",
+      context: {
+        changedFiles: [{ path: "src/App.tsx" }, { path: "package.json" }],
+        targetFiles: ["src/App.tsx"],
+      },
+    });
+
+    expect(payload.agencyComponent).toBe("decision");
+    expect(payload.agencyState).toBe("approved_with_risk");
+    expect(payload.riskLevel).toBe("risk");
+    expect(payload.affectedFiles).toEqual({
+      changedFiles: ["src/App.tsx", "package.json"],
+      targetFiles: ["src/App.tsx"],
+      highRiskFiles: ["package.json"],
+    });
+    expect(payload.affectedCommands).toEqual([
+      expect.objectContaining({ kind: "command", redacted: true }),
+    ]);
+    expect(JSON.stringify(payload.affectedCommands)).not.toContain("pnpm install");
+    expect(payload.decision).toMatchObject({
+      event: "continued_with_risk",
+      actionKind: "continue_with_risk",
+    });
+    expect(payload.reasonPresent).toBe(true);
+  });
 });

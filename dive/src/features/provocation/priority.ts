@@ -1,4 +1,9 @@
-import type { ProvocationCard, ProvocationCardType, ProvocationSeverity } from "./types";
+import type {
+  ProvocationCard,
+  ProvocationCardType,
+  ProvocationSeverity,
+  ScaffoldMode,
+} from "./types";
 
 const TYPE_PRIORITY: Record<ProvocationCardType, number> = {
   diff_scope_drift: 600,
@@ -39,4 +44,11 @@ export function sortProvocationCards(cards: ProvocationCard[]): ProvocationCard[
 
 export function selectPrimaryProvocationCard(cards: ProvocationCard[]): ProvocationCard | null {
   return sortProvocationCards(cards)[0] ?? null;
+}
+
+export function shouldShowProvocationCardInMode(
+  card: ProvocationCard,
+  mode: ScaffoldMode,
+): boolean {
+  return mode !== "expert" || card.severity === "risk";
 }

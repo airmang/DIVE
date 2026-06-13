@@ -42,7 +42,12 @@ export function WarnCard({ card, onApprove, onDeny, approvalRequirement }: Permi
       </div>
 
       <div className="space-y-3 px-3 py-3">
-        <PermissionSummary toolName={card.toolName} risk={card.risk} explanation={explanation} />
+        <PermissionSummary
+          toolName={card.toolName}
+          risk={card.risk}
+          explanation={explanation}
+          actionContext={card.actionContext}
+        />
         <CommandExplainer explanation={explanation} />
         <PatchPreviewPanel diff={card.diffPreview} expected={explanation.patchPreviewExpected} />
         <RawDetails value={{ preview: card.paramsPreview, args: card.args }} />

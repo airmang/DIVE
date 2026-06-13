@@ -1,6 +1,12 @@
 import { AlertCircle, CheckCircle2, Circle, Clock3, ListChecks, PauseCircle } from "lucide-react";
 import { cn } from "../../lib/utils";
-import type { RoadmapProgress, RoadmapStep, RoadmapStepStatus } from "../../features/roadmap";
+import {
+  agencyToneClass,
+  type AgencyStateItem,
+  type RoadmapProgress,
+  type RoadmapStep,
+  type RoadmapStepStatus,
+} from "../../features/roadmap";
 import { useT } from "../../i18n";
 
 interface RoadmapPanelProps {
@@ -229,6 +235,7 @@ function StepListItem({ step, isActive, onSelect, t }: StepListItemProps) {
           {t("roadmap.step_badge_review_rejected")}
         </div>
       ) : null}
+      {step.agency?.primary ? <AgencyPill item={step.agency.primary} className="mt-1" /> : null}
       {step.description ? (
         <p className="mt-2 line-clamp-2 text-xs text-fg-muted">{step.description}</p>
       ) : null}
@@ -271,10 +278,28 @@ function ActiveStepCard({ step, t }: ActiveStepCardProps) {
       {step.description ? (
         <p className="mt-2 line-clamp-3 text-xs text-fg-muted">{step.description}</p>
       ) : null}
+      {step.agency?.primary ? <AgencyPill item={step.agency.primary} className="mt-2" /> : null}
       <div className="mt-3 rounded-md border border-border/70 bg-bg/70 px-3 py-2 text-xs">
         <div className="font-semibold text-fg">{t("roadmap.next_action_label")}</div>
         <p className="mt-1 text-fg-muted">{t(`roadmap.next_action_v2.${status}`)}</p>
       </div>
     </div>
+  );
+}
+
+function AgencyPill({ item, className }: { item: AgencyStateItem; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex w-fit items-center rounded-sm border px-2 py-0.5 text-[10px] font-semibold",
+        agencyToneClass(item.tone),
+        className,
+      )}
+      data-testid="roadmap-agency-state"
+      data-agency-state={item.id}
+      data-agency-component={item.component}
+    >
+      {item.label}
+    </span>
   );
 }

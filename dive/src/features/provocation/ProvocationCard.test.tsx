@@ -94,4 +94,26 @@ describe("ProvocationCardHost Expert filtering", () => {
     expect(screen.getByTestId("provocation-card").dataset.severity).toBe("risk");
     expect(screen.getByText("AI의 완료 보고만 있습니다")).toBeTruthy();
   });
+
+  it("keeps the highest-priority critical card visible in Expert mode", () => {
+    render(
+      <ProvocationCardHost
+        cards={[
+          reviewCard({ id: "low-risk", severity: "caution" }),
+          reviewCard({
+            id: "risk-diff",
+            severity: "risk",
+            type: "diff_scope_drift",
+            title: "목표 밖 변경이 섞였을 수 있습니다",
+            metadata: { highRisk: true },
+          }),
+        ]}
+        mode="expert"
+      />,
+    );
+
+    expect(screen.getByTestId("provocation-card").dataset.cardType).toBe("diff_scope_drift");
+    expect(screen.queryByText("검증 단계가 빠졌습니다")).toBeNull();
+    expect(screen.getByText("목표 밖 변경이 섞였을 수 있습니다")).toBeTruthy();
+  });
 });

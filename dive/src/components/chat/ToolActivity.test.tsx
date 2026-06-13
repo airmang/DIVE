@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ToolActivity } from "./ToolActivity";
 import type { ToolCallMessageData } from "./types";
+import { useLocaleStore } from "../../i18n";
 
 function pendingCall(overrides: Partial<ToolCallMessageData> = {}): ToolCallMessageData {
   return {
@@ -24,6 +25,10 @@ function pendingCall(overrides: Partial<ToolCallMessageData> = {}): ToolCallMess
 }
 
 describe("ToolActivity provocation permission gate", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: "ko" });
+  });
+
   afterEach(() => cleanup());
 
   it("requires a reason before approving high-risk changed files outside a UI-only target", () => {
@@ -103,5 +108,33 @@ describe("ToolActivity provocation permission gate", () => {
     expect(approve).toHaveBeenCalledTimes(1);
     expect(approve.mock.calls[0][0]).toBe("tool-1");
     expect(approve.mock.calls[0][2]).toBeUndefined();
+  });
+
+  it("shows the pre-run action context from the active plan step", () => {
+    render(
+      <ToolActivity
+        call={pendingCall()}
+        onApprove={vi.fn()}
+        onDeny={vi.fn()}
+        provocation={{
+          enabled: true,
+          mode: "standard",
+          projectId: 1,
+          sessionId: 2,
+          goalText: "버튼 문구만 바꿔줘",
+          targetFiles: ["src/App.tsx"],
+          changedFiles: [{ path: "src/App.tsx", category: "ui", changeType: "modified" }],
+          checkpointAvailable: true,
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("permission-action-context")).toBeTruthy();
+    expect(screen.getByTestId("permission-expected-files").textContent).toContain("src/App.tsx");
+    expect(screen.getByTestId("permission-write-files").textContent).toContain("src/App.tsx");
+    expect(screen.getByTestId("permission-diff-path").textContent).toContain("src/App.tsx");
+    expect(screen.getByTestId("permission-checkpoint-availability").textContent).toContain(
+      "체크포인트 있음",
+    );
   });
 });

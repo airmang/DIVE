@@ -1,7 +1,9 @@
 import { useMemo } from "react";
 import { useWorkmap } from "../../hooks/useWorkmap";
-import type { CardTileData } from "../../components/workmap/types";
+import type { CardTileData, VerifyLogView } from "../../components/workmap/types";
+import type { ChangedFile } from "../../components/slide-in/types";
 import type { CardTransitionKind } from "../../stores/workmap";
+import { deriveAgencyStateView } from "./agencyStatus";
 import { cardStateToRoadmapStatus } from "./statusMapping";
 import type {
   RoadmapModel,
@@ -31,7 +33,12 @@ export function transitionForRoadmapAction(action: RoadmapStepAction): CardTrans
   }
 }
 
-function toRoadmapStep(card: CardTileData, activeStepId: number | null): RoadmapStep {
+function toRoadmapStep(
+  card: CardTileData,
+  activeStepId: number | null,
+  verifyLog: VerifyLogView | null,
+  changedFiles: ChangedFile[],
+): RoadmapStep {
   const isActive = activeStepId === card.id;
   const status = cardStateToRoadmapStatus(card.state);
   const progress = STATUS_PROGRESS[status];
@@ -46,6 +53,15 @@ function toRoadmapStep(card: CardTileData, activeStepId: number | null): Roadmap
     changeSummary: card.changeSummary ?? null,
     testCommand: card.testCommand ?? null,
     approvalProvenance: card.approvalProvenance ?? null,
+    agency: deriveAgencyStateView({
+      goalText: [card.title, card.summary].filter(Boolean).join("\n"),
+      acceptanceCriteria: card.acceptanceCriteria,
+      status,
+      changedFiles,
+      diffViewed: false,
+      verifyLog,
+      approvalProvenance: card.approvalProvenance ?? null,
+    }),
     status,
     wasRejected: card.state === "rejected",
     progress,
@@ -72,8 +88,16 @@ export function useRoadmap(sessionId: number | null): RoadmapModel {
   const workmap = useWorkmap(sessionId);
 
   const steps = useMemo(
-    () => workmap.cards.map((card) => toRoadmapStep(card, workmap.currentCardId)),
-    [workmap.cards, workmap.currentCardId],
+    () =>
+      workmap.cards.map((card) =>
+        toRoadmapStep(
+          card,
+          workmap.currentCardId,
+          workmap.verifyLogFor(card.id),
+          workmap.changedFilesFor(card.id),
+        ),
+      ),
+    [workmap],
   );
   const activeStep = useMemo(
     () => steps.find((step) => step.id === workmap.currentCardId) ?? null,

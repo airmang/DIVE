@@ -383,7 +383,7 @@ fn extract_local_url(line: &str) -> Option<String> {
         .ok()?;
     re.find(line).map(|m| {
         m.as_str()
-            .trim_end_matches(|c: char| matches!(c, ')' | ']' | ',' | '.'))
+            .trim_end_matches([')', ']', ',', '.'])
             .replace("localhost", "127.0.0.1")
     })
 }

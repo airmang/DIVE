@@ -1,5 +1,8 @@
 #[cfg(test)]
-use super::cards::{card_transition_with_checkpoint_impl, card_update_test_command_impl};
+use super::cards::{
+    card_transition_with_checkpoint_and_provenance_impl, card_transition_with_checkpoint_impl,
+    card_update_test_command_impl,
+};
 use super::chat::{
     backend_run_mode_floor, mark_step_blocked_after_recoverable_error, message_list_impl,
     safest_run_mode,
@@ -322,6 +325,10 @@ fn provocation_events_are_exported_with_session_event_log() {
     assert!(exported.contains("\"kind\":\"event\""));
     assert!(exported.contains("\"type\":\"provocation.card_shown\""));
     assert!(exported.contains("\"cardType\":\"ai_self_report_only\""));
+    assert!(exported.contains("\"agencyComponent\":\"verify\""));
+    assert!(exported.contains("\"agencyState\":\"ai_self_report_only\""));
+    assert!(exported.contains("\"evidenceSummary\""));
+    assert!(exported.contains("\"reasonPresent\":false"));
 }
 
 #[test]
@@ -395,9 +402,77 @@ fn ai_self_report_only_approval_records_unverified_risk_provenance() {
         .unwrap();
     assert!(exported.contains("\"approval_provenance\""));
     assert!(exported.contains("\"verification_evidence_summary\""));
+    assert!(exported.contains("\"agency\""));
+    assert!(exported.contains("\"state\":\"approved_with_risk\""));
+    assert!(exported.contains("\"checkpoint_count\":0"));
+    assert!(exported.contains("\"rollback_available\":false"));
     assert!(exported.contains("\"ai_self_report_only\""));
     assert!(exported.contains("\"unverified_risk_accepted\""));
     assert!(exported.contains("\"kind\":\"step_session_mapping\""));
+}
+
+#[test]
+fn diff_reviewed_only_approval_does_not_record_verified_evidence() {
+    let state = AppState::dev_mock();
+    let tmp = tempfile::tempdir().unwrap();
+    state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+    let session_id = seed_session(&state, tmp.path());
+    let card_id = seed_card(&state, session_id, "Diff only", CardState::Verifying);
+    let mapping_id = seed_step_mapping_for_card(&state, session_id, card_id);
+    set_verify_log(&state, card_id, true, crate::dive::TestResult::Skipped);
+
+    card_transition_with_checkpoint_and_provenance_impl(
+        &state,
+        card_id,
+        CardTransition::Approve,
+        Some(true),
+        Some(crate::dive::ApprovalJudgment {
+            outcome: crate::dive::ApprovalOutcome::ApprovedWithConcern,
+            note: Some("diff만 확인했고 실행 증거는 아직 없음".into()),
+            decided_at: 12,
+        }),
+        Some(serde_json::json!({
+            "statusIds": ["diff_reviewed"],
+            "statuses": [{
+                "id": "diff_reviewed",
+                "label": "Diff 확인됨",
+                "evidenceBacked": true,
+                "tone": "info",
+                "source": "diff_review"
+            }]
+        })),
+    )
+    .unwrap();
+
+    let (provenance, mapping) = {
+        let db = state.db.lock().unwrap();
+        let card = crate::db::dao::card::get_by_id(db.conn(), card_id)
+            .unwrap()
+            .unwrap();
+        let provenance: serde_json::Value =
+            serde_json::from_str(card.approval_provenance.as_deref().unwrap()).unwrap();
+        let mapping = mapping_dao::get_by_id(db.conn(), mapping_id)
+            .unwrap()
+            .unwrap();
+        (provenance, mapping)
+    };
+
+    assert_eq!(provenance["verificationState"], "unverified_risk_accepted");
+    assert_eq!(provenance["evidenceSummary"]["concreteEvidence"], false);
+    assert!(provenance["statusIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == "diff_reviewed"));
+    assert!(provenance["statusIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == "approved_with_risk"));
+    assert_eq!(
+        mapping.verification_status.as_deref(),
+        Some("unverified_risk_accepted")
+    );
 }
 
 #[test]
@@ -465,7 +540,109 @@ fn passed_test_approval_records_evidence_backed_provenance() {
         .unwrap();
     assert!(exported.contains("\"automated_tests_passed\""));
     assert!(exported.contains("\"verified_with_evidence\""));
+    assert!(exported.contains("\"component\":\"decision\""));
     assert!(!exported.contains("\"approved_with_risk\""));
+}
+
+#[test]
+fn export_maps_agency_event_metadata_for_tool_risk_and_checkpoint_restore() {
+    let state = AppState::dev_mock();
+    let tmp = tempfile::tempdir().unwrap();
+    state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+    let session_id = seed_session(&state, tmp.path());
+
+    super::log_event(
+        &state,
+        Some(session_id),
+        "provocation.continued_with_risk",
+        serde_json::json!({
+            "tool": "edit_file",
+            "tool_call_id": "tool-1",
+            "risk": "warn",
+            "approval_metadata": {
+                "source": "provocation.continue_with_risk",
+                "cardType": "diff_scope_drift",
+                "riskReason": "package change is intentional",
+                "highRiskFiles": ["package.json"]
+            },
+            "reason": "package change is intentional",
+            "highRiskFiles": ["package.json"]
+        }),
+    )
+    .unwrap();
+    super::log_event(
+        &state,
+        Some(session_id),
+        "checkpoint_restore",
+        serde_json::json!({
+            "checkpoint_id": 1,
+            "card_id": 2,
+            "pre_restore_backup": true
+        }),
+    )
+    .unwrap();
+
+    let options = crate::export::ExportOptions {
+        hash_user_text: false,
+        hash_file_paths: false,
+        hash_ids: false,
+        ..Default::default()
+    };
+    let exported = crate::export::ExportEngine::new(state.db.clone())
+        .export_session_with_salt(session_id, &options, "test-salt")
+        .unwrap();
+
+    assert!(exported.contains("\"agencyComponent\":\"action\""));
+    assert!(exported.contains("\"agencyState\":\"approved_with_risk\""));
+    assert!(exported.contains("\"riskLevel\":\"warn\""));
+    assert!(exported.contains("\"affectedFiles\""));
+    assert!(exported.contains("\"permissionReviewed\":true"));
+    assert!(exported.contains("\"highRiskFileCount\":1"));
+    assert!(exported.contains("\"reasonPresent\":true"));
+    assert!(exported.contains("\"agencyComponent\":\"rollback\""));
+    assert!(exported.contains("\"rollbackUsed\":true"));
+    assert!(exported.contains("\"decision\":{\"kind\":\"restore_checkpoint\"}"));
+}
+
+#[test]
+fn default_export_hashes_risk_reason_and_paths_in_agency_events() {
+    let state = AppState::dev_mock();
+    let tmp = tempfile::tempdir().unwrap();
+    state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+    let session_id = seed_session(&state, tmp.path());
+
+    super::log_event(
+        &state,
+        Some(session_id),
+        "provocation.continued_with_risk",
+        serde_json::json!({
+            "tool": "edit_file",
+            "tool_call_id": "tool-1",
+            "risk": "warn",
+            "approval_metadata": {
+                "source": "provocation.continue_with_risk",
+                "cardType": "diff_scope_drift",
+                "riskReason": "package change is intentional",
+                "highRiskFiles": ["package.json"]
+            },
+            "reason": "package change is intentional",
+            "highRiskFiles": ["package.json"]
+        }),
+    )
+    .unwrap();
+
+    let exported = crate::export::ExportEngine::new(state.db.clone())
+        .export_session_with_salt(
+            session_id,
+            &crate::export::ExportOptions::default(),
+            "test-salt",
+        )
+        .unwrap();
+
+    assert!(exported.contains("\"reasonPresent\":true"));
+    assert!(exported.contains("\"highRiskFileCount\":1"));
+    assert!(!exported.contains("package change is intentional"));
+    assert!(!exported.contains("package.json"));
 }
 
 #[test]

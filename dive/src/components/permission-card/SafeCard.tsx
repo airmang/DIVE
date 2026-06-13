@@ -32,7 +32,12 @@ export function SafeCard({ card, onApprove, onDeny, approvalRequirement }: Permi
       </div>
 
       <div className="space-y-3 px-3 py-3">
-        <PermissionSummary toolName={card.toolName} risk={card.risk} explanation={explanation} />
+        <PermissionSummary
+          toolName={card.toolName}
+          risk={card.risk}
+          explanation={explanation}
+          actionContext={card.actionContext}
+        />
         <RawDetails value={{ preview: card.paramsPreview, args: card.args }} />
       </div>
 

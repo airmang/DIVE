@@ -44,6 +44,7 @@ interface Props {
     changedFiles?: ProvocationChangedFile[];
     targetFiles?: string[];
     planSteps?: ProvocationPlanStep[];
+    checkpointAvailable?: boolean | null;
     onOpenRecovery?: () => void;
   };
   /** Cap DOM nodes to last N. Real virtualization lands in task 4-4. */
@@ -171,6 +172,12 @@ function MessageListImpl({
       }
       if (action.kind === "split_scope") {
         pushComposerSeed("현재 실패를 더 작은 범위 하나로 줄여서 다시 요청할 문장을 만들어줘.");
+        return;
+      }
+      if (action.kind === "retry_with_ai") {
+        pushComposerSeed(
+          "복구 지점, 재현 단계, 범위 축소 여부를 먼저 확인한 뒤 같은 실패를 피해서 다시 고쳐줘.",
+        );
         return;
       }
       if (action.kind === "run_tests") {

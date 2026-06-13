@@ -15,7 +15,11 @@ import {
   oversizedScopeRule,
   regenerationLoopRule,
 } from "../rules";
-import { deriveVerificationStatuses } from "../verificationStatus";
+import {
+  buildApprovalProvenance,
+  deriveVerificationStatuses,
+  summarizeVerificationEvidence,
+} from "../verificationStatus";
 import type { ProvocationContext } from "../types";
 
 function ctx(overrides: Partial<ProvocationContext> = {}): ProvocationContext {
@@ -41,8 +45,7 @@ describe("provocation rules", () => {
   it("oversized_scope triggers on feature count plus separators and expansion terms", () => {
     const card = oversizedScopeRule(
       ctx({
-        promptDraft:
-          "전체 앱에 로그인, 회원가입 / 관리자 대시보드\n결제까지 한번에 모두 구현해줘",
+        promptDraft: "전체 앱에 로그인, 회원가입 / 관리자 대시보드\n결제까지 한번에 모두 구현해줘",
       }),
     );
     expect(card?.type).toBe("oversized_scope");
@@ -88,6 +91,23 @@ describe("provocation rules", () => {
     expect(oversizedScopeRule(ctx({ promptDraft: "전체 버튼 문구만 저장으로 바꿔줘" }))).toBeNull();
   });
 
+  it("oversized_scope does not trigger for one small plan step with a couple of expected files", () => {
+    expect(
+      oversizedScopeRule(
+        ctx({
+          goalText: "설정 저장 버튼 상태만 정리",
+          planSteps: [
+            {
+              id: "1",
+              text: "Update save button state",
+              expectedFiles: ["src/settings/SettingsPage.tsx", "src/settings/save.ts"],
+            },
+          ],
+        }),
+      ),
+    ).toBeNull();
+  });
+
   it("missing_acceptance_criteria triggers on vague goal with no criteria", () => {
     const card = missingAcceptanceCriteriaRule(ctx({ goalText: "설정 화면을 예쁘게 개선해줘" }));
     expect(card?.type).toBe("missing_acceptance_criteria");
@@ -126,6 +146,38 @@ describe("provocation rules", () => {
           planSteps: [
             { id: "1", text: "Create settings form" },
             { id: "2", text: "Run pnpm test and preview the settings page" },
+          ],
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("missing_verification_step reads explicit command and manual-check metadata", () => {
+    expect(
+      missingVerificationStepRule(
+        ctx({
+          stage: "instruct",
+          planSteps: [
+            {
+              id: "1",
+              text: "Create settings form",
+              verificationCommand: "pnpm test SettingsPage",
+            },
+          ],
+        }),
+      ),
+    ).toBeNull();
+
+    expect(
+      missingVerificationStepRule(
+        ctx({
+          stage: "instruct",
+          planSteps: [
+            {
+              id: "1",
+              text: "Create settings form",
+              verificationManualCheck: "설정 화면에서 저장 결과를 확인한다",
+            },
           ],
         }),
       ),
@@ -254,6 +306,12 @@ describe("provocation rules", () => {
       }),
     );
     expect(card?.type).toBe("regeneration_loop");
+    expect(card?.actions.map((action) => action.kind)).toEqual([
+      "rollback_last_change",
+      "create_repro_steps",
+      "split_scope",
+      "retry_with_ai",
+    ]);
   });
 
   it("regeneration_loop triggers on repeated retry requests after the same failure", () => {
@@ -306,6 +364,32 @@ describe("provocation rules", () => {
     expect(cards.map((card) => card.type)).not.toContain("missing_verification_step");
   });
 
+  it("expert mode keeps critical risk cards visible", () => {
+    const cards = generateProvocationCards(
+      ctx({
+        mode: "expert",
+        stage: "finalApproval",
+        goalText: "버튼 문구만 바꿔줘",
+        targetFiles: ["src/App.tsx"],
+        changedFiles: [
+          { path: "src/App.tsx", category: "ui" },
+          { path: "package.json", category: "dependency" },
+        ],
+        verification: { aiClaimedDone: true, externalTestRun: false },
+        recentErrors: [
+          { message: "TypeError: x is undefined", occurredAt: "1" },
+          { message: "TypeError: x is undefined", occurredAt: "2" },
+          { message: "TypeError: x is undefined", occurredAt: "3" },
+        ],
+      }),
+    );
+
+    expect(cards.map((card) => card.type)).toEqual(
+      expect.arrayContaining(["diff_scope_drift", "ai_self_report_only", "regeneration_loop"]),
+    );
+    expect(cards.every((card) => card.severity === "risk")).toBe(true);
+  });
+
   it("priority ordering returns the most important card first", () => {
     const cards = generateProvocationCards(
       ctx({
@@ -337,5 +421,18 @@ describe("provocation rules", () => {
         }),
       ).map((item) => item.id),
     ).toEqual(["diff_reviewed", "automated_tests_passed"]);
+  });
+
+  it("diff review alone is not final verification evidence", () => {
+    const context = ctx({
+      verification: { aiClaimedDone: true, diffReviewed: true, externalTestRun: false },
+    });
+
+    expect(deriveVerificationStatuses(context).map((item) => item.id)).toEqual([
+      "diff_reviewed",
+      "external_test_not_run",
+    ]);
+    expect(summarizeVerificationEvidence(context).concreteEvidence).toBe(false);
+    expect(buildApprovalProvenance(context).verificationState).toBe("unverified_risk_accepted");
   });
 });

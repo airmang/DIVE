@@ -8,6 +8,7 @@ import { PlanDraftDependencyMap } from "./PlanDraftDependencyMap";
 import {
   ProvocationCardHost,
   generateProvocationCards,
+  normalizePlanStep,
   type ProvocationAction,
   type ScaffoldMode,
 } from "../../features/provocation";
@@ -58,6 +59,19 @@ function buildPlanMarkdown(draft: PlanGenerationResult): string {
     }
   }
   return lines.join("\n");
+}
+
+function compactList(items: string[], fallback: string): string {
+  if (items.length === 0) return fallback;
+  return items.slice(0, 4).join(", ") + (items.length > 4 ? ` +${items.length - 4}` : "");
+}
+
+function hasStepVerification(step: PlanGenerationResult["steps"][number]): boolean {
+  return Boolean(
+    step.verification_command?.trim() ||
+      step.verification_manual_check?.trim() ||
+      (step.verification_kind?.trim() && step.verification_kind.trim() !== "none"),
+  );
 }
 
 function MarkdownPreview({ markdown }: { markdown: string }) {
@@ -128,26 +142,17 @@ export function PlanDraftApprovalScreen({
       featureId: plan.id,
       goalText: plan.goal,
       acceptanceCriteria: stringArray(plan.acceptance_criteria),
-      planSteps: draft.steps.map((step) => ({
-        id: String(step.id),
-        text: [
-          step.step_id,
-          step.title,
-          step.summary,
-          step.instruction_seed,
-          step.verification_kind,
-          step.verification_command,
-          step.verification_manual_check,
-        ]
-          .filter(Boolean)
-          .join(" "),
-        kind: step.verification_kind ?? undefined,
-        expectedFiles: stringArray(step.expected_files),
-      })),
+      planSteps: draft.steps.map(normalizePlanStep),
     });
   }, [draft.steps, plan.acceptance_criteria, plan.goal, plan.id, provocation]);
 
   const handleProvocationAction = (action: ProvocationAction) => {
+    if (action.kind === "add_acceptance_criteria") {
+      setFeedback(
+        "완료 기준을 계획에 추가해 주세요. 예: 사용자가 무엇을 보면 끝났다고 판단할 수 있는지 2~3개로 적어 주세요.",
+      );
+      return;
+    }
     if (action.kind === "add_verification_step") {
       setFeedback("검증 단계가 필요합니다. 실행/프리뷰/테스트 중 무엇으로 확인할지 계획에 추가해 주세요.");
     }
@@ -240,6 +245,54 @@ export function PlanDraftApprovalScreen({
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_420px]">
           <div className="space-y-5">
             <MarkdownPreview markdown={markdown} />
+            <section className="rounded-md border bg-bg-panel2 p-3">
+              <h3 className="text-sm font-semibold text-fg">
+                {t("planning.approval.intent_surface_title")}
+              </h3>
+              <p className="mt-1 text-xs text-fg-muted">
+                {t("planning.approval.intent_surface_description")}
+              </p>
+              <dl className="mt-3 grid gap-3 text-sm md:grid-cols-2">
+                <div>
+                  <dt className="text-xs font-semibold uppercase text-fg-muted">
+                    {t("planning.approval.goal")}
+                  </dt>
+                  <dd className="mt-1 text-fg">{plan.goal}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold uppercase text-fg-muted">
+                    {t("planning.approval.intent_summary")}
+                  </dt>
+                  <dd className="mt-1 text-fg">
+                    {interview?.intent_summary ?? plan.intent_summary ?? t("planning.approval.none")}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold uppercase text-fg-muted">
+                    {t("planning.approval.acceptance_criteria")}
+                  </dt>
+                  <dd className="mt-1 text-fg">
+                    {compactList(stringArray(plan.acceptance_criteria), t("planning.approval.none"))}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold uppercase text-fg-muted">
+                    {t("planning.approval.constraints")}
+                  </dt>
+                  <dd className="mt-1 text-fg">
+                    {compactList(stringArray(plan.constraints), t("planning.approval.none"))}
+                  </dd>
+                </div>
+                <div className="md:col-span-2">
+                  <dt className="text-xs font-semibold uppercase text-fg-muted">
+                    {t("planning.approval.non_goals")}
+                  </dt>
+                  <dd className="mt-1 text-fg">
+                    {compactList(stringArray(plan.non_goals), t("planning.approval.none"))}
+                  </dd>
+                </div>
+              </dl>
+            </section>
             <section>
               <h3 className="text-sm font-semibold text-fg">
                 {t("planning.approval.interview_context")}
@@ -261,16 +314,82 @@ export function PlanDraftApprovalScreen({
             <section>
               <h3 className="text-sm font-semibold text-fg">{t("planning.approval.steps")}</h3>
               <ol className="mt-2 space-y-3">
-                {draft.steps.map((step) => (
-                  <li key={step.id} className="rounded-md border bg-bg-panel2 p-3">
-                    <p className="text-sm font-semibold text-fg">
-                      {step.step_id} · {step.title}
-                    </p>
-                    {step.summary ? (
-                      <p className="mt-1 text-sm text-fg-muted">{step.summary}</p>
-                    ) : null}
-                  </li>
-                ))}
+                {draft.steps.map((step) => {
+                  const expectedFiles = stringArray(step.expected_files);
+                  const dependencies = stringArray(step.dependencies);
+                  const verificationIncluded = hasStepVerification(step);
+                  const verificationText =
+                    step.verification_command?.trim() ||
+                    step.verification_manual_check?.trim() ||
+                    step.verification_kind?.trim() ||
+                    t("planning.approval.step_verification_missing");
+                  return (
+                    <li
+                      key={step.id}
+                      className="rounded-md border bg-bg-panel2 p-3"
+                      data-testid="plan-draft-step"
+                    >
+                      <div className="flex flex-wrap items-start gap-2">
+                        <p className="min-w-0 flex-1 text-sm font-semibold text-fg">
+                          {step.step_id} · {step.title}
+                        </p>
+                        <span
+                          className={
+                            verificationIncluded
+                              ? "shrink-0 rounded-sm border border-success/50 bg-success/10 px-2 py-0.5 text-[10.5px] font-semibold text-success"
+                              : "shrink-0 rounded-sm border border-warn/50 bg-warn/10 px-2 py-0.5 text-[10.5px] font-semibold text-warn"
+                          }
+                          data-testid="plan-step-verification-indicator"
+                          data-verification={verificationIncluded ? "included" : "missing"}
+                        >
+                          {verificationIncluded
+                            ? t("planning.approval.step_verification_included")
+                            : t("planning.approval.step_verification_none")}
+                        </span>
+                      </div>
+                      {step.summary ? (
+                        <p className="mt-1 text-sm text-fg-muted">
+                          <span className="font-semibold text-fg">
+                            {t("planning.approval.step_purpose")}:
+                          </span>{" "}
+                          {step.summary}
+                        </p>
+                      ) : null}
+                      <dl className="mt-3 grid gap-2 text-xs text-fg-muted md:grid-cols-2">
+                        <div>
+                          <dt className="font-semibold text-fg">
+                            {t("planning.approval.step_expected_files")}
+                          </dt>
+                          <dd className="mt-0.5 break-words">
+                            {compactList(expectedFiles, t("planning.approval.none"))}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="font-semibold text-fg">
+                            {t("planning.approval.step_verification")}
+                          </dt>
+                          <dd className="mt-0.5 break-words">{verificationText}</dd>
+                        </div>
+                        <div>
+                          <dt className="font-semibold text-fg">
+                            {t("planning.approval.step_dependencies")}
+                          </dt>
+                          <dd className="mt-0.5 break-words">
+                            {compactList(dependencies, t("planning.approval.none"))}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="font-semibold text-fg">
+                            {t("planning.approval.step_parallel_group")}
+                          </dt>
+                          <dd className="mt-0.5 break-words">
+                            {step.parallel_group ?? t("planning.approval.none")}
+                          </dd>
+                        </div>
+                      </dl>
+                    </li>
+                  );
+                })}
               </ol>
             </section>
           </div>

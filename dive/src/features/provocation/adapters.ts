@@ -24,6 +24,8 @@ export function normalizePlanStep(input: {
   verification_kind?: string | null;
   verification_command?: string | null;
   verification_manual_check?: string | null;
+  dependencies?: unknown;
+  parallel_group?: string | number | null;
 }): ProvocationPlanStep {
   const verificationText = [
     input.verification_kind,
@@ -39,6 +41,10 @@ export function normalizePlanStep(input: {
       .join(" "),
     kind: input.verification_kind ?? undefined,
     expectedFiles: stringArray(input.expected_files ?? input.expectedFiles),
+    verificationCommand: input.verification_command ?? null,
+    verificationManualCheck: input.verification_manual_check ?? null,
+    dependencies: stringArray(input.dependencies),
+    parallelGroup: input.parallel_group ?? null,
   };
 }
 
