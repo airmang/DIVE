@@ -48,8 +48,16 @@ describe("product shell plan-step logic", () => {
         "Acceptance criteria:",
         "- renders shell",
         "- has navigation",
+        "",
+        '참고: 작업 디렉터리에 필요한 구조나 파일이 아직 없을 수 있습니다(특히 첫 단계). 이럴 때 "코드가 없다"며 멈추거나 기존 코드 위치를 되묻지 말고, 완료 기준을 충족하도록 필요한 파일과 디렉터리를 직접 생성하여 이 단계를 완료하세요.',
       ].join("\n"),
     );
+  });
+
+  it("tells the agent to scaffold missing structure instead of stalling on an empty workspace", () => {
+    const prompt = buildPlanStepExecutionPrompt(roadmapStep());
+    expect(prompt).toContain("필요한 파일과 디렉터리를 직접 생성");
+    expect(prompt).toContain("되묻지 말고");
   });
 
   it("uses a summary when the instruction seed is blank", () => {
