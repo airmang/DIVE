@@ -39,6 +39,12 @@ export function ProvocationCard({
   const [reason, setReason] = useState("");
   const compact = mode === "expert";
   const explanation = card.modeCopy?.[mode] ?? card.modeCopy?.guided;
+  const primaryAction = card.primaryActionId
+    ? card.actions.find((action) => action.id === card.primaryActionId)
+    : undefined;
+  const secondaryActions = primaryAction
+    ? card.actions.filter((action) => action.id !== primaryAction.id)
+    : card.actions;
 
   const chooseAction = (action: ProvocationAction) => {
     if (action.disabledReason) return;
@@ -56,6 +62,30 @@ export function ProvocationCard({
     onAction?.(action, trimmed);
     setPendingReasonAction(null);
     setReason("");
+  };
+
+  const renderAction = (action: ProvocationAction, emphasized = false) => {
+    const disabled = Boolean(action.disabledReason);
+    const variant = action.kind === "continue_with_risk" ? "outline" : "ghost";
+    return (
+      <Button
+        key={action.id}
+        type="button"
+        variant={emphasized ? "primary" : variant}
+        size="sm"
+        disabled={disabled}
+        title={action.disabledReason}
+        onClick={() => chooseAction(action)}
+        data-testid={emphasized ? "provocation-primary-action" : "provocation-action"}
+        data-action-kind={action.kind}
+        data-disabled-reason={action.disabledReason}
+      >
+        <span>{action.label}</span>
+        {action.disabledReason ? (
+          <span className="ml-1 text-[10px] text-fg-subtle">{action.disabledReason}</span>
+        ) : null}
+      </Button>
+    );
   };
 
   return (
@@ -128,8 +158,11 @@ export function ProvocationCard({
 
           {pendingReasonAction ? (
             <div className="mt-3 rounded-md border bg-bg/70 p-2">
-              <label className="text-[11px] font-medium text-fg">
-                계속 진행하는 이유를 한 줄로 남겨주세요.
+              <label
+                className="text-[11px] font-medium text-fg"
+                data-testid="provocation-risk-reason-label"
+              >
+                {pendingReasonAction?.reasonPrompt ?? "계속 진행하는 이유를 한 줄로 남겨주세요."}
               </label>
               <textarea
                 value={reason}
@@ -166,30 +199,8 @@ export function ProvocationCard({
 
           {!pendingReasonAction ? (
             <div className="mt-3 flex flex-wrap gap-1.5">
-              {card.actions.map((action) => {
-                const disabled = Boolean(action.disabledReason);
-                return (
-                  <Button
-                    key={action.id}
-                    type="button"
-                    variant={action.kind === "continue_with_risk" ? "outline" : "ghost"}
-                    size="sm"
-                    disabled={disabled}
-                    title={action.disabledReason}
-                    onClick={() => chooseAction(action)}
-                    data-testid="provocation-action"
-                    data-action-kind={action.kind}
-                    data-disabled-reason={action.disabledReason}
-                  >
-                    <span>{action.label}</span>
-                    {action.disabledReason ? (
-                      <span className="ml-1 text-[10px] text-fg-subtle">
-                        {action.disabledReason}
-                      </span>
-                    ) : null}
-                  </Button>
-                );
-              })}
+              {primaryAction ? renderAction(primaryAction, true) : null}
+              {secondaryActions.map((action) => renderAction(action))}
             </div>
           ) : null}
         </div>

@@ -232,8 +232,10 @@ function action(
   label: string,
   kind: ProvocationAction["kind"],
   requiresReason = false,
+  reasonPrompt?: string,
 ) {
-  return { id, label, kind, requiresReason };
+  const base = { id, label, kind, requiresReason };
+  return reasonPrompt ? { ...base, reasonPrompt } : base;
 }
 
 function hasVerificationStep(steps: ProvocationPlanStep[] | undefined): boolean {
@@ -492,7 +494,7 @@ export function diffScopeDriftRule(context: ProvocationContext): ProvocationCard
       action("diff", "파일별 Diff 보기", "open_diff"),
       action("rationale", "AI에게 변경 이유 묻기", "ask_ai_for_rationale"),
       action("revert", "관련 없는 변경 되돌리기", "revert_unrelated_changes"),
-      action("risk", "위험 감수하고 수용", "continue_with_risk", true),
+      action("risk", "위험 감수하고 수용", "continue_with_risk", true, "이 목표 밖 변경을 수용하는 이유는 무엇인가요?"),
     ],
     primaryActionId: "diff",
     metadata: {
@@ -533,7 +535,7 @@ export function aiSelfReportOnlyRule(context: ProvocationContext): ProvocationCa
       action("run", "앱 실행", "run_app"),
       action("preview", "프리뷰 확인", "open_preview"),
       action("test", "테스트 실행", "run_tests"),
-      action("risk", "미검증 상태로 승인", "continue_with_risk", true),
+      action("risk", "미검증 상태로 승인", "continue_with_risk", true, "무엇을 근거로 미검증 상태를 수용하나요?"),
     ],
     primaryActionId: "run",
   });

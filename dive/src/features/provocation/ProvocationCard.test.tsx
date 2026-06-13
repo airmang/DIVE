@@ -3,7 +3,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProvocationCard } from "./ProvocationCard";
 import { ProvocationCardHost } from "./ProvocationCardHost";
-import type { ProvocationCard as ProvocationCardData } from "./types";
+import { aiSelfReportOnlyRule, diffScopeDriftRule } from "./rules";
+import type { ProvocationCard as ProvocationCardData, ProvocationContext } from "./types";
 
 function reviewCard(
   overrides: Partial<ProvocationCardData> = {},
@@ -22,6 +23,16 @@ function reviewCard(
         "AI가 만든 뒤 무엇을 실행하거나 비교해야 하는지 계획에 있어야 승인 판단이 쉬워집니다.",
     },
     createdAt: "2026-06-13T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function ruleContext(
+  overrides: Partial<ProvocationContext> = {},
+): ProvocationContext {
+  return {
+    mode: "standard",
+    stage: "execute",
     ...overrides,
   };
 }
@@ -89,6 +100,60 @@ describe("ProvocationCard scaffold modes", () => {
 
     fireEvent.click(action);
     expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it("does not render dismiss controls when risk card lifecycle props are omitted", () => {
+    const card = diffScopeDriftRule(
+      ruleContext({
+        goalText: "버튼 문구만 바꿔줘",
+        targetFiles: ["src/App.tsx"],
+        changedFiles: [
+          { path: "src/App.tsx", category: "ui" },
+          { path: "package.json", category: "dependency" },
+        ],
+      }),
+    );
+    expect(card?.severity).toBe("risk");
+
+    render(<ProvocationCard card={card!} mode="standard" />);
+
+    expect(screen.queryByTestId("provocation-dismiss")).toBeNull();
+    expect(screen.queryByTestId("provocation-mark-irrelevant")).toBeNull();
+  });
+
+  it("renders the primary action first with its dedicated test id", () => {
+    const card = diffScopeDriftRule(
+      ruleContext({
+        goalText: "버튼 문구만 바꿔줘",
+        targetFiles: ["src/App.tsx"],
+        changedFiles: [
+          { path: "src/App.tsx", category: "ui" },
+          { path: "package.json", category: "dependency" },
+        ],
+      }),
+    );
+
+    render(<ProvocationCard card={card!} mode="standard" />);
+
+    expect(screen.getByTestId("provocation-primary-action").textContent).toContain(
+      "파일별 Diff 보기",
+    );
+  });
+
+  it("shows the risk action reason prompt from the card action", () => {
+    const card = aiSelfReportOnlyRule(
+      ruleContext({
+        stage: "finalApproval",
+        verification: { aiClaimedDone: true, externalTestRun: false },
+      }),
+    );
+
+    render(<ProvocationCard card={card!} mode="standard" />);
+
+    fireEvent.click(screen.getByText("미검증 상태로 승인"));
+    expect(screen.getByTestId("provocation-risk-reason-label").textContent).toBe(
+      "무엇을 근거로 미검증 상태를 수용하나요?",
+    );
   });
 });
 
