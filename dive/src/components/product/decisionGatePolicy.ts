@@ -1,6 +1,7 @@
 import type { VerifyLogView } from "../workmap/types";
 import type { AgencyStateView } from "../../features/roadmap";
 import type { ProvocationCard, VerificationStatusItem } from "../../features/provocation";
+import { hasConcreteVerification } from "../../features/provocation/verificationGrade";
 
 export type DecisionGateRiskReasonId =
   | "ai_self_report_only"
@@ -26,13 +27,8 @@ export interface DecisionGatePolicyInput {
   provocationCards?: ProvocationCard[];
   verifyLog?: VerifyLogView | null;
   rollbackAvailable?: boolean;
+  acceptanceCriterionConfirmed?: boolean;
 }
-
-const VERIFIED_STATUS_IDS = new Set<VerificationStatusItem["id"]>([
-  "app_launched",
-  "preview_checked",
-  "automated_tests_passed",
-]);
 
 function metadataStringArray(value: unknown): string[] {
   return Array.isArray(value)
@@ -51,11 +47,16 @@ function highRiskFilesFromCard(card: ProvocationCard): string[] {
 export function deriveDecisionGatePolicy(input: DecisionGatePolicyInput): DecisionGatePolicy {
   const statusIds = new Set((input.verificationStatuses ?? []).map((item) => item.id));
   const agencyIds = new Set((input.agencyState?.items ?? []).map((item) => item.id));
-  const hasVerifiedEvidence = Boolean(
-    input.verifyLog?.test_result === "pass" ||
-    agencyIds.has("verified_with_evidence") ||
-    [...statusIds].some((id) => VERIFIED_STATUS_IDS.has(id)),
-  );
+  const observed =
+    statusIds.has("app_launched") ||
+    statusIds.has("preview_checked") ||
+    agencyIds.has("verified_with_evidence");
+  const hasVerifiedEvidence = hasConcreteVerification({
+    statusIds: [...statusIds],
+    testResult: input.verifyLog?.test_result ?? null,
+    manualOrPreviewObserved: observed,
+    acceptanceCriterionConfirmed: input.acceptanceCriterionConfirmed,
+  });
   const aiSelfReportOnly = Boolean(
     statusIds.has("ai_self_report_only") ||
     agencyIds.has("ai_self_report_only") ||

@@ -20,6 +20,13 @@ const aiSelfReportOnly: VerificationStatusItem = {
   tone: "warn",
 };
 
+const manualPreviewChecked: VerificationStatusItem = {
+  id: "preview_checked",
+  label: "수동 프리뷰 확인됨",
+  evidenceBacked: true,
+  tone: "success",
+};
+
 function driftCard(overrides: Partial<ProvocationCard> = {}): ProvocationCard {
   return {
     id: "diff_scope_drift:finalApproval:1",
@@ -66,6 +73,27 @@ describe("DecisionGate policy", () => {
     });
 
     expect(policy.requiresReason).toBe(false);
+    expect(policy.canApproveDirectly).toBe(true);
+  });
+
+  it("does not treat preview-only evidence as verified without criterion confirmation", () => {
+    const policy = deriveDecisionGatePolicy({
+      verificationStatuses: [manualPreviewChecked],
+      rollbackAvailable: false,
+    });
+
+    expect(policy.hasVerifiedEvidence).toBe(false);
+    expect(policy.requiresReason).toBe(true);
+  });
+
+  it("allows direct approval when preview evidence is linked to an acceptance criterion", () => {
+    const policy = deriveDecisionGatePolicy({
+      verificationStatuses: [manualPreviewChecked],
+      acceptanceCriterionConfirmed: true,
+      rollbackAvailable: false,
+    });
+
+    expect(policy.hasVerifiedEvidence).toBe(true);
     expect(policy.canApproveDirectly).toBe(true);
   });
 
