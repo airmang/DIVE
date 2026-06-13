@@ -743,7 +743,8 @@
     "danger": {
       "title": "고위험 작업 승인 필요",
       "description": "명령 실행이나 삭제처럼 강한 작업입니다. 명시적으로 허용해야만 진행됩니다.",
-      "approve": "고위험 작업 허용"
+      "approve": "고위험 작업 허용",
+      "diff_ack_label": "변경 내용(diff)을 확인했습니다"
     },
     "actions": {
       "deny": "거부",

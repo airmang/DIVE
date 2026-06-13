@@ -743,7 +743,8 @@
     "danger": {
       "title": "High-risk approval required",
       "description": "DIVE is asking for a powerful action. It will not run unless you allow it.",
-      "approve": "Allow high-risk action"
+      "approve": "Allow high-risk action",
+      "diff_ack_label": "I have reviewed this change (diff)"
     },
     "actions": {
       "deny": "Deny",
