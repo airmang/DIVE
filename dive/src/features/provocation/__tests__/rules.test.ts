@@ -125,6 +125,36 @@ describe("provocation rules", () => {
     ).toBeNull();
   });
 
+  it("stage policy keeps missing acceptance criteria out of execute surfaces", () => {
+    const cards = generateProvocationCards(
+      ctx({
+        stage: "execute",
+        goalText: "설정 화면을 예쁘게 개선해줘",
+        changedFiles: [{ path: "src/settings/SettingsPage.tsx", category: "ui" }],
+      }),
+    );
+    expect(cards.map((card) => card.type)).not.toContain("missing_acceptance_criteria");
+  });
+
+  it("stage policy keeps missing acceptance criteria on goal and plan surfaces", () => {
+    const decomposeCards = generateProvocationCards(
+      ctx({
+        stage: "decompose",
+        goalText: "설정 화면을 예쁘게 개선해줘",
+      }),
+    );
+    const planCards = generateProvocationCards(
+      ctx({
+        stage: "instruct",
+        goalText: "설정 화면을 예쁘게 개선해줘",
+        planSteps: [{ id: "1", text: "Create settings form" }],
+      }),
+    );
+
+    expect(decomposeCards.map((card) => card.type)).toContain("missing_acceptance_criteria");
+    expect(planCards.map((card) => card.type)).toContain("missing_acceptance_criteria");
+  });
+
   it("missing_verification_step triggers when plan has implementation steps only", () => {
     const card = missingVerificationStepRule(
       ctx({
@@ -182,6 +212,30 @@ describe("provocation rules", () => {
         }),
       ),
     ).toBeNull();
+  });
+
+  it("stage policy keeps missing verification on plan approval surfaces only", () => {
+    const executeCards = generateProvocationCards(
+      ctx({
+        stage: "execute",
+        planSteps: [
+          { id: "1", text: "Create settings form" },
+          { id: "2", text: "Wire save handler" },
+        ],
+      }),
+    );
+    const instructCards = generateProvocationCards(
+      ctx({
+        stage: "instruct",
+        planSteps: [
+          { id: "1", text: "Create settings form" },
+          { id: "2", text: "Wire save handler" },
+        ],
+      }),
+    );
+
+    expect(executeCards.map((card) => card.type)).not.toContain("missing_verification_step");
+    expect(instructCards.map((card) => card.type)).toContain("missing_verification_step");
   });
 
   it("diff_scope_drift triggers on high-risk file change unrelated to a narrow goal", () => {
@@ -352,6 +406,21 @@ describe("provocation rules", () => {
     expect(regenerationLoopRule(ctx({ stage: "execute", retrySignals }))).toBeNull();
   });
 
+  it("stage policy keeps terminal error cards focused on regeneration loops", () => {
+    const cards = generateProvocationCards(
+      ctx({
+        stage: "execute",
+        recentErrors: [
+          { message: "TypeError: x is undefined", occurredAt: "1" },
+          { message: "TypeError: x is undefined", occurredAt: "2" },
+          { message: "TypeError: x is undefined", occurredAt: "3" },
+        ],
+      }),
+    );
+
+    expect(cards.map((card) => card.type)).toEqual(["regeneration_loop"]);
+  });
+
   it("mode filtering suppresses low-risk cards in expert mode", () => {
     const cards = generateProvocationCards(
       ctx({
@@ -368,7 +437,7 @@ describe("provocation rules", () => {
     const cards = generateProvocationCards(
       ctx({
         mode: "expert",
-        stage: "finalApproval",
+        stage: "verify",
         goalText: "버튼 문구만 바꿔줘",
         targetFiles: ["src/App.tsx"],
         changedFiles: [

@@ -108,6 +108,29 @@ describe("provocation lifecycle logging payloads", () => {
     expect(irrelevant.lifecycleEvent).toBe("marked_irrelevant");
   });
 
+  it("keeps action availability metadata compact and explicit", () => {
+    const payload = buildProvocationLogPayload({
+      eventType: "provocation.action_clicked",
+      card: card(),
+      mode: "standard",
+      action: {
+        id: "rollback",
+        kind: "rollback_last_change",
+        label: "마지막 변경 되돌리기",
+        disabledReason: "복구 경로 없음",
+        todoId: "S-009-terminal-rollback",
+      },
+    });
+
+    expect(payload.selectedAction).toMatchObject({
+      id: "rollback",
+      kind: "rollback_last_change",
+      disabledReason: "복구 경로 없음",
+      todoId: "S-009-terminal-rollback",
+    });
+    expect(JSON.stringify(payload.selectedAction)).not.toContain("```");
+  });
+
   it("adds stable agency metadata without raw file or command bodies", () => {
     const payload = buildProvocationLogPayload({
       eventType: "provocation.continued_with_risk",

@@ -57,6 +57,8 @@ export interface ProvocationAction {
   label: string;
   kind: ProvocationActionKind;
   requiresReason?: boolean;
+  disabledReason?: string;
+  todoId?: string;
 }
 
 export interface ProvocationCard {

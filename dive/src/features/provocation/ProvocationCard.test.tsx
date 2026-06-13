@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProvocationCard } from "./ProvocationCard";
 import { ProvocationCardHost } from "./ProvocationCardHost";
 import type { ProvocationCard as ProvocationCardData } from "./types";
@@ -59,6 +59,36 @@ describe("ProvocationCard scaffold modes", () => {
     expect(screen.queryByText(/승인 판단이 쉬워집니다/)).toBeNull();
     expect(screen.getByTestId("provocation-evidence").textContent).toContain("없음");
     expect(screen.getByText("검증 단계 추가")).toBeTruthy();
+  });
+
+  it("renders disabled actions with an explicit reason and does not call the handler", () => {
+    const onAction = vi.fn();
+    render(
+      <ProvocationCard
+        card={reviewCard({
+          actions: [
+            {
+              id: "rollback",
+              label: "마지막 변경 되돌리기",
+              kind: "rollback_last_change",
+              disabledReason: "복구 경로 없음",
+              todoId: "S-009-terminal-rollback",
+            },
+          ],
+        })}
+        mode="standard"
+        onAction={onAction}
+      />,
+    );
+
+    const action = screen.getByTestId("provocation-action") as HTMLButtonElement;
+    expect(action.disabled).toBe(true);
+    expect(action.getAttribute("title")).toBe("복구 경로 없음");
+    expect(action.dataset.disabledReason).toBe("복구 경로 없음");
+    expect(screen.getByText("복구 경로 없음")).toBeTruthy();
+
+    fireEvent.click(action);
+    expect(onAction).not.toHaveBeenCalled();
   });
 });
 

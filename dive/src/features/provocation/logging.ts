@@ -341,6 +341,12 @@ function affectedCommandsFor(card: ProvocationCard, context: Partial<Provocation
   return [];
 }
 
+function compactActionMetadata(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  return trimmed.length > 96 ? `${trimmed.slice(0, 96)}...` : trimmed;
+}
+
 export function buildProvocationLogPayload(input: ProvocationLogInput) {
   const { card, context, mode, action, reason } = input;
   const selectedAction = action ?? syntheticActionForEvent(input.eventType);
@@ -389,6 +395,8 @@ export function buildProvocationLogPayload(input: ProvocationLogInput) {
           kind: selectedAction.kind,
           label: selectedAction.label,
           requiresReason: Boolean(selectedAction.requiresReason),
+          disabledReason: compactActionMetadata(selectedAction.disabledReason),
+          todoId: compactActionMetadata(selectedAction.todoId),
         }
       : null,
     reasonRequired: Boolean(selectedAction?.requiresReason),

@@ -41,6 +41,7 @@ export function ProvocationCard({
   const explanation = card.modeCopy?.[mode] ?? card.modeCopy?.guided;
 
   const chooseAction = (action: ProvocationAction) => {
+    if (action.disabledReason) return;
     if (action.requiresReason) {
       setPendingReasonAction(action);
       return;
@@ -160,19 +161,30 @@ export function ProvocationCard({
 
           {!pendingReasonAction ? (
             <div className="mt-3 flex flex-wrap gap-1.5">
-              {card.actions.map((action) => (
-                <Button
-                  key={action.id}
-                  type="button"
-                  variant={action.kind === "continue_with_risk" ? "outline" : "ghost"}
-                  size="sm"
-                  onClick={() => chooseAction(action)}
-                  data-testid="provocation-action"
-                  data-action-kind={action.kind}
-                >
-                  {action.label}
-                </Button>
-              ))}
+              {card.actions.map((action) => {
+                const disabled = Boolean(action.disabledReason);
+                return (
+                  <Button
+                    key={action.id}
+                    type="button"
+                    variant={action.kind === "continue_with_risk" ? "outline" : "ghost"}
+                    size="sm"
+                    disabled={disabled}
+                    title={action.disabledReason}
+                    onClick={() => chooseAction(action)}
+                    data-testid="provocation-action"
+                    data-action-kind={action.kind}
+                    data-disabled-reason={action.disabledReason}
+                  >
+                    <span>{action.label}</span>
+                    {action.disabledReason ? (
+                      <span className="ml-1 text-[10px] text-fg-subtle">
+                        {action.disabledReason}
+                      </span>
+                    ) : null}
+                  </Button>
+                );
+              })}
             </div>
           ) : null}
         </div>

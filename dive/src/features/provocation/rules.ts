@@ -593,11 +593,44 @@ export const PROVOCATION_RULES = [
   oversizedScopeRule,
 ] as const;
 
+function hasRetryEvidence(context: ProvocationContext): boolean {
+  return Boolean(
+    context.retryCountForCurrentError ||
+      context.recentErrors?.length ||
+      context.retrySignals?.some((signal) => signal.retryCount > 0),
+  );
+}
+
+function cardEligibleForStage(card: ProvocationCard, context: ProvocationContext): boolean {
+  switch (card.type) {
+    case "oversized_scope":
+      return context.stage === "decompose" || context.stage === "instruct";
+    case "missing_acceptance_criteria":
+      return context.stage === "decompose" || context.stage === "instruct";
+    case "missing_verification_step":
+      return context.stage === "instruct";
+    case "diff_scope_drift":
+      return (
+        (context.stage === "execute" ||
+          context.stage === "verify" ||
+          context.stage === "finalApproval") &&
+        Boolean(context.changedFiles?.length)
+      );
+    case "ai_self_report_only":
+      return context.stage === "verify" || context.stage === "finalApproval";
+    case "regeneration_loop":
+      return (
+        (context.stage === "execute" || context.stage === "verify") && hasRetryEvidence(context)
+      );
+  }
+}
+
 export function generateProvocationCards(context: ProvocationContext): ProvocationCard[] {
   const cards = PROVOCATION_RULES.map((rule) => rule(context)).filter(
     (candidate): candidate is ProvocationCard => candidate !== null,
   );
-  const visible = cards.filter((candidate) =>
+  const eligible = cards.filter((candidate) => cardEligibleForStage(candidate, context));
+  const visible = eligible.filter((candidate) =>
     shouldShowProvocationCardInMode(candidate, context.mode),
   );
   return sortProvocationCards(visible);
