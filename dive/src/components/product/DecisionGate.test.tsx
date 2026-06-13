@@ -145,9 +145,7 @@ describe("DecisionGate policy", () => {
 
     rerender(<DecisionGate {...props} acceptanceCriterionConfirmed />);
 
-    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(
-      false,
-    );
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("requires a short reason for AI self-report only approval", () => {

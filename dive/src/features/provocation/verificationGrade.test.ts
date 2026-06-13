@@ -8,9 +8,7 @@ describe("hasConcreteVerification", () => {
   });
 
   it("app launched or preview alone does NOT count", () => {
-    expect(
-      hasConcreteVerification({ statusIds: ["app_launched", "preview_checked"] }),
-    ).toBe(false);
+    expect(hasConcreteVerification({ statusIds: ["app_launched", "preview_checked"] })).toBe(false);
   });
 
   it("preview/app counts only when the acceptance criterion is confirmed observed", () => {
