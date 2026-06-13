@@ -433,6 +433,7 @@ export function missingAcceptanceCriteriaRule(context: ProvocationContext): Prov
     severity: "caution",
     title: "완료 기준이 없습니다",
     message: "나중에 AI 결과를 검증하려면, 무엇이 보이면 끝난 것인지 먼저 정해야 합니다.",
+    prompt: "이 기능이 끝났다고 무엇을 보면 알 수 있나요?",
     evidence,
     guided:
       "완료 기준은 AI가 만든 결과를 사용자 눈으로 확인할 수 있는 관찰 가능한 문장이어야 합니다.",
@@ -441,6 +442,7 @@ export function missingAcceptanceCriteriaRule(context: ProvocationContext): Prov
       action("example", "예시 입력/출력 추가", "add_acceptance_criteria"),
       action("continue", "그대로 진행", "continue_with_risk"),
     ],
+    primaryActionId: "add",
   });
 }
 
@@ -454,6 +456,7 @@ export function missingVerificationStepRule(context: ProvocationContext): Provoc
     severity: "caution",
     title: "검증 단계가 빠졌습니다",
     message: "이 계획에는 만드는 단계는 있지만, 틀렸음을 확인하는 단계가 없습니다.",
+    prompt: "이 계획이 틀렸는지 무엇으로 확인할 건가요?",
     evidence: [
       { source: "plan", label: "plan step", value: `${steps.length}개` },
       { source: "plan", label: "검증/실행/테스트 단계", value: "없음" },
@@ -464,6 +467,7 @@ export function missingVerificationStepRule(context: ProvocationContext): Provoc
       action("test", "테스트/프리뷰 확인 추가", "add_verification_step"),
       action("continue", "그대로 승인", "continue_with_risk"),
     ],
+    primaryActionId: "add",
   });
 }
 

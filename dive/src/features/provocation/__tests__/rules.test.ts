@@ -238,6 +238,33 @@ describe("provocation rules", () => {
     expect(instructCards.map((card) => card.type)).toContain("missing_verification_step");
   });
 
+  describe("scaffolding question reframe cards", () => {
+    it("carry a question prompt and the add primary action", () => {
+      const acceptanceResult = missingAcceptanceCriteriaRule(
+        ctx({ goalText: "설정 화면을 예쁘게 개선해줘" }),
+      );
+      const acceptance = Array.isArray(acceptanceResult) ? acceptanceResult[0] : acceptanceResult;
+
+      const verificationResult = missingVerificationStepRule(
+        ctx({
+          stage: "instruct",
+          planSteps: [
+            { id: "1", text: "Create settings form" },
+            { id: "2", text: "Wire save handler" },
+          ],
+        }),
+      );
+      const verification = Array.isArray(verificationResult)
+        ? verificationResult[0]
+        : verificationResult;
+
+      expect(acceptance?.prompt).toMatch(/\?$/);
+      expect(acceptance?.primaryActionId).toBe("add");
+      expect(verification?.prompt).toMatch(/\?$/);
+      expect(verification?.primaryActionId).toBe("add");
+    });
+  });
+
   it("diff_scope_drift triggers on high-risk file change unrelated to a narrow goal", () => {
     const card = diffScopeDriftRule(
       ctx({
