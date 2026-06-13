@@ -16,6 +16,7 @@ import {
 } from "./decisionGatePolicy";
 
 const REASON_LABEL_KEY: Record<DecisionGateRiskReasonId, string> = {
+  unverified: "roadmap.step_detail.decision_reason_unverified",
   ai_self_report_only: "roadmap.step_detail.decision_reason_ai_self_report_only",
   failed_test: "roadmap.step_detail.decision_reason_failed_test",
   high_risk_unexpected_files: "roadmap.step_detail.decision_reason_high_risk_files",

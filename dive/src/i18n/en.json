@@ -435,6 +435,7 @@
       "decision_summary_missing": "Verification evidence is limited. Check first or record the risk.",
       "decision_risk_badge": "Needs review",
       "decision_reason_title": "Reason required because",
+      "decision_reason_unverified": "No verification evidence yet — nothing run, tested, or confirmed against the acceptance criterion",
       "decision_reason_ai_self_report_only": "Only AI self-report is present",
       "decision_reason_failed_test": "Approval follows a failed test",
       "decision_reason_high_risk_files": "Unexpected high-risk files changed",

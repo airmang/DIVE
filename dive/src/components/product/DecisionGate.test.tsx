@@ -86,6 +86,19 @@ describe("DecisionGate policy", () => {
     expect(policy.requiresReason).toBe(true);
   });
 
+  it("blocks direct approval for preview-only evidence even when rollback is available", () => {
+    const policy = deriveDecisionGatePolicy({
+      verificationStatuses: [manualPreviewChecked],
+      rollbackAvailable: true,
+    });
+
+    expect(policy.canApproveDirectly).toBe(false);
+    expect(policy.requiresReason).toBe(true);
+    expect(policy.reasons).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "unverified" })]),
+    );
+  });
+
   it("allows direct approval when preview evidence is linked to an acceptance criterion", () => {
     const policy = deriveDecisionGatePolicy({
       verificationStatuses: [manualPreviewChecked],
@@ -94,6 +107,19 @@ describe("DecisionGate policy", () => {
     });
 
     expect(policy.hasVerifiedEvidence).toBe(true);
+    expect(policy.canApproveDirectly).toBe(true);
+  });
+
+  it("clears the unverified reason when preview evidence is linked to an acceptance criterion", () => {
+    const policy = deriveDecisionGatePolicy({
+      verificationStatuses: [manualPreviewChecked],
+      acceptanceCriterionConfirmed: true,
+      rollbackAvailable: true,
+    });
+
+    expect(policy.reasons).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "unverified" })]),
+    );
     expect(policy.canApproveDirectly).toBe(true);
   });
 

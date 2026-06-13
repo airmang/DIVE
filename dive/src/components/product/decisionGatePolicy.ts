@@ -4,6 +4,7 @@ import type { ProvocationCard, VerificationStatusItem } from "../../features/pro
 import { hasConcreteVerification } from "../../features/provocation/verificationGrade";
 
 export type DecisionGateRiskReasonId =
+  | "unverified"
   | "ai_self_report_only"
   | "failed_test"
   | "high_risk_unexpected_files"
@@ -87,6 +88,9 @@ export function deriveDecisionGatePolicy(input: DecisionGatePolicyInput): Decisi
     reasons.push({ id: "high_risk_unexpected_files", evidence: highRiskFiles.join(", ") });
   }
   if (rollbackUnavailableRisk) reasons.push({ id: "rollback_unavailable" });
+  if (!hasVerifiedEvidence && !aiSelfReportOnly && !failedTest) {
+    reasons.push({ id: "unverified" });
+  }
 
   return {
     canApproveDirectly: reasons.length === 0,
