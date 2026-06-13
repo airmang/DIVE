@@ -118,6 +118,7 @@ export function StepDetailSlideIn({
   const panelRef = useRef<HTMLDivElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   const [diffViewedStepIds, setDiffViewedStepIds] = useState<Set<number>>(() => new Set());
+  const [criterionConfirmed, setCriterionConfirmed] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -133,6 +134,10 @@ export function StepDetailSlideIn({
     const t = setTimeout(() => closeBtnRef.current?.focus(), 120);
     return () => clearTimeout(t);
   }, [open]);
+
+  useEffect(() => {
+    setCriterionConfirmed(false);
+  }, [step?.id]);
 
   const status = step?.status ?? null;
   const isReview = status === "review";
@@ -213,6 +218,7 @@ export function StepDetailSlideIn({
         verifyLog,
         approvalProvenance: step.approvalProvenance,
         running: verifyState === "running",
+        acceptanceCriterionConfirmed: criterionConfirmed,
       })
     : null;
 
@@ -360,6 +366,7 @@ export function StepDetailSlideIn({
                 provocationCards={provocationCards}
                 verifyLog={verifyLog}
                 rollbackAvailable={rollbackAvailable}
+                acceptanceCriterionConfirmed={criterionConfirmed}
                 verifyRunning={verifyState === "running"}
                 onApprove={() => onApprovalDecision({ outcome: "approved", note: null })}
                 onAcceptRisk={(reason) =>
@@ -432,6 +439,26 @@ export function StepDetailSlideIn({
               >
                 {step.acceptanceCriteria}
               </p>
+              <label
+                className="mt-3 flex items-start gap-2 rounded-sm border border-border bg-bg/60 px-2 py-2 text-xs text-fg"
+                data-testid="step-detail-criterion-confirm"
+              >
+                <input
+                  type="checkbox"
+                  checked={criterionConfirmed}
+                  onChange={(event) => setCriterionConfirmed(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-border text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  data-testid="step-detail-criterion-confirm-checkbox"
+                />
+                <span className="min-w-0">
+                  <span className="block font-medium">
+                    {t("roadmap.step_detail.criterion_confirm_label")}
+                  </span>
+                  <span className="mt-0.5 block text-[11px] text-fg-muted">
+                    {t("roadmap.step_detail.criterion_confirm_hint")}
+                  </span>
+                </span>
+              </label>
             </Section>
           ) : null}
 

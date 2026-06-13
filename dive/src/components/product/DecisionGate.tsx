@@ -39,6 +39,7 @@ export function DecisionGate({
   provocationCards = [],
   verifyLog = null,
   rollbackAvailable = false,
+  acceptanceCriterionConfirmed = false,
   verifyRunning = false,
   onApprove,
   onAcceptRisk,
@@ -57,8 +58,16 @@ export function DecisionGate({
         provocationCards,
         verifyLog,
         rollbackAvailable,
+        acceptanceCriterionConfirmed,
       }),
-    [agencyState, provocationCards, rollbackAvailable, verificationStatuses, verifyLog],
+    [
+      acceptanceCriterionConfirmed,
+      agencyState,
+      provocationCards,
+      rollbackAvailable,
+      verificationStatuses,
+      verifyLog,
+    ],
   );
   const riskReasonOk = riskReason.trim().length > 0;
   const evidenceLabels = verificationStatuses

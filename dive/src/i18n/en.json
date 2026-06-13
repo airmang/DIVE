@@ -429,6 +429,8 @@
       "intent_match_true": "AI self-report: intent met (claimed)",
       "intent_match_false": "AI self-report: intent not met (claimed)",
       "unverified_note": "Not verified by external tests. Check the result yourself.",
+      "criterion_confirm_label": "I personally observed this acceptance criterion hold",
+      "criterion_confirm_hint": "Confirming an observed criterion counts as evidence",
       "decision_title": "Decision",
       "decision_summary_verified": "Verification evidence is present. You can approve or keep checking.",
       "decision_summary_risk": "Some evidence needs attention before approval.",

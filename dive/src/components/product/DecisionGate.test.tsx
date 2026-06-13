@@ -123,6 +123,33 @@ describe("DecisionGate policy", () => {
     expect(policy.canApproveDirectly).toBe(true);
   });
 
+  it("enables direct approval for preview evidence only after criterion confirmation is forwarded", () => {
+    const props: ComponentProps<typeof DecisionGate> = {
+      verificationStatuses: [manualPreviewChecked],
+      agencyState: null,
+      provocationCards: [],
+      verifyLog: null,
+      rollbackAvailable: true,
+      verifyRunning: false,
+      onApprove: vi.fn(),
+      onAcceptRisk: vi.fn(),
+      onRequestChanges: vi.fn(),
+      onVerifyFirst: vi.fn(),
+      onRevert: vi.fn(),
+      onStop: vi.fn(),
+    };
+
+    const { rerender } = render(<DecisionGate {...props} />);
+
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
+
+    rerender(<DecisionGate {...props} acceptanceCriterionConfirmed />);
+
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
+
   it("requires a short reason for AI self-report only approval", () => {
     const props = renderGate({
       verificationStatuses: [aiSelfReportOnly],
