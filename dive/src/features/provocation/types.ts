@@ -67,9 +67,13 @@ export interface ProvocationCard {
   stage: DiveStage;
   severity: ProvocationSeverity;
   title: string;
+  /** The question the student must answer using the material (Sarkar axis 1). */
+  prompt?: string;
   message: string;
   evidence: ProvocationEvidence[];
   actions: ProvocationAction[];
+  /** id of the action that routes into the material; rendered as the primary affordance. */
+  primaryActionId?: string;
   modeCopy?: {
     guided?: string;
     standard?: string;

@@ -72,6 +72,11 @@ export function ProvocationCard({
           <div className="flex items-start justify-between gap-2">
             <div>
               <p className="font-semibold text-fg">{card.title}</p>
+              {card.prompt ? (
+                <p className="mt-1 text-xs font-medium text-fg" data-testid="provocation-prompt">
+                  {card.prompt}
+                </p>
+              ) : null}
               {!compact ? <p className="mt-1 text-xs text-fg-muted">{card.message}</p> : null}
             </div>
             <div className="flex shrink-0 gap-1">

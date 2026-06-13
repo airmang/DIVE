@@ -268,6 +268,53 @@ describe("provocation rules", () => {
     ).toBeNull();
   });
 
+  it("strong cards carry a question prompt and a material primary action", () => {
+    const drift = diffScopeDriftRule(
+      ctx({
+        stage: "execute",
+        goalText: "버튼 문구만 바꿔줘",
+        targetFiles: ["src/App.tsx"],
+        changedFiles: [
+          { path: "src/App.tsx", category: "ui" },
+          { path: "package.json", category: "dependency" },
+        ],
+      }),
+    );
+    expect(drift?.prompt).toMatch(/\?/);
+    expect(drift?.primaryActionId).toBe("diff");
+
+    const sr = aiSelfReportOnlyRule(
+      ctx({
+        stage: "finalApproval",
+        verification: { aiClaimedDone: true, externalTestRun: false },
+      }),
+    );
+    expect(sr?.prompt).toMatch(/확인했나요|무엇/);
+    expect(sr?.primaryActionId).toBe("run");
+
+    const loop = regenerationLoopRule(
+      ctx({
+        stage: "execute",
+        recentErrors: [
+          { message: "E", occurredAt: "1" },
+          { message: "E", occurredAt: "2" },
+          { message: "E", occurredAt: "3" },
+        ],
+      }),
+    );
+    expect(loop?.prompt).toMatch(/\?$/);
+    expect(loop?.primaryActionId).toBe("rollback");
+
+    const big = oversizedScopeRule(
+      ctx({
+        promptDraft:
+          "로그인 만들고 그리고 회원가입도 추가로 붙이고 관리자 대시보드와 결제 설정까지 해줘",
+      }),
+    );
+    expect(big?.prompt).toMatch(/\?$/);
+    expect(big?.primaryActionId).toBe("split");
+  });
+
   it("ai_self_report_only triggers when AI claimed done but no evidence exists", () => {
     const card = aiSelfReportOnlyRule(
       ctx({

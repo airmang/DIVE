@@ -187,9 +187,11 @@ function card({
   severity,
   stage,
   title,
+  prompt,
   message,
   evidence,
   actions,
+  primaryActionId,
   guided,
   metadata,
 }: {
@@ -198,9 +200,11 @@ function card({
   severity: ProvocationSeverity;
   stage?: DiveStage;
   title: string;
+  prompt?: string;
   message: string;
   evidence: ProvocationEvidence[];
   actions: ProvocationAction[];
+  primaryActionId?: string;
   guided: string;
   metadata?: Record<string, unknown>;
 }): ProvocationCard {
@@ -210,9 +214,11 @@ function card({
     stage: stage ?? context.stage,
     severity,
     title,
+    prompt,
     message,
     evidence,
     actions,
+    primaryActionId,
     modeCopy: {
       guided,
     },
@@ -395,6 +401,7 @@ export function oversizedScopeRule(context: ProvocationContext): ProvocationCard
     type: "oversized_scope",
     severity: "caution",
     title: "작업 범위가 너무 큽니다",
+    prompt: "이걸 한 번에 AI에게 맡기는 게 맞나요?",
     message:
       "이 요청은 기능 하나가 아니라 여러 작업을 한 번에 맡기는 형태입니다. 실패하면 어디서 잘못됐는지 추적하기 어렵습니다.",
     evidence,
@@ -404,6 +411,7 @@ export function oversizedScopeRule(context: ProvocationContext): ProvocationCard
       action("first", "첫 기능만 요청하기", "split_scope"),
       action("continue", "그대로 진행", "continue_with_risk"),
     ],
+    primaryActionId: "split",
   });
 }
 
@@ -471,6 +479,7 @@ export function diffScopeDriftRule(context: ProvocationContext): ProvocationCard
     type: "diff_scope_drift",
     severity: highRisk ? "risk" : "caution",
     title: "목표 밖 변경이 섞였을 수 있습니다",
+    prompt: "이 변경이 지금 목표에 정말 필요한가요? 직접 보고 판단해 주세요.",
     message:
       "현재 목표와 직접 관련 없어 보이는 파일이 함께 바뀌었습니다. 이 변경이 꼭 필요한지 확인하세요.",
     evidence: [
@@ -485,6 +494,7 @@ export function diffScopeDriftRule(context: ProvocationContext): ProvocationCard
       action("revert", "관련 없는 변경 되돌리기", "revert_unrelated_changes"),
       action("risk", "위험 감수하고 수용", "continue_with_risk", true),
     ],
+    primaryActionId: "diff",
     metadata: {
       highRisk,
       changedFileCount: unrelated.length,
@@ -507,6 +517,7 @@ export function aiSelfReportOnlyRule(context: ProvocationContext): ProvocationCa
     type: "ai_self_report_only",
     severity: "risk",
     title: "AI의 완료 보고만 있습니다",
+    prompt: "AI는 완료라고 했습니다. 당신은 무엇을 보고 확인했나요?",
     message: "AI의 '완료했습니다'는 검증 증거가 아닙니다. 지금 확인된 것은 AI의 주장뿐입니다.",
     evidence: [
       {
@@ -524,6 +535,7 @@ export function aiSelfReportOnlyRule(context: ProvocationContext): ProvocationCa
       action("test", "테스트 실행", "run_tests"),
       action("risk", "미검증 상태로 승인", "continue_with_risk", true),
     ],
+    primaryActionId: "run",
   });
 }
 
@@ -565,6 +577,7 @@ export function regenerationLoopRule(context: ProvocationContext): ProvocationCa
     type: "regeneration_loop",
     severity: "risk",
     title: "재생성 반복 상태입니다",
+    prompt: "지금은 더 고칠 때인가요, 마지막 변경을 되돌릴 때인가요?",
     message:
       "지금은 계속 '고쳐줘'를 반복할 때가 아니라, 오류를 좁히거나 마지막 변경을 되돌릴 때입니다.",
     evidence,
@@ -576,6 +589,7 @@ export function regenerationLoopRule(context: ProvocationContext): ProvocationCa
       action("split", "범위 줄이기 / 계획 조정", "split_scope"),
       action("retry", "AI 재시도", "retry_with_ai"),
     ],
+    primaryActionId: "rollback",
     metadata: {
       retrySignalCount: retrySignals.length,
       repeatedErrorCount,
