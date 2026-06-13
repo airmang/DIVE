@@ -230,7 +230,10 @@ mod tests {
     fn default_models_cover_supported_kinds() {
         assert_eq!(default_model_for_kind("anthropic"), "claude-sonnet-4-6");
         assert_eq!(default_model_for_kind("openai"), "gpt-5.4");
-        assert_eq!(default_model_for_kind("openrouter"), "openai/gpt-5.4");
+        assert_eq!(
+            default_model_for_kind("openrouter"),
+            "mistralai/ministral-3b-2512"
+        );
         assert_eq!(default_model_for_kind("opencode_zen"), "big-pickle");
         assert_eq!(default_model_for_kind("opencode-zen"), "big-pickle");
         assert_eq!(default_model_for_kind("codex"), "gpt-5.5-codex");
@@ -251,12 +254,22 @@ mod tests {
     }
 
     #[test]
-    fn openrouter_models_use_openrouter_ids() {
+    fn openrouter_models_use_provider_qualified_ids() {
         let ids = models_for_kind("openrouter")
             .into_iter()
             .map(|model| model.id)
             .collect::<Vec<_>>();
-        assert!(ids.iter().all(|id| id.starts_with("openai/")));
+        assert_eq!(
+            ids,
+            vec![
+                "mistralai/ministral-3b-2512",
+                "openai/gpt-5.5",
+                "openai/gpt-5.3-codex",
+                "openai/gpt-5.4",
+                "openai/gpt-5.4-mini",
+            ]
+        );
+        assert!(ids.iter().all(|id| id.contains('/')));
         assert!(ids.iter().any(|id| id == "openai/gpt-5.3-codex"));
         assert!(!ids.iter().any(|id| id == "openai/gpt-5.5-codex"));
     }

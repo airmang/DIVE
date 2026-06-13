@@ -61,6 +61,15 @@ export interface ToolCallMessageData extends BaseMessage {
   };
 }
 
+export interface ToolApprovalMetadata {
+  source: "provocation.continue_with_risk";
+  cardId: string;
+  cardType: string;
+  actionId: string;
+  riskReason: string;
+  highRiskFiles: string[];
+}
+
 export interface ToolResultMessageData extends BaseMessage {
   kind: "tool_result";
   toolName: string;

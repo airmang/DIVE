@@ -142,6 +142,7 @@ export function PlanDraftApprovalScreen({
           .filter(Boolean)
           .join(" "),
         kind: step.verification_kind ?? undefined,
+        expectedFiles: stringArray(step.expected_files),
       })),
     });
   }, [draft.steps, plan.acceptance_criteria, plan.goal, plan.id, provocation]);

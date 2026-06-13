@@ -11,7 +11,7 @@ import { PermissionSummary } from "./PermissionSummary";
 import { RawDetails } from "./RawDetails";
 import type { PermissionCardProps } from "./types";
 
-export function WarnCard({ card, onApprove, onDeny }: PermissionCardProps) {
+export function WarnCard({ card, onApprove, onDeny, approvalRequirement }: PermissionCardProps) {
   const t = useT();
   const [editing, setEditing] = useState(false);
   const [denyingWithReason, setDenyingWithReason] = useState(false);
@@ -19,7 +19,9 @@ export function WarnCard({ card, onApprove, onDeny }: PermissionCardProps) {
   const [modifiedArgs, setModifiedArgs] = useState<unknown | null>(card.args);
   const explanation = explainTool(card.toolName, card.risk, card.args, t);
 
-  const canApprove = !editing || modifiedArgs !== null;
+  const approvalBlocked =
+    approvalRequirement?.required === true && approvalRequirement.satisfied !== true;
+  const canApprove = (!editing || modifiedArgs !== null) && !approvalBlocked;
 
   return (
     <div
@@ -65,6 +67,16 @@ export function WarnCard({ card, onApprove, onDeny }: PermissionCardProps) {
             data-testid="deny-reason"
             className="mt-1 w-full resize-y rounded-md border bg-bg-panel2 px-3 py-2 text-xs text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
           />
+        </div>
+      ) : null}
+
+      {approvalRequirement?.required ? (
+        <div
+          className="border-t bg-warn/10 px-3 py-2 text-xs text-fg"
+          data-testid="permission-approval-requirement"
+          data-satisfied={approvalRequirement.satisfied ? "true" : "false"}
+        >
+          {approvalRequirement.message}
         </div>
       ) : null}
 

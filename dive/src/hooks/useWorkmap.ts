@@ -5,6 +5,7 @@ import type { ApprovalDecisionWithTime } from "../components/workmap/ApprovalJud
 import type { CardTransitionKind } from "../stores/workmap";
 import type { VerifyLogView } from "../components/workmap/types";
 import type { ChangedFile } from "../components/slide-in/types";
+import type { ApprovalProvenance } from "../features/provocation";
 
 type TauriApi = {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -24,6 +25,7 @@ interface CardRow {
   changed_files: unknown | null;
   test_command: string | null;
   approval_judgment?: string | null;
+  approval_provenance?: string | null;
   position: number;
   created_at: number;
   updated_at: number;
@@ -56,9 +58,19 @@ function toTile(row: CardRow): CardTileData {
     retrospective: row.retrospective ?? null,
     changeSummary: row.change_summary ?? null,
     testCommand: row.test_command,
+    approvalProvenance: parseApprovalProvenance(row.approval_provenance),
     state: row.state,
     position: row.position,
   };
+}
+
+function parseApprovalProvenance(raw: string | null | undefined): ApprovalProvenance | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as ApprovalProvenance;
+  } catch {
+    return null;
+  }
 }
 
 function parseVerifyLog(row: CardRow | undefined): VerifyLogView | null {
@@ -247,7 +259,11 @@ export function useWorkmap(sessionId: number | null) {
     async (
       cardId: number,
       transition: CardTransitionKind,
-      options?: { approveForce?: boolean; judgment?: ApprovalDecisionWithTime },
+      options?: {
+        approveForce?: boolean;
+        judgment?: ApprovalDecisionWithTime;
+        approvalProvenance?: ApprovalProvenance | null;
+      },
     ) => {
       const activeApi = requireApi();
       await activeApi.invoke<CardState>("card_transition", {
@@ -255,6 +271,7 @@ export function useWorkmap(sessionId: number | null) {
         transition,
         approveForce: options?.approveForce ?? false,
         judgment: options?.judgment ?? null,
+        approvalProvenance: options?.approvalProvenance ?? null,
       });
       await refresh();
     },

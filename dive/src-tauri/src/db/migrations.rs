@@ -14,9 +14,10 @@ const MIGRATIONS: &[(i64, MigrationFn)] = &[
     (7, migration_v7),
     (8, migration_v8),
     (9, migration_v9),
+    (10, migration_v10),
 ];
 
-pub const LATEST_SCHEMA_VERSION: i64 = 9;
+pub const LATEST_SCHEMA_VERSION: i64 = 10;
 
 pub fn migrate(conn: &mut Connection) -> Result<(), DbError> {
     migrate_with_migrations(conn, MIGRATIONS)
@@ -216,6 +217,18 @@ fn migration_v9(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     Ok(())
 }
 
+fn migration_v10(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    let exists: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('Card') WHERE name = 'approval_provenance'",
+        [],
+        |row| row.get(0),
+    )?;
+    if exists == 0 {
+        tx.execute_batch("ALTER TABLE Card ADD COLUMN approval_provenance TEXT")?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use rusqlite::Transaction;
@@ -391,6 +404,21 @@ mod tests {
             .conn()
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('Card') WHERE name = 'approval_judgment'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(exists, 1);
+    }
+
+    #[test]
+    fn migration_v10_adds_approval_provenance_column() {
+        let (mut db, _tmp) = fresh_db();
+        migrations::migrate(db.conn_mut()).unwrap();
+        let exists: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('Card') WHERE name = 'approval_provenance'",
                 [],
                 |row| row.get(0),
             )

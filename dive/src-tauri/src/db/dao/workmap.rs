@@ -158,6 +158,7 @@ mod tests {
                 changed_files: None,
                 test_command: None,
                 approval_judgment: None,
+                approval_provenance: None,
                 position: 1,
             },
         )
@@ -188,6 +189,7 @@ mod tests {
                 changed_files: None,
                 test_command: None,
                 approval_judgment: None,
+                approval_provenance: None,
                 position: 1,
             },
         )
@@ -219,6 +221,7 @@ mod tests {
                 changed_files: None,
                 test_command: None,
                 approval_judgment: None,
+                approval_provenance: None,
                 position: 1,
             },
         )

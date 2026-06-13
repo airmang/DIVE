@@ -7,9 +7,11 @@ import { PermissionSummary } from "./PermissionSummary";
 import { RawDetails } from "./RawDetails";
 import type { PermissionCardProps } from "./types";
 
-export function SafeCard({ card, onApprove, onDeny }: PermissionCardProps) {
+export function SafeCard({ card, onApprove, onDeny, approvalRequirement }: PermissionCardProps) {
   const t = useT();
   const explanation = explainTool(card.toolName, card.risk, card.args, t);
+  const approvalBlocked =
+    approvalRequirement?.required === true && approvalRequirement.satisfied !== true;
 
   return (
     <div
@@ -34,6 +36,16 @@ export function SafeCard({ card, onApprove, onDeny }: PermissionCardProps) {
         <RawDetails value={{ preview: card.paramsPreview, args: card.args }} />
       </div>
 
+      {approvalRequirement?.required ? (
+        <div
+          className="border-t bg-warn/10 px-3 py-2 text-xs text-fg"
+          data-testid="permission-approval-requirement"
+          data-satisfied={approvalRequirement.satisfied ? "true" : "false"}
+        >
+          {approvalRequirement.message}
+        </div>
+      ) : null}
+
       <footer className="flex items-center justify-end gap-2 border-t bg-bg-panel2/30 px-3 py-2">
         <Button
           size="sm"
@@ -48,6 +60,7 @@ export function SafeCard({ card, onApprove, onDeny }: PermissionCardProps) {
           size="sm"
           variant="primary"
           data-testid="card-approve"
+          disabled={approvalBlocked}
           onClick={() => onApprove(card.toolCallId)}
         >
           <Check />

@@ -10,6 +10,7 @@ import { LOCALE_LABEL, SUPPORTED_LOCALES, useLocaleStore, useT, type Locale } fr
 import { LearningHint } from "../components/ui/learning-hint";
 import { useUiPreferencesStore } from "../stores/ui-preferences";
 import { ProviderModelSelector } from "../components/settings/ProviderModelSelector";
+import type { ScaffoldMode } from "../features/provocation";
 
 type TauriApi = {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -35,6 +36,7 @@ interface ResearchSettingsDto {
 
 const SAFE_TOOLS = ["read_file", "list_dir", "search_files"];
 const WARN_TOOLS = ["write_file", "edit_file"];
+const REVIEW_CARD_MODES: ScaffoldMode[] = ["guided", "standard", "expert"];
 
 const DEFAULT_PROVIDER_HOSTS: Record<string, string> = {
   anthropic: "api.anthropic.com",
@@ -112,6 +114,10 @@ export function SettingsPage() {
   const setLocale = useLocaleStore((s) => s.setLocale);
   const tutorialEnabled = useUiPreferencesStore((s) => s.tutorialEnabled);
   const setTutorialEnabled = useUiPreferencesStore((s) => s.setTutorialEnabled);
+  const enableProvocationCards = useUiPreferencesStore((s) => s.enableProvocationCards);
+  const setEnableProvocationCards = useUiPreferencesStore((s) => s.setEnableProvocationCards);
+  const provocationScaffoldMode = useUiPreferencesStore((s) => s.provocationScaffoldMode);
+  const setProvocationScaffoldMode = useUiPreferencesStore((s) => s.setProvocationScaffoldMode);
   const loaded = useProjectSessionStore((s) => s.loaded);
   const loadAll = useProjectSessionStore((s) => s.loadAll);
   const providers = useProjectSessionStore((s) => s.providers);
@@ -373,6 +379,62 @@ export function SettingsPage() {
                 className="h-4 w-4"
               />
             </label>
+          </div>
+
+          <div className="flex flex-col gap-3 rounded-md border bg-bg-panel px-3 py-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium">{t("settings.review_cards_title")}</div>
+                <div className="text-[11px] text-fg-muted">
+                  {t("settings.review_cards_description")}
+                </div>
+              </div>
+              <label className="inline-flex cursor-pointer items-center">
+                <input
+                  type="checkbox"
+                  checked={enableProvocationCards}
+                  onChange={(e) => setEnableProvocationCards(e.target.checked)}
+                  data-testid="settings-review-cards-toggle"
+                  className="h-4 w-4"
+                  aria-label={t("settings.review_cards_title")}
+                />
+              </label>
+            </div>
+
+            <div
+              className="grid grid-cols-1 gap-2 sm:grid-cols-3"
+              role="radiogroup"
+              aria-label={t("settings.review_card_mode_title")}
+              data-testid="settings-review-card-mode"
+            >
+              {REVIEW_CARD_MODES.map((mode) => {
+                const selected = provocationScaffoldMode === mode;
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    className={[
+                      "rounded-md border px-3 py-2 text-left text-xs transition",
+                      selected
+                        ? "border-accent bg-accent/10 text-fg"
+                        : "border-border bg-bg text-fg-muted hover:text-fg",
+                    ].join(" ")}
+                    onClick={() => setProvocationScaffoldMode(mode)}
+                    data-testid={`settings-review-card-mode-${mode}`}
+                    data-selected={selected ? "true" : "false"}
+                  >
+                    <span className="block text-sm font-semibold">
+                      {t(`settings.review_card_mode_${mode}`)}
+                    </span>
+                    <span className="mt-1 block text-[11px] leading-snug">
+                      {t(`settings.review_card_mode_${mode}_description`)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </section>
 

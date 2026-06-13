@@ -913,6 +913,7 @@ pub fn roadmap_step_open_impl(
             changed_files: None,
             test_command: None,
             approval_judgment: None,
+            approval_provenance: None,
             position: 1,
         },
     )

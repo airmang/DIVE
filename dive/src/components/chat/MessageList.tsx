@@ -1,7 +1,7 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
-import type { ChatMessage } from "./types";
+import type { ChatMessage, ToolApprovalMetadata } from "./types";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
 import { ToolActivity } from "./ToolActivity";
@@ -9,14 +9,31 @@ import { SystemMessage } from "./SystemMessage";
 import { ErrorMessage } from "./ErrorMessage";
 import { filterInterviewNoise } from "./filterInterviewNoise";
 import { useT } from "../../i18n";
-import type { ScaffoldMode } from "../../features/provocation";
+import { useChatComposerStore } from "../../stores/chatComposer";
+import type {
+  ProvocationChangedFile,
+  ProvocationPlanStep,
+  ScaffoldMode,
+} from "../../features/provocation";
+import {
+  ProvocationCardHost,
+  assistantReportsFromConversation,
+  createProvocationContext,
+  generateProvocationCards,
+  retrySignalsFromConversation,
+  type ProvocationAction,
+} from "../../features/provocation";
 
 interface Props {
   messages: ChatMessage[];
   onRetryError?: (id: string) => void;
   onEditUser?: (id: string) => void;
   onResendUser?: (id: string) => void;
-  onApproveToolCall?: (toolCallId: string, modifiedArgs?: unknown) => void;
+  onApproveToolCall?: (
+    toolCallId: string,
+    modifiedArgs?: unknown,
+    approvalMetadata?: ToolApprovalMetadata,
+  ) => void;
   onDenyToolCall?: (toolCallId: string, reason?: string) => void;
   provocation?: {
     enabled: boolean;
@@ -24,6 +41,10 @@ interface Props {
     projectId?: number | null;
     sessionId?: number | null;
     goalText?: string | null;
+    changedFiles?: ProvocationChangedFile[];
+    targetFiles?: string[];
+    planSteps?: ProvocationPlanStep[];
+    onOpenRecovery?: () => void;
   };
   /** Cap DOM nodes to last N. Real virtualization lands in task 4-4. */
   maxRendered?: number;
@@ -53,11 +74,49 @@ function MessageListImpl({
   const sentinelRef = useRef<HTMLDivElement>(null);
   const pendingNodeRefs = useRef(new Map<string, HTMLDivElement>());
   const [autoScroll, setAutoScroll] = useState(true);
+  const pushComposerSeed = useChatComposerStore((s) => s.pushSeed);
 
   const rendered = filterInterviewNoise(messages);
   const visible = rendered.length > maxRendered ? rendered.slice(-maxRendered) : rendered;
   const pendingApproval = visible.find(
     (message) => message.kind === "tool_call" && message.status === "pending",
+  );
+  const conversationProvocationContext = useMemo(() => {
+    if (!provocation?.enabled) return null;
+    const assistantReports = assistantReportsFromConversation(visible);
+    const retrySignals = retrySignalsFromConversation(visible);
+    if (assistantReports.length === 0 && retrySignals.length === 0) return null;
+    const retryTaskId = [...retrySignals].reverse().find((signal) => signal.lastUserMessageId)
+      ?.lastUserMessageId;
+    const assistantTaskId = [...assistantReports].reverse().find((report) => report.messageId)
+      ?.messageId;
+
+    return createProvocationContext({
+      mode: provocation.mode,
+      stage: retrySignals.length > 0 ? "execute" : "verify",
+      projectId: provocation.projectId,
+      sessionId: provocation.sessionId,
+      taskId: retryTaskId ?? assistantTaskId,
+      goalText: provocation.goalText ?? undefined,
+      assistantReports,
+      retrySignals,
+    });
+  }, [
+    provocation?.enabled,
+    provocation?.goalText,
+    provocation?.mode,
+    provocation?.projectId,
+    provocation?.sessionId,
+    visible,
+  ]);
+  const conversationProvocationCards = useMemo(
+    () =>
+      conversationProvocationContext
+        ? generateProvocationCards(conversationProvocationContext).filter(
+            (card) => card.type === "ai_self_report_only" || card.type === "regeneration_loop",
+          )
+        : [],
+    [conversationProvocationContext],
   );
 
   const handleScroll = useCallback(() => {
@@ -97,6 +156,33 @@ function MessageListImpl({
       behavior: "smooth",
     });
   }, [pendingApproval]);
+
+  const handleConversationProvocationAction = useCallback(
+    (action: ProvocationAction) => {
+      if (action.kind === "create_repro_steps") {
+        pushComposerSeed(
+          "반복되는 오류를 기준으로 재현 단계, 가장 작은 확인 명령, 마지막 변경에서 볼 부분을 정리해줘.",
+        );
+        return;
+      }
+      if (action.kind === "rollback_last_change") {
+        provocation?.onOpenRecovery?.();
+        return;
+      }
+      if (action.kind === "split_scope") {
+        pushComposerSeed("현재 실패를 더 작은 범위 하나로 줄여서 다시 요청할 문장을 만들어줘.");
+        return;
+      }
+      if (action.kind === "run_tests") {
+        pushComposerSeed("AI 완료 보고를 검증할 수 있는 가장 작은 테스트 또는 확인 명령을 제안해줘.");
+        return;
+      }
+      if (action.kind === "run_app" || action.kind === "open_preview") {
+        pushComposerSeed("AI 완료 보고를 검증하기 위해 프리뷰에서 확인할 동작과 기준을 짧게 정리해줘.");
+      }
+    },
+    [provocation, pushComposerSeed],
+  );
 
   return (
     <div
@@ -253,6 +339,15 @@ function MessageListImpl({
           }
           return items;
         })()}
+        {conversationProvocationCards.length > 0 && conversationProvocationContext ? (
+          <ProvocationCardHost
+            className="rounded-md border border-border bg-bg-panel px-3 py-2"
+            cards={conversationProvocationCards}
+            context={conversationProvocationContext}
+            mode={provocation?.mode ?? "standard"}
+            onAction={handleConversationProvocationAction}
+          />
+        ) : null}
         <div ref={sentinelRef} aria-hidden />
       </div>
     </div>

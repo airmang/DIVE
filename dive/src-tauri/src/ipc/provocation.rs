@@ -13,5 +13,6 @@ pub fn provocation_log_event(
     if !event_type.starts_with("provocation.") {
         return Err("provocation event type required".into());
     }
+    let payload = crate::export::sanitize_provocation_event_payload(&payload);
     log_event(&state, session_id, &event_type, payload)
 }

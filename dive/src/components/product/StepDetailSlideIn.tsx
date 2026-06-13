@@ -111,10 +111,16 @@ export function StepDetailSlideIn({
             },
           ],
           changedFiles: changedFiles.map((file) => normalizeChangedFile({ path: file.path })),
+          approvalProvenance: step.approvalProvenance,
           verification: {
             aiClaimedDone: Boolean(verifyLog?.intent_match),
             automatedTestsPassed: verifyLog?.test_result === "pass",
+            testResult: verifyLog?.test_result,
             externalTestRun: verifyLog ? verifyLog.test_result !== "skipped" : undefined,
+            failedButAccepted:
+              step.approvalProvenance?.verificationState === "failed_but_accepted",
+            approvedWithRisk: Boolean(step.approvalProvenance?.riskAccepted),
+            approvalProvenance: step.approvalProvenance,
           },
         }
       : null;

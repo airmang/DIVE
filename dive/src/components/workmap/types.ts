@@ -4,6 +4,8 @@
  * here without updating `src-tauri/src/db/models.rs` breaks IPC round-trips.
  */
 
+import type { ApprovalProvenance } from "../../features/provocation";
+
 export type CardState =
   | "decomposed"
   | "instructed"
@@ -23,6 +25,7 @@ export interface CardTileData {
   retrospective?: string | null;
   changeSummary?: string | null;
   testCommand?: string | null;
+  approvalProvenance?: ApprovalProvenance | null;
   state: CardState;
   position: number;
 }

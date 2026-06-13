@@ -12,7 +12,10 @@ use crate::tools::RiskLevel;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PermissionDecision {
-    Approved { modified_args: Option<Value> },
+    Approved {
+        modified_args: Option<Value>,
+        approval_metadata: Option<Value>,
+    },
     Denied(String),
 }
 
@@ -20,11 +23,25 @@ impl PermissionDecision {
     pub fn approved() -> Self {
         Self::Approved {
             modified_args: None,
+            approval_metadata: None,
         }
     }
     pub fn approved_with(args: Value) -> Self {
         Self::Approved {
             modified_args: Some(args),
+            approval_metadata: None,
+        }
+    }
+    pub fn approved_with_metadata(metadata: Option<Value>) -> Self {
+        Self::Approved {
+            modified_args: None,
+            approval_metadata: metadata,
+        }
+    }
+    pub fn approved_with_context(args: Value, metadata: Option<Value>) -> Self {
+        Self::Approved {
+            modified_args: Some(args),
+            approval_metadata: metadata,
         }
     }
     pub fn denied(reason: impl Into<String>) -> Self {

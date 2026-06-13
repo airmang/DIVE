@@ -28,8 +28,11 @@ export function ProvocationCardHost({
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
   const shownRef = useRef<Set<string>>(new Set());
   const visibleCards = useMemo(
-    () => sortProvocationCards(cards).filter((card) => !dismissed.has(card.id)),
-    [cards, dismissed],
+    () =>
+      sortProvocationCards(cards).filter(
+        (card) => !dismissed.has(card.id) && (mode !== "expert" || card.severity === "risk"),
+      ),
+    [cards, dismissed, mode],
   );
   const primary = selectPrimaryProvocationCard(visibleCards);
 

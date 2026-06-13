@@ -80,6 +80,7 @@ export interface ProvocationPlanStep {
   id: string;
   text: string;
   kind?: string;
+  expectedFiles?: string[];
 }
 
 export type ChangedFileCategory =
@@ -106,9 +107,26 @@ export interface ProvocationVerification {
   previewChecked?: boolean;
   manualChecks?: string[];
   automatedTestsPassed?: boolean;
+  testResult?: "pass" | "fail" | "skipped";
   externalTestRun?: boolean;
   failedButAccepted?: boolean;
   approvedWithRisk?: boolean;
+  approvalProvenance?: ApprovalProvenance | null;
+}
+
+export interface ProvocationAssistantReport {
+  source: "assistant_message" | "verify_log";
+  messageId?: string;
+  createdAt?: number | string;
+}
+
+export interface ProvocationRetrySignal {
+  errorKey: string;
+  retryCount: number;
+  retryPhrases: string[];
+  lastUserMessageId?: string;
+  rollbackOrReproMentioned?: boolean;
+  scopeNarrowed?: boolean;
 }
 
 export interface ProvocationContext {
@@ -118,6 +136,8 @@ export interface ProvocationContext {
   sessionId?: number | string | null;
   featureId?: number | string | null;
   taskId?: number | string | null;
+  toolCallId?: string | null;
+  toolName?: string | null;
   goalText?: string;
   acceptanceCriteria?: string[];
   currentFeatureTitle?: string;
@@ -126,8 +146,11 @@ export interface ProvocationContext {
   changedFiles?: ProvocationChangedFile[];
   targetFiles?: string[];
   verification?: ProvocationVerification;
+  assistantReports?: ProvocationAssistantReport[];
+  approvalProvenance?: ApprovalProvenance | null;
   recentErrors?: Array<{ message: string; normalizedMessage?: string; occurredAt: string }>;
   retryCountForCurrentError?: number;
+  retrySignals?: ProvocationRetrySignal[];
   userHasViewedDiff?: boolean;
   userHasViewedPreview?: boolean;
   userHasViewedTestResult?: boolean;
@@ -148,4 +171,48 @@ export interface VerificationStatusItem {
   label: string;
   evidenceBacked: boolean;
   tone: "info" | "success" | "warn" | "risk";
+}
+
+export type VerificationProvenanceSource =
+  | "ai_self_report"
+  | "diff_review"
+  | "app_launch"
+  | "preview"
+  | "automated_test"
+  | "external_test"
+  | "manual_check"
+  | "risk_approval";
+
+export interface VerificationProvenanceItem extends VerificationStatusItem {
+  source: VerificationProvenanceSource;
+  recordedAt?: number;
+}
+
+export interface VerificationEvidenceSummary {
+  concreteEvidence: boolean;
+  aiSelfReport: boolean;
+  automatedTestsPassed: boolean;
+  externalTestRun: boolean | null;
+  testResult: "pass" | "fail" | "skipped" | null;
+  manualEvidenceCount: number;
+  evidenceLabels: string[];
+}
+
+export type ApprovalVerificationState =
+  | "verified_with_evidence"
+  | "unverified_risk_accepted"
+  | "failed_but_accepted";
+
+export type ApprovalDecisionOutcome = "approved" | "approved_with_concern" | "revision_requested";
+
+export interface ApprovalProvenance {
+  schemaVersion: 1;
+  verificationState: ApprovalVerificationState;
+  statuses: VerificationProvenanceItem[];
+  statusIds: VerificationStatusId[];
+  evidenceSummary: VerificationEvidenceSummary;
+  riskAccepted: boolean;
+  riskReason: string | null;
+  approvalOutcome?: ApprovalDecisionOutcome;
+  decidedAt?: number;
 }

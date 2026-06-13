@@ -1,4 +1,4 @@
-use serde_json::Value;
+use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, State};
 
 use crate::db::dao::{card as card_dao, step_session_mapping as mapping_dao};
@@ -60,6 +60,7 @@ pub fn card_update_instruction_impl(
                 changed_files: existing.changed_files.clone(),
                 test_command: existing.test_command.clone(),
                 approval_judgment: existing.approval_judgment.clone(),
+                approval_provenance: existing.approval_provenance.clone(),
                 position: existing.position,
             },
         )
@@ -111,6 +112,7 @@ pub fn card_update_test_command_impl(
                 changed_files: existing.changed_files,
                 test_command: normalized.clone(),
                 approval_judgment: existing.approval_judgment,
+                approval_provenance: existing.approval_provenance,
                 position: existing.position,
             },
         )
@@ -135,6 +137,24 @@ pub fn card_transition_no_checkpoint_impl(
     transition: CardTransition,
     approve_force: Option<bool>,
     judgment: Option<crate::dive::ApprovalJudgment>,
+) -> Result<CardState, String> {
+    card_transition_no_checkpoint_with_provenance_impl(
+        state,
+        card_id,
+        transition,
+        approve_force,
+        judgment,
+        None,
+    )
+}
+
+pub(super) fn card_transition_no_checkpoint_with_provenance_impl(
+    state: &AppState,
+    card_id: i64,
+    transition: CardTransition,
+    approve_force: Option<bool>,
+    judgment: Option<crate::dive::ApprovalJudgment>,
+    client_approval_provenance: Option<Value>,
 ) -> Result<CardState, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let existing = card_dao::get_by_id(db.conn(), card_id)
@@ -190,6 +210,18 @@ pub fn card_transition_no_checkpoint_impl(
         (Some(j), true) => Some(j.to_json_string()),
         _ => existing.approval_judgment.clone(),
     };
+    let approval_provenance = if matches!(transition, CardTransition::Approve) {
+        Some(
+            build_approval_provenance(
+                &existing,
+                judgment.as_ref(),
+                client_approval_provenance.as_ref(),
+            )
+            .to_string(),
+        )
+    } else {
+        existing.approval_provenance.clone()
+    };
     card_dao::update(
         db.conn(),
         card_id,
@@ -206,6 +238,7 @@ pub fn card_transition_no_checkpoint_impl(
             changed_files: existing.changed_files,
             test_command: existing.test_command,
             approval_judgment,
+            approval_provenance,
             position: existing.position,
         },
     )
@@ -233,6 +266,212 @@ fn summarize_changed_files(changed_files: &Option<Value>) -> Option<String> {
         String::new()
     };
     Some(format!("변경 파일: {}{}", paths.join(", "), suffix))
+}
+
+fn build_approval_provenance(
+    card: &crate::db::models::CardRow,
+    judgment: Option<&crate::dive::ApprovalJudgment>,
+    client_provenance: Option<&Value>,
+) -> Value {
+    let verify_log = card
+        .verify_log
+        .as_deref()
+        .and_then(|raw| crate::dive::VerifyLog::from_json_str(raw).ok());
+    let client_status_ids = client_status_ids(client_provenance);
+    let decided_at = judgment
+        .map(|j| j.decided_at)
+        .or_else(|| client_provenance.and_then(|value| value.get("decidedAt")?.as_i64()));
+    let mut statuses = Vec::new();
+
+    for status_id in ["diff_reviewed", "app_launched", "preview_checked"] {
+        if client_status_ids
+            .iter()
+            .any(|candidate| candidate == status_id)
+        {
+            push_status(&mut statuses, status_value(status_id, decided_at));
+        }
+    }
+
+    let test_result = verify_log
+        .as_ref()
+        .map(|log| test_result_str(&log.test_result));
+    let automated_tests_passed = test_result == Some("pass");
+    let failed = test_result == Some("fail");
+    let external_test_run = match test_result {
+        Some("skipped") | None => false,
+        Some(_) => true,
+    };
+    let has_client_concrete_evidence = statuses
+        .iter()
+        .any(|status| status.get("evidenceBacked").and_then(Value::as_bool) == Some(true));
+    let concrete_evidence = automated_tests_passed || has_client_concrete_evidence;
+
+    if verify_log
+        .as_ref()
+        .map(|log| log.intent_match && !concrete_evidence)
+        .unwrap_or(false)
+    {
+        push_status(
+            &mut statuses,
+            status_value("ai_self_report_only", decided_at),
+        );
+    }
+    if automated_tests_passed {
+        push_status(
+            &mut statuses,
+            status_value("automated_tests_passed", decided_at),
+        );
+    }
+    if !external_test_run {
+        push_status(
+            &mut statuses,
+            status_value("external_test_not_run", decided_at),
+        );
+    }
+    if failed {
+        push_status(
+            &mut statuses,
+            status_value("failed_but_accepted", decided_at),
+        );
+    }
+
+    let approved_with_concern = judgment
+        .map(|j| j.outcome == crate::dive::ApprovalOutcome::ApprovedWithConcern)
+        .unwrap_or(false);
+    let client_marked_risk = client_status_ids
+        .iter()
+        .any(|candidate| candidate == "approved_with_risk");
+    let risk_accepted = failed || !concrete_evidence || approved_with_concern || client_marked_risk;
+    if risk_accepted {
+        push_status(
+            &mut statuses,
+            status_value("approved_with_risk", decided_at),
+        );
+    }
+
+    let status_ids = statuses
+        .iter()
+        .filter_map(|status| status.get("id").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let evidence_labels = statuses
+        .iter()
+        .filter(|status| status.get("evidenceBacked").and_then(Value::as_bool) == Some(true))
+        .filter_map(|status| status.get("label").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let risk_reason = judgment
+        .and_then(|j| j.note.as_deref())
+        .map(str::trim)
+        .filter(|note| !note.is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            client_provenance
+                .and_then(|value| value.get("riskReason")?.as_str())
+                .map(str::trim)
+                .filter(|note| !note.is_empty())
+                .map(str::to_owned)
+        });
+    let verification_state = if failed {
+        "failed_but_accepted"
+    } else if risk_accepted {
+        "unverified_risk_accepted"
+    } else {
+        "verified_with_evidence"
+    };
+
+    json!({
+        "schemaVersion": 1,
+        "verificationState": verification_state,
+        "statuses": statuses,
+        "statusIds": status_ids,
+        "evidenceSummary": {
+            "concreteEvidence": concrete_evidence,
+            "aiSelfReport": verify_log.as_ref().map(|log| log.intent_match).unwrap_or(false),
+            "automatedTestsPassed": automated_tests_passed,
+            "externalTestRun": external_test_run,
+            "testResult": test_result,
+            "manualEvidenceCount": 0,
+            "evidenceLabels": evidence_labels,
+        },
+        "riskAccepted": risk_accepted,
+        "riskReason": risk_reason,
+        "approvalOutcome": judgment.map(|j| approval_outcome_str(j.outcome)),
+        "decidedAt": decided_at,
+    })
+}
+
+fn client_status_ids(client_provenance: Option<&Value>) -> Vec<String> {
+    let mut ids = Vec::new();
+    if let Some(items) = client_provenance
+        .and_then(|value| value.get("statusIds"))
+        .and_then(Value::as_array)
+    {
+        ids.extend(items.iter().filter_map(Value::as_str).map(str::to_owned));
+    }
+    if let Some(items) = client_provenance
+        .and_then(|value| value.get("statuses"))
+        .and_then(Value::as_array)
+    {
+        ids.extend(
+            items
+                .iter()
+                .filter_map(|item| item.get("id").and_then(Value::as_str))
+                .map(str::to_owned),
+        );
+    }
+    ids
+}
+
+fn push_status(statuses: &mut Vec<Value>, status: Value) {
+    let Some(id) = status.get("id").and_then(Value::as_str) else {
+        return;
+    };
+    if statuses
+        .iter()
+        .any(|existing| existing.get("id").and_then(Value::as_str) == Some(id))
+    {
+        return;
+    }
+    statuses.push(status);
+}
+
+fn status_value(id: &str, recorded_at: Option<i64>) -> Value {
+    let (label, evidence_backed, tone, source) = match id {
+        "ai_self_report_only" => ("AI 자가보고만 있음", false, "warn", "ai_self_report"),
+        "diff_reviewed" => ("Diff 확인됨", true, "info", "diff_review"),
+        "app_launched" => ("앱 실행 확인됨", true, "success", "app_launch"),
+        "preview_checked" => ("수동 프리뷰 확인됨", true, "success", "preview"),
+        "automated_tests_passed" => ("자동 테스트 통과", true, "success", "automated_test"),
+        "external_test_not_run" => ("외부 테스트 없음", false, "warn", "external_test"),
+        "failed_but_accepted" => ("실패했지만 승인됨", false, "risk", "risk_approval"),
+        "approved_with_risk" => ("위험을 감수하고 승인됨", false, "risk", "risk_approval"),
+        _ => (id, false, "warn", "risk_approval"),
+    };
+    json!({
+        "id": id,
+        "label": label,
+        "evidenceBacked": evidence_backed,
+        "tone": tone,
+        "source": source,
+        "recordedAt": recorded_at,
+    })
+}
+
+fn test_result_str(result: &crate::dive::TestResult) -> &'static str {
+    match result {
+        crate::dive::TestResult::Pass => "pass",
+        crate::dive::TestResult::Fail => "fail",
+        crate::dive::TestResult::Skipped => "skipped",
+    }
+}
+
+fn approval_outcome_str(outcome: crate::dive::ApprovalOutcome) -> &'static str {
+    match outcome {
+        crate::dive::ApprovalOutcome::Approved => "approved",
+        crate::dive::ApprovalOutcome::ApprovedWithConcern => "approved_with_concern",
+        crate::dive::ApprovalOutcome::RevisionRequested => "revision_requested",
+    }
 }
 
 #[tauri::command]
@@ -276,6 +515,7 @@ pub fn card_save_retrospective_impl(
                 changed_files: existing.changed_files,
                 test_command: existing.test_command,
                 approval_judgment: existing.approval_judgment,
+                approval_provenance: existing.approval_provenance,
                 position: existing.position,
             },
         )
@@ -302,9 +542,16 @@ pub async fn card_transition(
     transition: CardTransition,
     approve_force: Option<bool>,
     judgment: Option<crate::dive::ApprovalJudgment>,
+    approval_provenance: Option<Value>,
 ) -> Result<CardState, String> {
-    let (next, checkpoint) =
-        card_transition_with_checkpoint_impl(&state, card_id, transition, approve_force, judgment)?;
+    let (next, checkpoint) = card_transition_with_checkpoint_and_provenance_impl(
+        &state,
+        card_id,
+        transition,
+        approve_force,
+        judgment,
+        approval_provenance,
+    )?;
 
     if let Some(row) = checkpoint {
         let _ = app.emit(
@@ -332,6 +579,24 @@ pub(super) fn card_transition_with_checkpoint_impl(
     approve_force: Option<bool>,
     judgment: Option<crate::dive::ApprovalJudgment>,
 ) -> Result<(CardState, Option<CheckpointRow>), String> {
+    card_transition_with_checkpoint_and_provenance_impl(
+        state,
+        card_id,
+        transition,
+        approve_force,
+        judgment,
+        None,
+    )
+}
+
+pub(super) fn card_transition_with_checkpoint_and_provenance_impl(
+    state: &AppState,
+    card_id: i64,
+    transition: CardTransition,
+    approve_force: Option<bool>,
+    judgment: Option<crate::dive::ApprovalJudgment>,
+    approval_provenance: Option<Value>,
+) -> Result<(CardState, Option<CheckpointRow>), String> {
     let (session_id, card_title, previous_state) = {
         let db = state.db.lock().map_err(|e| e.to_string())?;
         let existing = card_dao::get_by_id(db.conn(), card_id)
@@ -339,9 +604,20 @@ pub(super) fn card_transition_with_checkpoint_impl(
             .ok_or_else(|| format!("card {card_id} not found"))?;
         (existing.session_id, existing.title.clone(), existing.state)
     };
-    let next =
-        card_transition_no_checkpoint_impl(state, card_id, transition, approve_force, judgment)?;
+    let next = card_transition_no_checkpoint_with_provenance_impl(
+        state,
+        card_id,
+        transition,
+        approve_force,
+        judgment,
+        approval_provenance,
+    )?;
     sync_plan_step_mapping_for_card_transition(state, card_id, next)?;
+    let recorded_provenance = if matches!(transition, CardTransition::Approve) {
+        approval_provenance_for_card(state, card_id)?
+    } else {
+        None
+    };
     log_event(
         state,
         Some(session_id),
@@ -352,6 +628,7 @@ pub(super) fn card_transition_with_checkpoint_impl(
             "transition": transition,
             "from": previous_state,
             "to": next,
+            "approval_provenance": recorded_provenance.as_ref().map(provenance_log_summary),
         }),
     )?;
     let previous_stage = stage_for_card_state(previous_state);
@@ -419,6 +696,27 @@ fn sync_plan_step_mapping_for_card_transition(
     else {
         return Ok(());
     };
+    let card = card_dao::get_by_id(db.conn(), card_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("card {card_id} not found"))?;
+    let approval_provenance = card
+        .approval_provenance
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok());
+    let next_verification_status = approval_provenance
+        .as_ref()
+        .and_then(|value| value.get("verificationState").and_then(Value::as_str))
+        .map(str::to_owned)
+        .or(mapping.verification_status);
+    let next_verification_evidence = approval_provenance
+        .as_ref()
+        .and_then(|value| value.get("evidenceSummary"))
+        .map(Value::to_string)
+        .or(mapping.verification_evidence);
+    let next_user_decision = approval_provenance
+        .as_ref()
+        .map(mapping_user_decision)
+        .or(mapping.user_decision);
     if mapping.status == status {
         return Ok(());
     }
@@ -439,12 +737,48 @@ fn sync_plan_step_mapping_for_card_transition(
                 mapping.completed_at
             },
             checkpoint_ids: mapping.checkpoint_ids,
-            verification_status: mapping.verification_status,
-            verification_evidence: mapping.verification_evidence,
-            user_decision: mapping.user_decision,
+            verification_status: next_verification_status,
+            verification_evidence: next_verification_evidence,
+            user_decision: next_user_decision,
         },
     )
     .map_err(|e| e.to_string())
+}
+
+fn approval_provenance_for_card(state: &AppState, card_id: i64) -> Result<Option<Value>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let Some(card) = card_dao::get_by_id(db.conn(), card_id).map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    Ok(card
+        .approval_provenance
+        .as_deref()
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok()))
+}
+
+fn provenance_log_summary(value: &Value) -> Value {
+    json!({
+        "verificationState": value.get("verificationState").and_then(Value::as_str),
+        "statusIds": value.get("statusIds").cloned().unwrap_or(Value::Null),
+        "riskAccepted": value.get("riskAccepted").and_then(Value::as_bool),
+        "evidenceSummary": value.get("evidenceSummary").cloned().unwrap_or(Value::Null),
+    })
+}
+
+fn mapping_user_decision(value: &Value) -> String {
+    json!({
+        "schemaVersion": 1,
+        "approvalOutcome": value.get("approvalOutcome").and_then(Value::as_str),
+        "verificationState": value.get("verificationState").and_then(Value::as_str),
+        "riskAccepted": value.get("riskAccepted").and_then(Value::as_bool).unwrap_or(false),
+        "riskReasonPresent": value
+            .get("riskReason")
+            .and_then(Value::as_str)
+            .map(|reason| !reason.trim().is_empty())
+            .unwrap_or(false),
+        "decidedAt": value.get("decidedAt").and_then(Value::as_i64),
+    })
+    .to_string()
 }
 
 fn auto_checkpoint_label(transition: CardTransition, card_title: &str) -> Option<String> {

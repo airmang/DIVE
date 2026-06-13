@@ -174,7 +174,115 @@ fn seed_card(state: &AppState, session_id: i64, title: &str, card_state: CardSta
             changed_files: None,
             test_command: None,
             approval_judgment: None,
+            approval_provenance: None,
             position: 1,
+        },
+    )
+    .unwrap()
+}
+
+fn set_verify_log(
+    state: &AppState,
+    card_id: i64,
+    intent_match: bool,
+    test_result: crate::dive::TestResult,
+) {
+    let log = crate::dive::VerifyLog {
+        intent_match,
+        test_result,
+        details: "verification details".into(),
+        model: "mock-model".into(),
+        ran_at: 1,
+        test_command: Some("pnpm test".into()),
+        test_exit_code: None,
+        test_stdout: None,
+        test_stderr: None,
+    };
+    let db = state.db.lock().unwrap();
+    let card = crate::db::dao::card::get_by_id(db.conn(), card_id)
+        .unwrap()
+        .unwrap();
+    crate::db::dao::card::update(
+        db.conn(),
+        card_id,
+        &NewCard {
+            session_id: card.session_id,
+            title: card.title,
+            instruction: card.instruction,
+            assist_summary: card.assist_summary,
+            acceptance_criteria: card.acceptance_criteria,
+            retrospective: card.retrospective,
+            change_summary: card.change_summary,
+            state: card.state,
+            verify_log: Some(log.to_json_string()),
+            changed_files: card.changed_files,
+            test_command: card.test_command,
+            approval_judgment: card.approval_judgment,
+            approval_provenance: card.approval_provenance,
+            position: card.position,
+        },
+    )
+    .unwrap();
+}
+
+fn seed_step_mapping_for_card(state: &AppState, session_id: i64, card_id: i64) -> i64 {
+    let db = state.db.lock().unwrap();
+    let project_id = db
+        .conn()
+        .query_row(
+            "SELECT project_id FROM Session WHERE id = ?",
+            [session_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    let plan_id = crate::db::dao::plan::insert(
+        db.conn(),
+        &crate::db::models::NewPlan {
+            project_id,
+            interview_id: None,
+            goal: "approval provenance".into(),
+            intent_summary: None,
+            scope: Some(serde_json::json!([])),
+            non_goals: Some(serde_json::json!([])),
+            constraints: Some(serde_json::json!([])),
+            acceptance_criteria: Some(serde_json::json!([])),
+            status: "approved".into(),
+        },
+    )
+    .unwrap();
+    let step_id = crate::db::dao::step::insert(
+        db.conn(),
+        &crate::db::models::NewStep {
+            plan_id,
+            step_id: format!("step-{card_id}"),
+            title: "Approval provenance".into(),
+            summary: None,
+            instruction_seed: Some("Verify approval provenance".into()),
+            expected_files: Some(serde_json::json!([])),
+            acceptance_criteria: Some(serde_json::json!([])),
+            verification_kind: None,
+            verification_command: None,
+            verification_manual_check: None,
+            dependencies: Some(serde_json::json!([])),
+            parallel_group: None,
+            position: 1,
+        },
+    )
+    .unwrap();
+    mapping_dao::insert(
+        db.conn(),
+        &crate::db::models::NewStepSessionMapping {
+            step_id,
+            session_id: Some(session_id),
+            card_id: Some(card_id),
+            state_path: Some(format!("step-{card_id}")),
+            status: "in_progress".into(),
+            started_at: Some(crate::db::now_ms()),
+            completed_at: None,
+            checkpoint_ids: Some(serde_json::json!([])),
+            verification_status: None,
+            verification_evidence: None,
+            user_decision: None,
         },
     )
     .unwrap()
@@ -214,6 +322,150 @@ fn provocation_events_are_exported_with_session_event_log() {
     assert!(exported.contains("\"kind\":\"event\""));
     assert!(exported.contains("\"type\":\"provocation.card_shown\""));
     assert!(exported.contains("\"cardType\":\"ai_self_report_only\""));
+}
+
+#[test]
+fn ai_self_report_only_approval_records_unverified_risk_provenance() {
+    let state = AppState::dev_mock();
+    let tmp = tempfile::tempdir().unwrap();
+    state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+    let session_id = seed_session(&state, tmp.path());
+    let card_id = seed_card(&state, session_id, "AI only", CardState::Verifying);
+    let mapping_id = seed_step_mapping_for_card(&state, session_id, card_id);
+    set_verify_log(&state, card_id, true, crate::dive::TestResult::Skipped);
+
+    card_transition_with_checkpoint_impl(
+        &state,
+        card_id,
+        CardTransition::Approve,
+        Some(true),
+        Some(crate::dive::ApprovalJudgment {
+            outcome: crate::dive::ApprovalOutcome::Approved,
+            note: None,
+            decided_at: 10,
+        }),
+    )
+    .unwrap();
+
+    let (provenance, mapping) = {
+        let db = state.db.lock().unwrap();
+        let card = crate::db::dao::card::get_by_id(db.conn(), card_id)
+            .unwrap()
+            .unwrap();
+        let provenance: serde_json::Value =
+            serde_json::from_str(card.approval_provenance.as_deref().unwrap()).unwrap();
+        let mapping = mapping_dao::get_by_id(db.conn(), mapping_id)
+            .unwrap()
+            .unwrap();
+        (provenance, mapping)
+    };
+
+    assert_eq!(provenance["verificationState"], "unverified_risk_accepted");
+    assert_eq!(provenance["riskAccepted"], true);
+    assert_eq!(provenance["evidenceSummary"]["concreteEvidence"], false);
+    assert!(provenance["statusIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == "ai_self_report_only"));
+    assert!(provenance["statusIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == "approved_with_risk"));
+    assert_eq!(mapping.status, "done");
+    assert_eq!(
+        mapping.verification_status.as_deref(),
+        Some("unverified_risk_accepted")
+    );
+    assert!(mapping
+        .verification_evidence
+        .as_deref()
+        .unwrap()
+        .contains("\"concreteEvidence\":false"));
+
+    let options = crate::export::ExportOptions {
+        hash_user_text: false,
+        hash_file_paths: false,
+        hash_ids: false,
+        ..Default::default()
+    };
+    let exported = crate::export::ExportEngine::new(state.db.clone())
+        .export_session_with_salt(session_id, &options, "test-salt")
+        .unwrap();
+    assert!(exported.contains("\"approval_provenance\""));
+    assert!(exported.contains("\"verification_evidence_summary\""));
+    assert!(exported.contains("\"ai_self_report_only\""));
+    assert!(exported.contains("\"unverified_risk_accepted\""));
+    assert!(exported.contains("\"kind\":\"step_session_mapping\""));
+}
+
+#[test]
+fn passed_test_approval_records_evidence_backed_provenance() {
+    let state = AppState::dev_mock();
+    let tmp = tempfile::tempdir().unwrap();
+    state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+    let session_id = seed_session(&state, tmp.path());
+    let card_id = seed_card(&state, session_id, "Test pass", CardState::Verifying);
+    let mapping_id = seed_step_mapping_for_card(&state, session_id, card_id);
+    set_verify_log(&state, card_id, true, crate::dive::TestResult::Pass);
+
+    card_transition_with_checkpoint_impl(
+        &state,
+        card_id,
+        CardTransition::Approve,
+        Some(false),
+        Some(crate::dive::ApprovalJudgment {
+            outcome: crate::dive::ApprovalOutcome::Approved,
+            note: None,
+            decided_at: 11,
+        }),
+    )
+    .unwrap();
+
+    let (provenance, mapping) = {
+        let db = state.db.lock().unwrap();
+        let card = crate::db::dao::card::get_by_id(db.conn(), card_id)
+            .unwrap()
+            .unwrap();
+        let provenance: serde_json::Value =
+            serde_json::from_str(card.approval_provenance.as_deref().unwrap()).unwrap();
+        let mapping = mapping_dao::get_by_id(db.conn(), mapping_id)
+            .unwrap()
+            .unwrap();
+        (provenance, mapping)
+    };
+
+    assert_eq!(provenance["verificationState"], "verified_with_evidence");
+    assert_eq!(provenance["riskAccepted"], false);
+    assert_eq!(provenance["evidenceSummary"]["concreteEvidence"], true);
+    assert!(provenance["statusIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == "automated_tests_passed"));
+    assert!(!provenance["statusIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == "approved_with_risk"));
+    assert_eq!(
+        mapping.verification_status.as_deref(),
+        Some("verified_with_evidence")
+    );
+
+    let options = crate::export::ExportOptions {
+        hash_user_text: false,
+        hash_file_paths: false,
+        hash_ids: false,
+        ..Default::default()
+    };
+    let exported = crate::export::ExportEngine::new(state.db.clone())
+        .export_session_with_salt(session_id, &options, "test-salt")
+        .unwrap();
+    assert!(exported.contains("\"automated_tests_passed\""));
+    assert!(exported.contains("\"verified_with_evidence\""));
+    assert!(!exported.contains("\"approved_with_risk\""));
 }
 
 #[test]

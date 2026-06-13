@@ -1,5 +1,5 @@
 import { sortProvocationCards } from "./priority";
-import { hasConcreteVerificationEvidence } from "./verificationStatus";
+import { hasAiSelfReport, hasConcreteVerificationEvidence } from "./verificationStatus";
 import type {
   ChangedFileCategory,
   DiveStage,
@@ -16,10 +16,19 @@ const DEFAULT_CREATED_AT = "1970-01-01T00:00:00.000Z";
 
 const FEATURE_KEYWORDS = [
   "로그인",
+  "로그아웃",
   "회원가입",
   "관리자",
   "대시보드",
   "결제",
+  "권한",
+  "프로필",
+  "검색",
+  "필터",
+  "업로드",
+  "알림",
+  "온보딩",
+  "api",
   "db",
   "database",
   "데이터베이스",
@@ -41,9 +50,37 @@ const SCOPE_CONNECTORS = [
   "또한",
   "추가로",
   "게다가",
+  "및",
   "as well as",
   "and also",
   "also add",
+];
+
+const SCOPE_EXPANSION_TERMS = [
+  "까지",
+  "한번에",
+  "한 번에",
+  "전체",
+  "모두",
+  "전부",
+  "다 같이",
+  "all at once",
+  "entire",
+  "whole",
+  "everything",
+];
+
+const SMALL_SINGLE_SCOPE_GUARDS = [
+  "문구만",
+  "텍스트만",
+  "라벨만",
+  "색상만",
+  "버튼만",
+  "오타",
+  "typo",
+  "copy only",
+  "label only",
+  "text only",
 ];
 
 const VAGUE_GOAL_TERMS = [
@@ -89,6 +126,7 @@ const HIGH_RISK_PATH_PATTERNS = [
   /(^|\/)(vite|webpack|rollup|eslint|tsconfig|tailwind|postcss)\.[cm]?[jt]s$/i,
   /(^|\/)(schema|migration|migrations|db|database)(\/|\.|$)/i,
   /(^|\/)(auth|oauth|permission|policy|security)(\/|\.|$)/i,
+  /(^|\/)(route|routes|router|routing)(\/|\.|$)/i,
 ];
 
 const GOAL_CATEGORY_TERMS: Record<ChangedFileCategory, string[]> = {
@@ -119,11 +157,19 @@ function countTermHits(text: string, terms: string[]): number {
   return terms.filter((term) => lower.includes(term.toLowerCase())).length;
 }
 
+function termHits(text: string, terms: string[]): string[] {
+  const lower = text.toLowerCase();
+  return terms.filter((term) => lower.includes(term.toLowerCase()));
+}
+
+function separatorCount(text: string): number {
+  const listSeparators = text.match(/[,;/、]/g)?.length ?? 0;
+  const nonEmptyLines = text.split(/\r?\n/).filter((line) => line.trim().length > 0).length;
+  return listSeparators + Math.max(0, nonEmptyLines - 1);
+}
+
 function bulletCount(text: string): number {
-  return text
-    .split(/\r?\n/)
-    .filter((line) => /^\s*(?:[-*•]|\d+[.)])\s+\S+/.test(line))
-    .length;
+  return text.split(/\r?\n/).filter((line) => /^\s*(?:[-*•]|\d+[.)])\s+\S+/.test(line)).length;
 }
 
 function criteriaPresent(criteria: string[] | undefined): boolean {
@@ -175,7 +221,12 @@ function card({
   };
 }
 
-function action(id: string, label: string, kind: ProvocationAction["kind"], requiresReason = false) {
+function action(
+  id: string,
+  label: string,
+  kind: ProvocationAction["kind"],
+  requiresReason = false,
+) {
   return { id, label, kind, requiresReason };
 }
 
@@ -196,9 +247,9 @@ function categorizePath(path: string): ChangedFileCategory {
     if (/(schema|migration|db|database)/i.test(path)) return "db";
     return "config";
   }
-  if (/\.(css|scss|tsx|jsx)$/.test(lower)) return "ui";
-  if (/(\.test\.|\.spec\.)/.test(lower)) return "test";
   if (/(route|router|page)/.test(lower)) return "routing";
+  if (/(\.test\.|\.spec\.)/.test(lower)) return "test";
+  if (/\.(css|scss|tsx|jsx)$/.test(lower)) return "ui";
   if (/\.(ts|js|rs)$/.test(lower)) return "logic";
   return "unknown";
 }
@@ -206,15 +257,19 @@ function categorizePath(path: string): ChangedFileCategory {
 function highRiskFile(file: ProvocationChangedFile): boolean {
   return Boolean(
     file.changeType === "deleted" ||
-      file.category === "dependency" ||
-      file.category === "config" ||
-      file.category === "auth" ||
-      file.category === "db" ||
-      HIGH_RISK_PATH_PATTERNS.some((pattern) => pattern.test(file.path)),
+    file.category === "dependency" ||
+    file.category === "config" ||
+    file.category === "auth" ||
+    file.category === "db" ||
+    file.category === "routing" ||
+    HIGH_RISK_PATH_PATTERNS.some((pattern) => pattern.test(file.path)),
   );
 }
 
-function pathMatchesTarget(file: ProvocationChangedFile, targetFiles: string[] | undefined): boolean {
+function pathMatchesTarget(
+  file: ProvocationChangedFile,
+  targetFiles: string[] | undefined,
+): boolean {
   if (!targetFiles || targetFiles.length === 0) return false;
   return targetFiles.some((target) => {
     const normalizedTarget = target.trim();
@@ -249,31 +304,82 @@ function normalizedErrorKey(error: { message: string; normalizedMessage?: string
   return (error.normalizedMessage ?? error.message).trim().toLowerCase().slice(0, 240);
 }
 
+function expectedFileCount(context: ProvocationContext): number {
+  const files = new Set<string>();
+  for (const file of context.targetFiles ?? []) {
+    const trimmed = file.trim();
+    if (trimmed) files.add(trimmed);
+  }
+  for (const step of context.planSteps ?? []) {
+    for (const file of step.expectedFiles ?? []) {
+      const trimmed = file.trim();
+      if (trimmed) files.add(trimmed);
+    }
+  }
+  return files.size;
+}
+
 export function oversizedScopeRule(context: ProvocationContext): ProvocationCard | null {
   const text = combinedTaskText(context);
   if (!text.trim()) return null;
 
-  const features = countTermHits(text, FEATURE_KEYWORDS);
+  const featureHits = termHits(text, FEATURE_KEYWORDS);
+  const features = featureHits.length;
   const connectors = countTermHits(text, SCOPE_CONNECTORS);
+  const separators = separatorCount(text);
+  const expansions = countTermHits(text, SCOPE_EXPANSION_TERMS);
+  const smallSingleScope = countTermHits(text, SMALL_SINGLE_SCOPE_GUARDS) > 0;
   const bullets = bulletCount(text);
   const planSteps = context.planSteps?.length ?? 0;
+  const expectedFiles = expectedFileCount(context);
+  const multiScopeSignal = connectors + separators + expansions;
 
-  if (bullets <= 3 && !(features >= 3 && connectors >= 1) && planSteps < 7) {
+  if (
+    smallSingleScope &&
+    features <= 1 &&
+    bullets <= 1 &&
+    planSteps <= 2 &&
+    expectedFiles <= 2
+  ) {
+    return null;
+  }
+
+  if (
+    bullets <= 3 &&
+    planSteps < 7 &&
+    expectedFiles < 7 &&
+    features < 4 &&
+    !(features >= 3 && multiScopeSignal >= 1) &&
+    !(features >= 2 && expansions >= 1 && multiScopeSignal >= 2)
+  ) {
     return null;
   }
 
   const evidence: ProvocationEvidence[] = [];
   if (features >= 3) {
-    evidence.push({ source: "prompt", label: "여러 기능 신호", value: `${features}개` });
+    evidence.push({
+      source: "prompt",
+      label: "여러 기능 신호",
+      value: `${features}개`,
+    });
   }
   if (connectors >= 1) {
     evidence.push({ source: "prompt", label: "연결어", value: `${connectors}개` });
+  }
+  if (separators >= 1) {
+    evidence.push({ source: "prompt", label: "나열 구분자", value: `${separators}개` });
+  }
+  if (expansions >= 1) {
+    evidence.push({ source: "prompt", label: "범위 확장 표현", value: `${expansions}개` });
   }
   if (bullets > 3) {
     evidence.push({ source: "prompt", label: "기능 bullet", value: `${bullets}개` });
   }
   if (planSteps >= 7) {
     evidence.push({ source: "plan", label: "단일 작업 아래 plan step", value: `${planSteps}개` });
+  }
+  if (expectedFiles >= 7) {
+    evidence.push({ source: "plan", label: "예상 파일", value: `${expectedFiles}개` });
   }
 
   return card({
@@ -293,16 +399,12 @@ export function oversizedScopeRule(context: ProvocationContext): ProvocationCard
   });
 }
 
-export function missingAcceptanceCriteriaRule(
-  context: ProvocationContext,
-): ProvocationCard | null {
+export function missingAcceptanceCriteriaRule(context: ProvocationContext): ProvocationCard | null {
   const text = combinedTaskText(context);
   if (!text.trim() || criteriaPresent(context.acceptanceCriteria)) return null;
 
   const vagueHits = countTermHits(text, VAGUE_GOAL_TERMS);
-  const evidence: ProvocationEvidence[] = [
-    { source: "goal", label: "완료 기준", value: "없음" },
-  ];
+  const evidence: ProvocationEvidence[] = [{ source: "goal", label: "완료 기준", value: "없음" }];
   if (vagueHits > 0) {
     evidence.push({ source: "goal", label: "모호한 표현", value: `${vagueHits}개` });
   }
@@ -314,7 +416,8 @@ export function missingAcceptanceCriteriaRule(
     title: "완료 기준이 없습니다",
     message: "나중에 AI 결과를 검증하려면, 무엇이 보이면 끝난 것인지 먼저 정해야 합니다.",
     evidence,
-    guided: "완료 기준은 AI가 만든 결과를 사용자 눈으로 확인할 수 있는 관찰 가능한 문장이어야 합니다.",
+    guided:
+      "완료 기준은 AI가 만든 결과를 사용자 눈으로 확인할 수 있는 관찰 가능한 문장이어야 합니다.",
     actions: [
       action("add", "완료 기준 추가", "add_acceptance_criteria"),
       action("example", "예시 입력/출력 추가", "add_acceptance_criteria"),
@@ -360,12 +463,14 @@ export function diffScopeDriftRule(context: ProvocationContext): ProvocationCard
     type: "diff_scope_drift",
     severity: highRisk ? "risk" : "caution",
     title: "목표 밖 변경이 섞였을 수 있습니다",
-    message: "현재 목표와 직접 관련 없어 보이는 파일이 함께 바뀌었습니다. 이 변경이 꼭 필요한지 확인하세요.",
+    message:
+      "현재 목표와 직접 관련 없어 보이는 파일이 함께 바뀌었습니다. 이 변경이 꼭 필요한지 확인하세요.",
     evidence: [
       { source: "diff", label: "관련 확인 필요 파일", value: compactFileList(unrelated) },
       { source: "goal", label: "목표/대상 파일과 직접 연결", value: "확인되지 않음" },
     ],
-    guided: "목표 밖 파일이 바뀌면 작동은 되어 보여도 설정, 인증, 데이터, 의존성 쪽 부작용이 생길 수 있습니다.",
+    guided:
+      "목표 밖 파일이 바뀌면 작동은 되어 보여도 설정, 인증, 데이터, 의존성 쪽 부작용이 생길 수 있습니다.",
     actions: [
       action("diff", "파일별 Diff 보기", "open_diff"),
       action("rationale", "AI에게 변경 이유 묻기", "ask_ai_for_rationale"),
@@ -375,14 +480,19 @@ export function diffScopeDriftRule(context: ProvocationContext): ProvocationCard
     metadata: {
       highRisk,
       changedFileCount: unrelated.length,
+      changedFiles: unrelated.map((file) => file.path),
+      highRiskFiles: unrelated.filter(highRiskFile).map((file) => file.path),
     },
   });
 }
 
 export function aiSelfReportOnlyRule(context: ProvocationContext): ProvocationCard | null {
-  if (!context.verification?.aiClaimedDone || hasConcreteVerificationEvidence(context)) {
+  if (!hasAiSelfReport(context) || hasConcreteVerificationEvidence(context)) {
     return null;
   }
+
+  const assistantReportCount =
+    context.assistantReports?.filter((item) => item.source === "assistant_message").length ?? 0;
 
   return card({
     context,
@@ -391,10 +501,15 @@ export function aiSelfReportOnlyRule(context: ProvocationContext): ProvocationCa
     title: "AI의 완료 보고만 있습니다",
     message: "AI의 '완료했습니다'는 검증 증거가 아닙니다. 지금 확인된 것은 AI의 주장뿐입니다.",
     evidence: [
-      { source: "agent", label: "AI 완료 보고", value: "있음" },
+      {
+        source: "agent",
+        label: "AI 완료 보고",
+        value: assistantReportCount > 0 ? `assistant 메시지 ${assistantReportCount}개` : "있음",
+      },
       { source: "verification", label: "Diff/실행/프리뷰/테스트 증거", value: "없음" },
     ],
-    guided: "검증은 AI의 말이 아니라 사용자가 본 diff, 실행 결과, 프리뷰, 테스트 같은 외부 증거로 구분해야 합니다.",
+    guided:
+      "검증은 AI의 말이 아니라 사용자가 본 diff, 실행 결과, 프리뷰, 테스트 같은 외부 증거로 구분해야 합니다.",
     actions: [
       action("run", "앱 실행", "run_app"),
       action("preview", "프리뷰 확인", "open_preview"),
@@ -407,6 +522,10 @@ export function aiSelfReportOnlyRule(context: ProvocationContext): ProvocationCa
 export function regenerationLoopRule(context: ProvocationContext): ProvocationCard | null {
   const retryCount = context.retryCountForCurrentError ?? 0;
   const errors = context.recentErrors ?? [];
+  const retrySignals = (context.retrySignals ?? []).filter(
+    (signal) =>
+      signal.retryCount >= 2 && !signal.rollbackOrReproMentioned && !signal.scopeNarrowed,
+  );
   const counts = new Map<string, number>();
   for (const error of errors) {
     const key = normalizedErrorKey(error);
@@ -414,12 +533,20 @@ export function regenerationLoopRule(context: ProvocationContext): ProvocationCa
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   const repeatedErrorCount = Math.max(0, ...counts.values());
+  const conversationRetryCount = Math.max(0, ...retrySignals.map((signal) => signal.retryCount));
 
-  if (retryCount < 3 && repeatedErrorCount < 3) return null;
+  if (retryCount < 3 && repeatedErrorCount < 3 && conversationRetryCount < 2) return null;
 
   const evidence: ProvocationEvidence[] = [];
   if (retryCount >= 3) {
     evidence.push({ source: "history", label: "같은 실패 재시도", value: `${retryCount}회` });
+  }
+  if (conversationRetryCount >= 2) {
+    evidence.push({
+      source: "history",
+      label: "같은 오류 후 반복 요청",
+      value: `${conversationRetryCount}회`,
+    });
   }
   if (repeatedErrorCount >= 3) {
     evidence.push({ source: "terminal", label: "반복 오류", value: `${repeatedErrorCount}회` });
@@ -430,15 +557,22 @@ export function regenerationLoopRule(context: ProvocationContext): ProvocationCa
     type: "regeneration_loop",
     severity: "risk",
     title: "재생성 반복 상태입니다",
-    message: "지금은 계속 '고쳐줘'를 반복할 때가 아니라, 오류를 좁히거나 마지막 변경을 되돌릴 때입니다.",
+    message:
+      "지금은 계속 '고쳐줘'를 반복할 때가 아니라, 오류를 좁히거나 마지막 변경을 되돌릴 때입니다.",
     evidence,
-    guided: "같은 오류가 반복될 때는 새 코드를 더 만들기보다 재현 조건과 마지막 변경을 좁히는 편이 안전합니다.",
+    guided:
+      "같은 오류가 반복될 때는 새 코드를 더 만들기보다 재현 조건과 마지막 변경을 좁히는 편이 안전합니다.",
     actions: [
       action("rollback", "마지막 변경 되돌리기", "rollback_last_change"),
       action("log", "에러 로그 정리", "create_repro_steps"),
       action("repro", "재현 단계 만들기", "create_repro_steps"),
       action("split", "범위 줄여 다시 요청", "split_scope"),
     ],
+    metadata: {
+      retrySignalCount: retrySignals.length,
+      repeatedErrorCount,
+      conversationRetryCount,
+    },
   });
 }
 

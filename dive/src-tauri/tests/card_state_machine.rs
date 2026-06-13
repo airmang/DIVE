@@ -70,6 +70,7 @@ fn insert_card(
             changed_files: None,
             test_command: None,
             approval_judgment: None,
+            approval_provenance: None,
             position: pos,
         },
     )
@@ -139,6 +140,7 @@ fn setup_verifying_card_with_passing_log() -> (AppState, i64) {
                 changed_files: row.changed_files,
                 test_command: row.test_command,
                 approval_judgment: row.approval_judgment,
+                approval_provenance: row.approval_provenance,
                 position: row.position,
             },
         )

@@ -53,6 +53,7 @@ fn seed() -> (Arc<Mutex<dive_lib::Database>>, i64) {
                 r#"{"outcome":"approved_with_concern","note":"엣지케이스 불안","decided_at":1}"#
                     .into(),
             ),
+            approval_provenance: None,
             position: 1,
         },
     )
@@ -274,6 +275,161 @@ fn default_export_hashes_database_ids_and_pii_patterns() {
     assert!(!out.contains("student@example.edu"), "email must be masked");
     assert!(!out.contains("010-1234-5678"), "phone must be masked");
     assert!(!out.contains("src/private.ts"), "path must be masked");
+}
+
+#[test]
+fn export_distinguishes_provocation_lifecycle_events_and_hashes_reason() {
+    let (db, sid) = seed();
+    let risk_reason = "package change is intentional for this task";
+    {
+        let db_guard = db.lock().unwrap();
+        for (event_type, action_kind) in [
+            ("provocation.card_shown", Value::Null),
+            ("provocation.dismissed", json!("dismiss")),
+            ("provocation.marked_irrelevant", json!("mark_irrelevant")),
+            ("provocation.action_clicked", json!("open_diff")),
+            (
+                "provocation.continued_with_risk",
+                json!("continue_with_risk"),
+            ),
+        ] {
+            let payload = json!({
+                "schemaVersion": 1,
+                "eventId": format!("evt-{event_type}"),
+                "timestamp": "2026-06-13T00:00:00.000Z",
+                "sessionId": sid,
+                "cardId": "diff_scope_drift:execute:tool-1",
+                "cardType": "diff_scope_drift",
+                "stage": "execute",
+                "severity": "risk",
+                "mode": "standard",
+                "evidence": [{
+                    "label": "고위험 변경 파일",
+                    "source": "diff",
+                    "value": {"kind": "paths", "paths": ["package.json"], "totalCount": 1}
+                }],
+                "selectedAction": if action_kind.is_null() {
+                    Value::Null
+                } else {
+                    json!({"id": action_kind.as_str().unwrap(), "kind": action_kind, "label": "action", "requiresReason": event_type == "provocation.continued_with_risk"})
+                },
+                "reasonRequired": event_type == "provocation.continued_with_risk",
+                "reasonPresent": event_type == "provocation.continued_with_risk",
+                "reason": if event_type == "provocation.continued_with_risk" { json!(risk_reason) } else { Value::Null },
+                "requiredReason": {
+                    "required": event_type == "provocation.continued_with_risk",
+                    "provided": event_type == "provocation.continued_with_risk",
+                    "reason": if event_type == "provocation.continued_with_risk" { json!(risk_reason) } else { Value::Null }
+                },
+                "verificationStatus": {
+                    "schemaVersion": 1,
+                    "verificationState": "unverified_risk_accepted",
+                    "statusIds": ["ai_self_report_only", "approved_with_risk"],
+                    "evidenceSummary": {"concreteEvidence": false, "aiSelfReport": true},
+                    "riskAccepted": event_type == "provocation.continued_with_risk"
+                },
+                "riskAccepted": event_type == "provocation.continued_with_risk"
+            });
+            event_log::insert(
+                db_guard.conn(),
+                &NewEventLog {
+                    session_id: Some(sid),
+                    r#type: event_type.into(),
+                    payload,
+                },
+            )
+            .unwrap();
+        }
+    }
+
+    let engine = ExportEngine::new(db);
+    let out = engine
+        .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+        .unwrap();
+    assert!(out.contains("\"type\":\"provocation.dismissed\""));
+    assert!(out.contains("\"type\":\"provocation.marked_irrelevant\""));
+    assert!(out.contains("\"type\":\"provocation.action_clicked\""));
+    assert!(out.contains("\"type\":\"provocation.continued_with_risk\""));
+    assert!(
+        !out.contains(risk_reason),
+        "default export must hash required risk reasons: {out}"
+    );
+    assert!(
+        !out.contains("package.json"),
+        "default export must hash provocation file paths: {out}"
+    );
+
+    let records = lines(&out);
+    let continued = records
+        .iter()
+        .find(|record| {
+            record["kind"] == "event" && record["type"] == "provocation.continued_with_risk"
+        })
+        .expect("continued-with-risk event");
+    assert_eq!(
+        continued["payload"]["selectedAction"]["kind"],
+        "continue_with_risk"
+    );
+    assert_eq!(continued["payload"]["reasonRequired"], true);
+    assert!(continued["payload"]["reason"]
+        .as_str()
+        .is_some_and(|value| value.starts_with("h:")));
+    assert_eq!(
+        continued["payload"]["verificationStatus"]["verificationState"],
+        "unverified_risk_accepted"
+    );
+    assert_eq!(continued["payload"]["riskAccepted"], true);
+}
+
+#[test]
+fn provocation_event_export_summarizes_raw_bodies_even_when_hashing_is_off() {
+    let (db, sid) = seed();
+    let raw_prompt = "export function Secret() { return 'do not export this source body'; }";
+    {
+        let db_guard = db.lock().unwrap();
+        event_log::insert(
+            db_guard.conn(),
+            &NewEventLog {
+                session_id: Some(sid),
+                r#type: "provocation.card_shown".into(),
+                payload: json!({
+                    "cardType": "ai_self_report_only",
+                    "promptBody": raw_prompt,
+                    "transcript": raw_prompt,
+                    "sourceCode": raw_prompt,
+                    "evidence": [{"label": "원문 요청", "source": "prompt", "value": raw_prompt}],
+                }),
+            },
+        )
+        .unwrap();
+    }
+
+    let out = ExportEngine::new(db)
+        .export_session_with_salt(
+            sid,
+            &ExportOptions {
+                hash_user_text: false,
+                hash_file_paths: false,
+                hash_ids: false,
+                ..ExportOptions::default()
+            },
+            "fixed-salt",
+        )
+        .unwrap();
+    assert!(
+        !out.contains(raw_prompt),
+        "provocation raw prompt/transcript/source bodies must not export even when hashing is off"
+    );
+
+    let records = lines(&out);
+    let event = records
+        .iter()
+        .find(|record| record["kind"] == "event" && record["type"] == "provocation.card_shown")
+        .expect("provocation event");
+    assert_eq!(event["payload"]["promptBody"]["redacted"], true);
+    assert_eq!(event["payload"]["transcript"]["redacted"], true);
+    assert_eq!(event["payload"]["sourceCode"]["redacted"], true);
+    assert_eq!(event["payload"]["evidence"][0]["value"]["redacted"], true);
 }
 
 #[test]

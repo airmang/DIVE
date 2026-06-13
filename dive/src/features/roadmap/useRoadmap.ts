@@ -45,6 +45,7 @@ function toRoadmapStep(card: CardTileData, activeStepId: number | null): Roadmap
     retrospective: card.retrospective ?? null,
     changeSummary: card.changeSummary ?? null,
     testCommand: card.testCommand ?? null,
+    approvalProvenance: card.approvalProvenance ?? null,
     status,
     wasRejected: card.state === "rejected",
     progress,

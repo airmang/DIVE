@@ -384,14 +384,32 @@ impl AgentLoop {
                     )
                     .await;
                 match decision {
-                    PermissionDecision::Approved { modified_args } => {
+                    PermissionDecision::Approved {
+                        modified_args,
+                        approval_metadata,
+                    } => {
                         emit(AgentEvent::ToolCallApproved { id: tc.id.clone() });
                         let effective_args = modified_args.unwrap_or(args_value);
                         self.log_event(
                             session_id,
                             "tool_approve",
-                            json!({ "tool": tc.name, "risk": risk.as_str() }),
+                            tool_approve_payload(
+                                &tc.name,
+                                &tc.id,
+                                risk,
+                                None,
+                                approval_metadata.as_ref(),
+                            ),
                         )?;
+                        if let Some(payload) = provocation_continue_with_risk_payload(
+                            &tc.name,
+                            &tc.id,
+                            risk,
+                            None,
+                            approval_metadata.as_ref(),
+                        ) {
+                            self.log_event(session_id, "provocation.continued_with_risk", payload)?;
+                        }
                         tracing::info!(
                             session_id,
                             tool = %tc.name,
@@ -872,14 +890,32 @@ impl AgentLoop {
             )
             .await;
         match decision {
-            PermissionDecision::Approved { modified_args } => {
+            PermissionDecision::Approved {
+                modified_args,
+                approval_metadata,
+            } => {
                 emit(AgentEvent::ToolCallApproved { id: tc.id.clone() });
                 let effective_args = modified_args.unwrap_or(args_value);
                 self.log_event(
                     session_id,
                     "tool_approve",
-                    json!({ "tool": tc.name, "risk": risk.as_str(), "runtime": "pi_sidecar" }),
+                    tool_approve_payload(
+                        &tc.name,
+                        &tc.id,
+                        risk,
+                        Some("pi_sidecar"),
+                        approval_metadata.as_ref(),
+                    ),
                 )?;
+                if let Some(payload) = provocation_continue_with_risk_payload(
+                    &tc.name,
+                    &tc.id,
+                    risk,
+                    Some("pi_sidecar"),
+                    approval_metadata.as_ref(),
+                ) {
+                    self.log_event(session_id, "provocation.continued_with_risk", payload)?;
+                }
                 tracing::info!(
                     session_id,
                     tool = %tc.name,
@@ -1304,6 +1340,55 @@ fn reasoning_summary(tool_name: &str, preview: &str) -> String {
     }
 }
 
+fn tool_approve_payload(
+    tool_name: &str,
+    tool_call_id: &str,
+    risk: RiskLevel,
+    runtime: Option<&str>,
+    approval_metadata: Option<&Value>,
+) -> Value {
+    let mut payload = json!({
+        "tool": tool_name,
+        "tool_call_id": tool_call_id,
+        "risk": risk.as_str(),
+    });
+    if let Some(runtime) = runtime {
+        payload["runtime"] = json!(runtime);
+    }
+    if let Some(metadata) = approval_metadata {
+        payload["approval_metadata"] = metadata.clone();
+    }
+    payload
+}
+
+fn provocation_continue_with_risk_payload(
+    tool_name: &str,
+    tool_call_id: &str,
+    risk: RiskLevel,
+    runtime: Option<&str>,
+    approval_metadata: Option<&Value>,
+) -> Option<Value> {
+    let metadata = approval_metadata?;
+    if metadata.get("source").and_then(Value::as_str) != Some("provocation.continue_with_risk") {
+        return None;
+    }
+
+    let mut payload = json!({
+        "tool": tool_name,
+        "tool_call_id": tool_call_id,
+        "risk": risk.as_str(),
+        "approval_metadata": metadata,
+        "reason": metadata.get("riskReason").cloned().unwrap_or(Value::Null),
+        "cardId": metadata.get("cardId").cloned().unwrap_or(Value::Null),
+        "cardType": metadata.get("cardType").cloned().unwrap_or(Value::Null),
+        "highRiskFiles": metadata.get("highRiskFiles").cloned().unwrap_or(Value::Null),
+    });
+    if let Some(runtime) = runtime {
+        payload["runtime"] = json!(runtime);
+    }
+    Some(payload)
+}
+
 #[derive(Default)]
 pub struct AgentLoopBuilder {
     provider: Option<Arc<dyn LlmProvider>>,
@@ -1416,5 +1501,28 @@ mod tests {
         assert!(text.contains("카드 지시를 구현"));
         assert!(text.contains("edit_file"));
         assert!(text.contains("src/App.tsx"));
+    }
+
+    #[test]
+    fn provocation_risk_payload_preserves_reason_and_tool_call_id() {
+        let metadata = json!({
+            "source": "provocation.continue_with_risk",
+            "cardId": "diff_scope_drift:execute:tool-1",
+            "cardType": "diff_scope_drift",
+            "riskReason": "package change is intentional",
+            "highRiskFiles": ["package.json"],
+        });
+        let payload = provocation_continue_with_risk_payload(
+            "edit_file",
+            "tool-1",
+            RiskLevel::Warn,
+            None,
+            Some(&metadata),
+        )
+        .unwrap();
+
+        assert_eq!(payload["tool_call_id"], "tool-1");
+        assert_eq!(payload["reason"], "package change is intentional");
+        assert_eq!(payload["highRiskFiles"][0], "package.json");
     }
 }

@@ -964,6 +964,7 @@ mod tests {
                 changed_files: None,
                 test_command: None,
                 approval_judgment: None,
+                approval_provenance: None,
                 position: 1,
             },
         )
@@ -1559,7 +1560,17 @@ function ready(message) {
         let card = crate::db::dao::card::get_by_id(db_guard.conn(), card_id)
             .unwrap()
             .unwrap();
-        assert_eq!(card.changed_files, Some(json!(["src/phase-d.txt"])));
+        assert_eq!(
+            card.changed_files,
+            Some(json!([{
+                "path": "src/phase-d.txt",
+                "diff": {
+                    "path": "src/phase-d.txt",
+                    "before": "",
+                    "after": "old"
+                }
+            }]))
+        );
         let logs = crate::db::dao::event_log::list_by_session(db_guard.conn(), session_id).unwrap();
         assert_eq!(
             logs.iter()

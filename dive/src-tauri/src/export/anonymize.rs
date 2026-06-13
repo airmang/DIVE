@@ -53,7 +53,9 @@ pub fn anonymize_value(
             let mut out = Map::new();
             for (key, nested) in map {
                 let anonymized = if hash_file_paths && looks_like_path_key(key) {
-                    hash_string_like(nested, salt)
+                    hash_path_like(nested, salt)
+                } else if hash_user_text && looks_like_user_text_key(key) {
+                    hash_text_like(nested, salt)
                 } else {
                     anonymize_value(nested, hash_user_text, hash_file_paths, salt)
                 };
@@ -98,9 +100,21 @@ fn contains_phone_like_number(s: &str) -> bool {
 }
 
 pub fn looks_like_path_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
     matches!(
-        key,
-        "path" | "file" | "filename" | "file_path" | "target_path"
+        key.as_str(),
+        "path"
+            | "paths"
+            | "file"
+            | "files"
+            | "filename"
+            | "filenames"
+            | "file_path"
+            | "file_paths"
+            | "target_path"
+            | "target_paths"
+            | "changedfiles"
+            | "highriskfiles"
     )
 }
 
@@ -112,12 +126,81 @@ pub fn looks_like_path_value(s: &str) -> bool {
     ]
     .iter()
     .any(|e| s.ends_with(e));
-    has_sep && ext
+    let well_known_file = matches!(
+        s.to_ascii_lowercase().as_str(),
+        "package.json"
+            | "pnpm-lock.yaml"
+            | "package-lock.json"
+            | "yarn.lock"
+            | "cargo.toml"
+            | "cargo.lock"
+    );
+    (has_sep && ext) || well_known_file
 }
 
-fn hash_string_like(value: &Value, salt: &str) -> Value {
+pub fn looks_like_user_text_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    matches!(
+        key.as_str(),
+        "reason"
+            | "riskreason"
+            | "risk_reason"
+            | "note"
+            | "message"
+            | "prompt"
+            | "promptbody"
+            | "prompt_body"
+            | "transcript"
+            | "transcriptbody"
+            | "transcript_body"
+            | "sourcecode"
+            | "source_code"
+            | "code"
+            | "content"
+            | "body"
+            | "raw"
+            | "rawtext"
+            | "raw_text"
+            | "text"
+    )
+}
+
+fn hash_path_like(value: &Value, salt: &str) -> Value {
     match value {
         Value::String(s) => hash_path(s, salt),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| hash_path_like(item, salt))
+                .collect(),
+        ),
+        Value::Object(map) => {
+            let mut out = Map::new();
+            for (key, nested) in map {
+                out.insert(key.clone(), hash_path_like(nested, salt));
+            }
+            Value::Object(out)
+        }
+        other => other.clone(),
+    }
+}
+
+fn hash_text_like(value: &Value, salt: &str) -> Value {
+    match value {
+        Value::String(s) => hash_text(s, salt),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| hash_text_like(item, salt))
+                .collect(),
+        ),
+        Value::Object(map) => {
+            let mut out = Map::new();
+            for (key, nested) in map {
+                out.insert(key.clone(), hash_text_like(nested, salt));
+            }
+            Value::Object(out)
+        }
         other => other.clone(),
     }
 }

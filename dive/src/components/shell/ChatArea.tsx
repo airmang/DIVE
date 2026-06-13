@@ -9,11 +9,15 @@ import { RuntimeBadge } from "./RuntimeBadge";
 import { GetStartedChecklist } from "../product/GetStartedChecklist";
 import type { GetStartedModel } from "../product/GetStartedChecklist";
 import { MessageList } from "../chat/MessageList";
-import type { ChatMessage } from "../chat/types";
+import type { ChatMessage, ToolApprovalMetadata } from "../chat/types";
 import type { PromptContext } from "../../lib/prompt-templates";
 import { useT } from "../../i18n";
 import type { RuntimeSelection } from "../../hooks/useChatSession";
-import type { ScaffoldMode } from "../../features/provocation";
+import type {
+  ProvocationChangedFile,
+  ProvocationPlanStep,
+  ScaffoldMode,
+} from "../../features/provocation";
 
 /** Placeholder rows shown while a session's persisted history is loading. */
 function MessageHistorySkeleton({ label }: { label: string }) {
@@ -59,7 +63,11 @@ interface ChatAreaProps {
   onOpenSlidePanel?: () => void;
   onOpenResultPanel?: () => void;
   onRetryError?: (id: string) => void;
-  onApproveToolCall?: (toolCallId: string, modifiedArgs?: unknown) => void;
+  onApproveToolCall?: (
+    toolCallId: string,
+    modifiedArgs?: unknown,
+    approvalMetadata?: ToolApprovalMetadata,
+  ) => void;
   onDenyToolCall?: (toolCallId: string, reason?: string) => void;
   interviewPanel?: ReactNode;
   modelLabel?: string;
@@ -89,6 +97,10 @@ interface ChatAreaProps {
     projectId?: number | null;
     sessionId?: number | null;
     goalText?: string | null;
+    changedFiles?: ProvocationChangedFile[];
+    targetFiles?: string[];
+    planSteps?: ProvocationPlanStep[];
+    onOpenRecovery?: () => void;
   };
 }
 

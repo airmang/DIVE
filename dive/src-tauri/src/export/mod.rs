@@ -151,7 +151,7 @@ impl ExportEngine {
 
         let mut stmt = conn
             .prepare(
-                "SELECT id, title, instruction, state, verify_log, changed_files, position, created_at, updated_at, retrospective, change_summary, approval_judgment FROM Card WHERE session_id = ? ORDER BY position, id"
+                "SELECT id, title, instruction, state, verify_log, changed_files, position, created_at, updated_at, retrospective, change_summary, approval_judgment, approval_provenance FROM Card WHERE session_id = ? ORDER BY position, id"
             )
             .map_err(|e| ExportError::Db(e.to_string()))?;
         let rows = stmt
@@ -169,6 +169,7 @@ impl ExportEngine {
                     retrospective: row.get::<_, Option<String>>(9)?,
                     change_summary: row.get::<_, Option<String>>(10)?,
                     approval_judgment: row.get::<_, Option<String>>(11)?,
+                    approval_provenance: row.get::<_, Option<String>>(12)?,
                 })
             })
             .map_err(|e| ExportError::Db(e.to_string()))?;
@@ -215,10 +216,55 @@ impl ExportEngine {
                     "retrospective_metrics": c.retrospective.as_ref().map(|s| retrospective_metrics(s)),
                     "approval_judgment": c.approval_judgment.as_ref().and_then(|s| approval_judgment_emit(s, options.hash_user_text, salt)),
                     "approval_judgment_metrics": c.approval_judgment.as_ref().and_then(|s| approval_judgment_metrics(s)),
+                    "approval_provenance": c.approval_provenance.as_ref().and_then(|s| approval_provenance_emit(s, options.hash_user_text, salt)),
+                    "verification_evidence_summary": c.approval_provenance.as_ref().and_then(|s| verification_evidence_summary_emit(s)),
                     "change_summary": c.change_summary.as_ref().map(|s| anonymize::maybe_hash_text(options.hash_user_text, s, salt)),
                     "position": c.position,
                     "created_at": c.created_at,
                     "updated_at": c.updated_at,
+                }),
+            )?;
+        }
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, step_id, card_id, state_path, status, completed_at, verification_status, verification_evidence, user_decision, created_at, updated_at FROM StepSessionMapping WHERE session_id = ? ORDER BY id",
+            )
+            .map_err(|e| ExportError::Db(e.to_string()))?;
+        let rows = stmt
+            .query_map([session_id], |row| {
+                Ok(StepMappingEmit {
+                    id: row.get(0)?,
+                    step_id: row.get(1)?,
+                    card_id: row.get::<_, Option<i64>>(2)?,
+                    state_path: row.get::<_, Option<String>>(3)?,
+                    status: row.get(4)?,
+                    completed_at: row.get::<_, Option<i64>>(5)?,
+                    verification_status: row.get::<_, Option<String>>(6)?,
+                    verification_evidence: row.get::<_, Option<String>>(7)?,
+                    user_decision: row.get::<_, Option<String>>(8)?,
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
+                })
+            })
+            .map_err(|e| ExportError::Db(e.to_string()))?;
+        for row in rows {
+            let mapping = row.map_err(|e| ExportError::Db(e.to_string()))?;
+            write_record(
+                &mut out,
+                json!({
+                    "kind": "step_session_mapping",
+                    "id": anonymize::maybe_hash_id(options.hash_ids, "step_session_mapping", mapping.id, salt),
+                    "step_id": anonymize::maybe_hash_id(options.hash_ids, "step", mapping.step_id, salt),
+                    "card_id": mapping.card_id.map(|id| anonymize::maybe_hash_id(options.hash_ids, "card", id, salt)),
+                    "state_path": mapping.state_path.as_ref().map(|s| anonymize::maybe_hash_text(options.hash_user_text, s, salt)),
+                    "status": mapping.status,
+                    "completed_at": mapping.completed_at,
+                    "verification_status": mapping.verification_status,
+                    "verification_evidence": mapping.verification_evidence.as_ref().and_then(|s| serde_json::from_str::<Value>(s).ok()),
+                    "user_decision": mapping.user_decision.as_ref().and_then(|s| serde_json::from_str::<Value>(s).ok()),
+                    "created_at": mapping.created_at,
+                    "updated_at": mapping.updated_at,
                 }),
             )?;
         }
@@ -382,6 +428,11 @@ impl ExportEngine {
                     row.map_err(|e| ExportError::Db(e.to_string()))?;
                 let payload_json = serde_json::from_str::<Value>(&payload)
                     .map(|value| {
+                        let value = if ty.starts_with("provocation.") {
+                            sanitize_provocation_event_payload(&value)
+                        } else {
+                            value
+                        };
                         anonymize::anonymize_value(
                             &value,
                             options.hash_user_text,
@@ -474,6 +525,118 @@ fn approval_judgment_metrics(raw: &str) -> Option<Value> {
     }))
 }
 
+fn approval_provenance_emit(raw: &str, hash_user_text: bool, salt: &str) -> Option<Value> {
+    let mut v: Value = serde_json::from_str(raw).ok()?;
+    if let Some(reason) = v.get("riskReason").and_then(Value::as_str) {
+        v["riskReason"] = anonymize::maybe_hash_text(hash_user_text, reason, salt);
+    }
+    Some(v)
+}
+
+fn verification_evidence_summary_emit(raw: &str) -> Option<Value> {
+    let v: Value = serde_json::from_str(raw).ok()?;
+    v.get("evidenceSummary").cloned()
+}
+
+pub(crate) fn sanitize_provocation_event_payload(value: &Value) -> Value {
+    sanitize_provocation_nested(value, None)
+}
+
+fn sanitize_provocation_nested(value: &Value, key: Option<&str>) -> Value {
+    if key.is_some_and(is_raw_body_key) {
+        return raw_text_summary(value, "raw_body_key");
+    }
+    if key == Some("value") && is_sensitive_evidence_value(value) {
+        return raw_text_summary(value, "evidence_value_summary");
+    }
+
+    match value {
+        Value::Object(map) => {
+            let mut out = serde_json::Map::new();
+            for (nested_key, nested) in map {
+                out.insert(
+                    nested_key.clone(),
+                    sanitize_provocation_nested(nested, Some(nested_key)),
+                );
+            }
+            Value::Object(out)
+        }
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| sanitize_provocation_nested(item, None))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+fn is_raw_body_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    matches!(
+        key.as_str(),
+        "prompt"
+            | "promptbody"
+            | "prompt_body"
+            | "transcript"
+            | "transcriptbody"
+            | "transcript_body"
+            | "sourcecode"
+            | "source_code"
+            | "code"
+            | "raw"
+            | "rawtext"
+            | "raw_text"
+    )
+}
+
+fn is_sensitive_evidence_value(value: &Value) -> bool {
+    let Some(text) = value.as_str() else {
+        return false;
+    };
+    text.chars().count() > 96 || text.lines().count() > 1 || looks_code_like(text)
+}
+
+fn looks_code_like(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.contains("```")
+        || lower.contains("function ")
+        || lower.contains("const ")
+        || lower.contains("import ")
+        || lower.contains("export ")
+        || lower.contains("class ")
+        || lower.contains("pub fn")
+        || lower.contains("fn ")
+        || text.trim_end().ends_with(';')
+        || (text.contains('{') && text.contains('}'))
+}
+
+fn raw_text_summary(value: &Value, reason: &str) -> Value {
+    match value {
+        Value::String(text) => {
+            let non_empty_lines = text.lines().filter(|line| !line.trim().is_empty()).count();
+            json!({
+                "redacted": true,
+                "reason": reason,
+                "char_count": text.chars().count(),
+                "line_count": non_empty_lines.max(1),
+                "word_count": text.split_whitespace().filter(|token| !token.is_empty()).count(),
+            })
+        }
+        Value::Array(items) => json!({
+            "redacted": true,
+            "reason": reason,
+            "item_count": items.len(),
+        }),
+        Value::Object(map) => json!({
+            "redacted": true,
+            "reason": reason,
+            "field_count": map.len(),
+        }),
+        other => other.clone(),
+    }
+}
+
 fn count_terms(text: &str, terms: &[&str]) -> usize {
     terms.iter().filter(|term| text.contains(**term)).count()
 }
@@ -493,7 +656,23 @@ struct CardEmit {
     retrospective: Option<String>,
     change_summary: Option<String>,
     approval_judgment: Option<String>,
+    approval_provenance: Option<String>,
     position: i64,
+    created_at: i64,
+    updated_at: i64,
+}
+
+#[derive(Debug)]
+struct StepMappingEmit {
+    id: i64,
+    step_id: i64,
+    card_id: Option<i64>,
+    state_path: Option<String>,
+    status: String,
+    completed_at: Option<i64>,
+    verification_status: Option<String>,
+    verification_evidence: Option<String>,
+    user_decision: Option<String>,
     created_at: i64,
     updated_at: i64,
 }

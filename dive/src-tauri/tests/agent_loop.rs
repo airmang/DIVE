@@ -72,6 +72,7 @@ fn fresh_env() -> (
             changed_files: None,
             test_command: None,
             approval_judgment: None,
+            approval_provenance: None,
             position: 1,
         },
     )
@@ -593,7 +594,17 @@ async fn product_path_build_step_creates_code_output_and_records_changed_files()
     let card = card::get_by_id(db_guard.conn(), card_id)
         .unwrap()
         .expect("current card should still exist");
-    assert_eq!(card.changed_files, Some(serde_json::json!(["index.html"])));
+    assert_eq!(
+        card.changed_files,
+        Some(serde_json::json!([{
+            "path": "index.html",
+            "diff": {
+                "path": "index.html",
+                "before": "",
+                "after": content,
+            }
+        }]))
+    );
     let logs = event_log::list_by_session(db_guard.conn(), sid).unwrap();
     assert!(logs.iter().any(|row| {
         row.r#type == "card_changed_files"

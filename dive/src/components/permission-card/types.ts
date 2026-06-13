@@ -19,4 +19,9 @@ export interface PermissionCardProps {
   card: PermissionCardData;
   onApprove: (toolCallId: string, modifiedArgs?: unknown) => void;
   onDeny: (toolCallId: string, reason?: string) => void;
+  approvalRequirement?: {
+    required: boolean;
+    satisfied: boolean;
+    message: string;
+  };
 }

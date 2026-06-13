@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS Card (
     verify_log TEXT,
     changed_files TEXT,
     test_command TEXT,
+    approval_judgment TEXT,
+    approval_provenance TEXT,
     position INTEGER NOT NULL,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL

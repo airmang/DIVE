@@ -5,6 +5,7 @@ import type {
   ChatMessage,
   ErrorMessageData,
   SystemMessageData,
+  ToolApprovalMetadata,
   ToolCallMessageData,
   ToolResultMessageData,
   UserMessageData,
@@ -491,12 +492,17 @@ export function useChatSession(
     await api.invoke<void>("chat_cancel", { sessionId });
   }, [sessionId]);
 
-  const approveToolCall = useCallback(async (toolCallId: string, modifiedArgs?: unknown) => {
+  const approveToolCall = useCallback(async (
+    toolCallId: string,
+    modifiedArgs?: unknown,
+    approvalMetadata?: ToolApprovalMetadata,
+  ) => {
     const api = apiRef.current;
     if (!api) return;
     await api.invoke<boolean>("tool_approve", {
       toolCallId,
       modifiedArgs: modifiedArgs ?? null,
+      approvalMetadata: approvalMetadata ?? null,
     });
   }, []);
 

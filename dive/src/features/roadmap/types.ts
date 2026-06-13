@@ -2,6 +2,7 @@ import type { CardTileData, VerifyLogView } from "../../components/workmap/types
 import type { ApprovalDecisionWithTime } from "../../components/workmap/ApprovalJudgment";
 import type { CardTransitionKind } from "../../stores/workmap";
 import type { ChangedFile } from "../../components/slide-in/types";
+import type { ApprovalProvenance } from "../provocation";
 
 /**
  * User-facing Roadmap step status (redesign §3.5).
@@ -41,6 +42,7 @@ export interface RoadmapStep {
   retrospective: string | null;
   changeSummary: string | null;
   testCommand: string | null;
+  approvalProvenance: ApprovalProvenance | null;
   status: RoadmapStepStatus;
   /**
    * True when `status === "review"` was reached via a prior rejection
@@ -86,7 +88,11 @@ export interface RoadmapModel {
   transitionStep: (
     stepId: number,
     action: RoadmapStepAction,
-    options?: { approveForce?: boolean; judgment?: ApprovalDecisionWithTime },
+    options?: {
+      approveForce?: boolean;
+      judgment?: ApprovalDecisionWithTime;
+      approvalProvenance?: ApprovalProvenance | null;
+    },
   ) => Promise<void>;
   verifyStep: (stepId: number) => Promise<void>;
   deleteStep: (stepId: number) => Promise<void>;

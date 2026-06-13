@@ -475,10 +475,11 @@ pub async fn tool_approve(
     state: State<'_, AppState>,
     tool_call_id: String,
     modified_args: Option<Value>,
+    approval_metadata: Option<Value>,
 ) -> Result<bool, String> {
     let decision = match modified_args {
-        Some(args) => PermissionDecision::approved_with(args),
-        None => PermissionDecision::approved(),
+        Some(args) => PermissionDecision::approved_with_context(args, approval_metadata),
+        None => PermissionDecision::approved_with_metadata(approval_metadata),
     };
     Ok(state.pending_approvals.resolve(&tool_call_id, decision))
 }

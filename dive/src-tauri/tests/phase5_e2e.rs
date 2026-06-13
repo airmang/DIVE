@@ -80,6 +80,7 @@ async fn phase5_codex_plus_mcp_tool_end_to_end() {
             changed_files: None,
             test_command: None,
             approval_judgment: None,
+            approval_provenance: None,
             position: 1,
         },
     )

@@ -270,6 +270,7 @@ impl VerifyEngine {
                 changed_files: card.changed_files.clone(),
                 test_command: card.test_command.clone(),
                 approval_judgment: card.approval_judgment.clone(),
+                approval_provenance: card.approval_provenance.clone(),
                 position: card.position,
             },
         )

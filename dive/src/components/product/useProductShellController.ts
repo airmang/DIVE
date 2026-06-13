@@ -10,6 +10,7 @@ import {
 } from "react";
 import type { VerifyLogView } from "../workmap/types";
 import type { ApprovalDecision } from "../workmap/ApprovalJudgment";
+import type { ToolApprovalMetadata } from "../chat/types";
 import { useSlideInStore } from "../../stores/slideIn";
 import { useChatComposerStore } from "../../stores/chatComposer";
 import {
@@ -37,6 +38,11 @@ import { pickFolder } from "../../lib/tauri-dialog";
 import { useTheme } from "../../hooks/useTheme";
 import { hasRecognizedDemoRoute } from "../../lib/dev-demo";
 import { useUiPreferencesStore } from "../../stores/ui-preferences";
+import {
+  buildApprovalProvenance,
+  normalizeChangedFile,
+  normalizePlanStep,
+} from "../../features/provocation";
 import { useProductShellDialogs } from "./useProductShellDialogs";
 import { PlanDraftRecoveryScreen } from "./PlanDraftRecoveryScreen";
 import { SocraticInterviewPanel } from "./SocraticInterviewPanel";
@@ -306,6 +312,22 @@ export function useProductShellController() {
     planRoadmapSteps: planRoadmap.steps,
     chat,
   });
+  const activePlanStep = useMemo(
+    () =>
+      activePlanStepIdForChat === undefined
+        ? null
+        : (planRoadmap.steps.find((item) => item.step.id === activePlanStepIdForChat) ?? null),
+    [activePlanStepIdForChat, planRoadmap.steps],
+  );
+  const activePlanStepTargetFiles = useMemo(
+    () =>
+      Array.isArray(activePlanStep?.step.expected_files)
+        ? activePlanStep.step.expected_files.filter(
+            (value): value is string => typeof value === "string" && value.trim().length > 0,
+          )
+        : [],
+    [activePlanStep],
+  );
   const planAccepted = planRoadmap.hasPlan;
 
   const openSlideIn = useSlideInStore((s) => s.open);
@@ -384,9 +406,38 @@ export function useProductShellController() {
   const handleApprovalDecision = useCallback(
     (decision: ApprovalDecision) => {
       if (!currentCard) return;
-      const judgment = { ...decision, decided_at: Date.now() };
+      const decidedAt = Date.now();
+      const judgment = { ...decision, decided_at: decidedAt };
       const isApprove = decision.outcome !== "revision_requested";
       const action = isApprove ? "approve" : "request_changes";
+      const verifyLog = roadmapModel.verifyLogForStep(currentCard.id);
+      const changedFilesForCurrentStep = roadmapModel.changedFilesForStep(currentCard.id);
+      const approvalProvenance = isApprove
+        ? buildApprovalProvenance(
+            {
+              mode: provocationScaffoldMode,
+              stage: "finalApproval",
+              projectId: currentProjectId,
+              sessionId: currentSessionId,
+              taskId: currentCard.id,
+              goalText: [currentCard.title, currentCard.summary].filter(Boolean).join("\n"),
+              changedFiles: changedFilesForCurrentStep.map((file) =>
+                normalizeChangedFile({ path: file.path }),
+              ),
+              verification: {
+                aiClaimedDone: Boolean(verifyLog?.intent_match),
+                automatedTestsPassed: verifyLog?.test_result === "pass",
+                testResult: verifyLog?.test_result,
+                externalTestRun: verifyLog ? verifyLog.test_result !== "skipped" : undefined,
+              },
+            },
+            {
+              outcome: decision.outcome,
+              decidedAt,
+              riskReason: decision.note,
+            },
+          )
+        : null;
       // The ApprovalJudgment gate IS the deliberate human evaluation. honest-verify
       // labels `intent_match` as the AI's self-reported CLAIM, and the thesis makes
       // the human the final evaluator — so an explicit human approve (확인함 → 승인,
@@ -395,7 +446,11 @@ export function useProductShellController() {
       // gate. Blind approval isn't prevented here; it's recorded as the
       // over-trust anti-metric (research design). Hence approveForce on approve.
       void roadmapModel
-        .transitionStep(currentCard.id, action, { judgment, approveForce: isApprove })
+        .transitionStep(currentCard.id, action, {
+          judgment,
+          approveForce: isApprove,
+          approvalProvenance,
+        })
         .then(async () => {
           await planRoadmap.refresh();
           if (decision.outcome === "revision_requested" && decision.note) {
@@ -408,9 +463,12 @@ export function useProductShellController() {
     },
     [
       currentCard,
+      currentProjectId,
+      currentSessionId,
       dialogs,
       planRoadmap,
       pushChatComposerSeed,
+      provocationScaffoldMode,
       requestChatFocus,
       roadmapModel,
       showWorkmapError,
@@ -906,8 +964,11 @@ export function useProductShellController() {
       onOpenSlidePanel: openCodePanelWithContext,
       onOpenResultPanel: openResultPanelWithContext,
       onRetryError: handleRetryError,
-      onApproveToolCall: (toolCallId: string, modifiedArgs?: unknown) =>
-        void chat.approveToolCall(toolCallId, modifiedArgs),
+      onApproveToolCall: (
+        toolCallId: string,
+        modifiedArgs?: unknown,
+        approvalMetadata?: ToolApprovalMetadata,
+      ) => void chat.approveToolCall(toolCallId, modifiedArgs, approvalMetadata),
       onDenyToolCall: (toolCallId: string, reason?: string) =>
         void chat.denyToolCall(toolCallId, reason),
       interviewPanel: showInterviewPanel
@@ -955,6 +1016,14 @@ export function useProductShellController() {
         projectId: currentProjectId,
         sessionId: currentSessionId,
         goalText: currentCard?.title ?? currentSessionTitle,
+        changedFiles: currentCard
+          ? roadmapModel
+              .changedFilesForStep(currentCard.id)
+              .map((file) => normalizeChangedFile({ path: file.path }))
+          : [],
+        targetFiles: activePlanStepTargetFiles,
+        planSteps: activePlanStep ? [normalizePlanStep(activePlanStep.step)] : [],
+        onOpenRecovery: () => dialogs.setRecoveryOpen(true),
       },
       planDraftApproval: generatedPlanDraft
         ? createElement(

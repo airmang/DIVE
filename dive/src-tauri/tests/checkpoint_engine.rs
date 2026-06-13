@@ -44,6 +44,7 @@ fn env() -> (Arc<Mutex<dive_lib::Database>>, tempfile::TempDir, i64, i64) {
             changed_files: None,
             test_command: None,
             approval_judgment: None,
+            approval_provenance: None,
             position: 1,
         },
     )
