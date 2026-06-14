@@ -215,3 +215,10 @@
   - 검증법: 코드 추적 `useT()` -> 각 aria/confirm/warning surface -> ko/en 리소스. 실행 검증: `ToastProvider.test.tsx`, `dialog.test.tsx`, `UserMessage.test.tsx`, `settings.test.tsx` 영어 locale 회귀 테스트, `pnpm --dir dive test -- ToastProvider dialog UserMessage settings`, `pnpm --dir dive typecheck`, `pnpm --dir dive lint`, `pnpm --dir dive test`, `git diff --check`. 대상 파일 검색 `rg -n 'aria-label="[^"]*[가-힣]|알림|토스트 닫기|메시지 편집|메시지 재전송|연결을 해제할까요|기본 AI 서버' ...` 결과 없음. `pnpm --dir dive format:check`는 기존 Prettier baseline 7개 파일에서 red.
   - 네이티브 실동작: 실행 중인 Tauri 앱의 English Settings 화면이 HMR 후 계속 정상 렌더되고 provider/model 영역이 영어로 유지됨을 스크린샷으로 확인. WebView 내부 aria node는 macOS AX tree에서 세부 노드로 충분히 노출되지 않아, aria 문구 자체는 jsdom 접근성 쿼리 테스트로 보완.
   - 결과: 커밋 `1fbf3a3`.
+
+### R6. 백엔드/보안
+
+- [x] **P1-3/P2 기본 익명화 export 어시스턴트 평문 + secret/evidence/decision redaction 부족**
+  - 변경: 기본 export에서 user뿐 아니라 assistant/system/tool 등 모든 message `content`를 `hash_user_text` 기본값에 따라 해시하도록 변경. `verification_evidence`/`user_decision` StepSessionMapping JSON도 `anonymize_value`를 통과시킴. secret detector를 `ghp_`, `github_pat_`, `AKIA`, `Bearer`, `password=`, `api_key=`, `token=` 등으로 확장.
+  - 검증법: 코드 추적 `ExportEngine::export_session_with_salt` message loop -> `maybe_hash_text`, StepSessionMapping evidence/decision -> `anonymize_value`, `contains_pii` -> `contains_secret_like_token`. 실행 검증: `cargo test --manifest-path dive/src-tauri/Cargo.toml --features dev-mock --test export_jsonl` 13개 통과, `cargo test --manifest-path dive/src-tauri/Cargo.toml --features dev-mock export::anonymize`, `cargo fmt --manifest-path dive/src-tauri/Cargo.toml --check`, `cargo clippy --manifest-path dive/src-tauri/Cargo.toml --all-targets --features dev-mock -- -D warnings`, `cargo test --manifest-path dive/src-tauri/Cargo.toml --features dev-mock`. 네이티브 smoke: `pnpm --dir dive tauri dev --features dev-mock --no-watch --config '{"build":{"beforeDevCommand":"","devUrl":"http://127.0.0.1:1422/"}}'` 새 Rust 빌드가 실행되고 macOS AX가 `DIVE` 창을 확인.
+  - 결과: 커밋 `102e807`.
