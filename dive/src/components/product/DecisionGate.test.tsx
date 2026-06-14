@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useLocaleStore } from "../../i18n";
 import { DecisionGate } from "./DecisionGate";
 import { deriveDecisionGatePolicy } from "./decisionGatePolicy";
 import type { ProvocationCard, VerificationStatusItem } from "../../features/provocation";
@@ -65,6 +66,10 @@ function renderGate(overrides: Partial<ComponentProps<typeof DecisionGate>> = {}
 }
 
 describe("DecisionGate policy", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: "ko" });
+  });
+
   afterEach(() => cleanup());
 
   it("allows ordinary evidence-backed approval without a reason even when rollback is absent", () => {
@@ -207,6 +212,7 @@ describe("DecisionGate policy", () => {
     });
 
     expect(screen.getByTestId("decision-gate").dataset.reasonRequired).toBe("false");
+    expect(screen.getByTestId("decision-gate-defer-badge").textContent).toContain("위험 아님");
     expect(screen.queryByTestId("decision-gate-risk-approve")).toBeNull();
     expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
     expect(
@@ -272,5 +278,17 @@ describe("DecisionGate policy", () => {
     expect(screen.getByTestId("decision-gate-verify-first")).toBeTruthy();
     expect(screen.getByTestId("decision-gate-revert")).toBeTruthy();
     expect(screen.getByTestId("decision-gate-stop")).toBeTruthy();
+  });
+
+  it("keeps decision reasons in a closed disclosure without a duplicated action list", () => {
+    renderGate({
+      verificationStatuses: [aiSelfReportOnly],
+      rollbackAvailable: false,
+    });
+
+    const details = screen.getByTestId("decision-gate-details") as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(screen.getByTestId("decision-gate-reasons")).toBeTruthy();
+    expect(screen.queryByTestId("decision-gate-action-list")).toBeNull();
   });
 });

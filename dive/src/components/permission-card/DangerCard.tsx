@@ -30,6 +30,7 @@ export function DangerCard({ card, onApprove, onDeny, approvalRequirement }: Per
     <div
       className="w-full overflow-hidden rounded-md border-2 border-danger/60 bg-danger/10"
       data-testid="permission-card"
+      data-card-family="permission-card"
       data-risk="danger"
       data-tool-call-id={card.toolCallId}
     >
@@ -107,6 +108,11 @@ export function DangerCard({ card, onApprove, onDeny, approvalRequirement }: Per
         <Button
           size="sm"
           variant="ghost"
+          aria-label={
+            editing
+              ? t("permission_card.actions.stop_editing")
+              : t("permission_card.actions.edit_request")
+          }
           data-testid="card-edit"
           onClick={() => setEditing((v) => !v)}
         >
@@ -120,6 +126,7 @@ export function DangerCard({ card, onApprove, onDeny, approvalRequirement }: Per
             <Button
               size="sm"
               variant="outline"
+              aria-label={t("permission_card.actions.confirm_deny")}
               data-testid="card-deny-confirm"
               onClick={() => onDeny(card.toolCallId, denyReason.trim() || undefined)}
             >
@@ -131,6 +138,7 @@ export function DangerCard({ card, onApprove, onDeny, approvalRequirement }: Per
               <Button
                 size="sm"
                 variant="ghost"
+                aria-label={t("permission_card.actions.add_reason")}
                 data-testid="card-deny-with-reason"
                 onClick={() => setDenyingWithReason(true)}
               >
@@ -139,6 +147,7 @@ export function DangerCard({ card, onApprove, onDeny, approvalRequirement }: Per
               <Button
                 size="sm"
                 variant="danger"
+                aria-label={t("permission_card.actions.deny")}
                 data-testid="card-deny"
                 onClick={() => onDeny(card.toolCallId)}
               >
@@ -151,6 +160,7 @@ export function DangerCard({ card, onApprove, onDeny, approvalRequirement }: Per
             size="sm"
             variant="primary"
             disabled={!canApprove}
+            aria-label={t("permission_card.danger.approve")}
             data-testid="card-approve"
             onClick={() =>
               onApprove(card.toolCallId, editing ? (modifiedArgs ?? undefined) : undefined)

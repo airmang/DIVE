@@ -17,6 +17,7 @@ export function SafeCard({ card, onApprove, onDeny, approvalRequirement }: Permi
     <div
       className="w-full overflow-hidden rounded-md border border-info/40 bg-info/5"
       data-testid="permission-card"
+      data-card-family="permission-card"
       data-risk="safe"
       data-tool-call-id={card.toolCallId}
     >
@@ -55,6 +56,7 @@ export function SafeCard({ card, onApprove, onDeny, approvalRequirement }: Permi
         <Button
           size="sm"
           variant="ghost"
+          aria-label={t("permission_card.actions.deny")}
           data-testid="card-deny"
           onClick={() => onDeny(card.toolCallId)}
         >
@@ -64,6 +66,7 @@ export function SafeCard({ card, onApprove, onDeny, approvalRequirement }: Permi
         <Button
           size="sm"
           variant="primary"
+          aria-label={t("permission_card.safe.approve")}
           data-testid="card-approve"
           disabled={approvalBlocked}
           onClick={() => onApprove(card.toolCallId)}

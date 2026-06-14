@@ -130,7 +130,21 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
     expect(card.dataset.cardType).toBe("ai_self_report_only");
     expect(card.textContent).toContain("확인 필요 카드");
     expect(card.textContent).not.toContain("도발카드");
-    expect(screen.getByTestId("provocation-prompt").textContent).toContain("직접 확인");
+    expect(screen.getByTestId("provocation-focal-question").textContent).toContain("직접 확인");
+
+    const focusPanel = screen.getByTestId("step-detail-verification-focus");
+    const details = screen.getByTestId("step-detail-secondary-details") as HTMLDetailsElement;
+    const gate = screen.getByTestId("decision-gate");
+    expect(
+      Boolean(focusPanel.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING),
+    ).toBe(true);
+    expect(Boolean(card.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
+      true,
+    );
+    expect(Boolean(details.compareDocumentPosition(gate) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
+      true,
+    );
+    expect(details.open).toBe(false);
 
     expect(evaluateMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -252,5 +266,14 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
       hasTests: false,
       diffAvailable: true,
     });
+    expect(screen.getByTestId("step-detail-primary-verification-action").textContent).toContain(
+      "변경 코드 보기",
+    );
+    expect(
+      screen
+        .getByTestId("step-detail-primary-verification-action")
+        .getAttribute("data-action-kind"),
+    ).toBe("open_diff");
+    expect(screen.queryByText("미리보기 열기")).toBeNull();
   });
 });
