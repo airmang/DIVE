@@ -258,7 +258,7 @@ export function SettingsPage() {
   };
 
   const handleCodexDisconnect = async () => {
-    if (!window.confirm("ChatGPT 연결을 해제할까요?")) return;
+    if (!window.confirm(t("settings.disconnect_codex_confirm"))) return;
     const api = await loadTauri();
     if (api) {
       try {
@@ -280,7 +280,7 @@ export function SettingsPage() {
       await handleCodexDisconnect();
       return;
     }
-    if (!window.confirm(`${row.kind} 연결을 해제할까요?`)) return;
+    if (!window.confirm(t("settings.disconnect_confirm", { kind: row.kind }))) return;
     await disconnectProvider(row.id);
   };
 
@@ -472,14 +472,17 @@ export function SettingsPage() {
                           }
                           data-testid="provider-dot"
                           data-connected={connected ? "true" : "false"}
-                          aria-label={connected ? "AI connection active" : "AI connection missing"}
+                          aria-label={
+                            connected
+                              ? t("settings.provider_connected_aria")
+                              : t("settings.provider_disconnected_aria")
+                          }
                         />
                       </div>
                       <div className="text-[11px] text-fg-muted">{t(p.hintKey)}</div>
                       {usesNonDefaultProviderHost(connected) ? (
                         <div className="mt-1 text-[10px] text-warn" data-testid="base-url-warning">
-                          기본 AI 서버가 아닌 엔드포인트에 연결되어 있습니다. API key가 해당 서버로
-                          전송됩니다.
+                          {t("settings.base_url_warning")}
                         </div>
                       ) : null}
                       {p.warning ? (

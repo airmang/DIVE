@@ -17,7 +17,9 @@
     "settings": "Settings",
     "retry": "Retry",
     "optional": "(optional)",
-    "required": "(required)"
+    "required": "(required)",
+    "notifications": "Notifications",
+    "dismiss_toast": "Dismiss notification"
   },
   "codex_oauth": {
     "title": "Connect ChatGPT subscription (Codex OAuth)",
@@ -239,10 +241,15 @@
     "ai_connection_description": "Pick the AI connection DIVE uses for planning, coding, and checks. API keys are stored in the OS keychain.",
     "provider_codex_hint": "ChatGPT Plus/Pro subscription",
     "provider_mock_hint": "For testing",
+    "provider_connected_aria": "AI connection active",
+    "provider_disconnected_aria": "AI connection missing",
     "connect": "Connect",
     "connect_chatgpt": "Connect ChatGPT",
     "disconnect": "Disconnect",
+    "disconnect_confirm": "Disconnect {{kind}}?",
+    "disconnect_codex_confirm": "Disconnect ChatGPT?",
     "coming_soon": "Coming soon",
+    "base_url_warning": "Connected to a non-default AI endpoint. The API key will be sent to that server.",
     "api_key_placeholder": "Paste API key",
     "connecting": "Connecting…",
     "save_and_connect": "Save and connect",
@@ -296,6 +303,10 @@
     "pending_approval_jump": "Show pending approval",
     "pending_approval_jump_aria": "Jump to the pending tool approval card",
     "stall_timeout": "The AI response stalled. Check your network or the model status, then try again.",
+    "message": {
+      "edit_aria": "Edit message",
+      "resend_aria": "Resend message"
+    },
     "input": {
       "placeholder": "Type a message...",
       "aria_label": "Message input",
