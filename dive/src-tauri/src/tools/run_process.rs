@@ -3,6 +3,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::time::Duration;
 
+use super::guard::{block_as_error, classify_bash_command};
 use super::{truncate_utf8, RiskLevel, Tool, ToolContext, ToolError, ToolOutput};
 
 #[derive(Deserialize)]
@@ -58,6 +59,13 @@ impl Tool for RunProcess {
                     "path-like argument may not escape project root: {arg}"
                 )));
             }
+        }
+        let command_line = std::iter::once(args.command.as_str())
+            .chain(args.args.iter().map(String::as_str))
+            .collect::<Vec<_>>()
+            .join(" ");
+        if let Some(reason) = classify_bash_command(&command_line) {
+            return Err(block_as_error(reason));
         }
         Ok(())
     }
@@ -171,6 +179,27 @@ mod tests {
             .is_err());
         assert!(RunProcess
             .validate(&json!({ "command": "echo", "args": ["hello"] }))
+            .is_ok());
+    }
+
+    #[test]
+    fn run_process_validate_applies_destructive_command_blocklist() {
+        for input in [
+            json!({ "command": "dd", "args": ["if=/dev/zero", "of=/dev/sda"] }),
+            json!({ "command": "chmod", "args": ["-R", "000", "."] }),
+            json!({ "command": "git", "args": ["reset", "--hard"] }),
+        ] {
+            let err = RunProcess
+                .validate(&input)
+                .expect_err("destructive command should be blocked");
+            assert!(
+                matches!(err, ToolError::Blocked(_)),
+                "expected blocked error for {input:?}, got {err:?}"
+            );
+        }
+
+        assert!(RunProcess
+            .validate(&json!({ "command": "rm", "args": ["-rf", "build/"] }))
             .is_ok());
     }
 

@@ -59,6 +59,8 @@ const LITERAL_RULES: &[(&str, &str)] = &[
     // chmod wipe
     ("chmod -R 000 root", "chmod -R 000 /"),
     ("chmod 000 home", "chmod -R 000 ~"),
+    ("chmod 000 project root", "chmod -R 000 ."),
+    ("chmod 000 project root slash", "chmod -R 000 ./"),
     // privilege escalation (blocked outright — spec §9.2)
     ("sudo escalation", "sudo "),
     ("runas escalation", "runas "),
@@ -125,6 +127,10 @@ static REGEX_RULES: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
         (
             "chown outside project risk",
             Regex::new(r"(?i)\bchown\b").unwrap(),
+        ),
+        (
+            "git hard reset",
+            Regex::new(r"(?i)\bgit\s+reset\s+--hard\b").unwrap(),
         ),
         // rm -rf with absolute path at filesystem root level
         (
@@ -293,11 +299,18 @@ mod tests {
     fn blocks_chmod_wipe() {
         assert!(classify_bash_command("chmod -R 000 /").is_some());
         assert!(classify_bash_command("chmod -R 000 ~").is_some());
+        assert!(classify_bash_command("chmod -R 000 .").is_some());
     }
 
     #[test]
     fn blocks_redirect_to_block_device() {
         assert!(classify_bash_command("echo bad > /dev/sda").is_some());
+    }
+
+    #[test]
+    fn blocks_git_hard_reset() {
+        assert!(classify_bash_command("git reset --hard").is_some());
+        assert!(classify_bash_command("git status").is_none());
     }
 
     #[test]
