@@ -95,7 +95,9 @@
 
 ## 진행 로그 / 체크리스트
 
-> **정직화 갱신 (2026-06-14, Claude 검토):** 아래 `[x]` 다수는 **코드/단위테스트 수준에서만 검증**됨 — Tauri WebView가 macOS AX에 노출 안 돼 **실제 네이티브 흐름은 미검증**. 동적 감사가 찾은 건 *실앱 흐름* 버그였으므로 R2·R3·R4의 실동작 재검증(수동/네이티브)이 남아 있다. 게이트는 통과 확인됨(프론트 118 테스트 green, Rust export 19·guard 29 green, 컴파일 OK). **P0-01(크래시)는 사용자 네이티브 재현 실패로 NOT-A-BUG(측정 아티팩트) 확정** — 출시차단 P0에서 제거. D-12·D-29·D-32는 연기(미완)로 정정.
+> **정직화 갱신 (2026-06-14, Claude 검토):** 게이트 통과 확인(프론트 118 테스트 green, Rust export 19·guard 29 green, 컴파일 OK). **P0-01(크래시)는 사용자 네이티브 재현 실패로 NOT-A-BUG(측정 아티팩트) 확정** — 출시차단 P0에서 제거. D-12·D-29·D-32는 연기(미완)로 정정.
+>
+> **네이티브 검증 완료 (2026-06-14, 사용자 main HEAD 실앱):** R2(스텝 Resume→세션 전환·채팅 정상), R3(검토 카드 발화·액션), R4(완료 기준 체크→승인 활성화 keystone)를 **네이티브 앱에서 직접 조작해 작동 확인**. 동적 감사의 "안 눌림/무반응" 다수는 **HiDPI 픽셀클릭 드리프트(측정 아티팩트)** + **Locked 스텝(앞 스텝 미완료 시 의도된 비활성) UX 혼란**이었고, 기능 결함이 아니었음. 남은 것은 P2 UX 폴리시(아래 § P2 UX 후속).
 
 ### Phase 0. [NV] 코드 대조 트리아지
 
@@ -257,3 +259,14 @@
   - 검증법: 코드 추적 `install_event_handler` -> `route_user_guide` -> `user_guide_route_script` -> `App.resolveRoute` -> `UserGuidePage`; frontend 경로는 `useProductShellController` `menu:help-docs`/`menu:help-issue` -> `openUserGuideRoute`. Browser에서 `http://localhost:1420/?route=user-guide`와 `?route=user-guide&doc=troubleshooting` 렌더 확인. 실행 검증: `pnpm --dir dive typecheck`, `pnpm --dir dive lint`, `pnpm --dir dive test -- --run`, `cargo fmt --check`, `cargo clippy --all-targets --features dev-mock -- -D warnings`, `cargo test --features dev-mock`, `git diff --check`. `pnpm --dir dive format:check`는 기존 Prettier baseline 7개 파일에서 red.
   - 네이티브 실동작: 실행 중인 `target/debug/dive`를 macOS AXPress로 조작해 `Help > View Documentation`은 `DIVE 사용자 가이드`, `Help > Report Issue`는 `DIVE 트러블슈팅` 화면으로 전환됨을 스크린샷으로 확인.
   - 결과: 커밋 `42da971`.
+
+---
+
+## § P2 UX 후속 (2026-06-14 네이티브 검증 중 발견 — 기능 버그 아님, 사용성)
+
+기능은 모두 작동하나, 사용자가 "왜 안 되지?"로 오인하게 만든 지점들. 출시 차단은 아니지만 교수 자문·공개 전 다듬으면 인상이 크게 좋아짐.
+
+- [ ] **U-1. Locked 스텝에 잠긴 이유 표시.** 앞 스텝 미완료로 비활성인 스텝(대부분)이 *왜* Locked인지 안 보여 "안 눌린다"로 오인. → "앞 단계(step N)를 먼저 완료하세요" 툴팁/문구. (`PlanStepActions.tsx` Locked 분기)
+- [ ] **U-2. 스텝 행 클릭 affordance.** 행 전체가 눌릴 것처럼 보이나 실제론 우측 작은 액션 버튼(Start/Resume/Open)만 활성. → 행 클릭=상세 열기로 만들거나, 버튼을 더 명확히. (`PlanStep.tsx`)
+- [ ] **U-3. 카드가 어디서 뜨는지 단서.** 검토 카드는 채팅이 아니라 *계획 승인 화면/스텝 상세*에서, 자가보고 카드는 *AI 완료 보고 후*에만 뜸 — 사용자는 "카드가 안 보인다"로 오인. → 빈 상태 안내 또는 카드 위치 일관화.
+- [ ] **U-4. (재확인) HiDPI 클릭 정합성.** 동적 감사의 좌표 드리프트가 측정 아티팩트로 판정됐으나, 실제 사용자 클릭도 살짝 어긋나는지 1회 점검 권장(아니면 닫기).
