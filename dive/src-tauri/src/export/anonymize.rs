@@ -78,10 +78,10 @@ pub fn anonymize_value(
 pub fn contains_pii(s: &str) -> bool {
     contains_email(s)
         || contains_phone_like_number(s)
+        || contains_secret_like_token(s)
         || s.contains("학번")
         || s.contains("학생-")
         || s.contains("student-")
-        || s.contains("sk-")
 }
 
 fn contains_email(s: &str) -> bool {
@@ -97,6 +97,40 @@ fn contains_email(s: &str) -> bool {
 fn contains_phone_like_number(s: &str) -> bool {
     let digits = s.chars().filter(|c| c.is_ascii_digit()).count();
     digits >= 10 && (s.contains('-') || s.contains(' ') || s.starts_with("010"))
+}
+
+fn contains_secret_like_token(s: &str) -> bool {
+    let lower = s.to_ascii_lowercase();
+    if lower.contains("password=")
+        || lower.contains("password:")
+        || lower.contains("authorization:")
+        || lower.contains("bearer ")
+        || lower.contains("api_key=")
+        || lower.contains("api-key=")
+        || lower.contains("token=")
+    {
+        return true;
+    }
+
+    s.split(|c: char| {
+        c.is_whitespace() || matches!(c, '"' | '\'' | ',' | ';' | '(' | ')' | '[' | ']')
+    })
+    .any(|token| {
+        token.starts_with("sk-")
+            || token.starts_with("ghp_")
+            || token.starts_with("github_pat_")
+            || token.starts_with("glpat-")
+            || token.starts_with("xoxb-")
+            || looks_like_aws_access_key(token)
+    })
+}
+
+fn looks_like_aws_access_key(token: &str) -> bool {
+    token.len() >= 16
+        && token.starts_with("AKIA")
+        && token
+            .chars()
+            .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit())
 }
 
 pub fn looks_like_path_key(key: &str) -> bool {
@@ -258,6 +292,11 @@ mod tests {
         assert!(contains_pii("학번 20261234"));
         assert!(contains_pii("학생-42"));
         assert!(contains_pii("sk-secret"));
+        assert!(contains_pii("ghp_abcdef1234567890"));
+        assert!(contains_pii("github_pat_abcdef1234567890"));
+        assert!(contains_pii("AKIAABCDEFGHIJKLMNOP"));
+        assert!(contains_pii("Authorization: Bearer secret-token"));
+        assert!(contains_pii("password=hunter2"));
         assert!(!contains_pii("ordinary note"));
     }
 }

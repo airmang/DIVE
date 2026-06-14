@@ -265,8 +265,26 @@ impl ExportEngine {
                     "checkpoint_count": checkpoint_count(&mapping.checkpoint_ids),
                     "rollback_available": checkpoint_count(&mapping.checkpoint_ids) > 0,
                     "verification_status": mapping.verification_status,
-                    "verification_evidence": mapping.verification_evidence.as_ref().and_then(|s| serde_json::from_str::<Value>(s).ok()),
-                    "user_decision": mapping.user_decision.as_ref().and_then(|s| serde_json::from_str::<Value>(s).ok()),
+                    "verification_evidence": mapping.verification_evidence.as_ref().and_then(|s| {
+                        serde_json::from_str::<Value>(s).ok().map(|value| {
+                            anonymize::anonymize_value(
+                                &value,
+                                options.hash_user_text,
+                                options.hash_file_paths,
+                                salt,
+                            )
+                        })
+                    }),
+                    "user_decision": mapping.user_decision.as_ref().and_then(|s| {
+                        serde_json::from_str::<Value>(s).ok().map(|value| {
+                            anonymize::anonymize_value(
+                                &value,
+                                options.hash_user_text,
+                                options.hash_file_paths,
+                                salt,
+                            )
+                        })
+                    }),
                     "agency": step_mapping_agency_emit(&mapping),
                     "created_at": mapping.created_at,
                     "updated_at": mapping.updated_at,
@@ -297,9 +315,10 @@ impl ExportEngine {
                 .map_err(|e| ExportError::Db(e.to_string()))?;
             for row in rows {
                 let m = row.map_err(|e| ExportError::Db(e.to_string()))?;
-                let hash_for_role = m.role == "user";
-                let content_emit = if hash_for_role && options.hash_user_text {
+                let content_emit = if options.hash_user_text {
                     anonymize::maybe_hash_text(true, &m.content, salt)
+                } else if options.hash_file_paths && anonymize::looks_like_path_value(&m.content) {
+                    anonymize::hash_path(&m.content, salt)
                 } else {
                     Value::String(m.content.clone())
                 };
