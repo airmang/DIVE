@@ -209,3 +209,9 @@
   - 검증법: 코드 추적 `useT()` -> `settings.model_*` ko/en 리소스 -> label/select/toast; 레이아웃 class가 select column을 `minmax(0,1fr)`로 제한함을 확인. 실행 검증: `ProviderModelSelector.test.tsx` 영어 locale 회귀 테스트, `pnpm --dir dive test -- ProviderModelSelector settings`, `pnpm --dir dive typecheck`, `pnpm --dir dive lint`, `pnpm --dir dive test`, `git diff --check`. `pnpm --dir dive format:check`는 기존 Prettier baseline 7개 파일에서 red.
   - 네이티브 실동작: 실행 중인 Tauri 앱의 Settings 화면에서 English locale 상태로 OpenRouter 모델 selector가 `Model` label을 표시하고, `OpenAI · GPT-5.4 Mini` dropdown이 카드 폭 안에 겹침 없이 렌더됨을 스크린샷으로 확인.
   - 결과: 커밋 `8dc46bb`.
+
+- [x] **P2 토스트/다이얼로그 aria, 설정 보안경고·연결해제 confirm, 채팅 편집/재전송 aria**
+  - 변경: `ToastProvider`의 region/dismiss aria, 공용 `DialogContent` close sr-only, `UserMessage` edit/resend aria, Settings provider 상태 dot aria, non-default endpoint 보안경고, provider disconnect confirm을 `common.*`/`chat.message.*`/`settings.*` i18n 키로 이동.
+  - 검증법: 코드 추적 `useT()` -> 각 aria/confirm/warning surface -> ko/en 리소스. 실행 검증: `ToastProvider.test.tsx`, `dialog.test.tsx`, `UserMessage.test.tsx`, `settings.test.tsx` 영어 locale 회귀 테스트, `pnpm --dir dive test -- ToastProvider dialog UserMessage settings`, `pnpm --dir dive typecheck`, `pnpm --dir dive lint`, `pnpm --dir dive test`, `git diff --check`. 대상 파일 검색 `rg -n 'aria-label="[^"]*[가-힣]|알림|토스트 닫기|메시지 편집|메시지 재전송|연결을 해제할까요|기본 AI 서버' ...` 결과 없음. `pnpm --dir dive format:check`는 기존 Prettier baseline 7개 파일에서 red.
+  - 네이티브 실동작: 실행 중인 Tauri 앱의 English Settings 화면이 HMR 후 계속 정상 렌더되고 provider/model 영역이 영어로 유지됨을 스크린샷으로 확인. WebView 내부 aria node는 macOS AX tree에서 세부 노드로 충분히 노출되지 않아, aria 문구 자체는 jsdom 접근성 쿼리 테스트로 보완.
+  - 결과: 커밋 `1fbf3a3`.
