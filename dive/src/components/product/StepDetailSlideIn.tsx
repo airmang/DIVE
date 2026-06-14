@@ -21,11 +21,11 @@ import {
   deriveVerificationStatuses,
   generateProvocationCards,
   normalizeChangedFile,
-  type ProvocationAction,
   type ProvocationCard,
   type ProvocationContext,
   type ScaffoldMode,
   type VerificationStatusItem,
+  useProvocationActionResolver,
 } from "../../features/provocation";
 
 export interface StepDetailSlideInProps {
@@ -119,6 +119,10 @@ export function StepDetailSlideIn({
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   const [diffViewedStepIds, setDiffViewedStepIds] = useState<Set<number>>(() => new Set());
   const [criterionConfirmed, setCriterionConfirmed] = useState(false);
+  const [previewObservedStepIds, setPreviewObservedStepIds] = useState<Set<number>>(
+    () => new Set(),
+  );
+  const [appLaunchedStepIds, setAppLaunchedStepIds] = useState<Set<number>>(() => new Set());
 
   useEffect(() => {
     if (!open) return;
@@ -143,6 +147,8 @@ export function StepDetailSlideIn({
   const isReview = status === "review";
   const hasChangedFiles = changedFiles.length > 0;
   const diffViewed = step ? diffViewedStepIds.has(step.id) : false;
+  const previewObserved = step ? previewObservedStepIds.has(step.id) : false;
+  const appLaunched = step ? appLaunchedStepIds.has(step.id) : false;
   const expectedFiles = useMemo(
     () => uniqueStrings(planContext?.expectedFiles ?? []),
     [planContext?.expectedFiles],
@@ -193,6 +199,8 @@ export function StepDetailSlideIn({
           verification: {
             aiClaimedDone: Boolean(verifyLog?.intent_match),
             diffReviewed: diffViewed,
+            appLaunched,
+            previewChecked: previewObserved,
             automatedTestsPassed: verifyLog?.test_result === "pass",
             testResult: verifyLog?.test_result,
             externalTestRun: verifyLog ? verifyLog.test_result !== "skipped" : undefined,
@@ -201,6 +209,7 @@ export function StepDetailSlideIn({
             approvalProvenance: step.approvalProvenance,
           },
           userHasViewedDiff: diffViewed,
+          userHasViewedPreview: previewObserved,
         }
       : null;
   const provocationCards = provocationContext ? generateProvocationCards(provocationContext) : [];
@@ -222,43 +231,6 @@ export function StepDetailSlideIn({
       })
     : null;
 
-  const handleProvocationAction = (action: ProvocationAction) => {
-    if (action.kind === "open_diff") {
-      handleOpenCode();
-      return;
-    }
-    if (action.kind === "open_preview" || action.kind === "run_app") {
-      onOpenPreview?.();
-      return;
-    }
-    if (action.kind === "rollback_last_change" || action.kind === "revert_unrelated_changes") {
-      onOpenRecovery();
-      return;
-    }
-    if (action.kind === "create_repro_steps") {
-      pushComposerSeed(
-        "반복되는 오류를 기준으로 재현 단계, 가장 작은 확인 명령, 마지막 변경에서 볼 부분을 정리해줘.",
-      );
-      onGoToChat();
-      return;
-    }
-    if (action.kind === "split_scope") {
-      pushComposerSeed("현재 실패를 더 작은 범위 하나로 줄여서 다시 요청할 문장을 만들어줘.");
-      onGoToChat();
-      return;
-    }
-    if (action.kind === "retry_with_ai") {
-      pushComposerSeed(
-        "복구 지점, 재현 단계, 범위 축소 여부를 먼저 확인한 뒤 같은 실패를 피해서 다시 고쳐줘.",
-      );
-      onGoToChat();
-      return;
-    }
-    if (action.kind === "ask_ai_for_rationale" || action.kind === "add_verification_step") {
-      onGoToChat();
-    }
-  };
-
   const handleOpenCode = () => {
     if (step) {
       setDiffViewedStepIds((current) => {
@@ -270,6 +242,35 @@ export function StepDetailSlideIn({
     }
     onOpenCode();
   };
+
+  const handleOpenPreview = () => {
+    if (step) {
+      setPreviewObservedStepIds((current) => new Set(current).add(step.id));
+    }
+    onOpenPreview?.();
+  };
+
+  const handleRunApp = () => {
+    if (step) {
+      setAppLaunchedStepIds((current) => new Set(current).add(step.id));
+    }
+    onOpenPreview?.();
+  };
+
+  const handleProvocationAction = useProvocationActionResolver({
+    pushComposerSeed,
+    onGoToChat,
+    onOpenDiff: handleOpenCode,
+    onOpenPreview: handleOpenPreview,
+    onRunApp: handleRunApp,
+    onRunTests: onVerifyFirst,
+    onOpenRecovery,
+    onContinueWithRisk: (reason) =>
+      onApprovalDecision({
+        outcome: "approved_with_concern",
+        note: reason?.trim() || null,
+      }),
+  });
 
   return (
     <aside

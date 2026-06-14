@@ -59,11 +59,10 @@ export function deriveDecisionGatePolicy(input: DecisionGatePolicyInput): Decisi
     acceptanceCriterionConfirmed: input.acceptanceCriterionConfirmed,
   });
   const aiSelfReportOnly = Boolean(
-    statusIds.has("ai_self_report_only") ||
-    agencyIds.has("ai_self_report_only") ||
-    (input.verifyLog?.intent_match === true &&
-      input.verifyLog.test_result === "skipped" &&
-      !hasVerifiedEvidence),
+    !hasVerifiedEvidence &&
+    (statusIds.has("ai_self_report_only") ||
+      agencyIds.has("ai_self_report_only") ||
+      (input.verifyLog?.intent_match === true && input.verifyLog.test_result === "skipped")),
   );
   const failedTest = Boolean(
     input.verifyLog?.test_result === "fail" ||

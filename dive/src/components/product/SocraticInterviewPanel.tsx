@@ -5,8 +5,8 @@ import { Button } from "../ui/button";
 import {
   ProvocationCardHost,
   generateProvocationCards,
-  type ProvocationAction,
   type ScaffoldMode,
+  useProvocationActionResolver,
 } from "../../features/provocation";
 
 interface SocraticInterviewPanelProps {
@@ -80,15 +80,18 @@ export function SocraticInterviewPanel({
     setText("");
   };
 
-  const handleProvocationAction = (action: ProvocationAction) => {
-    if (action.kind === "add_acceptance_criteria") {
+  const handleProvocationAction = useProvocationActionResolver({
+    onAddAcceptanceCriteria: () => {
       setText((value) => `${value.trim()}\n\n완료 기준:\n- `);
-      return;
-    }
-    if (action.kind === "split_scope") {
+    },
+    onSplitScope: () => {
       setText((value) => `${value.trim()}\n\n첫 번째로 맡길 기능:\n- `);
-    }
-  };
+    },
+    onContinueWithRisk: () => {
+      if (started) onComplete();
+      else submit();
+    },
+  });
 
   return (
     <div className="space-y-2">

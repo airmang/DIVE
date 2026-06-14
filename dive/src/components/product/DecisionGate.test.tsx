@@ -110,6 +110,27 @@ describe("DecisionGate policy", () => {
     expect(policy.canApproveDirectly).toBe(true);
   });
 
+  it("does not keep the AI self-report-only reason after criterion-linked preview evidence", () => {
+    const policy = deriveDecisionGatePolicy({
+      verificationStatuses: [aiSelfReportOnly, manualPreviewChecked],
+      verifyLog: {
+        intent_match: true,
+        test_result: "skipped",
+        details: "AI reported completion without external verification.",
+        model: "mock",
+        ran_at: 1,
+      },
+      acceptanceCriterionConfirmed: true,
+      rollbackAvailable: true,
+    });
+
+    expect(policy.hasVerifiedEvidence).toBe(true);
+    expect(policy.reasons).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "ai_self_report_only" })]),
+    );
+    expect(policy.canApproveDirectly).toBe(true);
+  });
+
   it("clears the unverified reason when preview evidence is linked to an acceptance criterion", () => {
     const policy = deriveDecisionGatePolicy({
       verificationStatuses: [manualPreviewChecked],

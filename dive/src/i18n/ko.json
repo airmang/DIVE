@@ -430,7 +430,7 @@
       "intent_match_false": "AI 자가보고: 의도 불충족(주장)",
       "unverified_note": "외부 테스트로 검증되지 않았습니다. 결과를 직접 확인하세요.",
       "criterion_confirm_label": "이 완료 기준이 충족되는 것을 직접 확인했습니다",
-      "criterion_confirm_hint": "확인한 기준을 체크하면 '검증 증거 있음'으로 인정됩니다",
+      "criterion_confirm_hint": "프리뷰나 앱 실행 결과를 본 뒤 기준을 체크하면 관찰 증거로 기록됩니다",
       "decision_title": "결정",
       "decision_summary_verified": "검증 증거가 있습니다. 바로 승인하거나 더 확인할 수 있습니다.",
       "decision_summary_risk": "승인 전에 확인이 필요한 증거가 있습니다.",
