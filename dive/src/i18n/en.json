@@ -953,9 +953,14 @@
     "checkpoint": {
       "changed_files_empty": "No changed files",
       "changed_files_more": " and {{count}} more",
+      "current_suffix": ", current checkpoint",
       "empty": "No checkpoints yet.",
-      "dot_aria": "Checkpoint {{label}}",
+      "dot_aria": "Checkpoint {{label}}, {{kind}}{{current}}",
       "file_changes": "{{count}} file changes",
+      "kind_auto": "automatic",
+      "kind_init": "initial",
+      "kind_manual": "manual",
+      "kind_other": "{{kind}}",
       "restore": "Restore"
     }
   },

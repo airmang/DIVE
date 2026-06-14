@@ -44,7 +44,8 @@ function formatTime(ms: number): string {
 }
 
 function dotClassFor(kind: string, active: boolean): string {
-  const base = "h-[26px] w-[26px] rounded-full border-2 flex-shrink-0 transition-shadow";
+  const base =
+    "h-[26px] w-[26px] rounded-full border-2 flex-shrink-0 transition-shadow grid place-items-center text-[10px] font-bold leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
   if (active)
     return `${base} bg-accent border-accent shadow-[0_0_8px_var(--tw-shadow-color)] shadow-accent`;
   switch (kind) {
@@ -65,6 +66,32 @@ function changedFileCount(item: TimelineItem): number {
 
 type T = ReturnType<typeof useT>;
 
+function checkpointKindLabel(kind: string, t: T): string {
+  switch (kind) {
+    case "init":
+      return t("slide_in.checkpoint.kind_init");
+    case "auto":
+      return t("slide_in.checkpoint.kind_auto");
+    case "manual":
+      return t("slide_in.checkpoint.kind_manual");
+    default:
+      return t("slide_in.checkpoint.kind_other", { kind });
+  }
+}
+
+function checkpointKindGlyph(kind: string): string {
+  switch (kind) {
+    case "init":
+      return "I";
+    case "auto":
+      return "A";
+    case "manual":
+      return "M";
+    default:
+      return "C";
+  }
+}
+
 function changedFilePreview(files: string[] | undefined, t: T): string {
   if (!files?.length) return t("slide_in.checkpoint.changed_files_empty");
   const shown = files.slice(0, 6);
@@ -83,7 +110,7 @@ export function CheckpointTimeline({
 }: Props) {
   const t = useT();
   const [items, setItems] = useState<TimelineItem[]>(mockItems ?? []);
-  const [hovered, setHovered] = useState<number | null>(null);
+  const [openCheckpointId, setOpenCheckpointId] = useState<number | null>(null);
 
   useEffect(() => {
     if (mockItems) {
@@ -139,28 +166,44 @@ export function CheckpointTimeline({
       />
       {items.map((item) => {
         const active = currentCheckpointId === item.id;
-        const hoveredThis = hovered === item.id;
+        const openThis = openCheckpointId === item.id;
         const fileCount = changedFileCount(item);
+        const kindLabel = checkpointKindLabel(item.kind, t);
+        const tooltipId = `checkpoint-tooltip-${item.id}`;
         return (
           <div
             key={item.id}
             className="relative z-10"
-            onMouseEnter={() => setHovered(item.id)}
-            onMouseLeave={() => setHovered(null)}
+            onMouseEnter={() => setOpenCheckpointId(item.id)}
+            onMouseLeave={() => setOpenCheckpointId(null)}
+            onFocus={() => setOpenCheckpointId(item.id)}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                setOpenCheckpointId(null);
+              }
+            }}
           >
             <button
               type="button"
               className={dotClassFor(item.kind, active)}
+              onClick={() => setOpenCheckpointId(item.id)}
               data-testid="timeline-dot"
               data-kind={item.kind}
               data-checkpoint-id={item.id}
               data-active={active ? "true" : "false"}
+              aria-describedby={openThis ? tooltipId : undefined}
+              aria-expanded={openThis}
               aria-label={t("slide_in.checkpoint.dot_aria", {
                 label: item.label ?? item.git_sha.slice(0, 7),
+                kind: kindLabel,
+                current: active ? t("slide_in.checkpoint.current_suffix") : "",
               })}
-            />
-            {hoveredThis ? (
+            >
+              <span aria-hidden>{checkpointKindGlyph(item.kind)}</span>
+            </button>
+            {openThis ? (
               <div
+                id={tooltipId}
                 className="absolute left-1/2 top-full z-20 mt-1 w-56 -translate-x-1/2 rounded-md border bg-bg-panel p-2 text-[11px] shadow-lg"
                 data-testid="timeline-tooltip"
                 role="tooltip"
@@ -169,7 +212,7 @@ export function CheckpointTimeline({
                   {item.label ?? `[${item.kind}] ${item.git_sha.slice(0, 7)}`}
                 </div>
                 <div className="text-fg-muted">
-                  {formatTime(item.created_at)} · {item.kind}
+                  {formatTime(item.created_at)} · {kindLabel}
                 </div>
                 <div className="mt-1 text-fg-muted" data-testid="timeline-file-changes">
                   {t("slide_in.checkpoint.file_changes", { count: fileCount })}

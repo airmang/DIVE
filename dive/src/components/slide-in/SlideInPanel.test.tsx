@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
 import { useSlideInStore } from "../../stores/slideIn";
@@ -59,5 +59,53 @@ describe("SlideInPanel i18n", () => {
     render(<CheckpointTimeline sessionId={1} mockItems={[]} />);
 
     expect(screen.getByText("No checkpoints yet.")).toBeTruthy();
+  });
+});
+
+describe("CheckpointTimeline accessibility", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: "en" });
+  });
+
+  afterEach(() => {
+    cleanup();
+    useLocaleStore.setState({ locale: "ko" });
+  });
+
+  it("opens restore controls from keyboard focus and preserves a non-color kind cue", () => {
+    const onRestore = vi.fn();
+    render(
+      <CheckpointTimeline
+        sessionId={1}
+        currentCheckpointId={2}
+        onRestore={onRestore}
+        mockItems={[
+          {
+            id: 2,
+            session_id: 1,
+            card_id: null,
+            git_sha: "abcdef123",
+            kind: "manual",
+            label: "Before refactor",
+            created_at: 1_720_000_000_000,
+            changed_files: ["src/App.tsx"],
+          },
+        ]}
+      />,
+    );
+
+    const dot = screen.getByRole("button", {
+      name: "Checkpoint Before refactor, manual, current checkpoint",
+    });
+    expect(dot.textContent).toBe("M");
+
+    fireEvent.focus(dot);
+
+    const restore = screen.getByRole("button", { name: "Restore" });
+    fireEvent.blur(dot, { relatedTarget: restore });
+    expect(screen.getByRole("tooltip")).toBeTruthy();
+
+    fireEvent.click(restore);
+    expect(onRestore).toHaveBeenCalledWith(2);
   });
 });

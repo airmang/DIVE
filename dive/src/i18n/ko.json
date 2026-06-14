@@ -953,9 +953,14 @@
     "checkpoint": {
       "changed_files_empty": "변경 파일 없음",
       "changed_files_more": " 외 {{count}}개",
+      "current_suffix": ", 현재 체크포인트",
       "empty": "체크포인트가 없습니다.",
-      "dot_aria": "체크포인트 {{label}}",
+      "dot_aria": "체크포인트 {{label}}, {{kind}}{{current}}",
       "file_changes": "파일 변경 {{count}}개",
+      "kind_auto": "자동",
+      "kind_init": "초기",
+      "kind_manual": "수동",
+      "kind_other": "{{kind}}",
       "restore": "복원"
     }
   },
