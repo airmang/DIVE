@@ -241,3 +241,11 @@
   - 검증법: 코드 추적 `우려 있음` stance -> label `htmlFor` -> textarea `id` -> `onChange` -> `approved_with_concern` note trim. 실행 검증: `ApprovalJudgment.test.tsx`, `pnpm --dir dive test -- ApprovalJudgment`, `pnpm --dir dive typecheck`, `pnpm --dir dive lint`, `git diff --check`.
   - 네이티브 실동작: 현재 제품 review path는 `DecisionGate`를 사용해 `ApprovalJudgment` 컴포넌트를 직접 mount하지 않으므로 textarea 실동작은 jsdom label query/submit test로 검증. 앱 smoke는 `pnpm --dir dive tauri dev --features dev-mock --no-watch --config '{"build":{"beforeDevCommand":"","devUrl":"http://localhost:1420/"}}'` 새 빌드 실행 후 macOS AX가 `DIVE` 창을 확인.
   - 결과: 커밋 `7eefe95`.
+
+### R8. 누락 기능·확인절차·외부링크
+
+- [x] **D-30 Export 실행 진입점 누락**
+  - 변경: File 메뉴에 locale별 `Export Session…`/`세션 내보내기…` 항목과 `CmdOrCtrl+Shift+E` accelerator를 추가. `menu:export-session` frontend event를 `useProductShellController`에 연결해 현재 세션을 backend `export_session` IPC 기본 옵션(익명화 on)으로 JSONL export하고 browser download를 시작함. 세션 없음/성공/실패 toast도 locale별로 추가.
+  - 검증법: 코드 추적 `build_menu_for_locale` -> `menu:export-session` -> `useMenuEvents` -> `handleExportSession` -> `invoke("export_session", { sessionId })` -> `downloadSessionExport`; 기본 options 미전달이 `ExportOptions::default()`를 사용해 익명화 기본값을 유지함을 `ipc::assist::export_session`에서 대조. 실행 검증: `cargo test --manifest-path dive/src-tauri/Cargo.toml --features dev-mock menu`, `cargo fmt --manifest-path dive/src-tauri/Cargo.toml --check`, `cargo clippy --manifest-path dive/src-tauri/Cargo.toml --all-targets --features dev-mock -- -D warnings`, `cargo test --manifest-path dive/src-tauri/Cargo.toml --features dev-mock`, `pnpm --dir dive typecheck`, `pnpm --dir dive lint`, `pnpm --dir dive test`, `git diff --check`. `pnpm --dir dive format:check`는 기존 Prettier baseline 7개 파일에서 red.
+  - 네이티브 실동작: `pnpm --dir dive tauri dev --features dev-mock --no-watch --config '{"build":{"beforeDevCommand":"","devUrl":"http://localhost:1420/"}}'` 새 빌드 실행 후 macOS AX로 File 메뉴에 `Export Session…`가 `New Project/Open Project/Open Recent` 다음에 노출됨을 확인하고 해당 메뉴 항목을 클릭. WebView toast 세부 텍스트는 AX에서 깊게 노출되지 않아 handler 효과는 코드 trace와 기존 `export_jsonl`/IPC export 테스트로 보완.
+  - 결과: 커밋 `0ceefb1`.
