@@ -284,6 +284,11 @@ fn sanitize_recent_label_with_fallback(label: &str, untitled: &str) -> String {
 pub fn install_event_handler<R: Runtime>(app: &AppHandle<R>) {
     app.on_menu_event(|app_handle, event| {
         let id = event.id().as_ref();
+        if id == "menu:help-docs" {
+            route_user_guide(app_handle, None);
+        } else if id == "menu:help-issue" {
+            route_user_guide(app_handle, Some("troubleshooting"));
+        }
         if let Some(project_id) = id
             .strip_prefix("menu:open-recent:")
             .and_then(|rest| rest.parse::<i64>().ok())
@@ -297,6 +302,33 @@ pub fn install_event_handler<R: Runtime>(app: &AppHandle<R>) {
 
         let _ = app_handle.emit(id, ());
     });
+}
+
+fn route_user_guide<R: Runtime>(app: &AppHandle<R>, doc: Option<&str>) {
+    let Some(window) = app.get_webview_window("main") else {
+        tracing::warn!("main webview window not found for user guide route");
+        return;
+    };
+    if let Err(err) = window.eval(user_guide_route_script(doc)) {
+        tracing::warn!(error = %err, "failed to route user guide from native menu");
+    }
+}
+
+fn user_guide_route_script(doc: Option<&str>) -> String {
+    let doc_js = match doc {
+        Some("troubleshooting") => "url.searchParams.set('doc', 'troubleshooting');",
+        _ => "url.searchParams.delete('doc');",
+    };
+    format!(
+        "(() => {{
+          const url = new URL(window.location.href);
+          url.searchParams.delete('demo');
+          url.searchParams.set('route', 'user-guide');
+          {doc_js}
+          window.history.pushState({{}}, '', url.toString());
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        }})()"
+    )
 }
 
 /// Replace the application menu with a freshly built recent-project list.
@@ -332,7 +364,10 @@ pub fn menu_set_locale(app: AppHandle, locale: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{labels, sanitize_recent_label, sanitize_recent_label_with_fallback, MenuLocale};
+    use super::{
+        labels, sanitize_recent_label, sanitize_recent_label_with_fallback,
+        user_guide_route_script, MenuLocale,
+    };
 
     #[test]
     fn recent_label_is_single_line_and_truncated() {
@@ -364,5 +399,15 @@ mod tests {
             sanitize_recent_label_with_fallback(" \n ", "(제목 없음)"),
             "(제목 없음)"
         );
+    }
+
+    #[test]
+    fn user_guide_route_script_sets_expected_doc_param() {
+        let docs = user_guide_route_script(None);
+        let issue = user_guide_route_script(Some("troubleshooting"));
+
+        assert!(docs.contains("route', 'user-guide'"));
+        assert!(docs.contains("delete('doc')"));
+        assert!(issue.contains("doc', 'troubleshooting'"));
     }
 }

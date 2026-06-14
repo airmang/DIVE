@@ -990,6 +990,8 @@
     "tutorial_description": "You can change this anytime in Settings > General.",
     "docs_open_failed": "Could not open docs",
     "issue_open_failed": "Could not open issue page",
+    "issue_guidance_title": "Troubleshooting guide opened",
+    "issue_guidance_description": "The public issue tracker is not available in this build; use the troubleshooting steps before sharing logs with your instructor or support contact.",
     "export_no_session_title": "No session to export",
     "export_no_session_description": "Open a project and session, then try again.",
     "export_success_title": "Session export ready",

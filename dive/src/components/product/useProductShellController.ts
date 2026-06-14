@@ -578,6 +578,19 @@ export function useProductShellController() {
       }
     : undefined;
 
+  const openUserGuideRoute = useCallback((doc: "index" | "troubleshooting") => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("demo");
+    url.searchParams.set("route", "user-guide");
+    if (doc === "troubleshooting") {
+      url.searchParams.set("doc", "troubleshooting");
+    } else {
+      url.searchParams.delete("doc");
+    }
+    window.history.pushState({}, "", url.toString());
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, []);
+
   const handleOpenProject = useCallback(async () => {
     const picked = await pickFolder({ title: t("project.open_pick_title") });
     if (!picked) return;
@@ -591,22 +604,6 @@ export function useProductShellController() {
       });
     }
   }, [openProject, toast, t]);
-
-  const openExternalUrl = useCallback(
-    async (url: string, title: string) => {
-      try {
-        const { openUrl } = await import("@tauri-apps/plugin-opener");
-        await openUrl(url);
-      } catch (err) {
-        toast({
-          variant: "error",
-          title,
-          description: err instanceof Error ? err.message : String(err),
-        });
-      }
-    },
-    [toast],
-  );
 
   const handleExportSession = useCallback(async () => {
     if (currentSessionId === null) {
@@ -657,16 +654,15 @@ export function useProductShellController() {
       });
     },
     "menu:help-docs": () => {
-      void openExternalUrl(
-        "https://github.com/coreelab/dive/blob/main/README.md",
-        t("toast.docs_open_failed"),
-      );
+      openUserGuideRoute("index");
     },
     "menu:help-issue": () => {
-      void openExternalUrl(
-        "https://github.com/coreelab/dive/issues/new",
-        t("toast.issue_open_failed"),
-      );
+      openUserGuideRoute("troubleshooting");
+      toast({
+        variant: "info",
+        title: t("toast.issue_guidance_title"),
+        description: t("toast.issue_guidance_description"),
+      });
     },
     "menu:help-about": () =>
       toast({

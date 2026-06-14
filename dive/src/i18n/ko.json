@@ -990,6 +990,8 @@
     "tutorial_description": "Settings > 일반에서 언제든 바꿀 수 있습니다.",
     "docs_open_failed": "문서를 열 수 없습니다",
     "issue_open_failed": "이슈 페이지를 열 수 없습니다",
+    "issue_guidance_title": "트러블슈팅 문서를 열었습니다",
+    "issue_guidance_description": "이 빌드에서는 공개 이슈 트래커를 사용할 수 없습니다. 로그를 교사나 지원 담당자에게 공유하기 전에 트러블슈팅 절차를 확인하세요.",
     "export_no_session_title": "내보낼 세션이 없습니다",
     "export_no_session_description": "프로젝트와 세션을 연 뒤 다시 시도하세요.",
     "export_success_title": "세션 export 준비됨",
