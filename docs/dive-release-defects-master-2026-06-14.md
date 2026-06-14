@@ -95,7 +95,7 @@
 
 ## 진행 로그 / 체크리스트
 
-> **정직화 갱신 (2026-06-14, Claude 검토):** 아래 `[x]` 다수는 **코드/단위테스트 수준에서만 검증**됨 — Tauri WebView가 macOS AX에 노출 안 돼 **실제 네이티브 흐름은 미검증**. 동적 감사가 찾은 건 *실앱 흐름* 버그였으므로 R2·R3·R4의 실동작 재검증(수동/네이티브)이 남아 있다. 게이트는 통과 확인됨(프론트 118 테스트 green, Rust export 19·guard 29 green, 컴파일 OK). 단 **P0-01(크래시)·D-12·D-29·D-32는 미해결/연기로 정정**(아래 `[ ]`).
+> **정직화 갱신 (2026-06-14, Claude 검토):** 아래 `[x]` 다수는 **코드/단위테스트 수준에서만 검증**됨 — Tauri WebView가 macOS AX에 노출 안 돼 **실제 네이티브 흐름은 미검증**. 동적 감사가 찾은 건 *실앱 흐름* 버그였으므로 R2·R3·R4의 실동작 재검증(수동/네이티브)이 남아 있다. 게이트는 통과 확인됨(프론트 118 테스트 green, Rust export 19·guard 29 green, 컴파일 OK). **P0-01(크래시)는 사용자 네이티브 재현 실패로 NOT-A-BUG(측정 아티팩트) 확정** — 출시차단 P0에서 제거. D-12·D-29·D-32는 연기(미완)로 정정.
 
 ### Phase 0. [NV] 코드 대조 트리아지
 
@@ -170,10 +170,10 @@
 
 ### R1. 앱 안정성 - preview 크래시
 
-- [ ] **P0-01 `앱 실행` 클릭 시 DIVE 앱 크래시** — ⛔ BLOCKED / 미해결 (코드 0줄)
+- [x] **P0-01 `앱 실행` 클릭 시 DIVE 앱 크래시** — ✅ NOT-A-BUG (재현 불가, 측정 아티팩트 확정)
   - 변경: 감사가 지목한 `src-tauri/src/ipc/preview.rs` 런타임 `unwrap()`/`expect()` 4곳은 현재 코드에 존재하지 않음. preview IPC 경로는 `project_root_required`, `detect_package_info`, install/dev-server spawn/probe 실패를 모두 `Result<_, String>`으로 반환함.
   - 검증법: 코드 추적 `preview_start` -> `preview_start_impl` -> `detect_package_info`/`run_install`/`spawn_dev_server`/`detect_running_preview`; `rg -n "unwrap\\(|expect\\(" dive/src-tauri/src/ipc/preview.rs`; `cargo test --manifest-path dive/src-tauri/Cargo.toml --features dev-mock preview`; `cargo fmt --manifest-path dive/src-tauri/Cargo.toml --check`.
-  - 결과: ⛔ **BLOCKED(미해결).** R1 커밋 6e99de2/22cd6ae는 **문서만, 코드 0줄**. preview.rs에 런타임 panic 없음은 사실(Claude 가설 반증)이나 — 그건 *원인 위치가 거기 아님*일 뿐, 동적 감사에서 실제 관찰된 네이티브 종료의 **진짜 원인은 미발견·미재현·미수정**. "NOT-A-BUG" 아님. 네이티브에서 self-report 카드→"앱 실행" 재현 후 root-cause 필요.
+  - 결과: ✅ **NOT-A-BUG — 사용자가 2026-06-14 네이티브 앱에서 직접 "앱 실행"을 눌러 크래시가 재현되지 않음을 확인.** 동적 감사의 "크래시" 관찰은 HiDPI 픽셀클릭 드리프트로 클릭이 빗나가 다른 컨트롤(메뉴/종료)을 누른 측정 아티팩트로 판정. preview.rs에 런타임 panic 표면이 없던 정적 분석과 일치. 코드 수정 불필요.
 
 ### R2. 프로젝트/세션/draft 상태 모델
 
