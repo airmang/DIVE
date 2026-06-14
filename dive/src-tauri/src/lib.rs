@@ -146,6 +146,7 @@ pub fn run() {
             ipc::workspace_plan_save_interview_answer,
             ipc::workspace_plan_submit_interview,
             ipc::workspace_plan_generate_draft,
+            ipc::workspace_plan_current_draft,
             ipc::workspace_plan_approve,
             ipc::workspace_plan_discard_plan,
             ipc::workspace_plan_list_steps,

@@ -12,7 +12,8 @@ use dive_lib::db::dao::{
 use dive_lib::db::models::{NewInterview, NewPlan, NewProject, NewStep};
 use dive_lib::ipc::workspace_plan::{
     roadmap_step_open_impl, roadmap_step_update_state_impl, workspace_plan_activity_impl,
-    workspace_plan_append_step_impl, workspace_plan_approve_impl, workspace_plan_dashboard_impl,
+    workspace_plan_append_step_impl, workspace_plan_approve_impl,
+    workspace_plan_current_draft_impl, workspace_plan_dashboard_impl,
     workspace_plan_discard_plan_impl, workspace_plan_generate_draft_impl,
     workspace_plan_list_steps_impl, workspace_plan_route_cancel_impl,
     workspace_plan_route_chat_impl, workspace_plan_save_interview_answer_impl,
@@ -1006,6 +1007,33 @@ fn generate_draft_creates_plan_and_steps_in_one_transaction() {
     assert_eq!(steps[0].step_id, "step-001");
     assert_eq!(steps[1].dependencies, Some(json!(["step-001"])));
     assert_eq!(steps[1].parallel_group, Some("1".into()));
+}
+
+#[test]
+fn current_draft_returns_project_draft_plan_and_steps() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let interview =
+        workspace_plan_start_interview_impl(&state, project_id, "Build a roadmap".into()).unwrap();
+    let submitted =
+        workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
+            .unwrap();
+    let (plan_row, steps) =
+        workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
+
+    let current = workspace_plan_current_draft_impl(&state, project_id)
+        .unwrap()
+        .expect("draft should be available");
+
+    assert_eq!(current.0.id, plan_row.id);
+    assert_eq!(current.0.status, "draft");
+    assert_eq!(current.1.len(), steps.len());
+
+    workspace_plan_approve_impl(&state, plan_row.id).unwrap();
+    assert!(workspace_plan_current_draft_impl(&state, project_id)
+        .unwrap()
+        .is_none());
 }
 
 #[test]

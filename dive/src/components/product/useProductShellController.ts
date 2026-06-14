@@ -127,6 +127,33 @@ export function useProductShellController() {
   const planRoadmap = usePlanRoadmap(currentProjectId);
   const plan = usePlan(currentProjectId);
   const planRouter = usePlanRouter(currentProjectId);
+  const currentDraft = plan.currentDraft;
+  const planStatus = plan.status?.status;
+
+  useEffect(() => {
+    if (generatedPlanDraft && generatedPlanDraft.plan.project_id !== currentProjectId) {
+      setGeneratedPlanDraft(null);
+    }
+  }, [currentProjectId, generatedPlanDraft]);
+
+  useEffect(() => {
+    if (currentProjectId === null || generatedPlanDraft !== null || planStatus !== "draft") {
+      return;
+    }
+    let cancelled = false;
+    void currentDraft()
+      .then((draft) => {
+        if (!cancelled && draft) {
+          setGeneratedPlanDraft(draft);
+        }
+      })
+      .catch((err) => {
+        console.warn("load current plan draft failed:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentDraft, currentProjectId, generatedPlanDraft, planStatus]);
 
   useEffect(() => {
     pendingPlanRouteRef.current = pendingPlanRoute;
