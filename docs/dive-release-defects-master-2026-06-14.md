@@ -165,3 +165,10 @@
   - 변경: 코드 버그보다 approval provenance 표시 정책 문제로 분류.
   - 검증법: roadmap agency/approval 상태 표시 경로 대조.
   - 결과: DEFER: R8 policy polish.
+
+### R1. 앱 안정성 - preview 크래시
+
+- [x] **P0-01 `앱 실행` 클릭 시 DIVE 앱 크래시**
+  - 변경: 감사가 지목한 `src-tauri/src/ipc/preview.rs` 런타임 `unwrap()`/`expect()` 4곳은 현재 코드에 존재하지 않음. preview IPC 경로는 `project_root_required`, `detect_package_info`, install/dev-server spawn/probe 실패를 모두 `Result<_, String>`으로 반환함.
+  - 검증법: 코드 추적 `preview_start` -> `preview_start_impl` -> `detect_package_info`/`run_install`/`spawn_dev_server`/`detect_running_preview`; `rg -n "unwrap\\(|expect\\(" dive/src-tauri/src/ipc/preview.rs`; `cargo test --manifest-path dive/src-tauri/Cargo.toml --features dev-mock preview`; `cargo fmt --manifest-path dive/src-tauri/Cargo.toml --check`.
+  - 결과: NOT-A-BUG/STALE: 현재 HEAD `6e99de2` 기준 런타임 panic 지점 없음. 남은 `expect("port regex")`는 정적 상수 regex 생성이고, 나머지 unwrap은 테스트 코드.
