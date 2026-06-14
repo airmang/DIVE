@@ -26,7 +26,12 @@ import { getCardStateMeta } from "../workmap/card-state-meta";
 import { useT } from "../../i18n";
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts";
 import { usePlanRoadmap, useRoadmap } from "../../features/roadmap";
-import { usePlan, usePlanRouter, type RouteDecision } from "../../features/planning";
+import {
+  PLAN_DRAFT_REVIEW_REQUEST_EVENT,
+  usePlan,
+  usePlanRouter,
+  type RouteDecision,
+} from "../../features/planning";
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
 import {
   usePlanInterviewLLM,
@@ -101,6 +106,7 @@ export function useProductShellController() {
   const [activeInterview, setActiveInterview] = useState<InterviewRow | null>(null);
   const activeInterviewRef = useRef<InterviewRow | null>(null);
   const [generatedPlanDraft, setGeneratedPlanDraft] = useState<PlanGenerationResult | null>(null);
+  const [planDraftReviewRequestNonce, setPlanDraftReviewRequestNonce] = useState(0);
   const [planDraftFailure, setPlanDraftFailure] = useState<{
     reason: PlanDraftLlmErrorReason;
   } | null>(null);
@@ -162,6 +168,18 @@ export function useProductShellController() {
   }, [currentProjectId, generatedPlanDraft]);
 
   useEffect(() => {
+    const handler = (event: Event) => {
+      const requestedProjectId = (event as CustomEvent<{ projectId?: number }>).detail?.projectId;
+      if (typeof requestedProjectId === "number" && requestedProjectId !== currentProjectId) {
+        return;
+      }
+      setPlanDraftReviewRequestNonce((nonce) => nonce + 1);
+    };
+    window.addEventListener(PLAN_DRAFT_REVIEW_REQUEST_EVENT, handler);
+    return () => window.removeEventListener(PLAN_DRAFT_REVIEW_REQUEST_EVENT, handler);
+  }, [currentProjectId]);
+
+  useEffect(() => {
     if (currentProjectId === null || generatedPlanDraft !== null || planStatus !== "draft") {
       return;
     }
@@ -178,7 +196,7 @@ export function useProductShellController() {
     return () => {
       cancelled = true;
     };
-  }, [currentDraft, currentProjectId, generatedPlanDraft, planStatus]);
+  }, [currentDraft, currentProjectId, generatedPlanDraft, planDraftReviewRequestNonce, planStatus]);
 
   useEffect(() => {
     pendingPlanRouteRef.current = pendingPlanRoute;
@@ -464,13 +482,6 @@ export function useProductShellController() {
 
   const handleStepDetailOpenChange = (open: boolean) => {
     dialogs.setStepDetailOpen(open);
-    if (!open) {
-      if (isDemoRoute) {
-        setCurrentCardLocal(null);
-        return;
-      }
-      void roadmapModel.selectStep(null).catch(showWorkmapError);
-    }
   };
 
   const handleOnboardingOpenChange = useCallback(
@@ -810,6 +821,7 @@ export function useProductShellController() {
       if (currentProjectId !== null) void createSession(currentProjectId);
     },
     onOpenResultPanel: openResultPanelWithContext,
+    onOpenReviewPanel: () => dialogs.setStepDetailOpen(true),
     t,
   });
 
@@ -1127,6 +1139,21 @@ export function useProductShellController() {
           : [],
         targetFiles: activePlanStepTargetFiles,
         planSteps: activePlanStep ? [normalizePlanStep(activePlanStep.step)] : [],
+        verification: currentCard
+          ? {
+              aiClaimedDone: Boolean(currentVerifyLog?.intent_match),
+              automatedTestsPassed: currentVerifyLog?.test_result === "pass",
+              testResult: currentVerifyLog?.test_result,
+              externalTestRun: currentVerifyLog
+                ? currentVerifyLog.test_result !== "skipped"
+                : undefined,
+              approvalProvenance: currentCard.approvalProvenance,
+              approvedWithRisk: Boolean(currentCard.approvalProvenance?.riskAccepted),
+            }
+          : undefined,
+        approvalProvenance: currentCard?.approvalProvenance ?? null,
+        suppressAiSelfReportOnly:
+          allVerified || currentCard?.state === "verified" || currentCard?.state === "extended",
         checkpointAvailable: recoveryCheckpoints.length > 0,
         onOpenRecovery: () => dialogs.setRecoveryOpen(true),
       },

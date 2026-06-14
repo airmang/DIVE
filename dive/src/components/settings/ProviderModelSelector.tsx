@@ -27,7 +27,7 @@ async function loadTauri(): Promise<TauriApi | null> {
   return { invoke: core.invoke as TauriApi["invoke"] };
 }
 
-function fallbackModels(providerKind: string): ModelInfo[] {
+export function fallbackModels(providerKind: string): ModelInfo[] {
   if (providerKind === "anthropic") {
     return [
       { id: "claude-opus-4-7", display_name: "Claude Opus 4.7" },
@@ -51,11 +51,19 @@ function fallbackModels(providerKind: string): ModelInfo[] {
       { id: "hy3-preview-free", display_name: "Hy3 Preview Free" },
     ];
   }
+  if (providerKind === "codex") {
+    return [
+      { id: "gpt-5.5", display_name: "GPT-5.5" },
+      { id: "gpt-5.4", display_name: "GPT-5.4" },
+      { id: "gpt-5.4-mini", display_name: "GPT-5.4 Mini" },
+      { id: "gpt-5.3-codex-spark", display_name: "GPT-5.3 Codex Spark" },
+    ];
+  }
   return [
     { id: "gpt-5.5", display_name: "GPT-5.5" },
-    { id: "gpt-5.5-codex", display_name: "GPT-5.5 Codex" },
     { id: "gpt-5.4", display_name: "GPT-5.4" },
     { id: "gpt-5.4-mini", display_name: "GPT-5.4 Mini" },
+    { id: "gpt-5.3-codex", display_name: "GPT-5.3 Codex" },
   ];
 }
 

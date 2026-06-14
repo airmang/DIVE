@@ -1,5 +1,5 @@
 import { GitBranch } from "lucide-react";
-import { forwardRef } from "react";
+import { forwardRef, type KeyboardEvent } from "react";
 import { useT } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { agencyToneClass, type PlanRoadmapStep } from "../../features/roadmap";
@@ -57,11 +57,11 @@ export const PlanStep = forwardRef<HTMLDivElement, PlanStepProps>(function PlanS
   const dependencies = stringArray(item.step.dependencies);
   const summary = item.step.summary?.trim() ?? "";
 
-  const run = async (focus = true) => {
+  const run = async (focus = true, openDetail = false) => {
     if (!actions) return;
     onActionStart?.(item.step.id);
     try {
-      await actions.onOpenStep(item.step.id, { focus });
+      await actions.onOpenStep(item.step.id, { focus, openDetail });
     } catch (error) {
       onActionError?.(item, error);
     } finally {
@@ -69,10 +69,34 @@ export const PlanStep = forwardRef<HTMLDivElement, PlanStepProps>(function PlanS
     }
   };
 
-  const open = () => {
+  const openSession = () => {
     const sessionId = item.mapping?.session_id ?? null;
     if (sessionId !== null) actions?.onOpenSession(sessionId);
     else void run(false);
+  };
+  const openDetail = () => {
+    if (item.mapping?.card_id !== null && item.mapping?.card_id !== undefined) {
+      void run(true, true);
+      return;
+    }
+    openSession();
+  };
+
+  // Row text mirrors the row's primary action so the whole row reads as
+  // clickable — not just the small right-side button. Blocked steps stay
+  // non-interactive (no safe open path that wouldn't bypass the lock).
+  const rowActionable = Boolean(actions) && item.status !== "blocked";
+  const activate = () => {
+    if (!rowActionable || busy) return;
+    if (item.status === "ready") void run();
+    else if (item.mapping?.card_id !== null && item.mapping?.card_id !== undefined) openDetail();
+    else openSession();
+  };
+  const onRowKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      activate();
+    }
   };
 
   return (
@@ -151,12 +175,40 @@ export const PlanStep = forwardRef<HTMLDivElement, PlanStepProps>(function PlanS
               busy={busy}
               onStart={() => void run()}
               onResume={actions.onOpenSession}
-              onOpen={open}
+              onOpen={openDetail}
+              onReview={openDetail}
             />
           ) : null}
         </div>
-        <h3 className="mt-2 text-base font-semibold leading-snug text-fg">{item.step.title}</h3>
-        {summary ? <p className="mt-1 line-clamp-2 text-xs text-fg">{summary}</p> : null}
+        {rowActionable ? (
+          <div
+            role="button"
+            tabIndex={busy ? -1 : 0}
+            onClick={activate}
+            onKeyDown={onRowKeyDown}
+            aria-disabled={busy || undefined}
+            aria-label={t("plan_view.open_step_aria", {
+              step: item.step.step_id,
+              title: item.step.title,
+            })}
+            data-testid="plan-step-open"
+            className={cn(
+              "group/open mt-2 block w-full rounded-sm text-left outline-none",
+              "focus-visible:ring-2 focus-visible:ring-ring",
+              busy ? "cursor-not-allowed" : "cursor-pointer",
+            )}
+          >
+            <h3 className="text-base font-semibold leading-snug text-fg transition group-hover/open:text-accent">
+              {item.step.title}
+            </h3>
+            {summary ? <p className="mt-1 line-clamp-2 text-xs text-fg">{summary}</p> : null}
+          </div>
+        ) : (
+          <>
+            <h3 className="mt-2 text-base font-semibold leading-snug text-fg">{item.step.title}</h3>
+            {summary ? <p className="mt-1 line-clamp-2 text-xs text-fg">{summary}</p> : null}
+          </>
+        )}
         {item.blockedDependencies.length > 0 || dependencies.length > 0 ? (
           <div
             className={cn(

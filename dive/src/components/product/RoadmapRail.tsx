@@ -9,9 +9,13 @@ interface RoadmapRailProps {
   projectName: string | null;
   planRoadmap: PlanRoadmapModel;
   fallbackRoadmap: ProductShellController["roadmap"];
-  onOpenPlanStep: (stepId: number, opts?: { focus?: boolean }) => Promise<StepSessionMappingRow>;
+  onOpenPlanStep: (
+    stepId: number,
+    opts?: { focus?: boolean; openDetail?: boolean },
+  ) => Promise<StepSessionMappingRow>;
   onOpenSession: (sessionId: number) => void;
   onCreatePlan: () => void;
+  onReviewPlan?: () => void;
 }
 
 export function RoadmapRail({
@@ -21,6 +25,7 @@ export function RoadmapRail({
   onOpenPlanStep,
   onOpenSession,
   onCreatePlan,
+  onReviewPlan,
 }: RoadmapRailProps) {
   if (!planRoadmap.hasPlan && fallbackRoadmap.visible) {
     const {
@@ -40,6 +45,7 @@ export function RoadmapRail({
         onOpenStep: onOpenPlanStep,
         onOpenSession,
         onCreatePlan,
+        onReviewPlan,
       }}
     />
   );

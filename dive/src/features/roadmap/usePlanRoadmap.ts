@@ -174,7 +174,7 @@ export function usePlanRoadmap(projectId: number | null) {
         projectId,
       });
       setStatus(nextStatus);
-      const planId = nextStatus.has_approved_plan ? nextStatus.plan_id : null;
+      const planId = nextStatus.has_plan ? nextStatus.plan_id : null;
       if (planId === null) {
         setSteps([]);
         setMappings([]);
@@ -239,7 +239,7 @@ export function usePlanRoadmap(projectId: number | null) {
     steps: roadmapSteps,
     loading: loadingStatus || loadingDetails,
     error,
-    hasPlan: Boolean(status?.has_approved_plan),
+    hasPlan: Boolean(status?.has_plan),
     openStep,
     updateStepState,
     refresh,

@@ -23,9 +23,13 @@ export interface PlanViewRoadmapModel {
 }
 
 export interface PlanActionHandlers {
-  onOpenStep: (stepId: number, opts?: { focus?: boolean }) => Promise<StepSessionMappingRow>;
+  onOpenStep: (
+    stepId: number,
+    opts?: { focus?: boolean; openDetail?: boolean },
+  ) => Promise<StepSessionMappingRow>;
   onOpenSession: (sessionId: number) => void;
   onCreatePlan?: () => void;
+  onReviewPlan?: () => void;
 }
 
 export interface PlanStepRenderState {

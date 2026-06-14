@@ -55,6 +55,11 @@ export function PlanView({ roadmap, projectName, actions, className }: PlanViewP
   const summary = useMemo(() => summarizePlan(roadmap.steps), [roadmap.steps]);
   const currentStep = useMemo(() => currentStepFor(roadmap.steps), [roadmap.steps]);
   const goal = roadmap.status?.plan_summary ?? null;
+  const planReviewPending =
+    roadmap.status?.plan_id !== null &&
+    roadmap.status?.plan_id !== undefined &&
+    !roadmap.status?.has_approved_plan;
+  const timelineActions = planReviewPending ? undefined : actions;
 
   useEffect(() => {
     if (!currentStep) return;
@@ -120,8 +125,10 @@ export function PlanView({ roadmap, projectName, actions, className }: PlanViewP
         summary={summary}
         minimapOpen={minimapOpen}
         loading={roadmap.loading}
+        planReviewPending={planReviewPending}
         onToggleMinimap={() => setMinimapOpen((open) => !open)}
         onRefresh={() => void roadmap.refresh()}
+        onReviewPlan={actions.onReviewPlan}
       />
       {minimapOpen && roadmap.steps.length > 0 ? (
         <PlanMiniMap
@@ -146,7 +153,7 @@ export function PlanView({ roadmap, projectName, actions, className }: PlanViewP
             steps={roadmap.steps}
             currentStepId={currentStep?.step.id ?? null}
             busyStepId={busyStepId}
-            actions={actions}
+            actions={timelineActions}
             onStartGroup={handleStartGroup}
             onActionStart={(id) => {
               setFailures([]);

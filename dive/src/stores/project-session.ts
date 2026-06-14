@@ -27,6 +27,7 @@ export interface ProviderSummary {
   auth_type: string;
   base_url: string | null;
   is_connected: boolean;
+  is_active?: boolean;
   selected_model?: string | null;
   account_id?: string | null;
 }
@@ -562,6 +563,7 @@ export const useProjectSessionStore = create<State>((set, get) => ({
             auth_type: "api_key",
             base_url: baseUrl ?? null,
             is_connected: true,
+            is_active: true,
             selected_model: null,
           };
           mock.providers.push(row);
@@ -570,7 +572,9 @@ export const useProjectSessionStore = create<State>((set, get) => ({
         },
       );
       if (!row) return null;
-      set((s) => ({ providers: [...s.providers, row] }));
+      set((s) => ({
+        providers: [...s.providers.map((provider) => ({ ...provider, is_active: false })), row],
+      }));
       if (row.is_connected) setOnboardedFlag(true);
       return row;
     }),

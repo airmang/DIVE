@@ -102,9 +102,9 @@ pub(super) fn safest_run_mode(backend: AgentRunMode, requested: AgentRunMode) ->
 }
 
 /// `env_override` is `std::env::var("DIVE_RUNTIME").ok()` at the call site
-/// (passed in so this is unit-testable). Precedence:
-///   legacy override -> Legacy; pi override -> Pi only for providers with a Pi
-///   descriptor, otherwise Legacy; no override -> parity allowlist decides.
+/// (passed in so this is unit-testable). Precedence: legacy override -> Legacy;
+/// pi override -> Pi only for providers with a Pi descriptor, otherwise Legacy;
+/// no override -> parity allowlist decides.
 pub(super) fn select_runtime(kind: ProviderKind, env_override: Option<&str>) -> RuntimeChoice {
     match env_override {
         Some("legacy") => RuntimeChoice::Legacy,
@@ -114,13 +114,13 @@ pub(super) fn select_runtime(kind: ProviderKind, env_override: Option<&str>) -> 
             } else {
                 tracing::warn!(
                     provider = kind.as_str(),
-                    "DIVE_RUNTIME=pi ignored because provider has no Pi sidecar descriptor"
+                    "DIVE_RUNTIME=pi ignored because provider has no Pi sidecar support"
                 );
                 RuntimeChoice::Legacy
             }
         }
         _ => {
-            if crate::pi_sidecar::parity::pi_provider_descriptor(kind).is_some() {
+            if crate::pi_sidecar::parity::pi_provider_descriptor(kind.clone()).is_some() {
                 RuntimeChoice::Pi
             } else {
                 RuntimeChoice::Legacy
@@ -134,7 +134,7 @@ fn runtime_selection_reason(kind: &ProviderKind, choice: RuntimeChoice) -> Strin
         (Some("legacy"), RuntimeChoice::Legacy) => "DIVE_RUNTIME=legacy forced legacy loop".into(),
         (Some("pi"), RuntimeChoice::Pi) => "DIVE_RUNTIME=pi forced Pi sidecar runtime".into(),
         (Some("pi"), RuntimeChoice::Legacy) => {
-            format!("provider {} has no Pi sidecar descriptor", kind.as_str())
+            format!("provider {} has no Pi sidecar support", kind.as_str())
         }
         (_, RuntimeChoice::Pi) => "provider is eligible for Pi sidecar runtime".into(),
         (_, RuntimeChoice::Legacy) => {

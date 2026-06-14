@@ -18,6 +18,7 @@ import {
   type RoadmapActionFailure,
   type PlanDashboardStep,
 } from "../../features/roadmap";
+import { requestPlanDraftReview } from "../../features/planning";
 import { useT } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { useProjectSessionStore } from "../../stores/project-session";
@@ -70,6 +71,9 @@ export function PlanDashboardPanel() {
     setActionFailure(null);
     try {
       await openProject(project);
+      if (project.plan_id !== null && project.plan_status !== "approved") {
+        requestPlanDraftReview(project.project_id);
+      }
     } catch (err) {
       setActionFailure(
         makeRoadmapActionFailure({
@@ -291,6 +295,7 @@ function DashboardProjectItem({
   const t = useT();
   const activeStep = project.active_steps[0] ?? null;
   const readyStep = project.next_ready_steps[0] ?? null;
+  const needsPlanReview = project.plan_id !== null && project.plan_status !== "approved";
   const canResume = activeStep?.session_id !== null && activeStep?.session_id !== undefined;
   const canStart = project.plan_status === "approved" && readyStep !== null;
   const percent = completionPercent(project);
@@ -351,7 +356,20 @@ function DashboardProjectItem({
       ) : null}
 
       <div className="mt-3 flex items-center gap-2">
-        {canResume && activeStep ? (
+        {needsPlanReview ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void onOpenProject(project)}
+            disabled={busyAction !== null}
+            className="flex-1"
+          >
+            <FolderOpen />
+            {busyAction === openKey
+              ? t("roadmap.dashboard.working")
+              : t("roadmap.dashboard.review_plan")}
+          </Button>
+        ) : canResume && activeStep ? (
           <Button
             size="sm"
             variant="outline"

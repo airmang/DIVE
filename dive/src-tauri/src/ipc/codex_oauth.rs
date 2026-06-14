@@ -71,13 +71,15 @@ fn selected_model_for_codex_row(
     let row = provider_dao::get_by_id(db.conn(), provider_config_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("codex provider not found: {provider_config_id}"))?;
-    Ok(row
+    let selected = row
         .config
         .get("selected_model")
         .or_else(|| row.config.get("model"))
         .and_then(|value| value.as_str())
-        .unwrap_or_else(|| crate::providers::default_model_for_kind("codex"))
-        .to_owned())
+        .or_else(|| Some(crate::providers::default_model_for_kind("codex")));
+    Ok(crate::providers::normalize_model_for_kind(
+        "codex", selected,
+    ))
 }
 
 fn mark_codex_connected(

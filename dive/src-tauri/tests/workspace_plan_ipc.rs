@@ -98,6 +98,36 @@ struct PendingRouteProviderResponse {
     called: Arc<AtomicBool>,
 }
 
+struct FailingRouteProvider;
+
+#[async_trait]
+impl LlmProvider for FailingRouteProvider {
+    fn id(&self) -> &str {
+        "mock"
+    }
+
+    fn list_models(&self) -> Vec<ModelInfo> {
+        vec![ModelInfo {
+            id: "mock".into(),
+            display_name: "Mock".into(),
+        }]
+    }
+
+    async fn chat(
+        &self,
+        _req: ChatRequest,
+    ) -> Result<BoxStream<'static, ChatEvent>, ProviderError> {
+        Err(ProviderError::Api {
+            status: 500,
+            body: r#"{ "error": { "message": "Internal server error" } }"#.into(),
+        })
+    }
+
+    async fn refresh_auth(&mut self) -> Result<(), ProviderError> {
+        Ok(())
+    }
+}
+
 #[async_trait]
 impl LlmProvider for PendingRouteProviderResponse {
     fn id(&self) -> &str {
@@ -519,6 +549,31 @@ async fn route_chat_downgrades_duplicate_step_to_chat() {
             .unwrap()
             .len(),
         1
+    );
+}
+
+#[tokio::test]
+async fn route_chat_fails_open_when_router_provider_returns_api_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state_with_provider(&tmp, Arc::new(FailingRouteProvider));
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    insert_step(&state, plan_id, "step-001", &[]);
+
+    let decision = workspace_plan_route_chat_impl(
+        &state,
+        project_id,
+        "새 작업을 하나 더 추가해줘".into(),
+        None,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        decision,
+        RouteDecision::Skip {
+            reason: "router unavailable; continuing as normal chat".into()
+        }
     );
 }
 

@@ -1,4 +1,5 @@
-import { CheckCircle2, Play, RotateCw } from "lucide-react";
+import { CheckCircle2, ClipboardCheck, Play, RotateCw } from "lucide-react";
+import type { MouseEvent } from "react";
 import { useT } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type { PlanRoadmapStep } from "../../features/roadmap";
@@ -9,6 +10,7 @@ interface PlanStepActionsProps {
   onStart: () => void;
   onResume: (sessionId: number) => void;
   onOpen: () => void;
+  onReview: () => void;
 }
 
 function actionClass(primary: boolean) {
@@ -23,17 +25,30 @@ function actionClass(primary: boolean) {
   );
 }
 
-export function PlanStepActions({ item, busy, onStart, onResume, onOpen }: PlanStepActionsProps) {
+export function PlanStepActions({
+  item,
+  busy,
+  onStart,
+  onResume,
+  onOpen,
+  onReview,
+}: PlanStepActionsProps) {
   const t = useT();
   const sessionId = item.mapping?.session_id ?? null;
+  const cardId = item.mapping?.card_id ?? null;
   const label = busy ? t("plan_view.actions.working") : null;
+  const runAction = (event: MouseEvent<HTMLButtonElement>, action: () => void) => {
+    event.preventDefault();
+    event.stopPropagation();
+    action();
+  };
 
   if (item.status === "ready") {
     return (
       <button
         type="button"
         className={actionClass(true)}
-        onClick={onStart}
+        onClick={(event) => runAction(event, onStart)}
         disabled={busy}
         data-testid="plan-step-action"
         data-action="start"
@@ -45,13 +60,31 @@ export function PlanStepActions({ item, busy, onStart, onResume, onOpen }: PlanS
   }
 
   if (item.status === "in_progress") {
+    if (cardId !== null) {
+      return (
+        <button
+          type="button"
+          className={actionClass(true)}
+          onClick={(event) => runAction(event, onReview)}
+          disabled={busy}
+          data-testid="plan-step-action"
+          data-action="review"
+        >
+          <ClipboardCheck className="h-3.5 w-3.5" aria-hidden />
+          {label ?? t("plan_view.actions.open_review")}
+        </button>
+      );
+    }
+
     // Resume into the live session when present; otherwise re-open the step so an
     // in-progress step is never stranded behind a disabled "Locked" action.
     return (
       <button
         type="button"
         className={actionClass(true)}
-        onClick={() => (sessionId !== null ? onResume(sessionId) : onOpen())}
+        onClick={(event) =>
+          runAction(event, () => (sessionId !== null ? onResume(sessionId) : onOpen()))
+        }
         disabled={busy}
         data-testid="plan-step-action"
         data-action="resume"
@@ -67,7 +100,7 @@ export function PlanStepActions({ item, busy, onStart, onResume, onOpen }: PlanS
       <button
         type="button"
         className={actionClass(false)}
-        onClick={onOpen}
+        onClick={(event) => runAction(event, onOpen)}
         disabled={busy}
         data-testid="plan-step-action"
         data-action="open"
@@ -78,11 +111,18 @@ export function PlanStepActions({ item, busy, onStart, onResume, onOpen }: PlanS
     );
   }
 
+  const lockedReason =
+    item.blockedDependencies.length > 0
+      ? t("plan_view.actions.locked_reason", { deps: item.blockedDependencies.join(" · ") })
+      : t("plan_view.actions.locked_reason_generic");
+
   return (
     <button
       type="button"
       className={actionClass(false)}
       disabled
+      title={lockedReason}
+      aria-label={`${t("plan_view.actions.locked")} — ${lockedReason}`}
       data-testid="plan-step-action"
       data-action="locked"
     >

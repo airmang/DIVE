@@ -1,4 +1,4 @@
-import { ChevronRight, RefreshCw } from "lucide-react";
+import { ChevronRight, ClipboardCheck, RefreshCw } from "lucide-react";
 import { useT } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type { PlanRoadmapStep } from "../../features/roadmap";
@@ -12,8 +12,10 @@ interface PlanHeaderProps {
   summary: PlanSummary;
   minimapOpen: boolean;
   loading: boolean;
+  planReviewPending?: boolean;
   onToggleMinimap: () => void;
   onRefresh: () => void;
+  onReviewPlan?: () => void;
 }
 
 export function PlanHeader({
@@ -23,8 +25,10 @@ export function PlanHeader({
   summary,
   minimapOpen,
   loading,
+  planReviewPending = false,
   onToggleMinimap,
   onRefresh,
+  onReviewPlan,
 }: PlanHeaderProps) {
   const t = useT();
 
@@ -87,6 +91,17 @@ export function PlanHeader({
           {minimapOpen ? t("plan_view.hide_minimap") : t("plan_view.show_minimap")}
         </button>
         <span className="flex-1" />
+        {planReviewPending && onReviewPlan ? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-sm border border-warn/45 bg-warn/10 px-2 py-1 font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em] text-fg hover:border-warn hover:text-warn"
+            onClick={onReviewPlan}
+            data-testid="plan-review-open"
+          >
+            <ClipboardCheck className="h-3.5 w-3.5" aria-hidden />
+            {t("plan_view.actions.review_plan")}
+          </button>
+        ) : null}
         <button
           type="button"
           className="rounded-sm p-1 text-fg-muted hover:text-fg"

@@ -15,7 +15,9 @@ import { useT } from "../../i18n";
 import type { RuntimeSelection } from "../../hooks/useChatSession";
 import type {
   ProvocationChangedFile,
+  ApprovalProvenance,
   ProvocationPlanStep,
+  ProvocationVerification,
   ScaffoldMode,
 } from "../../features/provocation";
 
@@ -100,7 +102,10 @@ interface ChatAreaProps {
     changedFiles?: ProvocationChangedFile[];
     targetFiles?: string[];
     planSteps?: ProvocationPlanStep[];
+    verification?: ProvocationVerification;
+    approvalProvenance?: ApprovalProvenance | null;
     checkpointAvailable?: boolean | null;
+    suppressAiSelfReportOnly?: boolean;
     onOpenRecovery?: () => void;
   };
 }

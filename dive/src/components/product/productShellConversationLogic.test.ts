@@ -94,6 +94,26 @@ describe("product shell conversation logic", () => {
     ).toBe("chat.empty_no_session_title");
   });
 
+  it("offers an explicit review action while a card is waiting for verification judgment", () => {
+    const openResult = vi.fn();
+    const openReview = vi.fn();
+    expect(
+      deriveStageBanner({
+        cardCount: 1,
+        currentCard: { state: "verifying", summary: "Implement todo input" },
+        allVerified: false,
+        onOpenResultPanel: openResult,
+        onOpenReviewPanel: openReview,
+        t,
+      }),
+    ).toEqual({
+      tone: "info",
+      message: "stage.banner_verifying",
+      actionLabel: "stage.action_open_review",
+      onAction: openReview,
+    });
+  });
+
   it("derives get-started step statuses", () => {
     const model = deriveGetStartedModel({
       isDemoRoute: false,

@@ -72,8 +72,15 @@ seedDiscoveryDecoys(cwd);
 
 const authStorage = AuthStorage.inMemory();
 const modelRegistry = ModelRegistry.inMemory(authStorage);
-const model = getModel("openai-codex", "gpt-5.4-mini");
-assert.ok(model, "openai-codex/gpt-5.4-mini must be registered");
+for (const modelId of ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark"]) {
+  assert.ok(getModel("openai-codex", modelId), `openai-codex/${modelId} must be registered`);
+}
+assert.equal(
+  getModel("openai-codex", "gpt-5.5-codex"),
+  undefined,
+  "DIVE must use Pi's canonical openai-codex/gpt-5.5 id, not the retired gpt-5.5-codex alias",
+);
+const model = getModel("openai-codex", "gpt-5.5");
 
 const created = await createAgentSession({
   cwd,

@@ -29,10 +29,10 @@ pub struct CodexProvider {
 
 pub fn default_codex_models() -> Vec<ModelInfo> {
     [
-        ("gpt-5.5-codex", "GPT-5.5 Codex"),
-        ("gpt-5.5", "GPT-5.5 (ChatGPT)"),
-        ("gpt-5.4", "GPT-5.4 (ChatGPT)"),
-        ("gpt-5.4-mini", "GPT-5.4 Mini (ChatGPT)"),
+        ("gpt-5.5", "GPT-5.5"),
+        ("gpt-5.4", "GPT-5.4"),
+        ("gpt-5.4-mini", "GPT-5.4 Mini"),
+        ("gpt-5.3-codex-spark", "GPT-5.3 Codex Spark"),
     ]
     .into_iter()
     .map(|(id, display_name)| ModelInfo {

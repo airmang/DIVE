@@ -21,8 +21,8 @@ pub use anthropic::AnthropicProvider;
 pub use codex::CodexProvider;
 pub use error::ProviderError;
 pub use factory::{
-    build_provider, default_model_for_kind, health_check, models_for_kind,
-    normalize_model_for_kind, validate_model_for_kind, validate_provider_base_url,
+    build_provider, canonical_model_for_kind, default_model_for_kind, health_check,
+    models_for_kind, normalize_model_for_kind, validate_model_for_kind, validate_provider_base_url,
 };
 #[cfg(any(test, feature = "dev-mock"))]
 pub use mock::MockProvider;

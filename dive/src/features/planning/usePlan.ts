@@ -2,6 +2,17 @@ import { useCallback, useEffect, useState } from "react";
 import type { InterviewRow, PlanDraftInput, PlanGenerationResult, PlanRow } from "./types";
 import type { PlanStepRow } from "../roadmap";
 
+export const PLAN_DRAFT_REVIEW_REQUEST_EVENT = "dive:plan-draft-review-request";
+
+export function requestPlanDraftReview(projectId: number) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(PLAN_DRAFT_REVIEW_REQUEST_EVENT, {
+      detail: { projectId },
+    }),
+  );
+}
+
 type TauriApi = {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 };

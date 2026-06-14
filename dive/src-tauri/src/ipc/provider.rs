@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::sync::Arc;
 use tauri::State;
 
 use crate::auth;
 use crate::db::dao::provider_config as provider_dao;
 use crate::db::models::{NewProviderConfig, ProviderConfigRow};
+use crate::providers::LlmProvider;
 use crate::providers::ModelInfo;
 
 use super::{AppState, ProviderKind, ProviderRuntime};
@@ -38,6 +40,7 @@ pub struct ProviderConfigSummary {
     pub auth_type: String,
     pub base_url: Option<String>,
     pub is_connected: bool,
+    pub is_active: bool,
     pub selected_model: Option<String>,
     pub account_id: Option<String>,
 }
@@ -144,6 +147,7 @@ pub async fn provider_connect_impl(
         auth_type: "api_key".into(),
         base_url,
         is_connected: true,
+        is_active: true,
         selected_model: Some(model),
         account_id: None,
     })
@@ -163,7 +167,11 @@ pub fn provider_list_command_impl(state: &AppState) -> Result<Vec<ProviderConfig
 pub fn provider_list_impl(state: &AppState) -> Result<Vec<ProviderConfigSummary>, String> {
     let rows = provider_rows(state)?;
     repair_stale_selected_models(state, &rows)?;
-    Ok(summaries_from_rows(rows, state.keyring.as_ref()))
+    Ok(summaries_from_rows(
+        rows,
+        state.keyring.as_ref(),
+        state.runtime_snapshot().config_id,
+    ))
 }
 
 fn provider_rows(state: &AppState) -> Result<Vec<ProviderConfigRow>, String> {
@@ -174,6 +182,7 @@ fn provider_rows(state: &AppState) -> Result<Vec<ProviderConfigRow>, String> {
 fn summaries_from_rows(
     rows: Vec<ProviderConfigRow>,
     keyring: &dyn auth::Keyring,
+    active_config_id: Option<i64>,
 ) -> Vec<ProviderConfigSummary> {
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
@@ -185,6 +194,7 @@ fn summaries_from_rows(
             auth_type: row.auth_type,
             base_url: row.base_url,
             is_connected,
+            is_active: active_config_id == Some(row.id),
             selected_model,
             account_id,
         });
@@ -305,12 +315,14 @@ pub async fn provider_set_model_impl(
         let row = provider_dao::get_by_id(db.conn(), provider_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("provider not found: {provider_id}"))?;
-        crate::providers::validate_model_for_kind(&row.kind, &trimmed)
+        let canonical = crate::providers::canonical_model_for_kind(&row.kind, &trimmed);
+        crate::providers::validate_model_for_kind(&row.kind, &canonical)
             .map_err(|err| err.to_string())?;
-        provider_dao::write_selected_model(db.conn(), provider_id, &trimmed)
+        provider_dao::write_selected_model(db.conn(), provider_id, &canonical)
             .map_err(|e| e.to_string())?;
-        row
+        (row, canonical)
     };
+    let (row, canonical_model) = row;
 
     let snap = state.runtime_snapshot();
     if snap.config_id == Some(provider_id) {
@@ -318,12 +330,75 @@ pub async fn provider_set_model_impl(
             .swap_runtime(ProviderRuntime::new(
                 Some(provider_id),
                 ProviderKind::parse(&row.kind),
-                trimmed,
+                canonical_model,
                 snap.provider,
             ))
             .map_err(|e| format!("runtime: {e}"))?;
+    } else {
+        let _ = provider_select_runtime_impl(state, provider_id).await?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn provider_select_runtime(
+    state: State<'_, AppState>,
+    provider_id: i64,
+) -> Result<ProviderConfigSummary, String> {
+    provider_select_runtime_impl(&state, provider_id).await
+}
+
+pub async fn provider_select_runtime_impl(
+    state: &AppState,
+    provider_id: i64,
+) -> Result<ProviderConfigSummary, String> {
+    let row = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        provider_dao::get_by_id(db.conn(), provider_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("provider not found: {provider_id}"))?
+    };
+    let model = selected_model_for_kind(&row.kind, &row.config);
+    crate::providers::validate_model_for_kind(&row.kind, &model).map_err(|err| err.to_string())?;
+
+    let provider: Arc<dyn LlmProvider> = if row.kind == "codex" {
+        let (access_token, refresh_token, id_token) =
+            auth::load_codex_tokens(state.keyring.as_ref(), row.id)
+                .map_err(|e| format!("keyring: {e}"))?
+                .ok_or_else(|| "codex tokens missing; reconnect ChatGPT in Settings".to_string())?;
+        let account_id =
+            auth::codex_oauth::decode_account_id(&id_token).map_err(|e| e.to_string())?;
+        Arc::new(crate::providers::CodexProvider::new(
+            auth::CodexTokens {
+                access_token,
+                refresh_token,
+                id_token,
+                account_id,
+                expires_in: 0,
+            },
+            auth::CodexOAuth::new(),
+        ))
+    } else {
+        let api_key = auth::load_provider_api_key(state.keyring.as_ref(), row.id)
+            .map_err(|e| format!("keyring: {e}"))?
+            .ok_or_else(|| format!("provider {} is not connected", row.kind))?;
+        crate::providers::build_provider(&row.kind, &api_key, row.base_url.as_deref())
+            .map_err(|e| e.to_string())?
+    };
+
+    state
+        .swap_runtime(ProviderRuntime::new(
+            Some(row.id),
+            ProviderKind::parse(&row.kind),
+            model,
+            provider,
+        ))
+        .map_err(|e| format!("runtime: {e}"))?;
+
+    summaries_from_rows(vec![row], state.keyring.as_ref(), Some(provider_id))
+        .into_iter()
+        .next()
+        .ok_or_else(|| "provider summary unavailable".to_string())
 }
 
 #[tauri::command]
@@ -461,7 +536,11 @@ mod tests {
             codex.account_id.as_deref(),
             Some("acct_codex_provider_list")
         );
-        assert_eq!(codex.selected_model.as_deref(), Some("gpt-5.5-codex"));
+        assert_eq!(codex.selected_model.as_deref(), Some("gpt-5.5"));
+
+        let db = state.db.lock().unwrap();
+        let repaired = provider_dao::read_selected_model(db.conn(), id).unwrap();
+        assert_eq!(repaired.as_deref(), Some("gpt-5.5"));
     }
 
     #[test]
@@ -631,6 +710,69 @@ mod tests {
         let db = state.db.lock().unwrap();
         let rows = provider_dao::list(db.conn()).unwrap();
         assert_eq!(rows[0].kind, "opencode_zen");
+    }
+
+    #[tokio::test]
+    async fn provider_select_runtime_swaps_to_existing_connected_provider() {
+        let state = mk_state();
+        let id = {
+            let db = state.db.lock().unwrap();
+            provider_dao::insert(
+                db.conn(),
+                &NewProviderConfig {
+                    kind: "openai".into(),
+                    auth_type: "api_key".into(),
+                    base_url: None,
+                    config: json!({ "selected_model": "gpt-5.4" }),
+                },
+            )
+            .unwrap()
+        };
+        auth::upsert_provider_api_key(state.keyring.as_ref(), id, "sk-test").unwrap();
+
+        let summary = provider_select_runtime_impl(&state, id).await.unwrap();
+
+        assert_eq!(summary.id, id);
+        assert!(summary.is_active);
+        assert_eq!(summary.selected_model.as_deref(), Some("gpt-5.4"));
+        assert_eq!(state.runtime_snapshot().config_id, Some(id));
+        assert_eq!(state.runtime_snapshot().kind, ProviderKind::OpenAi);
+        assert_eq!(state.runtime_snapshot().model, "gpt-5.4");
+    }
+
+    #[tokio::test]
+    async fn provider_set_model_switches_runtime_even_when_provider_was_inactive() {
+        let state = mk_state();
+        let id = {
+            let db = state.db.lock().unwrap();
+            provider_dao::insert(
+                db.conn(),
+                &NewProviderConfig {
+                    kind: "openrouter".into(),
+                    auth_type: "api_key".into(),
+                    base_url: None,
+                    config: json!({ "selected_model": "openai/gpt-5.4-mini" }),
+                },
+            )
+            .unwrap()
+        };
+        auth::upsert_provider_api_key(state.keyring.as_ref(), id, "sk-test").unwrap();
+        state
+            .swap_runtime(ProviderRuntime::new(
+                Some(999),
+                ProviderKind::OpenAi,
+                "gpt-5.4-mini".into(),
+                Arc::new(MockProvider::new(Vec::new())),
+            ))
+            .unwrap();
+
+        provider_set_model_impl(&state, id, "openai/gpt-5.4".into())
+            .await
+            .unwrap();
+
+        assert_eq!(state.runtime_snapshot().config_id, Some(id));
+        assert_eq!(state.runtime_snapshot().kind, ProviderKind::OpenRouter);
+        assert_eq!(state.runtime_snapshot().model, "openai/gpt-5.4");
     }
 
     #[tokio::test]

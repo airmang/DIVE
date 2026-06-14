@@ -12,7 +12,9 @@ import { useT } from "../../i18n";
 import { useChatComposerStore } from "../../stores/chatComposer";
 import type {
   ProvocationChangedFile,
+  ApprovalProvenance,
   ProvocationPlanStep,
+  ProvocationVerification,
   ScaffoldMode,
 } from "../../features/provocation";
 import {
@@ -44,7 +46,10 @@ interface Props {
     changedFiles?: ProvocationChangedFile[];
     targetFiles?: string[];
     planSteps?: ProvocationPlanStep[];
+    verification?: ProvocationVerification;
+    approvalProvenance?: ApprovalProvenance | null;
     checkpointAvailable?: boolean | null;
+    suppressAiSelfReportOnly?: boolean;
     onOpenRecovery?: () => void;
   };
   /** Cap DOM nodes to last N. Real virtualization lands in task 4-4. */
@@ -87,10 +92,12 @@ function MessageListImpl({
     const assistantReports = assistantReportsFromConversation(visible);
     const retrySignals = retrySignalsFromConversation(visible);
     if (assistantReports.length === 0 && retrySignals.length === 0) return null;
-    const retryTaskId = [...retrySignals].reverse().find((signal) => signal.lastUserMessageId)
-      ?.lastUserMessageId;
-    const assistantTaskId = [...assistantReports].reverse().find((report) => report.messageId)
-      ?.messageId;
+    const retryTaskId = [...retrySignals]
+      .reverse()
+      .find((signal) => signal.lastUserMessageId)?.lastUserMessageId;
+    const assistantTaskId = [...assistantReports]
+      .reverse()
+      .find((report) => report.messageId)?.messageId;
 
     return createProvocationContext({
       mode: provocation.mode,
@@ -99,6 +106,8 @@ function MessageListImpl({
       sessionId: provocation.sessionId,
       taskId: retryTaskId ?? assistantTaskId,
       goalText: provocation.goalText ?? undefined,
+      verification: provocation.verification,
+      approvalProvenance: provocation.approvalProvenance,
       assistantReports,
       retrySignals,
     });
@@ -107,17 +116,21 @@ function MessageListImpl({
     provocation?.goalText,
     provocation?.mode,
     provocation?.projectId,
+    provocation?.approvalProvenance,
     provocation?.sessionId,
+    provocation?.verification,
     visible,
   ]);
   const conversationProvocationCards = useMemo(
     () =>
       conversationProvocationContext
         ? generateProvocationCards(conversationProvocationContext).filter(
-            (card) => card.type === "ai_self_report_only" || card.type === "regeneration_loop",
+            (card) =>
+              card.type === "regeneration_loop" ||
+              (card.type === "ai_self_report_only" && !provocation?.suppressAiSelfReportOnly),
           )
         : [],
-    [conversationProvocationContext],
+    [conversationProvocationContext, provocation?.suppressAiSelfReportOnly],
   );
 
   const handleScroll = useCallback(() => {

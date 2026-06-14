@@ -7,6 +7,7 @@ import type { PromptContext } from "../../lib/prompt-templates";
 import { AmbiguityHintList, AmbiguityUnderlay } from "../prompt-helper/AmbiguityHinter";
 import { PromptHelperPanel } from "../prompt-helper/PromptHelperPanel";
 import { PromptCheckDialog, type PromptCheckResult } from "../prompt-helper/PromptCheckDialog";
+import { RuntimeModelSelector } from "./RuntimeModelSelector";
 import { useChatComposerStore } from "../../stores/chatComposer";
 import { useT } from "../../i18n";
 
@@ -39,8 +40,8 @@ export function ChatInput({
   const [hits, setHits] = useState<AmbiguityHit[]>([]);
   const [helperOpen, setHelperOpen] = useState(false);
   const [checkOpen, setCheckOpen] = useState(false);
+  const [runtimeSaving, setRuntimeSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const resolvedModelLabel = busyLabel ?? modelLabel ?? t("chat.input.model_select_default_label");
 
   const resize = useCallback(() => {
     const el = textareaRef.current;
@@ -76,8 +77,8 @@ export function ChatInput({
     }
   }, [composerPending, consumeComposer]);
 
-  const canSend = value.trim().length > 0 && !disabled;
-  const canCheck = value.trim().length > 0 && !disabled;
+  const canSend = value.trim().length > 0 && !disabled && !runtimeSaving;
+  const canCheck = value.trim().length > 0 && !disabled && !runtimeSaving;
 
   const handleSend = () => {
     if (!canSend) return;
@@ -171,13 +172,12 @@ export function ChatInput({
             {t("chat.input.pre_send_check_label")}
           </Button>
           <div className="flex-1" />
-          <div
-            className="rounded-md border bg-bg-panel px-2 py-1 text-xs text-fg-muted"
-            aria-label={t("chat.input.model_select_aria")}
-            data-testid="chat-model-label"
-          >
-            {resolvedModelLabel}
-          </div>
+          <RuntimeModelSelector
+            busyLabel={busyLabel}
+            fallbackLabel={modelLabel ?? t("chat.input.model_select_default_label")}
+            disabled={disabled}
+            onBusyChange={setRuntimeSaving}
+          />
           <Button
             variant="primary"
             size="sm"

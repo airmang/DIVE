@@ -16,6 +16,7 @@ export function deriveStageBanner(input: {
   currentCard: Pick<CardTileData, "state" | "summary"> | null;
   allVerified: boolean;
   onOpenResultPanel: Action;
+  onOpenReviewPanel?: Action;
   t: Translate;
 }): ChatStageBanner | null {
   if (input.cardCount === 0) return null;
@@ -48,10 +49,20 @@ export function deriveStageBanner(input: {
     return { tone: "info", message: input.t("stage.banner_instructed") };
   }
   if (active.state === "verifying") {
-    return { tone: "info", message: input.t("stage.banner_verifying") };
+    return {
+      tone: "info",
+      message: input.t("stage.banner_verifying"),
+      actionLabel: input.t("stage.action_open_review"),
+      onAction: input.onOpenReviewPanel,
+    };
   }
   if (active.state === "rejected") {
-    return { tone: "warn", message: input.t("stage.banner_rejected") };
+    return {
+      tone: "warn",
+      message: input.t("stage.banner_rejected"),
+      actionLabel: input.t("stage.action_open_review"),
+      onAction: input.onOpenReviewPanel,
+    };
   }
   if (active.state === "verified") {
     return { tone: "success", message: input.t("stage.banner_verified"), ...resultAction };

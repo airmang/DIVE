@@ -47,7 +47,7 @@ export function SlideInPanel() {
     <aside
       ref={panelRef}
       className={cn(
-        "fixed right-0 top-0 z-40 flex h-full w-[520px] flex-col border-l bg-bg shadow-xl",
+        "fixed right-0 top-0 z-[60] flex h-full w-[520px] flex-col border-l bg-bg shadow-xl",
         "transition-transform duration-slide ease-out motion-reduce:duration-0",
         isOpen ? "translate-x-0" : "translate-x-full pointer-events-none",
       )}

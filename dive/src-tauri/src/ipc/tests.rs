@@ -88,7 +88,7 @@ mod select_runtime_tests {
     use super::super::{ProviderKind, RuntimeChoice};
 
     #[test]
-    fn default_routes_eligible_provider_to_pi() {
+    fn default_routes_codex_to_pi() {
         assert_eq!(select_runtime(ProviderKind::Codex, None), RuntimeChoice::Pi);
     }
 

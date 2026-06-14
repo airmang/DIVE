@@ -35,6 +35,7 @@ export function useProductConversationModel(input: {
   onProviderAction: Action;
   onSessionAction: Action;
   onOpenResultPanel: Action;
+  onOpenReviewPanel: Action;
   t: Translate;
 }) {
   const stageBanner = useMemo(
@@ -44,9 +45,17 @@ export function useProductConversationModel(input: {
         currentCard: input.currentCard,
         allVerified: input.allVerified,
         onOpenResultPanel: input.onOpenResultPanel,
+        onOpenReviewPanel: input.onOpenReviewPanel,
         t: input.t,
       }),
-    [input.allVerified, input.cardCount, input.currentCard, input.onOpenResultPanel, input.t],
+    [
+      input.allVerified,
+      input.cardCount,
+      input.currentCard,
+      input.onOpenResultPanel,
+      input.onOpenReviewPanel,
+      input.t,
+    ],
   );
 
   const inputBlocked = useMemo(

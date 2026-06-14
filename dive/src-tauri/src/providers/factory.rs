@@ -12,7 +12,7 @@ pub fn default_model_for_kind(kind: &str) -> &'static str {
         "openrouter" => "mistralai/ministral-3b-2512",
         "opencode-zen" | "opencode_zen" => "big-pickle",
         "custom-openai" | "custom_openai" => "gpt-5.4",
-        "codex" => "gpt-5.5-codex",
+        "codex" => "gpt-5.5",
         _ => "unset",
     }
 }
@@ -33,9 +33,11 @@ pub fn models_for_kind(kind: &str) -> Vec<ModelInfo> {
 }
 
 pub fn normalize_model_for_kind(kind: &str, selected: Option<&str>) -> String {
-    let selected = selected.map(str::trim).filter(|model| !model.is_empty());
+    let selected = selected
+        .map(|model| canonical_model_for_kind(kind, model))
+        .filter(|model| !model.is_empty());
     let models = models_for_kind(kind);
-    if let Some(model) = selected {
+    if let Some(model) = selected.as_deref() {
         if models.is_empty() || models.iter().any(|candidate| candidate.id == model) {
             return model.to_owned();
         }
@@ -43,8 +45,19 @@ pub fn normalize_model_for_kind(kind: &str, selected: Option<&str>) -> String {
     default_model_for_kind(kind).to_owned()
 }
 
-pub fn validate_model_for_kind(kind: &str, model: &str) -> Result<(), ProviderError> {
+pub fn canonical_model_for_kind(kind: &str, model: &str) -> String {
     let trimmed = model.trim();
+    match (kind, trimmed) {
+        ("codex", "gpt-5.5-codex") => "gpt-5.5".to_owned(),
+        ("openai" | "custom-openai" | "custom_openai", "gpt-5.5-codex") => "gpt-5.5".to_owned(),
+        ("openrouter", "openai/gpt-5.5-codex") => "openai/gpt-5.5".to_owned(),
+        _ => trimmed.to_owned(),
+    }
+}
+
+pub fn validate_model_for_kind(kind: &str, model: &str) -> Result<(), ProviderError> {
+    let canonical = canonical_model_for_kind(kind, model);
+    let trimmed = canonical.as_str();
     if trimmed.is_empty() || trimmed == "unset" {
         return Err(ProviderError::InvalidConfig(
             "AI 모델이 설정되지 않았습니다. Settings에서 연결된 AI의 모델을 선택한 뒤 다시 시도하세요."
@@ -236,7 +249,7 @@ mod tests {
         );
         assert_eq!(default_model_for_kind("opencode_zen"), "big-pickle");
         assert_eq!(default_model_for_kind("opencode-zen"), "big-pickle");
-        assert_eq!(default_model_for_kind("codex"), "gpt-5.5-codex");
+        assert_eq!(default_model_for_kind("codex"), "gpt-5.5");
         assert_eq!(default_model_for_kind("unknown"), "unset");
     }
 
@@ -272,6 +285,22 @@ mod tests {
         assert!(ids.iter().all(|id| id.contains('/')));
         assert!(ids.iter().any(|id| id == "openai/gpt-5.3-codex"));
         assert!(!ids.iter().any(|id| id == "openai/gpt-5.5-codex"));
+    }
+
+    #[test]
+    fn retired_gpt_55_codex_alias_normalizes_to_pi_catalog_id() {
+        assert_eq!(
+            normalize_model_for_kind("codex", Some("gpt-5.5-codex")),
+            "gpt-5.5"
+        );
+        assert_eq!(
+            normalize_model_for_kind("openai", Some("gpt-5.5-codex")),
+            "gpt-5.5"
+        );
+        assert_eq!(
+            normalize_model_for_kind("openrouter", Some("openai/gpt-5.5-codex")),
+            "openai/gpt-5.5"
+        );
     }
 
     #[test]

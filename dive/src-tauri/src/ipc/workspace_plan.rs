@@ -742,14 +742,27 @@ async fn workspace_plan_route_chat_inner(
         build_router_context(&plan, &steps, &mappings)
     };
 
-    let decision = plan_router::decide_cancelable(
+    let decision = match plan_router::decide_cancelable(
         runtime.provider.as_ref(),
         runtime.model,
         prompt,
         ctx,
         cancel,
     )
-    .await?;
+    .await
+    {
+        Ok(decision) => decision,
+        Err(err) if err == ROUTE_CANCELLED_MESSAGE => return Err(err),
+        Err(err) => {
+            tracing::warn!(
+                error = %crate::telemetry::redact_log_text(&err),
+                "workspace plan route failed open to normal chat"
+            );
+            return Ok(RouteDecision::Skip {
+                reason: "router unavailable; continuing as normal chat".into(),
+            });
+        }
+    };
     match decision {
         PlanRouterDecision::Chat { reason } => Ok(RouteDecision::Chat { reason }),
         PlanRouterDecision::AddStep { draft, reason } => {
