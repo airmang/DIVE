@@ -42,7 +42,7 @@ for classroom/local-first use.
 and bundled Node-based Pi sidecar.
 
 **Performance Goals**: `verify_entered` supervisor evaluation is non-blocking
-and waits at most 1200 ms before allowing verification/final approval to
+and waits at most 8000 ms by default before allowing verification/final approval to
 continue. Late results are dropped and logged as `timeout`.
 
 **Constraints**: Pi-only runtime; no static fallback cards; no frontend
@@ -208,7 +208,8 @@ state.
 
 ## Risks And Mitigations
 
-- **Runtime latency at approval**: Mitigated by a 1200 ms wait budget, late
+- **Runtime latency at approval**: Mitigated by an 8000 ms default bounded
+  wait budget with QA/classroom tuning, late
   result drop, and non-blocking Work Mode.
 - **LLM output variance**: Mitigated by strict JSON parsing, fixed P1 concern,
   fixed rendered severity, evidence/action allowlists, question/length checks,

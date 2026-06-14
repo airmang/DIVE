@@ -75,6 +75,18 @@ cd dive
 pnpm tauri:dev
 ```
 
+Supervisor runtime budget:
+
+- Default supervisor wait budget is 8000 ms.
+- For QA/classroom tuning, set `DIVE_SUPERVISOR_TURN_TIMEOUT_MS`.
+- Values are clamped to the supported bounded range of 1200-15000 ms.
+
+Example:
+
+```bash
+DIVE_SUPERVISOR_TURN_TIMEOUT_MS=10000 pnpm tauri:dev
+```
+
 Scenario A: AI self-report only
 
 1. Open a sample roadmap step.

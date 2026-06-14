@@ -86,7 +86,8 @@
 
 - **Decision**: In P1, `ai_claimed_done` records the assistant claim as evidence
   only; the card renders only at `verify_entered`. Evaluation is non-blocking
-  with a bounded budget (default 1200 ms), and a card is valid only until the
+  with a bounded budget (default 8000 ms, configurable for QA/classroom tuning
+  within a bounded range), and a card is valid only until the
   verification/approval action is finalized.
 - **Rationale**: Removes the cross-event double-fire (same concern at both
   events), keeps the card at the verification surface (US1/FR-015), and protects

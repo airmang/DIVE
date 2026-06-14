@@ -23,8 +23,8 @@ use crate::dive::{
     VerificationFeasibility,
 };
 use crate::pi_sidecar::{
-    run_supervisor_turn, PiSidecarSupervisorErrorKind, PiSidecarSupervisorTurnResult,
-    SUPERVISOR_TURN_TIMEOUT,
+    run_supervisor_turn, supervisor_turn_timeout, PiSidecarSupervisorErrorKind,
+    PiSidecarSupervisorTurnResult,
 };
 
 use super::AppState;
@@ -159,7 +159,7 @@ async fn supervisor_output_from_runtime(
         cwd,
         snap.model,
         prompt,
-        SUPERVISOR_TURN_TIMEOUT,
+        supervisor_turn_timeout(),
     )
     .await
     {

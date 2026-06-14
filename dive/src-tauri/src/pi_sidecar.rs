@@ -54,7 +54,11 @@ const DEFAULT_MODEL: &str = "gpt-5.4-mini";
 const SMOKE_MARKER: &str = "DIVE_PI_SIDECAR_TOOL_OK";
 const SMOKE_PROMPT: &str = "Use the dive_context tool exactly once with request \"phase2-smoke\". After the tool result, reply exactly DIVE_PI_SIDECAR_TOOL_OK and nothing else.";
 const PI_TURN_TIMEOUT: Duration = Duration::from_secs(120);
-pub const SUPERVISOR_TURN_TIMEOUT: Duration = Duration::from_millis(1200);
+const SUPERVISOR_TURN_TIMEOUT_DEFAULT_MS: u64 = 8_000;
+const SUPERVISOR_TURN_TIMEOUT_MIN_MS: u64 = 1_200;
+const SUPERVISOR_TURN_TIMEOUT_MAX_MS: u64 = 15_000;
+pub const SUPERVISOR_TURN_TIMEOUT: Duration =
+    Duration::from_millis(SUPERVISOR_TURN_TIMEOUT_DEFAULT_MS);
 const SIDECAR_HEARTBEAT_STALL_TIMEOUT: Duration = Duration::from_secs(20);
 const SIDECAR_CANCELLED: &str = "pi sidecar turn cancelled";
 /// Cap on sidecar events buffered while a DIVE tool is executing. Legitimate parallel
@@ -514,6 +518,20 @@ pub async fn run_supervisor_turn(
         latency_ms: duration_ms(started.elapsed()),
         usage: None,
     })
+}
+
+pub fn supervisor_turn_timeout() -> Duration {
+    std::env::var("DIVE_SUPERVISOR_TURN_TIMEOUT_MS")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .map(|ms| {
+            ms.clamp(
+                SUPERVISOR_TURN_TIMEOUT_MIN_MS,
+                SUPERVISOR_TURN_TIMEOUT_MAX_MS,
+            )
+        })
+        .map(Duration::from_millis)
+        .unwrap_or(SUPERVISOR_TURN_TIMEOUT)
 }
 
 pub async fn run_codex_supervised_turn(
@@ -1341,6 +1359,38 @@ function ready(message) {
         let keyring = auth::InMemoryKeyring::new();
         auth::upsert_provider_api_key(&keyring, provider_config_id, "sk-test-secret").unwrap();
         keyring
+    }
+
+    fn set_supervisor_timeout_env(value: Option<&str>) {
+        const KEY: &str = "DIVE_SUPERVISOR_TURN_TIMEOUT_MS";
+        match value {
+            Some(value) => std::env::set_var(KEY, value),
+            None => std::env::remove_var(KEY),
+        }
+    }
+
+    #[test]
+    fn supervisor_turn_timeout_defaults_to_realistic_budget() {
+        let _serial = fake_sidecar_test_lock();
+        set_supervisor_timeout_env(None);
+
+        assert_eq!(supervisor_turn_timeout(), Duration::from_secs(8));
+    }
+
+    #[test]
+    fn supervisor_turn_timeout_env_override_is_bounded() {
+        let _serial = fake_sidecar_test_lock();
+
+        set_supervisor_timeout_env(Some("250"));
+        assert_eq!(supervisor_turn_timeout(), Duration::from_millis(1_200));
+
+        set_supervisor_timeout_env(Some("6000"));
+        assert_eq!(supervisor_turn_timeout(), Duration::from_secs(6));
+
+        set_supervisor_timeout_env(Some("60000"));
+        assert_eq!(supervisor_turn_timeout(), Duration::from_secs(15));
+
+        set_supervisor_timeout_env(None);
     }
 
     async fn live_api_key_provider_parity_smoke(

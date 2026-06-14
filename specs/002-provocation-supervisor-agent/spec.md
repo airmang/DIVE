@@ -190,9 +190,10 @@ dropped invalid decision, and one supervisor runtime failure.
   DIVE drops it. (Hard validation = question shape + valid evidence refs;
   criterion linkage is enforced through the supervisor prompt.)
 - **FR-025**: `verify_entered` evaluation MUST be non-blocking. DIVE waits at
-  most a bounded budget (default 1200 ms) for the supervisor result before the
-  user can finalize verification/approval. On budget overrun DIVE drops with
-  `timeout` and proceeds with no card. A produced card is valid only until the
+  most a bounded budget (default 8000 ms, configurable for QA/classroom tuning
+  within a bounded range) for the supervisor result before the user can finalize
+  verification/approval. On budget overrun DIVE drops with `timeout` and
+  proceeds with no card. A produced card is valid only until the
   verification/approval action is finalized; a result that arrives after
   finalization is dropped (`timeout`) and logged.
 - **FR-026**: For P1, DIVE fixes rendered card severity to `caution` regardless
