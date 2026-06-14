@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "../ui/button";
 
 export type ApprovalOutcome = "approved" | "approved_with_concern" | "revision_requested";
@@ -17,6 +17,7 @@ interface Props {
 }
 
 export function ApprovalJudgment({ disabled, prompt, onDecide }: Props) {
+  const noteId = useId();
   const [stance, setStance] = useState<"none" | "confirmed" | "concern">("none");
   const [note, setNote] = useState("");
   const noteOk = note.trim().length > 0;
@@ -58,7 +59,11 @@ export function ApprovalJudgment({ disabled, prompt, onDecide }: Props) {
 
       {stance === "concern" ? (
         <div className="flex flex-col gap-2">
+          <label htmlFor={noteId} className="text-xs font-medium text-fg-muted">
+            우려 사유 (한 줄)
+          </label>
           <textarea
+            id={noteId}
             className="rounded-md border bg-bg-panel2 p-2 text-xs"
             placeholder="무엇이 우려되나요? (한 줄)"
             value={note}
