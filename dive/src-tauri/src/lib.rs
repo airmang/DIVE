@@ -63,8 +63,10 @@ pub fn run() {
             };
             app.manage(app_state);
 
+            let menu_locale = menu::MenuLocale::from_env();
+            app.manage(menu::MenuLocaleState::new(menu_locale));
             let recents = ipc::fetch_recent_projects_for_menu(app.handle()).unwrap_or_default();
-            let menu = menu::build_menu(app.handle(), &recents)?;
+            let menu = menu::build_menu_for_locale(app.handle(), &recents, menu_locale)?;
             app.set_menu(menu)?;
             menu::install_event_handler(app.handle());
 
@@ -139,6 +141,7 @@ pub fn run() {
             ipc::mcp_server_list_tools,
             ipc::prompt_check_review,
             ipc::menu_refresh_recents,
+            menu::menu_set_locale,
             ipc::workspace_plan_status,
             ipc::workspace_plan_dashboard,
             ipc::workspace_plan_activity,

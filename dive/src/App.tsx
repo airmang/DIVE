@@ -6,6 +6,8 @@ import {
   type Rc1MigrationResult,
 } from "./lib/rc1-migration";
 import { resolveDemoRouteValue, type RecognizedDemoRoute } from "./lib/dev-demo";
+import { useLocale } from "./i18n";
+import { syncNativeMenuLocale } from "./lib/menu-events";
 
 type ProductRoute = "main" | "settings" | "prompt-helper";
 
@@ -93,6 +95,7 @@ function resolveRoute(
 }
 
 function App() {
+  const locale = useLocale();
   const [route, setRoute] = useState<ResolvedRoute>(() => resolveRoute());
   const [rc1Migration, setRc1Migration] = useState<Rc1MigrationResult | null>(() => {
     const result = runRc1Migration();
@@ -104,6 +107,10 @@ function App() {
     window.addEventListener("popstate", handler);
     return () => window.removeEventListener("popstate", handler);
   }, []);
+
+  useEffect(() => {
+    void syncNativeMenuLocale(locale);
+  }, [locale]);
 
   const acknowledge = () => {
     acknowledgeRc1Migration();
