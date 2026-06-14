@@ -235,3 +235,9 @@
   - 검증법: 코드 추적 `timeline-dot` focus/click -> `openCheckpointId` -> `timeline-tooltip`/`timeline-restore`; wrapper `onBlur` -> `currentTarget.contains(relatedTarget)`로 restore 버튼 tab 이동 유지; `dot_aria` -> `kind_*`/`current_suffix`; glyph helper -> non-color cue. 실행 검증: `SlideInPanel.test.tsx` keyboard focus regression, `pnpm --dir dive test -- SlideInPanel`, `pnpm --dir dive typecheck`, `pnpm --dir dive lint`, `pnpm --dir dive test`, `git diff --check`. `pnpm --dir dive format:check`는 기존 Prettier baseline 7개 파일에서 red.
   - 브라우저/네이티브 실동작: Browser로 `http://localhost:1420/?demo=timeline-demo`를 열고 `체크포인트 [V 통과] 로그인 폼, 자동` button이 accessible name과 `A` glyph를 가지며 click 후 tooltip과 `복원` button이 실제 DOM에 보이는 것을 확인. 네이티브 smoke: `pnpm --dir dive tauri dev --features dev-mock --no-watch --config '{"build":{"beforeDevCommand":"","devUrl":"http://localhost:1420/?demo=timeline-demo"}}'` 새 빌드가 실행되고 macOS AX가 `DIVE` 창을 확인.
   - 결과: 커밋 `68721bd`. R7 P2 중 `ApprovalJudgment` textarea label은 별도 항목으로 남김.
+
+- [x] **P2 ApprovalJudgment textarea 라벨 없음**
+  - 변경: `ApprovalJudgment`의 우려 사유 textarea에 `useId()` 기반 `label htmlFor`/`id` 연결을 추가하고, label 기반 접근성 쿼리 회귀 테스트를 추가.
+  - 검증법: 코드 추적 `우려 있음` stance -> label `htmlFor` -> textarea `id` -> `onChange` -> `approved_with_concern` note trim. 실행 검증: `ApprovalJudgment.test.tsx`, `pnpm --dir dive test -- ApprovalJudgment`, `pnpm --dir dive typecheck`, `pnpm --dir dive lint`, `git diff --check`.
+  - 네이티브 실동작: 현재 제품 review path는 `DecisionGate`를 사용해 `ApprovalJudgment` 컴포넌트를 직접 mount하지 않으므로 textarea 실동작은 jsdom label query/submit test로 검증. 앱 smoke는 `pnpm --dir dive tauri dev --features dev-mock --no-watch --config '{"build":{"beforeDevCommand":"","devUrl":"http://localhost:1420/"}}'` 새 빌드 실행 후 macOS AX가 `DIVE` 창을 확인.
+  - 결과: 커밋 `7eefe95`.
