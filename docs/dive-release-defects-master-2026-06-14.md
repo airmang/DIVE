@@ -95,6 +95,8 @@
 
 ## 진행 로그 / 체크리스트
 
+> **정직화 갱신 (2026-06-14, Claude 검토):** 아래 `[x]` 다수는 **코드/단위테스트 수준에서만 검증**됨 — Tauri WebView가 macOS AX에 노출 안 돼 **실제 네이티브 흐름은 미검증**. 동적 감사가 찾은 건 *실앱 흐름* 버그였으므로 R2·R3·R4의 실동작 재검증(수동/네이티브)이 남아 있다. 게이트는 통과 확인됨(프론트 118 테스트 green, Rust export 19·guard 29 green, 컴파일 OK). 단 **P0-01(크래시)·D-12·D-29·D-32는 미해결/연기로 정정**(아래 `[ ]`).
+
 ### Phase 0. [NV] 코드 대조 트리아지
 
 - [x] **D-07 `예시 입력/출력 추가` 무반응 의심**
@@ -141,11 +143,11 @@
   - 변경: `Create plan`은 no-session에서 `createSession(currentProjectId)`를 호출하고, `View result`는 preview panel/IPC로 연결됨을 확인. 문제는 선택 프로젝트와 active session/draft가 분리되는 R2 상태모델 파생.
   - 검증법: `PlanEmpty` -> `handleCreatePlanFromRail` -> `handleEmptyStateAction`; `ChatArea` result action -> `openResultPanelWithContext` 추적.
   - 결과: TRUE-BUG(R2): 버튼 단독 no-op가 아니라 active project/session/draft 동기화 결함으로 유지.
-- [x] **D-29 opencode `Details` 클릭 영역 의심**
+- [ ] **D-29 opencode `Details` 클릭 영역 의심** — 연기(미완)
   - 변경: 코드 대조 필요 범위를 settings provider 세부 UI로 한정. 클릭 영역 오독 가능성이 있으나 공개 데모 영향은 낮음.
   - 검증법: `settings.tsx` provider card 구조 대조.
   - 결과: DEFER: R8 settings polish에서 재확인.
-- [x] **D-32 About dive 화면 품질**
+- [ ] **D-32 About dive 화면 품질** — 연기(미완)
   - 변경: 코드 결함이라기보다 제품 polish 정책 항목으로 분류.
   - 검증법: macOS About 표면 관찰 근거 유지.
   - 결과: DEFER: R8 polish.
@@ -161,17 +163,17 @@
   - 변경: step detail의 current card와 plan roadmap active step 산출이 서로 다른 상태 소스를 참조할 수 있음을 확인.
   - 검증법: `currentPlanRoadmapStep`/`currentCard`/`planRoadmap.steps` 대조.
   - 결과: TRUE-BUG(R2/R4): 상태 파생 정합성 문제로 유지.
-- [x] **D-12 DONE 스텝의 `위험 감수 승인` 칩**
+- [ ] **D-12 DONE 스텝의 `위험 감수 승인` 칩** — 연기(미완)
   - 변경: 코드 버그보다 approval provenance 표시 정책 문제로 분류.
   - 검증법: roadmap agency/approval 상태 표시 경로 대조.
   - 결과: DEFER: R8 policy polish.
 
 ### R1. 앱 안정성 - preview 크래시
 
-- [x] **P0-01 `앱 실행` 클릭 시 DIVE 앱 크래시**
+- [ ] **P0-01 `앱 실행` 클릭 시 DIVE 앱 크래시** — ⛔ BLOCKED / 미해결 (코드 0줄)
   - 변경: 감사가 지목한 `src-tauri/src/ipc/preview.rs` 런타임 `unwrap()`/`expect()` 4곳은 현재 코드에 존재하지 않음. preview IPC 경로는 `project_root_required`, `detect_package_info`, install/dev-server spawn/probe 실패를 모두 `Result<_, String>`으로 반환함.
   - 검증법: 코드 추적 `preview_start` -> `preview_start_impl` -> `detect_package_info`/`run_install`/`spawn_dev_server`/`detect_running_preview`; `rg -n "unwrap\\(|expect\\(" dive/src-tauri/src/ipc/preview.rs`; `cargo test --manifest-path dive/src-tauri/Cargo.toml --features dev-mock preview`; `cargo fmt --manifest-path dive/src-tauri/Cargo.toml --check`.
-  - 결과: NOT-A-BUG/STALE: 현재 HEAD `6e99de2` 기준 런타임 panic 지점 없음. 남은 `expect("port regex")`는 정적 상수 regex 생성이고, 나머지 unwrap은 테스트 코드.
+  - 결과: ⛔ **BLOCKED(미해결).** R1 커밋 6e99de2/22cd6ae는 **문서만, 코드 0줄**. preview.rs에 런타임 panic 없음은 사실(Claude 가설 반증)이나 — 그건 *원인 위치가 거기 아님*일 뿐, 동적 감사에서 실제 관찰된 네이티브 종료의 **진짜 원인은 미발견·미재현·미수정**. "NOT-A-BUG" 아님. 네이티브에서 self-report 카드→"앱 실행" 재현 후 root-cause 필요.
 
 ### R2. 프로젝트/세션/draft 상태 모델
 
