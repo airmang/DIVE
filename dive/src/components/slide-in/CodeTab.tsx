@@ -100,7 +100,9 @@ export function CodeTab() {
                       <span className="text-danger">−{dels}</span>
                     </div>
                   ) : (
-                    <div className="mt-0.5 text-[10px] text-fg-subtle">diff 미수집</div>
+                    <div className="mt-0.5 text-[10px] text-fg-subtle">
+                      {t("slide_in.code.diff_missing")}
+                    </div>
                   )}
                 </button>
               </li>
@@ -125,6 +127,7 @@ export function CodeTab() {
 }
 
 function DiffUnavailable({ path }: { path: string }) {
+  const t = useT();
   return (
     <div
       className="rounded-md border bg-bg-panel2 px-4 py-3 text-sm"
@@ -134,10 +137,9 @@ function DiffUnavailable({ path }: { path: string }) {
       <div className="flex items-start gap-2">
         <FileCode className="mt-0.5 h-4 w-4 shrink-0 text-fg-muted" aria-hidden />
         <div>
-          <p className="font-semibold text-fg">변경 파일로 기록됨</p>
+          <p className="font-semibold text-fg">{t("slide_in.code.diff_unavailable_title")}</p>
           <p className="mt-1 text-xs leading-relaxed text-fg-muted">
-            이 항목은 체크포인트나 이전 버전 데이터에서 경로만 저장되어 줄 단위 diff가 없습니다.
-            더 이상 +0/−0으로 표시하지 않습니다.
+            {t("slide_in.code.diff_unavailable_description")}
           </p>
         </div>
       </div>

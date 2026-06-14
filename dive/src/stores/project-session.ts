@@ -114,6 +114,13 @@ function defaultSessionTitle() {
   return `새 세션 ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function preferredSessionId(sessions: SessionRow[], storedSessionId: number): number | null {
+  const stored = sessions.find((session) => session.id === storedSessionId);
+  if (stored && stored.status !== "archived") return stored.id;
+  const active = sessions.find((session) => session.status !== "archived");
+  return active?.id ?? null;
+}
+
 interface State {
   isTauri: boolean;
   loaded: boolean;
@@ -201,9 +208,7 @@ export const useProjectSessionStore = create<State>((set, get) => ({
             projectId: currentProjectId,
           });
         }
-        const currentSessionId = sessions.find((s) => s.id === storedSessionId)
-          ? storedSessionId
-          : null;
+        const currentSessionId = preferredSessionId(sessions, storedSessionId);
         if (!hasConnectedProvider(providers)) setOnboardedFlag(false);
         set({
           isTauri: true,
@@ -247,9 +252,7 @@ export const useProjectSessionStore = create<State>((set, get) => ({
       ? storedProjectId
       : (mock.projects[0]?.id ?? null);
     const projectSessions = mock.sessions.filter((s) => s.project_id === currentProjectId);
-    const currentSessionId = projectSessions.find((s) => s.id === storedSessionId)
-      ? storedSessionId
-      : null;
+    const currentSessionId = preferredSessionId(projectSessions, storedSessionId);
     set({
       isTauri: false,
       loaded: true,
@@ -413,6 +416,11 @@ export const useProjectSessionStore = create<State>((set, get) => ({
             });
         },
       );
+      const storedSessionId =
+        typeof window !== "undefined"
+          ? Number(window.localStorage.getItem(CURRENT_SESSION_KEY) ?? "")
+          : 0;
+      const currentSessionId = preferredSessionId(sessions, storedSessionId);
       set((state) => ({
         projects: [
           selectedProject,
@@ -420,11 +428,12 @@ export const useProjectSessionStore = create<State>((set, get) => ({
         ],
         currentProjectId: projectId,
         sessions,
-        currentSessionId: null,
+        currentSessionId,
       }));
       if (typeof window !== "undefined") {
         window.localStorage.setItem(CURRENT_PROJECT_KEY, String(projectId));
-        window.localStorage.removeItem(CURRENT_SESSION_KEY);
+        if (currentSessionId === null) window.localStorage.removeItem(CURRENT_SESSION_KEY);
+        else window.localStorage.setItem(CURRENT_SESSION_KEY, String(currentSessionId));
       }
     });
   },

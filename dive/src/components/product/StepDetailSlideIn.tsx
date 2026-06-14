@@ -21,11 +21,11 @@ import {
   deriveVerificationStatuses,
   generateProvocationCards,
   normalizeChangedFile,
-  type ProvocationAction,
   type ProvocationCard,
   type ProvocationContext,
   type ScaffoldMode,
   type VerificationStatusItem,
+  useProvocationActionResolver,
 } from "../../features/provocation";
 
 export interface StepDetailSlideInProps {
@@ -118,6 +118,11 @@ export function StepDetailSlideIn({
   const panelRef = useRef<HTMLDivElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   const [diffViewedStepIds, setDiffViewedStepIds] = useState<Set<number>>(() => new Set());
+  const [criterionConfirmed, setCriterionConfirmed] = useState(false);
+  const [previewObservedStepIds, setPreviewObservedStepIds] = useState<Set<number>>(
+    () => new Set(),
+  );
+  const [appLaunchedStepIds, setAppLaunchedStepIds] = useState<Set<number>>(() => new Set());
 
   useEffect(() => {
     if (!open) return;
@@ -134,10 +139,16 @@ export function StepDetailSlideIn({
     return () => clearTimeout(t);
   }, [open]);
 
+  useEffect(() => {
+    setCriterionConfirmed(false);
+  }, [step?.id]);
+
   const status = step?.status ?? null;
   const isReview = status === "review";
   const hasChangedFiles = changedFiles.length > 0;
   const diffViewed = step ? diffViewedStepIds.has(step.id) : false;
+  const previewObserved = step ? previewObservedStepIds.has(step.id) : false;
+  const appLaunched = step ? appLaunchedStepIds.has(step.id) : false;
   const expectedFiles = useMemo(
     () => uniqueStrings(planContext?.expectedFiles ?? []),
     [planContext?.expectedFiles],
@@ -188,6 +199,8 @@ export function StepDetailSlideIn({
           verification: {
             aiClaimedDone: Boolean(verifyLog?.intent_match),
             diffReviewed: diffViewed,
+            appLaunched,
+            previewChecked: previewObserved,
             automatedTestsPassed: verifyLog?.test_result === "pass",
             testResult: verifyLog?.test_result,
             externalTestRun: verifyLog ? verifyLog.test_result !== "skipped" : undefined,
@@ -196,6 +209,7 @@ export function StepDetailSlideIn({
             approvalProvenance: step.approvalProvenance,
           },
           userHasViewedDiff: diffViewed,
+          userHasViewedPreview: previewObserved,
         }
       : null;
   const provocationCards = provocationContext ? generateProvocationCards(provocationContext) : [];
@@ -213,45 +227,9 @@ export function StepDetailSlideIn({
         verifyLog,
         approvalProvenance: step.approvalProvenance,
         running: verifyState === "running",
+        acceptanceCriterionConfirmed: criterionConfirmed,
       })
     : null;
-
-  const handleProvocationAction = (action: ProvocationAction) => {
-    if (action.kind === "open_diff") {
-      handleOpenCode();
-      return;
-    }
-    if (action.kind === "open_preview" || action.kind === "run_app") {
-      onOpenPreview?.();
-      return;
-    }
-    if (action.kind === "rollback_last_change" || action.kind === "revert_unrelated_changes") {
-      onOpenRecovery();
-      return;
-    }
-    if (action.kind === "create_repro_steps") {
-      pushComposerSeed(
-        "반복되는 오류를 기준으로 재현 단계, 가장 작은 확인 명령, 마지막 변경에서 볼 부분을 정리해줘.",
-      );
-      onGoToChat();
-      return;
-    }
-    if (action.kind === "split_scope") {
-      pushComposerSeed("현재 실패를 더 작은 범위 하나로 줄여서 다시 요청할 문장을 만들어줘.");
-      onGoToChat();
-      return;
-    }
-    if (action.kind === "retry_with_ai") {
-      pushComposerSeed(
-        "복구 지점, 재현 단계, 범위 축소 여부를 먼저 확인한 뒤 같은 실패를 피해서 다시 고쳐줘.",
-      );
-      onGoToChat();
-      return;
-    }
-    if (action.kind === "ask_ai_for_rationale" || action.kind === "add_verification_step") {
-      onGoToChat();
-    }
-  };
 
   const handleOpenCode = () => {
     if (step) {
@@ -264,6 +242,35 @@ export function StepDetailSlideIn({
     }
     onOpenCode();
   };
+
+  const handleOpenPreview = () => {
+    if (step) {
+      setPreviewObservedStepIds((current) => new Set(current).add(step.id));
+    }
+    onOpenPreview?.();
+  };
+
+  const handleRunApp = () => {
+    if (step) {
+      setAppLaunchedStepIds((current) => new Set(current).add(step.id));
+    }
+    onOpenPreview?.();
+  };
+
+  const handleProvocationAction = useProvocationActionResolver({
+    pushComposerSeed,
+    onGoToChat,
+    onOpenDiff: handleOpenCode,
+    onOpenPreview: handleOpenPreview,
+    onRunApp: handleRunApp,
+    onRunTests: onVerifyFirst,
+    onOpenRecovery,
+    onContinueWithRisk: (reason) =>
+      onApprovalDecision({
+        outcome: "approved_with_concern",
+        note: reason?.trim() || null,
+      }),
+  });
 
   return (
     <aside
@@ -360,6 +367,7 @@ export function StepDetailSlideIn({
                 provocationCards={provocationCards}
                 verifyLog={verifyLog}
                 rollbackAvailable={rollbackAvailable}
+                acceptanceCriterionConfirmed={criterionConfirmed}
                 verifyRunning={verifyState === "running"}
                 onApprove={() => onApprovalDecision({ outcome: "approved", note: null })}
                 onAcceptRisk={(reason) =>
@@ -432,6 +440,26 @@ export function StepDetailSlideIn({
               >
                 {step.acceptanceCriteria}
               </p>
+              <label
+                className="mt-3 flex items-start gap-2 rounded-sm border border-border bg-bg/60 px-2 py-2 text-xs text-fg"
+                data-testid="step-detail-criterion-confirm"
+              >
+                <input
+                  type="checkbox"
+                  checked={criterionConfirmed}
+                  onChange={(event) => setCriterionConfirmed(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-border text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  data-testid="step-detail-criterion-confirm-checkbox"
+                />
+                <span className="min-w-0">
+                  <span className="block font-medium">
+                    {t("roadmap.step_detail.criterion_confirm_label")}
+                  </span>
+                  <span className="mt-0.5 block text-[11px] text-fg-muted">
+                    {t("roadmap.step_detail.criterion_confirm_hint")}
+                  </span>
+                </span>
+              </label>
             </Section>
           ) : null}
 

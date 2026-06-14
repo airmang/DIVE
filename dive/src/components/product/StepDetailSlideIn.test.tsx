@@ -116,4 +116,91 @@ describe("StepDetailSlideIn recovery actions", () => {
     expect(screen.getAllByText("Diff 확인됨").length).toBeGreaterThan(0);
     expect(screen.queryByText("자동 테스트 통과")).toBeNull();
   });
+
+  it("records preview observation before criterion confirmation unlocks direct approval", () => {
+    const onOpenPreview = vi.fn();
+    const onApprovalDecision = vi.fn();
+
+    render(
+      <StepDetailSlideIn
+        open
+        step={reviewStep()}
+        toolCallCount={1}
+        verifyLog={{
+          intent_match: true,
+          test_result: "skipped",
+          details: "AI reported completion without external verification.",
+          model: "mock",
+          ran_at: 1,
+        }}
+        verifyState="idle"
+        verifyError={null}
+        changedFiles={[{ path: "src/App.tsx", diff: null }]}
+        onOpenChange={vi.fn()}
+        onOpenCode={vi.fn()}
+        onOpenPreview={onOpenPreview}
+        onOpenRecovery={vi.fn()}
+        onVerifyFirst={vi.fn()}
+        onApprovalDecision={onApprovalDecision}
+        onGoToChat={vi.fn()}
+        rollbackAvailable
+        provocation={{ enabled: true, mode: "standard", projectId: 1, sessionId: 2 }}
+      />,
+    );
+
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByText("프리뷰 확인"));
+
+    expect(onOpenPreview).toHaveBeenCalledTimes(1);
+    expect(
+      screen
+        .getAllByTestId("verification-status-chip")
+        .some((chip) => chip.dataset.statusId === "preview_checked"),
+    ).toBe(true);
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByTestId("step-detail-criterion-confirm-checkbox"));
+
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.click(screen.getByTestId("decision-gate-approve"));
+
+    expect(onApprovalDecision).toHaveBeenCalledWith({ outcome: "approved", note: null });
+  });
+
+  it("routes review-card test action to the verify flow", () => {
+    const onVerifyFirst = vi.fn();
+
+    render(
+      <StepDetailSlideIn
+        open
+        step={reviewStep()}
+        toolCallCount={1}
+        verifyLog={{
+          intent_match: true,
+          test_result: "skipped",
+          details: "AI reported completion without external verification.",
+          model: "mock",
+          ran_at: 1,
+        }}
+        verifyState="idle"
+        verifyError={null}
+        changedFiles={[{ path: "src/App.tsx", diff: null }]}
+        onOpenChange={vi.fn()}
+        onOpenCode={vi.fn()}
+        onOpenPreview={vi.fn()}
+        onOpenRecovery={vi.fn()}
+        onVerifyFirst={onVerifyFirst}
+        onApprovalDecision={vi.fn()}
+        onGoToChat={vi.fn()}
+        rollbackAvailable
+        provocation={{ enabled: true, mode: "standard", projectId: 1, sessionId: 2 }}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("테스트 실행"));
+
+    expect(onVerifyFirst).toHaveBeenCalledTimes(1);
+  });
 });

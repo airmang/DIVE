@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useT } from "../../i18n";
 
 export interface TimelineItem {
   id: number;
@@ -43,7 +44,8 @@ function formatTime(ms: number): string {
 }
 
 function dotClassFor(kind: string, active: boolean): string {
-  const base = "h-[26px] w-[26px] rounded-full border-2 flex-shrink-0 transition-shadow";
+  const base =
+    "h-[26px] w-[26px] rounded-full border-2 flex-shrink-0 transition-shadow grid place-items-center text-[10px] font-bold leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
   if (active)
     return `${base} bg-accent border-accent shadow-[0_0_8px_var(--tw-shadow-color)] shadow-accent`;
   switch (kind) {
@@ -62,10 +64,41 @@ function changedFileCount(item: TimelineItem): number {
   return item.file_changes ?? item.changed_files?.length ?? 0;
 }
 
-function changedFilePreview(files: string[] | undefined): string {
-  if (!files?.length) return "변경 파일 없음";
+type T = ReturnType<typeof useT>;
+
+function checkpointKindLabel(kind: string, t: T): string {
+  switch (kind) {
+    case "init":
+      return t("slide_in.checkpoint.kind_init");
+    case "auto":
+      return t("slide_in.checkpoint.kind_auto");
+    case "manual":
+      return t("slide_in.checkpoint.kind_manual");
+    default:
+      return t("slide_in.checkpoint.kind_other", { kind });
+  }
+}
+
+function checkpointKindGlyph(kind: string): string {
+  switch (kind) {
+    case "init":
+      return "I";
+    case "auto":
+      return "A";
+    case "manual":
+      return "M";
+    default:
+      return "C";
+  }
+}
+
+function changedFilePreview(files: string[] | undefined, t: T): string {
+  if (!files?.length) return t("slide_in.checkpoint.changed_files_empty");
   const shown = files.slice(0, 6);
-  const suffix = files.length > shown.length ? ` 외 ${files.length - shown.length}개` : "";
+  const suffix =
+    files.length > shown.length
+      ? t("slide_in.checkpoint.changed_files_more", { count: files.length - shown.length })
+      : "";
   return `${shown.join(", ")}${suffix}`;
 }
 
@@ -75,8 +108,9 @@ export function CheckpointTimeline({
   onRestore,
   mockItems,
 }: Props) {
+  const t = useT();
   const [items, setItems] = useState<TimelineItem[]>(mockItems ?? []);
-  const [hovered, setHovered] = useState<number | null>(null);
+  const [openCheckpointId, setOpenCheckpointId] = useState<number | null>(null);
 
   useEffect(() => {
     if (mockItems) {
@@ -115,7 +149,7 @@ export function CheckpointTimeline({
         data-testid="checkpoint-timeline"
         data-empty="true"
       >
-        체크포인트가 없습니다.
+        {t("slide_in.checkpoint.empty")}
       </div>
     );
   }
@@ -132,26 +166,44 @@ export function CheckpointTimeline({
       />
       {items.map((item) => {
         const active = currentCheckpointId === item.id;
-        const hoveredThis = hovered === item.id;
+        const openThis = openCheckpointId === item.id;
         const fileCount = changedFileCount(item);
+        const kindLabel = checkpointKindLabel(item.kind, t);
+        const tooltipId = `checkpoint-tooltip-${item.id}`;
         return (
           <div
             key={item.id}
             className="relative z-10"
-            onMouseEnter={() => setHovered(item.id)}
-            onMouseLeave={() => setHovered(null)}
+            onMouseEnter={() => setOpenCheckpointId(item.id)}
+            onMouseLeave={() => setOpenCheckpointId(null)}
+            onFocus={() => setOpenCheckpointId(item.id)}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                setOpenCheckpointId(null);
+              }
+            }}
           >
             <button
               type="button"
               className={dotClassFor(item.kind, active)}
+              onClick={() => setOpenCheckpointId(item.id)}
               data-testid="timeline-dot"
               data-kind={item.kind}
               data-checkpoint-id={item.id}
               data-active={active ? "true" : "false"}
-              aria-label={`체크포인트 ${item.label ?? item.git_sha.slice(0, 7)}`}
-            />
-            {hoveredThis ? (
+              aria-describedby={openThis ? tooltipId : undefined}
+              aria-expanded={openThis}
+              aria-label={t("slide_in.checkpoint.dot_aria", {
+                label: item.label ?? item.git_sha.slice(0, 7),
+                kind: kindLabel,
+                current: active ? t("slide_in.checkpoint.current_suffix") : "",
+              })}
+            >
+              <span aria-hidden>{checkpointKindGlyph(item.kind)}</span>
+            </button>
+            {openThis ? (
               <div
+                id={tooltipId}
                 className="absolute left-1/2 top-full z-20 mt-1 w-56 -translate-x-1/2 rounded-md border bg-bg-panel p-2 text-[11px] shadow-lg"
                 data-testid="timeline-tooltip"
                 role="tooltip"
@@ -160,16 +212,16 @@ export function CheckpointTimeline({
                   {item.label ?? `[${item.kind}] ${item.git_sha.slice(0, 7)}`}
                 </div>
                 <div className="text-fg-muted">
-                  {formatTime(item.created_at)} · {item.kind}
+                  {formatTime(item.created_at)} · {kindLabel}
                 </div>
                 <div className="mt-1 text-fg-muted" data-testid="timeline-file-changes">
-                  파일 변경 {fileCount}개
+                  {t("slide_in.checkpoint.file_changes", { count: fileCount })}
                   {item.stats
                     ? ` · +${item.stats.added} / ~${item.stats.modified} / -${item.stats.removed}`
                     : ""}
                 </div>
                 <div className="mt-0.5 break-words text-fg-subtle" data-testid="timeline-file-list">
-                  {changedFilePreview(item.changed_files)}
+                  {changedFilePreview(item.changed_files, t)}
                 </div>
                 {onRestore ? (
                   <button
@@ -179,7 +231,7 @@ export function CheckpointTimeline({
                     data-testid="timeline-restore"
                     data-checkpoint-id={item.id}
                   >
-                    복원
+                    {t("slide_in.checkpoint.restore")}
                   </button>
                 ) : null}
               </div>

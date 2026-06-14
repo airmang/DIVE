@@ -73,6 +73,35 @@ describe("deriveAgencyStateView", () => {
     expect(view.hasRisk).toBe(false);
   });
 
+  it("does not map preview alone to verified_with_evidence", () => {
+    const view = deriveAgencyStateView({
+      goalText: "미리보기 확인",
+      acceptanceCriteria: ["미리보기에서 변경된 화면이 보인다"],
+      status: "review",
+      approvalProvenance: provenance({
+        verificationState: "unverified_risk_accepted",
+        statusIds: ["preview_checked"],
+      }),
+    });
+
+    expect(view.items.map((item) => item.id)).not.toContain("verified_with_evidence");
+  });
+
+  it("maps preview with acceptance criterion confirmation to verified_with_evidence", () => {
+    const view = deriveAgencyStateView({
+      goalText: "미리보기 확인",
+      acceptanceCriteria: ["미리보기에서 변경된 화면이 보인다"],
+      status: "review",
+      approvalProvenance: provenance({
+        verificationState: "unverified_risk_accepted",
+        statusIds: ["preview_checked"],
+      }),
+      acceptanceCriterionConfirmed: true,
+    });
+
+    expect(view.items.map((item) => item.id)).toContain("verified_with_evidence");
+  });
+
   it("maps unverified risk approval to approved_with_risk", () => {
     const view = deriveAgencyStateView({
       goalText: "라우팅 수정",

@@ -168,4 +168,30 @@ describe("PlanDraftApprovalScreen intent and step review surface", () => {
         .value,
     ).toContain("완료 기준을 계획에 추가해 주세요");
   });
+
+  it("seeds revision feedback when the oversized-scope split action is selected", () => {
+    const base = draft();
+    const manyStepDraft = draft({
+      steps: Array.from({ length: 7 }, (_, index) => ({
+        ...base.steps[0],
+        id: 100 + index,
+        step_id: `P2-${index + 1}`,
+        title: `기능 ${index + 1}`,
+        position: index + 1,
+      })),
+    });
+
+    renderScreen({
+      draft: manyStepDraft,
+      provocation: { enabled: true, mode: "standard", projectId: 1, sessionId: 2 },
+    });
+
+    expect(screen.getByText("작업 범위가 너무 큽니다")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("기능으로 나누기"));
+    expect(
+      (screen.getByPlaceholderText("이 초안에서 바꿀 내용을 입력하세요...") as HTMLTextAreaElement)
+        .value,
+    ).toContain("범위를 더 작게 나눠 주세요");
+  });
 });

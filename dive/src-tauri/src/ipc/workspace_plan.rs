@@ -230,6 +230,14 @@ pub async fn workspace_plan_generate_draft(
 }
 
 #[tauri::command]
+pub async fn workspace_plan_current_draft(
+    state: State<'_, AppState>,
+    project_id: i64,
+) -> Result<Option<(PlanRow, Vec<StepRow>)>, String> {
+    workspace_plan_current_draft_impl(&state, project_id)
+}
+
+#[tauri::command]
 pub async fn workspace_plan_approve(
     state: State<'_, AppState>,
     plan_id: i64,
@@ -577,6 +585,22 @@ pub fn workspace_plan_generate_draft_impl(
         .ok_or_else(|| "plan not found after draft generation".to_string())?;
     let steps = step_dao::list_by_plan(conn, plan_id).map_err(|e| e.to_string())?;
     Ok((plan, steps))
+}
+
+pub fn workspace_plan_current_draft_impl(
+    state: &AppState,
+    project_id: i64,
+) -> Result<Option<(PlanRow, Vec<StepRow>)>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let Some(plan) = plan_dao::get_by_project(db.conn(), project_id).map_err(|e| e.to_string())?
+    else {
+        return Ok(None);
+    };
+    if plan.status != "draft" {
+        return Ok(None);
+    }
+    let steps = step_dao::list_by_plan(db.conn(), plan.id).map_err(|e| e.to_string())?;
+    Ok(Some((plan, steps)))
 }
 
 pub fn workspace_plan_approve_impl(state: &AppState, plan_id: i64) -> Result<PlanRow, String> {

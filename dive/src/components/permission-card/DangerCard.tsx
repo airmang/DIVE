@@ -17,11 +17,14 @@ export function DangerCard({ card, onApprove, onDeny, approvalRequirement }: Per
   const [modifiedArgs, setModifiedArgs] = useState<unknown | null>(card.args);
   const [denyingWithReason, setDenyingWithReason] = useState(false);
   const [denyReason, setDenyReason] = useState("");
+  const [diffAcknowledged, setDiffAcknowledged] = useState(false);
   const explanation = explainTool(card.toolName, card.risk, card.args, t);
 
   const approvalBlocked =
     approvalRequirement?.required === true && approvalRequirement.satisfied !== true;
-  const canApprove = (!editing || modifiedArgs !== null) && !approvalBlocked;
+  const needsDiffAck = card.diffPreview !== null;
+  const canApprove =
+    (!editing || modifiedArgs !== null) && !approvalBlocked && (!needsDiffAck || diffAcknowledged);
 
   return (
     <div
@@ -50,6 +53,21 @@ export function DangerCard({ card, onApprove, onDeny, approvalRequirement }: Per
         />
         <CommandExplainer explanation={explanation} />
         <PatchPreviewPanel diff={card.diffPreview} expected={explanation.patchPreviewExpected} />
+        {needsDiffAck ? (
+          <label
+            className="flex items-start gap-2 rounded-sm border border-border bg-bg/60 px-2 py-2 text-xs text-fg"
+            data-testid="danger-diff-ack"
+          >
+            <input
+              type="checkbox"
+              checked={diffAcknowledged}
+              onChange={(e) => setDiffAcknowledged(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-border text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="danger-diff-ack-checkbox"
+            />
+            <span className="min-w-0">{t("permission_card.danger.diff_ack_label")}</span>
+          </label>
+        ) : null}
         <RawDetails value={{ preview: card.paramsPreview, args: card.args }} />
       </div>
 

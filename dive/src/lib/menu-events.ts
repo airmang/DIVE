@@ -1,10 +1,12 @@
 import { useEffect, useRef } from "react";
+import type { Locale } from "../i18n";
 import { isTauriEnv } from "./tauri-dialog";
 
 export type MenuEventId =
   | "menu:new-project"
   | "menu:open-project"
   | "menu:open-recent"
+  | "menu:export-session"
   | "menu:settings"
   | "menu:toggle-theme"
   | "menu:help-docs"
@@ -55,4 +57,11 @@ export async function refreshMenuRecents(): Promise<void> {
   if (!isTauriEnv()) return;
   const { invoke } = await import("@tauri-apps/api/core");
   await invoke("menu_refresh_recents");
+}
+
+/** Keep native menu labels aligned with the active app locale. */
+export async function syncNativeMenuLocale(locale: Locale): Promise<void> {
+  if (!isTauriEnv()) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("menu_set_locale", { locale });
 }

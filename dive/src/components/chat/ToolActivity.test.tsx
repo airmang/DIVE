@@ -110,6 +110,21 @@ describe("ToolActivity provocation permission gate", () => {
     expect(approve.mock.calls[0][2]).toBeUndefined();
   });
 
+  it("requires diff acknowledgment before approving a high-risk diff", () => {
+    render(
+      <ToolActivity call={pendingCall({ risk: "danger" })} onApprove={vi.fn()} onDeny={vi.fn()} />,
+    );
+
+    const approveButton = screen.getByTestId("card-approve") as HTMLButtonElement;
+    expect(approveButton.disabled).toBe(true);
+
+    const checkbox = screen.getByTestId("danger-diff-ack-checkbox") as HTMLInputElement;
+    fireEvent.click(checkbox);
+
+    expect(checkbox.checked).toBe(true);
+    expect(approveButton.disabled).toBe(false);
+  });
+
   it("shows the pre-run action context from the active plan step", () => {
     render(
       <ToolActivity

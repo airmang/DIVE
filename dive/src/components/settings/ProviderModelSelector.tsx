@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useToast } from "../toast/toast-context";
 import { useProjectSessionStore } from "../../stores/project-session";
+import { useT } from "../../i18n";
 
 interface ModelInfo {
   id: string;
@@ -70,6 +71,7 @@ export function ProviderModelSelector({
   const [saving, setSaving] = useState(false);
   const loadAll = useProjectSessionStore((s) => s.loadAll);
   const { toast } = useToast();
+  const t = useT();
 
   useEffect(() => {
     setSelected(selectedModel ?? "");
@@ -117,13 +119,13 @@ export function ProviderModelSelector({
       await onModelSaved?.();
       toast({
         variant: "success",
-        title: "모델 설정 저장됨",
-        description: "다음 요청부터 선택한 모델이 적용됩니다.",
+        title: t("settings.model_saved_title"),
+        description: t("settings.model_saved_description"),
       });
     } catch (err) {
       toast({
         variant: "error",
-        title: "모델 설정 저장 실패",
+        title: t("settings.model_save_failed_title"),
         description: err instanceof Error ? err.message : String(err),
       });
     } finally {
@@ -131,21 +133,28 @@ export function ProviderModelSelector({
     }
   };
 
-  if (loading) return <div className="text-xs text-fg-muted">모델 로드 중…</div>;
+  if (loading) return <div className="text-xs text-fg-muted">{t("settings.model_loading")}</div>;
   if (options.length === 0)
-    return <div className="text-xs text-fg-muted">사용 가능한 모델 없음</div>;
+    return <div className="text-xs text-fg-muted">{t("settings.model_empty")}</div>;
 
   return (
-    <div className="flex items-center gap-2" data-testid="provider-model-selector">
-      <label className="text-xs text-fg-muted" htmlFor={`model-${providerKind}-${providerId}`}>
-        모델
+    <div
+      className="grid grid-cols-[minmax(3.5rem,auto)_minmax(0,1fr)] items-center gap-2"
+      data-testid="provider-model-selector"
+    >
+      <label
+        className="min-w-0 text-xs text-fg-muted"
+        htmlFor={`model-${providerKind}-${providerId}`}
+      >
+        {t("settings.model_label")}
       </label>
       <select
         id={`model-${providerKind}-${providerId}`}
         value={selected}
         onChange={(e) => void handleChange(e.target.value)}
         disabled={saving}
-        className="min-w-0 flex-1 rounded-md border bg-bg px-2 py-1 text-sm"
+        aria-label={t("settings.model_select_aria")}
+        className="w-full min-w-0 rounded-md border bg-bg px-2 py-1 text-sm"
         data-testid="provider-model-select"
         data-provider-kind={providerKind}
       >
@@ -155,7 +164,9 @@ export function ProviderModelSelector({
           </option>
         ))}
       </select>
-      {saving ? <span className="text-[10px] text-fg-muted">저장 중…</span> : null}
+      {saving ? (
+        <span className="col-start-2 text-[10px] text-fg-muted">{t("settings.model_saving")}</span>
+      ) : null}
     </div>
   );
 }

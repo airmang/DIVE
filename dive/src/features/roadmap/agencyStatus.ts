@@ -1,6 +1,7 @@
 import type { ChangedFile } from "../../components/slide-in/types";
 import type { VerifyLogView } from "../../components/workmap/types";
-import type { ApprovalProvenance } from "../provocation";
+import type { ApprovalProvenance, VerificationStatusId } from "../provocation";
+import { hasConcreteVerification } from "../provocation/verificationGrade";
 import type {
   AgencyStateId,
   AgencyStateItem,
@@ -109,6 +110,7 @@ export interface DeriveAgencyStateInput {
   verifyLog?: VerifyLogView | null;
   verificationState?: ApprovalProvenance["verificationState"] | string | null;
   approvalProvenance?: ApprovalProvenance | null;
+  acceptanceCriterionConfirmed?: boolean;
   checkpointAvailable?: boolean;
 }
 
@@ -196,11 +198,13 @@ export function deriveAgencyStateView(input: DeriveAgencyStateInput): AgencyStat
     addState(states, "rollback_available");
   }
 
-  if (
-    verificationState === "verified_with_evidence" ||
-    ids.includes("automated_tests_passed") ||
-    testResult === "pass"
-  ) {
+  const verified = hasConcreteVerification({
+    statusIds: ids as VerificationStatusId[],
+    testResult,
+    manualOrPreviewObserved: ids.includes("app_launched") || ids.includes("preview_checked"),
+    acceptanceCriterionConfirmed: input.acceptanceCriterionConfirmed ?? false,
+  });
+  if (verified || verificationState === "verified_with_evidence") {
     addState(states, "verified_with_evidence");
   }
 

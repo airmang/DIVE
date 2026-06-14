@@ -5,6 +5,7 @@ use dive_lib::db::models::{
     CardState, NewCard, NewEventLog, NewMessage, NewProject, NewSession, NewToolCall,
 };
 use dive_lib::export::{ExportEngine, ExportOptions};
+use rusqlite::params;
 use serde_json::{json, Value};
 
 fn seed() -> (Arc<Mutex<dive_lib::Database>>, i64) {
@@ -70,6 +71,22 @@ fn seed() -> (Arc<Mutex<dive_lib::Database>>, i64) {
             usage: None,
             provider: None,
             model: None,
+        },
+    )
+    .unwrap();
+    message::insert(
+        db.conn(),
+        &NewMessage {
+            session_id: sid,
+            card_id: None,
+            role: "assistant".into(),
+            content: "I read src/secret.ts and saw password=hunter2 plus ghp_abcdef1234567890"
+                .into(),
+            reasoning_content: None,
+            tool_calls: None,
+            usage: None,
+            provider: Some("openai".into()),
+            model: Some("gpt-test".into()),
         },
     )
     .unwrap();
@@ -170,6 +187,34 @@ fn hashing_is_on_by_default_and_off_with_flag() {
     assert!(
         unmasked.contains("src/App.tsx"),
         "file path must pass through when off"
+    );
+}
+
+#[test]
+fn default_export_hashes_all_message_roles() {
+    let (db, sid) = seed();
+    let engine = ExportEngine::new(db);
+    let out = engine
+        .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+        .unwrap();
+
+    assert!(
+        !out.contains("I read src/secret.ts"),
+        "assistant content must not be exported verbatim by default: {out}"
+    );
+    assert!(!out.contains("password=hunter2"));
+    assert!(!out.contains("ghp_abcdef1234567890"));
+
+    let records = lines(&out);
+    let assistant = records
+        .iter()
+        .find(|record| record["kind"] == "message" && record["role"] == "assistant")
+        .expect("assistant message");
+    assert!(
+        assistant["content"]
+            .as_str()
+            .is_some_and(|value| value.starts_with("h:")),
+        "assistant content should be hashed by default: {assistant:?}"
     );
 }
 
@@ -275,6 +320,89 @@ fn default_export_hashes_database_ids_and_pii_patterns() {
     assert!(!out.contains("student@example.edu"), "email must be masked");
     assert!(!out.contains("010-1234-5678"), "phone must be masked");
     assert!(!out.contains("src/private.ts"), "path must be masked");
+}
+
+#[test]
+fn default_export_anonymizes_step_mapping_evidence_and_decision_json() {
+    let (db, sid) = seed();
+    {
+        let db_guard = db.lock().unwrap();
+        let project_id: i64 = db_guard
+            .conn()
+            .query_row(
+                "SELECT project_id FROM Session WHERE id = ?",
+                [sid],
+                |row| row.get(0),
+            )
+            .unwrap();
+        db_guard
+            .conn()
+            .execute(
+                "INSERT INTO Plan(project_id, interview_id, goal, intent_summary, scope, non_goals, constraints, acceptance_criteria, status, created_at, approved_at, updated_at) VALUES (?, NULL, ?, NULL, '[]', '[]', '[]', '[]', 'approved', 1, 1, 1)",
+                params![project_id, "Export safety"],
+            )
+            .unwrap();
+        let plan_id = db_guard.conn().last_insert_rowid();
+        db_guard
+            .conn()
+            .execute(
+                "INSERT INTO Step(plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at) VALUES (?, 'step_1', 'Check export', NULL, NULL, '[]', '[]', NULL, NULL, NULL, '[]', NULL, 1, 1, 1)",
+                [plan_id],
+            )
+            .unwrap();
+        let step_id = db_guard.conn().last_insert_rowid();
+        db_guard
+            .conn()
+            .execute(
+                "INSERT INTO StepSessionMapping(step_id, session_id, card_id, state_path, status, started_at, completed_at, checkpoint_ids, verification_status, verification_evidence, user_decision, created_at, updated_at) VALUES (?, ?, NULL, ?, 'done', 1, 2, '[]', 'verified', ?, ?, 1, 2)",
+                params![
+                    step_id,
+                    sid,
+                    "src/state.json",
+                    json!({
+                        "path": "src/secret.ts",
+                        "output": "Bearer secret-token-123",
+                        "nested": { "password": "password=hunter2" }
+                    })
+                    .to_string(),
+                    json!({
+                        "note": "keep ghp_abcdef1234567890",
+                        "reason": "reviewed src/secret.ts"
+                    })
+                    .to_string()
+                ],
+            )
+            .unwrap();
+    }
+
+    let engine = ExportEngine::new(db);
+    let out = engine
+        .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+        .unwrap();
+
+    for raw in [
+        "src/secret.ts",
+        "Bearer secret-token-123",
+        "password=hunter2",
+        "ghp_abcdef1234567890",
+    ] {
+        assert!(!out.contains(raw), "default export leaked {raw}: {out}");
+    }
+
+    let records = lines(&out);
+    let mapping = records
+        .iter()
+        .find(|record| record["kind"] == "step_session_mapping")
+        .expect("step mapping record");
+    assert!(mapping["verification_evidence"]["path"]
+        .as_str()
+        .is_some_and(|value| value.starts_with("p:")));
+    assert!(mapping["verification_evidence"]["output"]
+        .as_str()
+        .is_some_and(|value| value.starts_with("h:")));
+    assert!(mapping["user_decision"]["note"]
+        .as_str()
+        .is_some_and(|value| value.starts_with("h:")));
 }
 
 #[test]

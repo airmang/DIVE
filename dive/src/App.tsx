@@ -6,8 +6,10 @@ import {
   type Rc1MigrationResult,
 } from "./lib/rc1-migration";
 import { resolveDemoRouteValue, type RecognizedDemoRoute } from "./lib/dev-demo";
+import { useLocale } from "./i18n";
+import { syncNativeMenuLocale } from "./lib/menu-events";
 
-type ProductRoute = "main" | "settings" | "prompt-helper";
+type ProductRoute = "main" | "settings" | "prompt-helper" | "user-guide";
 
 type ResolvedRoute =
   | { kind: "product"; route: ProductRoute }
@@ -20,6 +22,7 @@ const DevPromptHelperDemoPage = import.meta.env.DEV
   ? lazy(() => import("./pages/prompt-helper-demo"))
   : null;
 const SettingsPage = lazy(() => import("./pages/settings"));
+const UserGuidePage = lazy(() => import("./pages/user-guide"));
 const Rc1MigrationDialog = lazy(() => import("./components/rc1/Rc1MigrationDialog"));
 
 function Rc1MigrationFallback({
@@ -66,6 +69,9 @@ function resolveRoute(
   if (import.meta.env.DEV && productRoute === "prompt-helper") {
     return { kind: "product", route: "prompt-helper" };
   }
+  if (productRoute === "user-guide") {
+    return { kind: "product", route: "user-guide" };
+  }
 
   const internalRoute = params.get("internal");
   if (internalRoute === "diagnostics-survey") {
@@ -93,6 +99,7 @@ function resolveRoute(
 }
 
 function App() {
+  const locale = useLocale();
   const [route, setRoute] = useState<ResolvedRoute>(() => resolveRoute());
   const [rc1Migration, setRc1Migration] = useState<Rc1MigrationResult | null>(() => {
     const result = runRc1Migration();
@@ -104,6 +111,10 @@ function App() {
     window.addEventListener("popstate", handler);
     return () => window.removeEventListener("popstate", handler);
   }, []);
+
+  useEffect(() => {
+    void syncNativeMenuLocale(locale);
+  }, [locale]);
 
   const acknowledge = () => {
     acknowledgeRc1Migration();
@@ -132,6 +143,12 @@ function App() {
     content = (
       <Suspense fallback={<MainShell />}>
         <DevPromptHelperDemoPage />
+      </Suspense>
+    );
+  } else if (route.kind === "product" && route.route === "user-guide") {
+    content = (
+      <Suspense fallback={<MainShell />}>
+        <UserGuidePage />
       </Suspense>
     );
   } else if (route.kind === "internal") {

@@ -17,7 +17,9 @@
     "settings": "Settings",
     "retry": "Retry",
     "optional": "(optional)",
-    "required": "(required)"
+    "required": "(required)",
+    "notifications": "Notifications",
+    "dismiss_toast": "Dismiss notification"
   },
   "codex_oauth": {
     "title": "Connect ChatGPT subscription (Codex OAuth)",
@@ -239,14 +241,27 @@
     "ai_connection_description": "Pick the AI connection DIVE uses for planning, coding, and checks. API keys are stored in the OS keychain.",
     "provider_codex_hint": "ChatGPT Plus/Pro subscription",
     "provider_mock_hint": "For testing",
+    "provider_connected_aria": "AI connection active",
+    "provider_disconnected_aria": "AI connection missing",
     "connect": "Connect",
     "connect_chatgpt": "Connect ChatGPT",
     "disconnect": "Disconnect",
+    "disconnect_confirm": "Disconnect {{kind}}?",
+    "disconnect_codex_confirm": "Disconnect ChatGPT?",
     "coming_soon": "Coming soon",
+    "base_url_warning": "Connected to a non-default AI endpoint. The API key will be sent to that server.",
     "api_key_placeholder": "Paste API key",
     "connecting": "Connecting…",
     "save_and_connect": "Save and connect",
     "account_label": "Account",
+    "model_label": "Model",
+    "model_select_aria": "Select provider model",
+    "model_loading": "Loading models…",
+    "model_empty": "No models available",
+    "model_saving": "Saving…",
+    "model_saved_title": "Model setting saved",
+    "model_saved_description": "The selected model will be used from the next request.",
+    "model_save_failed_title": "Failed to save model setting",
     "safety_eyebrow": "Safety",
     "safety_title": "Safety",
     "safety_description": "DIVE asks before changing files, running commands, or undoing work.",
@@ -288,6 +303,10 @@
     "pending_approval_jump": "Show pending approval",
     "pending_approval_jump_aria": "Jump to the pending tool approval card",
     "stall_timeout": "The AI response stalled. Check your network or the model status, then try again.",
+    "message": {
+      "edit_aria": "Edit message",
+      "resend_aria": "Resend message"
+    },
     "input": {
       "placeholder": "Type a message...",
       "aria_label": "Message input",
@@ -429,12 +448,15 @@
       "intent_match_true": "AI self-report: intent met (claimed)",
       "intent_match_false": "AI self-report: intent not met (claimed)",
       "unverified_note": "Not verified by external tests. Check the result yourself.",
+      "criterion_confirm_label": "I personally observed this acceptance criterion hold",
+      "criterion_confirm_hint": "After checking the preview or app, confirming the criterion records observed evidence",
       "decision_title": "Decision",
       "decision_summary_verified": "Verification evidence is present. You can approve or keep checking.",
       "decision_summary_risk": "Some evidence needs attention before approval.",
       "decision_summary_missing": "Verification evidence is limited. Check first or record the risk.",
       "decision_risk_badge": "Needs review",
       "decision_reason_title": "Reason required because",
+      "decision_reason_unverified": "No verification evidence yet — nothing run, tested, or confirmed against the acceptance criterion",
       "decision_reason_ai_self_report_only": "Only AI self-report is present",
       "decision_reason_failed_test": "Approval follows a failed test",
       "decision_reason_high_risk_files": "Unexpected high-risk files changed",
@@ -740,7 +762,8 @@
     "danger": {
       "title": "High-risk approval required",
       "description": "DIVE is asking for a powerful action. It will not run unless you allow it.",
-      "approve": "Allow high-risk action"
+      "approve": "Allow high-risk action",
+      "diff_ack_label": "I have reviewed this change (diff)"
     },
     "actions": {
       "deny": "Deny",
@@ -875,6 +898,15 @@
     "manual_label_with_card": "Manual save — {{title}}"
   },
   "slide_in": {
+    "tabs": {
+      "code": "Code",
+      "preview": "Preview",
+      "terminal": "Terminal"
+    },
+    "panel_title": "Code / Preview / Terminal",
+    "close_aria": "Close panel",
+    "hint": "Code / Preview / Terminal — review the AI-created result in this panel.",
+    "tablist_aria": "Slide-in tabs",
     "code_empty": {
       "no_output": {
         "title": "No code output yet",
@@ -885,6 +917,51 @@
         "description": "Check provider quota or dependencies, then retry from the roadmap Resume action."
       },
       "open_terminal": "Open terminal"
+    },
+    "code": {
+      "diff_missing": "diff not captured",
+      "diff_unavailable_title": "Recorded as a changed file",
+      "diff_unavailable_description": "This item only has a path from checkpoint or previous-version data, so line-level diff is unavailable. It is no longer shown as +0/−0."
+    },
+    "preview": {
+      "url_required": "Enter a URL.",
+      "url_invalid": "Only http / https URLs are allowed.",
+      "checking_project": "Checking the project...",
+      "desktop_project_required": "Select a project in the installed app before using this.",
+      "connected_existing": "Connected to the running preview.",
+      "installed_and_opened": "Installed dependencies and opened the preview.",
+      "started": "Started the preview.",
+      "url_aria": "Preview URL",
+      "open": "Open",
+      "auto_connect": "Check result",
+      "iframe_title": "Preview",
+      "empty_title": "Choose a local URL to view the result.",
+      "empty_description": "If a web project server is running, you can check it directly from one of the default addresses below."
+    },
+    "terminal": {
+      "rollback_unavailable": "No recovery path",
+      "repro_seed": "Use the repeated terminal error to summarize reproduction steps, the smallest verification command, and what to inspect in the last change.",
+      "repro_status": "Filled the chat composer with a reproduction-step request.",
+      "split_seed": "Turn this terminal failure into a smaller single-scope request.",
+      "split_status": "Filled the chat composer with a scope-reduction request.",
+      "retry_seed": "Check the recovery point, reproduction steps, and scope reduction first, then retry while avoiding the same terminal failure.",
+      "retry_status": "Filled the chat composer with a recovery-first retry request.",
+      "title": "Terminal — {{count}} lines",
+      "clear": "Clear",
+      "empty": "No output yet."
+    },
+    "checkpoint": {
+      "changed_files_empty": "No changed files",
+      "changed_files_more": " and {{count}} more",
+      "current_suffix": ", current checkpoint",
+      "empty": "No checkpoints yet.",
+      "dot_aria": "Checkpoint {{label}}, {{kind}}{{current}}",
+      "file_changes": "{{count}} file changes",
+      "kind_auto": "automatic",
+      "kind_init": "initial",
+      "kind_manual": "manual",
+      "kind_other": "{{kind}}",
+      "restore": "Restore"
     }
   },
   "keyboard": {
@@ -913,6 +990,13 @@
     "tutorial_description": "You can change this anytime in Settings > General.",
     "docs_open_failed": "Could not open docs",
     "issue_open_failed": "Could not open issue page",
+    "issue_guidance_title": "Troubleshooting guide opened",
+    "issue_guidance_description": "The public issue tracker is not available in this build; use the troubleshooting steps before sharing logs with your instructor or support contact.",
+    "export_no_session_title": "No session to export",
+    "export_no_session_description": "Open a project and session, then try again.",
+    "export_success_title": "Session export ready",
+    "export_success_description": "DIVE started a JSONL download with the default anonymized settings.",
+    "export_failed_title": "Could not export session",
     "about_title": "DIVE v1.0.0-rc.2",
     "about_description": "Desktop app for guiding a local AI coding agent through plan, run, check, and undo flows.",
     "retry_unavailable": "No message to retry",

@@ -9,8 +9,8 @@ import {
   ProvocationCardHost,
   generateProvocationCards,
   normalizePlanStep,
-  type ProvocationAction,
   type ScaffoldMode,
+  useProvocationActionResolver,
 } from "../../features/provocation";
 
 interface PlanDraftApprovalScreenProps {
@@ -146,17 +146,22 @@ export function PlanDraftApprovalScreen({
     });
   }, [draft.steps, plan.acceptance_criteria, plan.goal, plan.id, provocation]);
 
-  const handleProvocationAction = (action: ProvocationAction) => {
-    if (action.kind === "add_acceptance_criteria") {
+  const handleProvocationAction = useProvocationActionResolver({
+    onAddAcceptanceCriteria: () => {
       setFeedback(
         "완료 기준을 계획에 추가해 주세요. 예: 사용자가 무엇을 보면 끝났다고 판단할 수 있는지 2~3개로 적어 주세요.",
       );
-      return;
-    }
-    if (action.kind === "add_verification_step") {
+    },
+    onAddVerificationStep: () => {
       setFeedback("검증 단계가 필요합니다. 실행/프리뷰/테스트 중 무엇으로 확인할지 계획에 추가해 주세요.");
-    }
-  };
+    },
+    onSplitScope: () => {
+      setFeedback("범위를 더 작게 나눠 주세요. 첫 번째 기능 하나만 승인 가능한 계획으로 다시 작성해 주세요.");
+    },
+    onContinueWithRisk: () => {
+      setFeedback("남은 위험을 알고 진행하려면, 변경 요청란에 왜 그대로 진행해도 되는지 짧게 남겨 주세요.");
+    },
+  });
 
   return (
     <div className="h-full overflow-y-auto bg-bg" data-testid="plan-draft-approval">

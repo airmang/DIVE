@@ -69,6 +69,31 @@ function stringArray(value: unknown): string[] {
     : [];
 }
 
+function safeExportFilenamePart(value: string | null, fallback: string): string {
+  const cleaned = (value ?? "")
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return cleaned || fallback;
+}
+
+function downloadSessionExport(
+  sessionId: number,
+  sessionTitle: string | null,
+  jsonl: string,
+): void {
+  const filenamePart = safeExportFilenamePart(sessionTitle, `session-${sessionId}`);
+  const blob = new Blob([jsonl], { type: "application/x-ndjson" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `dive-${filenamePart}.jsonl`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 export function useProductShellController() {
   const t = useT();
   const dialogs = useProductShellDialogs();
@@ -127,6 +152,33 @@ export function useProductShellController() {
   const planRoadmap = usePlanRoadmap(currentProjectId);
   const plan = usePlan(currentProjectId);
   const planRouter = usePlanRouter(currentProjectId);
+  const currentDraft = plan.currentDraft;
+  const planStatus = plan.status?.status;
+
+  useEffect(() => {
+    if (generatedPlanDraft && generatedPlanDraft.plan.project_id !== currentProjectId) {
+      setGeneratedPlanDraft(null);
+    }
+  }, [currentProjectId, generatedPlanDraft]);
+
+  useEffect(() => {
+    if (currentProjectId === null || generatedPlanDraft !== null || planStatus !== "draft") {
+      return;
+    }
+    let cancelled = false;
+    void currentDraft()
+      .then((draft) => {
+        if (!cancelled && draft) {
+          setGeneratedPlanDraft(draft);
+        }
+      })
+      .catch((err) => {
+        console.warn("load current plan draft failed:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentDraft, currentProjectId, generatedPlanDraft, planStatus]);
 
   useEffect(() => {
     pendingPlanRouteRef.current = pendingPlanRoute;
@@ -526,6 +578,19 @@ export function useProductShellController() {
       }
     : undefined;
 
+  const openUserGuideRoute = useCallback((doc: "index" | "troubleshooting") => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("demo");
+    url.searchParams.set("route", "user-guide");
+    if (doc === "troubleshooting") {
+      url.searchParams.set("doc", "troubleshooting");
+    } else {
+      url.searchParams.delete("doc");
+    }
+    window.history.pushState({}, "", url.toString());
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, []);
+
   const handleOpenProject = useCallback(async () => {
     const picked = await pickFolder({ title: t("project.open_pick_title") });
     if (!picked) return;
@@ -540,21 +605,32 @@ export function useProductShellController() {
     }
   }, [openProject, toast, t]);
 
-  const openExternalUrl = useCallback(
-    async (url: string, title: string) => {
-      try {
-        const { openUrl } = await import("@tauri-apps/plugin-opener");
-        await openUrl(url);
-      } catch (err) {
-        toast({
-          variant: "error",
-          title,
-          description: err instanceof Error ? err.message : String(err),
-        });
-      }
-    },
-    [toast],
-  );
+  const handleExportSession = useCallback(async () => {
+    if (currentSessionId === null) {
+      toast({
+        variant: "error",
+        title: t("toast.export_no_session_title"),
+        description: t("toast.export_no_session_description"),
+      });
+      return;
+    }
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const jsonl = await invoke<string>("export_session", { sessionId: currentSessionId });
+      downloadSessionExport(currentSessionId, currentSessionTitle, jsonl);
+      toast({
+        variant: "success",
+        title: t("toast.export_success_title"),
+        description: t("toast.export_success_description"),
+      });
+    } catch (err) {
+      toast({
+        variant: "error",
+        title: t("toast.export_failed_title"),
+        description: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, [currentSessionId, currentSessionTitle, t, toast]);
 
   useMenuEvents({
     "menu:new-project": () => dialogs.setNewProjectOpen(true),
@@ -564,6 +640,7 @@ export function useProductShellController() {
       if (typeof projectId !== "number") return;
       void selectProject(projectId).then(() => refreshMenuRecents());
     },
+    "menu:export-session": () => void handleExportSession(),
     "menu:settings": openSettingsRoute,
     "menu:toggle-theme": () => toggleTheme(),
     "menu:help-tutorial": () => {
@@ -577,16 +654,15 @@ export function useProductShellController() {
       });
     },
     "menu:help-docs": () => {
-      void openExternalUrl(
-        "https://github.com/coreelab/dive/blob/main/README.md",
-        t("toast.docs_open_failed"),
-      );
+      openUserGuideRoute("index");
     },
     "menu:help-issue": () => {
-      void openExternalUrl(
-        "https://github.com/coreelab/dive/issues/new",
-        t("toast.issue_open_failed"),
-      );
+      openUserGuideRoute("troubleshooting");
+      toast({
+        variant: "info",
+        title: t("toast.issue_guidance_title"),
+        description: t("toast.issue_guidance_description"),
+      });
     },
     "menu:help-about": () =>
       toast({

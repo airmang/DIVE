@@ -20,6 +20,13 @@ const aiSelfReportOnly: VerificationStatusItem = {
   tone: "warn",
 };
 
+const manualPreviewChecked: VerificationStatusItem = {
+  id: "preview_checked",
+  label: "수동 프리뷰 확인됨",
+  evidenceBacked: true,
+  tone: "success",
+};
+
 function driftCard(overrides: Partial<ProvocationCard> = {}): ProvocationCard {
   return {
     id: "diff_scope_drift:finalApproval:1",
@@ -67,6 +74,99 @@ describe("DecisionGate policy", () => {
 
     expect(policy.requiresReason).toBe(false);
     expect(policy.canApproveDirectly).toBe(true);
+  });
+
+  it("does not treat preview-only evidence as verified without criterion confirmation", () => {
+    const policy = deriveDecisionGatePolicy({
+      verificationStatuses: [manualPreviewChecked],
+      rollbackAvailable: false,
+    });
+
+    expect(policy.hasVerifiedEvidence).toBe(false);
+    expect(policy.requiresReason).toBe(true);
+  });
+
+  it("blocks direct approval for preview-only evidence even when rollback is available", () => {
+    const policy = deriveDecisionGatePolicy({
+      verificationStatuses: [manualPreviewChecked],
+      rollbackAvailable: true,
+    });
+
+    expect(policy.canApproveDirectly).toBe(false);
+    expect(policy.requiresReason).toBe(true);
+    expect(policy.reasons).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "unverified" })]),
+    );
+  });
+
+  it("allows direct approval when preview evidence is linked to an acceptance criterion", () => {
+    const policy = deriveDecisionGatePolicy({
+      verificationStatuses: [manualPreviewChecked],
+      acceptanceCriterionConfirmed: true,
+      rollbackAvailable: false,
+    });
+
+    expect(policy.hasVerifiedEvidence).toBe(true);
+    expect(policy.canApproveDirectly).toBe(true);
+  });
+
+  it("does not keep the AI self-report-only reason after criterion-linked preview evidence", () => {
+    const policy = deriveDecisionGatePolicy({
+      verificationStatuses: [aiSelfReportOnly, manualPreviewChecked],
+      verifyLog: {
+        intent_match: true,
+        test_result: "skipped",
+        details: "AI reported completion without external verification.",
+        model: "mock",
+        ran_at: 1,
+      },
+      acceptanceCriterionConfirmed: true,
+      rollbackAvailable: true,
+    });
+
+    expect(policy.hasVerifiedEvidence).toBe(true);
+    expect(policy.reasons).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "ai_self_report_only" })]),
+    );
+    expect(policy.canApproveDirectly).toBe(true);
+  });
+
+  it("clears the unverified reason when preview evidence is linked to an acceptance criterion", () => {
+    const policy = deriveDecisionGatePolicy({
+      verificationStatuses: [manualPreviewChecked],
+      acceptanceCriterionConfirmed: true,
+      rollbackAvailable: true,
+    });
+
+    expect(policy.reasons).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "unverified" })]),
+    );
+    expect(policy.canApproveDirectly).toBe(true);
+  });
+
+  it("enables direct approval for preview evidence only after criterion confirmation is forwarded", () => {
+    const props: ComponentProps<typeof DecisionGate> = {
+      verificationStatuses: [manualPreviewChecked],
+      agencyState: null,
+      provocationCards: [],
+      verifyLog: null,
+      rollbackAvailable: true,
+      verifyRunning: false,
+      onApprove: vi.fn(),
+      onAcceptRisk: vi.fn(),
+      onRequestChanges: vi.fn(),
+      onVerifyFirst: vi.fn(),
+      onRevert: vi.fn(),
+      onStop: vi.fn(),
+    };
+
+    const { rerender } = render(<DecisionGate {...props} />);
+
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
+
+    rerender(<DecisionGate {...props} acceptanceCriterionConfirmed />);
+
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("requires a short reason for AI self-report only approval", () => {

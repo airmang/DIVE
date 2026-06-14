@@ -88,14 +88,17 @@ export function ProvocationCardHost({
     onAction?.(action, primary, reason);
   };
 
+  const canDismissOrMarkIrrelevant = primary.severity !== "risk";
+
   return (
     <div className={cn("space-y-2", className)} data-testid="provocation-host">
       <ProvocationCard
         card={primary}
         mode={mode}
         onAction={act}
-        onDismiss={dismiss}
-        onMarkIrrelevant={markIrrelevant}
+        {...(canDismissOrMarkIrrelevant
+          ? { onDismiss: dismiss, onMarkIrrelevant: markIrrelevant }
+          : {})}
       />
       {visibleCards.length > 1 ? (
         <p className="text-[11px] text-fg-muted" data-testid="provocation-secondary-count">

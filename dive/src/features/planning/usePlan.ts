@@ -131,6 +131,12 @@ export function usePlan(projectId: number | null) {
     [api, refresh],
   );
 
+  const currentDraft = useCallback(async () => {
+    if (!api || projectId === null) return null;
+    const raw = await api.invoke<unknown | null>("workspace_plan_current_draft", { projectId });
+    return raw === null ? null : normalizeGeneratedDraft(raw);
+  }, [api, projectId]);
+
   const approvePlan = useCallback(
     async (planId: number) => {
       if (!api) throw new Error("Tauri IPC unavailable");
@@ -159,6 +165,7 @@ export function usePlan(projectId: number | null) {
     saveInterviewAnswer,
     submitInterview,
     generateDraft,
+    currentDraft,
     approvePlan,
     discardPlan,
   };

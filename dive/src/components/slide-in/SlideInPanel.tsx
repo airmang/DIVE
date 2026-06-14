@@ -8,14 +8,16 @@ import { CodeTab } from "./CodeTab";
 import { PreviewTab } from "./PreviewTab";
 import { TerminalTab } from "./TerminalTab";
 import { LearningHint } from "../ui/learning-hint";
+import { useT } from "../../i18n";
 
-const TABS: { id: SlideInTab; label: string }[] = [
-  { id: "code", label: "코드" },
-  { id: "preview", label: "미리보기" },
-  { id: "terminal", label: "터미널" },
+const TABS: { id: SlideInTab; labelKey: string }[] = [
+  { id: "code", labelKey: "slide_in.tabs.code" },
+  { id: "preview", labelKey: "slide_in.tabs.preview" },
+  { id: "terminal", labelKey: "slide_in.tabs.terminal" },
 ];
 
 export function SlideInPanel() {
+  const t = useT();
   const isOpen = useSlideInStore((s) => s.isOpen);
   const activeTab = useSlideInStore((s) => s.activeTab);
   const setActiveTab = useSlideInStore((s) => s.setActiveTab);
@@ -57,12 +59,12 @@ export function SlideInPanel() {
     >
       <header className="flex items-center justify-between border-b px-4 py-2">
         <h2 id="slide-in-title" className="text-sm font-semibold text-fg">
-          코드 / 미리보기 / 터미널
+          {t("slide_in.panel_title")}
         </h2>
         <Button
           size="icon"
           variant="ghost"
-          aria-label="패널 닫기"
+          aria-label={t("slide_in.close_aria")}
           onClick={close}
           data-testid="slide-in-close"
         >
@@ -70,23 +72,27 @@ export function SlideInPanel() {
         </Button>
       </header>
       <LearningHint className="border-b bg-bg-panel px-4 py-2 text-xs">
-        코드 / 미리보기 / 터미널 — AI가 만든 결과를 이 창에서 확인하세요.
+        {t("slide_in.hint")}
       </LearningHint>
 
-      <nav className="flex border-b bg-bg-panel" role="tablist" aria-label="슬라이드 인 탭">
-        {TABS.map((t, idx) => {
-          const selected = activeTab === t.id;
+      <nav
+        className="flex border-b bg-bg-panel"
+        role="tablist"
+        aria-label={t("slide_in.tablist_aria")}
+      >
+        {TABS.map((tab, idx) => {
+          const selected = activeTab === tab.id;
           return (
             <button
-              key={t.id}
+              key={tab.id}
               ref={idx === 0 ? firstTabRef : undefined}
               type="button"
               role="tab"
               aria-selected={selected}
-              aria-controls={`slide-in-panel-${t.id}`}
+              aria-controls={`slide-in-panel-${tab.id}`}
               data-testid="slide-in-tab"
-              data-tab={t.id}
-              onClick={() => setActiveTab(t.id)}
+              data-tab={tab.id}
+              onClick={() => setActiveTab(tab.id)}
               className={cn(
                 "relative px-4 py-2 text-sm transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -95,7 +101,7 @@ export function SlideInPanel() {
                   : "text-fg-muted hover:text-fg",
               )}
             >
-              {t.label}
+              {t(tab.labelKey)}
             </button>
           );
         })}

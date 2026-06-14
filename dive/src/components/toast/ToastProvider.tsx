@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, Info, XCircle } from "lucide-react";
 import { ToastContext, type Toast, type ToastVariant } from "./toast-context";
+import { useT } from "../../i18n";
 
 const MAX_TOASTS = 3;
 const AUTO_DISMISS_MS = 5000;
@@ -12,6 +13,7 @@ function makeId() {
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const t = useT();
 
   const dismiss = useCallback((id: string) => {
     const t = timers.current.get(id);
@@ -50,19 +52,32 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         data-testid="toast-stack"
         data-count={toasts.length}
         role="region"
-        aria-label="알림"
+        aria-label={t("common.notifications")}
         aria-live="polite"
         aria-atomic="false"
       >
-        {toasts.map((t) => (
-          <ToastCard key={t.id} toast={t} onDismiss={() => dismiss(t.id)} />
+        {toasts.map((toastItem) => (
+          <ToastCard
+            key={toastItem.id}
+            toast={toastItem}
+            dismissLabel={t("common.dismiss_toast")}
+            onDismiss={() => dismiss(toastItem.id)}
+          />
         ))}
       </div>
     </ToastContext.Provider>
   );
 }
 
-function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
+function ToastCard({
+  toast,
+  dismissLabel,
+  onDismiss,
+}: {
+  toast: Toast;
+  dismissLabel: string;
+  onDismiss: () => void;
+}) {
   const Icon = iconFor(toast.variant);
   return (
     <div
@@ -95,7 +110,7 @@ function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
         type="button"
         onClick={onDismiss}
         data-testid="toast-dismiss"
-        aria-label="토스트 닫기"
+        aria-label={dismissLabel}
         className="rounded p-0.5 text-fg-muted hover:bg-bg-panel2"
       >
         <XCircle className="h-3.5 w-3.5" />

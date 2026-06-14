@@ -6,4 +6,5 @@ export * from "./logging";
 export * from "./rules";
 export * from "./types";
 export * from "./useProvocationCards";
+export * from "./useProvocationActionResolver";
 export * from "./verificationStatus";

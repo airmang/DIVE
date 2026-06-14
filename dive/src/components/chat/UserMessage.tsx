@@ -2,6 +2,7 @@ import { memo } from "react";
 import type { UserMessageData } from "./types";
 import { Button } from "../ui/button";
 import { Pencil, RotateCcw } from "lucide-react";
+import { useT } from "../../i18n";
 
 interface Props {
   message: UserMessageData;
@@ -10,6 +11,7 @@ interface Props {
 }
 
 function UserMessageImpl({ message, onEdit, onResend }: Props) {
+  const t = useT();
   return (
     <article
       className="flex flex-col items-end gap-1"
@@ -25,7 +27,7 @@ function UserMessageImpl({ message, onEdit, onResend }: Props) {
               <Button
                 variant="ghost"
                 size="icon"
-                aria-label="메시지 편집"
+                aria-label={t("chat.message.edit_aria")}
                 onClick={() => onEdit(message.id)}
                 className="h-6 w-6 bg-bg-panel2"
               >
@@ -36,7 +38,7 @@ function UserMessageImpl({ message, onEdit, onResend }: Props) {
               <Button
                 variant="ghost"
                 size="icon"
-                aria-label="메시지 재전송"
+                aria-label={t("chat.message.resend_aria")}
                 onClick={() => onResend(message.id)}
                 className="h-6 w-6 bg-bg-panel2"
               >

@@ -21,7 +21,7 @@ import {
   createProvocationContext,
   generateProvocationCards,
   retrySignalsFromConversation,
-  type ProvocationAction,
+  useProvocationActionResolver,
 } from "../../features/provocation";
 
 interface Props {
@@ -158,38 +158,10 @@ function MessageListImpl({
     });
   }, [pendingApproval]);
 
-  const handleConversationProvocationAction = useCallback(
-    (action: ProvocationAction) => {
-      if (action.kind === "create_repro_steps") {
-        pushComposerSeed(
-          "반복되는 오류를 기준으로 재현 단계, 가장 작은 확인 명령, 마지막 변경에서 볼 부분을 정리해줘.",
-        );
-        return;
-      }
-      if (action.kind === "rollback_last_change") {
-        provocation?.onOpenRecovery?.();
-        return;
-      }
-      if (action.kind === "split_scope") {
-        pushComposerSeed("현재 실패를 더 작은 범위 하나로 줄여서 다시 요청할 문장을 만들어줘.");
-        return;
-      }
-      if (action.kind === "retry_with_ai") {
-        pushComposerSeed(
-          "복구 지점, 재현 단계, 범위 축소 여부를 먼저 확인한 뒤 같은 실패를 피해서 다시 고쳐줘.",
-        );
-        return;
-      }
-      if (action.kind === "run_tests") {
-        pushComposerSeed("AI 완료 보고를 검증할 수 있는 가장 작은 테스트 또는 확인 명령을 제안해줘.");
-        return;
-      }
-      if (action.kind === "run_app" || action.kind === "open_preview") {
-        pushComposerSeed("AI 완료 보고를 검증하기 위해 프리뷰에서 확인할 동작과 기준을 짧게 정리해줘.");
-      }
-    },
-    [provocation, pushComposerSeed],
-  );
+  const handleConversationProvocationAction = useProvocationActionResolver({
+    pushComposerSeed,
+    onOpenRecovery: provocation?.onOpenRecovery,
+  });
 
   return (
     <div
