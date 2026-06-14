@@ -1,0 +1,167 @@
+# DIVE 출시 결함 통합 마스터 (정적 + 동적)
+
+작성: 2026-06-14 · 브랜치 provocation-redesign · 소스: 정적 7차원 감사(`release-audit-2026-06-14.md`) + 동적 computer-use 감사(`dive-release-dynamic-audit-2026-06-14.md`)
+
+## ⚠️ 먼저: 측정 함정 (이걸 모르면 유령을 쫓는다)
+
+동적 감사는 네이티브 창을 **픽셀 클릭**으로 조작했다. D-33이 "클릭 대상이 수십~100px 어긋남"을, 여러 항목이 "접근성 좌표 중심을 눌러야 작동"을 보고한다 — **macOS Retina HiDPI 픽셀클릭 드리프트**의 전형이다(스크린샷 logical 좌표 ≠ 클릭 좌표계). 따라서 동적 "버튼 무반응/클릭 빠짐" 다수는 **앱 버그가 아니라 측정 아티팩트일 수 있다.**
+
+**규칙: 모든 "버튼 무반응" 동적 findings는 코드에 핸들러가 실재하는지 대조한 뒤에만 수정 대상으로 승격한다.** 크래시·상태소실·언어혼재·404처럼 클릭정밀도와 무관한 findings는 그대로 신뢰.
+
+신뢰도 태그: **[CC]** 코드로 확인된 진짜 / **[NV]** 코드 대조 필요(아티팩트 가능) / **[OBS]** 관찰 사실(클릭정밀도 무관, 신뢰).
+
+---
+
+## 근본 원인 그룹 (증상 50개 → 원인 ~8개)
+
+### R1. 앱 안정성 — 크래시 [P0]
+- **P0-01 [CC/OBS]** "앱 실행" 클릭 → 네이티브 크래시. 프론트 `openResultPanelWithContext`는 preview 탭만 연다(안전); 크래시는 preview 탭이 호출하는 **`src-tauri/src/ipc/preview.rs`의 `unwrap()`/`expect()` 4곳** Rust panic. → 4곳을 `Result` 에러 반환으로 교체 + 프론트에서 토스트.
+
+### R2. 프로젝트/세션/draft 상태 모델 — 아키텍처 결함 [P0] ★가장 큼
+관찰된 상태 *소실/불일치*는 클릭 아티팩트가 아니다 — 실재하는 단일 결함 군집으로 추정.
+- **P0-03 [OBS]** Dashboard는 "draft 승인 대기"인데 중앙은 "No session/No approved plan".
+- **P0-04 [OBS]** Start session 후 중앙이 계속 "No session".
+- **D-01/D-02/D-39 [OBS]** Open project·프로젝트 행 클릭이 중앙/우측 컨텍스트로 안 이어짐, 세션 비움.
+- **D-04 [OBS]** 검토카드 클릭/프로젝트 이동 중 draft 증발.
+- **D-21 [OBS]** 증발한 draft를 복구 불가.
+- **D-35 [OBS]** Dashboard와 중앙/우측 컨텍스트 분리.
+- **D-06/D-18 [NV]** no-session에서 Create plan/View result가 죽은 듯/오류.
+→ **단일 root-cause 조사 필요**(전역 active project/session/draft 상태 소스가 화면 간 동기화 안 됨). 다른 모든 흐름이 이 위에 서므로 **최우선 중 하나**.
+
+### R3. 카드 액션 배선 — 중앙 resolver 부재 [P0~P1]
+5개 host가 액션을 각자 부분 switch로 처리 → 누락 산재(원래 내가 지적한 fragility).
+- **P0-3(정적)=A3 [CC]** PlanDraft `기능으로 나누기`/`첫 기능만`(`split_scope`) 무처리 — **진짜 죽은 버튼**.
+- **P1-1(정적)=A4/P0-02 [CC]** StepDetail `테스트 실행`(`run_tests`)·`미검증 승인`(`continue_with_risk`+reason) 무처리 — **진짜**.
+- **D-08(Socratic `그대로 진행`=continue_with_risk) [CC]** 무처리 — 진짜(단 caution이라 X 탈출구 있음).
+- **D-07 `예시 입출력 추가`(add_acceptance_criteria) [NV→아티팩트 의심]** Socratic이 *실제로 처리*함 → 무반응은 클릭빗나감 가능. PlanDraft 화면이면 진짜(거기선 add만 처리).
+- **D-13/D-24 [NV]** 로드맵 칩/Review-cards 토글 무반응 — 핸들러 유무 대조 필요.
+→ **수정: 단일 `useProvocationActionResolver`로 통합**(host별 가능범위는 파라미터). 패치 누적 금지.
+
+### R4. criterion-verification 핵심 루프 [P0]
+- **P0-1(정적)=A1 [CC]** "기준 체크하면 '검증 증거 있음'" 약속하나, `previewChecked`/`appLaunched` 신호를 *어디서도 기록 안 해* 체크해도 승인 안 풀림 → "위험 감수 승인"만 남음. 카피 과장(자기확인=증거) + 막다른 길. **내가 P0.4에서 만든 것.**
+→ observed 신호 배선(또는 manual 스텝은 체크=충분) + 카피 정직화.
+
+### R5. i18n 영어 로케일 혼재 [P0~P2]
+클릭정밀도 무관, 전부 신뢰.
+- **P0-2(정적)=A2/D-15 [CC]** 슬라이드인 패널(코드/미리보기/터미널) 전체 한국어(`useT()` 0건).
+- **D-23/D-22 [OBS]** 메뉴바(`새 프로젝트`,`설정…`,`문서 보기`) + 앱메뉴 Settings 미동작.
+- **D-27 [OBS]** 모델 라벨 `모델` 한국어 + dropdown 겹침.
+- **P2(정적) [CC]** 토스트/다이얼로그 aria(`알림`,`닫기`), 설정 보안경고·연결해제 confirm, 채팅 편집/재전송 aria.
+→ 형제 파일 `useT()` 패턴 기계 적용.
+
+### R6. 백엔드/보안 [P1]
+클릭정밀도 무관.
+- **P1-2(정적) [CC]** 위험명령 차단목록(`rm -rf /`,`dd`,fork bomb,`curl|bash`) 죽은 코드 — `block_as_error`를 어떤 tool도 호출 안 함. 비메타 단일명령(`chmod -R 000 .`,`git reset --hard`) 1클릭 통과.
+- **P1-3(정적) [CC]** 기본 "익명화" export에 어시스턴트 본문 평문 — 읽은 파일/키/소스 유출 가능.
+- **P2(정적) [CC]** secret 탐지기 `sk-`만 — `ghp_`/`AKIA`/`Bearer`/`password=` 미탐지, evidence/decision JSON anonymize 미통과.
+
+### R7. 접근성(키보드/SR) [P1]
+- **P1-4(정적)=A5/D-34 [CC]** 체크포인트 `복원`이 hover 전용(`onFocus`/`onBlur` 없음) → 키보드 도달 불가. + Tab 순서가 카드 밖으로.
+- **D-14/D-19/D-20/D-25/D-33 [NV→아티팩트 의심]** "히트영역 어긋남/접근성 좌표로만 작동" — **대부분 HiDPI 픽셀클릭 드리프트로 추정.** 단 일부는 진짜 overlay 가로채기일 수 있어 1~2개 표본 코드/실측 확인.
+- **P2(정적) [CC]** 체크포인트 dot 색상단독 신호, ApprovalJudgment textarea 라벨 없음.
+
+### R8. 누락 기능·확인절차·외부링크 [P1~P2]
+클릭정밀도 무관.
+- **D-30 [OBS]** Export 실행 진입점이 메뉴 어디에도 없음(P1-3은 코드엔 존재 → UI 노출 누락).
+- **D-31 [OBS]** Help `문서 보기`/`문제 신고` → GitHub 404.
+- **D-36 [OBS]** 미답변 인터뷰로 계획 승인 가능(품질 위험).
+- **D-37/D-03(정적 SocraticP2 아님)/D-09 [OBS]** Discard·세션삭제·카드 dismiss에 확인 없음 → 무확인 파괴.
+- **D-26 [OBS]** 빈 API key 저장에 validation 없음.
+- **D-28 [OBS]** 개발전용 MCP/Internal diagnostics가 데모 빌드에 노출.
+- **D-32/D-29/D-38/D-40/D-10/D-11/D-12/D-16/D-17 [NV/P2]** About 창, opencode Details, refresh 피드백, Expert placeholder, step 완료배너 불일치, DONE 스텝 붉은 칩, 미리보기 URL/결과확인 — 코드 대조 필요/폴리시.
+
+---
+
+## 정직한 규모 판정
+
+- 이건 **"막바지 폴리시"가 아니라 안정화(stabilization) 단계**다. **앱 크래시 1건 + 상태모델 아키텍처 결함 1군집**이 코어 흐름(목표→계획→실행→검증)을 끊는다 — 이 둘이 살아 있으면 다른 어떤 수정도 데모에서 "안 됨"으로 보인다.
+- 좋은 소식: 증상 50개가 **원인 ~8개로 수렴**한다. R2(상태모델)·R3(중앙 resolver)·R5(i18n) 각 하나의 근본 수정이 10개 이상 증상을 동시에 닫는다.
+- 현실: R1·R2는 며칠 단위 조사·재설계. R5·R6·R7·R8은 기계적이라 빠름. 공개/교수 자문 일정은 **R1+R2가 끝난 뒤** 잡는 게 안전.
+
+## 권장 수정 순서
+
+1. **R1 크래시** (preview.rs unwrap 4곳) — 가장 명확한 P0, 빠름.
+2. **R2 상태모델 root-cause** — 단일 active project/session/draft 동기화. 코어. 시간 투자 필요.
+3. **R4 criterion 루프** + **R3 중앙 resolver** — keystone 복구 + 죽은 카드버튼 구조적 해소(같이).
+4. **R5 i18n** — 영어 데모 직전 필수, 기계적.
+5. **R6 보안** (export 유출 + guard) · **R7 a11y**(복원 포커스) · **R8**(확인 다이얼로그, Help 링크, Export 진입점).
+6. **NV 항목 코드 대조** + 아티팩트 분리(HiDPI 드리프트는 앱 수정 대상 아님; 동적 재검증은 a11y 좌표 기반으로).
+
+## 재검증 원칙 (이번엔 다르게)
+
+각 수정은 **(a) 핸들러→실효과 코드 추적 + (b) 네이티브 앱에서 실제 동작 확인**까지여야 "완료". 동적 재검증 시 **a11y 좌표(접근성 API) 기반 클릭**으로 HiDPI 드리프트 confound 제거.
+
+---
+
+## 진행 로그 / 체크리스트
+
+### Phase 0. [NV] 코드 대조 트리아지
+
+- [x] **D-07 `예시 입력/출력 추가` 무반응 의심**
+  - 변경: 코드 대조로 Socratic host의 `add_acceptance_criteria`가 실제 입력 템플릿을 추가함을 확인. PlanDraft host의 누락은 `split_scope` 중심 R3 resolver 결함으로 유지.
+  - 검증법: `SocraticInterviewPanel.tsx` `handleProvocationAction` -> `setText(...완료 기준...)` 추적.
+  - 결과: NOT-A-BUG: Socratic 화면 무반응 관찰은 HiDPI 좌표 드리프트 가능성이 높음. R3에서 host별 누락은 별도 처리.
+- [x] **D-13 로드맵 칩/dependency graph/refresh 무반응 의심**
+  - 변경: `dependency graph`와 `refresh`는 각각 `PlanHeader` -> `setMinimapOpen`, `roadmap.refresh()`로 연결됨을 확인. 단 refresh 성공/변경없음 피드백 부족은 R8 UX 항목으로 유지.
+  - 검증법: `PlanHeader.tsx` `onToggleMinimap`/`onRefresh` -> `PlanView.tsx` 핸들러 추적.
+  - 결과: NOT-A-BUG: 토글/refresh 핸들러는 존재. 피드백 개선은 D-38/D-40로 유지.
+- [x] **D-14 AI 자가보고 카드 버튼 히트 영역/접근성 노출 의심**
+  - 변경: 카드 버튼은 `ProvocationCardHost` -> host별 `onAction`으로 노출됨을 확인. 버튼 동작 누락 자체는 R3의 `run_tests`/`continue_with_risk` 진짜 결함으로 유지.
+  - 검증법: `ProvocationCardHost.tsx` `act()`와 `StepDetailSlideIn.tsx` handler 대조.
+  - 결과: NOT-A-BUG: 히트 영역 관찰은 좌표 드리프트 가능성이 높음. dead action은 R3에서 처리.
+- [x] **D-16 미리보기 URL 칩 클릭 후 반응 없음 의심**
+  - 변경: 후보 URL 칩과 열기 버튼은 `setPreviewUrl`로 iframe src를 갱신함을 확인. 패널 뒤 클릭 전달 관찰은 좌표 드리프트 가능성이 높음.
+  - 검증법: `PreviewTab.tsx` `loadCandidate`/`loadUrl` -> `useSlideInStore.setPreviewUrl` -> iframe `src` 추적.
+  - 결과: NOT-A-BUG: URL 반영 핸들러 존재. i18n/상태문구는 R5에서 처리.
+- [x] **D-17 `결과 확인` / `열기` 클릭 영역 불일치 의심**
+  - 변경: `결과 확인`은 `preview_start` IPC, `열기`는 `loadUrl`로 연결됨을 확인.
+  - 검증법: `PreviewTab.tsx` `autoConnect`/`loadUrl` -> `preview_start`/`setPreviewUrl` 추적.
+  - 결과: NOT-A-BUG: 클릭 영역 관찰은 좌표 드리프트 가능성이 높음. R1/R5에서 crash/i18n은 별도 처리.
+- [x] **D-19 Top `Undo` 버튼 접근성/클릭 대상 의심**
+  - 변경: TopBar 경로는 추가 대조 대상이나 Recovery panel 자체는 `open` 상태에서 렌더되고 버튼들이 실제 handler를 가짐을 확인.
+  - 검증법: `ProductShellLayout.tsx` `TopBar onOpenRecovery` -> `RecoverySlideIn`/`RecoveryPanel` 연결 확인.
+  - 결과: NOT-A-BUG(좌표): 픽셀 클릭 실패는 드리프트 가능성이 높음. TopBar aria 세부는 R7 a11y 점검에 포함.
+- [x] **D-20 Recovery `Restore checkpoint` 뒤쪽 전달 의심**
+  - 변경: inline 확인 카드의 `Restore checkpoint`가 `onRestoreCheckpoint(confirmTarget.id)`를 호출함을 확인.
+  - 검증법: `RecoveryPanel.tsx` `restore-confirm-inline-action` handler 추적.
+  - 결과: NOT-A-BUG: 뒤쪽 전달 관찰은 좌표 드리프트 가능성이 높음.
+- [x] **D-24 Guided help / Review cards 토글 무반응 의심**
+  - 변경: Review cards는 접근성 checkbox와 `setEnableProvocationCards` handler가 존재함을 확인. Guided help checkbox도 handler는 있으나 aria-label이 없어 a11y 개선은 R7/R5에 유지.
+  - 검증법: `settings.tsx` `settings-review-cards-toggle`/`settings-tutorial-toggle` -> preferences setter 추적.
+  - 결과: PARTIAL NOT-A-BUG: 무반응은 좌표 드리프트 가능성이 높음. guided help aria-label 누락은 진짜 a11y 결함.
+- [x] **D-25 Theme 버튼 좌표 불일치 의심**
+  - 변경: Theme 버튼은 `toggleTheme` -> zustand `setTheme` -> html class/localStorage 갱신으로 연결됨을 확인.
+  - 검증법: `settings.tsx` `settings-theme-toggle` -> `useTheme` -> `stores/theme.ts` 추적.
+  - 결과: NOT-A-BUG: 접근성 좌표 중심에서 작동한다는 관찰과 코드가 일치하므로 픽셀 좌표 드리프트.
+- [x] **D-33 WebView 시각 좌표/실제 클릭 좌표 불일치**
+  - 변경: 여러 표본(D-13/D-16/D-17/D-20/D-25)에서 handler가 존재함을 확인해 측정 아티팩트로 분류.
+  - 검증법: 코드상 버튼 handler와 상태 변경 경로 대조.
+  - 결과: NOT-A-BUG: macOS Retina HiDPI 픽셀클릭 드리프트. 이후 동적 검증은 a11y 좌표 기반으로만 수행.
+- [x] **D-06/D-18 no-session `Create plan`/`View result` 무반응 의심**
+  - 변경: `Create plan`은 no-session에서 `createSession(currentProjectId)`를 호출하고, `View result`는 preview panel/IPC로 연결됨을 확인. 문제는 선택 프로젝트와 active session/draft가 분리되는 R2 상태모델 파생.
+  - 검증법: `PlanEmpty` -> `handleCreatePlanFromRail` -> `handleEmptyStateAction`; `ChatArea` result action -> `openResultPanelWithContext` 추적.
+  - 결과: TRUE-BUG(R2): 버튼 단독 no-op가 아니라 active project/session/draft 동기화 결함으로 유지.
+- [x] **D-29 opencode `Details` 클릭 영역 의심**
+  - 변경: 코드 대조 필요 범위를 settings provider 세부 UI로 한정. 클릭 영역 오독 가능성이 있으나 공개 데모 영향은 낮음.
+  - 검증법: `settings.tsx` provider card 구조 대조.
+  - 결과: DEFER: R8 settings polish에서 재확인.
+- [x] **D-32 About dive 화면 품질**
+  - 변경: 코드 결함이라기보다 제품 polish 정책 항목으로 분류.
+  - 검증법: macOS About 표면 관찰 근거 유지.
+  - 결과: DEFER: R8 polish.
+- [x] **D-38/D-40 Dashboard/Recovery refresh 피드백 없음**
+  - 변경: refresh handler는 존재하나 성공/변경없음 피드백이 없음.
+  - 검증법: `PlanDashboardPanel.tsx` `dashboard.refresh()`, `RecoveryPanel.tsx` `onRefresh` 추적.
+  - 결과: TRUE-BUG(R8 UX): handler no-op가 아니라 피드백 결함으로 유지.
+- [x] **D-10 Expert placeholder/버튼 라벨 불일치**
+  - 변경: 입력 placeholder가 session/interview 상태와 분리될 수 있는 대화 모델 문제로 분류.
+  - 검증법: `deriveInputBlocked`/`deriveEmptyState`/interview panel 표시 조건 대조.
+  - 결과: TRUE-BUG(R8/R2): 상태모델 및 interview UI 상태 결합 문제로 유지.
+- [x] **D-11 step 완료 배너와 로드맵 상태 불일치**
+  - 변경: step detail의 current card와 plan roadmap active step 산출이 서로 다른 상태 소스를 참조할 수 있음을 확인.
+  - 검증법: `currentPlanRoadmapStep`/`currentCard`/`planRoadmap.steps` 대조.
+  - 결과: TRUE-BUG(R2/R4): 상태 파생 정합성 문제로 유지.
+- [x] **D-12 DONE 스텝의 `위험 감수 승인` 칩**
+  - 변경: 코드 버그보다 approval provenance 표시 정책 문제로 분류.
+  - 검증법: roadmap agency/approval 상태 표시 경로 대조.
+  - 결과: DEFER: R8 policy polish.
