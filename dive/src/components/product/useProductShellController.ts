@@ -69,6 +69,31 @@ function stringArray(value: unknown): string[] {
     : [];
 }
 
+function safeExportFilenamePart(value: string | null, fallback: string): string {
+  const cleaned = (value ?? "")
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return cleaned || fallback;
+}
+
+function downloadSessionExport(
+  sessionId: number,
+  sessionTitle: string | null,
+  jsonl: string,
+): void {
+  const filenamePart = safeExportFilenamePart(sessionTitle, `session-${sessionId}`);
+  const blob = new Blob([jsonl], { type: "application/x-ndjson" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `dive-${filenamePart}.jsonl`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 export function useProductShellController() {
   const t = useT();
   const dialogs = useProductShellDialogs();
@@ -583,6 +608,33 @@ export function useProductShellController() {
     [toast],
   );
 
+  const handleExportSession = useCallback(async () => {
+    if (currentSessionId === null) {
+      toast({
+        variant: "error",
+        title: t("toast.export_no_session_title"),
+        description: t("toast.export_no_session_description"),
+      });
+      return;
+    }
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const jsonl = await invoke<string>("export_session", { sessionId: currentSessionId });
+      downloadSessionExport(currentSessionId, currentSessionTitle, jsonl);
+      toast({
+        variant: "success",
+        title: t("toast.export_success_title"),
+        description: t("toast.export_success_description"),
+      });
+    } catch (err) {
+      toast({
+        variant: "error",
+        title: t("toast.export_failed_title"),
+        description: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, [currentSessionId, currentSessionTitle, t, toast]);
+
   useMenuEvents({
     "menu:new-project": () => dialogs.setNewProjectOpen(true),
     "menu:open-project": () => void handleOpenProject(),
@@ -591,6 +643,7 @@ export function useProductShellController() {
       if (typeof projectId !== "number") return;
       void selectProject(projectId).then(() => refreshMenuRecents());
     },
+    "menu:export-session": () => void handleExportSession(),
     "menu:settings": openSettingsRoute,
     "menu:toggle-theme": () => toggleTheme(),
     "menu:help-tutorial": () => {

@@ -6,6 +6,7 @@ export type MenuEventId =
   | "menu:new-project"
   | "menu:open-project"
   | "menu:open-recent"
+  | "menu:export-session"
   | "menu:settings"
   | "menu:toggle-theme"
   | "menu:help-docs"

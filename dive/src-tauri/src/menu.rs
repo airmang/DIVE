@@ -72,6 +72,7 @@ struct MenuLabels {
     open_project: &'static str,
     recent_projects: &'static str,
     recent_empty: &'static str,
+    export_session: &'static str,
     edit: &'static str,
     view: &'static str,
     settings: &'static str,
@@ -93,6 +94,7 @@ fn labels(locale: MenuLocale) -> &'static MenuLabels {
             open_project: "프로젝트 열기…",
             recent_projects: "최근 프로젝트 열기",
             recent_empty: "(최근 프로젝트 없음)",
+            export_session: "세션 내보내기…",
             edit: "편집",
             view: "보기",
             settings: "설정…",
@@ -111,6 +113,7 @@ fn labels(locale: MenuLocale) -> &'static MenuLabels {
             open_project: "Open Project…",
             recent_projects: "Open Recent",
             recent_empty: "(No Recent Projects)",
+            export_session: "Export Session…",
             edit: "Edit",
             view: "View",
             settings: "Settings…",
@@ -146,11 +149,16 @@ pub fn build_menu_for_locale<R: Runtime>(
         .accelerator("CmdOrCtrl+O")
         .build(app)?;
     let recent_submenu = build_recent_submenu(app, recents, labels)?;
+    let export_session = MenuItemBuilder::with_id("menu:export-session", labels.export_session)
+        .accelerator("CmdOrCtrl+Shift+E")
+        .build(app)?;
 
     let file = SubmenuBuilder::new(app, labels.file)
         .item(&new_project)
         .item(&open_project)
         .item(&recent_submenu)
+        .separator()
+        .item(&export_session)
         .separator()
         .close_window()
         .build()?;
@@ -343,8 +351,10 @@ mod tests {
     #[test]
     fn menu_labels_follow_locale() {
         assert_eq!(labels(MenuLocale::En).new_project, "New Project");
+        assert_eq!(labels(MenuLocale::En).export_session, "Export Session…");
         assert_eq!(labels(MenuLocale::En).help_docs, "View Documentation");
         assert_eq!(labels(MenuLocale::Ko).new_project, "새 프로젝트");
+        assert_eq!(labels(MenuLocale::Ko).export_session, "세션 내보내기…");
         assert_eq!(labels(MenuLocale::Ko).help_docs, "문서 보기");
     }
 
