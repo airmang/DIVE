@@ -1,17 +1,25 @@
-import { AlertTriangle, Check, RotateCcw, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, RotateCcw, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useT } from "../../i18n";
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
 import { useTutorialEnabled } from "../../stores/ui-preferences";
 import { Button } from "../ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
 import { PlanDraftDependencyMap } from "./PlanDraftDependencyMap";
 import {
   ProvocationCardHost,
-  generateProvocationCards,
   normalizePlanStep,
   type ScaffoldMode,
   useProvocationActionResolver,
 } from "../../features/provocation";
+import { generateProvocationCards } from "../../features/provocation/rules";
 
 interface PlanDraftApprovalScreenProps {
   draft: PlanGenerationResult;
@@ -69,8 +77,8 @@ function compactList(items: string[], fallback: string): string {
 function hasStepVerification(step: PlanGenerationResult["steps"][number]): boolean {
   return Boolean(
     step.verification_command?.trim() ||
-      step.verification_manual_check?.trim() ||
-      (step.verification_kind?.trim() && step.verification_kind.trim() !== "none"),
+    step.verification_manual_check?.trim() ||
+    (step.verification_kind?.trim() && step.verification_kind.trim() !== "none"),
   );
 }
 
@@ -128,6 +136,7 @@ export function PlanDraftApprovalScreen({
   const tutorialEnabled = useTutorialEnabled();
   const [feedback, setFeedback] = useState("");
   const [critique, setCritique] = useState<"unset" | "none" | "found">("unset");
+  const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
   const unresolved = stringArray(interview?.unresolved_questions);
   const markdown = useMemo(() => buildPlanMarkdown(draft), [draft]);
   const plan = draft.plan;
@@ -153,13 +162,19 @@ export function PlanDraftApprovalScreen({
       );
     },
     onAddVerificationStep: () => {
-      setFeedback("검증 단계가 필요합니다. 실행/프리뷰/테스트 중 무엇으로 확인할지 계획에 추가해 주세요.");
+      setFeedback(
+        "검증 단계가 필요합니다. 실행/프리뷰/테스트 중 무엇으로 확인할지 계획에 추가해 주세요.",
+      );
     },
     onSplitScope: () => {
-      setFeedback("범위를 더 작게 나눠 주세요. 첫 번째 기능 하나만 승인 가능한 계획으로 다시 작성해 주세요.");
+      setFeedback(
+        "범위를 더 작게 나눠 주세요. 첫 번째 기능 하나만 승인 가능한 계획으로 다시 작성해 주세요.",
+      );
     },
     onContinueWithRisk: () => {
-      setFeedback("남은 위험을 알고 진행하려면, 변경 요청란에 왜 그대로 진행해도 되는지 짧게 남겨 주세요.");
+      setFeedback(
+        "남은 위험을 알고 진행하려면, 변경 요청란에 왜 그대로 진행해도 되는지 짧게 남겨 주세요.",
+      );
     },
   });
 
@@ -181,7 +196,13 @@ export function PlanDraftApprovalScreen({
               <Check />
               {t("planning.approval.approve")}
             </Button>
-            <Button variant="outline" size="sm" onClick={onDiscard} disabled={busy}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmDiscardOpen(true)}
+              disabled={busy}
+              data-testid="plan-draft-discard"
+            >
               <Trash2 />
               {t("planning.approval.discard")}
             </Button>
@@ -269,7 +290,9 @@ export function PlanDraftApprovalScreen({
                     {t("planning.approval.intent_summary")}
                   </dt>
                   <dd className="mt-1 text-fg">
-                    {interview?.intent_summary ?? plan.intent_summary ?? t("planning.approval.none")}
+                    {interview?.intent_summary ??
+                      plan.intent_summary ??
+                      t("planning.approval.none")}
                   </dd>
                 </div>
                 <div>
@@ -277,7 +300,10 @@ export function PlanDraftApprovalScreen({
                     {t("planning.approval.acceptance_criteria")}
                   </dt>
                   <dd className="mt-1 text-fg">
-                    {compactList(stringArray(plan.acceptance_criteria), t("planning.approval.none"))}
+                    {compactList(
+                      stringArray(plan.acceptance_criteria),
+                      t("planning.approval.none"),
+                    )}
                   </dd>
                 </div>
                 <div>
@@ -435,6 +461,47 @@ export function PlanDraftApprovalScreen({
           </aside>
         </section>
       </div>
+
+      <Dialog
+        open={confirmDiscardOpen}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setConfirmDiscardOpen(false);
+        }}
+      >
+        <DialogContent data-testid="plan-draft-discard-confirm" className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-danger" aria-hidden />
+              {t("planning.approval.discard_confirm_title")}
+            </DialogTitle>
+            <DialogDescription>
+              {t("planning.approval.discard_confirm_description")}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setConfirmDiscardOpen(false)}
+              data-testid="plan-draft-discard-cancel"
+            >
+              <X className="h-4 w-4" />
+              {t("planning.approval.discard_confirm_cancel")}
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                setConfirmDiscardOpen(false);
+                onDiscard();
+              }}
+              disabled={busy}
+              data-testid="plan-draft-discard-confirm-button"
+            >
+              <Trash2 className="h-4 w-4" />
+              {t("planning.approval.discard_confirm_button")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

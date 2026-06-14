@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
 import { useChatComposerStore } from "../../stores/chatComposer";
@@ -36,35 +36,21 @@ describe("TerminalTab review-card actions", () => {
     useChatComposerStore.setState({ pending: null });
   });
 
-  it("renders a terminal regeneration-loop card with rollback explicitly unavailable", () => {
+  it("keeps terminal regeneration-loop rule cards quarantined from shipped builds", () => {
     render(<TerminalTab />);
 
-    expect(screen.getByTestId("provocation-card").dataset.cardType).toBe("regeneration_loop");
-    const rollbackButton = screen.getByText("마지막 변경 되돌리기").closest("button");
-    expect(rollbackButton).not.toBeNull();
-    expect((rollbackButton as HTMLButtonElement).disabled).toBe(true);
-    expect(rollbackButton?.textContent).toContain("복구 경로 없음");
+    expect(screen.queryByTestId("provocation-card")).toBeNull();
+    expect(screen.queryByText("마지막 변경 되돌리기")).toBeNull();
+    expect(screen.getAllByTestId("terminal-line")).toHaveLength(3);
   });
 
-  it("seeds repro, scope, and recovery-first retry requests from terminal actions", () => {
+  it("does not expose quarantined terminal rule actions by default", () => {
     render(<TerminalTab />);
 
-    fireEvent.click(screen.getByText("에러 로그 요약 / 재현 단계 만들기"));
-    expect(useChatComposerStore.getState().pending?.seed).toContain("재현 단계");
-    expect(screen.getByTestId("terminal-provocation-action-status").textContent).toContain(
-      "재현 단계",
-    );
-
-    fireEvent.click(screen.getByText("범위 줄이기 / 계획 조정"));
-    expect(useChatComposerStore.getState().pending?.seed).toContain("작은 범위");
-    expect(screen.getByTestId("terminal-provocation-action-status").textContent).toContain(
-      "범위 축소",
-    );
-
-    fireEvent.click(screen.getByText("AI 재시도"));
-    expect(useChatComposerStore.getState().pending?.seed).toContain("복구 지점");
-    expect(screen.getByTestId("terminal-provocation-action-status").textContent).toContain(
-      "recovery-first",
-    );
+    expect(screen.queryByText("에러 로그 요약 / 재현 단계 만들기")).toBeNull();
+    expect(screen.queryByText("범위 줄이기 / 계획 조정")).toBeNull();
+    expect(screen.queryByText("AI 재시도")).toBeNull();
+    expect(useChatComposerStore.getState().pending).toBeNull();
+    expect(screen.queryByTestId("terminal-provocation-action-status")).toBeNull();
   });
 });

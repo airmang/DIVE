@@ -53,6 +53,7 @@ function renderGate(overrides: Partial<ComponentProps<typeof DecisionGate>> = {}
     verifyRunning: false,
     onApprove: vi.fn(),
     onAcceptRisk: vi.fn(),
+    onDeferVerification: vi.fn(),
     onRequestChanges: vi.fn(),
     onVerifyFirst: vi.fn(),
     onRevert: vi.fn(),
@@ -154,6 +155,7 @@ describe("DecisionGate policy", () => {
       verifyRunning: false,
       onApprove: vi.fn(),
       onAcceptRisk: vi.fn(),
+      onDeferVerification: vi.fn(),
       onRequestChanges: vi.fn(),
       onVerifyFirst: vi.fn(),
       onRevert: vi.fn(),
@@ -184,9 +186,36 @@ describe("DecisionGate policy", () => {
     fireEvent.change(screen.getByTestId("decision-gate-risk-reason"), {
       target: { value: "직접 화면을 확인했고 남은 위험을 기록함" },
     });
+    expect(
+      screen.getByTestId("decision-gate-risk-approve").getAttribute("data-decision-outcome"),
+    ).toBe("continue_with_risk");
     fireEvent.click(screen.getByTestId("decision-gate-risk-approve"));
 
     expect(props.onAcceptRisk).toHaveBeenCalledWith("직접 화면을 확인했고 남은 위험을 기록함");
+  });
+
+  it("offers non-risk verification_deferred when no concrete verification is feasible", () => {
+    const props = renderGate({
+      verificationStatuses: [aiSelfReportOnly],
+      rollbackAvailable: true,
+      verificationFeasibility: {
+        runnable: false,
+        previewable: false,
+        hasTests: false,
+        diffAvailable: true,
+      },
+    });
+
+    expect(screen.getByTestId("decision-gate").dataset.reasonRequired).toBe("false");
+    expect(screen.queryByTestId("decision-gate-risk-approve")).toBeNull();
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      screen.getByTestId("decision-gate-defer-verification").getAttribute("data-decision-outcome"),
+    ).toBe("verification_deferred");
+
+    fireEvent.click(screen.getByTestId("decision-gate-defer-verification"));
+    expect(props.onDeferVerification).toHaveBeenCalledTimes(1);
+    expect(props.onAcceptRisk).not.toHaveBeenCalled();
   });
 
   it("requires a reason after failed tests", () => {

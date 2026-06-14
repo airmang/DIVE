@@ -8,10 +8,10 @@ import {
 import { useChatComposerStore } from "../../stores/chatComposer";
 import {
   ProvocationCardHost,
-  generateProvocationCards,
   type ProvocationCard,
   useProvocationActionResolver,
 } from "../../features/provocation";
+import { generateProvocationCards } from "../../features/provocation/rules";
 import { useT } from "../../i18n";
 
 function terminalActionCard(card: ProvocationCard, rollbackUnavailable: string): ProvocationCard {

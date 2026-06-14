@@ -476,6 +476,158 @@ fn diff_reviewed_only_approval_does_not_record_verified_evidence() {
 }
 
 #[test]
+fn verification_deferred_approval_records_non_risk_provenance() {
+    let state = AppState::dev_mock();
+    let tmp = tempfile::tempdir().unwrap();
+    state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+    let session_id = seed_session(&state, tmp.path());
+    let card_id = seed_card(&state, session_id, "Deferred", CardState::Verifying);
+    let mapping_id = seed_step_mapping_for_card(&state, session_id, card_id);
+    set_verify_log(&state, card_id, true, crate::dive::TestResult::Skipped);
+
+    card_transition_with_checkpoint_and_provenance_impl(
+        &state,
+        card_id,
+        CardTransition::Approve,
+        Some(true),
+        Some(crate::dive::ApprovalJudgment {
+            outcome: crate::dive::ApprovalOutcome::VerificationDeferred,
+            note: None,
+            decided_at: 13,
+        }),
+        Some(serde_json::json!({
+            "verificationState": "verification_deferred",
+            "statusIds": ["ai_self_report_only", "verification_deferred"],
+            "statuses": [{
+                "id": "verification_deferred",
+                "label": "검증 유예됨",
+                "evidenceBacked": false,
+                "tone": "info",
+                "source": "deferred_verification"
+            }],
+            "evidenceSummary": {
+                "concreteEvidence": false,
+                "aiSelfReport": true,
+                "automatedTestsPassed": false,
+                "externalTestRun": false,
+                "testResult": "skipped",
+                "manualEvidenceCount": 0,
+                "evidenceLabels": []
+            },
+            "riskAccepted": false,
+            "approvalOutcome": "verification_deferred",
+            "decidedAt": 13
+        })),
+    )
+    .unwrap();
+
+    let (provenance, mapping) = {
+        let db = state.db.lock().unwrap();
+        let card = crate::db::dao::card::get_by_id(db.conn(), card_id)
+            .unwrap()
+            .unwrap();
+        let provenance: serde_json::Value =
+            serde_json::from_str(card.approval_provenance.as_deref().unwrap()).unwrap();
+        let mapping = mapping_dao::get_by_id(db.conn(), mapping_id)
+            .unwrap()
+            .unwrap();
+        (provenance, mapping)
+    };
+
+    assert_eq!(provenance["verificationState"], "verification_deferred");
+    assert_eq!(provenance["riskAccepted"], false);
+    assert_eq!(provenance["evidenceSummary"]["concreteEvidence"], false);
+    assert!(provenance["statusIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == "verification_deferred"));
+    assert!(!provenance["statusIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == "approved_with_risk"));
+    assert_eq!(
+        mapping.verification_status.as_deref(),
+        Some("verification_deferred")
+    );
+}
+
+#[test]
+fn preview_and_app_viewed_only_approval_does_not_record_verified_evidence() {
+    let state = AppState::dev_mock();
+    let tmp = tempfile::tempdir().unwrap();
+    state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+    let session_id = seed_session(&state, tmp.path());
+    let card_id = seed_card(&state, session_id, "Preview only", CardState::Verifying);
+    let mapping_id = seed_step_mapping_for_card(&state, session_id, card_id);
+    set_verify_log(&state, card_id, true, crate::dive::TestResult::Skipped);
+
+    card_transition_with_checkpoint_and_provenance_impl(
+        &state,
+        card_id,
+        CardTransition::Approve,
+        Some(true),
+        Some(crate::dive::ApprovalJudgment {
+            outcome: crate::dive::ApprovalOutcome::Approved,
+            note: None,
+            decided_at: 14,
+        }),
+        Some(serde_json::json!({
+            "statusIds": ["preview_checked", "app_launched"],
+            "statuses": [
+                {
+                    "id": "preview_checked",
+                    "label": "수동 프리뷰 확인됨",
+                    "evidenceBacked": true,
+                    "tone": "success",
+                    "source": "preview"
+                },
+                {
+                    "id": "app_launched",
+                    "label": "앱 실행 확인됨",
+                    "evidenceBacked": true,
+                    "tone": "success",
+                    "source": "app_launch"
+                }
+            ],
+            "evidenceSummary": {
+                "concreteEvidence": false,
+                "aiSelfReport": true,
+                "automatedTestsPassed": false,
+                "externalTestRun": false,
+                "testResult": "skipped",
+                "manualEvidenceCount": 0,
+                "evidenceLabels": ["수동 프리뷰 확인됨", "앱 실행 확인됨"]
+            }
+        })),
+    )
+    .unwrap();
+
+    let (provenance, mapping) = {
+        let db = state.db.lock().unwrap();
+        let card = crate::db::dao::card::get_by_id(db.conn(), card_id)
+            .unwrap()
+            .unwrap();
+        let provenance: serde_json::Value =
+            serde_json::from_str(card.approval_provenance.as_deref().unwrap()).unwrap();
+        let mapping = mapping_dao::get_by_id(db.conn(), mapping_id)
+            .unwrap()
+            .unwrap();
+        (provenance, mapping)
+    };
+
+    assert_ne!(provenance["verificationState"], "verified_with_evidence");
+    assert_eq!(provenance["verificationState"], "unverified_risk_accepted");
+    assert_eq!(provenance["riskAccepted"], true);
+    assert_eq!(provenance["evidenceSummary"]["concreteEvidence"], false);
+    assert_eq!(
+        mapping.verification_status.as_deref(),
+        Some("unverified_risk_accepted")
+    );
+}
+
+#[test]
 fn passed_test_approval_records_evidence_backed_provenance() {
     let state = AppState::dev_mock();
     let tmp = tempfile::tempdir().unwrap();

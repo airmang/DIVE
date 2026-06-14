@@ -82,6 +82,13 @@ const AGENCY_STATE_META: Record<AgencyStateId, Omit<AgencyStateItem, "id">> = {
     evidenceBacked: false,
     priority: 100,
   },
+  verification_deferred: {
+    component: "decision",
+    label: "검증 유예됨",
+    tone: "info",
+    evidenceBacked: false,
+    priority: 55,
+  },
   rollback_available: {
     component: "rollback",
     label: "되돌리기 가능",
@@ -194,6 +201,10 @@ export function deriveAgencyStateView(input: DeriveAgencyStateInput): AgencyStat
     addState(states, "approved_with_risk");
   }
 
+  if (ids.includes("verification_deferred") || verificationState === "verification_deferred") {
+    addState(states, "verification_deferred");
+  }
+
   if (input.checkpointAvailable) {
     addState(states, "rollback_available");
   }
@@ -204,15 +215,19 @@ export function deriveAgencyStateView(input: DeriveAgencyStateInput): AgencyStat
     manualOrPreviewObserved: ids.includes("app_launched") || ids.includes("preview_checked"),
     acceptanceCriterionConfirmed: input.acceptanceCriterionConfirmed ?? false,
   });
-  if (verified || verificationState === "verified_with_evidence") {
+  const provenanceVerified =
+    verificationState === "verified_with_evidence" &&
+    (input.approvalProvenance ? input.approvalProvenance.evidenceSummary.concreteEvidence : true);
+  if (verified || provenanceVerified) {
     addState(states, "verified_with_evidence");
   }
 
   if (
-    (reachedVerificationSurface && !input.verifyLog) ||
-    testResult === "skipped" ||
-    ids.includes("external_test_not_run") ||
-    verificationState === "unverified_risk_accepted"
+    verificationState !== "verification_deferred" &&
+    ((reachedVerificationSurface && !input.verifyLog) ||
+      testResult === "skipped" ||
+      ids.includes("external_test_not_run") ||
+      verificationState === "unverified_risk_accepted")
   ) {
     if (!states.has("verified_with_evidence")) addState(states, "verification_needed");
   }

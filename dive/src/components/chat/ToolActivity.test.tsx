@@ -31,7 +31,7 @@ describe("ToolActivity provocation permission gate", () => {
 
   afterEach(() => cleanup());
 
-  it("requires a reason before approving high-risk changed files outside a UI-only target", () => {
+  it("does not render quarantined keyword/rule cards or add approval friction by default", () => {
     const approve = vi.fn();
 
     render(
@@ -54,28 +54,15 @@ describe("ToolActivity provocation permission gate", () => {
       />,
     );
 
-    expect(screen.getByTestId("provocation-card").dataset.severity).toBe("risk");
-    expect(screen.getByTestId("permission-approval-requirement").dataset.satisfied).toBe("false");
-    expect((screen.getByTestId("card-approve") as HTMLButtonElement).disabled).toBe(true);
-
-    fireEvent.click(screen.getByText("위험 감수하고 수용"));
-    fireEvent.change(screen.getByTestId("provocation-risk-reason"), {
-      target: { value: "package metadata change is intentional" },
-    });
-    fireEvent.click(screen.getByTestId("provocation-risk-submit"));
-
-    expect(screen.getByTestId("permission-approval-requirement").dataset.satisfied).toBe("true");
+    expect(screen.queryByTestId("provocation-card")).toBeNull();
+    expect(screen.queryByTestId("permission-approval-requirement")).toBeNull();
     const approveButton = screen.getByTestId("card-approve") as HTMLButtonElement;
     expect(approveButton.disabled).toBe(false);
     fireEvent.click(approveButton);
 
     expect(approve).toHaveBeenCalledTimes(1);
     expect(approve.mock.calls[0][0]).toBe("tool-1");
-    expect(approve.mock.calls[0][2]).toMatchObject({
-      source: "provocation.continue_with_risk",
-      riskReason: "package metadata change is intentional",
-      highRiskFiles: ["package.json"],
-    });
+    expect(approve.mock.calls[0][2]).toBeUndefined();
   });
 
   it("does not add approval friction for a non-high-risk UI-only edit", () => {

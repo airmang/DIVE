@@ -613,6 +613,13 @@ export const PROVOCATION_RULES = [
   oversizedScopeRule,
 ] as const;
 
+export function isQuarantinedRuleCardGenerationEnabled(): boolean {
+  return (
+    import.meta.env.DEV === true &&
+    import.meta.env.VITE_DIVE_INTERNAL_PROVOCATION_RULE_CARDS === "true"
+  );
+}
+
 function hasRetryEvidence(context: ProvocationContext): boolean {
   return Boolean(
     context.retryCountForCurrentError ||
@@ -645,7 +652,9 @@ function cardEligibleForStage(card: ProvocationCard, context: ProvocationContext
   }
 }
 
-export function generateProvocationCards(context: ProvocationContext): ProvocationCard[] {
+export function generateQuarantinedRuleProvocationCards(
+  context: ProvocationContext,
+): ProvocationCard[] {
   const cards = PROVOCATION_RULES.map((rule) => rule(context)).filter(
     (candidate): candidate is ProvocationCard => candidate !== null,
   );
@@ -654,4 +663,9 @@ export function generateProvocationCards(context: ProvocationContext): Provocati
     shouldShowProvocationCardInMode(candidate, context.mode),
   );
   return sortProvocationCards(visible);
+}
+
+export function generateProvocationCards(context: ProvocationContext): ProvocationCard[] {
+  if (!isQuarantinedRuleCardGenerationEnabled()) return [];
+  return generateQuarantinedRuleProvocationCards(context);
 }

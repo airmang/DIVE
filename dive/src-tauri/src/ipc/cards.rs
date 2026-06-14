@@ -174,6 +174,7 @@ pub(super) fn card_transition_no_checkpoint_with_provenance_impl(
                     (transition, j.outcome),
                     (CardTransition::Approve, Approved)
                         | (CardTransition::Approve, ApprovedWithConcern)
+                        | (CardTransition::Approve, VerificationDeferred)
                         | (CardTransition::Reject, RevisionRequested)
                 );
                 if !ok {
@@ -301,13 +302,12 @@ fn build_approval_provenance(
         Some("skipped") | None => false,
         Some(_) => true,
     };
-    let has_client_completion_evidence = statuses.iter().any(|status| {
-        matches!(
-            status.get("id").and_then(Value::as_str),
-            Some("app_launched") | Some("preview_checked")
-        )
-    });
-    let concrete_evidence = automated_tests_passed || has_client_completion_evidence;
+    let client_concrete_evidence = client_provenance
+        .and_then(|value| value.get("evidenceSummary"))
+        .and_then(|value| value.get("concreteEvidence"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let concrete_evidence = automated_tests_passed || client_concrete_evidence;
 
     if verify_log
         .as_ref()
@@ -341,14 +341,31 @@ fn build_approval_provenance(
     let approved_with_concern = judgment
         .map(|j| j.outcome == crate::dive::ApprovalOutcome::ApprovedWithConcern)
         .unwrap_or(false);
+    let verification_deferred = judgment
+        .map(|j| j.outcome == crate::dive::ApprovalOutcome::VerificationDeferred)
+        .unwrap_or(false)
+        || client_status_ids
+            .iter()
+            .any(|candidate| candidate == "verification_deferred")
+        || client_provenance
+            .and_then(|value| value.get("approvalOutcome"))
+            .and_then(Value::as_str)
+            == Some("verification_deferred");
     let client_marked_risk = client_status_ids
         .iter()
         .any(|candidate| candidate == "approved_with_risk");
-    let risk_accepted = failed || !concrete_evidence || approved_with_concern || client_marked_risk;
+    let risk_accepted = !verification_deferred
+        && (failed || !concrete_evidence || approved_with_concern || client_marked_risk);
     if risk_accepted {
         push_status(
             &mut statuses,
             status_value("approved_with_risk", decided_at),
+        );
+    }
+    if verification_deferred {
+        push_status(
+            &mut statuses,
+            status_value("verification_deferred", decided_at),
         );
     }
 
@@ -377,10 +394,14 @@ fn build_approval_provenance(
         });
     let verification_state = if failed {
         "failed_but_accepted"
+    } else if concrete_evidence {
+        "verified_with_evidence"
+    } else if verification_deferred {
+        "verification_deferred"
     } else if risk_accepted {
         "unverified_risk_accepted"
     } else {
-        "verified_with_evidence"
+        "unverified_risk_accepted"
     };
 
     json!({
@@ -449,6 +470,7 @@ fn status_value(id: &str, recorded_at: Option<i64>) -> Value {
         "external_test_not_run" => ("외부 테스트 없음", false, "warn", "external_test"),
         "failed_but_accepted" => ("실패했지만 승인됨", false, "risk", "risk_approval"),
         "approved_with_risk" => ("위험을 감수하고 승인됨", false, "risk", "risk_approval"),
+        "verification_deferred" => ("검증 유예됨", false, "info", "deferred_verification"),
         _ => (id, false, "warn", "risk_approval"),
     };
     json!({
@@ -474,6 +496,7 @@ fn approval_outcome_str(outcome: crate::dive::ApprovalOutcome) -> &'static str {
         crate::dive::ApprovalOutcome::Approved => "approved",
         crate::dive::ApprovalOutcome::ApprovedWithConcern => "approved_with_concern",
         crate::dive::ApprovalOutcome::RevisionRequested => "revision_requested",
+        crate::dive::ApprovalOutcome::VerificationDeferred => "verification_deferred",
     }
 }
 

@@ -1,9 +1,25 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
 import type { RoadmapStep } from "../../features/roadmap";
+import { evaluateProvocationSupervisor, type ProvocationCard } from "../../features/provocation";
 import { StepDetailSlideIn } from "./StepDetailSlideIn";
+
+vi.mock("../../features/provocation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../features/provocation")>();
+  return {
+    ...actual,
+    evaluateProvocationSupervisor: vi.fn(),
+  };
+});
+
+const evaluateMock = vi.mocked(evaluateProvocationSupervisor);
+
+function lastSupervisorRequest() {
+  return evaluateMock.mock.calls[evaluateMock.mock.calls.length - 1]?.[0];
+}
 
 function reviewStep(overrides: Partial<RoadmapStep> = {}): RoadmapStep {
   return {
@@ -27,180 +43,214 @@ function reviewStep(overrides: Partial<RoadmapStep> = {}): RoadmapStep {
   };
 }
 
-describe("StepDetailSlideIn recovery actions", () => {
+function supervisorCard(overrides: Partial<ProvocationCard> = {}): ProvocationCard {
+  return {
+    id: "provocation:step-1:ai_self_report_only:sha256:test",
+    type: "ai_self_report_only",
+    stage: "verify",
+    severity: "caution",
+    title: "확인 필요 카드",
+    prompt: "AI는 완료됐다고 했지만, 변경 내용을 직접 확인할 수 있나요?",
+    message: "확인 가능한 증거를 먼저 살펴보세요.",
+    evidence: [{ refId: "agent.assistant_claim", label: "AI 완료 주장", source: "agent" }],
+    actions: [{ id: "open_diff", kind: "open_diff", label: "변경 보기" }],
+    primaryActionId: "open_diff",
+    modeCopy: { guided: "AI의 말과 직접 본 증거를 구분합니다." },
+    metadata: {
+      contextHash: "sha256:context",
+      evidenceHash: "sha256:evidence",
+      supervisorEvaluationId: "eval-1",
+    },
+    createdAt: "2026-06-14T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function renderStepDetail(overrides: Partial<ComponentProps<typeof StepDetailSlideIn>> = {}) {
+  return render(
+    <StepDetailSlideIn
+      open
+      step={reviewStep()}
+      toolCallCount={1}
+      verifyLog={{
+        intent_match: true,
+        test_result: "skipped",
+        details: "AI reported completion without external verification.",
+        model: "mock",
+        ran_at: 1,
+      }}
+      verifyState="idle"
+      verifyError={null}
+      changedFiles={[{ path: "src/App.tsx", diff: null }]}
+      planContext={{
+        expectedFiles: ["src/App.tsx"],
+        verificationCommand: "pnpm test",
+        verificationManualCheck: null,
+        verificationKind: "command",
+        dependencies: [],
+        parallelGroup: null,
+        purpose: "버튼 문구만 수정한다",
+      }}
+      onOpenChange={vi.fn()}
+      onOpenCode={vi.fn()}
+      onOpenPreview={vi.fn()}
+      onOpenRecovery={vi.fn()}
+      onVerifyFirst={vi.fn()}
+      onApprovalDecision={vi.fn()}
+      onGoToChat={vi.fn()}
+      rollbackAvailable
+      provocation={{ enabled: true, mode: "standard", projectId: 1, sessionId: 2 }}
+      {...overrides}
+    />,
+  );
+}
+
+describe("StepDetailSlideIn supervisor-backed review cards", () => {
   beforeEach(() => {
     useLocaleStore.setState({ locale: "ko" });
+    evaluateMock.mockReset();
   });
 
-  afterEach(() => cleanup());
-
-  it("routes unrelated-change revert review-card action to the Recovery surface", () => {
-    const onOpenRecovery = vi.fn();
-
-    render(
-      <StepDetailSlideIn
-        open
-        step={reviewStep()}
-        toolCallCount={1}
-        verifyLog={null}
-        verifyState="idle"
-        verifyError={null}
-        changedFiles={[{ path: "package.json", diff: null }]}
-        onOpenChange={vi.fn()}
-        onOpenCode={vi.fn()}
-        onOpenPreview={vi.fn()}
-        onOpenRecovery={onOpenRecovery}
-        onVerifyFirst={vi.fn()}
-        onApprovalDecision={vi.fn()}
-        onGoToChat={vi.fn()}
-        rollbackAvailable={false}
-        provocation={{ enabled: true, mode: "standard", projectId: 1, sessionId: 2 }}
-      />,
-    );
-
-    fireEvent.click(screen.getByText("관련 없는 변경 되돌리기"));
-
-    expect(onOpenRecovery).toHaveBeenCalledTimes(1);
+  afterEach(() => {
+    cleanup();
   });
 
-  it("shows expected-vs-actual high-risk drift and keeps diff review separate from tests", () => {
+  it("places a backend ai_self_report_only 검토 카드 near final approval and routes actions", async () => {
     const onOpenCode = vi.fn();
+    evaluateMock.mockResolvedValue({
+      status: "shown",
+      evaluationId: "eval-1",
+      card: supervisorCard(),
+    });
 
-    render(
-      <StepDetailSlideIn
-        open
-        step={reviewStep()}
-        toolCallCount={1}
-        verifyLog={null}
-        verifyState="idle"
-        verifyError={null}
-        changedFiles={[
-          { path: "src/Button.tsx", diff: null },
-          { path: "package.json", diff: null },
-          { path: "src/auth.ts", diff: null },
-        ]}
-        planContext={{
-          expectedFiles: ["src/Button.tsx"],
-          verificationCommand: "pnpm test Button",
-          verificationManualCheck: null,
-          verificationKind: "command",
-          dependencies: [],
-          parallelGroup: null,
-          purpose: "버튼 문구만 수정한다",
-        }}
-        onOpenChange={vi.fn()}
-        onOpenCode={onOpenCode}
-        onOpenPreview={vi.fn()}
-        onOpenRecovery={vi.fn()}
-        onVerifyFirst={vi.fn()}
-        onApprovalDecision={vi.fn()}
-        onGoToChat={vi.fn()}
-        rollbackAvailable={false}
-        provocation={{ enabled: true, mode: "standard", projectId: 1, sessionId: 2 }}
-      />,
+    renderStepDetail({ onOpenCode });
+
+    const card = await screen.findByTestId("provocation-card");
+    expect(card.closest('[data-testid="step-detail-panel"]')).toBeTruthy();
+    expect(card.dataset.cardType).toBe("ai_self_report_only");
+    expect(card.textContent).toContain("확인 필요 카드");
+    expect(card.textContent).not.toContain("도발카드");
+    expect(screen.getByTestId("provocation-prompt").textContent).toContain("직접 확인");
+
+    expect(evaluateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 2,
+        event: "verify_entered",
+        sourceUiMode: "standard",
+        artifactRef: expect.objectContaining({ kind: "step", id: "1" }),
+      }),
     );
 
-    expect(screen.getByTestId("step-detail-change-bundle")).toBeTruthy();
-    expect(screen.getByTestId("step-detail-expected-files").textContent).toContain(
-      "src/Button.tsx",
-    );
-    expect(screen.getByTestId("step-detail-actual-files").textContent).toContain("package.json");
-    expect(screen.getByTestId("step-detail-unexpected-high-risk-files").dataset.count).toBe("2");
-    expect(screen.getByText("목표 밖 변경이 섞였을 수 있습니다")).toBeTruthy();
-    expect(screen.getByTestId("decision-gate-reasons").textContent).toContain("package.json");
-    expect(screen.queryByText("Diff 확인됨")).toBeNull();
-
-    fireEvent.click(screen.getByTestId("step-detail-open-code"));
-
+    fireEvent.click(screen.getByTestId("provocation-primary-action"));
     expect(onOpenCode).toHaveBeenCalledTimes(1);
-    expect(screen.getAllByText("Diff 확인됨").length).toBeGreaterThan(0);
-    expect(screen.queryByText("자동 테스트 통과")).toBeNull();
   });
 
-  it("records preview observation before criterion confirmation unlocks direct approval", () => {
+  it("does not show ai_self_report_only when concrete verification evidence exists", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-2",
+      dropReason: "provoke_false",
+    });
+
+    renderStepDetail({
+      verifyLog: {
+        intent_match: true,
+        test_result: "pass",
+        details: "Tests passed.",
+        model: "mock",
+        ran_at: 1,
+      },
+    });
+
+    await waitFor(() => expect(evaluateMock).toHaveBeenCalledTimes(1));
+    expect(evaluateMock.mock.calls[0][0].uiState.verification.automatedTestsPassed).toBe(true);
+    expect(screen.queryByTestId("provocation-card")).toBeNull();
+  });
+
+  it("does not synthesize a fallback card when supervisor evaluation is unavailable", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "dropped",
+      evaluationId: "eval-3",
+      dropReason: "runtime_unavailable",
+    });
+
+    renderStepDetail();
+
+    await waitFor(() => expect(evaluateMock).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId("provocation-card")).toBeNull();
+    expect(screen.queryByText("확인 필요 카드")).toBeNull();
+  });
+
+  it("does not fabricate preview verification evidence from the preview click alone", async () => {
     const onOpenPreview = vi.fn();
-    const onApprovalDecision = vi.fn();
+    evaluateMock.mockResolvedValue({
+      status: "shown",
+      evaluationId: "eval-preview",
+      card: supervisorCard({
+        actions: [{ id: "open_preview", kind: "open_preview", label: "미리보기 열기" }],
+        primaryActionId: "open_preview",
+      }),
+    });
 
-    render(
-      <StepDetailSlideIn
-        open
-        step={reviewStep()}
-        toolCallCount={1}
-        verifyLog={{
-          intent_match: true,
-          test_result: "skipped",
-          details: "AI reported completion without external verification.",
-          model: "mock",
-          ran_at: 1,
-        }}
-        verifyState="idle"
-        verifyError={null}
-        changedFiles={[{ path: "src/App.tsx", diff: null }]}
-        onOpenChange={vi.fn()}
-        onOpenCode={vi.fn()}
-        onOpenPreview={onOpenPreview}
-        onOpenRecovery={vi.fn()}
-        onVerifyFirst={vi.fn()}
-        onApprovalDecision={onApprovalDecision}
-        onGoToChat={vi.fn()}
-        rollbackAvailable
-        provocation={{ enabled: true, mode: "standard", projectId: 1, sessionId: 2 }}
-      />,
-    );
+    renderStepDetail({
+      onOpenPreview,
+      planContext: {
+        expectedFiles: ["src/App.tsx"],
+        verificationCommand: null,
+        verificationManualCheck: "프리뷰에서 저장 버튼이 보인다",
+        verificationKind: "preview",
+        dependencies: [],
+        parallelGroup: null,
+        purpose: "버튼 문구만 수정한다",
+      },
+    });
 
-    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
-
-    fireEvent.click(screen.getByText("프리뷰 확인"));
+    await screen.findByTestId("provocation-card");
+    fireEvent.click(screen.getByTestId("provocation-primary-action"));
 
     expect(onOpenPreview).toHaveBeenCalledTimes(1);
-    expect(
-      screen
-        .getAllByTestId("verification-status-chip")
-        .some((chip) => chip.dataset.statusId === "preview_checked"),
-    ).toBe(true);
-    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
+    await waitFor(() => expect(evaluateMock.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(lastSupervisorRequest()?.uiState.verification.previewChecked).toBe(false);
+    expect(lastSupervisorRequest()?.uiState.verification.acceptanceCriterionConfirmed).toBe(false);
 
-    fireEvent.click(screen.getByTestId("step-detail-criterion-confirm-checkbox"));
+    fireEvent.click(screen.getByTestId("step-detail-confirm-preview"));
 
-    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(false);
-
-    fireEvent.click(screen.getByTestId("decision-gate-approve"));
-
-    expect(onApprovalDecision).toHaveBeenCalledWith({ outcome: "approved", note: null });
+    await waitFor(() =>
+      expect(lastSupervisorRequest()?.uiState.verification.previewChecked).toBe(true),
+    );
+    expect(lastSupervisorRequest()?.uiState.verification.acceptanceCriterionConfirmed).toBe(true);
+    expect(screen.getByTestId("step-detail-criterion-evidence-ref").textContent).toContain(
+      "프리뷰",
+    );
   });
 
-  it("routes review-card test action to the verify flow", () => {
-    const onVerifyFirst = vi.fn();
+  it("reports infeasible preview/app/test actions in the supervisor request", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "dropped",
+      evaluationId: "eval-infeasible",
+      dropReason: "runtime_unavailable",
+    });
 
-    render(
-      <StepDetailSlideIn
-        open
-        step={reviewStep()}
-        toolCallCount={1}
-        verifyLog={{
-          intent_match: true,
-          test_result: "skipped",
-          details: "AI reported completion without external verification.",
-          model: "mock",
-          ran_at: 1,
-        }}
-        verifyState="idle"
-        verifyError={null}
-        changedFiles={[{ path: "src/App.tsx", diff: null }]}
-        onOpenChange={vi.fn()}
-        onOpenCode={vi.fn()}
-        onOpenPreview={vi.fn()}
-        onOpenRecovery={vi.fn()}
-        onVerifyFirst={onVerifyFirst}
-        onApprovalDecision={vi.fn()}
-        onGoToChat={vi.fn()}
-        rollbackAvailable
-        provocation={{ enabled: true, mode: "standard", projectId: 1, sessionId: 2 }}
-      />,
-    );
+    renderStepDetail({
+      step: reviewStep({ testCommand: null }),
+      onOpenPreview: undefined,
+      planContext: {
+        expectedFiles: ["src/App.tsx"],
+        verificationCommand: null,
+        verificationManualCheck: null,
+        verificationKind: null,
+        dependencies: [],
+        parallelGroup: null,
+        purpose: "버튼 문구만 수정한다",
+      },
+    });
 
-    fireEvent.click(screen.getByText("테스트 실행"));
-
-    expect(onVerifyFirst).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(evaluateMock).toHaveBeenCalledTimes(1));
+    expect(evaluateMock.mock.calls[0][0].uiState.feasibility).toEqual({
+      runnable: false,
+      previewable: false,
+      hasTests: false,
+      diffAvailable: true,
+    });
   });
 });

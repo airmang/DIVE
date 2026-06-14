@@ -7,6 +7,7 @@ import type {
   VerificationProvenanceItem,
   VerificationStatusItem,
 } from "./types";
+import { hasConcreteVerification } from "./verificationGrade";
 
 function hasManualChecks(verification: ProvocationVerification | undefined): boolean {
   return Boolean(verification?.manualChecks?.some((item) => item.trim().length > 0));
@@ -21,18 +22,16 @@ export function hasAiSelfReport(context: ProvocationContext): boolean {
 
 export function hasObservedVerificationEvidence(context: ProvocationContext): boolean {
   const provenance = context.approvalProvenance ?? context.verification?.approvalProvenance;
-  if (provenance) return provenance.evidenceSummary.concreteEvidence;
+  if (provenance) {
+    return (
+      provenance.evidenceSummary.concreteEvidence || provenance.statusIds.includes("diff_reviewed")
+    );
+  }
   const verification = context.verification;
   return Boolean(
     verification?.diffReviewed ||
-    verification?.appLaunched ||
-    verification?.previewChecked ||
-    verification?.automatedTestsPassed ||
-    verification?.externalTestRun ||
-    hasManualChecks(verification) ||
     context.userHasViewedDiff ||
-    context.userHasViewedPreview ||
-    context.userHasViewedTestResult,
+    hasConcreteVerificationEvidence(context),
   );
 }
 
@@ -40,15 +39,20 @@ export function hasConcreteVerificationEvidence(context: ProvocationContext): bo
   const provenance = context.approvalProvenance ?? context.verification?.approvalProvenance;
   if (provenance) return provenance.evidenceSummary.concreteEvidence;
   const verification = context.verification;
-  return Boolean(
-    verification?.appLaunched ||
-    verification?.previewChecked ||
-    verification?.automatedTestsPassed ||
-    verification?.externalTestRun ||
-    hasManualChecks(verification) ||
-    context.userHasViewedPreview ||
-    context.userHasViewedTestResult,
-  );
+  const statusIds: VerificationStatusItem["id"][] = [];
+  if (verification?.appLaunched) statusIds.push("app_launched");
+  if (verification?.previewChecked) statusIds.push("preview_checked");
+  if (verification?.automatedTestsPassed || verification?.testResult === "pass") {
+    statusIds.push("automated_tests_passed");
+  }
+  return hasConcreteVerification({
+    statusIds,
+    testResult: verification?.testResult ?? null,
+    manualOrPreviewObserved: Boolean(
+      verification?.appLaunched || verification?.previewChecked || hasManualChecks(verification),
+    ),
+    acceptanceCriterionConfirmed: Boolean(verification?.acceptanceCriterionConfirmed),
+  });
 }
 
 function statusSource(id: VerificationStatusItem["id"]): VerificationProvenanceItem["source"] {
@@ -68,6 +72,8 @@ function statusSource(id: VerificationStatusItem["id"]): VerificationProvenanceI
     case "failed_but_accepted":
     case "approved_with_risk":
       return "risk_approval";
+    case "verification_deferred":
+      return "deferred_verification";
   }
 }
 
@@ -90,9 +96,9 @@ function pushUniqueStatus(statuses: VerificationStatusItem[], item: Verification
 function deriveCurrentVerificationStatuses(context: ProvocationContext): VerificationStatusItem[] {
   const verification = context.verification;
   const statuses: VerificationStatusItem[] = [];
-  const observedEvidence = hasObservedVerificationEvidence(context);
+  const concreteEvidence = hasConcreteVerificationEvidence(context);
 
-  if (hasAiSelfReport(context) && !observedEvidence) {
+  if (hasAiSelfReport(context) && !concreteEvidence) {
     pushUniqueStatus(statuses, {
       id: "ai_self_report_only",
       label: "AI 자가보고만 있음",
@@ -119,7 +125,7 @@ function deriveCurrentVerificationStatuses(context: ProvocationContext): Verific
     });
   }
 
-  if (verification?.previewChecked || context.userHasViewedPreview) {
+  if (verification?.previewChecked) {
     pushUniqueStatus(statuses, {
       id: "preview_checked",
       label: "수동 프리뷰 확인됨",
@@ -128,7 +134,7 @@ function deriveCurrentVerificationStatuses(context: ProvocationContext): Verific
     });
   }
 
-  if (verification?.automatedTestsPassed || context.userHasViewedTestResult) {
+  if (verification?.automatedTestsPassed || verification?.testResult === "pass") {
     pushUniqueStatus(statuses, {
       id: "automated_tests_passed",
       label: "자동 테스트 통과",
@@ -164,6 +170,15 @@ function deriveCurrentVerificationStatuses(context: ProvocationContext): Verific
     });
   }
 
+  if (verification?.verificationDeferred) {
+    pushUniqueStatus(statuses, {
+      id: "verification_deferred",
+      label: "검증 유예됨",
+      evidenceBacked: false,
+      tone: "info",
+    });
+  }
+
   return statuses;
 }
 
@@ -188,15 +203,7 @@ export function summarizeVerificationEvidence(
     .filter((item) => item.evidenceBacked)
     .map((item) => item.label);
   return {
-    concreteEvidence: Boolean(
-      verification?.appLaunched ||
-      verification?.previewChecked ||
-      verification?.automatedTestsPassed ||
-      verification?.externalTestRun ||
-      hasManualChecks(verification) ||
-      context.userHasViewedPreview ||
-      context.userHasViewedTestResult,
-    ),
+    concreteEvidence: hasConcreteVerificationEvidence(context),
     aiSelfReport: hasAiSelfReport(context),
     automatedTestsPassed: Boolean(verification?.automatedTestsPassed),
     externalTestRun:
@@ -221,11 +228,14 @@ export function buildApprovalProvenance(
     toProvenanceItem(item, approval?.decidedAt),
   );
   const failed = context.verification?.failedButAccepted || summary.testResult === "fail";
+  const verificationDeferred =
+    context.verification?.verificationDeferred || approval?.outcome === "verification_deferred";
   const riskAccepted =
-    failed ||
-    !summary.concreteEvidence ||
-    context.verification?.approvedWithRisk ||
-    approval?.outcome === "approved_with_concern";
+    !verificationDeferred &&
+    (failed ||
+      !summary.concreteEvidence ||
+      context.verification?.approvedWithRisk ||
+      approval?.outcome === "approved_with_concern");
 
   if (failed && !statuses.some((item) => item.id === "failed_but_accepted")) {
     statuses.push(
@@ -255,13 +265,29 @@ export function buildApprovalProvenance(
     );
   }
 
+  if (verificationDeferred && !statuses.some((item) => item.id === "verification_deferred")) {
+    statuses.push(
+      toProvenanceItem(
+        {
+          id: "verification_deferred",
+          label: "검증 유예됨",
+          evidenceBacked: false,
+          tone: "info",
+        },
+        approval?.decidedAt,
+      ),
+    );
+  }
+
   return {
     schemaVersion: 1,
     verificationState: failed
       ? "failed_but_accepted"
-      : riskAccepted
-        ? "unverified_risk_accepted"
-        : "verified_with_evidence",
+      : summary.concreteEvidence
+        ? "verified_with_evidence"
+        : verificationDeferred
+          ? "verification_deferred"
+          : "unverified_risk_accepted",
     statuses,
     statusIds: statuses.map((item) => item.id),
     evidenceSummary: {

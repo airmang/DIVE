@@ -27,6 +27,7 @@ interface DecisionGateProps extends DecisionGatePolicyInput {
   verifyRunning?: boolean;
   onApprove: () => void;
   onAcceptRisk: (reason: string) => void;
+  onDeferVerification: () => void;
   onRequestChanges: () => void;
   onVerifyFirst: () => void;
   onRevert: () => void;
@@ -40,9 +41,11 @@ export function DecisionGate({
   verifyLog = null,
   rollbackAvailable = false,
   acceptanceCriterionConfirmed = false,
+  verificationFeasibility,
   verifyRunning = false,
   onApprove,
   onAcceptRisk,
+  onDeferVerification,
   onRequestChanges,
   onVerifyFirst,
   onRevert,
@@ -59,12 +62,14 @@ export function DecisionGate({
         verifyLog,
         rollbackAvailable,
         acceptanceCriterionConfirmed,
+        verificationFeasibility,
       }),
     [
       acceptanceCriterionConfirmed,
       agencyState,
       provocationCards,
       rollbackAvailable,
+      verificationFeasibility,
       verificationStatuses,
       verifyLog,
     ],
@@ -75,14 +80,19 @@ export function DecisionGate({
     .map((item) => item.label);
   const summary = policy.hasVerifiedEvidence
     ? t("roadmap.step_detail.decision_summary_verified")
-    : policy.requiresReason
-      ? t("roadmap.step_detail.decision_summary_risk")
-      : t("roadmap.step_detail.decision_summary_missing");
+    : policy.canDeferVerification
+      ? t("roadmap.step_detail.decision_summary_deferred")
+      : policy.requiresReason
+        ? t("roadmap.step_detail.decision_summary_risk")
+        : t("roadmap.step_detail.decision_summary_missing");
 
   const submitRiskApproval = () => {
     const trimmed = riskReason.trim();
     if (policy.requiresReason && trimmed.length === 0) return;
     onAcceptRisk(trimmed);
+  };
+  const submitDeferredVerification = () => {
+    onDeferVerification();
   };
 
   return (
@@ -166,6 +176,19 @@ export function DecisionGate({
           <CheckCircle2 />
           {t("roadmap.step_detail.decision_approve")}
         </Button>
+        {policy.canDeferVerification ? (
+          <Button
+            type="button"
+            variant="primary"
+            size="sm"
+            onClick={submitDeferredVerification}
+            data-testid="decision-gate-defer-verification"
+            data-decision-outcome="verification_deferred"
+          >
+            <Clock3 />
+            {t("roadmap.step_detail.decision_defer_verification")}
+          </Button>
+        ) : null}
         {policy.requiresReason ? (
           <Button
             type="button"
@@ -174,6 +197,7 @@ export function DecisionGate({
             disabled={!riskReasonOk}
             onClick={submitRiskApproval}
             data-testid="decision-gate-risk-approve"
+            data-decision-outcome="continue_with_risk"
           >
             <ShieldAlert />
             {t("roadmap.step_detail.decision_accept_risk")}

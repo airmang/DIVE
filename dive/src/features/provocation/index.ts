@@ -3,8 +3,6 @@ export * from "./priority";
 export { ProvocationCard as ProvocationCardView } from "./ProvocationCard";
 export { ProvocationCardHost } from "./ProvocationCardHost";
 export * from "./logging";
-export * from "./rules";
 export * from "./types";
-export * from "./useProvocationCards";
 export * from "./useProvocationActionResolver";
 export * from "./verificationStatus";

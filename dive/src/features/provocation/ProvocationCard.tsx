@@ -2,15 +2,17 @@ import { AlertTriangle, CheckCircle2, Eye, X } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../../lib/utils";
 import { Button } from "../../components/ui/button";
+import { normalizeSupervisorRenderMode } from "./adapters";
 import type {
   ProvocationAction,
   ProvocationCard as ProvocationCardData,
   ScaffoldMode,
+  SupervisorMode,
 } from "./types";
 
 interface ProvocationCardProps {
   card: ProvocationCardData;
-  mode: ScaffoldMode;
+  mode: ScaffoldMode | SupervisorMode;
   onAction?: (action: ProvocationAction, reason?: string) => void;
   onDismiss?: () => void;
   onMarkIrrelevant?: () => void;
@@ -37,8 +39,10 @@ export function ProvocationCard({
 }: ProvocationCardProps) {
   const [pendingReasonAction, setPendingReasonAction] = useState<ProvocationAction | null>(null);
   const [reason, setReason] = useState("");
-  const compact = mode === "expert";
-  const explanation = card.modeCopy?.[mode] ?? card.modeCopy?.guided;
+  const canonicalMode = normalizeSupervisorRenderMode(mode);
+  const explanation =
+    canonicalMode === "guided" ? card.modeCopy?.guided : card.modeCopy?.work;
+  const showSupportingMessage = canonicalMode === "guided" && !explanation && card.message.trim();
   const primaryAction = card.primaryActionId
     ? card.actions.find((action) => action.id === card.primaryActionId)
     : undefined;
@@ -94,7 +98,7 @@ export function ProvocationCard({
       data-testid="provocation-card"
       data-card-type={card.type}
       data-severity={card.severity}
-      data-mode={mode}
+      data-mode={canonicalMode}
     >
       <div className="flex items-start gap-2">
         <AlertTriangle className={cn("mt-0.5 h-4 w-4 shrink-0", ICON_CLASS[card.severity])} />
@@ -103,11 +107,16 @@ export function ProvocationCard({
             <div>
               <p className="font-semibold text-fg">{card.title}</p>
               {card.prompt ? (
-                <p className="mt-1 text-xs font-medium text-fg" data-testid="provocation-prompt">
+                <p
+                  className="mt-1 text-sm font-semibold leading-snug text-fg"
+                  data-testid="provocation-prompt"
+                >
                   {card.prompt}
                 </p>
               ) : null}
-              {!compact ? <p className="mt-1 text-xs text-fg-muted">{card.message}</p> : null}
+              {showSupportingMessage ? (
+                <p className="mt-1 text-[11px] leading-snug text-fg-muted">{card.message}</p>
+              ) : null}
             </div>
             <div className="flex shrink-0 gap-1">
               {onMarkIrrelevant ? (
@@ -152,7 +161,7 @@ export function ProvocationCard({
             ))}
           </div>
 
-          {mode === "guided" && explanation ? (
+          {canonicalMode === "guided" && explanation ? (
             <p className="mt-2 text-[11px] leading-snug text-fg-muted">{explanation}</p>
           ) : null}
 

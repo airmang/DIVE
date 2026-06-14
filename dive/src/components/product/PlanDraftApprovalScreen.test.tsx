@@ -118,7 +118,7 @@ describe("PlanDraftApprovalScreen intent and step review surface", () => {
     expect(within(steps[1]).getByText("ui-check")).toBeTruthy();
   });
 
-  it("renders a contextual missing-verification card and seeds revision feedback", () => {
+  it("keeps missing-verification rule cards quarantined from shipped plan approval", () => {
     const noVerificationDraft = draft({
       steps: [
         {
@@ -135,19 +135,14 @@ describe("PlanDraftApprovalScreen intent and step review surface", () => {
       provocation: { enabled: true, mode: "standard", projectId: 1, sessionId: 2 },
     });
 
-    expect(screen.getByText("검증 단계가 빠졌습니다")).toBeTruthy();
+    expect(screen.queryByText("검증 단계가 빠졌습니다")).toBeNull();
+    expect(screen.queryByTestId("provocation-card")).toBeNull();
     expect(screen.getByTestId("plan-step-verification-indicator").dataset.verification).toBe(
       "missing",
     );
-
-    fireEvent.click(screen.getByText("검증 단계 추가"));
-    expect(
-      (screen.getByPlaceholderText("이 초안에서 바꿀 내용을 입력하세요...") as HTMLTextAreaElement)
-        .value,
-    ).toContain("검증 단계가 필요합니다");
   });
 
-  it("seeds revision feedback when the missing-acceptance-criteria action is selected", () => {
+  it("keeps missing-acceptance-criteria rule cards quarantined from shipped plan approval", () => {
     const missingCriteriaDraft = draft({
       plan: {
         ...draft().plan,
@@ -160,16 +155,11 @@ describe("PlanDraftApprovalScreen intent and step review surface", () => {
       provocation: { enabled: true, mode: "standard", projectId: 1, sessionId: 2 },
     });
 
-    expect(screen.getByText("완료 기준이 없습니다")).toBeTruthy();
-
-    fireEvent.click(screen.getByText("완료 기준 추가"));
-    expect(
-      (screen.getByPlaceholderText("이 초안에서 바꿀 내용을 입력하세요...") as HTMLTextAreaElement)
-        .value,
-    ).toContain("완료 기준을 계획에 추가해 주세요");
+    expect(screen.queryByText("완료 기준이 없습니다")).toBeNull();
+    expect(screen.queryByTestId("provocation-card")).toBeNull();
   });
 
-  it("seeds revision feedback when the oversized-scope split action is selected", () => {
+  it("keeps oversized-scope rule cards quarantined from shipped plan approval", () => {
     const base = draft();
     const manyStepDraft = draft({
       steps: Array.from({ length: 7 }, (_, index) => ({
@@ -186,12 +176,37 @@ describe("PlanDraftApprovalScreen intent and step review surface", () => {
       provocation: { enabled: true, mode: "standard", projectId: 1, sessionId: 2 },
     });
 
-    expect(screen.getByText("작업 범위가 너무 큽니다")).toBeTruthy();
+    expect(screen.queryByText("작업 범위가 너무 큽니다")).toBeNull();
+    expect(screen.queryByTestId("provocation-card")).toBeNull();
+  });
+});
 
-    fireEvent.click(screen.getByText("기능으로 나누기"));
-    expect(
-      (screen.getByPlaceholderText("이 초안에서 바꿀 내용을 입력하세요...") as HTMLTextAreaElement)
-        .value,
-    ).toContain("범위를 더 작게 나눠 주세요");
+describe("PlanDraftApprovalScreen discard confirmation (R8/D-37)", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: "ko" });
+    useUiPreferencesStore.setState({ tutorialEnabled: false });
+  });
+
+  afterEach(() => cleanup());
+
+  it("does not discard immediately — opens a confirmation dialog first", () => {
+    const props = renderScreen();
+    fireEvent.click(screen.getByTestId("plan-draft-discard"));
+    expect(props.onDiscard).not.toHaveBeenCalled();
+    expect(screen.getByTestId("plan-draft-discard-confirm")).toBeTruthy();
+  });
+
+  it("discards only after the user confirms", () => {
+    const props = renderScreen();
+    fireEvent.click(screen.getByTestId("plan-draft-discard"));
+    fireEvent.click(screen.getByTestId("plan-draft-discard-confirm-button"));
+    expect(props.onDiscard).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels without discarding", () => {
+    const props = renderScreen();
+    fireEvent.click(screen.getByTestId("plan-draft-discard"));
+    fireEvent.click(screen.getByTestId("plan-draft-discard-cancel"));
+    expect(props.onDiscard).not.toHaveBeenCalled();
   });
 });

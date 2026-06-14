@@ -21,10 +21,10 @@ import {
   ProvocationCardHost,
   assistantReportsFromConversation,
   createProvocationContext,
-  generateProvocationCards,
   retrySignalsFromConversation,
   useProvocationActionResolver,
 } from "../../features/provocation";
+import { generateProvocationCards } from "../../features/provocation/rules";
 
 interface Props {
   messages: ChatMessage[];

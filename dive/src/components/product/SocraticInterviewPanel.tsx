@@ -1,13 +1,8 @@
 import { Check, Send } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useT } from "../../i18n";
 import { Button } from "../ui/button";
-import {
-  ProvocationCardHost,
-  generateProvocationCards,
-  type ScaffoldMode,
-  useProvocationActionResolver,
-} from "../../features/provocation";
+import type { ScaffoldMode } from "../../features/provocation";
 
 interface SocraticInterviewPanelProps {
   started: boolean;
@@ -46,7 +41,6 @@ export function SocraticInterviewPanel({
   started,
   loading = false,
   disabled = false,
-  provocation,
   onSubmitGoal,
   onSubmitAnswer,
   onComplete,
@@ -55,18 +49,6 @@ export function SocraticInterviewPanel({
   const [text, setText] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
   const trimmed = text.trim();
-  const provocationCards = useMemo(() => {
-    if (!provocation?.enabled || trimmed.length === 0) return [];
-    return generateProvocationCards({
-      mode: provocation.mode,
-      stage: started ? "instruct" : "decompose",
-      projectId: provocation.projectId,
-      sessionId: provocation.sessionId,
-      goalText: started ? undefined : trimmed,
-      promptDraft: started ? trimmed : undefined,
-      acceptanceCriteria: [],
-    });
-  }, [provocation, started, trimmed]);
 
   const submit = () => {
     if (!trimmed || disabled || loading) return;
@@ -79,19 +61,6 @@ export function SocraticInterviewPanel({
     setValidationError(null);
     setText("");
   };
-
-  const handleProvocationAction = useProvocationActionResolver({
-    onAddAcceptanceCriteria: () => {
-      setText((value) => `${value.trim()}\n\n완료 기준:\n- `);
-    },
-    onSplitScope: () => {
-      setText((value) => `${value.trim()}\n\n첫 번째로 맡길 기능:\n- `);
-    },
-    onContinueWithRisk: () => {
-      if (started) onComplete();
-      else submit();
-    },
-  });
 
   return (
     <div className="space-y-2">
@@ -156,17 +125,6 @@ export function SocraticInterviewPanel({
           </p>
         ) : null}
       </div>
-      <ProvocationCardHost
-        cards={provocationCards}
-        context={{
-          mode: provocation?.mode,
-          stage: started ? "instruct" : "decompose",
-          projectId: provocation?.projectId,
-          sessionId: provocation?.sessionId,
-        }}
-        mode={provocation?.mode ?? "standard"}
-        onAction={handleProvocationAction}
-      />
     </div>
   );
 }

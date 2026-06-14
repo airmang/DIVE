@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import type { ProvocationAction, ProvocationCard } from "./types";
+import type { ProvocationAction, ProvocationCard, SupervisorFeasibility } from "./types";
 
 type Seed = (text: string) => void;
 
@@ -19,11 +19,16 @@ export interface ProvocationActionResolverOptions {
   onRetryWithAi?: () => void;
   onContinueWithRisk?: (reason: string | undefined, card: ProvocationCard) => void;
   onStatus?: (message: string) => void;
+  feasibility?: SupervisorFeasibility;
 }
 
 function seedAndGo(seed: Seed | undefined, go: (() => void) | undefined, text: string) {
   seed?.(text);
   go?.();
+}
+
+function isSupervisorBackedCard(card: ProvocationCard): boolean {
+  return typeof card.metadata?.supervisorEvaluationId === "string";
 }
 
 export function useProvocationActionResolver({
@@ -42,7 +47,14 @@ export function useProvocationActionResolver({
   onRetryWithAi,
   onContinueWithRisk,
   onStatus,
+  feasibility,
 }: ProvocationActionResolverOptions) {
+  const feasible = feasibility ?? {
+    runnable: true,
+    previewable: true,
+    hasTests: true,
+    diffAvailable: true,
+  };
   return useCallback(
     (action: ProvocationAction, card: ProvocationCard, reason?: string) => {
       switch (action.kind) {
@@ -77,22 +89,32 @@ export function useProvocationActionResolver({
           onStatus?.("범위 축소 요청을 준비했습니다.");
           return;
         case "open_diff":
+          if (!feasible.diffAvailable) {
+            onStatus?.("변경 diff를 열 수 있는 상태가 아닙니다.");
+            return;
+          }
           onOpenDiff?.();
           return;
         case "open_preview":
+          if (!feasible.previewable || !onOpenPreview) {
+            onStatus?.("열 수 있는 미리보기가 없습니다.");
+            return;
+          }
           onOpenPreview?.();
           return;
         case "run_app":
-          (onRunApp ?? onOpenPreview)?.();
+          if (!feasible.runnable || !onRunApp) {
+            onStatus?.("실행할 수 있는 앱 대상이 없습니다.");
+            return;
+          }
+          onRunApp();
           return;
         case "run_tests":
+          if (!feasible.hasTests || !onRunTests) {
+            onStatus?.("실행할 테스트가 없습니다.");
+            return;
+          }
           if (onRunTests) onRunTests();
-          else
-            seedAndGo(
-              pushComposerSeed,
-              onGoToChat,
-              "AI 완료 보고를 검증할 수 있는 가장 작은 테스트 또는 확인 명령을 제안해줘.",
-            );
           onStatus?.("테스트 확인 흐름을 시작했습니다.");
           return;
         case "rollback_last_change":
@@ -130,6 +152,10 @@ export function useProvocationActionResolver({
           onStatus?.("recovery-first 재시도 요청을 준비했습니다.");
           return;
         case "continue_with_risk":
+          if (isSupervisorBackedCard(card)) {
+            onStatus?.("승인 판단은 검증 승인 영역에서 진행합니다.");
+            return;
+          }
           onContinueWithRisk?.(reason, card);
           return;
         case "dismiss":
@@ -143,6 +169,10 @@ export function useProvocationActionResolver({
       onAskAiForRationale,
       onContinueWithRisk,
       onCreateReproSteps,
+      feasible.diffAvailable,
+      feasible.hasTests,
+      feasible.previewable,
+      feasible.runnable,
       onGoToChat,
       onOpenDiff,
       onOpenPreview,

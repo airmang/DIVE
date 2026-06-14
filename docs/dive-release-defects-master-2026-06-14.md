@@ -266,7 +266,17 @@
 
 기능은 모두 작동하나, 사용자가 "왜 안 되지?"로 오인하게 만든 지점들. 출시 차단은 아니지만 교수 자문·공개 전 다듬으면 인상이 크게 좋아짐.
 
-- [ ] **U-1. Locked 스텝에 잠긴 이유 표시.** 앞 스텝 미완료로 비활성인 스텝(대부분)이 *왜* Locked인지 안 보여 "안 눌린다"로 오인. → "앞 단계(step N)를 먼저 완료하세요" 툴팁/문구. (`PlanStepActions.tsx` Locked 분기)
-- [ ] **U-2. 스텝 행 클릭 affordance.** 행 전체가 눌릴 것처럼 보이나 실제론 우측 작은 액션 버튼(Start/Resume/Open)만 활성. → 행 클릭=상세 열기로 만들거나, 버튼을 더 명확히. (`PlanStep.tsx`)
-- [ ] **U-3. 카드가 어디서 뜨는지 단서.** 검토 카드는 채팅이 아니라 *계획 승인 화면/스텝 상세*에서, 자가보고 카드는 *AI 완료 보고 후*에만 뜸 — 사용자는 "카드가 안 보인다"로 오인. → 빈 상태 안내 또는 카드 위치 일관화.
-- [ ] **U-4. (재확인) HiDPI 클릭 정합성.** 동적 감사의 좌표 드리프트가 측정 아티팩트로 판정됐으나, 실제 사용자 클릭도 살짝 어긋나는지 1회 점검 권장(아니면 닫기).
+- [x] **U-1. Locked 스텝에 잠긴 이유 표시.** ✅ `PlanStepActions.tsx` Locked 분기에 `title`/`aria-label` 추가 — 막은 선행 스텝을 이름으로 표시(`plan_view.actions.locked_reason` = "앞 단계({{deps}})를 먼저 완료하면 잠금이 풀립니다", deps 없으면 `locked_reason_generic`). 검증: 브라우저 `?demo=plan-surface`에서 S-007 Locked 버튼이 `title="앞 단계(S-005 · S-006)…"` 렌더 확인 + `PlanStep.test.tsx` 2 테스트.
+- [x] **U-2. 스텝 행 클릭 affordance.** ✅ `PlanStep.tsx` 제목/요약 영역을 `role="button"`(키보드 가능)으로 만들어 행의 1차 액션을 미러(ready→start, in_progress→resume, done→open). **편차(의도적):** blocked 스텝은 비활성 유지 — plan 스텝의 유일한 open 경로(`roadmap_step_open`)가 세션을 *생성=시작*해 잠금을 우회하므로, locked 행은 누르지 않게 두고 U-1 툴팁으로 이유 설명. "각 스텝의 *계획*을 보는" 진짜 검토 니즈는 사용자가 직접 구현 중인 **리뷰 패널(in_progress+card → Review 버튼, openDetail)**이 담당. 검증: 브라우저에서 S-004(ready) **행 텍스트** 클릭 → `ready→in_progress` 전환 확인(버튼 아님) + `PlanStep.test.tsx` 4 테스트.
+- [ ] **U-3. 카드가 어디서 뜨는지 단서.** (보류) 사용자가 리뷰 패널을 직접 구축 중 — 검토 카드의 "집"이 명확해지면 대부분 해소될 전망. 패널 안정화 후 빈 상태 안내 필요성 재평가.
+- [ ] **U-4. (재확인) HiDPI 클릭 정합성.** 미수행.
+
+### R8 추가 (확인 다이얼로그)
+
+- [x] **D-37 plan Discard 무확인 파괴.** ✅ `PlanDraftApprovalScreen.tsx`의 `폐기` 버튼이 즉시 `onDiscard`(→`handleDiscardGeneratedPlan`→`plan.discardPlan` IPC)를 호출하던 것을, 컴포넌트-로컬 확인 `Dialog`로 게이트(`planning.approval.discard_confirm_*`, 기존 `PlanReplaceConfirmModal`과 동일한 Dialog 프리미티브). **수정을 컨트롤러가 아닌 컴포넌트에 둔 이유:** `useProductShellController.ts`를 사용자가 리뷰 패널 작업으로 동시 편집 중이라 충돌 회피. 검증: `PlanDraftApprovalScreen.test.tsx` 3 테스트(즉시 폐기 안 함 / 확인 후 1회 / 취소 시 0회) — 실제 컴포넌트+Dialog 렌더. `onDiscard` 배선은 컨트롤러 1172/1045줄에서 그대로 확인.
+  - **참고: 세션 삭제는 이미 확인됨** — `Sidebar.tsx:57` `window.confirm(t("sidebar.delete_session_confirm"))`. 핸드오프의 "세션삭제 확인" 항목은 STALE(이미 존재).
+- [ ] **D-36 미답변 인터뷰 승인 가드.** 미수행 — `handleApproveGeneratedPlan`(컨트롤러 987)에 인터뷰 미해결 질문 가드 추가 필요. 컨트롤러가 동시 편집 중이라 리뷰 패널 안정화 후 진행 권장.
+
+### 게이트 (병합 상태, 2026-06-14)
+
+- typecheck green(0), lint green, vitest 131/131 green(내 +9: PlanStep 6 + PlanDraft discard 3). format:check: 내 touched 파일 7개 모두 Prettier-clean(`PlanDraftApprovalScreen.tsx`는 baseline-red였으나 전체 정리됨).

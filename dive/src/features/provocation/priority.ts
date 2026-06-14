@@ -3,6 +3,7 @@ import type {
   ProvocationCardType,
   ProvocationSeverity,
   ScaffoldMode,
+  SupervisorMode,
 } from "./types";
 
 const TYPE_PRIORITY: Record<ProvocationCardType, number> = {
@@ -48,7 +49,9 @@ export function selectPrimaryProvocationCard(cards: ProvocationCard[]): Provocat
 
 export function shouldShowProvocationCardInMode(
   card: ProvocationCard,
-  mode: ScaffoldMode,
+  mode: ScaffoldMode | SupervisorMode,
 ): boolean {
-  return mode !== "expert" || card.severity === "risk";
+  void card;
+  void mode;
+  return true;
 }

@@ -13,6 +13,9 @@ use sha2::{Digest, Sha256};
 use crate::db::dao::event_log as event_log_dao;
 use crate::db::models::NewEventLog;
 use crate::db::DbError;
+use crate::dive::supervisor::SupervisorEvaluationLog;
+
+pub const SUPERVISOR_EVALUATED_EVENT: &str = "provocation.supervisor_evaluated";
 
 static SECRET_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -40,6 +43,22 @@ pub fn append_to_conn(
             payload: redact_value(&payload),
         },
     )
+}
+
+pub fn append_supervisor_evaluation_to_conn(
+    conn: &Connection,
+    session_id: i64,
+    supervisor_evaluation_id: &str,
+    log: &SupervisorEvaluationLog,
+) -> Result<i64, DbError> {
+    let mut payload = serde_json::to_value(log)?;
+    if let Value::Object(map) = &mut payload {
+        map.insert(
+            "supervisorEvaluationId".into(),
+            Value::String(supervisor_evaluation_id.to_string()),
+        );
+    }
+    append_to_conn(conn, Some(session_id), SUPERVISOR_EVALUATED_EVENT, payload)
 }
 
 pub(crate) fn enrich_agency_payload(event_type: &str, payload: Value) -> Value {
@@ -108,6 +127,7 @@ fn nested_string_field<'a>(value: &'a Value, parent: &str, key: &str) -> Option<
 
 fn infer_agency_component(event_type: &str, payload: &Value) -> Option<&'static str> {
     match event_type {
+        SUPERVISOR_EVALUATED_EVENT => return Some("verify"),
         "checkpoint_create" | "checkpoint_restore" => return Some("rollback"),
         "verify_start" | "verify_complete" => return Some("verify"),
         "tool_approve" | "tool_call_start" | "tool_call_denied" | "tool_call_blocked"
@@ -210,6 +230,13 @@ fn infer_agency_state(event_type: &str, payload: &Value) -> Option<&'static str>
     }
 
     match event_type {
+        SUPERVISOR_EVALUATED_EVENT => {
+            return match string_field(payload, "validationOutcome") {
+                Some("shown") => Some("ai_self_report_only"),
+                Some("none" | "dropped" | "error") => Some("verification_needed"),
+                _ => None,
+            };
+        }
         "checkpoint_create" | "checkpoint_restore" => return Some("rollback_available"),
         "verify_complete" => {
             return match string_field(payload, "test_result") {
@@ -254,6 +281,7 @@ fn state_for_verification_state(state: &str) -> Option<&'static str> {
         "verified_with_evidence" => Some("verified_with_evidence"),
         "unverified_risk_accepted" => Some("approved_with_risk"),
         "failed_but_accepted" => Some("verification_failed"),
+        "verification_deferred" => Some("verification_deferred"),
         _ => None,
     }
 }
@@ -430,7 +458,10 @@ fn high_risk_file_count(payload: &Value) -> usize {
 }
 
 fn provocation_evidence_summary(payload: &Value) -> Option<Value> {
-    let evidence = payload.get("evidence")?.as_array()?;
+    let evidence = payload
+        .get("evidence")
+        .or_else(|| payload.get("evidenceRefs"))?
+        .as_array()?;
     let labels = evidence
         .iter()
         .filter_map(|item| item.get("label").and_then(Value::as_str))
@@ -446,16 +477,38 @@ fn provocation_evidence_summary(payload: &Value) -> Option<Value> {
         }
     }
 
+    let verification_evidence_count = evidence
+        .iter()
+        .filter(|item| {
+            item.get("verificationEvidence")
+                .or_else(|| item.get("verification_evidence"))
+                .and_then(Value::as_bool)
+                == Some(true)
+        })
+        .count();
+
     Some(json!({
         "schemaVersion": 1,
         "count": evidence.len(),
         "labels": labels,
         "sources": sources,
+        "verificationEvidenceCount": verification_evidence_count,
     }))
 }
 
 fn infer_decision(event_type: &str, payload: &Value) -> Option<Value> {
     match event_type {
+        SUPERVISOR_EVALUATED_EVENT => {
+            return Some(json!({
+                "kind": "supervisor_evaluation",
+                "validationOutcome": payload
+                    .get("validationOutcome")
+                    .cloned()
+                    .unwrap_or(Value::Null),
+                "dropReason": payload.get("dropReason").cloned().unwrap_or(Value::Null),
+                "cardId": payload.get("cardId").cloned().unwrap_or(Value::Null),
+            }));
+        }
         "checkpoint_create" => return Some(json!({ "kind": "create_checkpoint" })),
         "checkpoint_restore" => return Some(json!({ "kind": "restore_checkpoint" })),
         "tool_approve" => return Some(json!({ "kind": "approve_tool" })),
@@ -570,6 +623,10 @@ fn is_sensitive_key(key: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dive::{
+        ArtifactRef, EvidenceRef, SourceUiMode, SupervisorDecisionSummary, SupervisorDropReason,
+        SupervisorEvent, SupervisorMode, SupervisorValidationOutcome,
+    };
 
     #[test]
     fn user_text_metadata_hashes_without_raw_text() {
@@ -676,5 +733,130 @@ mod tests {
         assert_eq!(enriched["agencyComponent"], "plan");
         assert_eq!(enriched["evidenceSummary"]["planApproved"], true);
         assert!(enriched.get("agencyState").is_none());
+    }
+
+    fn supervisor_log(
+        validation_outcome: SupervisorValidationOutcome,
+        drop_reason: Option<SupervisorDropReason>,
+        card_id: Option<&str>,
+    ) -> SupervisorEvaluationLog {
+        SupervisorEvaluationLog {
+            schema_version: 1,
+            event: SupervisorEvent::VerifyEntered,
+            artifact_ref: ArtifactRef::step("step-3", "Add todo item form"),
+            context_hash: "sha256:context".into(),
+            evidence_hash: "sha256:evidence".into(),
+            mode: SupervisorMode::Work,
+            source_ui_mode: Some(SourceUiMode::Standard),
+            evidence_refs: vec![EvidenceRef::assistant_claim()],
+            supervisor_model: Some("openai-codex/gpt-5.4-mini".into()),
+            latency_ms: Some(812),
+            usage: None,
+            decision_summary: Some(SupervisorDecisionSummary {
+                provoke: validation_outcome == SupervisorValidationOutcome::Shown,
+                concern: "ai_self_report_only".into(),
+                severity: "caution".into(),
+                evidence_ref_ids: vec!["agent.assistant_claim".into()],
+                suggested_action_ids: vec!["open_diff".into()],
+                stripped_action_ids: vec![],
+            }),
+            validation_outcome,
+            drop_reason,
+            card_id: card_id.map(str::to_owned),
+            user_response: None,
+        }
+    }
+
+    #[test]
+    fn supervisor_evaluation_append_enriches_shown_payload() {
+        let (db, _) = crate::db::tests::fresh_db();
+        let (_, session_id) = crate::db::tests::seed_project_session(db.conn());
+        let row_id = append_supervisor_evaluation_to_conn(
+            db.conn(),
+            session_id,
+            "eval-1",
+            &supervisor_log(
+                SupervisorValidationOutcome::Shown,
+                None,
+                Some("provocation:step-3:ai_self_report_only:sha256:evidence"),
+            ),
+        )
+        .unwrap();
+        let row = event_log_dao::get_by_id(db.conn(), row_id)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(row.r#type, SUPERVISOR_EVALUATED_EVENT);
+        assert_eq!(row.payload["supervisorEvaluationId"], json!("eval-1"));
+        assert_eq!(row.payload["validationOutcome"], json!("shown"));
+        assert_eq!(row.payload["contextHash"], json!("sha256:context"));
+        assert_eq!(row.payload["evidenceHash"], json!("sha256:evidence"));
+        assert_eq!(
+            row.payload["cardId"],
+            json!("provocation:step-3:ai_self_report_only:sha256:evidence")
+        );
+        assert_eq!(row.payload["agencyComponent"], json!("verify"));
+        assert_eq!(row.payload["agencyState"], json!("ai_self_report_only"));
+        assert_eq!(row.payload["evidenceSummary"]["count"], json!(1));
+        assert_eq!(row.payload["evidenceSummary"]["sources"], json!(["agent"]));
+        assert_eq!(
+            row.payload["decision"],
+            json!({
+                "kind": "supervisor_evaluation",
+                "validationOutcome": "shown",
+                "dropReason": null,
+                "cardId": "provocation:step-3:ai_self_report_only:sha256:evidence"
+            })
+        );
+    }
+
+    #[test]
+    fn supervisor_evaluation_append_preserves_none_dropped_and_error_outcomes() {
+        let (db, _) = crate::db::tests::fresh_db();
+        let (_, session_id) = crate::db::tests::seed_project_session(db.conn());
+        let cases = [
+            (
+                SupervisorValidationOutcome::NoCard,
+                SupervisorDropReason::ProvokeFalse,
+                "none",
+                "provoke_false",
+            ),
+            (
+                SupervisorValidationOutcome::Dropped,
+                SupervisorDropReason::Duplicate,
+                "dropped",
+                "duplicate",
+            ),
+            (
+                SupervisorValidationOutcome::Error,
+                SupervisorDropReason::ParseError,
+                "error",
+                "parse_error",
+            ),
+        ];
+
+        for (index, (outcome, reason, expected_outcome, expected_reason)) in
+            cases.into_iter().enumerate()
+        {
+            let row_id = append_supervisor_evaluation_to_conn(
+                db.conn(),
+                session_id,
+                &format!("eval-{index}"),
+                &supervisor_log(outcome, Some(reason), None),
+            )
+            .unwrap();
+            let row = event_log_dao::get_by_id(db.conn(), row_id)
+                .unwrap()
+                .unwrap();
+            assert_eq!(row.payload["validationOutcome"], json!(expected_outcome));
+            assert_eq!(row.payload["dropReason"], json!(expected_reason));
+            assert_eq!(row.payload["cardId"], Value::Null);
+            assert_eq!(row.payload["agencyComponent"], json!("verify"));
+            assert_eq!(row.payload["agencyState"], json!("verification_needed"));
+            assert_eq!(
+                row.payload["decision"]["validationOutcome"],
+                json!(expected_outcome)
+            );
+        }
     }
 }

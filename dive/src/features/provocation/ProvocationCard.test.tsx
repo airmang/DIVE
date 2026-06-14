@@ -6,15 +6,14 @@ import { ProvocationCardHost } from "./ProvocationCardHost";
 import { aiSelfReportOnlyRule, diffScopeDriftRule } from "./rules";
 import type { ProvocationCard as ProvocationCardData, ProvocationContext } from "./types";
 
-function reviewCard(
-  overrides: Partial<ProvocationCardData> = {},
-): ProvocationCardData {
+function reviewCard(overrides: Partial<ProvocationCardData> = {}): ProvocationCardData {
   return {
     id: "card-1",
     type: "missing_verification_step",
     stage: "instruct",
     severity: "caution",
     title: "검증 단계가 빠졌습니다",
+    prompt: "이 계획이 틀렸는지 무엇으로 확인할 건가요?",
     message: "이 계획에는 만드는 단계는 있지만, 틀렸음을 확인하는 단계가 없습니다.",
     evidence: [{ source: "plan", label: "검증/실행/테스트 단계", value: "없음" }],
     actions: [{ id: "add", label: "검증 단계 추가", kind: "add_verification_step" }],
@@ -27,9 +26,7 @@ function reviewCard(
   };
 }
 
-function ruleContext(
-  overrides: Partial<ProvocationContext> = {},
-): ProvocationContext {
+function ruleContext(overrides: Partial<ProvocationContext> = {}): ProvocationContext {
   return {
     mode: "standard",
     stage: "execute",
@@ -40,36 +37,56 @@ function ruleContext(
 describe("ProvocationCard scaffold modes", () => {
   afterEach(() => cleanup());
 
-  it("renders Guided with title, message, evidence, explanation, and actions", () => {
+  it("renders Guided with a focal question, evidence, explanation, and actions", () => {
     render(<ProvocationCard card={reviewCard()} mode="guided" />);
 
     expect(screen.getByTestId("provocation-card").dataset.mode).toBe("guided");
     expect(screen.getByText("검증 단계가 빠졌습니다")).toBeTruthy();
-    expect(screen.getByText(/틀렸음을 확인하는 단계/)).toBeTruthy();
+    expect(screen.getByTestId("provocation-prompt").textContent).toContain(
+      "무엇으로 확인할 건가요",
+    );
+    expect(screen.queryByText(/틀렸음을 확인하는 단계/)).toBeNull();
     expect(screen.getByTestId("provocation-evidence").textContent).toContain("없음");
     expect(screen.getByText(/승인 판단이 쉬워집니다/)).toBeTruthy();
     expect(screen.getByText("검증 단계 추가")).toBeTruthy();
   });
 
-  it("renders Standard without the Guided explanation", () => {
+  it("renders Work without secondary message or Guided explanation", () => {
     render(<ProvocationCard card={reviewCard()} mode="standard" />);
 
-    expect(screen.getByTestId("provocation-card").dataset.mode).toBe("standard");
-    expect(screen.getByText(/틀렸음을 확인하는 단계/)).toBeTruthy();
+    expect(screen.getByTestId("provocation-card").dataset.mode).toBe("work");
+    expect(screen.getByTestId("provocation-prompt").textContent).toContain(
+      "무엇으로 확인할 건가요",
+    );
+    expect(screen.queryByText(/틀렸음을 확인하는 단계/)).toBeNull();
     expect(screen.queryByText(/승인 판단이 쉬워집니다/)).toBeNull();
     expect(screen.getByTestId("provocation-evidence").textContent).toContain("없음");
     expect(screen.getByText("검증 단계 추가")).toBeTruthy();
   });
 
-  it("renders Expert compactly while keeping evidence and actions", () => {
+  it("normalizes Expert migration input to Work while keeping evidence and actions", () => {
     render(<ProvocationCard card={reviewCard({ severity: "risk" })} mode="expert" />);
 
-    expect(screen.getByTestId("provocation-card").dataset.mode).toBe("expert");
+    expect(screen.getByTestId("provocation-card").dataset.mode).toBe("work");
     expect(screen.getByText("검증 단계가 빠졌습니다")).toBeTruthy();
+    expect(screen.getByTestId("provocation-prompt").textContent).toContain(
+      "무엇으로 확인할 건가요",
+    );
     expect(screen.queryByText(/틀렸음을 확인하는 단계/)).toBeNull();
     expect(screen.queryByText(/승인 판단이 쉬워집니다/)).toBeNull();
     expect(screen.getByTestId("provocation-evidence").textContent).toContain("없음");
     expect(screen.getByText("검증 단계 추가")).toBeTruthy();
+  });
+
+  it("accepts canonical Work mode directly", () => {
+    render(<ProvocationCard card={reviewCard()} mode="work" />);
+
+    expect(screen.getByTestId("provocation-card").dataset.mode).toBe("work");
+    expect(screen.getByTestId("provocation-prompt").textContent).toContain(
+      "무엇으로 확인할 건가요",
+    );
+    expect(screen.queryByText(/틀렸음을 확인하는 단계/)).toBeNull();
+    expect(screen.queryByText(/승인 판단이 쉬워집니다/)).toBeNull();
   });
 
   it("renders disabled actions with an explicit reason and does not call the handler", () => {
@@ -100,6 +117,32 @@ describe("ProvocationCard scaffold modes", () => {
 
     fireEvent.click(action);
     expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it("renders only feasibility-filtered supervisor verify actions", () => {
+    render(
+      <ProvocationCard
+        card={reviewCard({
+          id: "provocation:step-1:ai_self_report_only:sha256:test",
+          type: "ai_self_report_only",
+          stage: "verify",
+          severity: "caution",
+          title: "확인 필요 카드",
+          prompt: "AI 완료 주장만 있으니 변경 파일을 확인할 수 있나요?",
+          message: "확인 가능한 증거를 먼저 살펴보세요.",
+          evidence: [{ refId: "agent.assistant_claim", source: "agent", label: "AI 완료 주장" }],
+          actions: [{ id: "open_diff", label: "변경 보기", kind: "open_diff" }],
+          primaryActionId: "open_diff",
+          metadata: { supervisorEvaluationId: "eval-1" },
+        })}
+        mode="work"
+      />,
+    );
+
+    expect(screen.getByTestId("provocation-primary-action").dataset.actionKind).toBe("open_diff");
+    expect(screen.queryByText("미리보기 열기")).toBeNull();
+    expect(screen.queryByText("앱 실행")).toBeNull();
+    expect(screen.queryByText("테스트 실행")).toBeNull();
   });
 
   it("does not render dismiss controls when risk card lifecycle props are omitted", () => {
@@ -157,10 +200,10 @@ describe("ProvocationCard scaffold modes", () => {
   });
 });
 
-describe("ProvocationCardHost Expert filtering", () => {
+describe("ProvocationCardHost canonical mode visibility", () => {
   afterEach(() => cleanup());
 
-  it("suppresses low-risk cards in Expert mode", () => {
+  it("keeps caution cards visible for Expert migration input", () => {
     render(
       <ProvocationCardHost
         cards={[reviewCard({ id: "low-risk", severity: "caution" })]}
@@ -168,10 +211,11 @@ describe("ProvocationCardHost Expert filtering", () => {
       />,
     );
 
-    expect(screen.queryByTestId("provocation-host")).toBeNull();
+    expect(screen.getByTestId("provocation-card").dataset.mode).toBe("work");
+    expect(screen.getByText("검증 단계가 빠졌습니다")).toBeTruthy();
   });
 
-  it("keeps risk cards visible in Expert mode", () => {
+  it("keeps risk cards visible in Work mode", () => {
     render(
       <ProvocationCardHost
         cards={[
@@ -182,7 +226,7 @@ describe("ProvocationCardHost Expert filtering", () => {
             title: "AI의 완료 보고만 있습니다",
           }),
         ]}
-        mode="expert"
+        mode="work"
       />,
     );
 
@@ -190,7 +234,7 @@ describe("ProvocationCardHost Expert filtering", () => {
     expect(screen.getByText("AI의 완료 보고만 있습니다")).toBeTruthy();
   });
 
-  it("keeps the highest-priority critical card visible in Expert mode", () => {
+  it("keeps ranking behavior without mode suppression", () => {
     render(
       <ProvocationCardHost
         cards={[

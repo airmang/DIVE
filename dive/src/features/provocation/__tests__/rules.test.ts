@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { selectPrimaryProvocationCard } from "../priority";
 import {
   assistantReportsFromConversation,
@@ -10,6 +10,7 @@ import {
   aiSelfReportOnlyRule,
   diffScopeDriftRule,
   generateProvocationCards,
+  generateQuarantinedRuleProvocationCards,
   missingAcceptanceCriteriaRule,
   missingVerificationStepRule,
   oversizedScopeRule,
@@ -31,6 +32,10 @@ function ctx(overrides: Partial<ProvocationContext> = {}): ProvocationContext {
 }
 
 describe("provocation rules", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("oversized_scope triggers on a multi-feature prompt", () => {
     const card = oversizedScopeRule(
       ctx({
@@ -126,7 +131,7 @@ describe("provocation rules", () => {
   });
 
   it("stage policy keeps missing acceptance criteria out of execute surfaces", () => {
-    const cards = generateProvocationCards(
+    const cards = generateQuarantinedRuleProvocationCards(
       ctx({
         stage: "execute",
         goalText: "설정 화면을 예쁘게 개선해줘",
@@ -137,13 +142,13 @@ describe("provocation rules", () => {
   });
 
   it("stage policy keeps missing acceptance criteria on goal and plan surfaces", () => {
-    const decomposeCards = generateProvocationCards(
+    const decomposeCards = generateQuarantinedRuleProvocationCards(
       ctx({
         stage: "decompose",
         goalText: "설정 화면을 예쁘게 개선해줘",
       }),
     );
-    const planCards = generateProvocationCards(
+    const planCards = generateQuarantinedRuleProvocationCards(
       ctx({
         stage: "instruct",
         goalText: "설정 화면을 예쁘게 개선해줘",
@@ -215,7 +220,7 @@ describe("provocation rules", () => {
   });
 
   it("stage policy keeps missing verification on plan approval surfaces only", () => {
-    const executeCards = generateProvocationCards(
+    const executeCards = generateQuarantinedRuleProvocationCards(
       ctx({
         stage: "execute",
         planSteps: [
@@ -224,7 +229,7 @@ describe("provocation rules", () => {
         ],
       }),
     );
-    const instructCards = generateProvocationCards(
+    const instructCards = generateQuarantinedRuleProvocationCards(
       ctx({
         stage: "instruct",
         planSteps: [
@@ -380,7 +385,7 @@ describe("provocation rules", () => {
     });
   });
 
-  it("ai_self_report_only does not trigger when test or preview evidence exists", () => {
+  it("ai_self_report_only does not trigger when test or criterion-linked preview evidence exists", () => {
     expect(
       aiSelfReportOnlyRule(
         ctx({
@@ -393,7 +398,11 @@ describe("provocation rules", () => {
       aiSelfReportOnlyRule(
         ctx({
           stage: "verify",
-          verification: { aiClaimedDone: true, previewChecked: true },
+          verification: {
+            aiClaimedDone: true,
+            previewChecked: true,
+            acceptanceCriterionConfirmed: true,
+          },
         }),
       ),
     ).toBeNull();
@@ -481,7 +490,7 @@ describe("provocation rules", () => {
   });
 
   it("stage policy keeps terminal error cards focused on regeneration loops", () => {
-    const cards = generateProvocationCards(
+    const cards = generateQuarantinedRuleProvocationCards(
       ctx({
         stage: "execute",
         recentErrors: [
@@ -495,20 +504,21 @@ describe("provocation rules", () => {
     expect(cards.map((card) => card.type)).toEqual(["regeneration_loop"]);
   });
 
-  it("mode filtering suppresses low-risk cards in expert mode", () => {
-    const cards = generateProvocationCards(
+  it("expert migration input keeps low-friction Work-mode cards visible", () => {
+    const cards = generateQuarantinedRuleProvocationCards(
       ctx({
         mode: "expert",
+        stage: "instruct",
         goalText: "설정 화면을 개선해줘",
         planSteps: [{ id: "1", text: "Build settings form" }],
       }),
     );
-    expect(cards.map((card) => card.type)).not.toContain("missing_acceptance_criteria");
-    expect(cards.map((card) => card.type)).not.toContain("missing_verification_step");
+    expect(cards.map((card) => card.type)).toContain("missing_acceptance_criteria");
+    expect(cards.map((card) => card.type)).toContain("missing_verification_step");
   });
 
   it("expert mode keeps critical risk cards visible", () => {
-    const cards = generateProvocationCards(
+    const cards = generateQuarantinedRuleProvocationCards(
       ctx({
         mode: "expert",
         stage: "verify",
@@ -534,7 +544,7 @@ describe("provocation rules", () => {
   });
 
   it("priority ordering returns the most important card first", () => {
-    const cards = generateProvocationCards(
+    const cards = generateQuarantinedRuleProvocationCards(
       ctx({
         stage: "finalApproval",
         goalText: "버튼 문구만 바꿔줘",
@@ -547,6 +557,19 @@ describe("provocation rules", () => {
       }),
     );
     expect(selectPrimaryProvocationCard(cards)?.type).toBe("diff_scope_drift");
+  });
+
+  it("quarantines aggregate keyword/rule generation from shipped builds", () => {
+    vi.stubEnv("VITE_DIVE_INTERNAL_PROVOCATION_RULE_CARDS", "false");
+
+    const cards = generateProvocationCards(
+      ctx({
+        stage: "finalApproval",
+        verification: { aiClaimedDone: true },
+      }),
+    );
+
+    expect(cards).toEqual([]);
   });
 
   it("verification statuses separate AI self-report from evidence", () => {
@@ -572,6 +595,7 @@ describe("provocation rules", () => {
     });
 
     expect(deriveVerificationStatuses(context).map((item) => item.id)).toEqual([
+      "ai_self_report_only",
       "diff_reviewed",
       "external_test_not_run",
     ]);

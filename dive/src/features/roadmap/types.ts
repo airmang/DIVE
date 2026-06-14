@@ -14,6 +14,7 @@ export type AgencyStateId =
   | "verified_with_evidence"
   | "ai_self_report_only"
   | "verification_failed"
+  | "verification_deferred"
   | "rollback_available"
   | "approved_with_risk";
 

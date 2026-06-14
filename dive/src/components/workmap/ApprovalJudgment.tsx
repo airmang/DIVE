@@ -1,7 +1,11 @@
 import { useId, useState } from "react";
 import { Button } from "../ui/button";
 
-export type ApprovalOutcome = "approved" | "approved_with_concern" | "revision_requested";
+export type ApprovalOutcome =
+  | "approved"
+  | "approved_with_concern"
+  | "revision_requested"
+  | "verification_deferred";
 
 export interface ApprovalDecision {
   outcome: ApprovalOutcome;

@@ -27,12 +27,16 @@ export type ProvocationEvidenceSource =
   | "terminal"
   | "agent"
   | "workmap"
-  | "history";
+  | "history"
+  | "ui_observation";
 
 export interface ProvocationEvidence {
+  refId?: string;
   label: string;
   value?: string;
   source: ProvocationEvidenceSource;
+  kind?: string;
+  verificationEvidence?: boolean;
 }
 
 export type ProvocationActionKind =
@@ -76,6 +80,7 @@ export interface ProvocationCard {
   /** id of the action that routes into the material; rendered as the primary affordance. */
   primaryActionId?: string;
   modeCopy?: {
+    work?: string;
     guided?: string;
     standard?: string;
     expert?: string;
@@ -120,9 +125,11 @@ export interface ProvocationVerification {
   manualChecks?: string[];
   automatedTestsPassed?: boolean;
   testResult?: "pass" | "fail" | "skipped";
+  acceptanceCriterionConfirmed?: boolean;
   externalTestRun?: boolean;
   failedButAccepted?: boolean;
   approvedWithRisk?: boolean;
+  verificationDeferred?: boolean;
   approvalProvenance?: ApprovalProvenance | null;
 }
 
@@ -168,6 +175,95 @@ export interface ProvocationContext {
   userHasViewedTestResult?: boolean;
 }
 
+export type SupervisorMode = "work" | "guided";
+
+export type SupervisorSourceUiMode = ScaffoldMode;
+
+export type SupervisorEvent = "ai_claimed_done" | "verify_entered";
+
+export type SupervisorEvaluationStatus = "shown" | "none" | "dropped";
+
+export type SupervisorValidationOutcome = SupervisorEvaluationStatus | "error";
+
+export type SupervisorDropReason =
+  | "provoke_false"
+  | "runtime_unavailable"
+  | "timeout"
+  | "sidecar_error"
+  | "parse_error"
+  | "schema_version_unsupported"
+  | "invalid_mode"
+  | "missing_evidence"
+  | "unknown_evidence_ref"
+  | "not_question"
+  | "unknown_action"
+  | "disallowed_concern"
+  | "duplicate"
+  | "cooldown"
+  | "ambiguous_decision"
+  | "context_too_large"
+  | "content_too_long";
+
+export type SupervisorAllowedActionId = Extract<
+  ProvocationActionKind,
+  "open_diff" | "open_preview" | "run_tests" | "run_app"
+>;
+
+export interface SupervisorArtifactRef {
+  kind: "step";
+  id: string;
+  label: string;
+}
+
+export interface SupervisorPlanSummary {
+  stepCount: number;
+  activeStep?: string | null;
+}
+
+export interface SupervisorVerificationSnapshot {
+  aiClaimedDone: boolean;
+  diffReviewed: boolean;
+  appLaunched: boolean;
+  previewChecked: boolean;
+  automatedTestsPassed: boolean;
+  testResult: ProvocationVerification["testResult"] | null;
+  acceptanceCriterionConfirmed?: boolean;
+  manualChecks: string[];
+}
+
+export interface SupervisorFeasibility {
+  runnable: boolean;
+  previewable: boolean;
+  hasTests: boolean;
+  diffAvailable: boolean;
+}
+
+export interface SupervisorEvaluationRequest {
+  sessionId: number;
+  event: "verify_entered";
+  artifactRef: SupervisorArtifactRef;
+  sourceUiMode: SupervisorSourceUiMode;
+  locale?: string;
+  uiState: {
+    goalSummary?: string;
+    planSummary?: SupervisorPlanSummary;
+    verification: SupervisorVerificationSnapshot;
+    feasibility: SupervisorFeasibility;
+  };
+}
+
+export type SupervisorEvaluationResponse =
+  | {
+      status: "shown";
+      evaluationId: string;
+      card: ProvocationCard;
+    }
+  | {
+      status: "none" | "dropped";
+      evaluationId: string;
+      dropReason: SupervisorDropReason;
+    };
+
 export type VerificationStatusId =
   | "ai_self_report_only"
   | "diff_reviewed"
@@ -176,7 +272,8 @@ export type VerificationStatusId =
   | "automated_tests_passed"
   | "external_test_not_run"
   | "failed_but_accepted"
-  | "approved_with_risk";
+  | "approved_with_risk"
+  | "verification_deferred";
 
 export interface VerificationStatusItem {
   id: VerificationStatusId;
@@ -193,7 +290,8 @@ export type VerificationProvenanceSource =
   | "automated_test"
   | "external_test"
   | "manual_check"
-  | "risk_approval";
+  | "risk_approval"
+  | "deferred_verification";
 
 export interface VerificationProvenanceItem extends VerificationStatusItem {
   source: VerificationProvenanceSource;
@@ -213,9 +311,14 @@ export interface VerificationEvidenceSummary {
 export type ApprovalVerificationState =
   | "verified_with_evidence"
   | "unverified_risk_accepted"
-  | "failed_but_accepted";
+  | "failed_but_accepted"
+  | "verification_deferred";
 
-export type ApprovalDecisionOutcome = "approved" | "approved_with_concern" | "revision_requested";
+export type ApprovalDecisionOutcome =
+  | "approved"
+  | "approved_with_concern"
+  | "revision_requested"
+  | "verification_deferred";
 
 export interface ApprovalProvenance {
   schemaVersion: 1;

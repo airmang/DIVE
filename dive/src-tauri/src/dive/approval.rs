@@ -6,6 +6,7 @@ pub enum ApprovalOutcome {
     Approved,
     ApprovedWithConcern,
     RevisionRequested,
+    VerificationDeferred,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -17,9 +18,12 @@ pub struct ApprovalJudgment {
 }
 
 impl ApprovalJudgment {
-    /// Note is required when the decision is anything other than plain approval.
+    /// Note is required for risk-accepted approval or revision requests.
     pub fn validate(&self) -> Result<(), String> {
-        if self.outcome != ApprovalOutcome::Approved {
+        if !matches!(
+            self.outcome,
+            ApprovalOutcome::Approved | ApprovalOutcome::VerificationDeferred
+        ) {
             let ok = self
                 .note
                 .as_ref()
@@ -75,5 +79,15 @@ mod tests {
             decided_at: 1,
         };
         assert!(bad.validate().is_err());
+    }
+
+    #[test]
+    fn verification_deferred_needs_no_note() {
+        let j = ApprovalJudgment {
+            outcome: ApprovalOutcome::VerificationDeferred,
+            note: None,
+            decided_at: 1,
+        };
+        assert!(j.validate().is_ok());
     }
 }

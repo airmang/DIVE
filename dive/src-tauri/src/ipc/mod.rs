@@ -21,6 +21,7 @@ pub mod project;
 pub mod provider;
 pub mod provider_runtime;
 mod provocation;
+mod provocation_agent;
 pub mod session;
 mod state;
 #[cfg(test)]
@@ -41,6 +42,7 @@ pub use project::*;
 pub use provider::*;
 pub use provider_runtime::*;
 pub use provocation::*;
+pub use provocation_agent::*;
 pub use session::*;
 pub use state::*;
 pub use timeline::*;

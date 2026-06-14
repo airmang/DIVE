@@ -29,9 +29,11 @@
 //!   consumed by the pilot analysis scripts. Adding fields is safe;
 //!   removing/renaming requires a migration note.
 
+use regex::Regex;
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use uuid::Uuid;
@@ -39,6 +41,27 @@ use uuid::Uuid;
 use crate::db::Database;
 
 pub mod anonymize;
+
+static EXPORT_SECRET_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?ix)
+        sk-[A-Za-z0-9_\-]{3,}
+        |(?:api[_-]?key|token|secret|authorization|password)\s*[:=]\s*[A-Za-z0-9_\-\.]{4,}
+        |bearer\s+[A-Za-z0-9_\-\.]{4,}
+        ",
+    )
+    .expect("export secret redaction regex")
+});
+
+static EXPORT_EMAIL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}\b")
+        .expect("export email redaction regex")
+});
+
+static EXPORT_ACCOUNT_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(?:student|account)[-_ ]?(?:id|no|number)\s*[:=]\s*[A-Za-z0-9_\-]{3,}\b")
+        .expect("export account redaction regex")
+});
 
 fn default_true() -> bool {
     true
@@ -643,6 +666,7 @@ fn agency_state_from_verification_state(state: &str) -> Option<&'static str> {
         "verified_with_evidence" => Some("verified_with_evidence"),
         "unverified_risk_accepted" => Some("approved_with_risk"),
         "failed_but_accepted" => Some("verification_failed"),
+        "verification_deferred" => Some("verification_deferred"),
         _ => None,
     }
 }
@@ -664,7 +688,13 @@ fn sanitize_provocation_nested(value: &Value, key: Option<&str>) -> Value {
     if key.is_some_and(is_raw_body_key) {
         return raw_text_summary(value, "raw_body_key");
     }
-    if key == Some("value") && is_sensitive_evidence_value(value) {
+    if key.is_some_and(is_student_pii_key) {
+        return pii_summary(value);
+    }
+    if key.is_some_and(is_evidence_value_key)
+        && !matches!(value, Value::Object(_))
+        && is_sensitive_evidence_value(value)
+    {
         return raw_text_summary(value, "evidence_value_summary");
     }
 
@@ -685,6 +715,7 @@ fn sanitize_provocation_nested(value: &Value, key: Option<&str>) -> Value {
                 .map(|item| sanitize_provocation_nested(item, None))
                 .collect(),
         ),
+        Value::String(text) => Value::String(redact_export_string(text)),
         other => other.clone(),
     }
 }
@@ -702,17 +733,57 @@ fn is_raw_body_key(key: &str) -> bool {
             | "sourcecode"
             | "source_code"
             | "code"
+            | "rawcode"
+            | "raw_code"
             | "raw"
             | "rawtext"
             | "raw_text"
+            | "rawdiff"
+            | "raw_diff"
+            | "terminaloutput"
+            | "terminal_output"
+            | "terminal"
+            | "fulldiff"
+            | "full_diff"
+            | "fulltranscript"
+            | "full_transcript"
     )
 }
 
+fn is_evidence_value_key(key: &str) -> bool {
+    matches!(
+        key,
+        "value"
+            | "valueSummary"
+            | "value_summary"
+            | "rawValue"
+            | "raw_value"
+            | "terminalSummary"
+            | "terminal_summary"
+    )
+}
+
+fn is_student_pii_key(key: &str) -> bool {
+    let normalized = key.to_ascii_lowercase().replace(['-', '_'], "");
+    normalized.contains("studentemail")
+        || normalized.contains("studentname")
+        || normalized.contains("studentaccount")
+        || normalized.contains("accountidentifier")
+        || normalized.contains("accountid")
+}
+
 fn is_sensitive_evidence_value(value: &Value) -> bool {
-    let Some(text) = value.as_str() else {
-        return false;
-    };
-    text.chars().count() > 96 || text.lines().count() > 1 || looks_code_like(text)
+    match value {
+        Value::String(text) => {
+            text.chars().count() > 96
+                || text.lines().count() > 1
+                || looks_code_like(text)
+                || contains_export_secret_or_pii(text)
+        }
+        Value::Object(map) => map.values().any(is_sensitive_evidence_value),
+        Value::Array(items) => items.iter().any(is_sensitive_evidence_value),
+        _ => false,
+    }
 }
 
 fn looks_code_like(text: &str) -> bool {
@@ -753,6 +824,40 @@ fn raw_text_summary(value: &Value, reason: &str) -> Value {
         }),
         other => other.clone(),
     }
+}
+
+fn pii_summary(value: &Value) -> Value {
+    match value {
+        Value::String(text) => json!({
+            "redacted": true,
+            "reason": "student_pii",
+            "char_count": text.chars().count(),
+        }),
+        Value::Array(items) => json!({
+            "redacted": true,
+            "reason": "student_pii",
+            "item_count": items.len(),
+        }),
+        Value::Object(map) => json!({
+            "redacted": true,
+            "reason": "student_pii",
+            "field_count": map.len(),
+        }),
+        other => other.clone(),
+    }
+}
+
+fn contains_export_secret_or_pii(text: &str) -> bool {
+    EXPORT_SECRET_RE.is_match(text)
+        || EXPORT_EMAIL_RE.is_match(text)
+        || EXPORT_ACCOUNT_RE.is_match(text)
+}
+
+fn redact_export_string(text: &str) -> String {
+    let redacted = EXPORT_SECRET_RE.replace_all(text, "[REDACTED_SECRET]");
+    let redacted = EXPORT_EMAIL_RE.replace_all(&redacted, "[REDACTED_PII]");
+    let redacted = EXPORT_ACCOUNT_RE.replace_all(&redacted, "[REDACTED_PII]");
+    redacted.to_string()
 }
 
 fn count_terms(text: &str, terms: &[&str]) -> usize {
@@ -824,6 +929,7 @@ struct ToolCallEmit {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn default_options_enable_everything() {
@@ -836,5 +942,144 @@ mod tests {
         assert!(o.hash_user_text);
         assert!(o.hash_file_paths);
         assert!(o.hash_ids);
+    }
+
+    #[test]
+    fn supervisor_evaluation_payload_sanitizer_redacts_raw_fields() {
+        let payload = json!({
+            "schemaVersion": 1,
+            "event": "verify_entered",
+            "artifactRef": {
+                "kind": "step",
+                "id": "step-3",
+                "label": "Add todo item form"
+            },
+            "contextHash": "sha256:context",
+            "evidenceHash": "sha256:evidence",
+            "mode": "work",
+            "validationOutcome": "shown",
+            "dropReason": null,
+            "cardId": "provocation:step-3:ai_self_report_only:sha256:evidence",
+            "supervisorEvaluationId": "eval-1",
+            "decisionSummary": {
+                "provoke": true,
+                "concern": "ai_self_report_only",
+                "severity": "caution",
+                "evidenceRefIds": ["agent.assistant_claim"],
+                "suggestedActionIds": ["open_diff"],
+                "strippedActionIds": [],
+                "logRationale": "Student email minji@example.com used token=secret-token-123"
+            },
+            "evidenceRefs": [
+                {
+                    "id": "agent.assistant_claim",
+                    "source": "agent",
+                    "kind": "assistant_claim",
+                    "label": "AI 완료 주장",
+                    "verificationEvidence": false,
+                    "value": "function leaked() { return process.env.API_KEY; }",
+                    "valueSummary": {
+                        "kind": "raw",
+                        "code": "const token = 'sk-testsecret';"
+                    }
+                }
+            ],
+            "userResponse": {
+                "actionKind": "open_diff",
+                "studentEmail": "minji@example.com",
+                "studentAccountId": "student-id=2026-001"
+            },
+            "rawCode": "export const apiKey = 'sk-testsecret';",
+            "rawDiff": "diff --git a/src/app.ts b/src/app.ts\n+const secret = process.env.API_KEY;",
+            "terminalOutput": "TOKEN=secret\nstack trace line 1\nstack trace line 2",
+            "studentName": "Kim Minji"
+        });
+
+        let sanitized = sanitize_provocation_event_payload(&payload);
+        let encoded = sanitized.to_string();
+        assert_eq!(sanitized["mode"], json!("work"));
+        assert_eq!(sanitized["validationOutcome"], json!("shown"));
+        assert_eq!(sanitized["dropReason"], Value::Null);
+        assert_eq!(
+            sanitized["cardId"],
+            json!("provocation:step-3:ai_self_report_only:sha256:evidence")
+        );
+        assert_eq!(sanitized["supervisorEvaluationId"], json!("eval-1"));
+        assert_eq!(
+            sanitized["decisionSummary"]["concern"],
+            json!("ai_self_report_only")
+        );
+        assert_eq!(
+            sanitized["decisionSummary"]["evidenceRefIds"],
+            json!(["agent.assistant_claim"])
+        );
+        assert_eq!(
+            sanitized["evidenceRefs"][0]["value"]["reason"],
+            json!("evidence_value_summary")
+        );
+        assert_eq!(
+            sanitized["evidenceRefs"][0]["valueSummary"]["code"]["reason"],
+            json!("raw_body_key")
+        );
+        assert_eq!(sanitized["rawCode"]["reason"], json!("raw_body_key"));
+        assert_eq!(sanitized["rawDiff"]["reason"], json!("raw_body_key"));
+        assert_eq!(sanitized["terminalOutput"]["reason"], json!("raw_body_key"));
+        assert_eq!(
+            sanitized["userResponse"]["studentEmail"]["reason"],
+            json!("student_pii")
+        );
+        assert_eq!(
+            sanitized["userResponse"]["studentAccountId"]["reason"],
+            json!("student_pii")
+        );
+        assert_eq!(sanitized["studentName"]["reason"], json!("student_pii"));
+        assert!(!encoded.contains("sk-testsecret"));
+        assert!(!encoded.contains("secret-token-123"));
+        assert!(!encoded.contains("minji@example.com"));
+        assert!(!encoded.contains("Kim Minji"));
+        assert!(encoded.contains("[REDACTED_SECRET]"));
+    }
+
+    #[test]
+    fn supervisor_evaluation_payload_sanitizer_preserves_drop_analysis_fields() {
+        let payload = json!({
+            "schemaVersion": 1,
+            "event": "verify_entered",
+            "contextHash": "sha256:context",
+            "evidenceHash": "sha256:evidence",
+            "mode": "guided",
+            "validationOutcome": "dropped",
+            "dropReason": "unknown_evidence_ref",
+            "cardId": null,
+            "decisionSummary": {
+                "provoke": true,
+                "concern": "ai_self_report_only",
+                "severity": "risk",
+                "evidenceRefIds": ["agent.invented_claim"],
+                "suggestedActionIds": ["open_diff"],
+                "strippedActionIds": ["continue_with_risk"]
+            },
+            "evidenceRefs": [{
+                "id": "agent.assistant_claim",
+                "source": "agent",
+                "kind": "assistant_claim",
+                "label": "AI 완료 주장",
+                "verificationEvidence": false
+            }]
+        });
+
+        let sanitized = sanitize_provocation_event_payload(&payload);
+
+        assert_eq!(sanitized["validationOutcome"], json!("dropped"));
+        assert_eq!(sanitized["dropReason"], json!("unknown_evidence_ref"));
+        assert_eq!(
+            sanitized["decisionSummary"]["strippedActionIds"],
+            json!(["continue_with_risk"])
+        );
+        assert_eq!(
+            sanitized["evidenceRefs"][0]["id"],
+            json!("agent.assistant_claim")
+        );
+        assert_eq!(sanitized["cardId"], Value::Null);
     }
 }

@@ -19,14 +19,16 @@ import { DecisionGate } from "./DecisionGate";
 import {
   ProvocationCardHost,
   deriveVerificationStatuses,
-  generateProvocationCards,
+  evaluateProvocationSupervisor,
   normalizeChangedFile,
   type ProvocationCard,
   type ProvocationContext,
   type ScaffoldMode,
+  type SupervisorEvaluationRequest,
   type VerificationStatusItem,
   useProvocationActionResolver,
 } from "../../features/provocation";
+import type { SupervisorFeasibility } from "../../features/provocation";
 
 export interface StepDetailSlideInProps {
   open: boolean;
@@ -68,6 +70,8 @@ const STATUS_CLASS: Record<RoadmapStepStatus, string> = {
   done: "border-success/60 bg-success/10 text-success",
   shipped: "border-success/70 bg-success/15 text-success",
 };
+
+type CriterionEvidenceRef = "preview" | "app" | null;
 
 function uniqueStrings(items: string[]): string[] {
   return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
@@ -118,11 +122,9 @@ export function StepDetailSlideIn({
   const panelRef = useRef<HTMLDivElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   const [diffViewedStepIds, setDiffViewedStepIds] = useState<Set<number>>(() => new Set());
-  const [criterionConfirmed, setCriterionConfirmed] = useState(false);
-  const [previewObservedStepIds, setPreviewObservedStepIds] = useState<Set<number>>(
-    () => new Set(),
-  );
-  const [appLaunchedStepIds, setAppLaunchedStepIds] = useState<Set<number>>(() => new Set());
+  const [criterionEvidenceRef, setCriterionEvidenceRef] = useState<CriterionEvidenceRef>(null);
+  const [previewOpenedStepIds, setPreviewOpenedStepIds] = useState<Set<number>>(() => new Set());
+  const [appOpenedStepIds, setAppOpenedStepIds] = useState<Set<number>>(() => new Set());
 
   useEffect(() => {
     if (!open) return;
@@ -140,15 +142,18 @@ export function StepDetailSlideIn({
   }, [open]);
 
   useEffect(() => {
-    setCriterionConfirmed(false);
+    setCriterionEvidenceRef(null);
   }, [step?.id]);
 
   const status = step?.status ?? null;
   const isReview = status === "review";
   const hasChangedFiles = changedFiles.length > 0;
   const diffViewed = step ? diffViewedStepIds.has(step.id) : false;
-  const previewObserved = step ? previewObservedStepIds.has(step.id) : false;
-  const appLaunched = step ? appLaunchedStepIds.has(step.id) : false;
+  const previewOpened = step ? previewOpenedStepIds.has(step.id) : false;
+  const appOpened = step ? appOpenedStepIds.has(step.id) : false;
+  const criterionConfirmed = criterionEvidenceRef !== null;
+  const previewObserved = criterionEvidenceRef === "preview";
+  const appLaunched = criterionEvidenceRef === "app";
   const expectedFiles = useMemo(
     () => uniqueStrings(planContext?.expectedFiles ?? []),
     [planContext?.expectedFiles],
@@ -162,6 +167,23 @@ export function StepDetailSlideIn({
     planContext?.verificationManualCheck?.trim() ||
     planContext?.verificationKind?.trim() ||
     null;
+  const verificationFeasibility = useMemo<SupervisorFeasibility>(() => {
+    const verificationKind = planContext?.verificationKind?.trim().toLowerCase() ?? "";
+    const hasTestCommand = Boolean(planContext?.verificationCommand?.trim() || step?.testCommand);
+    const previewHandlerAvailable = Boolean(onOpenPreview);
+    return {
+      runnable: previewHandlerAvailable && verificationKind === "run",
+      previewable: previewHandlerAvailable && verificationKind !== "run",
+      hasTests: hasTestCommand,
+      diffAvailable: hasChangedFiles,
+    };
+  }, [
+    hasChangedFiles,
+    onOpenPreview,
+    planContext?.verificationCommand,
+    planContext?.verificationKind,
+    step?.testCommand,
+  ]);
   const provocationContext: ProvocationContext | null =
     step && provocation?.enabled
       ? {
@@ -203,16 +225,89 @@ export function StepDetailSlideIn({
             previewChecked: previewObserved,
             automatedTestsPassed: verifyLog?.test_result === "pass",
             testResult: verifyLog?.test_result,
+            acceptanceCriterionConfirmed: criterionConfirmed,
             externalTestRun: verifyLog ? verifyLog.test_result !== "skipped" : undefined,
             failedButAccepted: step.approvalProvenance?.verificationState === "failed_but_accepted",
             approvedWithRisk: Boolean(step.approvalProvenance?.riskAccepted),
             approvalProvenance: step.approvalProvenance,
           },
           userHasViewedDiff: diffViewed,
-          userHasViewedPreview: previewObserved,
+          userHasViewedPreview: previewOpened,
         }
       : null;
-  const provocationCards = provocationContext ? generateProvocationCards(provocationContext) : [];
+  const supervisorEvaluationRequest = useMemo<SupervisorEvaluationRequest | null>(() => {
+    if (!step || !provocation?.enabled || typeof provocation.sessionId !== "number") return null;
+    return {
+      sessionId: provocation.sessionId,
+      event: "verify_entered",
+      artifactRef: {
+        kind: "step",
+        id: String(step.id),
+        label: step.title || `Step ${step.position}`,
+      },
+      sourceUiMode: provocation.mode,
+      locale: "ko-KR",
+      uiState: {
+        goalSummary: [step.title, step.description].filter(Boolean).join("\n"),
+        planSummary: {
+          stepCount: 1,
+          activeStep: step.title,
+        },
+        verification: {
+          aiClaimedDone: Boolean(verifyLog?.intent_match),
+          diffReviewed: diffViewed,
+          appLaunched,
+          previewChecked: previewObserved,
+          automatedTestsPassed: verifyLog?.test_result === "pass",
+          testResult: verifyLog?.test_result ?? "skipped",
+          acceptanceCriterionConfirmed: criterionConfirmed,
+          manualChecks: [],
+        },
+        feasibility: verificationFeasibility,
+      },
+    };
+  }, [
+    appLaunched,
+    criterionConfirmed,
+    diffViewed,
+    previewObserved,
+    previewOpened,
+    provocation?.enabled,
+    provocation?.mode,
+    provocation?.sessionId,
+    step,
+    verificationFeasibility,
+    verifyLog?.intent_match,
+    verifyLog?.test_result,
+  ]);
+  const [provocationCards, setProvocationCards] = useState<ProvocationCard[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!supervisorEvaluationRequest) {
+      setProvocationCards([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setProvocationCards([]);
+    void evaluateProvocationSupervisor(supervisorEvaluationRequest)
+      .then((response) => {
+        if (cancelled) return;
+        setProvocationCards(response.status === "shown" ? [response.card] : []);
+      })
+      .catch((err) => {
+        if (import.meta.env.DEV) {
+          console.warn("supervisor evaluation failed:", err);
+        }
+        if (!cancelled) setProvocationCards([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [supervisorEvaluationRequest]);
   const unexpectedHighRiskFiles = highRiskFilesFromCards(provocationCards);
   const verificationStatuses = provocationContext
     ? deriveVerificationStatuses(provocationContext)
@@ -244,17 +339,19 @@ export function StepDetailSlideIn({
   };
 
   const handleOpenPreview = () => {
+    if (!onOpenPreview) return;
+    onOpenPreview();
     if (step) {
-      setPreviewObservedStepIds((current) => new Set(current).add(step.id));
+      setPreviewOpenedStepIds((current) => new Set(current).add(step.id));
     }
-    onOpenPreview?.();
   };
 
   const handleRunApp = () => {
+    if (!onOpenPreview) return;
+    onOpenPreview();
     if (step) {
-      setAppLaunchedStepIds((current) => new Set(current).add(step.id));
+      setAppOpenedStepIds((current) => new Set(current).add(step.id));
     }
-    onOpenPreview?.();
   };
 
   const handleProvocationAction = useProvocationActionResolver({
@@ -265,6 +362,7 @@ export function StepDetailSlideIn({
     onRunApp: handleRunApp,
     onRunTests: onVerifyFirst,
     onOpenRecovery,
+    feasibility: verificationFeasibility,
     onContinueWithRisk: (reason) =>
       onApprovalDecision({
         outcome: "approved_with_concern",
@@ -368,10 +466,14 @@ export function StepDetailSlideIn({
                 verifyLog={verifyLog}
                 rollbackAvailable={rollbackAvailable}
                 acceptanceCriterionConfirmed={criterionConfirmed}
+                verificationFeasibility={verificationFeasibility}
                 verifyRunning={verifyState === "running"}
                 onApprove={() => onApprovalDecision({ outcome: "approved", note: null })}
                 onAcceptRisk={(reason) =>
                   onApprovalDecision({ outcome: "approved_with_concern", note: reason })
+                }
+                onDeferVerification={() =>
+                  onApprovalDecision({ outcome: "verification_deferred", note: null })
                 }
                 onRequestChanges={() =>
                   onApprovalDecision({ outcome: "revision_requested", note: null })
@@ -440,26 +542,47 @@ export function StepDetailSlideIn({
               >
                 {step.acceptanceCriteria}
               </p>
-              <label
-                className="mt-3 flex items-start gap-2 rounded-sm border border-border bg-bg/60 px-2 py-2 text-xs text-fg"
+              <div
+                className="mt-3 rounded-sm border border-border bg-bg/60 px-2 py-2 text-xs text-fg"
                 data-testid="step-detail-criterion-confirm"
               >
-                <input
-                  type="checkbox"
-                  checked={criterionConfirmed}
-                  onChange={(event) => setCriterionConfirmed(event.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-border text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  data-testid="step-detail-criterion-confirm-checkbox"
-                />
-                <span className="min-w-0">
-                  <span className="block font-medium">
-                    {t("roadmap.step_detail.criterion_confirm_label")}
-                  </span>
-                  <span className="mt-0.5 block text-[11px] text-fg-muted">
-                    {t("roadmap.step_detail.criterion_confirm_hint")}
-                  </span>
-                </span>
-              </label>
+                <p className="font-medium">{t("roadmap.step_detail.criterion_confirm_label")}</p>
+                <p className="mt-0.5 text-[11px] text-fg-muted">
+                  {t("roadmap.step_detail.criterion_confirm_hint")}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <Button
+                    type="button"
+                    variant={criterionEvidenceRef === "preview" ? "primary" : "outline"}
+                    size="sm"
+                    disabled={!previewOpened}
+                    onClick={() => setCriterionEvidenceRef("preview")}
+                    data-testid="step-detail-confirm-preview"
+                  >
+                    {t("roadmap.step_detail.criterion_confirm_preview")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={criterionEvidenceRef === "app" ? "primary" : "outline"}
+                    size="sm"
+                    disabled={!appOpened}
+                    onClick={() => setCriterionEvidenceRef("app")}
+                    data-testid="step-detail-confirm-app"
+                  >
+                    {t("roadmap.step_detail.criterion_confirm_app")}
+                  </Button>
+                </div>
+                {criterionEvidenceRef ? (
+                  <p
+                    className="mt-2 text-[11px] font-medium text-success"
+                    data-testid="step-detail-criterion-evidence-ref"
+                  >
+                    {criterionEvidenceRef === "preview"
+                      ? t("roadmap.step_detail.criterion_confirm_preview_selected")
+                      : t("roadmap.step_detail.criterion_confirm_app_selected")}
+                  </p>
+                ) : null}
+              </div>
             </Section>
           ) : null}
 

@@ -6,6 +6,7 @@ import type {
   ProvocationActionKind,
   ProvocationVerification,
   ScaffoldMode,
+  SupervisorMode,
 } from "./types";
 import { deriveVerificationStatuses, summarizeVerificationEvidence } from "./verificationStatus";
 
@@ -22,7 +23,8 @@ type AgencyState =
   | "ai_self_report_only"
   | "verification_failed"
   | "rollback_available"
-  | "approved_with_risk";
+  | "approved_with_risk"
+  | "verification_deferred";
 
 export type ProvocationLogEventType =
   | "provocation.card_shown"
@@ -35,7 +37,7 @@ export interface ProvocationLogInput {
   eventType: ProvocationLogEventType;
   card: ProvocationCard;
   context?: Partial<ProvocationContext>;
-  mode: ScaffoldMode;
+  mode: ScaffoldMode | SupervisorMode;
   action?: ProvocationAction;
   reason?: string | null;
 }
@@ -175,11 +177,11 @@ function summarizeEvidence(evidence: ProvocationEvidence[]): SafeEvidenceItem[] 
 function contextForVerification(
   card: ProvocationCard,
   context: Partial<ProvocationContext> | undefined,
-  mode: ScaffoldMode,
+  mode: ScaffoldMode | SupervisorMode,
 ): ProvocationContext {
   return {
     ...context,
-    mode,
+    mode: mode === "guided" ? "guided" : "standard",
     stage: context?.stage ?? card.stage,
   } as ProvocationContext;
 }
@@ -193,6 +195,9 @@ function verificationStateFromSummary(
   if (verification?.failedButAccepted || verification?.testResult === "fail") {
     return "failed_but_accepted";
   }
+  if (verification?.verificationDeferred) {
+    return "verification_deferred";
+  }
   if (riskAccepted) return "unverified_risk_accepted";
   if (concreteEvidence) return "verified_with_evidence";
   if (statusCount > 0) return "unverified";
@@ -202,7 +207,7 @@ function verificationStateFromSummary(
 function summarizeVerification(
   card: ProvocationCard,
   context: Partial<ProvocationContext> | undefined,
-  mode: ScaffoldMode,
+  mode: ScaffoldMode | SupervisorMode,
 ) {
   const fullContext = contextForVerification(card, context, mode);
   const verification = fullContext.verification;
@@ -275,7 +280,10 @@ const ACTION_AGENCY_COMPONENT: Partial<Record<ProvocationActionKind, AgencyCompo
   continue_with_risk: "decision",
 };
 
-function agencyComponentFor(card: ProvocationCard, action: ProvocationAction | null): AgencyComponent {
+function agencyComponentFor(
+  card: ProvocationCard,
+  action: ProvocationAction | null,
+): AgencyComponent {
   return (action ? ACTION_AGENCY_COMPONENT[action.kind] : null) ?? CARD_AGENCY_COMPONENT[card.type];
 }
 
@@ -286,6 +294,9 @@ function agencyStateFor(
 ): AgencyState {
   if (verificationStatus?.verificationState === "verified_with_evidence") {
     return "verified_with_evidence";
+  }
+  if (verificationStatus?.verificationState === "verification_deferred") {
+    return "verification_deferred";
   }
   if (verificationStatus?.verificationState === "failed_but_accepted") {
     return "verification_failed";
@@ -300,6 +311,10 @@ function stringList(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
+}
+
+function metadataStringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
 function affectedFilesFor(card: ProvocationCard, context: Partial<ProvocationContext> | undefined) {
@@ -326,7 +341,10 @@ function affectedFilesFor(card: ProvocationCard, context: Partial<ProvocationCon
   };
 }
 
-function affectedCommandsFor(card: ProvocationCard, context: Partial<ProvocationContext> | undefined) {
+function affectedCommandsFor(
+  card: ProvocationCard,
+  context: Partial<ProvocationContext> | undefined,
+) {
   const commands = stringList(card.metadata?.affectedCommands);
   if (commands.length > 0) {
     return commands.map((command) => ({
@@ -347,8 +365,18 @@ function compactActionMetadata(value: string | undefined): string | undefined {
   return trimmed.length > 96 ? `${trimmed.slice(0, 96)}...` : trimmed;
 }
 
+function canonicalLogMode(mode: ScaffoldMode | SupervisorMode): SupervisorMode {
+  return mode === "guided" ? "guided" : "work";
+}
+
+function sourceUiMode(mode: ScaffoldMode | SupervisorMode): ScaffoldMode | undefined {
+  return mode === "standard" || mode === "expert" ? mode : undefined;
+}
+
 export function buildProvocationLogPayload(input: ProvocationLogInput) {
   const { card, context, mode, action, reason } = input;
+  const metadata = card.metadata ?? {};
+  const canonicalMode = canonicalLogMode(mode);
   const selectedAction = action ?? syntheticActionForEvent(input.eventType);
   const trimmedReason = reason?.trim() || null;
   const reasonStats = trimmedReason ? compactTextStats(trimmedReason) : null;
@@ -373,10 +401,14 @@ export function buildProvocationLogPayload(input: ProvocationLogInput) {
     toolCallId: context?.toolCallId ?? null,
     toolName: context?.toolName ?? null,
     cardId: card.id,
+    supervisorEvaluationId: metadataStringValue(metadata.supervisorEvaluationId),
+    contextHash: metadataStringValue(metadata.contextHash),
+    evidenceHash: metadataStringValue(metadata.evidenceHash),
     cardType: card.type,
     stage: card.stage,
     severity: card.severity,
-    mode,
+    mode: canonicalMode,
+    sourceUiMode: sourceUiMode(mode),
     agencyComponent,
     agencyState,
     riskLevel: card.severity,

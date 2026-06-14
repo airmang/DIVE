@@ -108,6 +108,48 @@ describe("provocation lifecycle logging payloads", () => {
     expect(irrelevant.lifecycleEvent).toBe("marked_irrelevant");
   });
 
+  it("attaches supervisorEvaluationId correlation to exposure, action, dismiss, and mark-irrelevant logs", () => {
+    const supervisorCard = card({
+      metadata: {
+        supervisorEvaluationId: "eval-123",
+        contextHash: "sha256:context",
+        evidenceHash: "sha256:evidence",
+      },
+    });
+    const base = {
+      card: supervisorCard,
+      mode: "standard" as const,
+      context: { sessionId: 2 } satisfies Partial<ProvocationContext>,
+    };
+    const payloads = [
+      buildProvocationLogPayload({
+        ...base,
+        eventType: "provocation.card_shown",
+      }),
+      buildProvocationLogPayload({
+        ...base,
+        eventType: "provocation.action_clicked",
+        action: { id: "open_diff", kind: "open_diff", label: "변경 보기" },
+      }),
+      buildProvocationLogPayload({
+        ...base,
+        eventType: "provocation.dismissed",
+      }),
+      buildProvocationLogPayload({
+        ...base,
+        eventType: "provocation.marked_irrelevant",
+      }),
+    ];
+
+    for (const payload of payloads) {
+      expect(payload).toMatchObject({
+        supervisorEvaluationId: "eval-123",
+        contextHash: "sha256:context",
+        evidenceHash: "sha256:evidence",
+      });
+    }
+  });
+
   it("keeps action availability metadata compact and explicit", () => {
     const payload = buildProvocationLogPayload({
       eventType: "provocation.action_clicked",
@@ -176,5 +218,69 @@ describe("provocation lifecycle logging payloads", () => {
       actionKind: "continue_with_risk",
     });
     expect(payload.reasonPresent).toBe(true);
+  });
+
+  it("does not fabricate verified_with_evidence from preview/app viewed signals alone", () => {
+    const previewOnly = buildProvocationLogPayload({
+      eventType: "provocation.card_shown",
+      card: card(),
+      mode: "standard",
+      context: {
+        sessionId: 2,
+        userHasViewedPreview: true,
+        verification: {
+          aiClaimedDone: true,
+          previewChecked: true,
+          appLaunched: true,
+          externalTestRun: false,
+          testResult: "skipped",
+        },
+      } satisfies Partial<ProvocationContext>,
+    });
+
+    expect(previewOnly.verificationStatus?.verificationState).not.toBe("verified_with_evidence");
+    expect(previewOnly.verificationStatus?.evidenceSummary.concreteEvidence).toBe(false);
+    expect(previewOnly.agencyState).not.toBe("verified_with_evidence");
+  });
+
+  it("logs verification_deferred distinctly from continue_with_risk", () => {
+    const deferred = buildProvocationLogPayload({
+      eventType: "provocation.card_shown",
+      card: card(),
+      mode: "standard",
+      context: {
+        verification: {
+          aiClaimedDone: true,
+          verificationDeferred: true,
+          externalTestRun: false,
+          testResult: "skipped",
+        },
+      } satisfies Partial<ProvocationContext>,
+    });
+    const risk = buildProvocationLogPayload({
+      eventType: "provocation.continued_with_risk",
+      card: card(),
+      mode: "standard",
+      action: {
+        id: "continue",
+        kind: "continue_with_risk",
+        label: "위험을 감수하고 계속",
+        requiresReason: true,
+      },
+      reason: "검증 없이 진행할 위험을 수용함",
+      context: {
+        verification: {
+          aiClaimedDone: true,
+          externalTestRun: false,
+          testResult: "skipped",
+        },
+      } satisfies Partial<ProvocationContext>,
+    });
+
+    expect(deferred.agencyState).toBe("verification_deferred");
+    expect(deferred.riskAccepted).toBe(false);
+    expect(risk.agencyState).toBe("approved_with_risk");
+    expect(risk.riskAccepted).toBe(true);
+    expect(risk.decision).toMatchObject({ actionKind: "continue_with_risk" });
   });
 });

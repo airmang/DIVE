@@ -5,6 +5,10 @@ import type {
   ProvocationContext,
   ProvocationPlanStep,
   ProvocationRetrySignal,
+  ScaffoldMode,
+  SupervisorEvaluationRequest,
+  SupervisorEvaluationResponse,
+  SupervisorMode,
 } from "./types";
 
 export function stringArray(value: unknown): string[] {
@@ -296,4 +300,38 @@ export function createProvocationContext(
     changedFiles: input.changedFiles?.filter((item) => item.path.trim().length > 0),
     retrySignals: input.retrySignals?.filter((item) => item.retryCount > 0),
   };
+}
+
+type TauriApi = {
+  invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
+};
+
+async function loadTauri(): Promise<TauriApi | null> {
+  const w =
+    typeof window === "undefined" ? null : (window as unknown as { __TAURI_INTERNALS__?: unknown });
+  if (!w?.__TAURI_INTERNALS__) return null;
+  const core = await import("@tauri-apps/api/core");
+  return { invoke: core.invoke as TauriApi["invoke"] };
+}
+
+function localEvaluationId(): string {
+  return `supervisor-local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function normalizeSupervisorRenderMode(mode: ScaffoldMode | SupervisorMode): SupervisorMode {
+  return mode === "guided" ? "guided" : "work";
+}
+
+export async function evaluateProvocationSupervisor(
+  request: SupervisorEvaluationRequest,
+): Promise<SupervisorEvaluationResponse> {
+  const api = await loadTauri();
+  if (!api) {
+    return {
+      status: "dropped",
+      evaluationId: localEvaluationId(),
+      dropReason: "runtime_unavailable",
+    };
+  }
+  return api.invoke<SupervisorEvaluationResponse>("provocation_agent_evaluate", { request });
 }

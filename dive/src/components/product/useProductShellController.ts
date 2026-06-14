@@ -525,7 +525,7 @@ export function useProductShellController() {
             {
               outcome: decision.outcome,
               decidedAt,
-              riskReason: decision.note,
+              riskReason: decision.outcome === "verification_deferred" ? null : decision.note,
             },
           )
         : null;

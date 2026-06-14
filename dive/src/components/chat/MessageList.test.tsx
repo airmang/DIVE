@@ -21,7 +21,7 @@ describe("MessageList supervision cards", () => {
 
   afterEach(() => cleanup());
 
-  it("shows the AI self-report card while completion has no verification context", () => {
+  it("does not show quarantined AI self-report rule cards in the chat stream by default", () => {
     render(
       <MessageList
         messages={completionMessages}
@@ -33,10 +33,11 @@ describe("MessageList supervision cards", () => {
       />,
     );
 
-    expect(screen.getByText("AI의 완료 보고만 있습니다")).toBeTruthy();
+    expect(screen.queryByText("AI의 완료 보고만 있습니다")).toBeNull();
+    expect(screen.queryByTestId("provocation-card")).toBeNull();
   });
 
-  it("hides the AI self-report card once the active step is already approved", () => {
+  it("keeps the chat stream free of AI self-report rule cards when suppressed", () => {
     render(
       <MessageList
         messages={completionMessages}

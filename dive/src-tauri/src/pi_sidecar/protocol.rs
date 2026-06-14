@@ -69,3 +69,14 @@ pub(super) fn sidecar_event_name(event: &SidecarEvent) -> &'static str {
         SidecarEvent::Heartbeat { .. } => "heartbeat",
     }
 }
+
+pub(super) fn assert_supervisor_ready_boundary(enabled_tools: &[String]) -> Result<(), String> {
+    if enabled_tools.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "SupervisorAgent ready.enabled_tools must be empty, got {:?}",
+            enabled_tools
+        ))
+    }
+}

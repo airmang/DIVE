@@ -36,7 +36,7 @@ use credential::{
 #[cfg(test)]
 use parity::CredentialMode;
 use parity::PiProviderDescriptor;
-use protocol::{map_sidecar_delta_event, SidecarEvent};
+use protocol::{assert_supervisor_ready_boundary, map_sidecar_delta_event, SidecarEvent};
 pub use runtime_state::PiRuntimeState;
 use runtime_state::{
     mark_active_step_blocked_by_pi_runtime_error, runtime_state_path, write_runtime_state,
@@ -54,6 +54,7 @@ const DEFAULT_MODEL: &str = "gpt-5.4-mini";
 const SMOKE_MARKER: &str = "DIVE_PI_SIDECAR_TOOL_OK";
 const SMOKE_PROMPT: &str = "Use the dive_context tool exactly once with request \"phase2-smoke\". After the tool result, reply exactly DIVE_PI_SIDECAR_TOOL_OK and nothing else.";
 const PI_TURN_TIMEOUT: Duration = Duration::from_secs(120);
+pub const SUPERVISOR_TURN_TIMEOUT: Duration = Duration::from_millis(1200);
 const SIDECAR_HEARTBEAT_STALL_TIMEOUT: Duration = Duration::from_secs(20);
 const SIDECAR_CANCELLED: &str = "pi sidecar turn cancelled";
 /// Cap on sidecar events buffered while a DIVE tool is executing. Legitimate parallel
@@ -79,6 +80,58 @@ pub struct PiSidecarTurnResult {
     pub enabled_tools: Vec<String>,
     pub tool_calls_seen: usize,
     pub assistant_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PiSidecarSupervisorTurnResult {
+    pub provider_config_id: i64,
+    pub model: String,
+    pub auth_file_mode: String,
+    pub enabled_tools: Vec<String>,
+    pub assistant_text: String,
+    pub latency_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PiSidecarSupervisorErrorKind {
+    RuntimeUnavailable,
+    Timeout,
+    SidecarError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PiSidecarSupervisorError {
+    pub kind: PiSidecarSupervisorErrorKind,
+    pub message: String,
+    pub latency_ms: u64,
+}
+
+impl PiSidecarSupervisorError {
+    fn runtime_unavailable(message: impl Into<String>, started: Instant) -> Self {
+        Self {
+            kind: PiSidecarSupervisorErrorKind::RuntimeUnavailable,
+            message: message.into(),
+            latency_ms: duration_ms(started.elapsed()),
+        }
+    }
+
+    fn timeout(message: impl Into<String>, started: Instant) -> Self {
+        Self {
+            kind: PiSidecarSupervisorErrorKind::Timeout,
+            message: message.into(),
+            latency_ms: duration_ms(started.elapsed()),
+        }
+    }
+
+    fn sidecar_error(message: impl Into<String>, started: Instant) -> Self {
+        Self {
+            kind: PiSidecarSupervisorErrorKind::SidecarError,
+            message: message.into(),
+            latency_ms: duration_ms(started.elapsed()),
+        }
+    }
 }
 
 pub async fn run_codex_smoke(
@@ -285,6 +338,181 @@ pub async fn run_codex_smoke(
         enabled_tools,
         tool_calls_seen,
         assistant_text: assistant_text.trim().to_string(),
+    })
+}
+
+pub async fn run_supervisor_turn(
+    keyring: &dyn Keyring,
+    descriptor: &PiProviderDescriptor,
+    provider_config_id: i64,
+    cwd: PathBuf,
+    model: String,
+    prompt: String,
+    timeout_budget: Duration,
+) -> Result<PiSidecarSupervisorTurnResult, PiSidecarSupervisorError> {
+    let started = Instant::now();
+    let credential = prepare_runtime_credential(keyring, descriptor, provider_config_id)
+        .map_err(|err| PiSidecarSupervisorError::runtime_unavailable(err, started))?;
+    let auth_file_mode = credential.auth_file_mode().to_string();
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let sidecar_cmd = resolve_sidecar_command(bundled_sidecar_path())
+        .map_err(|err| PiSidecarSupervisorError::runtime_unavailable(err, started))?;
+    let cwd = cwd.display().to_string();
+    let tools: Vec<ToolDef> = Vec::new();
+
+    let mut child = Command::new(&sidecar_cmd.program)
+        .args(&sidecar_cmd.prefix_args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|err| {
+            PiSidecarSupervisorError::runtime_unavailable(
+                format!("spawn pi sidecar: {err}"),
+                started,
+            )
+        })?;
+
+    let mut stdin = child.stdin.take().ok_or_else(|| {
+        PiSidecarSupervisorError::runtime_unavailable("pi sidecar stdin unavailable", started)
+    })?;
+    let stdout = child.stdout.take().ok_or_else(|| {
+        PiSidecarSupervisorError::runtime_unavailable("pi sidecar stdout unavailable", started)
+    })?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        PiSidecarSupervisorError::runtime_unavailable("pi sidecar stderr unavailable", started)
+    })?;
+
+    let stderr_task = tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        let mut lines = Vec::new();
+        while let Ok(Some(line)) = reader.next_line().await {
+            lines.push(redact_line(&line));
+        }
+        lines
+    });
+
+    let run_message = build_run_message(
+        &request_id,
+        descriptor,
+        &model,
+        &cwd,
+        credential.auth_path(),
+        credential.api_key(),
+        &prompt,
+        &tools,
+    );
+    stdin
+        .write_all(format!("{run_message}\n").as_bytes())
+        .await
+        .map_err(|err| {
+            PiSidecarSupervisorError::sidecar_error(
+                format!("write sidecar run message: {err}"),
+                started,
+            )
+        })?;
+
+    let mut reader = BufReader::new(stdout).lines();
+    let mut enabled_tools = Vec::new();
+    let mut ready_seen = false;
+    let mut ready_model = format!("{}/{model}", descriptor.pi_provider_id);
+    let mut assistant_text = String::new();
+
+    let read_loop = async {
+        while let Some(line) = reader
+            .next_line()
+            .await
+            .map_err(|err| format!("read sidecar event: {err}"))?
+        {
+            let event: SidecarEvent = serde_json::from_str(&line)
+                .map_err(|err| format!("parse sidecar event: {err}: {}", redact_line(&line)))?;
+            match event {
+                SidecarEvent::Ready {
+                    model,
+                    enabled_tools: tools,
+                } => {
+                    assert_supervisor_ready_boundary(&tools)?;
+                    ready_seen = true;
+                    ready_model = model;
+                    enabled_tools = tools;
+                }
+                SidecarEvent::ToolCall { name, .. } => {
+                    return Err(format!(
+                        "SupervisorAgent attempted unexpected tool call: {name}"
+                    ));
+                }
+                SidecarEvent::AssistantDelta { delta } => {
+                    assistant_text.push_str(&delta);
+                }
+                SidecarEvent::ReasoningDelta { .. }
+                | SidecarEvent::ToolCallEnd { .. }
+                | SidecarEvent::Heartbeat { .. } => {}
+                SidecarEvent::TurnSucceeded {
+                    assistant_text: text,
+                } => {
+                    if !text.trim().is_empty() {
+                        assistant_text = text;
+                    }
+                    break;
+                }
+                SidecarEvent::Error { message } => {
+                    return Err(format!("pi sidecar error: {message}"));
+                }
+            }
+        }
+        if !ready_seen {
+            return Err("SupervisorAgent sidecar completed without ready event".to_string());
+        }
+        Ok::<(), String>(())
+    };
+
+    match timeout(timeout_budget, read_loop).await {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => {
+            send_sidecar_cancel(&mut stdin, &request_id, "supervisor_error").await;
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            let _ = stderr_task.await;
+            return Err(PiSidecarSupervisorError::sidecar_error(err, started));
+        }
+        Err(_) => {
+            send_sidecar_cancel(&mut stdin, &request_id, "supervisor_timeout").await;
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            let _ = stderr_task.await;
+            return Err(PiSidecarSupervisorError::timeout(
+                "pi supervisor turn timed out",
+                started,
+            ));
+        }
+    }
+    drop(stdin);
+
+    let status = child.wait().await.map_err(|err| {
+        PiSidecarSupervisorError::sidecar_error(format!("wait pi sidecar: {err}"), started)
+    })?;
+    let stderr_lines = stderr_task.await.unwrap_or_default();
+    if !status.success() {
+        return Err(PiSidecarSupervisorError::sidecar_error(
+            format!(
+                "pi sidecar exited with {status}; stderr={}",
+                stderr_lines.join("\\n")
+            ),
+            started,
+        ));
+    }
+    assert_supervisor_ready_boundary(&enabled_tools)
+        .map_err(|err| PiSidecarSupervisorError::sidecar_error(err, started))?;
+
+    Ok(PiSidecarSupervisorTurnResult {
+        provider_config_id,
+        model: ready_model,
+        auth_file_mode,
+        enabled_tools,
+        assistant_text: assistant_text.trim().to_string(),
+        latency_ms: duration_ms(started.elapsed()),
+        usage: None,
     })
 }
 
@@ -770,6 +998,10 @@ fn sorted_tool_names(tools: &[ToolDef]) -> Vec<String> {
     names
 }
 
+fn duration_ms(duration: Duration) -> u64 {
+    duration.as_millis().min(u128::from(u64::MAX)) as u64
+}
+
 fn render_messages_for_pi(messages: &[ProviderMessage]) -> String {
     let mut rendered = String::from(
         "You are running inside DIVE's supervised Pi runtime. Use only the DIVE tools provided by this session. Do not claim that you executed a tool unless a DIVE tool result was returned.\n\n",
@@ -1238,6 +1470,198 @@ function ready(message) {
             &[],
         );
         assert_eq!(msg["tools"], json!([]));
+    }
+
+    #[test]
+    fn pi_sidecar_supervisor_run_message_sends_explicit_zero_tools() {
+        let msg = build_run_message(
+            "req-supervisor",
+            &parity::PiProviderDescriptor {
+                pi_provider_id: "openai-codex",
+                credential_mode: parity::CredentialMode::OauthFile,
+            },
+            "gpt-5.4-mini",
+            "/proj",
+            Some(Path::new("/tmp/auth.json")),
+            None,
+            "{\"schemaVersion\":1,\"event\":\"verify_entered\"}",
+            &[],
+        );
+
+        assert_eq!(msg["tools"], json!([]));
+        assert!(
+            !msg.to_string().contains("dive_context"),
+            "SupervisorAgent must not inherit the smoke fallback tool"
+        );
+    }
+
+    #[test]
+    fn pi_sidecar_supervisor_boundary_scaffold_rejects_resource_discovered_tools() {
+        fn assert_supervisor_enabled_tools_empty(enabled_tools: &[String]) -> Result<(), String> {
+            if enabled_tools.is_empty() {
+                Ok(())
+            } else {
+                Err(format!(
+                    "SupervisorAgent ready.enabled_tools must be empty, got {:?}",
+                    enabled_tools
+                ))
+            }
+        }
+
+        assert!(assert_supervisor_enabled_tools_empty(&[]).is_ok());
+        let resource_discovered_tools = vec!["dive_context".to_string()];
+        let err = assert_supervisor_enabled_tools_empty(&resource_discovered_tools).unwrap_err();
+        assert!(err.contains("ready.enabled_tools must be empty"));
+        assert!(err.contains("dive_context"));
+    }
+
+    #[tokio::test]
+    async fn pi_sidecar_supervisor_turn_uses_explicit_zero_tools_and_no_resource_prompt() {
+        let _serial = fake_sidecar_test_lock();
+        let project = tempfile::tempdir().unwrap();
+        let scripts = tempfile::tempdir().unwrap();
+        let script = write_fake_sidecar(
+            scripts.path(),
+            "supervisor-zero-tools.mjs",
+            &format!(
+                r#"{}
+rl.on("line", (line) => {{
+  const message = JSON.parse(line);
+  if (message.type !== "run") return;
+  if (!Array.isArray(message.tools) || message.tools.length !== 0) {{
+    emit({{ type: "error", request_id: message.request_id, message: "supervisor tools were not []" }});
+    return;
+  }}
+  if (message.prompt.includes("dive_context") || message.prompt.includes("AGENTS.md") || message.prompt.includes(".specify")) {{
+    emit({{ type: "error", request_id: message.request_id, message: "resource-discovered instruction leaked" }});
+    return;
+  }}
+  ready(message);
+  emit({{
+    type: "turn_succeeded",
+    request_id: message.request_id,
+    assistant_text: "{{\"schemaVersion\":1,\"provoke\":false}}"
+  }});
+}});
+"#,
+                fake_sidecar_prelude()
+            ),
+        );
+        let _guard = set_test_sidecar_script_path(script);
+        let provider_config_id = 601;
+        let keyring = api_keyring(provider_config_id);
+
+        let result = run_supervisor_turn(
+            &keyring,
+            &api_key_descriptor(),
+            provider_config_id,
+            project.path().to_path_buf(),
+            "test-model".to_string(),
+            "Return exactly one JSON object. SupervisorContext JSON: {}".to_string(),
+            Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.enabled_tools, Vec::<String>::new());
+        assert_eq!(
+            result.assistant_text,
+            "{\"schemaVersion\":1,\"provoke\":false}"
+        );
+        assert_eq!(result.provider_config_id, provider_config_id);
+    }
+
+    #[tokio::test]
+    async fn pi_sidecar_supervisor_turn_rejects_enabled_tools_from_ready_event() {
+        let _serial = fake_sidecar_test_lock();
+        let project = tempfile::tempdir().unwrap();
+        let scripts = tempfile::tempdir().unwrap();
+        let script = write_fake_sidecar(
+            scripts.path(),
+            "supervisor-ready-tools.mjs",
+            &format!(
+                r#"{}
+rl.on("line", (line) => {{
+  const message = JSON.parse(line);
+  if (message.type !== "run") return;
+  emit({{
+    type: "ready",
+    request_id: message.request_id,
+    model: `${{message.provider}}/${{message.model}}`,
+    enabled_tools: ["dive_context"]
+  }});
+  emit({{ type: "turn_succeeded", request_id: message.request_id, assistant_text: "{{}}" }});
+}});
+"#,
+                fake_sidecar_prelude()
+            ),
+        );
+        let _guard = set_test_sidecar_script_path(script);
+        let provider_config_id = 602;
+        let keyring = api_keyring(provider_config_id);
+
+        let err = run_supervisor_turn(
+            &keyring,
+            &api_key_descriptor(),
+            provider_config_id,
+            project.path().to_path_buf(),
+            "test-model".to_string(),
+            "supervisor prompt".to_string(),
+            Duration::from_secs(2),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.kind, PiSidecarSupervisorErrorKind::SidecarError);
+        assert!(err.message.contains("ready.enabled_tools must be empty"));
+        assert!(err.message.contains("dive_context"));
+    }
+
+    #[tokio::test]
+    async fn pi_sidecar_supervisor_turn_rejects_any_tool_call() {
+        let _serial = fake_sidecar_test_lock();
+        let project = tempfile::tempdir().unwrap();
+        let scripts = tempfile::tempdir().unwrap();
+        let script = write_fake_sidecar(
+            scripts.path(),
+            "supervisor-tool-call.mjs",
+            &format!(
+                r#"{}
+rl.on("line", (line) => {{
+  const message = JSON.parse(line);
+  if (message.type !== "run") return;
+  ready(message);
+  emit({{
+    type: "tool_call",
+    request_id: message.request_id,
+    tool_call_id: "bad_tool",
+    name: "read_file",
+    params: {{ path: "secret.txt" }}
+  }});
+}});
+"#,
+                fake_sidecar_prelude()
+            ),
+        );
+        let _guard = set_test_sidecar_script_path(script);
+        let provider_config_id = 603;
+        let keyring = api_keyring(provider_config_id);
+
+        let err = run_supervisor_turn(
+            &keyring,
+            &api_key_descriptor(),
+            provider_config_id,
+            project.path().to_path_buf(),
+            "test-model".to_string(),
+            "supervisor prompt".to_string(),
+            Duration::from_secs(2),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err.kind, PiSidecarSupervisorErrorKind::SidecarError);
+        assert!(err.message.contains("unexpected tool call"));
+        assert!(err.message.contains("read_file"));
     }
 
     #[tokio::test]
