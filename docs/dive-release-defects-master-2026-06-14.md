@@ -172,3 +172,10 @@
   - 변경: 감사가 지목한 `src-tauri/src/ipc/preview.rs` 런타임 `unwrap()`/`expect()` 4곳은 현재 코드에 존재하지 않음. preview IPC 경로는 `project_root_required`, `detect_package_info`, install/dev-server spawn/probe 실패를 모두 `Result<_, String>`으로 반환함.
   - 검증법: 코드 추적 `preview_start` -> `preview_start_impl` -> `detect_package_info`/`run_install`/`spawn_dev_server`/`detect_running_preview`; `rg -n "unwrap\\(|expect\\(" dive/src-tauri/src/ipc/preview.rs`; `cargo test --manifest-path dive/src-tauri/Cargo.toml --features dev-mock preview`; `cargo fmt --manifest-path dive/src-tauri/Cargo.toml --check`.
   - 결과: NOT-A-BUG/STALE: 현재 HEAD `6e99de2` 기준 런타임 panic 지점 없음. 남은 `expect("port regex")`는 정적 상수 regex 생성이고, 나머지 unwrap은 테스트 코드.
+
+### R2. 프로젝트/세션/draft 상태 모델
+
+- [x] **P0-03/P0-04/D-01/D-02/D-04/D-06/D-18/D-21/D-35/D-39 상태 소실/불일치 군집**
+  - 변경: `selectProject`가 세션을 항상 null로 초기화하던 동작을 저장된 세션 또는 해당 프로젝트의 최신 active session 선택으로 변경. project-level draft plan을 DB에서 다시 읽는 `workspace_plan_current_draft` IPC를 추가하고, `useProductShellController`가 current project의 draft만 approval 화면으로 복원하도록 연결.
+  - 검증법: 코드 추적 `PlanDashboardPanel.openProject` -> `useProjectSessionStore.selectProject` -> `preferredSessionId`; `usePlan.currentDraft` -> `workspace_plan_current_draft` -> `plan_dao::get_by_project`/`step_dao::list_by_plan`; `useProductShellController` current project guard. 실행 검증: `cargo test --manifest-path dive/src-tauri/Cargo.toml --features dev-mock current_draft`; `cargo test --manifest-path dive/src-tauri/Cargo.toml --features dev-mock`; `cargo clippy --manifest-path dive/src-tauri/Cargo.toml --all-targets --features dev-mock -- -D warnings`; `pnpm --dir dive typecheck`; `pnpm --dir dive lint`; `pnpm --dir dive test`; native smoke `pnpm --dir dive tauri dev --features dev-mock --no-watch --config '{"build":{"beforeDevCommand":"","devUrl":"http://localhost:1420"}}'` launched DIVE successfully and AX could see the app window.
+  - 결과: 커밋 `a145f5e`. `pnpm --dir dive format:check`는 기존 Prettier baseline 10개 파일에서 red(수정 파일 아님). 네이티브 WebView 내부 버튼/텍스트는 macOS AX tree에 충분히 노출되지 않아 자동 a11y 클릭으로 draft 화면까지는 검증 제한.
