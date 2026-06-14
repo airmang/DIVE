@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useT } from "../../i18n";
 
 export interface TimelineItem {
   id: number;
@@ -62,10 +63,15 @@ function changedFileCount(item: TimelineItem): number {
   return item.file_changes ?? item.changed_files?.length ?? 0;
 }
 
-function changedFilePreview(files: string[] | undefined): string {
-  if (!files?.length) return "변경 파일 없음";
+type T = ReturnType<typeof useT>;
+
+function changedFilePreview(files: string[] | undefined, t: T): string {
+  if (!files?.length) return t("slide_in.checkpoint.changed_files_empty");
   const shown = files.slice(0, 6);
-  const suffix = files.length > shown.length ? ` 외 ${files.length - shown.length}개` : "";
+  const suffix =
+    files.length > shown.length
+      ? t("slide_in.checkpoint.changed_files_more", { count: files.length - shown.length })
+      : "";
   return `${shown.join(", ")}${suffix}`;
 }
 
@@ -75,6 +81,7 @@ export function CheckpointTimeline({
   onRestore,
   mockItems,
 }: Props) {
+  const t = useT();
   const [items, setItems] = useState<TimelineItem[]>(mockItems ?? []);
   const [hovered, setHovered] = useState<number | null>(null);
 
@@ -115,7 +122,7 @@ export function CheckpointTimeline({
         data-testid="checkpoint-timeline"
         data-empty="true"
       >
-        체크포인트가 없습니다.
+        {t("slide_in.checkpoint.empty")}
       </div>
     );
   }
@@ -148,7 +155,9 @@ export function CheckpointTimeline({
               data-kind={item.kind}
               data-checkpoint-id={item.id}
               data-active={active ? "true" : "false"}
-              aria-label={`체크포인트 ${item.label ?? item.git_sha.slice(0, 7)}`}
+              aria-label={t("slide_in.checkpoint.dot_aria", {
+                label: item.label ?? item.git_sha.slice(0, 7),
+              })}
             />
             {hoveredThis ? (
               <div
@@ -163,13 +172,13 @@ export function CheckpointTimeline({
                   {formatTime(item.created_at)} · {item.kind}
                 </div>
                 <div className="mt-1 text-fg-muted" data-testid="timeline-file-changes">
-                  파일 변경 {fileCount}개
+                  {t("slide_in.checkpoint.file_changes", { count: fileCount })}
                   {item.stats
                     ? ` · +${item.stats.added} / ~${item.stats.modified} / -${item.stats.removed}`
                     : ""}
                 </div>
                 <div className="mt-0.5 break-words text-fg-subtle" data-testid="timeline-file-list">
-                  {changedFilePreview(item.changed_files)}
+                  {changedFilePreview(item.changed_files, t)}
                 </div>
                 {onRestore ? (
                   <button
@@ -179,7 +188,7 @@ export function CheckpointTimeline({
                     data-testid="timeline-restore"
                     data-checkpoint-id={item.id}
                   >
-                    복원
+                    {t("slide_in.checkpoint.restore")}
                   </button>
                 ) : null}
               </div>

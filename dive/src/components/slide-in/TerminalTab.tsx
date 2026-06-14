@@ -1,7 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSlideInStore } from "../../stores/slideIn";
 import { Button } from "../ui/button";
-import { useProvocationCardsEnabled, useProvocationScaffoldMode } from "../../stores/ui-preferences";
+import {
+  useProvocationCardsEnabled,
+  useProvocationScaffoldMode,
+} from "../../stores/ui-preferences";
 import { useChatComposerStore } from "../../stores/chatComposer";
 import {
   ProvocationCardHost,
@@ -9,8 +12,9 @@ import {
   type ProvocationCard,
   useProvocationActionResolver,
 } from "../../features/provocation";
+import { useT } from "../../i18n";
 
-function terminalActionCard(card: ProvocationCard): ProvocationCard {
+function terminalActionCard(card: ProvocationCard, rollbackUnavailable: string): ProvocationCard {
   if (card.type !== "regeneration_loop") return card;
   return {
     ...card,
@@ -18,7 +22,7 @@ function terminalActionCard(card: ProvocationCard): ProvocationCard {
       action.kind === "rollback_last_change"
         ? {
             ...action,
-            disabledReason: "복구 경로 없음",
+            disabledReason: rollbackUnavailable,
             todoId: "S-009-terminal-rollback",
           }
         : action,
@@ -27,6 +31,7 @@ function terminalActionCard(card: ProvocationCard): ProvocationCard {
 }
 
 export function TerminalTab() {
+  const t = useT();
   const lines = useSlideInStore((s) => s.terminalLines);
   const clear = useSlideInStore((s) => s.clearTerminal);
   const provocationEnabled = useProvocationCardsEnabled();
@@ -50,26 +55,22 @@ export function TerminalTab() {
       mode: provocationMode,
       stage: "execute",
       recentErrors,
-    }).map(terminalActionCard);
-  }, [lines, provocationEnabled, provocationMode]);
+    }).map((card) => terminalActionCard(card, t("slide_in.terminal.rollback_unavailable")));
+  }, [lines, provocationEnabled, provocationMode, t]);
 
   const handleProvocationAction = useProvocationActionResolver({
     pushComposerSeed,
     onCreateReproSteps: () => {
-      pushComposerSeed(
-        "터미널의 반복 오류를 기준으로 재현 단계, 가장 작은 확인 명령, 마지막 변경에서 볼 부분을 정리해줘.",
-      );
-      setActionStatus("채팅 입력창에 재현 단계 정리 요청을 채웠습니다.");
+      pushComposerSeed(t("slide_in.terminal.repro_seed"));
+      setActionStatus(t("slide_in.terminal.repro_status"));
     },
     onSplitScope: () => {
-      pushComposerSeed("터미널 오류를 더 작은 범위 하나로 줄여서 다시 요청할 문장을 만들어줘.");
-      setActionStatus("채팅 입력창에 범위 축소 요청을 채웠습니다.");
+      pushComposerSeed(t("slide_in.terminal.split_seed"));
+      setActionStatus(t("slide_in.terminal.split_status"));
     },
     onRetryWithAi: () => {
-      pushComposerSeed(
-        "복구 지점, 재현 단계, 범위 축소 여부를 먼저 확인한 뒤 터미널의 같은 실패를 피해서 다시 고쳐줘.",
-      );
-      setActionStatus("채팅 입력창에 recovery-first 재시도 요청을 채웠습니다.");
+      pushComposerSeed(t("slide_in.terminal.retry_seed"));
+      setActionStatus(t("slide_in.terminal.retry_status"));
     },
   });
 
@@ -93,7 +94,9 @@ export function TerminalTab() {
   return (
     <div className="flex h-full flex-col" data-testid="terminal-tab">
       <header className="flex items-center justify-between border-b bg-bg-panel2 px-3 py-1.5 text-xs">
-        <span className="text-fg-muted">터미널 — {lines.length}줄</span>
+        <span className="text-fg-muted">
+          {t("slide_in.terminal.title", { count: lines.length })}
+        </span>
         <Button
           size="sm"
           variant="ghost"
@@ -101,7 +104,7 @@ export function TerminalTab() {
           disabled={lines.length === 0}
           data-testid="terminal-clear"
         >
-          지우기
+          {t("slide_in.terminal.clear")}
         </Button>
       </header>
       <ProvocationCardHost
@@ -131,7 +134,7 @@ export function TerminalTab() {
         data-testid="terminal-log"
       >
         {lines.length === 0 ? (
-          <p className="text-xs text-fg-muted">출력이 없습니다.</p>
+          <p className="text-xs text-fg-muted">{t("slide_in.terminal.empty")}</p>
         ) : (
           <pre className="font-mono text-xs leading-5">
             {lines.map((line) => {

@@ -879,6 +879,15 @@
     "manual_label_with_card": "Manual save — {{title}}"
   },
   "slide_in": {
+    "tabs": {
+      "code": "Code",
+      "preview": "Preview",
+      "terminal": "Terminal"
+    },
+    "panel_title": "Code / Preview / Terminal",
+    "close_aria": "Close panel",
+    "hint": "Code / Preview / Terminal — review the AI-created result in this panel.",
+    "tablist_aria": "Slide-in tabs",
     "code_empty": {
       "no_output": {
         "title": "No code output yet",
@@ -889,6 +898,46 @@
         "description": "Check provider quota or dependencies, then retry from the roadmap Resume action."
       },
       "open_terminal": "Open terminal"
+    },
+    "code": {
+      "diff_missing": "diff not captured",
+      "diff_unavailable_title": "Recorded as a changed file",
+      "diff_unavailable_description": "This item only has a path from checkpoint or previous-version data, so line-level diff is unavailable. It is no longer shown as +0/−0."
+    },
+    "preview": {
+      "url_required": "Enter a URL.",
+      "url_invalid": "Only http / https URLs are allowed.",
+      "checking_project": "Checking the project...",
+      "desktop_project_required": "Select a project in the installed app before using this.",
+      "connected_existing": "Connected to the running preview.",
+      "installed_and_opened": "Installed dependencies and opened the preview.",
+      "started": "Started the preview.",
+      "url_aria": "Preview URL",
+      "open": "Open",
+      "auto_connect": "Check result",
+      "iframe_title": "Preview",
+      "empty_title": "Choose a local URL to view the result.",
+      "empty_description": "If a web project server is running, you can check it directly from one of the default addresses below."
+    },
+    "terminal": {
+      "rollback_unavailable": "No recovery path",
+      "repro_seed": "Use the repeated terminal error to summarize reproduction steps, the smallest verification command, and what to inspect in the last change.",
+      "repro_status": "Filled the chat composer with a reproduction-step request.",
+      "split_seed": "Turn this terminal failure into a smaller single-scope request.",
+      "split_status": "Filled the chat composer with a scope-reduction request.",
+      "retry_seed": "Check the recovery point, reproduction steps, and scope reduction first, then retry while avoiding the same terminal failure.",
+      "retry_status": "Filled the chat composer with a recovery-first retry request.",
+      "title": "Terminal — {{count}} lines",
+      "clear": "Clear",
+      "empty": "No output yet."
+    },
+    "checkpoint": {
+      "changed_files_empty": "No changed files",
+      "changed_files_more": " and {{count}} more",
+      "empty": "No checkpoints yet.",
+      "dot_aria": "Checkpoint {{label}}",
+      "file_changes": "{{count}} file changes",
+      "restore": "Restore"
     }
   },
   "keyboard": {

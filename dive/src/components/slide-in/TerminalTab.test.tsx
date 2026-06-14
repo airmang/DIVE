@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useLocaleStore } from "../../i18n";
 import { useChatComposerStore } from "../../stores/chatComposer";
 import { useSlideInStore } from "../../stores/slideIn";
 import { useUiPreferencesStore } from "../../stores/ui-preferences";
@@ -19,6 +20,7 @@ function seedRepeatedTerminalError() {
 describe("TerminalTab review-card actions", () => {
   beforeEach(() => {
     Element.prototype.scrollIntoView = vi.fn();
+    useLocaleStore.setState({ locale: "ko" });
     useUiPreferencesStore.setState({
       enableProvocationCards: true,
       provocationScaffoldMode: "standard",
@@ -29,6 +31,7 @@ describe("TerminalTab review-card actions", () => {
 
   afterEach(() => {
     cleanup();
+    useLocaleStore.setState({ locale: "ko" });
     useSlideInStore.setState({ terminalLines: [] });
     useChatComposerStore.setState({ pending: null });
   });

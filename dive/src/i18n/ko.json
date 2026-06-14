@@ -879,6 +879,15 @@
     "manual_label_with_card": "수동 저장 — {{title}}"
   },
   "slide_in": {
+    "tabs": {
+      "code": "코드",
+      "preview": "미리보기",
+      "terminal": "터미널"
+    },
+    "panel_title": "코드 / 미리보기 / 터미널",
+    "close_aria": "패널 닫기",
+    "hint": "코드 / 미리보기 / 터미널 — AI가 만든 결과를 이 창에서 확인하세요.",
+    "tablist_aria": "슬라이드 인 탭",
     "code_empty": {
       "no_output": {
         "title": "아직 코드 산출물이 없습니다",
@@ -889,6 +898,46 @@
         "description": "프로바이더 한도나 의존성을 확인한 뒤 로드맵의 계속 버튼으로 다시 시도하세요."
       },
       "open_terminal": "터미널 보기"
+    },
+    "code": {
+      "diff_missing": "diff 미수집",
+      "diff_unavailable_title": "변경 파일로 기록됨",
+      "diff_unavailable_description": "이 항목은 체크포인트나 이전 버전 데이터에서 경로만 저장되어 줄 단위 diff가 없습니다. 더 이상 +0/−0으로 표시하지 않습니다."
+    },
+    "preview": {
+      "url_required": "URL을 입력하세요.",
+      "url_invalid": "http / https URL만 허용됩니다.",
+      "checking_project": "프로젝트를 확인하는 중...",
+      "desktop_project_required": "설치 앱에서 프로젝트를 선택한 뒤 사용할 수 있습니다.",
+      "connected_existing": "실행 중인 미리보기에 연결했습니다.",
+      "installed_and_opened": "의존성 설치 후 미리보기를 열었습니다.",
+      "started": "미리보기를 실행했습니다.",
+      "url_aria": "미리보기 URL",
+      "open": "열기",
+      "auto_connect": "결과 확인",
+      "iframe_title": "미리보기",
+      "empty_title": "결과를 볼 로컬 주소를 선택하세요.",
+      "empty_description": "웹 프로젝트 서버가 실행 중이면 아래 기본 주소로 바로 확인할 수 있습니다."
+    },
+    "terminal": {
+      "rollback_unavailable": "복구 경로 없음",
+      "repro_seed": "터미널의 반복 오류를 기준으로 재현 단계, 가장 작은 확인 명령, 마지막 변경에서 볼 부분을 정리해줘.",
+      "repro_status": "채팅 입력창에 재현 단계 정리 요청을 채웠습니다.",
+      "split_seed": "터미널 오류를 더 작은 범위 하나로 줄여서 다시 요청할 문장을 만들어줘.",
+      "split_status": "채팅 입력창에 범위 축소 요청을 채웠습니다.",
+      "retry_seed": "복구 지점, 재현 단계, 범위 축소 여부를 먼저 확인한 뒤 터미널의 같은 실패를 피해서 다시 고쳐줘.",
+      "retry_status": "채팅 입력창에 recovery-first 재시도 요청을 채웠습니다.",
+      "title": "터미널 — {{count}}줄",
+      "clear": "지우기",
+      "empty": "출력이 없습니다."
+    },
+    "checkpoint": {
+      "changed_files_empty": "변경 파일 없음",
+      "changed_files_more": " 외 {{count}}개",
+      "empty": "체크포인트가 없습니다.",
+      "dot_aria": "체크포인트 {{label}}",
+      "file_changes": "파일 변경 {{count}}개",
+      "restore": "복원"
     }
   },
   "keyboard": {
