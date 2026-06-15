@@ -510,6 +510,32 @@ export function useProductShellController() {
       purpose: step.summary,
     };
   }, [currentPlanRoadmapStep]);
+  const currentStepDetailStep = useMemo(() => {
+    if (!currentCard) return null;
+    const base = roadmapModel.steps.find((s) => s.id === currentCard.id) ?? null;
+    if (!base) return null;
+    return {
+      ...base,
+      linkedCriteria: currentPlanRoadmapStep?.linkedCriteria ?? base.linkedCriteria ?? [],
+      decompositionRationale:
+        currentPlanRoadmapStep?.decompositionRationale ?? base.decompositionRationale ?? null,
+    };
+  }, [currentCard, currentPlanRoadmapStep, roadmapModel.steps]);
+  const handleChallengeStepRationale = useCallback(
+    async (input: { stepId: number; text: string; linkedCriterionIds: string[] }) => {
+      void input.stepId;
+      if (!currentPlanRoadmapStep) {
+        throw new Error("Plan step context unavailable");
+      }
+      return plan.challengeStepRationale({
+        planId: currentPlanRoadmapStep.step.plan_id,
+        stepDbId: currentPlanRoadmapStep.step.id,
+        text: input.text,
+        linkedCriterionIds: input.linkedCriterionIds,
+      });
+    },
+    [currentPlanRoadmapStep, plan],
+  );
   const planAccepted = planRoadmap.hasPlan;
 
   const openSlideIn = useSlideInStore((s) => s.open);
@@ -1442,7 +1468,7 @@ export function useProductShellController() {
     planRoadmap,
     stepDetail: {
       open: dialogs.stepDetailOpen,
-      step: currentCard ? (roadmapModel.steps.find((s) => s.id === currentCard.id) ?? null) : null,
+      step: currentStepDetailStep,
       toolCallCount: currentCard ? roadmapModel.toolCallCountForStep(currentCard.id) : 0,
       verifyLog: currentVerifyLog,
       verifyState: currentVerifyState,
@@ -1472,6 +1498,7 @@ export function useProductShellController() {
       },
       onApprovalDecision: handleApprovalDecision,
       onGoToChat: handleGoToChatFromStepDetail,
+      onChallengeStepRationale: handleChallengeStepRationale,
     },
     recovery: {
       open: dialogs.recoveryOpen,

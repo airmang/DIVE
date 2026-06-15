@@ -49,6 +49,8 @@ function toRoadmapStep(
     description: card.summary,
     assistSummary: card.assistSummary ?? null,
     acceptanceCriteria: card.acceptanceCriteria ?? null,
+    linkedCriteria: [],
+    decompositionRationale: null,
     retrospective: card.retrospective ?? null,
     changeSummary: card.changeSummary ?? null,
     testCommand: card.testCommand ?? null,

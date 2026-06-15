@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, CheckCircle2, Circle, Clock3, ExternalLink, FileCode, X } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Circle,
+  Clock3,
+  ExternalLink,
+  FileCode,
+  HelpCircle,
+  Send,
+  X,
+} from "lucide-react";
 import { Button } from "../ui/button";
 import { LearningHint } from "../ui/learning-hint";
 import { cn } from "../../lib/utils";
@@ -54,6 +64,11 @@ export interface StepDetailSlideInProps {
   onVerifyFirst: () => void;
   onApprovalDecision: (decision: ApprovalDecision) => void;
   onGoToChat: () => void;
+  onChallengeStepRationale?: (input: {
+    stepId: number;
+    text: string;
+    linkedCriterionIds: string[];
+  }) => Promise<{ objectionId: string; suggestionStatus: "none" | "offered" }>;
   rollbackAvailable: boolean;
   provocation?: {
     enabled: boolean;
@@ -128,6 +143,7 @@ export function StepDetailSlideIn({
   onVerifyFirst,
   onApprovalDecision,
   onGoToChat,
+  onChallengeStepRationale,
   rollbackAvailable,
   provocation,
 }: StepDetailSlideInProps) {
@@ -139,6 +155,11 @@ export function StepDetailSlideIn({
   const [criterionEvidenceRef, setCriterionEvidenceRef] = useState<CriterionEvidenceRef>(null);
   const [previewOpenedStepIds, setPreviewOpenedStepIds] = useState<Set<number>>(() => new Set());
   const [appOpenedStepIds, setAppOpenedStepIds] = useState<Set<number>>(() => new Set());
+  const [rationaleChallengeOpen, setRationaleChallengeOpen] = useState(false);
+  const [rationaleObjectionText, setRationaleObjectionText] = useState("");
+  const [rationaleChallengeBusy, setRationaleChallengeBusy] = useState(false);
+  const [rationaleChallengeResult, setRationaleChallengeResult] = useState<string | null>(null);
+  const [rationaleChallengeError, setRationaleChallengeError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -157,6 +178,10 @@ export function StepDetailSlideIn({
 
   useEffect(() => {
     setCriterionEvidenceRef(null);
+    setRationaleChallengeOpen(false);
+    setRationaleObjectionText("");
+    setRationaleChallengeResult(null);
+    setRationaleChallengeError(null);
   }, [step?.id]);
 
   const status = step?.status ?? null;
@@ -181,6 +206,8 @@ export function StepDetailSlideIn({
     planContext?.verificationManualCheck?.trim() ||
     planContext?.verificationKind?.trim() ||
     null;
+  const linkedCriteria = step?.linkedCriteria ?? [];
+  const decompositionRationale = step?.decompositionRationale?.trim() || null;
   const verificationFeasibility = useMemo<SupervisorFeasibility>(() => {
     const verificationKind = planContext?.verificationKind?.trim().toLowerCase() ?? "";
     const hasTestCommand = Boolean(planContext?.verificationCommand?.trim() || step?.testCommand);
@@ -349,6 +376,8 @@ export function StepDetailSlideIn({
       isReview ||
       step.description ||
       step.acceptanceCriteria ||
+      linkedCriteria.length > 0 ||
+      decompositionRationale ||
       step.assistSummary ||
       verifyLog ||
       verifyState !== "idle" ||
@@ -399,6 +428,31 @@ export function StepDetailSlideIn({
         note: reason?.trim() || null,
       }),
   });
+  const handleSubmitRationaleChallenge = async () => {
+    if (!step || !onChallengeStepRationale) return;
+    const text = rationaleObjectionText.trim();
+    if (!text) return;
+    setRationaleChallengeBusy(true);
+    setRationaleChallengeError(null);
+    try {
+      const result = await onChallengeStepRationale({
+        stepId: step.id,
+        text,
+        linkedCriterionIds: linkedCriteria.map((criterion) => criterion.criterionId),
+      });
+      setRationaleChallengeResult(
+        result.suggestionStatus === "offered"
+          ? "이의 제기를 기록했고, 재분해 제안을 준비했습니다."
+          : "이의 제기를 기록했습니다.",
+      );
+      setRationaleObjectionText("");
+      setRationaleChallengeOpen(false);
+    } catch (err) {
+      setRationaleChallengeError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRationaleChallengeBusy(false);
+    }
+  };
   const criterionText =
     step?.acceptanceCriteria?.trim() || verificationPlanText || step?.title || "";
   const primaryVerificationAction: VerificationFocusAction | null = step
@@ -520,6 +574,78 @@ export function StepDetailSlideIn({
             mode={provocation?.mode ?? "standard"}
             onAction={handleProvocationAction}
           />
+
+          {linkedCriteria.length > 0 || decompositionRationale ? (
+            <section className="mt-3 rounded-md border border-border bg-bg-panel2 px-3 py-3">
+              {linkedCriteria.length > 0 ? (
+                <div data-testid="step-detail-linked-criteria">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-fg-muted">
+                    연결된 PRD 기준
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {linkedCriteria.map((criterion) => (
+                      <span
+                        key={criterion.criterionId}
+                        className="inline-flex items-center gap-1 rounded-sm border border-border bg-bg px-2 py-1 text-xs text-fg"
+                      >
+                        <span className="font-semibold text-accent">{criterion.criterionId}</span>
+                        <span>{criterion.text}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {decompositionRationale ? (
+                <p
+                  className="mt-3 whitespace-pre-wrap text-sm text-fg"
+                  data-testid="step-detail-rationale"
+                >
+                  {decompositionRationale}
+                </p>
+              ) : null}
+              {onChallengeStepRationale ? (
+                <div className="mt-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRationaleChallengeOpen((open) => !open)}
+                    disabled={rationaleChallengeBusy}
+                    data-testid="step-rationale-challenge-toggle"
+                  >
+                    <HelpCircle />
+                    왜 이 단계?
+                  </Button>
+                  {rationaleChallengeOpen ? (
+                    <div className="mt-2 space-y-2">
+                      <textarea
+                        className="min-h-20 w-full resize-none rounded-md border bg-bg px-3 py-2 text-sm text-fg placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        value={rationaleObjectionText}
+                        onChange={(event) => setRationaleObjectionText(event.target.value)}
+                        placeholder="이 단계가 필요한 이유에 대한 이의나 질문을 적어 주세요."
+                        data-testid="step-rationale-objection-input"
+                      />
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => void handleSubmitRationaleChallenge()}
+                        disabled={rationaleChallengeBusy || rationaleObjectionText.trim().length === 0}
+                        data-testid="step-rationale-objection-submit"
+                      >
+                        <Send />
+                        기록
+                      </Button>
+                    </div>
+                  ) : null}
+                  {rationaleChallengeResult ? (
+                    <p className="mt-2 text-xs text-success">{rationaleChallengeResult}</p>
+                  ) : null}
+                  {rationaleChallengeError ? (
+                    <p className="mt-2 text-xs text-danger">{rationaleChallengeError}</p>
+                  ) : null}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
 
           {hasSecondaryDetails ? (
             <details

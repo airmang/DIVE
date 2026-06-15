@@ -118,6 +118,49 @@ describe("PlanDraftApprovalScreen intent and step review surface", () => {
     expect(within(steps[1]).getByText("ui-check")).toBeTruthy();
   });
 
+  it("shows linked criterion ids, criterion text, and step rationale for each generated step", () => {
+    const linkedDraft = draft({
+      plan: {
+        ...draft().plan,
+        acceptance_criteria: [
+          {
+            criterionId: "AC-001",
+            text: "저장 성공 후 toast가 보인다",
+            source: "student_edit",
+            status: "active",
+            createdInVersion: 1,
+            retiredInVersion: null,
+          },
+        ] as any,
+      },
+      steps: [
+        {
+          ...draft().steps[0],
+          acceptance_criteria: [
+            {
+              criterionId: "AC-001",
+              text: "저장 성공 후 toast가 보인다",
+              source: "student_edit",
+              status: "active",
+              createdInVersion: 1,
+              retiredInVersion: null,
+            },
+          ] as any,
+          linked_criterion_ids: ["AC-001"],
+          rationale: "저장 완료 기준을 검증하려면 버튼 상태를 먼저 분리해야 한다.",
+        } as any,
+      ],
+    });
+
+    renderScreen({ draft: linkedDraft });
+
+    const step = screen.getByTestId("plan-draft-step");
+    expect(within(step).getByText("AC-001")).toBeTruthy();
+    expect(within(step).getByText("저장 성공 후 toast가 보인다")).toBeTruthy();
+    expect(within(step).getByText("저장 완료 기준을 검증하려면 버튼 상태를 먼저 분리해야 한다."))
+      .toBeTruthy();
+  });
+
   it("keeps missing-verification rule cards quarantined from shipped plan approval", () => {
     const noVerificationDraft = draft({
       steps: [

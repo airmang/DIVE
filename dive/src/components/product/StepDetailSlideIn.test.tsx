@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ComponentType } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
 import type { RoadmapStep } from "../../features/roadmap";
@@ -275,5 +275,105 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
         .getAttribute("data-action-kind"),
     ).toBe("open_diff");
     expect(screen.queryByText("미리보기 열기")).toBeNull();
+  });
+});
+
+describe("StepDetailSlideIn criterion-linked rationale challenge", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: "ko" });
+    evaluateMock.mockReset();
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-criteria",
+      dropReason: "provoke_false",
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("renders linked criteria and rationale, then logs a non-blocking challenge", async () => {
+    const onChallengeStepRationale = vi.fn().mockResolvedValue({
+      objectionId: "obj-001",
+      suggestionStatus: "none",
+    });
+    const Component = StepDetailSlideIn as ComponentType<any>;
+
+    render(
+      <Component
+        open
+        step={
+          {
+            ...reviewStep(),
+            linkedCriteria: [
+              {
+                criterionId: "AC-001",
+                text: "저장 성공 후 toast가 보인다",
+              },
+            ],
+            decompositionRationale:
+              "저장 완료 기준을 검증하려면 버튼 상태를 먼저 분리해야 한다.",
+          } as any
+        }
+        toolCallCount={1}
+        verifyLog={{
+          intent_match: true,
+          test_result: "skipped",
+          details: "AI reported completion without external verification.",
+          model: "mock",
+          ran_at: 1,
+        }}
+        verifyState="idle"
+        verifyError={null}
+        changedFiles={[{ path: "src/App.tsx", diff: null }]}
+        planContext={{
+          expectedFiles: ["src/App.tsx"],
+          verificationCommand: "pnpm test",
+          verificationManualCheck: null,
+          verificationKind: "command",
+          dependencies: [],
+          parallelGroup: null,
+          purpose: "버튼 문구만 수정한다",
+        }}
+        onOpenChange={vi.fn()}
+        onOpenCode={vi.fn()}
+        onOpenPreview={vi.fn()}
+        onOpenRecovery={vi.fn()}
+        onVerifyFirst={vi.fn()}
+        onApprovalDecision={vi.fn()}
+        onGoToChat={vi.fn()}
+        onChallengeStepRationale={onChallengeStepRationale}
+        rollbackAvailable
+        provocation={{ enabled: true, mode: "work", projectId: 1, sessionId: 2 }}
+      />,
+    );
+
+    const linkedCriteria = screen.getByTestId("step-detail-linked-criteria");
+    expect(linkedCriteria.textContent).toContain("AC-001");
+    expect(linkedCriteria.textContent).toContain("저장 성공 후 toast가 보인다");
+    expect(screen.getByTestId("step-detail-rationale").textContent).toContain(
+      "저장 완료 기준을 검증하려면 버튼 상태를 먼저 분리해야 한다.",
+    );
+
+    const primaryAction = screen.getByTestId(
+      "step-detail-primary-verification-action",
+    ) as HTMLButtonElement;
+    expect(primaryAction.disabled).toBe(false);
+
+    fireEvent.click(screen.getByTestId("step-rationale-challenge-toggle"));
+    fireEvent.change(screen.getByTestId("step-rationale-objection-input"), {
+      target: { value: "이 순서가 AC-001에 꼭 필요한지 다시 보고 싶어요." },
+    });
+    fireEvent.click(screen.getByTestId("step-rationale-objection-submit"));
+
+    await waitFor(() =>
+      expect(onChallengeStepRationale).toHaveBeenCalledWith({
+        stepId: 1,
+        text: "이 순서가 AC-001에 꼭 필요한지 다시 보고 싶어요.",
+        linkedCriterionIds: ["AC-001"],
+      }),
+    );
+    expect(primaryAction.disabled).toBe(false);
   });
 });

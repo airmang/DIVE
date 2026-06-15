@@ -104,26 +104,26 @@ available.
 
 ### Tests for User Story 2
 
-- [ ] T035 [P] [US2] Add Rust tests rejecting generated steps without linkedCriterionIds or rationale and accepting legacy string-array criteria through adapters in `dive/src-tauri/tests/workspace_plan_ipc.rs`
-- [ ] T036 [P] [US2] Add decoder tests for object-form criteria, linkedCriterionIds, and rationale in `dive/src/features/planning/usePlanInterviewLLM.test.ts`
-- [ ] T037 [P] [US2] Extend PlanDraftApprovalScreen tests for criterion IDs, criterion text, and step rationale rendering in `dive/src/components/product/PlanDraftApprovalScreen.test.tsx`
-- [ ] T038 [P] [US2] Extend StepDetailSlideIn tests for linked criteria, rationale, challenge action, and non-blocking controls in `dive/src/components/product/StepDetailSlideIn.test.tsx`
+- [X] T035 [P] [US2] Add Rust tests rejecting generated steps without linkedCriterionIds or rationale and accepting legacy string-array criteria through adapters in `dive/src-tauri/tests/workspace_plan_ipc.rs`
+- [X] T036 [P] [US2] Add decoder tests for object-form criteria, linkedCriterionIds, and rationale in `dive/src/features/planning/usePlanInterviewLLM.test.ts`
+- [X] T037 [P] [US2] Extend PlanDraftApprovalScreen tests for criterion IDs, criterion text, and step rationale rendering in `dive/src/components/product/PlanDraftApprovalScreen.test.tsx`
+- [X] T038 [P] [US2] Extend StepDetailSlideIn tests for linked criteria, rationale, challenge action, and non-blocking controls in `dive/src/components/product/StepDetailSlideIn.test.tsx`
 
 ### Implementation for User Story 2
 
-- [ ] T039 [US2] Extend StepDraftInput and PlanDraftInput to accept object-form criteria, linkedCriterionIds, and rationale in `dive/src/features/planning/types.ts`
-- [ ] T040 [US2] Decode LLM plan drafts into stable criteria links and per-step rationale, preserving legacy payload compatibility in `dive/src/features/planning/usePlanInterviewLLM.ts`
-- [ ] T041 [US2] Extend Rust StepDraftInput and PlanDraftInput validation for linked criterion IDs and rationale in `dive/src-tauri/src/ipc/workspace_plan.rs`
-- [ ] T042 [US2] Persist linkedCriterionIds and rationale with each generated step while maintaining legacy acceptance_criteria reads in `dive/src-tauri/src/ipc/workspace_plan.rs`
-- [ ] T043 [US2] Normalize linked criteria and rationale into roadmap step view models in `dive/src/features/roadmap/usePlanRoadmap.ts`
-- [ ] T044 [US2] Add linked criteria and rationale fields to roadmap TypeScript types in `dive/src/features/roadmap/types.ts`
-- [ ] T045 [US2] Render criterion IDs, criterion text, and rationale in plan draft review rows in `dive/src/components/product/PlanDraftApprovalScreen.tsx`
-- [ ] T046 [US2] Render criterion IDs and rationale on active roadmap cards in `dive/src/components/product/RoadmapPanel.tsx`
-- [ ] T047 [US2] Render linked criteria, rationale, and a why-this-step challenge affordance in `dive/src/components/product/StepDetailSlideIn.tsx`
-- [ ] T048 [US2] Add workspace_plan_challenge_step_rationale implementation and objection EventLog writing in `dive/src-tauri/src/ipc/workspace_plan.rs`
-- [ ] T049 [US2] Register workspace_plan_challenge_step_rationale in `dive/src-tauri/src/lib.rs`
-- [ ] T050 [US2] Add a usePlan challengeStepRationale method and refresh behavior in `dive/src/features/planning/usePlan.ts`
-- [ ] T051 [US2] Export step criterion links, rationale, and objections in `dive/src-tauri/src/workspace_plan/artifacts.rs`
+- [X] T039 [US2] Extend StepDraftInput and PlanDraftInput to accept object-form criteria, linkedCriterionIds, and rationale in `dive/src/features/planning/types.ts`
+- [X] T040 [US2] Decode LLM plan drafts into stable criteria links and per-step rationale, preserving legacy payload compatibility in `dive/src/features/planning/usePlanInterviewLLM.ts`
+- [X] T041 [US2] Extend Rust StepDraftInput and PlanDraftInput validation for linked criterion IDs and rationale in `dive/src-tauri/src/ipc/workspace_plan.rs`
+- [X] T042 [US2] Persist linkedCriterionIds and rationale with each generated step while maintaining legacy acceptance_criteria reads in `dive/src-tauri/src/ipc/workspace_plan.rs`
+- [X] T043 [US2] Normalize linked criteria and rationale into roadmap step view models in `dive/src/features/roadmap/usePlanRoadmap.ts`
+- [X] T044 [US2] Add linked criteria and rationale fields to roadmap TypeScript types in `dive/src/features/roadmap/types.ts`
+- [X] T045 [US2] Render criterion IDs, criterion text, and rationale in plan draft review rows in `dive/src/components/product/PlanDraftApprovalScreen.tsx`
+- [X] T046 [US2] Render criterion IDs and rationale on active roadmap cards in `dive/src/components/product/RoadmapPanel.tsx`
+- [X] T047 [US2] Render linked criteria, rationale, and a why-this-step challenge affordance in `dive/src/components/product/StepDetailSlideIn.tsx`
+- [X] T048 [US2] Add workspace_plan_challenge_step_rationale implementation and objection EventLog writing in `dive/src-tauri/src/ipc/workspace_plan.rs`
+- [X] T049 [US2] Register workspace_plan_challenge_step_rationale in `dive/src-tauri/src/lib.rs`
+- [X] T050 [US2] Add a usePlan challengeStepRationale method and refresh behavior in `dive/src/features/planning/usePlan.ts`
+- [X] T051 [US2] Export step criterion links, rationale, and objections in `dive/src-tauri/src/workspace_plan/artifacts.rs`
 
 **Checkpoint**: User Story 2 can ship after US1 with criterion-linked,
 challengeable decomposition and no blocking changes to verify/approval flow.

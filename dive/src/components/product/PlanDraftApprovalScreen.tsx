@@ -2,6 +2,7 @@ import { AlertTriangle, Check, RotateCcw, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useT } from "../../i18n";
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
+import { criterionTexts, normalizeStepCriteria } from "../../features/planning";
 import { useTutorialEnabled } from "../../stores/ui-preferences";
 import { Button } from "../ui/button";
 import {
@@ -57,13 +58,24 @@ function buildPlanMarkdown(draft: PlanGenerationResult): string {
   addList("Scope", stringArray(plan.scope));
   addList("Non-goals", stringArray(plan.non_goals));
   addList("Constraints", stringArray(plan.constraints));
-  addList("Acceptance criteria", stringArray(plan.acceptance_criteria));
+  addList("Acceptance criteria", criterionTexts(plan.acceptance_criteria));
   lines.push("### Steps");
   for (const step of draft.steps) {
+    const metadata = normalizeStepCriteria(step.acceptance_criteria, {
+      linkedCriterionIds:
+        (step as unknown as Record<string, unknown>).linkedCriterionIds ??
+        (step as unknown as Record<string, unknown>).linked_criterion_ids,
+      rationale:
+        (step as unknown as Record<string, unknown>).rationale ??
+        (step as unknown as Record<string, unknown>).decomposition_rationale,
+    });
     lines.push(`- ${step.step_id}: ${step.title}`);
     if (step.summary) lines.push(`  - ${step.summary}`);
-    for (const criterion of stringArray(step.acceptance_criteria)) {
-      lines.push(`  - Acceptance: ${criterion}`);
+    for (const criterion of metadata.linkedCriteria) {
+      lines.push(`  - Acceptance: ${criterion.criterionId} ${criterion.text}`);
+    }
+    if (metadata.rationale) {
+      lines.push(`  - Rationale: ${metadata.rationale}`);
     }
   }
   return lines.join("\n");
@@ -301,7 +313,7 @@ export function PlanDraftApprovalScreen({
                   </dt>
                   <dd className="mt-1 text-fg">
                     {compactList(
-                      stringArray(plan.acceptance_criteria),
+                      criterionTexts(plan.acceptance_criteria),
                       t("planning.approval.none"),
                     )}
                   </dd>
@@ -348,6 +360,14 @@ export function PlanDraftApprovalScreen({
                 {draft.steps.map((step) => {
                   const expectedFiles = stringArray(step.expected_files);
                   const dependencies = stringArray(step.dependencies);
+                  const stepMetadata = normalizeStepCriteria(step.acceptance_criteria, {
+                    linkedCriterionIds:
+                      (step as unknown as Record<string, unknown>).linkedCriterionIds ??
+                      (step as unknown as Record<string, unknown>).linked_criterion_ids,
+                    rationale:
+                      (step as unknown as Record<string, unknown>).rationale ??
+                      (step as unknown as Record<string, unknown>).decomposition_rationale,
+                  });
                   const verificationIncluded = hasStepVerification(step);
                   const verificationText =
                     step.verification_command?.trim() ||
@@ -385,6 +405,31 @@ export function PlanDraftApprovalScreen({
                           </span>{" "}
                           {step.summary}
                         </p>
+                      ) : null}
+                      {stepMetadata.linkedCriteria.length > 0 || stepMetadata.rationale ? (
+                        <div
+                          className="mt-3 rounded-md border border-info/30 bg-info/5 px-3 py-2 text-xs"
+                          data-testid="plan-draft-step-criteria"
+                        >
+                          {stepMetadata.linkedCriteria.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {stepMetadata.linkedCriteria.map((criterion) => (
+                                <span
+                                  key={criterion.criterionId}
+                                  className="inline-flex items-center gap-1 rounded-sm border border-border bg-bg px-2 py-1 text-fg"
+                                >
+                                  <span className="font-semibold text-accent">
+                                    {criterion.criterionId}
+                                  </span>
+                                  <span>{criterion.text}</span>
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                          {stepMetadata.rationale ? (
+                            <p className="mt-2 text-fg-muted">{stepMetadata.rationale}</p>
+                          ) : null}
+                        </div>
                       ) : null}
                       <dl className="mt-3 grid gap-2 text-xs text-fg-muted md:grid-cols-2">
                         <div>

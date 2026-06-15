@@ -191,6 +191,16 @@ fn build_plan_markdown(plan: &PlanRow, steps: &[StepRow]) -> String {
             step.acceptance_criteria.as_ref(),
             false,
         );
+        let linked_ids = linked_criterion_ids(step.acceptance_criteria.as_ref());
+        if !linked_ids.is_empty() {
+            md.push_str(&format!(
+                "**Linked PRD Criteria:** {}\n\n",
+                linked_ids.join(", ")
+            ));
+        }
+        if let Some(rationale) = decomposition_rationale(step.acceptance_criteria.as_ref()) {
+            md.push_str(&format!("**Rationale:** {}\n\n", rationale));
+        }
         if let Some(kind) = &step.verification_kind {
             md.push_str(&format!("**Verification:** {}\n", kind));
             if let Some(command) = &step.verification_command {
@@ -247,14 +257,29 @@ fn build_flow_mermaid(steps: &[StepRow]) -> String {
 }
 
 fn string_array(value: Option<&Value>) -> Vec<String> {
-    value
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|item| item.as_str().map(ToOwned::to_owned))
-                .collect()
-        })
-        .unwrap_or_default()
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    match value {
+        Value::Array(arr) => arr.iter().filter_map(criterion_text).collect(),
+        Value::Object(map) => map
+            .get("criteria")
+            .or_else(|| map.get("acceptanceCriteria"))
+            .or_else(|| map.get("acceptance_criteria"))
+            .and_then(Value::as_array)
+            .map(|arr| arr.iter().filter_map(criterion_text).collect())
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+fn criterion_text(value: &Value) -> Option<String> {
+    if let Some(text) = value.as_str() {
+        let text = text.trim();
+        return (!text.is_empty()).then(|| text.to_owned());
+    }
+    let text = value.get("text").and_then(Value::as_str)?.trim();
+    (!text.is_empty()).then(|| text.to_owned())
 }
 
 fn linked_criterion_ids(value: Option<&Value>) -> Vec<String> {

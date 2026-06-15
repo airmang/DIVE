@@ -1,5 +1,6 @@
 import type {
   AcceptanceCriterion,
+  AcceptanceCriterionInput,
   AcceptanceCriterionSource,
   LiveProjectSpecDraft,
   ProjectSpecDraft,
@@ -111,6 +112,122 @@ export function adaptAcceptanceCriteria(
   }
 
   return criteria;
+}
+
+export interface LinkedCriterionView {
+  criterionId: string;
+  text: string;
+}
+
+export interface StepCriteriaMetadata {
+  criteria: AcceptanceCriterion[];
+  linkedCriterionIds: string[];
+  linkedCriteria: LinkedCriterionView[];
+  rationale: string | null;
+  riskNotes: string[];
+}
+
+interface NormalizeStepCriteriaOptions {
+  linkedCriterionIds?: unknown;
+  rationale?: unknown;
+  riskNotes?: unknown;
+  version?: number;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function valueObject(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function firstArray(value: unknown, keys: string[]): unknown {
+  const object = valueObject(value);
+  if (!object) return value;
+  for (const key of keys) {
+    const candidate = object[key];
+    if (Array.isArray(candidate)) return candidate;
+  }
+  return value;
+}
+
+function collectCriterionIds(criteria: AcceptanceCriterion[]): string[] {
+  return compactUnique(criteria.map((criterion) => criterion.criterionId));
+}
+
+function linkedCriteriaFor(
+  criteria: AcceptanceCriterion[],
+  linkedCriterionIds: string[],
+): LinkedCriterionView[] {
+  const byId = new Map(criteria.map((criterion) => [criterion.criterionId, criterion]));
+  return linkedCriterionIds.map((criterionId) => {
+    const criterion = byId.get(criterionId);
+    return {
+      criterionId,
+      text: criterion?.text ?? criterionId,
+    };
+  });
+}
+
+export function normalizeStepCriteria(
+  value: unknown,
+  options: NormalizeStepCriteriaOptions = {},
+): StepCriteriaMetadata {
+  const object = valueObject(value);
+  const criteriaSource = firstArray(value, ["criteria", "acceptanceCriteria", "acceptance_criteria"]);
+  const criteria = adaptAcceptanceCriteria(criteriaSource, {
+    version: options.version,
+    source: "migration",
+  });
+  const linkedCriterionIds = compactUnique([
+    ...stringArray(options.linkedCriterionIds),
+    ...stringArray(object?.linkedCriterionIds),
+    ...stringArray(object?.linked_criterion_ids),
+    ...collectCriterionIds(criteria),
+  ]);
+  const rationale =
+    optionalString(options.rationale) ??
+    optionalString(object?.rationale) ??
+    optionalString(object?.decompositionRationale) ??
+    optionalString(object?.decomposition_rationale) ??
+    (Array.isArray(value)
+      ? (value
+          .map((item) => optionalString(valueObject(item)?.rationale))
+          .find((item): item is string => Boolean(item)) ?? null)
+      : null);
+  const riskNotes = compactUnique([
+    ...stringArray(options.riskNotes),
+    ...stringArray(object?.riskNotes),
+    ...stringArray(object?.risk_notes),
+  ]);
+
+  return {
+    criteria,
+    linkedCriterionIds,
+    linkedCriteria: linkedCriteriaFor(criteria, linkedCriterionIds),
+    rationale,
+    riskNotes,
+  };
+}
+
+export function criterionTexts(value: unknown): string[] {
+  return adaptAcceptanceCriteria(value).map((criterion) => criterion.text);
+}
+
+export function criterionInputsToCriteria(value: AcceptanceCriterionInput[]): AcceptanceCriterion[] {
+  return adaptAcceptanceCriteria(value);
 }
 
 export function createLiveProjectSpecDraft(

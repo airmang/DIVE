@@ -10,16 +10,17 @@ use tauri::State;
 
 use crate::db::dao::{
     card as card_dao, event_log as event_log_dao, interview as interview_dao, plan as plan_dao,
-    prd as prd_dao, project as project_dao, session as session_dao, step as step_dao,
-    step_session_mapping as mapping_dao, workmap as workmap_dao,
+    plan_mutation as plan_mutation_dao, prd as prd_dao, project as project_dao,
+    session as session_dao, step as step_dao, step_session_mapping as mapping_dao,
+    workmap as workmap_dao,
 };
 use crate::db::models::{
     AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus, CardState,
     EventLogRow, InterviewRow, LiveProjectSpecDraftRow, NewCard, NewInterview,
-    NewLiveProjectSpecDraft, NewPlan, NewProjectSpecVersion, NewSession, NewStep,
-    NewStepSessionMapping, NewWorkmap, PlanRow, PrdPatch, PrdPatchOperation, ProjectRow,
-    ProjectSpec, ProjectSpecDraft, ProjectSpecStatus, ProjectSpecVersionRow, StepRow,
-    StepSessionMappingRow,
+    NewLiveProjectSpecDraft, NewObjection, NewPlan, NewProjectSpecVersion, NewSession, NewStep,
+    NewStepSessionMapping, NewWorkmap, ObjectionSuggestionStatus, PlanRow, PrdPatch,
+    PrdPatchOperation, ProjectRow, ProjectSpec, ProjectSpecDraft, ProjectSpecStatus,
+    ProjectSpecVersionRow, StepRow, StepSessionMappingRow,
 };
 use crate::db::now_ms;
 use crate::dive::event_log as dive_event_log;
@@ -169,13 +170,24 @@ pub struct StepStateUpdateInput {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum AcceptanceCriterionInput {
+    Text(String),
+    Object(AcceptanceCriterion),
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct StepDraftInput {
     pub title: String,
     pub summary: String,
     pub instruction_seed: String,
     pub expected_files: Vec<String>,
-    pub acceptance_criteria: Vec<String>,
+    pub acceptance_criteria: Vec<AcceptanceCriterionInput>,
+    #[serde(default)]
+    pub linked_criterion_ids: Vec<String>,
+    #[serde(default)]
+    pub rationale: Option<String>,
     pub verification_command: Option<String>,
     pub verification_type: Option<String>,
     pub dependencies: Vec<String>,
@@ -207,8 +219,25 @@ pub struct PlanDraftInput {
     pub scope: Vec<String>,
     pub non_goals: Vec<String>,
     pub constraints: Vec<String>,
-    pub acceptance_criteria: Vec<String>,
+    pub acceptance_criteria: Vec<AcceptanceCriterionInput>,
     pub steps: Vec<StepDraftInput>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StepRationaleChallengeInput {
+    pub plan_id: i64,
+    pub step_db_id: i64,
+    pub text: String,
+    #[serde(default)]
+    pub linked_criterion_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StepRationaleChallengeOutput {
+    pub objection_id: String,
+    pub suggestion_status: String,
 }
 
 #[tauri::command]
@@ -399,6 +428,14 @@ pub async fn workspace_plan_append_step(
     draft: StepDraftInput,
 ) -> Result<StepRow, String> {
     workspace_plan_append_step_impl(&state, plan_id, draft)
+}
+
+#[tauri::command]
+pub async fn workspace_plan_challenge_step_rationale(
+    state: State<'_, AppState>,
+    input: StepRationaleChallengeInput,
+) -> Result<StepRationaleChallengeOutput, String> {
+    workspace_plan_challenge_step_rationale_impl(&state, input)
 }
 
 #[tauri::command]
@@ -877,6 +914,170 @@ fn normalize_acceptance_criteria(
         out.push(criterion);
     }
     out
+}
+
+fn criterion_input_text(input: &AcceptanceCriterionInput) -> Option<String> {
+    match input {
+        AcceptanceCriterionInput::Text(value) => {
+            let value = value.trim();
+            (!value.is_empty()).then(|| value.to_string())
+        }
+        AcceptanceCriterionInput::Object(criterion) => {
+            let value = criterion.text.trim();
+            (!value.is_empty()).then(|| value.to_string())
+        }
+    }
+}
+
+fn criterion_input_to_object(
+    input: &AcceptanceCriterionInput,
+    existing: &[AcceptanceCriterion],
+    version: i64,
+    fallback_source: AcceptanceCriterionSource,
+) -> Option<AcceptanceCriterion> {
+    match input {
+        AcceptanceCriterionInput::Text(text) => {
+            let text = text.trim();
+            if text.is_empty() {
+                return None;
+            }
+            if let Some(existing) = existing.iter().find(|criterion| {
+                criterion.status == AcceptanceCriterionStatus::Active
+                    && criterion.text.trim() == text
+            }) {
+                return Some(existing.clone());
+            }
+            Some(AcceptanceCriterion {
+                criterion_id: String::new(),
+                text: text.to_string(),
+                source: fallback_source,
+                status: AcceptanceCriterionStatus::Active,
+                created_in_version: version,
+                retired_in_version: None,
+            })
+        }
+        AcceptanceCriterionInput::Object(criterion) => Some(criterion.clone()),
+    }
+}
+
+fn normalize_criterion_inputs(
+    inputs: &[AcceptanceCriterionInput],
+    existing: &[AcceptanceCriterion],
+    version: i64,
+    fallback_source: AcceptanceCriterionSource,
+) -> Vec<AcceptanceCriterion> {
+    normalize_acceptance_criteria(
+        inputs
+            .iter()
+            .filter_map(|input| {
+                criterion_input_to_object(input, existing, version, fallback_source)
+            })
+            .collect(),
+        version,
+        fallback_source,
+    )
+}
+
+fn compact_linked_criterion_ids(ids: &[String]) -> Vec<String> {
+    compact_unique_strings(ids.to_vec())
+}
+
+fn criterion_by_id(
+    criteria: &[AcceptanceCriterion],
+    criterion_id: &str,
+) -> Option<AcceptanceCriterion> {
+    criteria
+        .iter()
+        .find(|criterion| {
+            criterion.status == AcceptanceCriterionStatus::Active
+                && criterion.criterion_id == criterion_id
+        })
+        .cloned()
+}
+
+fn step_traceability_error(step: &StepDraftInput) -> Option<String> {
+    let mut missing = Vec::new();
+    if compact_linked_criterion_ids(&step.linked_criterion_ids).is_empty() {
+        missing.push("linkedCriterionIds");
+    }
+    if step
+        .rationale
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        missing.push("rationale");
+    }
+    (!missing.is_empty()).then(|| {
+        format!(
+            "generated step '{}' requires {}",
+            step.step_id,
+            missing.join(" and ")
+        )
+    })
+}
+
+fn validate_generated_step_traceability(
+    plan_input: &PlanDraftInput,
+    project_prd: &ProjectSpec,
+) -> Result<(), String> {
+    let active_ids: HashSet<&str> = project_prd
+        .acceptance_criteria
+        .iter()
+        .filter(|criterion| criterion.status == AcceptanceCriterionStatus::Active)
+        .map(|criterion| criterion.criterion_id.as_str())
+        .collect();
+    for step in &plan_input.steps {
+        if let Some(err) = step_traceability_error(step) {
+            return Err(err);
+        }
+        for criterion_id in compact_linked_criterion_ids(&step.linked_criterion_ids) {
+            if !active_ids.contains(criterion_id.as_str()) {
+                return Err(format!(
+                    "generated step '{}' linkedCriterionIds contains unknown criterion '{}'",
+                    step.step_id, criterion_id
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn step_criteria_payload(
+    step: &StepDraftInput,
+    project_prd: &ProjectSpec,
+) -> Result<Value, String> {
+    let linked_criterion_ids = compact_linked_criterion_ids(&step.linked_criterion_ids);
+    let draft_criteria = normalize_criterion_inputs(
+        &step.acceptance_criteria,
+        &project_prd.acceptance_criteria,
+        project_prd.current_version,
+        AcceptanceCriterionSource::Migration,
+    );
+    let mut criteria = Vec::new();
+    for criterion_id in &linked_criterion_ids {
+        let criterion = criterion_by_id(&project_prd.acceptance_criteria, criterion_id)
+            .or_else(|| criterion_by_id(&draft_criteria, criterion_id))
+            .ok_or_else(|| {
+                format!(
+                    "generated step '{}' linkedCriterionIds contains unknown criterion '{}'",
+                    step.step_id, criterion_id
+                )
+            })?;
+        criteria.push(criterion);
+    }
+    let rationale = step
+        .rationale
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("generated step '{}' requires rationale", step.step_id))?;
+    Ok(json!({
+        "criteria": criteria,
+        "linkedCriterionIds": linked_criterion_ids,
+        "rationale": rationale,
+    }))
 }
 
 fn is_minimal_project_spec(spec: &ProjectSpec) -> bool {
@@ -1639,6 +1840,14 @@ pub fn workspace_plan_generate_draft_impl(
     {
         return Err("minimal PRD is required before generating a plan draft".into());
     }
+    let project_prd = project_prd.expect("minimal PRD checked above");
+    validate_generated_step_traceability(&plan_input, &project_prd)?;
+    let plan_acceptance_criteria = normalize_criterion_inputs(
+        &plan_input.acceptance_criteria,
+        &project_prd.acceptance_criteria,
+        project_prd.current_version,
+        AcceptanceCriterionSource::Migration,
+    );
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     if let Some(existing) =
         plan_dao::get_by_project(&tx, interview.project_id).map_err(|e| e.to_string())?
@@ -1668,13 +1877,14 @@ pub fn workspace_plan_generate_draft_impl(
             scope: Some(serde_json::json!(plan_input.scope)),
             non_goals: Some(serde_json::json!(plan_input.non_goals)),
             constraints: Some(serde_json::json!(plan_input.constraints)),
-            acceptance_criteria: Some(serde_json::json!(plan_input.acceptance_criteria)),
+            acceptance_criteria: Some(serde_json::json!(plan_acceptance_criteria)),
             status: "draft".into(),
         },
     )
     .map_err(|e| e.to_string())?;
 
     for step in plan_input.steps {
+        let acceptance_criteria = step_criteria_payload(&step, &project_prd)?;
         step_dao::insert(
             &tx,
             &NewStep {
@@ -1684,7 +1894,7 @@ pub fn workspace_plan_generate_draft_impl(
                 summary: Some(step.summary),
                 instruction_seed: Some(step.instruction_seed),
                 expected_files: Some(serde_json::json!(step.expected_files)),
-                acceptance_criteria: Some(serde_json::json!(step.acceptance_criteria)),
+                acceptance_criteria: Some(acceptance_criteria),
                 verification_kind: step.verification_type,
                 verification_command: step.verification_command,
                 verification_manual_check: None,
@@ -2000,6 +2210,83 @@ pub fn workspace_plan_append_step_impl(
         None,
     );
     Ok(row)
+}
+
+pub fn workspace_plan_challenge_step_rationale_impl(
+    state: &AppState,
+    input: StepRationaleChallengeInput,
+) -> Result<StepRationaleChallengeOutput, String> {
+    let text = input.text.trim().to_string();
+    if text.is_empty() {
+        return Err("objection text is required".into());
+    }
+    let mut db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn_mut();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let plan = plan_dao::get_by_id(&tx, input.plan_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("plan {} not found", input.plan_id))?;
+    let step = step_dao::get_by_id(&tx, input.step_db_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("step {} not found", input.step_db_id))?;
+    if step.plan_id != plan.id {
+        return Err(format!(
+            "step {} does not belong to plan {}",
+            step.id, plan.id
+        ));
+    }
+    let linked_criterion_ids = {
+        let provided = compact_linked_criterion_ids(&input.linked_criterion_ids);
+        if provided.is_empty() {
+            json_linked_criterion_ids(step.acceptance_criteria.as_ref())
+        } else {
+            provided
+        }
+    };
+    let objection_id = format!("obj-{}-{}", step.step_id, now_ms());
+    plan_mutation_dao::insert_objection(
+        &tx,
+        &NewObjection {
+            objection_id: objection_id.clone(),
+            project_id: plan.project_id,
+            plan_id: plan.id,
+            step_db_id: step.id,
+            stable_step_id: step.step_id.clone(),
+            text: text.clone(),
+            linked_criterion_ids: linked_criterion_ids.clone(),
+            suggestion_status: ObjectionSuggestionStatus::None,
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    let mut payload = dive_event_log::plan_step_rationale_challenged_payload(
+        plan.project_id,
+        plan.id,
+        step.id,
+        step.step_id.clone(),
+        linked_criterion_ids,
+        objection_id.clone(),
+        text,
+        "none",
+    );
+    if let Value::Object(map) = &mut payload {
+        map.insert(
+            "message".into(),
+            Value::String("Step rationale challenged".into()),
+        );
+        map.insert("step_title".into(), Value::String(step.title.clone()));
+    }
+    dive_event_log::append_to_conn(
+        &tx,
+        None,
+        dive_event_log::PLAN_STEP_RATIONALE_CHALLENGED_EVENT,
+        payload,
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(StepRationaleChallengeOutput {
+        objection_id,
+        suggestion_status: "none".into(),
+    })
 }
 
 pub fn roadmap_step_open_impl(
@@ -2482,12 +2769,15 @@ fn validate_step_envelope(step: &StepDraftInput) -> Result<(), String> {
 }
 
 fn broad_scope_score(step: &StepDraftInput) -> usize {
+    let acceptance_text = step
+        .acceptance_criteria
+        .iter()
+        .filter_map(criterion_input_text)
+        .collect::<Vec<_>>()
+        .join("\n");
     let mut text = format!(
         "{}\n{}\n{}\n{}",
-        step.title,
-        step.summary,
-        step.instruction_seed,
-        step.acceptance_criteria.join("\n")
+        step.title, step.summary, step.instruction_seed, acceptance_text
     )
     .to_ascii_lowercase();
     for item in &step.expected_files {
@@ -2596,7 +2886,13 @@ fn step_draft_input_from_router(
         summary: draft.summary,
         instruction_seed: draft.instruction_seed,
         expected_files: draft.expected_files,
-        acceptance_criteria: draft.acceptance_criteria,
+        acceptance_criteria: draft
+            .acceptance_criteria
+            .into_iter()
+            .map(AcceptanceCriterionInput::Text)
+            .collect(),
+        linked_criterion_ids: Vec::new(),
+        rationale: None,
         verification_command: draft.verification_command,
         verification_type: draft.verification_type,
         dependencies: draft.dependencies,
@@ -2676,28 +2972,74 @@ fn validate_draft_dependencies(
 }
 
 fn json_string_array(value: Option<&serde_json::Value>) -> Vec<String> {
-    value
-        .and_then(|value| value.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| item.as_str().map(ToOwned::to_owned))
-                .collect()
-        })
-        .unwrap_or_default()
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    match value {
+        Value::Array(items) => items.iter().filter_map(json_criterion_text).collect(),
+        Value::Object(map) => map
+            .get("criteria")
+            .or_else(|| map.get("acceptanceCriteria"))
+            .or_else(|| map.get("acceptance_criteria"))
+            .and_then(Value::as_array)
+            .map(|items| items.iter().filter_map(json_criterion_text).collect())
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+fn json_linked_criterion_ids(value: Option<&serde_json::Value>) -> Vec<String> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    collect_json_linked_criterion_ids(value, &mut out);
+    out
+}
+
+fn collect_json_linked_criterion_ids(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                collect_json_linked_criterion_ids(item, out);
+            }
+        }
+        Value::Object(map) => {
+            if let Some(id) = map
+                .get("criterionId")
+                .or_else(|| map.get("criterion_id"))
+                .and_then(Value::as_str)
+            {
+                push_unique(out, id.to_string());
+            }
+            for key in ["linkedCriterionIds", "linked_criterion_ids"] {
+                if let Some(ids) = map.get(key).and_then(Value::as_array) {
+                    for id in ids.iter().filter_map(Value::as_str) {
+                        push_unique(out, id.to_string());
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 fn join_string_array(value: Option<&serde_json::Value>) -> Option<String> {
-    let items = value?
-        .as_array()?
-        .iter()
-        .filter_map(|item| item.as_str())
-        .collect::<Vec<_>>();
+    let items = json_string_array(value);
     if items.is_empty() {
         None
     } else {
         Some(items.join("\n"))
     }
+}
+
+fn json_criterion_text(value: &Value) -> Option<String> {
+    if let Some(text) = value.as_str() {
+        let text = text.trim();
+        return (!text.is_empty()).then(|| text.to_string());
+    }
+    let text = value.get("text").and_then(Value::as_str)?.trim();
+    (!text.is_empty()).then(|| text.to_string())
 }
 
 #[cfg(test)]
@@ -2710,7 +3052,11 @@ mod envelope_tests {
             summary: "Store current question and selected answer.".into(),
             instruction_seed: "Implement the current-question state in src/App.tsx only.".into(),
             expected_files: vec!["src/App.tsx".into()],
-            acceptance_criteria: vec!["Selecting an answer updates visible state.".into()],
+            acceptance_criteria: vec![AcceptanceCriterionInput::Text(
+                "Selecting an answer updates visible state.".into(),
+            )],
+            linked_criterion_ids: vec!["AC-001".into()],
+            rationale: Some("This step isolates the visible state required by AC-001.".into()),
             verification_command: Some("pnpm test".into()),
             verification_type: Some("command".into()),
             dependencies: Vec::new(),

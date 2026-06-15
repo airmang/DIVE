@@ -106,6 +106,12 @@ describe("usePlan PRD IPC methods", () => {
       if (cmd === "workspace_prd_save") {
         return savedSpec();
       }
+      if (cmd === "workspace_plan_challenge_step_rationale") {
+        return {
+          objectionId: "obj-001",
+          suggestionStatus: "none",
+        };
+      }
       throw new Error(`unexpected command ${cmd}`);
     });
   });
@@ -161,5 +167,33 @@ describe("usePlan PRD IPC methods", () => {
       reason: "interview",
     });
     expect(mocks.invoke).toHaveBeenCalledWith("workspace_prd_status", { projectId: 42 });
+  });
+
+  it("logs rationale challenges through workspace plan IPC and refreshes status", async () => {
+    const { result } = renderHook(() => usePlan(42));
+    await waitFor(() => expect(result.current.prdStatus?.status).toBe("draft"));
+
+    await expect(
+      act(() =>
+        result.current.challengeStepRationale({
+          planId: 7,
+          stepDbId: 11,
+          text: "이 단계가 AC-001과 직접 연결되는지 다시 보고 싶어요.",
+          linkedCriterionIds: ["AC-001"],
+        }),
+      ),
+    ).resolves.toMatchObject({
+      objectionId: "obj-001",
+      suggestionStatus: "none",
+    });
+
+    expect(mocks.invoke).toHaveBeenCalledWith("workspace_plan_challenge_step_rationale", {
+      input: {
+        planId: 7,
+        stepDbId: 11,
+        text: "이 단계가 AC-001과 직접 연결되는지 다시 보고 싶어요.",
+        linkedCriterionIds: ["AC-001"],
+      },
+    });
   });
 });

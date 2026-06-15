@@ -20,6 +20,8 @@ export interface AcceptanceCriterion {
   retiredInVersion: number | null;
 }
 
+export type AcceptanceCriterionInput = string | AcceptanceCriterion;
+
 export interface ProjectSpec {
   projectSpecId: string;
   projectId: number;
@@ -158,7 +160,9 @@ export interface StepDraftInput {
   summary: string;
   instructionSeed: string;
   expectedFiles: string[];
-  acceptanceCriteria: string[];
+  acceptanceCriteria: AcceptanceCriterionInput[];
+  linkedCriterionIds: string[];
+  rationale: string;
   verificationCommand: string | null;
   verificationType: string | null;
   dependencies: string[];
@@ -172,7 +176,7 @@ export interface PlanDraftInput {
   scope: string[];
   nonGoals: string[];
   constraints: string[];
-  acceptanceCriteria: string[];
+  acceptanceCriteria: AcceptanceCriterionInput[];
   steps: StepDraftInput[];
 }
 

@@ -88,6 +88,18 @@ export interface PrdInterviewTurnResult {
   liveDraft: LiveProjectSpecDraft;
 }
 
+export interface ChallengeStepRationaleInput {
+  planId: number;
+  stepDbId: number;
+  text: string;
+  linkedCriterionIds?: string[];
+}
+
+export interface ChallengeStepRationaleResult {
+  objectionId: string;
+  suggestionStatus: "none" | "offered";
+}
+
 function normalizeGeneratedDraft(value: unknown): PlanGenerationResult {
   if (Array.isArray(value) && value.length === 2) {
     return {
@@ -275,6 +287,21 @@ export function usePlan(projectId: number | null) {
     [api, projectId, refresh, refreshPrdStatus],
   );
 
+  const challengeStepRationale = useCallback(
+    async (input: ChallengeStepRationaleInput) => {
+      if (!api) throw new Error("Tauri IPC unavailable");
+      const result = await api.invoke<ChallengeStepRationaleResult>(
+        "workspace_plan_challenge_step_rationale",
+        {
+          input,
+        },
+      );
+      await refresh();
+      return result;
+    },
+    [api, refresh],
+  );
+
   const approvePlan = useCallback(
     async (planId: number) => {
       if (!api) throw new Error("Tauri IPC unavailable");
@@ -309,6 +336,7 @@ export function usePlan(projectId: number | null) {
     getProjectSpec,
     submitPrdInterviewTurn,
     saveProjectSpec,
+    challengeStepRationale,
     approvePlan,
     discardPlan,
   };

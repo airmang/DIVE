@@ -200,6 +200,30 @@ fn approving_plan_exports_prd_lifecycle_foundation() {
     let first_step = step::get_by_plan_and_step_id(db.conn(), plan_id, "step-001")
         .unwrap()
         .unwrap();
+    step::update(
+        db.conn(),
+        first_step.id,
+        &NewStep {
+            plan_id: first_step.plan_id,
+            step_id: first_step.step_id.clone(),
+            title: first_step.title.clone(),
+            summary: first_step.summary.clone(),
+            instruction_seed: first_step.instruction_seed.clone(),
+            expected_files: first_step.expected_files.clone(),
+            acceptance_criteria: Some(serde_json::json!({
+                "criteria": [artifact_criterion("AC-001", "exports plan artifacts")],
+                "linkedCriterionIds": ["AC-001"],
+                "rationale": "This step creates the storage needed to export AC-001 evidence."
+            })),
+            verification_kind: first_step.verification_kind.clone(),
+            verification_command: first_step.verification_command.clone(),
+            verification_manual_check: first_step.verification_manual_check.clone(),
+            dependencies: first_step.dependencies.clone(),
+            parallel_group: first_step.parallel_group.clone(),
+            position: first_step.position,
+        },
+    )
+    .unwrap();
 
     prd::insert_version(
         db.conn(),
@@ -298,4 +322,12 @@ fn approving_plan_exports_prd_lifecycle_foundation() {
     );
     assert_eq!(artifact["planMutations"][0]["mutationId"], "mut-001");
     assert_eq!(artifact["objections"][0]["objectionId"], "obj-001");
+    assert_eq!(
+        artifact["steps"][0]["linkedCriterionIds"],
+        serde_json::json!(["AC-001"])
+    );
+    assert_eq!(
+        artifact["steps"][0]["decompositionRationale"],
+        "This step creates the storage needed to export AC-001 evidence."
+    );
 }

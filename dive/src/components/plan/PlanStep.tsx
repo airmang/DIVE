@@ -209,6 +209,31 @@ export const PlanStep = forwardRef<HTMLDivElement, PlanStepProps>(function PlanS
             {summary ? <p className="mt-1 line-clamp-2 text-xs text-fg">{summary}</p> : null}
           </>
         )}
+        {item.linkedCriteria?.length || item.decompositionRationale ? (
+          <div
+            className="mt-2 space-y-1 rounded-sm border border-border/70 bg-bg/60 px-2 py-1.5 text-[11px]"
+            data-testid="plan-step-criteria"
+          >
+            {item.linkedCriteria?.length ? (
+              <div className="flex flex-wrap gap-1">
+                {item.linkedCriteria.map((criterion) => (
+                  <span
+                    key={criterion.criterionId}
+                    className="inline-flex max-w-full items-center gap-1 rounded-sm border border-border bg-bg-panel px-1.5 py-0.5 text-fg"
+                  >
+                    <span className="shrink-0 font-semibold text-accent">
+                      {criterion.criterionId}
+                    </span>
+                    <span className="truncate">{criterion.text}</span>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {item.decompositionRationale ? (
+              <p className="line-clamp-2 text-fg-muted">{item.decompositionRationale}</p>
+            ) : null}
+          </div>
+        ) : null}
         {item.blockedDependencies.length > 0 || dependencies.length > 0 ? (
           <div
             className={cn(

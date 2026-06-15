@@ -236,6 +236,7 @@ function StepListItem({ step, isActive, onSelect, t }: StepListItemProps) {
         </div>
       ) : null}
       {step.agency?.primary ? <AgencyPill item={step.agency.primary} className="mt-1" /> : null}
+      <CriterionTrace step={step} className="mt-2" />
       {step.description ? (
         <p className="mt-2 line-clamp-2 text-xs text-fg-muted">{step.description}</p>
       ) : null}
@@ -278,11 +279,36 @@ function ActiveStepCard({ step, t }: ActiveStepCardProps) {
       {step.description ? (
         <p className="mt-2 line-clamp-3 text-xs text-fg-muted">{step.description}</p>
       ) : null}
+      <CriterionTrace step={step} className="mt-2" />
       {step.agency?.primary ? <AgencyPill item={step.agency.primary} className="mt-2" /> : null}
       <div className="mt-3 rounded-md border border-border/70 bg-bg/70 px-3 py-2 text-xs">
         <div className="font-semibold text-fg">{t("roadmap.next_action_label")}</div>
         <p className="mt-1 text-fg-muted">{t(`roadmap.next_action_v2.${status}`)}</p>
       </div>
+    </div>
+  );
+}
+
+function CriterionTrace({ step, className }: { step: RoadmapStep; className?: string }) {
+  const linkedCriteria = step.linkedCriteria ?? [];
+  const rationale = step.decompositionRationale?.trim() ?? "";
+  if (linkedCriteria.length === 0 && !rationale) return null;
+  return (
+    <div className={cn("space-y-1 text-[11px]", className)} data-testid="roadmap-step-criteria">
+      {linkedCriteria.length > 0 ? (
+        <div className="flex flex-wrap gap-1">
+          {linkedCriteria.map((criterion) => (
+            <span
+              key={criterion.criterionId}
+              className="inline-flex max-w-full items-center gap-1 rounded-sm border border-border bg-bg px-1.5 py-0.5 text-fg"
+            >
+              <span className="shrink-0 font-semibold text-accent">{criterion.criterionId}</span>
+              <span className="truncate">{criterion.text}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {rationale ? <p className="line-clamp-2 text-fg-muted">{rationale}</p> : null}
     </div>
   );
 }
