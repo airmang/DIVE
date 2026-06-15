@@ -92,10 +92,7 @@ export function PrdAuthoringBoard({
     setLocalDraft(draft);
   }, [draft]);
 
-  const validation = useMemo(
-    () => validateMinimalProjectSpec(localDraft.spec),
-    [localDraft.spec],
-  );
+  const validation = useMemo(() => validateMinimalProjectSpec(localDraft.spec), [localDraft.spec]);
   const criteria = normalizeCriteria(localDraft.spec.acceptanceCriteria);
 
   const updateDraft = (next: LiveProjectSpecDraft, changedFields: string[]) => {
@@ -154,7 +151,7 @@ export function PrdAuthoringBoard({
 
   const stateLabel =
     prdState === "minimal" || prdState === "saved"
-        ? t("prd.authoring.state_minimal")
+      ? t("prd.authoring.state_minimal")
       : prdState === "missing"
         ? t("prd.authoring.state_missing")
         : t("prd.authoring.state_draft");
@@ -303,9 +300,7 @@ export function PrdAuthoringBoard({
               </span>
               <textarea
                 value={localDraft.spec.nonGoals.join("\n")}
-                onChange={(event) =>
-                  updateStringList("nonGoals", event.target.value, "nonGoals")
-                }
+                onChange={(event) => updateStringList("nonGoals", event.target.value, "nonGoals")}
                 rows={4}
                 className="resize-none rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg"
                 placeholder={t("prd.authoring.non_goals_placeholder")}

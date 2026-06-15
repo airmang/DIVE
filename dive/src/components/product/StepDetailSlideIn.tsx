@@ -612,8 +612,7 @@ export function StepDetailSlideIn({
                     disabled={rationaleChallengeBusy}
                     data-testid="step-rationale-challenge-toggle"
                   >
-                    <HelpCircle />
-                    왜 이 단계?
+                    <HelpCircle />왜 이 단계?
                   </Button>
                   {rationaleChallengeOpen ? (
                     <div className="mt-2 space-y-2">
@@ -628,7 +627,9 @@ export function StepDetailSlideIn({
                         variant="primary"
                         size="sm"
                         onClick={() => void handleSubmitRationaleChallenge()}
-                        disabled={rationaleChallengeBusy || rationaleObjectionText.trim().length === 0}
+                        disabled={
+                          rationaleChallengeBusy || rationaleObjectionText.trim().length === 0
+                        }
                         data-testid="step-rationale-objection-submit"
                       >
                         <Send />

@@ -179,11 +179,7 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
               <span className="font-semibold">↳ {t("tool_call.why_label")}</span> {reasoning.text}
             </p>
           ) : null}
-          <PermissionCard
-            card={card}
-            onApprove={handleApprove}
-            onDeny={onDeny}
-          />
+          <PermissionCard card={card} onApprove={handleApprove} onDeny={onDeny} />
         </div>
       </article>
     );

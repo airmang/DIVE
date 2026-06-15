@@ -306,8 +306,7 @@ describe("StepDetailSlideIn criterion-linked rationale challenge", () => {
           text: "저장 성공 후 toast가 보인다",
         },
       ],
-      decompositionRationale:
-        "저장 완료 기준을 검증하려면 버튼 상태를 먼저 분리해야 한다.",
+      decompositionRationale: "저장 완료 기준을 검증하려면 버튼 상태를 먼저 분리해야 한다.",
     };
 
     render(

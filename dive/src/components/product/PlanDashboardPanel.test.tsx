@@ -92,9 +92,8 @@ vi.mock("../../features/roadmap", () => ({
 }));
 
 vi.mock("../../features/planning", async () => {
-  const actual = await vi.importActual<typeof import("../../features/planning")>(
-    "../../features/planning",
-  );
+  const actual =
+    await vi.importActual<typeof import("../../features/planning")>("../../features/planning");
   return {
     ...actual,
     requestPlanDraftReview: vi.fn(),

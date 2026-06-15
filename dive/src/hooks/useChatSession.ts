@@ -217,7 +217,10 @@ function stringFromRecord(value: unknown, key: string): string | null {
 }
 
 function splitTerminalLines(text: string): string[] {
-  return text.split(/\r?\n/).filter((line) => line.length > 0).slice(0, 200);
+  return text
+    .split(/\r?\n/)
+    .filter((line) => line.length > 0)
+    .slice(0, 200);
 }
 
 function appendToolResultToTerminal(evt: Extract<AgentEvent, { type: "tool_result" }>) {
@@ -492,19 +495,18 @@ export function useChatSession(
     await api.invoke<void>("chat_cancel", { sessionId });
   }, [sessionId]);
 
-  const approveToolCall = useCallback(async (
-    toolCallId: string,
-    modifiedArgs?: unknown,
-    approvalMetadata?: ToolApprovalMetadata,
-  ) => {
-    const api = apiRef.current;
-    if (!api) return;
-    await api.invoke<boolean>("tool_approve", {
-      toolCallId,
-      modifiedArgs: modifiedArgs ?? null,
-      approvalMetadata: approvalMetadata ?? null,
-    });
-  }, []);
+  const approveToolCall = useCallback(
+    async (toolCallId: string, modifiedArgs?: unknown, approvalMetadata?: ToolApprovalMetadata) => {
+      const api = apiRef.current;
+      if (!api) return;
+      await api.invoke<boolean>("tool_approve", {
+        toolCallId,
+        modifiedArgs: modifiedArgs ?? null,
+        approvalMetadata: approvalMetadata ?? null,
+      });
+    },
+    [],
+  );
 
   const denyToolCall = useCallback(async (toolCallId: string, reason?: string) => {
     const api = apiRef.current;

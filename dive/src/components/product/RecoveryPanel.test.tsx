@@ -45,9 +45,7 @@ describe("RecoveryPanel failure actions", () => {
       "AI에게 다시 고쳐달라고 하기",
     ]);
     expect((actions[0] as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId("failed-step-no-undo").textContent).toContain(
-      "체크포인트가 없어",
-    );
+    expect(screen.getByTestId("failed-step-no-undo").textContent).toContain("체크포인트가 없어");
   });
 
   it("restores the latest checkpoint only after inline confirmation", () => {

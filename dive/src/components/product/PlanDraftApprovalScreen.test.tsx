@@ -2,7 +2,11 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
-import type { AcceptanceCriterion, PlanGenerationResult, InterviewRow } from "../../features/planning";
+import type {
+  AcceptanceCriterion,
+  PlanGenerationResult,
+  InterviewRow,
+} from "../../features/planning";
 import { useUiPreferencesStore } from "../../stores/ui-preferences";
 import { PlanDraftApprovalScreen } from "./PlanDraftApprovalScreen";
 
@@ -151,8 +155,9 @@ describe("PlanDraftApprovalScreen intent and step review surface", () => {
     const step = screen.getByTestId("plan-draft-step");
     expect(within(step).getByText("AC-001")).toBeTruthy();
     expect(within(step).getByText("저장 성공 후 toast가 보인다")).toBeTruthy();
-    expect(within(step).getByText("저장 완료 기준을 검증하려면 버튼 상태를 먼저 분리해야 한다."))
-      .toBeTruthy();
+    expect(
+      within(step).getByText("저장 완료 기준을 검증하려면 버튼 상태를 먼저 분리해야 한다."),
+    ).toBeTruthy();
   });
 
   it("keeps missing-verification rule cards quarantined from shipped plan approval", () => {

@@ -186,7 +186,11 @@ export function normalizeStepCriteria(
   options: NormalizeStepCriteriaOptions = {},
 ): StepCriteriaMetadata {
   const object = valueObject(value);
-  const criteriaSource = firstArray(value, ["criteria", "acceptanceCriteria", "acceptance_criteria"]);
+  const criteriaSource = firstArray(value, [
+    "criteria",
+    "acceptanceCriteria",
+    "acceptance_criteria",
+  ]);
   const criteria = adaptAcceptanceCriteria(criteriaSource, {
     version: options.version,
     source: "migration",
@@ -226,7 +230,9 @@ export function criterionTexts(value: unknown): string[] {
   return adaptAcceptanceCriteria(value).map((criterion) => criterion.text);
 }
 
-export function criterionInputsToCriteria(value: AcceptanceCriterionInput[]): AcceptanceCriterion[] {
+export function criterionInputsToCriteria(
+  value: AcceptanceCriterionInput[],
+): AcceptanceCriterion[] {
   return adaptAcceptanceCriteria(value);
 }
 

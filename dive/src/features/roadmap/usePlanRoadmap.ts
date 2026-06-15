@@ -95,7 +95,9 @@ export function derivePlanRoadmapSteps(
   const derived = steps.map((step) => {
     const mapping = mappingByStepId.get(step.id) ?? null;
     const criteriaMetadata = normalizeStepCriteria(step.acceptance_criteria);
-    const acceptanceCriteriaText = criteriaMetadata.linkedCriteria.map((criterion) => criterion.text);
+    const acceptanceCriteriaText = criteriaMetadata.linkedCriteria.map(
+      (criterion) => criterion.text,
+    );
     if (mapping) {
       const status: PlanRoadmapStatus =
         mapping.status === "done" || mapping.status === "shipped" || mapping.status === "blocked"

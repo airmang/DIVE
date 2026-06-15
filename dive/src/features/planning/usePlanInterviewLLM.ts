@@ -99,7 +99,9 @@ export function decodeWorkspacePlanDraftFromLlm(raw: unknown): LlmPlanDraftPaylo
     scope: stringArray(planSource.scope),
     nonGoals: stringArray(planSource.non_goals ?? planSource.nonGoals),
     constraints: stringArray(planSource.constraints),
-    acceptanceCriteria: criteriaArray(planSource.acceptance_criteria ?? planSource.acceptanceCriteria),
+    acceptanceCriteria: criteriaArray(
+      planSource.acceptance_criteria ?? planSource.acceptanceCriteria,
+    ),
     steps,
   };
   return {
