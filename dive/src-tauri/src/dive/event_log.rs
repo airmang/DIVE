@@ -208,6 +208,7 @@ fn component_for_action_kind(kind: &str) -> Option<&'static str> {
 fn component_for_card_type(card_type: &str) -> Option<&'static str> {
     match card_type {
         "oversized_scope" | "missing_acceptance_criteria" => Some("intent"),
+        "scope_expansion" => Some("plan"),
         "missing_verification_step" => Some("plan"),
         "diff_scope_drift" => Some("diff"),
         "ai_self_report_only" => Some("verify"),
@@ -304,6 +305,7 @@ fn state_for_verification_state(state: &str) -> Option<&'static str> {
 fn state_for_card_type(card_type: &str) -> Option<&'static str> {
     match card_type {
         "oversized_scope" | "missing_acceptance_criteria" => Some("intent_needed"),
+        "scope_expansion" => Some("plan_review_needed"),
         "missing_verification_step" => Some("verification_needed"),
         "diff_scope_drift" => Some("diff_review_needed"),
         "ai_self_report_only" => Some("ai_self_report_only"),

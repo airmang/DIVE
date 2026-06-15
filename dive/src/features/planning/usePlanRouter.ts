@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PlanStepRow } from "../roadmap";
-import type { StepDraftInput } from "./types";
+import type { ProjectSpecDelta, StepDraftInput } from "./types";
 
 type TauriApi = {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -88,14 +88,29 @@ export function usePlanRouter(projectId: number | null) {
   }, [api, requestIdRef]);
 
   const appendStep = useCallback(
-    async (planId: number, draft: StepDraftInput): Promise<PlanStepRow> => {
+    async (
+      planId: number,
+      draft: StepDraftInput,
+      options: {
+        mutationReason?: string | null;
+        linkedCriterionIds?: string[];
+        prdDelta?: ProjectSpecDelta | null;
+      } = {},
+    ): Promise<PlanStepRow> => {
       if (!api) throw new Error("Tauri IPC unavailable");
+      const linkedCriterionIds = options.linkedCriterionIds ?? draft.linkedCriterionIds;
       setAppendBusy(true);
       setError(null);
       try {
         return await api.invoke<PlanStepRow>("workspace_plan_append_step", {
           planId,
-          draft,
+          draft: {
+            ...draft,
+            linkedCriterionIds,
+          },
+          mutationReason: options.mutationReason ?? null,
+          linkedCriterionIds,
+          prdDelta: options.prdDelta ?? null,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

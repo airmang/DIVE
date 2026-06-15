@@ -801,8 +801,8 @@
       "cancel_requested": "중지 요청됨",
       "cancel_requested_status": "라우팅 중 중지 요청됨",
       "confirm": {
-        "title": "이 요청을 plan에 새 step으로 추가할까요?",
-        "description": "DIVE가 채팅을 보내기 전에 승인된 plan에 이 요청을 새 단계로 붙일 수 있습니다.",
+        "title": "이 요청을 새 step 후보로 검토할까요?",
+        "description": "채팅은 step을 제안할 수 있지만, plan 변경은 전용 step 추가 영역에서만 이루어집니다.",
         "suggested_title": "제안된 step",
         "dependencies": "의존: {{deps}}",
         "dependencies_label": "의존",
@@ -810,9 +810,11 @@
         "acceptance_label": "완료 기준",
         "no_dependencies": "없음",
         "none": "없음",
-        "add_button": "Plan에 추가",
+        "add_button": "Plan 영역에서 검토",
         "skip_button": "그냥 채팅",
-        "reason_label": "이유"
+        "reason_label": "이유",
+        "dedicated_area_title": "Plan의 step 추가 영역을 사용하세요",
+        "dedicated_area_description": "채팅 요청은 제안으로만 이어집니다. 준비되면 plan dashboard에서 step을 추가하세요."
       },
       "error": {
         "routing_failed": "자동 라우팅 실패: {{message}}"

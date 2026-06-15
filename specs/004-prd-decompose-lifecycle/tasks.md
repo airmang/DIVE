@@ -143,22 +143,22 @@ is contextual and non-blocking.
 
 ### Tests for User Story 3
 
-- [ ] T052 [P] [US3] Extend append-step IPC tests for mutationReason, linkedCriterionIds, prdDelta, PRD version delta, PlanMutation persistence, and plan_step_appended payloads in `dive/src-tauri/tests/workspace_plan_ipc.rs`
-- [ ] T053 [P] [US3] Add deterministic scope expansion tests for missing criterion link, new scope area, and out-of-scope target files in `dive/src-tauri/tests/workspace_prd_lifecycle.rs`
-- [ ] T054 [P] [US3] Add dedicated add-step UI tests for one-action save, criterion linking assistance, PRD delta preview, and no chat-only mutation in `dive/src/components/product/PlanDashboardPanel.test.tsx`
-- [ ] T055 [P] [US3] Add provocation integration tests for non-blocking scope-expansion card placement near the add-step area in `dive/src/features/provocation/__tests__/rules.test.ts`
+- [X] T052 [P] [US3] Extend append-step IPC tests for mutationReason, linkedCriterionIds, prdDelta, PRD version delta, PlanMutation persistence, and plan_step_appended payloads in `dive/src-tauri/tests/workspace_plan_ipc.rs`
+- [X] T053 [P] [US3] Add deterministic scope expansion tests for missing criterion link, new scope area, and out-of-scope target files in `dive/src-tauri/tests/workspace_prd_lifecycle.rs`
+- [X] T054 [P] [US3] Add dedicated add-step UI tests for one-action save, criterion linking assistance, PRD delta preview, and no chat-only mutation in `dive/src/components/product/PlanDashboardPanel.test.tsx`
+- [X] T055 [P] [US3] Add provocation integration tests for non-blocking scope-expansion card placement near the add-step area in `dive/src/features/provocation/__tests__/rules.test.ts`
 
 ### Implementation for User Story 3
 
-- [ ] T056 [US3] Extend workspace_plan_append_step input parsing for mutationReason, linkedCriterionIds, and prdDelta in `dive/src-tauri/src/ipc/workspace_plan.rs`
-- [ ] T057 [US3] Implement deterministic scope-expansion assessment with reason codes and evidence references in `dive/src-tauri/src/ipc/workspace_plan.rs`
-- [ ] T058 [US3] Persist PlanMutation, update PRD version/delta state, and emit plan_step_appended from append-step flow in `dive/src-tauri/src/ipc/workspace_plan.rs`
-- [ ] T059 [US3] Add usePlan append-step mutation payload support in `dive/src/features/planning/usePlan.ts`
-- [ ] T060 [US3] Create a dedicated add-step form with title, reason, expected files, optional criteria links, optional verification check, and PRD delta preview in `dive/src/components/product/PlanAddStepPanel.tsx`
-- [ ] T061 [US3] Mount the dedicated add-step area in the plan dashboard without using ordinary chat as the mutation path in `dive/src/components/product/PlanDashboardPanel.tsx`
-- [ ] T062 [US3] Update route confirmation copy so chat may propose but never silently appends a step without dedicated-area confirmation in `dive/src/components/product/PlanRouteConfirmModal.tsx`
-- [ ] T063 [US3] Invoke the existing specs/002 review-card path for expanded scope and keep the card non-blocking near add-step UI in `dive/src/components/product/PlanAddStepPanel.tsx`
-- [ ] T064 [US3] Export PlanMutation records, PRD deltas, and added-step reconstruction data in `dive/src-tauri/src/workspace_plan/artifacts.rs`
+- [X] T056 [US3] Extend workspace_plan_append_step input parsing for mutationReason, linkedCriterionIds, and prdDelta in `dive/src-tauri/src/ipc/workspace_plan.rs`
+- [X] T057 [US3] Implement deterministic scope-expansion assessment with reason codes and evidence references in `dive/src-tauri/src/ipc/workspace_plan.rs`
+- [X] T058 [US3] Persist PlanMutation, update PRD version/delta state, and emit plan_step_appended from append-step flow in `dive/src-tauri/src/ipc/workspace_plan.rs`
+- [X] T059 [US3] Add usePlan append-step mutation payload support in `dive/src/features/planning/usePlan.ts`
+- [X] T060 [US3] Create a dedicated add-step form with title, reason, expected files, optional criteria links, optional verification check, and PRD delta preview in `dive/src/components/product/PlanAddStepPanel.tsx`
+- [X] T061 [US3] Mount the dedicated add-step area in the plan dashboard without using ordinary chat as the mutation path in `dive/src/components/product/PlanDashboardPanel.tsx`
+- [X] T062 [US3] Update route confirmation copy so chat may propose but never silently appends a step without dedicated-area confirmation in `dive/src/components/product/PlanRouteConfirmModal.tsx`
+- [X] T063 [US3] Invoke the existing specs/002 review-card path for expanded scope and keep the card non-blocking near add-step UI in `dive/src/components/product/PlanAddStepPanel.tsx`
+- [X] T064 [US3] Export PlanMutation records, PRD deltas, and added-step reconstruction data in `dive/src-tauri/src/workspace_plan/artifacts.rs`
 
 **Checkpoint**: User Story 3 can ship after US1 and US2 with low-friction
 dedicated add-step mutation and contextual, evidence-grounded scope review.

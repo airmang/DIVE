@@ -368,17 +368,11 @@ export function useProductShellController() {
       const approved = await requestPlanRouteConfirmation(decision);
       if (!approved) return true;
 
-      try {
-        await planRouter.appendStep(approvedPlanId, decision.draft);
-        await Promise.all([planRoadmap.refresh(), plan.refresh()]);
-      } catch (err) {
-        toast({
-          variant: "error",
-          title: t("planning.route.error.routing_failed", {
-            message: err instanceof Error ? err.message : String(err),
-          }),
-        });
-      }
+      toast({
+        variant: "info",
+        title: t("planning.route.confirm.dedicated_area_title"),
+        description: t("planning.route.confirm.dedicated_area_description"),
+      });
       return true;
     },
     [plan, planRoadmap, planRouter, requestPlanRouteConfirmation, t, toast],

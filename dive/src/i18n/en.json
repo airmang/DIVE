@@ -801,8 +801,8 @@
       "cancel_requested": "Stop requested",
       "cancel_requested_status": "Routing stop requested",
       "confirm": {
-        "title": "Add this as a new step?",
-        "description": "DIVE can append this request to the approved plan before sending it to chat.",
+        "title": "Review this as a possible new step?",
+        "description": "Chat can suggest a step, but plan changes happen only from the dedicated add-step area.",
         "suggested_title": "Suggested step",
         "dependencies": "Depends on: {{deps}}",
         "dependencies_label": "Dependencies",
@@ -810,9 +810,11 @@
         "acceptance_label": "Acceptance criteria",
         "no_dependencies": "None",
         "none": "None",
-        "add_button": "Add to plan",
+        "add_button": "Use plan area",
         "skip_button": "Just chat",
-        "reason_label": "Reason"
+        "reason_label": "Reason",
+        "dedicated_area_title": "Use the plan add-step area",
+        "dedicated_area_description": "The chat request will continue as a suggestion. Add the step from the plan dashboard when you are ready."
       },
       "error": {
         "routing_failed": "Routing failed: {{message}}"

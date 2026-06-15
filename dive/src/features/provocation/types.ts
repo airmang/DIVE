@@ -18,6 +18,7 @@ export type ProvocationSeverity = "info" | "caution" | "risk";
 
 export type ProvocationCardType =
   | "oversized_scope"
+  | "scope_expansion"
   | "missing_acceptance_criteria"
   | "missing_verification_step"
   | "diff_scope_drift"

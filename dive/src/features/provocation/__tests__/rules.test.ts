@@ -15,6 +15,7 @@ import {
   missingVerificationStepRule,
   oversizedScopeRule,
   regenerationLoopRule,
+  scopeExpansionAssessmentRule,
 } from "../rules";
 import {
   buildApprovalProvenance,
@@ -215,6 +216,55 @@ describe("provocation rules", () => {
             },
           ],
         }),
+      ),
+    ).toBeNull();
+  });
+
+  it("places scope-expansion review cards near the dedicated add-step area without blocking", () => {
+    const card = scopeExpansionAssessmentRule(
+      ctx({
+        mode: "work",
+        stage: "instruct",
+        taskId: "plan-add-step",
+        goalText: "Build a PRD-backed roadmap",
+      }),
+      {
+        expanded: true,
+        reasonCodes: ["missing_criterion_link", "target_outside_scope"],
+        evidenceRefs: ["step.linkedCriterionIds", "step.expectedFiles[0]"],
+      },
+    );
+
+    expect(card?.type).toBe("scope_expansion");
+    expect(card?.stage).toBe("instruct");
+    expect(card?.severity).toBe("caution");
+    expect(card?.metadata).toMatchObject({
+      placement: "plan_add_step",
+      blocking: false,
+      scopeExpansion: {
+        expanded: true,
+        reasonCodes: ["missing_criterion_link", "target_outside_scope"],
+      },
+    });
+    expect(card?.evidence.map((item) => item.refId)).toEqual([
+      "step.linkedCriterionIds",
+      "step.expectedFiles[0]",
+    ]);
+    expect(card?.actions.some((action) => action.kind === "split_scope")).toBe(true);
+  });
+
+  it("does not create a scope-expansion card when the deterministic assessment is clear", () => {
+    expect(
+      scopeExpansionAssessmentRule(
+        ctx({
+          mode: "work",
+          stage: "instruct",
+        }),
+        {
+          expanded: false,
+          reasonCodes: [],
+          evidenceRefs: ["AC-001"],
+        },
       ),
     ).toBeNull();
   });

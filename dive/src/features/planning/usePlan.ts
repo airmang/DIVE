@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type {
+  AppendPlanStepInput,
   InterviewRow,
   LiveProjectSpecDraft,
   PlanDraftInput,
@@ -302,6 +303,27 @@ export function usePlan(projectId: number | null) {
     [api, refresh],
   );
 
+  const appendStep = useCallback(
+    async (input: AppendPlanStepInput) => {
+      if (!api) throw new Error("Tauri IPC unavailable");
+      const linkedCriterionIds = input.linkedCriterionIds ?? input.draft.linkedCriterionIds;
+      const row = await api.invoke<PlanStepRow>("workspace_plan_append_step", {
+        planId: input.planId,
+        draft: {
+          ...input.draft,
+          linkedCriterionIds,
+        },
+        mutationReason: input.mutationReason ?? null,
+        linkedCriterionIds,
+        prdDelta: input.prdDelta ?? null,
+      });
+      await refresh();
+      await refreshPrdStatus();
+      return row;
+    },
+    [api, refresh, refreshPrdStatus],
+  );
+
   const approvePlan = useCallback(
     async (planId: number) => {
       if (!api) throw new Error("Tauri IPC unavailable");
@@ -337,6 +359,7 @@ export function usePlan(projectId: number | null) {
     submitPrdInterviewTurn,
     saveProjectSpec,
     challengeStepRationale,
+    appendStep,
     approvePlan,
     discardPlan,
   };

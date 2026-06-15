@@ -128,6 +128,14 @@ export interface PlanMutation {
   createdAt: number;
 }
 
+export interface AppendPlanStepInput {
+  planId: number;
+  draft: StepDraftInput;
+  mutationReason?: string | null;
+  linkedCriterionIds?: string[];
+  prdDelta?: ProjectSpecDelta | null;
+}
+
 export type ObjectionSuggestionStatus = "none" | "offered" | "accepted" | "dismissed";
 
 export interface Objection {

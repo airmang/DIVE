@@ -7,26 +7,28 @@ use std::time::Duration;
 use async_trait::async_trait;
 use dive_lib::auth::InMemoryKeyring;
 use dive_lib::db::dao::{
-    card, event_log, interview, plan, prd, project, session, step, step_session_mapping as mapping,
-    workmap,
+    card, event_log, interview, plan, plan_mutation, prd, project, session, step,
+    step_session_mapping as mapping, workmap,
 };
 use dive_lib::db::models::{
     AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus, NewInterview,
-    NewLiveProjectSpecDraft, NewPlan, NewProject, NewStep, ProjectSpecDraft, ProjectSpecStatus,
+    NewLiveProjectSpecDraft, NewPlan, NewProject, NewStep, PlanMutationType, ProjectSpecDelta,
+    ProjectSpecDraft, ProjectSpecStatus,
 };
 use dive_lib::ipc::workspace_plan::{
     roadmap_step_open_impl, roadmap_step_update_state_impl, workspace_plan_activity_impl,
-    workspace_plan_append_step_impl, workspace_plan_approve_impl,
-    workspace_plan_challenge_step_rationale_impl, workspace_plan_current_draft_impl,
-    workspace_plan_dashboard_impl, workspace_plan_discard_plan_impl,
-    workspace_plan_generate_draft_impl, workspace_plan_list_steps_impl,
-    workspace_plan_route_cancel_impl, workspace_plan_route_chat_impl,
-    workspace_plan_save_interview_answer_impl, workspace_plan_start_interview_impl,
-    workspace_plan_status_impl, workspace_plan_step_mappings_impl,
-    workspace_plan_submit_interview_impl, workspace_prd_get_impl,
-    workspace_prd_interview_turn_impl, workspace_prd_save_impl, workspace_prd_status_impl,
-    AcceptanceCriterionInput, PlanDraftInput, PrdInterviewTurnInput, PrdSaveInput, RouteDecision,
-    StepDraftInput, StepRationaleChallengeInput, StepStateUpdateInput,
+    workspace_plan_append_step_impl, workspace_plan_append_step_with_options_impl,
+    workspace_plan_approve_impl, workspace_plan_challenge_step_rationale_impl,
+    workspace_plan_current_draft_impl, workspace_plan_dashboard_impl,
+    workspace_plan_discard_plan_impl, workspace_plan_generate_draft_impl,
+    workspace_plan_list_steps_impl, workspace_plan_route_cancel_impl,
+    workspace_plan_route_chat_impl, workspace_plan_save_interview_answer_impl,
+    workspace_plan_start_interview_impl, workspace_plan_status_impl,
+    workspace_plan_step_mappings_impl, workspace_plan_submit_interview_impl,
+    workspace_prd_get_impl, workspace_prd_interview_turn_impl, workspace_prd_save_impl,
+    workspace_prd_status_impl, AcceptanceCriterionInput, AppendStepOptions, PlanDraftInput,
+    PrdInterviewTurnInput, PrdSaveInput, RouteDecision, StepDraftInput,
+    StepRationaleChallengeInput, StepStateUpdateInput,
 };
 use dive_lib::{
     AppState, ChatEvent, ChatRequest, Database, FinishReason, LlmProvider, ModelInfo, ProviderError,
@@ -1114,6 +1116,188 @@ fn append_step_rejects_when_plan_not_approved() {
     assert!(workspace_plan_list_steps_impl(&state, plan_id)
         .unwrap()
         .is_empty());
+}
+
+#[test]
+fn append_step_records_mutation_prd_delta_and_event_payload() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    seed_minimal_prd(&state, project_id);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    insert_step(&state, plan_id, "step-001", &[]);
+
+    let mut draft = append_step_draft(vec!["step-001".into()]);
+    draft.title = "Add mutation export".into();
+    draft.summary = "Persist added-step mutation reconstruction data.".into();
+    draft.instruction_seed = "Write mutation export fields into the artifact.".into();
+    draft.expected_files = vec!["src/features/planning/export.ts".into()];
+    draft.acceptance_criteria = vec![AcceptanceCriterionInput::Text(
+        "Added steps are reconstructable from export".into(),
+    )];
+    draft.linked_criterion_ids = vec!["AC-001".into()];
+    draft.rationale = Some("The export step preserves AC-001 evidence after mutation.".into());
+
+    let prd_delta = ProjectSpecDelta {
+        from_version: 1,
+        to_version: 2,
+        added_criteria: vec![AcceptanceCriterion {
+            criterion_id: "AC-002".into(),
+            text: "Added steps are reconstructable from export".into(),
+            source: AcceptanceCriterionSource::PlanMutation,
+            status: AcceptanceCriterionStatus::Active,
+            created_in_version: 2,
+            retired_in_version: None,
+        }],
+        retired_criterion_ids: vec![],
+        scope_changes: vec!["Mutation export".into()],
+        non_goal_changes: vec![],
+    };
+
+    let row = workspace_plan_append_step_with_options_impl(
+        &state,
+        plan_id,
+        draft,
+        AppendStepOptions {
+            mutation_reason: Some("Verification revealed export reconstruction was missing".into()),
+            linked_criterion_ids: vec!["AC-001".into()],
+            prd_delta: Some(prd_delta.clone()),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(row.step_id, "step-002");
+    assert_eq!(
+        row.acceptance_criteria.as_ref().unwrap()["linkedCriterionIds"],
+        json!(["AC-001"])
+    );
+    assert_eq!(
+        row.acceptance_criteria.as_ref().unwrap()["rationale"],
+        "The export step preserves AC-001 evidence after mutation."
+    );
+
+    let db = state.db.lock().unwrap();
+    let latest_prd = prd::latest_version(db.conn(), project_id).unwrap().unwrap();
+    assert_eq!(latest_prd.version, 2);
+    assert_eq!(latest_prd.previous_version, Some(1));
+    assert_eq!(latest_prd.snapshot.current_version, 2);
+    assert!(latest_prd
+        .snapshot
+        .scope
+        .iter()
+        .any(|item| item == "Mutation export"));
+    assert!(latest_prd
+        .snapshot
+        .acceptance_criteria
+        .iter()
+        .any(|criterion| criterion.criterion_id == "AC-002"));
+
+    let mutations = plan_mutation::list_mutations_by_plan(db.conn(), plan_id).unwrap();
+    assert_eq!(mutations.len(), 1);
+    assert_eq!(mutations[0].r#type, PlanMutationType::AddStep);
+    assert_eq!(
+        mutations[0].reason.as_deref(),
+        Some("Verification revealed export reconstruction was missing")
+    );
+    assert_eq!(mutations[0].step_db_id, Some(row.id));
+    assert_eq!(mutations[0].stable_step_id.as_deref(), Some("step-002"));
+    assert_eq!(mutations[0].criterion_ids, vec!["AC-001"]);
+    assert_eq!(
+        mutations[0].prd_delta.added_criteria[0].criterion_id,
+        "AC-002"
+    );
+
+    let events = event_log::list(db.conn()).unwrap();
+    let appended = events
+        .iter()
+        .find(|event| event.r#type == "plan_step_appended")
+        .expect("append flow should log plan_step_appended");
+    assert!(appended.payload["mutation_id"]
+        .as_str()
+        .unwrap()
+        .starts_with("mut-step-002-"));
+    assert_eq!(appended.payload["project_id"], json!(project_id));
+    assert_eq!(appended.payload["plan_id"], json!(plan_id));
+    assert_eq!(appended.payload["step_id"], json!(row.id));
+    assert_eq!(appended.payload["stable_step_id"], json!("step-002"));
+    assert_eq!(appended.payload["from_project_spec_version"], json!(1));
+    assert_eq!(appended.payload["to_project_spec_version"], json!(2));
+    assert_eq!(appended.payload["linked_criterion_ids"], json!(["AC-001"]));
+    assert_eq!(
+        appended.payload["prd_delta_summary"]["criterionIdsAdded"],
+        json!(["AC-002"])
+    );
+}
+
+#[test]
+fn append_step_exports_mutation_prd_delta_and_scope_assessment() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    seed_minimal_prd(&state, project_id);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    insert_step(&state, plan_id, "step-001", &[]);
+
+    let mut draft = append_step_draft(vec!["step-001".into()]);
+    draft.title = "Add manual mutation export".into();
+    draft.summary = "Persist manual added-step export state.".into();
+    draft.expected_files = vec!["src/add-step-mutation.ts".into()];
+    draft.linked_criterion_ids = vec![];
+
+    let row = workspace_plan_append_step_with_options_impl(
+        &state,
+        plan_id,
+        draft,
+        AppendStepOptions {
+            mutation_reason: Some("Student found a missing export step".into()),
+            linked_criterion_ids: vec![],
+            prd_delta: Some(ProjectSpecDelta {
+                from_version: 1,
+                to_version: 2,
+                added_criteria: vec![AcceptanceCriterion {
+                    criterion_id: "AC-002".into(),
+                    text: "Manual added steps are exported".into(),
+                    source: AcceptanceCriterionSource::PlanMutation,
+                    status: AcceptanceCriterionStatus::Active,
+                    created_in_version: 2,
+                    retired_in_version: None,
+                }],
+                retired_criterion_ids: vec![],
+                scope_changes: vec!["Manual mutation export".into()],
+                non_goal_changes: vec![],
+            }),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(row.step_id, "step-002");
+    let artifact: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(tmp.path().join(".dive/plan.json")).unwrap())
+            .unwrap();
+    assert_eq!(artifact["steps"][1]["id"], json!("step-002"));
+    assert_eq!(artifact["projectSpec"]["currentVersion"], json!(2));
+    assert_eq!(artifact["projectSpecVersions"][1]["version"], json!(2));
+    assert_eq!(artifact["planMutations"][0]["type"], json!("add_step"));
+    assert_eq!(
+        artifact["planMutations"][0]["reason"],
+        json!("Student found a missing export step")
+    );
+    assert_eq!(
+        artifact["planMutations"][0]["prdDelta"]["addedCriteria"][0]["criterionId"],
+        json!("AC-002")
+    );
+    assert_eq!(
+        artifact["planMutations"][0]["scopeExpansion"]["expanded"],
+        json!(true)
+    );
+    assert_eq!(
+        artifact["planMutations"][0]["scopeExpansion"]["reasonCodes"],
+        json!([
+            "missing_criterion_link",
+            "new_scope_area",
+            "target_outside_scope"
+        ])
+    );
 }
 
 #[test]

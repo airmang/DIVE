@@ -249,6 +249,7 @@ function syntheticActionForEvent(eventType: ProvocationLogEventType): Provocatio
 
 const CARD_AGENCY_COMPONENT: Record<ProvocationCard["type"], AgencyComponent> = {
   oversized_scope: "intent",
+  scope_expansion: "plan",
   missing_acceptance_criteria: "intent",
   missing_verification_step: "plan",
   diff_scope_drift: "diff",
@@ -258,6 +259,7 @@ const CARD_AGENCY_COMPONENT: Record<ProvocationCard["type"], AgencyComponent> = 
 
 const CARD_AGENCY_STATE: Record<ProvocationCard["type"], AgencyState> = {
   oversized_scope: "intent_needed",
+  scope_expansion: "plan_review_needed",
   missing_acceptance_criteria: "intent_needed",
   missing_verification_step: "verification_needed",
   diff_scope_drift: "diff_review_needed",

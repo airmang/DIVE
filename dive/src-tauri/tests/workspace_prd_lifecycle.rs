@@ -6,6 +6,9 @@ use dive_lib::db::models::{
     NewProjectSpecVersion, NewStep, ObjectionSuggestionStatus, PlanMutationType, ProjectSpec,
     ProjectSpecDelta, ProjectSpecDraft, ProjectSpecStatus, ScopeExpansionAssessment,
 };
+use dive_lib::ipc::workspace_plan::{
+    assess_scope_expansion_for_append, AcceptanceCriterionInput, StepDraftInput,
+};
 use dive_lib::Database;
 use serde_json::json;
 
@@ -101,6 +104,26 @@ fn no_scope_expansion() -> ScopeExpansionAssessment {
         expanded: false,
         reason_codes: vec![],
         evidence_refs: vec!["AC-001".into()],
+    }
+}
+
+fn append_scope_draft() -> StepDraftInput {
+    StepDraftInput {
+        title: "Add PRD export".into(),
+        summary: "Persist PRD mutation export data.".into(),
+        instruction_seed: "Update the export helper for plan mutations.".into(),
+        expected_files: vec!["src/workspace_plan/artifacts.rs".into()],
+        acceptance_criteria: vec![AcceptanceCriterionInput::Text(
+            "PRD versions roundtrip".into(),
+        )],
+        linked_criterion_ids: vec!["AC-001".into()],
+        rationale: Some("The export step preserves AC-001 evidence.".into()),
+        verification_command: Some("cargo test".into()),
+        verification_type: Some("command".into()),
+        dependencies: vec![],
+        parallel_group: None,
+        position: 2,
+        step_id: "step-002".into(),
     }
 }
 
@@ -241,4 +264,61 @@ fn plan_mutation_and_objection_roundtrip() {
         objections[0].suggestion_status,
         ObjectionSuggestionStatus::Offered
     );
+}
+
+#[test]
+fn scope_expansion_flags_missing_criterion_link() {
+    let mut draft = append_scope_draft();
+    draft.linked_criterion_ids = vec![];
+    let spec = project_spec(1);
+
+    let assessment = assess_scope_expansion_for_append(&spec, &draft, &[], None);
+
+    assert!(assessment.expanded);
+    assert_eq!(assessment.reason_codes, vec!["missing_criterion_link"]);
+    assert!(assessment
+        .evidence_refs
+        .iter()
+        .any(|item| item == "step.linkedCriterionIds"));
+}
+
+#[test]
+fn scope_expansion_flags_new_scope_area_from_prd_delta() {
+    let spec = project_spec(1);
+    let draft = append_scope_draft();
+    let delta = ProjectSpecDelta {
+        from_version: 1,
+        to_version: 2,
+        added_criteria: vec![],
+        retired_criterion_ids: vec![],
+        scope_changes: vec!["Authentication settings".into()],
+        non_goal_changes: vec![],
+    };
+
+    let assessment =
+        assess_scope_expansion_for_append(&spec, &draft, &["AC-001".into()], Some(&delta));
+
+    assert!(assessment.expanded);
+    assert_eq!(assessment.reason_codes, vec!["new_scope_area"]);
+    assert!(assessment
+        .evidence_refs
+        .iter()
+        .any(|item| item == "prdDelta.scopeChanges[0]"));
+}
+
+#[test]
+fn scope_expansion_flags_out_of_scope_target_files() {
+    let mut spec = project_spec(1);
+    spec.non_goals = vec!["auth".into()];
+    let mut draft = append_scope_draft();
+    draft.expected_files = vec!["src/auth/session.ts".into()];
+
+    let assessment = assess_scope_expansion_for_append(&spec, &draft, &["AC-001".into()], None);
+
+    assert!(assessment.expanded);
+    assert_eq!(assessment.reason_codes, vec!["target_outside_scope"]);
+    assert!(assessment
+        .evidence_refs
+        .iter()
+        .any(|item| item == "step.expectedFiles[0]"));
 }

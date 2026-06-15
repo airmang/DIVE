@@ -1,4 +1,4 @@
-import { MessageCircle, Plus } from "lucide-react";
+import { ClipboardList, MessageCircle } from "lucide-react";
 import type { AcceptanceCriterionInput, RouteDecision } from "../../features/planning";
 import type { PlanRoadmapStep } from "../../features/roadmap";
 import { useT } from "../../i18n";
@@ -106,7 +106,7 @@ export function PlanRouteConfirmModal({
             {t("planning.route.confirm.skip_button")}
           </Button>
           <Button onClick={onApprove} data-testid="plan-route-approve">
-            <Plus className="h-4 w-4" />
+            <ClipboardList className="h-4 w-4" />
             {t("planning.route.confirm.add_button")}
           </Button>
         </DialogFooter>

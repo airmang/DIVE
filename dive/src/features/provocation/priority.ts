@@ -10,6 +10,7 @@ const TYPE_PRIORITY: Record<ProvocationCardType, number> = {
   ai_self_report_only: 500,
   regeneration_loop: 400,
   missing_verification_step: 300,
+  scope_expansion: 250,
   missing_acceptance_criteria: 200,
   oversized_scope: 100,
 };

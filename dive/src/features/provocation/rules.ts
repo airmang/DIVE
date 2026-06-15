@@ -255,6 +255,61 @@ function hasVerificationStep(steps: ProvocationPlanStep[] | undefined): boolean 
   );
 }
 
+export interface ScopeExpansionAssessmentLike {
+  expanded: boolean;
+  reasonCodes: string[];
+  evidenceRefs: string[];
+}
+
+const SCOPE_EXPANSION_REASON_LABELS: Record<string, string> = {
+  missing_criterion_link: "연결된 PRD 기준",
+  new_scope_area: "새 PRD 범위",
+  target_outside_scope: "범위 밖 대상",
+};
+
+function scopeExpansionEvidence(assessment: ScopeExpansionAssessmentLike): ProvocationEvidence[] {
+  return assessment.evidenceRefs.slice(0, 3).map((refId, index) => {
+    const reasonCode = assessment.reasonCodes[index] ?? assessment.reasonCodes[0] ?? "scope";
+    return {
+      refId,
+      source: "plan",
+      label: SCOPE_EXPANSION_REASON_LABELS[reasonCode] ?? "범위 검토 근거",
+      value: refId,
+    };
+  });
+}
+
+export function scopeExpansionAssessmentRule(
+  context: ProvocationContext,
+  assessment: ScopeExpansionAssessmentLike,
+): ProvocationCard | null {
+  if (!assessment.expanded) return null;
+
+  return card({
+    context,
+    type: "scope_expansion",
+    severity: "caution",
+    stage: "instruct",
+    title: "확인 필요 카드",
+    prompt: "이 추가 단계가 현재 PRD 범위와 기준 안에 들어오나요?",
+    message:
+      "새 단계가 PRD 기준과 바로 연결되지 않거나 범위 밖 대상을 건드릴 수 있습니다. 필요하면 PRD를 먼저 갱신하세요.",
+    evidence: scopeExpansionEvidence(assessment),
+    guided:
+      "검증 중 새 일이 보이면 계획에 추가하되, 기존 PRD 기준과 이어지는지 한 번만 확인하면 됩니다.",
+    actions: [
+      action("link-criterion", "PRD 기준 연결", "add_acceptance_criteria"),
+      action("split-scope", "범위 작게 나누기", "split_scope"),
+    ],
+    primaryActionId: "link-criterion",
+    metadata: {
+      placement: "plan_add_step",
+      blocking: false,
+      scopeExpansion: assessment,
+    },
+  });
+}
+
 function categorizePath(path: string): ChangedFileCategory {
   const lower = path.toLowerCase();
   if (HIGH_RISK_PATH_PATTERNS.some((pattern) => pattern.test(path))) {
@@ -350,13 +405,7 @@ export function oversizedScopeRule(context: ProvocationContext): ProvocationCard
   const expectedFiles = expectedFileCount(context);
   const multiScopeSignal = connectors + separators + expansions;
 
-  if (
-    smallSingleScope &&
-    features <= 1 &&
-    bullets <= 1 &&
-    planSteps <= 2 &&
-    expectedFiles <= 2
-  ) {
+  if (smallSingleScope && features <= 1 && bullets <= 1 && planSteps <= 2 && expectedFiles <= 2) {
     return null;
   }
 
@@ -498,7 +547,13 @@ export function diffScopeDriftRule(context: ProvocationContext): ProvocationCard
       action("diff", "파일별 Diff 보기", "open_diff"),
       action("rationale", "AI에게 변경 이유 묻기", "ask_ai_for_rationale"),
       action("revert", "관련 없는 변경 되돌리기", "revert_unrelated_changes"),
-      action("risk", "위험 감수하고 수용", "continue_with_risk", true, "이 목표 밖 변경을 수용하는 이유는 무엇인가요?"),
+      action(
+        "risk",
+        "위험 감수하고 수용",
+        "continue_with_risk",
+        true,
+        "이 목표 밖 변경을 수용하는 이유는 무엇인가요?",
+      ),
     ],
     primaryActionId: "diff",
     metadata: {
@@ -539,7 +594,13 @@ export function aiSelfReportOnlyRule(context: ProvocationContext): ProvocationCa
       action("run", "앱 실행", "run_app"),
       action("preview", "프리뷰 확인", "open_preview"),
       action("test", "테스트 실행", "run_tests"),
-      action("risk", "미검증 상태로 승인", "continue_with_risk", true, "무엇을 근거로 미검증 상태를 수용하나요?"),
+      action(
+        "risk",
+        "미검증 상태로 승인",
+        "continue_with_risk",
+        true,
+        "무엇을 근거로 미검증 상태를 수용하나요?",
+      ),
     ],
     primaryActionId: "run",
   });
@@ -549,8 +610,7 @@ export function regenerationLoopRule(context: ProvocationContext): ProvocationCa
   const retryCount = context.retryCountForCurrentError ?? 0;
   const errors = context.recentErrors ?? [];
   const retrySignals = (context.retrySignals ?? []).filter(
-    (signal) =>
-      signal.retryCount >= 2 && !signal.rollbackOrReproMentioned && !signal.scopeNarrowed,
+    (signal) => signal.retryCount >= 2 && !signal.rollbackOrReproMentioned && !signal.scopeNarrowed,
   );
   const counts = new Map<string, number>();
   for (const error of errors) {
@@ -623,8 +683,8 @@ export function isQuarantinedRuleCardGenerationEnabled(): boolean {
 function hasRetryEvidence(context: ProvocationContext): boolean {
   return Boolean(
     context.retryCountForCurrentError ||
-      context.recentErrors?.length ||
-      context.retrySignals?.some((signal) => signal.retryCount > 0),
+    context.recentErrors?.length ||
+    context.retrySignals?.some((signal) => signal.retryCount > 0),
   );
 }
 
@@ -632,6 +692,8 @@ function cardEligibleForStage(card: ProvocationCard, context: ProvocationContext
   switch (card.type) {
     case "oversized_scope":
       return context.stage === "decompose" || context.stage === "instruct";
+    case "scope_expansion":
+      return context.stage === "instruct";
     case "missing_acceptance_criteria":
       return context.stage === "decompose" || context.stage === "instruct";
     case "missing_verification_step":
