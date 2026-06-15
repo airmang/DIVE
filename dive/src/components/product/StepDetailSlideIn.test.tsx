@@ -150,7 +150,7 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
       expect.objectContaining({
         sessionId: 2,
         event: "verify_entered",
-        sourceUiMode: "standard",
+        sourceUiMode: "work",
         artifactRef: expect.objectContaining({ kind: "step", id: "1" }),
       }),
     );
