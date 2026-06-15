@@ -49,6 +49,59 @@ wiremock = "0.6"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "test-util"] }
 tokio-stream = "0.1"
 
+# These integration suites intentionally use the test-only MockProvider. Plain
+# `cargo test` keeps them out of production/default builds; run
+# `cargo test --features dev-mock` for the extended mock-provider coverage.
+[[test]]
+name = "agent_loop"
+path = "tests/agent_loop.rs"
+required-features = ["dev-mock"]
+
+[[test]]
+name = "ai_assist_engine"
+path = "tests/ai_assist_engine.rs"
+required-features = ["dev-mock"]
+
+[[test]]
+name = "card_state_machine"
+path = "tests/card_state_machine.rs"
+required-features = ["dev-mock"]
+
+[[test]]
+name = "connected_provider_smoke"
+path = "tests/connected_provider_smoke.rs"
+required-features = ["dev-mock"]
+
+[[test]]
+name = "it_cards_persistence"
+path = "tests/it_cards_persistence.rs"
+required-features = ["dev-mock"]
+
+[[test]]
+name = "mcp_tool_integration"
+path = "tests/mcp_tool_integration.rs"
+required-features = ["dev-mock"]
+
+[[test]]
+name = "phase5_e2e"
+path = "tests/phase5_e2e.rs"
+required-features = ["dev-mock"]
+
+[[test]]
+name = "prompt_check_engine"
+path = "tests/prompt_check_engine.rs"
+required-features = ["dev-mock"]
+
+[[test]]
+name = "tool_guard"
+path = "tests/tool_guard.rs"
+required-features = ["dev-mock"]
+
+[[test]]
+name = "verify_engine"
+path = "tests/verify_engine.rs"
+required-features = ["dev-mock"]
+
 [profile.release]
 panic = "abort"
 codegen-units = 1

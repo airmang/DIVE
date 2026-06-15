@@ -169,12 +169,12 @@ dedicated add-step mutation and contextual, evidence-grounded scope review.
 
 **Purpose**: Final verification, regression checks, and documentation alignment.
 
-- [ ] T065 [P] Update 004 quickstart implementation notes with any final command or file-path changes in `specs/004-prd-decompose-lifecycle/quickstart.md`
-- [ ] T066 [P] Update active spec status after implementation completion in `docs/spec-status.md`
-- [ ] T067 Run TypeScript typecheck for the app with `pnpm typecheck` from `dive/package.json`
-- [ ] T068 Run frontend unit tests with `pnpm test:unit` from `dive/package.json`
-- [ ] T069 Run Rust tests with `cargo test` from `dive/src-tauri/Cargo.toml`
-- [ ] T070 Run targeted quickstart scenarios for PRD authoring, final read view, criterion-linked decomposition, rationale challenge, add-step mutation, scope card, and export using `specs/004-prd-decompose-lifecycle/quickstart.md`
+- [X] T065 [P] Update 004 quickstart implementation notes with any final command or file-path changes in `specs/004-prd-decompose-lifecycle/quickstart.md`
+- [X] T066 [P] Update active spec status after implementation completion in `docs/spec-status.md`
+- [X] T067 Run TypeScript typecheck for the app with `pnpm typecheck` from `dive/package.json`
+- [X] T068 Run frontend unit tests with `pnpm test:unit` from `dive/package.json`
+- [X] T069 Run Rust tests with `cargo test` from `dive/src-tauri/Cargo.toml`
+- [X] T070 Run targeted quickstart scenarios for PRD authoring, final read view, criterion-linked decomposition, rationale challenge, add-step mutation, scope card, and export using `specs/004-prd-decompose-lifecycle/quickstart.md`
 
 ---
 

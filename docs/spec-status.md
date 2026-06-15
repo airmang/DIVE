@@ -1,6 +1,6 @@
 # DIVE Spec Status
 
-**Last updated**: 2026-06-14
+**Last updated**: 2026-06-15
 
 This file prevents agents from treating old design notes as active product
 authority. The canonical DIVE v2 source of truth lives in `.specify/` and
@@ -19,8 +19,37 @@ authority. The canonical DIVE v2 source of truth lives in `.specify/` and
 | `specs/002-provocation-supervisor-agent/implementation-gap.md` | Canonical planning aid | Tracks current implementation keep/remove/improve alignment for P1. |
 | `specs/003-supervision-card-ux/spec.md` | Canonical | Defines supervision card presentation/IA (focal criterion, review-vs-permission distinction); presentation only. |
 | `specs/003-supervision-card-ux/decisions.md` | Canonical | Records supervision card UX/IA decisions. |
-| `specs/004-prd-decompose-lifecycle/spec.md` | Canonical | Elevates interview to PRD authoring; criterion-linked decomposition; mid-flow step add; living PRD. |
+| `specs/004-prd-decompose-lifecycle/spec.md` | Canonical | Elevates onboarding into PRD authoring via a dedicated PRD Authoring Board with validated turn-by-turn PRD patches and a concise completed PRD read view; criterion-linked decomposition; mid-flow step add; living PRD. |
 | `specs/004-prd-decompose-lifecycle/decisions.md` | Canonical | Records PRD/decompose lifecycle decisions. |
+| `specs/004-prd-decompose-lifecycle/plan.md` | Canonical planning aid | Defines implementation plan, architecture, and test strategy for the PRD/decompose lifecycle. |
+| `specs/004-prd-decompose-lifecycle/research.md` | Canonical planning aid | Records design decisions for PRD persistence, criteria IDs, rationale storage, add-step flow, and scope-expansion gating. |
+| `specs/004-prd-decompose-lifecycle/data-model.md` | Canonical planning aid | Defines ProjectSpec, AcceptanceCriterion, DecompositionRationale, PlanMutation, PRD delta, scope assessment, and Objection entities. |
+| `specs/004-prd-decompose-lifecycle/contracts/` | Canonical planning aid | Defines IPC, UI lifecycle, and EventLog/export contracts for 004. |
+| `specs/004-prd-decompose-lifecycle/quickstart.md` | Canonical planning aid | Defines validation scenarios and commands for the 004 implementation phase. |
+| `specs/004-prd-decompose-lifecycle/tasks.md` | Canonical planning aid | Defines dependency-ordered implementation tasks for 004, organized by independently testable user story. |
+
+## 004 Implementation Status
+
+As of 2026-06-15, `specs/004-prd-decompose-lifecycle/` is implemented through
+the PRD domain foundation, PRD Authoring Board MVP, criterion-linked
+decomposition/rationale challenge, and dedicated add-step/scope-review slices.
+Final validation and handoff are tracked by Wily Stage S-015 and tasks
+T065-T070.
+
+| Wily Stage | Scope | Status |
+| --- | --- | --- |
+| S-011 | T001-T015 PRD contracts, validation, persistence, EventLog, export foundation | Done |
+| S-012 | T016-T034 PRD onboarding, authoring board, read view, PRD IPC/logging | Done |
+| S-013 | T035-T051 criterion-linked decomposition and rationale challenge | Done |
+| S-014 | T052-T064 dedicated add-step mutation, scope assessment, review-card integration, export | Done |
+| S-015 | T065-T070 quickstart/status docs, typecheck, unit tests, Rust tests, quickstart validation | Done |
+
+S-015 did not add product scope. Validation passed with `pnpm typecheck`,
+`pnpm test:unit`, required plain `cargo test`, extended
+`cargo test --features dev-mock`, and a browser smoke of the first-run PRD
+onboarding step. The only fix was a S-015 test-harness configuration change:
+MockProvider integration test targets now declare `required-features =
+["dev-mock"]` in `dive/src-tauri/Cargo.toml`.
 
 ## Root Legacy Specs
 
