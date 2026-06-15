@@ -33,10 +33,12 @@ import { usePlanRoadmap, useRoadmap } from "../../features/roadmap";
 import {
   PLAN_DRAFT_REVIEW_REQUEST_EVENT,
   createLiveProjectSpecDraft,
+  requestPlanAdjustmentReview,
   usePlan,
   usePlanRouter,
   type LiveProjectSpecDraft,
   type ProjectSpec,
+  type RationaleChallengeOffer,
   type RouteDecision,
 } from "../../features/planning";
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
@@ -526,6 +528,53 @@ export function useProductShellController() {
         stepDbId: currentPlanRoadmapStep.step.id,
         text: input.text,
         linkedCriterionIds: input.linkedCriterionIds,
+      });
+    },
+    [currentPlanRoadmapStep, plan],
+  );
+  const handleAcceptRationaleChallengeOffer = useCallback(
+    async (offer: RationaleChallengeOffer) => {
+      if (!currentPlanRoadmapStep) {
+        throw new Error("Plan step context unavailable");
+      }
+      await plan.acceptRationaleChallengeOffer({
+        planId: currentPlanRoadmapStep.step.plan_id,
+        stepDbId: currentPlanRoadmapStep.step.id,
+        objectionId: offer.objectionId,
+        offerId: offer.offerId,
+      });
+      const offerMessage = offer.message || t("planning.decomposition.offer_message");
+      if (currentProjectId !== null) {
+        requestPlanAdjustmentReview({
+          projectId: currentProjectId,
+          planId: currentPlanRoadmapStep.step.plan_id,
+          stepDbId: currentPlanRoadmapStep.step.id,
+          objectionId: offer.objectionId,
+          offerId: offer.offerId,
+          offerKind: offer.offerKind,
+          message: offerMessage,
+          suggestedSeed: offer.suggestedSeed,
+        });
+      }
+      await planRoadmap.refresh();
+      toast({
+        variant: "info",
+        title: t("planning.decomposition.offer_title"),
+        description: offerMessage,
+      });
+    },
+    [currentPlanRoadmapStep, currentProjectId, plan, planRoadmap, t, toast],
+  );
+  const handleDismissRationaleChallengeOffer = useCallback(
+    async (offer: RationaleChallengeOffer) => {
+      if (!currentPlanRoadmapStep) {
+        throw new Error("Plan step context unavailable");
+      }
+      await plan.dismissRationaleChallengeOffer({
+        planId: currentPlanRoadmapStep.step.plan_id,
+        stepDbId: currentPlanRoadmapStep.step.id,
+        objectionId: offer.objectionId,
+        offerId: offer.offerId,
       });
     },
     [currentPlanRoadmapStep, plan],
@@ -1493,6 +1542,8 @@ export function useProductShellController() {
       onApprovalDecision: handleApprovalDecision,
       onGoToChat: handleGoToChatFromStepDetail,
       onChallengeStepRationale: handleChallengeStepRationale,
+      onAcceptRationaleChallengeOffer: handleAcceptRationaleChallengeOffer,
+      onDismissRationaleChallengeOffer: handleDismissRationaleChallengeOffer,
     },
     recovery: {
       open: dialogs.recoveryOpen,

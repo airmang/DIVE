@@ -323,6 +323,17 @@ pub enum ObjectionSuggestionStatus {
     Dismissed,
 }
 
+impl ObjectionSuggestionStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Offered => "offered",
+            Self::Accepted => "accepted",
+            Self::Dismissed => "dismissed",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeCapabilityStatus {
@@ -370,12 +381,31 @@ pub enum PlanAdjustmentOfferKind {
     AdjustPlan,
 }
 
+impl PlanAdjustmentOfferKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RedecomposeStep => "redecompose_step",
+            Self::AdjustPlan => "adjust_plan",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanAdjustmentOfferStatus {
     Offered,
     Accepted,
     Dismissed,
+}
+
+impl PlanAdjustmentOfferStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Offered => "offered",
+            Self::Accepted => "accepted",
+            Self::Dismissed => "dismissed",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

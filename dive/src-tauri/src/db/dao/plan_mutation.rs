@@ -2,7 +2,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::db::dao::{json_to_string, parse_json};
 use crate::db::models::{
-    NewObjection, NewPlanMutation, ObjectionRow, ObjectionSuggestionStatus, PlanMutationRow,
+    NewObjection, NewPlanMutation, ObjectionRow, ObjectionSuggestionStatus,
+    PlanAdjustmentOfferKind, PlanAdjustmentOfferRow, PlanAdjustmentOfferStatus, PlanMutationRow,
     PlanMutationType, ProjectSpecDelta, ScopeExpansionAssessment,
 };
 use crate::db::{now_ms, DbError};
@@ -20,12 +21,7 @@ fn parse_mutation_type(value: String) -> Result<PlanMutationType, DbError> {
 }
 
 fn suggestion_status_as_str(value: ObjectionSuggestionStatus) -> &'static str {
-    match value {
-        ObjectionSuggestionStatus::None => "none",
-        ObjectionSuggestionStatus::Offered => "offered",
-        ObjectionSuggestionStatus::Accepted => "accepted",
-        ObjectionSuggestionStatus::Dismissed => "dismissed",
-    }
+    value.as_str()
 }
 
 fn parse_suggestion_status(value: String) -> Result<ObjectionSuggestionStatus, DbError> {
@@ -155,4 +151,72 @@ pub fn list_objections_by_plan(
         .query_map([plan_id], query_objection_row)?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
+}
+
+pub fn get_objection(
+    conn: &Connection,
+    objection_id: &str,
+) -> Result<Option<ObjectionRow>, DbError> {
+    Ok(conn
+        .query_row(
+            "SELECT objection_id, project_id, plan_id, step_db_id, stable_step_id, text, linked_criterion_ids, suggestion_status, created_at FROM Objection WHERE objection_id = ?",
+            [objection_id],
+            query_objection_row,
+        )
+        .optional()?)
+}
+
+pub fn update_objection_suggestion_status(
+    conn: &Connection,
+    objection_id: &str,
+    status: ObjectionSuggestionStatus,
+) -> Result<ObjectionRow, DbError> {
+    conn.execute(
+        "UPDATE Objection SET suggestion_status = ? WHERE objection_id = ?",
+        params![suggestion_status_as_str(status), objection_id],
+    )?;
+    get_objection(conn, objection_id)?
+        .ok_or_else(|| DbError::Sqlite(rusqlite::Error::QueryReturnedNoRows))
+}
+
+pub fn plan_adjustment_offer_id(objection_id: &str) -> String {
+    format!("offer:{objection_id}")
+}
+
+pub fn plan_adjustment_offer_kind(_objection: &ObjectionRow) -> PlanAdjustmentOfferKind {
+    PlanAdjustmentOfferKind::RedecomposeStep
+}
+
+pub fn plan_adjustment_offer_message(_objection: &ObjectionRow) -> String {
+    "계획 영역에서 이 단계를 다시 나누는 제안을 검토할 수 있어요.".to_string()
+}
+
+pub fn plan_adjustment_offer_status(
+    status: ObjectionSuggestionStatus,
+) -> Option<PlanAdjustmentOfferStatus> {
+    match status {
+        ObjectionSuggestionStatus::None => None,
+        ObjectionSuggestionStatus::Offered => Some(PlanAdjustmentOfferStatus::Offered),
+        ObjectionSuggestionStatus::Accepted => Some(PlanAdjustmentOfferStatus::Accepted),
+        ObjectionSuggestionStatus::Dismissed => Some(PlanAdjustmentOfferStatus::Dismissed),
+    }
+}
+
+pub fn reconstruct_plan_adjustment_offer(
+    objection: &ObjectionRow,
+) -> Option<PlanAdjustmentOfferRow> {
+    let status = plan_adjustment_offer_status(objection.suggestion_status)?;
+    Some(PlanAdjustmentOfferRow {
+        offer_id: plan_adjustment_offer_id(&objection.objection_id),
+        objection_id: objection.objection_id.clone(),
+        project_id: objection.project_id,
+        plan_id: objection.plan_id,
+        step_db_id: objection.step_db_id,
+        stable_step_id: objection.stable_step_id.clone(),
+        kind: plan_adjustment_offer_kind(objection),
+        status,
+        suggested_seed: Some(plan_adjustment_offer_message(objection)),
+        created_at: objection.created_at,
+        responded_at: None,
+    })
 }

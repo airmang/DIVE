@@ -137,6 +137,55 @@ export interface AppendPlanStepInput {
 }
 
 export type ObjectionSuggestionStatus = "none" | "offered" | "accepted" | "dismissed";
+export type RationaleChallengeOfferKind = "redecompose_step" | "adjust_plan";
+
+export interface ChallengeStepRationaleInput {
+  planId: number;
+  stepDbId: number;
+  text: string;
+  linkedCriterionIds?: string[];
+}
+
+export interface ChallengeStepRationaleResult {
+  objectionId: string;
+  suggestionStatus: ObjectionSuggestionStatus;
+  offerId: string;
+  offerKind: RationaleChallengeOfferKind;
+  message: string;
+  suggestedSeed?: string | null;
+}
+
+export interface RationaleChallengeOffer {
+  objectionId: string;
+  offerId: string;
+  offerKind: RationaleChallengeOfferKind;
+  message: string | null;
+  suggestedSeed: string | null;
+}
+
+export interface RationaleChallengeOfferActionInput {
+  planId: number;
+  stepDbId: number;
+  objectionId: string;
+  offerId: string;
+}
+
+export interface RationaleChallengeOfferActionResult {
+  objectionId: string;
+  offerId: string;
+  suggestionStatus: Extract<ObjectionSuggestionStatus, "accepted" | "dismissed">;
+}
+
+export interface PlanAdjustmentReviewRequestDetail {
+  projectId: number;
+  planId: number;
+  stepDbId: number;
+  objectionId: string;
+  offerId: string;
+  offerKind: RationaleChallengeOfferKind;
+  message: string;
+  suggestedSeed?: string | null;
+}
 
 export interface Objection {
   objectionId: string;

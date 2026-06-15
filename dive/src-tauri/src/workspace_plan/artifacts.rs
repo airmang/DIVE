@@ -2,7 +2,7 @@ use std::path::Path;
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::db::dao::{plan as plan_dao, plan_mutation, prd, step as step_dao};
 use crate::db::models::{
@@ -10,6 +10,10 @@ use crate::db::models::{
     ProjectSpecVersionRow, StepRow,
 };
 use crate::db::DbError;
+use crate::dive::event_log::{
+    PLAN_ADJUSTMENT_ACCEPTED_EVENT, PLAN_ADJUSTMENT_DISMISSED_EVENT, PLAN_ADJUSTMENT_OFFERED_EVENT,
+    RUNTIME_CAPABILITY_EVALUATED_EVENT, SUPERVISOR_EVALUATED_EVENT,
+};
 
 const ARTIFACT_SCHEMA_VERSION: i32 = 1;
 
@@ -38,11 +42,53 @@ pub struct PlanArtifact {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub plan_mutations: Vec<PlanMutationRow>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub objections: Vec<ObjectionRow>,
+    pub objections: Vec<ObjectionArtifact>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plan_adjustment_offers: Vec<PlanAdjustmentOfferArtifact>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub event_log_export_contracts: Vec<EventLogExportContract>,
     pub steps: Vec<StepArtifact>,
     pub created_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approved_at: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanAdjustmentOfferArtifact {
+    pub offer_id: String,
+    pub objection_id: String,
+    pub plan_id: i64,
+    pub step_db_id: i64,
+    pub stable_step_id: String,
+    pub status: String,
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggested_seed: Option<String>,
+    pub created_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub responded_at: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObjectionArtifact {
+    pub objection_id: String,
+    pub project_id: i64,
+    pub plan_id: i64,
+    pub step_db_id: i64,
+    pub stable_step_id: String,
+    pub linked_criterion_ids: Vec<String>,
+    pub suggestion_status: String,
+    pub objection_summary: Value,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventLogExportContract {
+    pub event_type: String,
+    pub purpose: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -109,6 +155,9 @@ fn build_plan_artifact(
     let project_spec = project_spec_versions
         .last()
         .map(|version| version.snapshot.clone());
+    let objections = plan_mutation::list_objections_by_plan(conn, plan.id)?;
+    let plan_adjustment_offers = build_plan_adjustment_offer_artifacts(&objections);
+    let objection_artifacts = build_objection_artifacts(&objections);
     Ok(PlanArtifact {
         schema_version: ARTIFACT_SCHEMA_VERSION,
         status: plan.status.clone(),
@@ -122,11 +171,81 @@ fn build_plan_artifact(
         project_spec_versions,
         live_project_spec_draft: prd::get_draft(conn, plan.project_id)?,
         plan_mutations: plan_mutation::list_mutations_by_plan(conn, plan.id)?,
-        objections: plan_mutation::list_objections_by_plan(conn, plan.id)?,
+        objections: objection_artifacts,
+        plan_adjustment_offers,
+        event_log_export_contracts: event_log_export_contracts(),
         steps: steps.iter().map(build_step_artifact).collect(),
         created_at: plan.created_at,
         approved_at: plan.approved_at,
     })
+}
+
+fn build_plan_adjustment_offer_artifacts(
+    objections: &[ObjectionRow],
+) -> Vec<PlanAdjustmentOfferArtifact> {
+    objections
+        .iter()
+        .filter_map(plan_mutation::reconstruct_plan_adjustment_offer)
+        .map(|offer| {
+            PlanAdjustmentOfferArtifact {
+                offer_id: offer.offer_id,
+                objection_id: offer.objection_id,
+                plan_id: offer.plan_id,
+                step_db_id: offer.step_db_id,
+                stable_step_id: offer.stable_step_id,
+                status: offer.status.as_str().to_string(),
+                kind: offer.kind.as_str().to_string(),
+                suggested_seed: offer.suggested_seed,
+                created_at: offer.created_at,
+                responded_at: offer.responded_at,
+            }
+        })
+        .collect()
+}
+
+fn build_objection_artifacts(objections: &[ObjectionRow]) -> Vec<ObjectionArtifact> {
+    objections
+        .iter()
+        .map(|objection| ObjectionArtifact {
+            objection_id: objection.objection_id.clone(),
+            project_id: objection.project_id,
+            plan_id: objection.plan_id,
+            step_db_id: objection.step_db_id,
+            stable_step_id: objection.stable_step_id.clone(),
+            linked_criterion_ids: objection.linked_criterion_ids.clone(),
+            suggestion_status: objection.suggestion_status.as_str().to_string(),
+            objection_summary: json!({
+                "redacted": true,
+                "reason": "objection text is omitted from plan artifact export",
+            }),
+            created_at: objection.created_at,
+        })
+        .collect()
+}
+
+fn event_log_export_contracts() -> Vec<EventLogExportContract> {
+    vec![
+        EventLogExportContract {
+            event_type: RUNTIME_CAPABILITY_EVALUATED_EVENT.to_string(),
+            purpose: "runtime capability ready/unavailable decisions".to_string(),
+        },
+        EventLogExportContract {
+            event_type: SUPERVISOR_EVALUATED_EVENT.to_string(),
+            purpose: "scope-expansion supervisor evaluations and no-card outcomes".to_string(),
+        },
+        EventLogExportContract {
+            event_type: PLAN_ADJUSTMENT_OFFERED_EVENT.to_string(),
+            purpose: "rationale challenge plan-adjustment offers".to_string(),
+        },
+        EventLogExportContract {
+            event_type: PLAN_ADJUSTMENT_ACCEPTED_EVENT.to_string(),
+            purpose: "accepted plan-adjustment offers".to_string(),
+        },
+        EventLogExportContract {
+            event_type: PLAN_ADJUSTMENT_DISMISSED_EVENT.to_string(),
+            purpose: "dismissed plan-adjustment offers".to_string(),
+        },
+    ]
 }
 
 fn build_step_artifact(step: &StepRow) -> StepArtifact {

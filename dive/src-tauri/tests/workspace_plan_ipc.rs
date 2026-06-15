@@ -12,8 +12,8 @@ use dive_lib::db::dao::{
 };
 use dive_lib::db::models::{
     AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus, NewInterview,
-    NewLiveProjectSpecDraft, NewPlan, NewProject, NewStep, PlanMutationType, ProjectSpecDelta,
-    ProjectSpecDraft, ProjectSpecStatus,
+    NewLiveProjectSpecDraft, NewPlan, NewProject, NewStep, ObjectionSuggestionStatus,
+    PlanMutationType, ProjectSpecDelta, ProjectSpecDraft, ProjectSpecStatus,
 };
 use dive_lib::ipc::workspace_plan::{
     roadmap_step_open_impl, roadmap_step_update_state_impl, workspace_plan_activity_impl,
@@ -21,13 +21,14 @@ use dive_lib::ipc::workspace_plan::{
     workspace_plan_approve_impl, workspace_plan_challenge_step_rationale_impl,
     workspace_plan_current_draft_impl, workspace_plan_dashboard_impl,
     workspace_plan_discard_plan_impl, workspace_plan_generate_draft_impl,
-    workspace_plan_list_steps_impl, workspace_plan_route_cancel_impl,
-    workspace_plan_route_chat_impl, workspace_plan_save_interview_answer_impl,
-    workspace_plan_start_interview_impl, workspace_plan_status_impl,
-    workspace_plan_step_mappings_impl, workspace_plan_submit_interview_impl,
-    workspace_prd_get_impl, workspace_prd_interview_turn_impl, workspace_prd_save_impl,
-    workspace_prd_status_impl, AcceptanceCriterionInput, AppendStepOptions, PlanDraftInput,
-    PrdInterviewTurnInput, PrdSaveInput, RouteDecision, StepDraftInput,
+    workspace_plan_list_steps_impl, workspace_plan_respond_to_plan_adjustment_offer_impl,
+    workspace_plan_route_cancel_impl, workspace_plan_route_chat_impl,
+    workspace_plan_save_interview_answer_impl, workspace_plan_start_interview_impl,
+    workspace_plan_status_impl, workspace_plan_step_mappings_impl,
+    workspace_plan_submit_interview_impl, workspace_prd_get_impl, workspace_prd_interview_turn_impl,
+    workspace_prd_save_impl, workspace_prd_status_impl, AcceptanceCriterionInput,
+    AppendStepOptions, PlanAdjustmentOfferResponse, PlanAdjustmentOfferResponseInput,
+    PlanDraftInput, PrdInterviewTurnInput, PrdSaveInput, RouteDecision, StepDraftInput,
     StepRationaleChallengeInput, StepStateUpdateInput,
 };
 use dive_lib::{
@@ -667,7 +668,7 @@ fn generate_draft_accepts_legacy_criteria_with_step_links_and_rationale() {
 }
 
 #[test]
-fn challenging_step_rationale_logs_objection_without_blocking_start() {
+fn challenging_step_rationale_offers_plan_adjustment_without_blocking_start() {
     let tmp = tempfile::tempdir().unwrap();
     let state = mk_state(&tmp);
     let project_id = seed_project(&state);
@@ -685,13 +686,172 @@ fn challenging_step_rationale_logs_objection_without_blocking_start() {
     )
     .unwrap();
 
-    assert_eq!(result.suggestion_status, "none");
+    assert_eq!(result.suggestion_status, "offered");
     assert!(result.objection_id.starts_with("obj-"));
+    assert!(!result.offer_id.trim().is_empty());
+    assert!(matches!(
+        result.offer_kind.as_str(),
+        "redecompose_step" | "adjust_plan"
+    ));
+    assert!(!result.message.trim().is_empty());
+
+    let output_json = serde_json::to_value(&result).unwrap();
+    assert_eq!(output_json["suggestionStatus"], json!("offered"));
+    assert_eq!(output_json["offerId"], json!(&result.offer_id));
+    assert_eq!(output_json["offerKind"], json!(&result.offer_kind));
+    assert_eq!(output_json["message"], json!(&result.message));
+
+    let objections =
+        plan_mutation::list_objections_by_plan(state.db.lock().unwrap().conn(), plan_id).unwrap();
+    assert_eq!(objections.len(), 1);
+    assert_eq!(objections[0].objection_id, result.objection_id);
+    assert_eq!(
+        objections[0].suggestion_status,
+        ObjectionSuggestionStatus::Offered
+    );
 
     let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
-    assert!(events
+    let challenged = events
         .iter()
-        .any(|event| event.r#type == "plan_step_rationale_challenged"));
+        .find(|event| event.r#type == "plan_step_rationale_challenged")
+        .expect("challenge flow should log plan_step_rationale_challenged");
+    assert_eq!(challenged.payload["project_id"], json!(project_id));
+    assert_eq!(challenged.payload["plan_id"], json!(plan_id));
+    assert_eq!(challenged.payload["step_id"], json!(step_id));
+    assert_eq!(challenged.payload["stable_step_id"], json!("step-001"));
+    assert_eq!(
+        challenged.payload["linked_criterion_ids"],
+        json!(["AC-001"])
+    );
+    assert_eq!(challenged.payload["objection_id"], json!(&result.objection_id));
+    assert_eq!(challenged.payload["suggestion_status"], json!("offered"));
+
+    let offered = events
+        .iter()
+        .find(|event| event.r#type == "plan_adjustment_offered")
+        .expect("challenge flow should log plan_adjustment_offered");
+    assert_eq!(offered.payload["project_id"], json!(project_id));
+    assert_eq!(offered.payload["plan_id"], json!(plan_id));
+    assert_eq!(offered.payload["step_id"], json!(step_id));
+    assert_eq!(offered.payload["stable_step_id"], json!("step-001"));
+    assert_eq!(offered.payload["objection_id"], json!(&result.objection_id));
+    assert_eq!(offered.payload["offer_id"], json!(&result.offer_id));
+    assert_eq!(offered.payload["offer_kind"], json!(&result.offer_kind));
+    assert!(!offered.payload["offer_summary"]
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .is_empty());
+
+    let opened = roadmap_step_open_impl(&state, step_id).unwrap();
+    assert_eq!(opened.step_id, step_id);
+}
+
+#[test]
+fn responding_to_plan_adjustment_offer_updates_status_without_plan_mutation() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    let step_id = insert_step(&state, plan_id, "step-001", &[]);
+
+    let accepted_challenge = workspace_plan_challenge_step_rationale_impl(
+        &state,
+        StepRationaleChallengeInput {
+            plan_id,
+            step_db_id: step_id,
+            text: "이 단계를 더 작게 나눌 수 있을 것 같아요.".into(),
+            linked_criterion_ids: vec!["AC-001".into()],
+        },
+    )
+    .unwrap();
+
+    let accepted = workspace_plan_respond_to_plan_adjustment_offer_impl(
+        &state,
+        PlanAdjustmentOfferResponseInput {
+            plan_id,
+            step_db_id: step_id,
+            objection_id: accepted_challenge.objection_id.clone(),
+            offer_id: accepted_challenge.offer_id.clone(),
+            response: PlanAdjustmentOfferResponse::Accepted,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(accepted.objection_id, accepted_challenge.objection_id);
+    assert_eq!(accepted.offer_id, accepted_challenge.offer_id);
+    assert_eq!(accepted.suggestion_status, "accepted");
+
+    let objections =
+        plan_mutation::list_objections_by_plan(state.db.lock().unwrap().conn(), plan_id).unwrap();
+    assert_eq!(
+        objections
+            .iter()
+            .find(|objection| objection.objection_id == accepted_challenge.objection_id)
+            .unwrap()
+            .suggestion_status,
+        ObjectionSuggestionStatus::Accepted
+    );
+    assert!(
+        plan_mutation::list_mutations_by_plan(state.db.lock().unwrap().conn(), plan_id)
+            .unwrap()
+            .is_empty(),
+        "accepting an offer must only route to plan review state"
+    );
+
+    std::thread::sleep(Duration::from_millis(1));
+    let dismissed_challenge = workspace_plan_challenge_step_rationale_impl(
+        &state,
+        StepRationaleChallengeInput {
+            plan_id,
+            step_db_id: step_id,
+            text: "일단 현재 계획으로 진행할게요.".into(),
+            linked_criterion_ids: vec!["AC-001".into()],
+        },
+    )
+    .unwrap();
+
+    let dismissed = workspace_plan_respond_to_plan_adjustment_offer_impl(
+        &state,
+        PlanAdjustmentOfferResponseInput {
+            plan_id,
+            step_db_id: step_id,
+            objection_id: dismissed_challenge.objection_id.clone(),
+            offer_id: dismissed_challenge.offer_id.clone(),
+            response: PlanAdjustmentOfferResponse::Dismissed,
+        },
+    )
+    .unwrap();
+    assert_eq!(dismissed.suggestion_status, "dismissed");
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    let accepted_event = events
+        .iter()
+        .find(|event| event.r#type == "plan_adjustment_accepted")
+        .expect("accepting an offer should log plan_adjustment_accepted");
+    assert_eq!(
+        accepted_event.payload["objection_id"],
+        json!(&accepted_challenge.objection_id)
+    );
+    assert_eq!(
+        accepted_event.payload["offer_id"],
+        json!(&accepted_challenge.offer_id)
+    );
+    assert_eq!(accepted_event.payload["response"], json!("accepted"));
+
+    let dismissed_event = events
+        .iter()
+        .find(|event| event.r#type == "plan_adjustment_dismissed")
+        .expect("dismissing an offer should log plan_adjustment_dismissed");
+    assert_eq!(
+        dismissed_event.payload["objection_id"],
+        json!(&dismissed_challenge.objection_id)
+    );
+    assert_eq!(
+        dismissed_event.payload["offer_id"],
+        json!(&dismissed_challenge.offer_id)
+    );
+    assert_eq!(dismissed_event.payload["response"], json!("dismissed"));
 
     let opened = roadmap_step_open_impl(&state, step_id).unwrap();
     assert_eq!(opened.step_id, step_id);

@@ -1,19 +1,26 @@
 import { useCallback, useEffect, useState } from "react";
 import type {
   AppendPlanStepInput,
+  ChallengeStepRationaleInput,
+  ChallengeStepRationaleResult,
   InterviewRow,
   LiveProjectSpecDraft,
   PlanDraftInput,
   PlanGenerationResult,
+  PlanAdjustmentReviewRequestDetail,
   PlanRow,
   PrdPatch,
   PrdPatchValidationOutcome,
   ProjectSpec,
   ProjectSpecDraft,
+  RationaleChallengeOfferActionInput,
+  RationaleChallengeOfferActionResult,
+  RationaleChallengeOfferKind,
 } from "./types";
 import type { PlanStepRow } from "../roadmap";
 
 export const PLAN_DRAFT_REVIEW_REQUEST_EVENT = "dive:plan-draft-review-request";
+export const PLAN_ADJUSTMENT_REVIEW_REQUEST_EVENT = "dive:plan-adjustment-review-request";
 
 export function requestPlanDraftReview(projectId: number) {
   if (typeof window === "undefined") return;
@@ -22,6 +29,11 @@ export function requestPlanDraftReview(projectId: number) {
       detail: { projectId },
     }),
   );
+}
+
+export function requestPlanAdjustmentReview(detail: PlanAdjustmentReviewRequestDetail) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(PLAN_ADJUSTMENT_REVIEW_REQUEST_EVENT, { detail }));
 }
 
 type TauriApi = {
@@ -89,18 +101,6 @@ export interface PrdInterviewTurnResult {
   liveDraft: LiveProjectSpecDraft;
 }
 
-export interface ChallengeStepRationaleInput {
-  planId: number;
-  stepDbId: number;
-  text: string;
-  linkedCriterionIds?: string[];
-}
-
-export interface ChallengeStepRationaleResult {
-  objectionId: string;
-  suggestionStatus: "none" | "offered";
-}
-
 function normalizeGeneratedDraft(value: unknown): PlanGenerationResult {
   if (Array.isArray(value) && value.length === 2) {
     return {
@@ -112,6 +112,61 @@ function normalizeGeneratedDraft(value: unknown): PlanGenerationResult {
   return {
     plan: object.plan as PlanRow,
     steps: object.steps ?? [],
+  };
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function stringField(
+  value: Record<string, unknown>,
+  camelKey: string,
+  snakeKey: string,
+): string | null {
+  const raw = value[camelKey] ?? value[snakeKey];
+  return typeof raw === "string" && raw.trim().length > 0 ? raw : null;
+}
+
+function isRationaleOfferKind(value: string | null): value is RationaleChallengeOfferKind {
+  return value === "redecompose_step" || value === "adjust_plan";
+}
+
+function normalizeChallengeStepRationaleResult(value: unknown): ChallengeStepRationaleResult {
+  const record = objectRecord(value);
+  const objectionId = stringField(record, "objectionId", "objection_id") ?? "";
+  const suggestionStatus =
+    stringField(record, "suggestionStatus", "suggestion_status") === "offered"
+      ? "offered"
+      : "none";
+  const offerKind = stringField(record, "offerKind", "offer_kind");
+
+  return {
+    objectionId,
+    suggestionStatus,
+    offerId: stringField(record, "offerId", "offer_id") ?? "",
+    offerKind:
+      suggestionStatus === "offered" && isRationaleOfferKind(offerKind)
+        ? offerKind
+        : "redecompose_step",
+    message: stringField(record, "message", "message") ?? "",
+    suggestedSeed: stringField(record, "suggestedSeed", "suggested_seed"),
+  };
+}
+
+function normalizeRationaleChallengeOfferActionResult(
+  value: unknown,
+  fallback: RationaleChallengeOfferActionInput & {
+    suggestionStatus: RationaleChallengeOfferActionResult["suggestionStatus"];
+  },
+): RationaleChallengeOfferActionResult {
+  const record = objectRecord(value);
+  const status = stringField(record, "suggestionStatus", "suggestion_status");
+  return {
+    objectionId: stringField(record, "objectionId", "objection_id") ?? fallback.objectionId,
+    offerId: stringField(record, "offerId", "offer_id") ?? fallback.offerId,
+    suggestionStatus:
+      status === "accepted" || status === "dismissed" ? status : fallback.suggestionStatus,
   };
 }
 
@@ -291,14 +346,56 @@ export function usePlan(projectId: number | null) {
   const challengeStepRationale = useCallback(
     async (input: ChallengeStepRationaleInput) => {
       if (!api) throw new Error("Tauri IPC unavailable");
-      const result = await api.invoke<ChallengeStepRationaleResult>(
+      const result = await api.invoke<unknown>(
         "workspace_plan_challenge_step_rationale",
         {
           input,
         },
       );
       await refresh();
-      return result;
+      return normalizeChallengeStepRationaleResult(result);
+    },
+    [api, refresh],
+  );
+
+  const acceptRationaleChallengeOffer = useCallback(
+    async (input: RationaleChallengeOfferActionInput) => {
+      if (!api) throw new Error("Tauri IPC unavailable");
+      const result = await api.invoke<unknown>(
+        "workspace_plan_respond_to_plan_adjustment_offer",
+        {
+          input: {
+            ...input,
+            response: "accepted",
+          },
+        },
+      );
+      await refresh();
+      return normalizeRationaleChallengeOfferActionResult(result, {
+        ...input,
+        suggestionStatus: "accepted",
+      });
+    },
+    [api, refresh],
+  );
+
+  const dismissRationaleChallengeOffer = useCallback(
+    async (input: RationaleChallengeOfferActionInput) => {
+      if (!api) throw new Error("Tauri IPC unavailable");
+      const result = await api.invoke<unknown>(
+        "workspace_plan_respond_to_plan_adjustment_offer",
+        {
+          input: {
+            ...input,
+            response: "dismissed",
+          },
+        },
+      );
+      await refresh();
+      return normalizeRationaleChallengeOfferActionResult(result, {
+        ...input,
+        suggestionStatus: "dismissed",
+      });
     },
     [api, refresh],
   );
@@ -359,6 +456,8 @@ export function usePlan(projectId: number | null) {
     submitPrdInterviewTurn,
     saveProjectSpec,
     challengeStepRationale,
+    acceptRationaleChallengeOffer,
+    dismissRationaleChallengeOffer,
     appendStep,
     approvePlan,
     discardPlan,

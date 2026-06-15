@@ -25,6 +25,10 @@ import type { ApprovalDecision } from "../workmap/ApprovalJudgment";
 import type { VerifyLogView } from "../workmap/types";
 import { useT } from "../../i18n";
 import { useChatComposerStore } from "../../stores/chatComposer";
+import type {
+  ChallengeStepRationaleResult,
+  RationaleChallengeOffer,
+} from "../../features/planning/types";
 import { DecisionGate } from "./DecisionGate";
 import {
   ProvocationCardHost,
@@ -68,7 +72,9 @@ export interface StepDetailSlideInProps {
     stepId: number;
     text: string;
     linkedCriterionIds: string[];
-  }) => Promise<{ objectionId: string; suggestionStatus: "none" | "offered" }>;
+  }) => Promise<ChallengeStepRationaleResult>;
+  onAcceptRationaleChallengeOffer?: (offer: RationaleChallengeOffer) => Promise<void>;
+  onDismissRationaleChallengeOffer?: (offer: RationaleChallengeOffer) => Promise<void>;
   rollbackAvailable: boolean;
   provocation?: {
     enabled: boolean;
@@ -144,6 +150,8 @@ export function StepDetailSlideIn({
   onApprovalDecision,
   onGoToChat,
   onChallengeStepRationale,
+  onAcceptRationaleChallengeOffer,
+  onDismissRationaleChallengeOffer,
   rollbackAvailable,
   provocation,
 }: StepDetailSlideInProps) {
@@ -160,6 +168,10 @@ export function StepDetailSlideIn({
   const [rationaleChallengeBusy, setRationaleChallengeBusy] = useState(false);
   const [rationaleChallengeResult, setRationaleChallengeResult] = useState<string | null>(null);
   const [rationaleChallengeError, setRationaleChallengeError] = useState<string | null>(null);
+  const [rationaleChallengeOffer, setRationaleChallengeOffer] =
+    useState<RationaleChallengeOffer | null>(null);
+  const [rationaleOfferBusy, setRationaleOfferBusy] = useState<"accept" | "dismiss" | null>(null);
+  const [rationaleOfferError, setRationaleOfferError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -182,6 +194,9 @@ export function StepDetailSlideIn({
     setRationaleObjectionText("");
     setRationaleChallengeResult(null);
     setRationaleChallengeError(null);
+    setRationaleChallengeOffer(null);
+    setRationaleOfferBusy(null);
+    setRationaleOfferError(null);
   }, [step?.id]);
 
   const status = step?.status ?? null;
@@ -434,16 +449,24 @@ export function StepDetailSlideIn({
     if (!text) return;
     setRationaleChallengeBusy(true);
     setRationaleChallengeError(null);
+    setRationaleOfferError(null);
     try {
       const result = await onChallengeStepRationale({
         stepId: step.id,
         text,
         linkedCriterionIds: linkedCriteria.map((criterion) => criterion.criterionId),
       });
-      setRationaleChallengeResult(
-        result.suggestionStatus === "offered"
-          ? "이의 제기를 기록했고, 재분해 제안을 준비했습니다."
-          : "이의 제기를 기록했습니다.",
+      setRationaleChallengeResult(t("planning.decomposition.objection_logged"));
+      setRationaleChallengeOffer(
+        result.suggestionStatus === "offered" && result.offerId && result.offerKind
+          ? {
+              objectionId: result.objectionId,
+              offerId: result.offerId,
+              offerKind: result.offerKind,
+              message: result.message,
+              suggestedSeed: result.suggestedSeed ?? null,
+            }
+          : null,
       );
       setRationaleObjectionText("");
       setRationaleChallengeOpen(false);
@@ -451,6 +474,34 @@ export function StepDetailSlideIn({
       setRationaleChallengeError(err instanceof Error ? err.message : String(err));
     } finally {
       setRationaleChallengeBusy(false);
+    }
+  };
+  const handleAcceptRationaleChallengeOffer = async () => {
+    if (!rationaleChallengeOffer || !onAcceptRationaleChallengeOffer) return;
+    setRationaleOfferBusy("accept");
+    setRationaleOfferError(null);
+    try {
+      await onAcceptRationaleChallengeOffer(rationaleChallengeOffer);
+      setRationaleChallengeOffer(null);
+      setRationaleChallengeResult("계획 검토 영역에 제안을 열었습니다.");
+    } catch (err) {
+      setRationaleOfferError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRationaleOfferBusy(null);
+    }
+  };
+  const handleDismissRationaleChallengeOffer = async () => {
+    if (!rationaleChallengeOffer) return;
+    setRationaleOfferBusy("dismiss");
+    setRationaleOfferError(null);
+    try {
+      await onDismissRationaleChallengeOffer?.(rationaleChallengeOffer);
+      setRationaleChallengeOffer(null);
+      setRationaleChallengeResult("제안을 닫았습니다. 현재 단계는 계속 진행할 수 있습니다.");
+    } catch (err) {
+      setRationaleOfferError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRationaleOfferBusy(null);
     }
   };
   const criterionText =
@@ -639,6 +690,56 @@ export function StepDetailSlideIn({
                   ) : null}
                   {rationaleChallengeResult ? (
                     <p className="mt-2 text-xs text-success">{rationaleChallengeResult}</p>
+                  ) : null}
+                  {rationaleChallengeOffer ? (
+                    <div
+                      className="mt-2 rounded-md border border-info/40 bg-info/5 px-3 py-2"
+                      data-testid="step-rationale-offer"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-fg">
+                            {t("planning.decomposition.offer_title")}
+                          </p>
+                          <p className="mt-1 text-xs text-fg-muted">
+                            {rationaleChallengeOffer.message ||
+                              t("planning.decomposition.offer_message")}
+                          </p>
+                        </div>
+                        <span className="shrink-0 rounded-sm border border-info/40 bg-bg px-2 py-0.5 text-[10px] font-semibold text-info">
+                          {rationaleChallengeOffer.offerKind === "redecompose_step"
+                            ? "재분해"
+                            : "계획 조정"}
+                        </span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => void handleAcceptRationaleChallengeOffer()}
+                          disabled={rationaleOfferBusy !== null || !onAcceptRationaleChallengeOffer}
+                          data-testid="step-rationale-offer-accept"
+                        >
+                          <ExternalLink />
+                          {t("planning.decomposition.offer_accept")}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void handleDismissRationaleChallengeOffer()}
+                          disabled={
+                            rationaleOfferBusy !== null || !onDismissRationaleChallengeOffer
+                          }
+                          data-testid="step-rationale-offer-dismiss"
+                        >
+                          <X />
+                          {t("planning.decomposition.offer_dismiss")}
+                        </Button>
+                      </div>
+                      {rationaleOfferError ? (
+                        <p className="mt-2 text-xs text-danger">{rationaleOfferError}</p>
+                      ) : null}
+                    </div>
                   ) : null}
                   {rationaleChallengeError ? (
                     <p className="mt-2 text-xs text-danger">{rationaleChallengeError}</p>

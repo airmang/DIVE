@@ -3,8 +3,9 @@ use dive_lib::db::migrations;
 use dive_lib::db::models::{
     AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus,
     NewLiveProjectSpecDraft, NewObjection, NewPlan, NewPlanMutation, NewProject,
-    NewProjectSpecVersion, NewStep, ObjectionSuggestionStatus, PlanMutationType, ProjectSpec,
-    ProjectSpecDelta, ProjectSpecDraft, ProjectSpecStatus, ScopeExpansionAssessment,
+    NewProjectSpecVersion, NewStep, ObjectionSuggestionStatus, PlanAdjustmentOfferKind,
+    PlanAdjustmentOfferStatus, PlanMutationType, ProjectSpec, ProjectSpecDelta, ProjectSpecDraft,
+    ProjectSpecStatus, ScopeExpansionAssessment,
 };
 use dive_lib::ipc::workspace_plan::{
     assess_scope_expansion_for_append, AcceptanceCriterionInput, StepDraftInput,
@@ -264,6 +265,28 @@ fn plan_mutation_and_objection_roundtrip() {
         objections[0].suggestion_status,
         ObjectionSuggestionStatus::Offered
     );
+
+    let offer = plan_mutation::reconstruct_plan_adjustment_offer(&objections[0]).unwrap();
+    assert_eq!(offer.offer_id, "offer:obj-001");
+    assert_eq!(offer.objection_id, "obj-001");
+    assert_eq!(offer.project_id, project_id);
+    assert_eq!(offer.plan_id, plan_id);
+    assert_eq!(offer.step_db_id, step_db_id);
+    assert_eq!(offer.stable_step_id, "step-001");
+    assert_eq!(offer.kind, PlanAdjustmentOfferKind::RedecomposeStep);
+    assert_eq!(offer.status, PlanAdjustmentOfferStatus::Offered);
+    assert!(offer.suggested_seed.as_deref().unwrap_or("").contains("계획"));
+    assert!(offer.created_at > 0);
+    assert_eq!(offer.responded_at, None);
+
+    let updated = plan_mutation::update_objection_suggestion_status(
+        db.conn(),
+        "obj-001",
+        ObjectionSuggestionStatus::Accepted,
+    )
+    .unwrap();
+    let accepted_offer = plan_mutation::reconstruct_plan_adjustment_offer(&updated).unwrap();
+    assert_eq!(accepted_offer.status, PlanAdjustmentOfferStatus::Accepted);
 }
 
 #[test]

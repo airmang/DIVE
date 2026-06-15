@@ -293,12 +293,8 @@ describe("StepDetailSlideIn criterion-linked rationale challenge", () => {
     cleanup();
   });
 
-  it("renders linked criteria and rationale, then logs a non-blocking challenge", async () => {
-    const onChallengeStepRationale = vi.fn().mockResolvedValue({
-      objectionId: "obj-001",
-      suggestionStatus: "none",
-    });
-    const criterionLinkedStep: ComponentProps<typeof StepDetailSlideIn>["step"] = {
+  function criterionLinkedStep(): ComponentProps<typeof StepDetailSlideIn>["step"] {
+    return {
       ...reviewStep(),
       linkedCriteria: [
         {
@@ -308,43 +304,36 @@ describe("StepDetailSlideIn criterion-linked rationale challenge", () => {
       ],
       decompositionRationale: "저장 완료 기준을 검증하려면 버튼 상태를 먼저 분리해야 한다.",
     };
+  }
 
-    render(
-      <StepDetailSlideIn
-        open
-        step={criterionLinkedStep}
-        toolCallCount={1}
-        verifyLog={{
-          intent_match: true,
-          test_result: "skipped",
-          details: "AI reported completion without external verification.",
-          model: "mock",
-          ran_at: 1,
-        }}
-        verifyState="idle"
-        verifyError={null}
-        changedFiles={[{ path: "src/App.tsx", diff: null }]}
-        planContext={{
-          expectedFiles: ["src/App.tsx"],
-          verificationCommand: "pnpm test",
-          verificationManualCheck: null,
-          verificationKind: "command",
-          dependencies: [],
-          parallelGroup: null,
-          purpose: "버튼 문구만 수정한다",
-        }}
-        onOpenChange={vi.fn()}
-        onOpenCode={vi.fn()}
-        onOpenPreview={vi.fn()}
-        onOpenRecovery={vi.fn()}
-        onVerifyFirst={vi.fn()}
-        onApprovalDecision={vi.fn()}
-        onGoToChat={vi.fn()}
-        onChallengeStepRationale={onChallengeStepRationale}
-        rollbackAvailable
-        provocation={{ enabled: true, mode: "work", projectId: 1, sessionId: 2 }}
-      />,
-    );
+  function submitRationaleChallenge() {
+    fireEvent.click(screen.getByTestId("step-rationale-challenge-toggle"));
+    fireEvent.change(screen.getByTestId("step-rationale-objection-input"), {
+      target: { value: "이 순서가 AC-001에 꼭 필요한지 다시 보고 싶어요." },
+    });
+    fireEvent.click(screen.getByTestId("step-rationale-objection-submit"));
+  }
+
+  it("renders a non-blocking plan-adjustment offer with accept controls", async () => {
+    const onChallengeStepRationale = vi.fn().mockResolvedValue({
+      objectionId: "obj-001",
+      suggestionStatus: "offered",
+      offerId: "offer-001",
+      offerKind: "adjust_plan",
+      message: "현재 계획 영역에서 이 단계를 다시 조정해볼 수 있어요.",
+    });
+    const onAcceptRationaleChallengeOffer = vi.fn().mockResolvedValue(undefined);
+    const onDismissRationaleChallengeOffer = vi.fn().mockResolvedValue(undefined);
+    const onOpenCode = vi.fn();
+
+    renderStepDetail({
+      step: criterionLinkedStep(),
+      onOpenCode,
+      onOpenPreview: undefined,
+      onChallengeStepRationale,
+      onAcceptRationaleChallengeOffer,
+      onDismissRationaleChallengeOffer,
+    });
 
     const linkedCriteria = screen.getByTestId("step-detail-linked-criteria");
     expect(linkedCriteria.textContent).toContain("AC-001");
@@ -357,12 +346,9 @@ describe("StepDetailSlideIn criterion-linked rationale challenge", () => {
       "step-detail-primary-verification-action",
     ) as HTMLButtonElement;
     expect(primaryAction.disabled).toBe(false);
+    expect(primaryAction.getAttribute("data-action-kind")).toBe("open_diff");
 
-    fireEvent.click(screen.getByTestId("step-rationale-challenge-toggle"));
-    fireEvent.change(screen.getByTestId("step-rationale-objection-input"), {
-      target: { value: "이 순서가 AC-001에 꼭 필요한지 다시 보고 싶어요." },
-    });
-    fireEvent.click(screen.getByTestId("step-rationale-objection-submit"));
+    submitRationaleChallenge();
 
     await waitFor(() =>
       expect(onChallengeStepRationale).toHaveBeenCalledWith({
@@ -371,6 +357,68 @@ describe("StepDetailSlideIn criterion-linked rationale challenge", () => {
         linkedCriterionIds: ["AC-001"],
       }),
     );
+
+    const offer = await screen.findByTestId("step-rationale-offer");
+    expect(offer.textContent).toContain("현재 계획 영역에서 이 단계를 다시 조정해볼 수 있어요.");
+    expect(screen.getByTestId("step-rationale-offer-accept")).toBeTruthy();
+    expect(screen.getByTestId("step-rationale-offer-dismiss")).toBeTruthy();
     expect(primaryAction.disabled).toBe(false);
+    fireEvent.click(primaryAction);
+    expect(onOpenCode).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId("step-rationale-offer-accept"));
+    await waitFor(() =>
+      expect(onAcceptRationaleChallengeOffer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          objectionId: "obj-001",
+          offerId: "offer-001",
+          offerKind: "adjust_plan",
+        }),
+      ),
+    );
+  });
+
+  it("dismisses a rationale challenge offer without blocking current-step controls", async () => {
+    const onChallengeStepRationale = vi.fn().mockResolvedValue({
+      objectionId: "obj-002",
+      suggestionStatus: "offered",
+      offerId: "offer-002",
+      offerKind: "redecompose_step",
+      message: "이 단계를 다시 나누는 제안을 검토할 수 있어요.",
+    });
+    const onAcceptRationaleChallengeOffer = vi.fn().mockResolvedValue(undefined);
+    const onDismissRationaleChallengeOffer = vi.fn().mockResolvedValue(undefined);
+    const onOpenCode = vi.fn();
+
+    renderStepDetail({
+      step: criterionLinkedStep(),
+      onOpenCode,
+      onOpenPreview: undefined,
+      onChallengeStepRationale,
+      onAcceptRationaleChallengeOffer,
+      onDismissRationaleChallengeOffer,
+    });
+
+    submitRationaleChallenge();
+
+    await screen.findByTestId("step-rationale-offer");
+    fireEvent.click(screen.getByTestId("step-rationale-offer-dismiss"));
+
+    await waitFor(() =>
+      expect(onDismissRationaleChallengeOffer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          objectionId: "obj-002",
+          offerId: "offer-002",
+          offerKind: "redecompose_step",
+        }),
+      ),
+    );
+
+    const primaryAction = screen.getByTestId(
+      "step-detail-primary-verification-action",
+    ) as HTMLButtonElement;
+    expect(primaryAction.disabled).toBe(false);
+    fireEvent.click(primaryAction);
+    expect(onOpenCode).toHaveBeenCalledTimes(1);
   });
 });

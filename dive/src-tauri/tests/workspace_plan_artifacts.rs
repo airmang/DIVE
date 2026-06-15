@@ -297,7 +297,7 @@ fn approving_plan_exports_prd_lifecycle_foundation() {
             plan_id,
             step_db_id: first_step.id,
             stable_step_id: first_step.step_id.clone(),
-            text: "Why does export belong here?".into(),
+            text: "Why does export belong here? student@example.edu".into(),
             linked_criterion_ids: vec!["AC-001".into()],
             suggestion_status: ObjectionSuggestionStatus::Offered,
         },
@@ -307,10 +307,9 @@ fn approving_plan_exports_prd_lifecycle_foundation() {
     dive_lib::workspace_plan::approve_plan_and_export(db.conn(), plan_id, project_root.path())
         .unwrap();
 
-    let artifact: Value = serde_json::from_str(
-        &std::fs::read_to_string(project_root.path().join(".dive/plan.json")).unwrap(),
-    )
-    .unwrap();
+    let artifact_raw =
+        std::fs::read_to_string(project_root.path().join(".dive/plan.json")).unwrap();
+    let artifact: Value = serde_json::from_str(&artifact_raw).unwrap();
     assert_eq!(
         artifact["projectSpec"]["projectSpecId"],
         spec.project_spec_id
@@ -322,6 +321,17 @@ fn approving_plan_exports_prd_lifecycle_foundation() {
     );
     assert_eq!(artifact["planMutations"][0]["mutationId"], "mut-001");
     assert_eq!(artifact["objections"][0]["objectionId"], "obj-001");
+    assert_eq!(artifact["objections"][0]["objectionSummary"]["redacted"], true);
+    assert!(!artifact_raw.contains("student@example.edu"));
+    assert!(!artifact_raw.contains("Why does export belong here?"));
+    assert_eq!(
+        artifact["planAdjustmentOffers"][0]["offerId"],
+        "offer:obj-001"
+    );
+    assert_eq!(
+        artifact["planAdjustmentOffers"][0]["kind"],
+        "redecompose_step"
+    );
     assert_eq!(
         artifact["steps"][0]["linkedCriterionIds"],
         serde_json::json!(["AC-001"])

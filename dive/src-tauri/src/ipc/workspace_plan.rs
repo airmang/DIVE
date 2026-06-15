@@ -251,6 +251,59 @@ pub struct StepRationaleChallengeInput {
 pub struct StepRationaleChallengeOutput {
     pub objection_id: String,
     pub suggestion_status: String,
+    pub offer_id: String,
+    pub offer_kind: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggested_seed: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanAdjustmentOfferResponse {
+    Accepted,
+    Dismissed,
+}
+
+impl PlanAdjustmentOfferResponse {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Accepted => "accepted",
+            Self::Dismissed => "dismissed",
+        }
+    }
+
+    fn suggestion_status(self) -> ObjectionSuggestionStatus {
+        match self {
+            Self::Accepted => ObjectionSuggestionStatus::Accepted,
+            Self::Dismissed => ObjectionSuggestionStatus::Dismissed,
+        }
+    }
+
+    fn event_type(self) -> &'static str {
+        match self {
+            Self::Accepted => dive_event_log::PLAN_ADJUSTMENT_ACCEPTED_EVENT,
+            Self::Dismissed => dive_event_log::PLAN_ADJUSTMENT_DISMISSED_EVENT,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanAdjustmentOfferResponseInput {
+    pub plan_id: i64,
+    pub step_db_id: i64,
+    pub objection_id: String,
+    pub offer_id: String,
+    pub response: PlanAdjustmentOfferResponse,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanAdjustmentOfferResponseOutput {
+    pub objection_id: String,
+    pub offer_id: String,
+    pub suggestion_status: String,
 }
 
 #[tauri::command]
@@ -461,6 +514,14 @@ pub async fn workspace_plan_challenge_step_rationale(
     input: StepRationaleChallengeInput,
 ) -> Result<StepRationaleChallengeOutput, String> {
     workspace_plan_challenge_step_rationale_impl(&state, input)
+}
+
+#[tauri::command]
+pub async fn workspace_plan_respond_to_plan_adjustment_offer(
+    state: State<'_, AppState>,
+    input: PlanAdjustmentOfferResponseInput,
+) -> Result<PlanAdjustmentOfferResponseOutput, String> {
+    workspace_plan_respond_to_plan_adjustment_offer_impl(&state, input)
 }
 
 #[tauri::command]
@@ -2656,6 +2717,18 @@ pub fn workspace_plan_append_step_with_options_impl(
     Ok(row)
 }
 
+const RATIONALE_OFFER_KIND: &str = "redecompose_step";
+const RATIONALE_OFFER_MESSAGE: &str =
+    "계획 영역에서 이 단계를 다시 나누는 제안을 검토할 수 있어요.";
+
+fn rationale_offer_id(objection_id: &str) -> String {
+    format!("offer:{objection_id}")
+}
+
+fn rationale_offer_seed(step_title: &str, objection_text: &str) -> String {
+    format!("'{step_title}' 단계 재분해 검토: {}", objection_text.trim())
+}
+
 pub fn workspace_plan_challenge_step_rationale_impl(
     state: &AppState,
     input: StepRationaleChallengeInput,
@@ -2688,6 +2761,8 @@ pub fn workspace_plan_challenge_step_rationale_impl(
         }
     };
     let objection_id = format!("obj-{}-{}", step.step_id, now_ms());
+    let offer_id = rationale_offer_id(&objection_id);
+    let suggested_seed = rationale_offer_seed(&step.title, &text);
     plan_mutation_dao::insert_objection(
         &tx,
         &NewObjection {
@@ -2698,7 +2773,7 @@ pub fn workspace_plan_challenge_step_rationale_impl(
             stable_step_id: step.step_id.clone(),
             text: text.clone(),
             linked_criterion_ids: linked_criterion_ids.clone(),
-            suggestion_status: ObjectionSuggestionStatus::None,
+            suggestion_status: ObjectionSuggestionStatus::Offered,
         },
     )
     .map_err(|e| e.to_string())?;
@@ -2710,7 +2785,7 @@ pub fn workspace_plan_challenge_step_rationale_impl(
         linked_criterion_ids,
         objection_id.clone(),
         text,
-        "none",
+        "offered",
     );
     if let Value::Object(map) = &mut payload {
         map.insert(
@@ -2726,10 +2801,84 @@ pub fn workspace_plan_challenge_step_rationale_impl(
         payload,
     )
     .map_err(|e| e.to_string())?;
+    let offer_payload = dive_event_log::plan_adjustment_offered_payload(
+        plan.project_id,
+        plan.id,
+        step.id,
+        step.step_id.clone(),
+        objection_id.clone(),
+        offer_id.clone(),
+        RATIONALE_OFFER_KIND,
+        RATIONALE_OFFER_MESSAGE,
+    );
+    dive_event_log::append_to_conn(
+        &tx,
+        None,
+        dive_event_log::PLAN_ADJUSTMENT_OFFERED_EVENT,
+        offer_payload,
+    )
+    .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
+    let project_root = state.project_root_required()?;
+    workspace_plan_service::artifacts::export_plan_artifacts(conn, plan.id, &project_root)
+        .map_err(|e| e.to_string())?;
     Ok(StepRationaleChallengeOutput {
         objection_id,
-        suggestion_status: "none".into(),
+        suggestion_status: "offered".into(),
+        offer_id,
+        offer_kind: RATIONALE_OFFER_KIND.into(),
+        message: RATIONALE_OFFER_MESSAGE.into(),
+        suggested_seed: Some(suggested_seed),
+    })
+}
+
+pub fn workspace_plan_respond_to_plan_adjustment_offer_impl(
+    state: &AppState,
+    input: PlanAdjustmentOfferResponseInput,
+) -> Result<PlanAdjustmentOfferResponseOutput, String> {
+    let response = input.response;
+    let status = response.suggestion_status();
+    let event_type = response.event_type();
+    if input.offer_id != rationale_offer_id(&input.objection_id) {
+        return Err("offer does not match objection".into());
+    }
+
+    let mut db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn_mut();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let objection = plan_mutation_dao::get_objection(&tx, &input.objection_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("objection {} not found", input.objection_id))?;
+    if objection.plan_id != input.plan_id || objection.step_db_id != input.step_db_id {
+        return Err("offer context does not match objection".into());
+    }
+    if objection.suggestion_status == ObjectionSuggestionStatus::None {
+        return Err("objection has no plan-adjustment offer".into());
+    }
+    let updated = plan_mutation_dao::update_objection_suggestion_status(
+        &tx,
+        &input.objection_id,
+        status,
+    )
+    .map_err(|e| e.to_string())?;
+    let payload = dive_event_log::plan_adjustment_response_payload(
+        updated.project_id,
+        updated.plan_id,
+        updated.step_db_id,
+        updated.stable_step_id.clone(),
+        updated.objection_id.clone(),
+        input.offer_id.clone(),
+        response.as_str(),
+    );
+    dive_event_log::append_to_conn(&tx, None, event_type, payload).map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    let project_root = state.project_root_required()?;
+    workspace_plan_service::artifacts::export_plan_artifacts(conn, updated.plan_id, &project_root)
+        .map_err(|e| e.to_string())?;
+    Ok(PlanAdjustmentOfferResponseOutput {
+        objection_id: updated.objection_id,
+        offer_id: input.offer_id,
+        suggestion_status: response.as_str().to_string(),
     })
 }
 
