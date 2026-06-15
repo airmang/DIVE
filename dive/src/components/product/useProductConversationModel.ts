@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { WorkspacePlanStatus } from "../../features/planning";
+import type { WorkspacePlanStatus, WorkspacePrdReadiness } from "../../features/planning";
 import type { ChatMessage } from "../chat/types";
 import type { CardTileData } from "../workmap/types";
 import {
@@ -29,10 +29,15 @@ export function useProductConversationModel(input: {
   messages: ChatMessage[];
   generatedPlanDraftPresent: boolean;
   planStatus: WorkspacePlanStatus | null;
+  prdStatus?: WorkspacePrdReadiness | null;
+  hasPlan?: boolean;
+  hasApprovedPlan?: boolean;
   onEmptyStateAction: Action;
   onOpenSettings: Action;
   onWriteInstruction: Action;
   onProviderAction: Action;
+  onPrdAction?: Action;
+  onPlanAction?: Action;
   onSessionAction: Action;
   onOpenResultPanel: Action;
   onOpenReviewPanel: Action;
@@ -111,8 +116,13 @@ export function useProductConversationModel(input: {
         currentSessionId: input.currentSessionId,
         currentProjectName: input.currentProjectName,
         providerDoneHint: input.providerDoneHint,
+        prdStatus: input.prdStatus,
+        hasPlan: input.hasPlan,
+        hasApprovedPlan: input.hasApprovedPlan,
         onProjectAction: input.onEmptyStateAction,
         onProviderAction: input.onProviderAction,
+        onPrdAction: input.onPrdAction,
+        onPlanAction: input.onPlanAction,
         onSessionAction: input.onSessionAction,
         t: input.t,
       }),
@@ -121,11 +131,16 @@ export function useProductConversationModel(input: {
       input.currentProjectName,
       input.currentSessionId,
       input.hasConnectedProvider,
+      input.hasApprovedPlan,
+      input.hasPlan,
       input.isDemoRoute,
       input.onEmptyStateAction,
       input.onProviderAction,
+      input.onPlanAction,
+      input.onPrdAction,
       input.onSessionAction,
       input.projectSessionLoaded,
+      input.prdStatus,
       input.providerDoneHint,
       input.t,
     ],

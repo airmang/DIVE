@@ -62,28 +62,28 @@ version, and the Final PRD Read View appears without interview or patch UI.
 
 ### Tests for User Story 1
 
-- [ ] T016 [P] [US1] Add Rust IPC tests for workspace_prd_status, workspace_prd_get, workspace_prd_interview_turn, workspace_prd_save, and missing-PRD plan generation refusal in `dive/src-tauri/tests/workspace_plan_ipc.rs`
-- [ ] T017 [P] [US1] Add hook tests for PRD IPC methods and draft/status normalization in `dive/src/features/planning/usePlan.test.ts`
-- [ ] T018 [P] [US1] Extend onboarding logic tests for project -> provider -> PRD -> plan/session ordering and PRD draft resume behavior in `dive/src/components/product/productShellConversationLogic.test.ts`
-- [ ] T019 [P] [US1] Add PRD Authoring Board UI tests for board regions, provider/model selector, minimal validation, patch highlight, and student-edit conflict handling in `dive/src/components/product/PrdAuthoringBoard.test.tsx`
-- [ ] T020 [P] [US1] Add Final PRD Read View tests for concise layout, hidden interview/patch/edit controls, and edit action routing in `dive/src/components/product/FinalPrdReadView.test.tsx`
+- [X] T016 [P] [US1] Add Rust IPC tests for workspace_prd_status, workspace_prd_get, workspace_prd_interview_turn, workspace_prd_save, and missing-PRD plan generation refusal in `dive/src-tauri/tests/workspace_plan_ipc.rs`
+- [X] T017 [P] [US1] Add hook tests for PRD IPC methods and draft/status normalization in `dive/src/features/planning/usePlan.test.ts`
+- [X] T018 [P] [US1] Extend onboarding logic tests for project -> provider -> PRD -> plan/session ordering and PRD draft resume behavior in `dive/src/components/product/productShellConversationLogic.test.ts`
+- [X] T019 [P] [US1] Add PRD Authoring Board UI tests for board regions, provider/model selector, minimal validation, patch highlight, and student-edit conflict handling in `dive/src/components/product/PrdAuthoringBoard.test.tsx`
+- [X] T020 [P] [US1] Add Final PRD Read View tests for concise layout, hidden interview/patch/edit controls, and edit action routing in `dive/src/components/product/FinalPrdReadView.test.tsx`
 
 ### Implementation for User Story 1
 
-- [ ] T021 [US1] Add ProjectSpec payloads and workspace_prd_status, workspace_prd_get, workspace_prd_interview_turn, and workspace_prd_save implementations in `dive/src-tauri/src/ipc/workspace_plan.rs`
-- [ ] T022 [US1] Register workspace_prd_status, workspace_prd_get, workspace_prd_interview_turn, and workspace_prd_save in `dive/src-tauri/src/lib.rs`
-- [ ] T023 [US1] Extend `WorkspacePlanStatus` to include PRD status, draft resume state, and minimal PRD gating in `dive/src-tauri/src/ipc/workspace_plan.rs`
-- [ ] T024 [US1] Require a minimal saved PRD before workspace_plan_generate_draft can persist a draft plan in `dive/src-tauri/src/ipc/workspace_plan.rs`
-- [ ] T025 [US1] Add usePlan PRD methods for status, get, interview turn, save, and refresh after PRD version creation in `dive/src/features/planning/usePlan.ts`
-- [ ] T026 [US1] Replace the chat-swapped interview surface with a dedicated PRD authoring state passed from the product shell in `dive/src/components/product/useProductShellController.ts`
-- [ ] T027 [US1] Create the PRD Authoring Board with compact header, interview rail, live PRD canvas, bottom action bar, provider/model selection, patch feedback, and minimal validation in `dive/src/components/product/PrdAuthoringBoard.tsx`
-- [ ] T028 [US1] Keep `SocraticInterviewPanel` only as an internal rail or retire it behind PRD Authoring Board compatibility in `dive/src/components/product/SocraticInterviewPanel.tsx`
-- [ ] T029 [US1] Create the concise Final PRD Read View with goal, acceptance criteria, scope boundary, constraints, version metadata, Edit PRD, and Create Plan actions in `dive/src/components/product/FinalPrdReadView.tsx`
-- [ ] T030 [US1] Update ChatArea to render the PRD authoring/read surfaces without losing normal composer and model selection behavior in `dive/src/components/shell/ChatArea.tsx`
-- [ ] T031 [US1] Extend GetStartedStepKey and checklist rendering for the required PRD step in `dive/src/components/product/GetStartedChecklist.tsx`
-- [ ] T032 [US1] Update deriveGetStartedModel to route project/provider completion into PRD authoring before plan/session in `dive/src/components/product/productShellConversationLogic.ts`
-- [ ] T033 [US1] Wire PRD board open, draft restore, save-to-read-view, edit-mode reopen, and create-plan transition actions in `dive/src/components/product/useProductShellController.ts`
-- [ ] T034 [US1] Emit prd_patch_proposed, prd_patch_applied, prd_patch_rejected, prd_authored, prd_edited, and prd_version_created events from PRD IPC flows in `dive/src-tauri/src/ipc/workspace_plan.rs`
+- [X] T021 [US1] Add ProjectSpec payloads and workspace_prd_status, workspace_prd_get, workspace_prd_interview_turn, and workspace_prd_save implementations in `dive/src-tauri/src/ipc/workspace_plan.rs`
+- [X] T022 [US1] Register workspace_prd_status, workspace_prd_get, workspace_prd_interview_turn, and workspace_prd_save in `dive/src-tauri/src/lib.rs`
+- [X] T023 [US1] Extend `WorkspacePlanStatus` to include PRD status, draft resume state, and minimal PRD gating in `dive/src-tauri/src/ipc/workspace_plan.rs`
+- [X] T024 [US1] Require a minimal saved PRD before workspace_plan_generate_draft can persist a draft plan in `dive/src-tauri/src/ipc/workspace_plan.rs`
+- [X] T025 [US1] Add usePlan PRD methods for status, get, interview turn, save, and refresh after PRD version creation in `dive/src/features/planning/usePlan.ts`
+- [X] T026 [US1] Replace the chat-swapped interview surface with a dedicated PRD authoring state passed from the product shell in `dive/src/components/product/useProductShellController.ts`
+- [X] T027 [US1] Create the PRD Authoring Board with compact header, interview rail, live PRD canvas, bottom action bar, provider/model selection, patch feedback, and minimal validation in `dive/src/components/product/PrdAuthoringBoard.tsx`
+- [X] T028 [US1] Keep `SocraticInterviewPanel` only as an internal rail or retire it behind PRD Authoring Board compatibility in `dive/src/components/product/SocraticInterviewPanel.tsx`
+- [X] T029 [US1] Create the concise Final PRD Read View with goal, acceptance criteria, scope boundary, constraints, version metadata, Edit PRD, and Create Plan actions in `dive/src/components/product/FinalPrdReadView.tsx`
+- [X] T030 [US1] Update ChatArea to render the PRD authoring/read surfaces without losing normal composer and model selection behavior in `dive/src/components/shell/ChatArea.tsx`
+- [X] T031 [US1] Extend GetStartedStepKey and checklist rendering for the required PRD step in `dive/src/components/product/GetStartedChecklist.tsx`
+- [X] T032 [US1] Update deriveGetStartedModel to route project/provider completion into PRD authoring before plan/session in `dive/src/components/product/productShellConversationLogic.ts`
+- [X] T033 [US1] Wire PRD board open, draft restore, save-to-read-view, edit-mode reopen, and create-plan transition actions in `dive/src/components/product/useProductShellController.ts`
+- [X] T034 [US1] Emit prd_patch_proposed, prd_patch_applied, prd_patch_rejected, prd_authored, prd_edited, and prd_version_created events from PRD IPC flows in `dive/src-tauri/src/ipc/workspace_plan.rs`
 
 **Checkpoint**: User Story 1 is independently usable as the MVP: PRD before
 decompose, authoring board, turn-by-turn patching, version save, and concise read

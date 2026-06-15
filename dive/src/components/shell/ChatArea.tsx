@@ -92,6 +92,7 @@ interface ChatAreaProps {
     actionLabel?: string;
     onAction?: () => void;
   };
+  prdSurface?: ReactNode;
   planDraftApproval?: ReactNode;
   provocation?: {
     enabled: boolean;
@@ -141,6 +142,7 @@ export function ChatArea({
   composerHint,
   context,
   emptyState,
+  prdSurface,
   planDraftApproval,
   provocation,
 }: ChatAreaProps) {
@@ -255,6 +257,8 @@ export function ChatArea({
       <div className="flex-1 min-h-0 overflow-hidden">
         {planDraftApproval ? (
           planDraftApproval
+        ) : prdSurface ? (
+          prdSurface
         ) : getStarted ? (
           <GetStartedChecklist model={getStarted} />
         ) : messagesLoading && !hasConversation ? (
@@ -293,122 +297,124 @@ export function ChatArea({
         )}
       </div>
 
-      <footer className="shrink-0 border-t p-4">
-        {isRouting ? (
-          <div
-            className="mb-2 flex items-center gap-2 rounded-md border border-info/40 bg-info/10 px-3 py-2 text-xs text-fg"
-            role="status"
-            data-testid="chat-routing-status"
-          >
-            <AlertCircle className="h-4 w-4 shrink-0 text-info" aria-hidden />
-            <span className="flex-1">{routingLabel}</span>
-            {onCancelRouting ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onCancelRouting}
-                disabled={routeCancelRequested}
-                data-testid="chat-cancel-routing"
-              >
-                <X />
-                {routeCancelRequested
-                  ? t("planning.route.cancel_requested")
-                  : t("planning.route.cancel")}
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-        {isStreaming ? (
-          <div
-            className="mb-2 flex items-center gap-2 rounded-md border border-info/40 bg-info/10 px-3 py-2 text-xs text-fg"
-            role="status"
-            data-testid="chat-running-status"
-          >
-            <AlertCircle className="h-4 w-4 shrink-0 text-info" aria-hidden />
-            <span className="flex-1">{runningLabel}</span>
-            {onCancelStreaming ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onCancelStreaming}
-                disabled={cancelRequested}
-                data-testid="chat-cancel-streaming"
-              >
-                <X />
-                {cancelRequested ? t("chat.running.cancel_requested") : t("chat.running.cancel")}
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-        {inputBlocked && !getStarted ? (
-          <div
-            className="mb-2 flex items-start gap-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn"
-            role="status"
-            data-testid="chat-input-blocked"
-          >
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-            <span className="flex-1 text-fg">{inputBlocked.reason}</span>
-            {inputBlocked.actionLabel && inputBlocked.onAction ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={inputBlocked.onAction}
-                data-testid="chat-input-blocked-action"
-              >
-                {inputBlocked.actionLabel}
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-        {showComposerHint && composerHint ? (
-          <div
-            className="mb-2 flex items-start gap-2 rounded-md border border-accent/40 bg-accent-subtle px-3 py-2 text-xs"
-            role="status"
-            data-testid="chat-composer-hint"
-          >
-            <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden />
-            <span className="flex-1 text-fg">{composerHint.message}</span>
-            {composerHint.actionLabel && composerHint.onAction ? (
+      {!prdSurface ? (
+        <footer className="shrink-0 border-t p-4">
+          {isRouting ? (
+            <div
+              className="mb-2 flex items-center gap-2 rounded-md border border-info/40 bg-info/10 px-3 py-2 text-xs text-fg"
+              role="status"
+              data-testid="chat-routing-status"
+            >
+              <AlertCircle className="h-4 w-4 shrink-0 text-info" aria-hidden />
+              <span className="flex-1">{routingLabel}</span>
+              {onCancelRouting ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onCancelRouting}
+                  disabled={routeCancelRequested}
+                  data-testid="chat-cancel-routing"
+                >
+                  <X />
+                  {routeCancelRequested
+                    ? t("planning.route.cancel_requested")
+                    : t("planning.route.cancel")}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          {isStreaming ? (
+            <div
+              className="mb-2 flex items-center gap-2 rounded-md border border-info/40 bg-info/10 px-3 py-2 text-xs text-fg"
+              role="status"
+              data-testid="chat-running-status"
+            >
+              <AlertCircle className="h-4 w-4 shrink-0 text-info" aria-hidden />
+              <span className="flex-1">{runningLabel}</span>
+              {onCancelStreaming ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onCancelStreaming}
+                  disabled={cancelRequested}
+                  data-testid="chat-cancel-streaming"
+                >
+                  <X />
+                  {cancelRequested ? t("chat.running.cancel_requested") : t("chat.running.cancel")}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          {inputBlocked && !getStarted ? (
+            <div
+              className="mb-2 flex items-start gap-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn"
+              role="status"
+              data-testid="chat-input-blocked"
+            >
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              <span className="flex-1 text-fg">{inputBlocked.reason}</span>
+              {inputBlocked.actionLabel && inputBlocked.onAction ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={inputBlocked.onAction}
+                  data-testid="chat-input-blocked-action"
+                >
+                  {inputBlocked.actionLabel}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          {showComposerHint && composerHint ? (
+            <div
+              className="mb-2 flex items-start gap-2 rounded-md border border-accent/40 bg-accent-subtle px-3 py-2 text-xs"
+              role="status"
+              data-testid="chat-composer-hint"
+            >
+              <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden />
+              <span className="flex-1 text-fg">{composerHint.message}</span>
+              {composerHint.actionLabel && composerHint.onAction ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={composerHint.onAction}
+                  data-testid="chat-composer-hint-action"
+                >
+                  {composerHint.actionLabel}
+                </Button>
+              ) : null}
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={composerHint.onAction}
-                data-testid="chat-composer-hint-action"
+                onClick={() => setHintDismissed(true)}
+                aria-label={t("chat.hint_dismiss_aria")}
+                data-testid="chat-composer-hint-dismiss"
               >
-                {composerHint.actionLabel}
+                <X />
               </Button>
-            ) : null}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setHintDismissed(true)}
-              aria-label={t("chat.hint_dismiss_aria")}
-              data-testid="chat-composer-hint-dismiss"
-            >
-              <X />
-            </Button>
-          </div>
-        ) : null}
-        {interviewPanel ? (
-          interviewPanel
-        ) : onSendMessage ? (
-          <ChatInput
-            onSend={onSendMessage}
-            disabled={inputDisabled || !!inputBlocked}
-            modelLabel={modelLabel}
-            busyLabel={runningLabel ?? routingLabel}
-            context={context}
-          />
-        ) : (
-          <ChatInput
-            onSend={() => {}}
-            disabled={inputDisabled || !!inputBlocked}
-            modelLabel={modelLabel}
-            busyLabel={runningLabel ?? routingLabel}
-            context={context}
-          />
-        )}
-      </footer>
+            </div>
+          ) : null}
+          {interviewPanel ? (
+            interviewPanel
+          ) : onSendMessage ? (
+            <ChatInput
+              onSend={onSendMessage}
+              disabled={inputDisabled || !!inputBlocked}
+              modelLabel={modelLabel}
+              busyLabel={runningLabel ?? routingLabel}
+              context={context}
+            />
+          ) : (
+            <ChatInput
+              onSend={() => {}}
+              disabled={inputDisabled || !!inputBlocked}
+              modelLabel={modelLabel}
+              busyLabel={runningLabel ?? routingLabel}
+              context={context}
+            />
+          )}
+        </footer>
+      ) : null}
     </section>
   );
 }

@@ -6,7 +6,7 @@ import type {
   GetStartedStepKey,
   GetStartedStepStatus,
 } from "./GetStartedChecklist";
-import type { WorkspacePlanStatus } from "../../features/planning";
+import type { WorkspacePlanStatus, WorkspacePrdReadiness } from "../../features/planning";
 
 type Translate = (key: string, values?: Record<string, string | number>) => string;
 type Action = () => void;
@@ -154,8 +154,13 @@ export function deriveGetStartedModel(input: {
   currentSessionId: number | null;
   currentProjectName: string | null;
   providerDoneHint: string | null;
+  prdStatus?: WorkspacePrdReadiness | null;
+  hasPlan?: boolean;
+  hasApprovedPlan?: boolean;
   onProjectAction: Action;
   onProviderAction: Action;
+  onPrdAction?: Action;
+  onPlanAction?: Action;
   onSessionAction: Action;
   t: Translate;
 }): GetStartedModel | null {
@@ -163,15 +168,24 @@ export function deriveGetStartedModel(input: {
   const hasProject = input.currentProjectId !== null;
   const hasProvider = input.hasConnectedProvider;
   const hasSession = input.currentSessionId !== null;
-  if (hasProject && hasProvider && hasSession) return null;
+  const prdStatus = input.prdStatus ?? "minimal";
+  const hasMinimalPrd = prdStatus === "minimal";
+  const hasPlan = input.hasPlan ?? hasSession;
+  const hasApprovedPlan = input.hasApprovedPlan ?? hasSession;
+  if (hasProject && hasProvider && hasMinimalPrd && hasApprovedPlan && hasSession) return null;
 
   const firstIncomplete: GetStartedStepKey = !hasProject
     ? "project"
     : !hasProvider
       ? "provider"
-      : "session";
+      : !hasMinimalPrd
+        ? "prd"
+        : !hasPlan
+          ? "plan"
+          : "plan";
   const statusOf = (key: GetStartedStepKey, done: boolean): GetStartedStepStatus =>
     done ? "done" : key === firstIncomplete ? "current" : "pending";
+  const planDone = hasPlan && hasApprovedPlan && hasSession;
 
   return {
     steps: [
@@ -194,12 +208,23 @@ export function deriveGetStartedModel(input: {
         onAction: input.onProviderAction,
       },
       {
-        key: "session",
-        status: statusOf("session", hasSession),
-        title: input.t("get_started.session_title"),
-        description: input.t("get_started.session_desc"),
-        actionLabel: input.t("get_started.session_action"),
-        onAction: input.onSessionAction,
+        key: "prd",
+        status: statusOf("prd", hasMinimalPrd),
+        title: input.t("get_started.prd_title"),
+        description: input.t("get_started.prd_desc"),
+        doneHint: hasMinimalPrd ? input.t("get_started.prd_done_hint") : undefined,
+        actionLabel: input.t(
+          prdStatus === "draft" ? "get_started.prd_resume_action" : "get_started.prd_action",
+        ),
+        onAction: input.onPrdAction ?? input.onSessionAction,
+      },
+      {
+        key: "plan",
+        status: statusOf("plan", planDone),
+        title: input.t("get_started.plan_title"),
+        description: input.t("get_started.plan_desc"),
+        actionLabel: input.t("get_started.plan_action"),
+        onAction: input.onPlanAction ?? input.onSessionAction,
       },
     ],
   };

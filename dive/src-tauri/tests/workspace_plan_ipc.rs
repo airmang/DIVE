@@ -7,9 +7,13 @@ use std::time::Duration;
 use async_trait::async_trait;
 use dive_lib::auth::InMemoryKeyring;
 use dive_lib::db::dao::{
-    card, interview, plan, project, session, step, step_session_mapping as mapping, workmap,
+    card, event_log, interview, plan, prd, project, session, step, step_session_mapping as mapping,
+    workmap,
 };
-use dive_lib::db::models::{NewInterview, NewPlan, NewProject, NewStep};
+use dive_lib::db::models::{
+    AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus, NewInterview,
+    NewLiveProjectSpecDraft, NewPlan, NewProject, NewStep, ProjectSpecDraft, ProjectSpecStatus,
+};
 use dive_lib::ipc::workspace_plan::{
     roadmap_step_open_impl, roadmap_step_update_state_impl, workspace_plan_activity_impl,
     workspace_plan_append_step_impl, workspace_plan_approve_impl,
@@ -18,8 +22,10 @@ use dive_lib::ipc::workspace_plan::{
     workspace_plan_list_steps_impl, workspace_plan_route_cancel_impl,
     workspace_plan_route_chat_impl, workspace_plan_save_interview_answer_impl,
     workspace_plan_start_interview_impl, workspace_plan_status_impl,
-    workspace_plan_step_mappings_impl, workspace_plan_submit_interview_impl, PlanDraftInput,
-    RouteDecision, StepDraftInput, StepStateUpdateInput,
+    workspace_plan_step_mappings_impl, workspace_plan_submit_interview_impl,
+    workspace_prd_get_impl, workspace_prd_interview_turn_impl, workspace_prd_save_impl,
+    workspace_prd_status_impl, PlanDraftInput, PrdInterviewTurnInput, PrdSaveInput, RouteDecision,
+    StepDraftInput, StepStateUpdateInput,
 };
 use dive_lib::{
     AppState, ChatEvent, ChatRequest, Database, FinishReason, LlmProvider, ModelInfo, ProviderError,
@@ -322,6 +328,245 @@ fn append_step_draft(dependencies: Vec<String>) -> StepDraftInput {
         position: 99,
         step_id: "ignored-by-append".into(),
     }
+}
+
+fn prd_criterion(text: &str) -> AcceptanceCriterion {
+    AcceptanceCriterion {
+        criterion_id: "AC-001".into(),
+        text: text.into(),
+        source: AcceptanceCriterionSource::StudentEdit,
+        status: AcceptanceCriterionStatus::Active,
+        created_in_version: 1,
+        retired_in_version: None,
+    }
+}
+
+fn minimal_prd_draft(project_id: i64) -> ProjectSpecDraft {
+    ProjectSpecDraft {
+        project_spec_id: Some(format!("prd-{project_id}")),
+        project_id,
+        current_version: None,
+        goal: "Build a PRD-backed roadmap".into(),
+        intent_summary: Some("Turn the project goal into a saved PRD.".into()),
+        scope: vec!["PRD authoring".into()],
+        non_goals: vec!["Add-step mutation".into()],
+        constraints: vec!["Local-first EventLog".into()],
+        acceptance_criteria: vec![prd_criterion("A saved PRD unlocks plan generation")],
+        status: ProjectSpecStatus::Draft,
+    }
+}
+
+fn seed_minimal_prd(state: &AppState, project_id: i64) {
+    workspace_prd_save_impl(
+        state,
+        PrdSaveInput {
+            project_id,
+            spec: minimal_prd_draft(project_id),
+            reason: "interview".into(),
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn prd_status_get_and_save_distinguish_missing_draft_and_minimal() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+
+    let missing = workspace_prd_status_impl(&state, project_id).unwrap();
+    assert_eq!(missing.status, "missing");
+    assert_eq!(missing.project_spec_id, None);
+    assert_eq!(workspace_prd_get_impl(&state, project_id).unwrap(), None);
+
+    {
+        let db = state.db.lock().unwrap();
+        prd::upsert_draft(
+            db.conn(),
+            &NewLiveProjectSpecDraft {
+                draft_id: "prd-draft-test".into(),
+                project_id,
+                base_version: None,
+                spec: ProjectSpecDraft {
+                    project_spec_id: Some(format!("prd-{project_id}")),
+                    project_id,
+                    current_version: None,
+                    goal: "Draft goal only".into(),
+                    intent_summary: None,
+                    scope: vec![],
+                    non_goals: vec![],
+                    constraints: vec![],
+                    acceptance_criteria: vec![],
+                    status: ProjectSpecStatus::Draft,
+                },
+                dirty_fields: vec!["goal".into()],
+                student_edited_fields: vec!["goal".into()],
+                last_patch_id: None,
+            },
+        )
+        .unwrap();
+    }
+
+    let draft = workspace_prd_status_impl(&state, project_id).unwrap();
+    assert_eq!(draft.status, "draft");
+    assert_eq!(draft.draft_id.as_deref(), Some("prd-draft-test"));
+
+    let saved = workspace_prd_save_impl(
+        &state,
+        PrdSaveInput {
+            project_id,
+            spec: minimal_prd_draft(project_id),
+            reason: "interview".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(saved.current_version, 1);
+    assert_eq!(saved.acceptance_criteria[0].criterion_id, "AC-001");
+
+    let minimal = workspace_prd_status_impl(&state, project_id).unwrap();
+    assert_eq!(minimal.status, "minimal");
+    let expected_prd_id = format!("prd-{project_id}");
+    assert_eq!(
+        minimal.project_spec_id.as_deref(),
+        Some(expected_prd_id.as_str())
+    );
+    assert_eq!(minimal.current_version, Some(1));
+    assert_eq!(
+        workspace_prd_get_impl(&state, project_id)
+            .unwrap()
+            .unwrap()
+            .goal,
+        "Build a PRD-backed roadmap"
+    );
+}
+
+#[tokio::test]
+async fn prd_interview_turn_applies_validated_patch_without_creating_version() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(
+                r#"좋아요. 초안에 반영할게요.
+```json
+{
+  "assistantMessage": "목표와 확인 기준을 PRD 초안에 반영했어요.",
+  "patch": {
+    "operations": [
+      { "op": "set_goal", "value": "Build a focus timer" },
+      { "op": "append_acceptance_criterion", "text": "Timer counts down visibly" }
+    ],
+    "rationale": "학생 답변에서 목표와 완료 기준을 추출했습니다."
+  }
+}
+```"#
+                    .into(),
+            ),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+
+    let turn = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-focus".into(),
+            answer: "A focus timer that shows a countdown".into(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(turn.validation_outcome, "applied");
+    assert_eq!(turn.applied_field_paths, vec!["goal", "acceptanceCriteria"]);
+    assert!(turn.rejected_reasons.is_empty());
+    assert_eq!(turn.live_draft.spec.goal, "Build a focus timer");
+    assert_eq!(
+        turn.live_draft.spec.acceptance_criteria[0].criterion_id,
+        "AC-001"
+    );
+    assert_eq!(
+        prd::latest_version(state.db.lock().unwrap().conn(), project_id)
+            .unwrap()
+            .map(|row| row.version),
+        None
+    );
+    assert_eq!(provider.requests_snapshot()[0].model, "mock-model");
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    assert!(events
+        .iter()
+        .any(|event| event.r#type == "prd_patch_proposed"));
+    assert!(events
+        .iter()
+        .any(|event| event.r#type == "prd_patch_applied"));
+}
+
+#[tokio::test]
+async fn prd_interview_turn_rejects_invalid_patch_and_leaves_draft_unchanged() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(
+                r#"{"assistantMessage":"그 값은 초안에 넣지 않을게요.","patch":{"operations":[{"op":"set_goal","value":"token = sk-secret123"}],"rationale":"bad"}}"#
+                    .into(),
+            ),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+
+    let turn = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-secret".into(),
+            answer: "Use this token: sk-secret123".into(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(turn.validation_outcome, "rejected");
+    assert!(turn.rejected_reasons.contains(&"secret_like_text".into()));
+    assert_eq!(turn.live_draft.spec.goal, "");
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    assert!(events
+        .iter()
+        .any(|event| event.r#type == "prd_patch_rejected"));
+}
+
+#[test]
+fn generate_draft_refuses_missing_minimal_prd() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let interview =
+        workspace_plan_start_interview_impl(&state, project_id, "Build a roadmap".into()).unwrap();
+    let submitted =
+        workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
+            .unwrap();
+
+    let err =
+        workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap_err();
+
+    assert!(err.contains("minimal PRD"));
+    assert!(
+        plan::get_by_project(state.db.lock().unwrap().conn(), project_id)
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]
@@ -1052,6 +1297,7 @@ fn generate_draft_creates_plan_and_steps_in_one_transaction() {
     let submitted =
         workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
             .unwrap();
+    seed_minimal_prd(&state, project_id);
 
     let (plan_row, steps) =
         workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
@@ -1074,6 +1320,7 @@ fn current_draft_returns_project_draft_plan_and_steps() {
     let submitted =
         workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
             .unwrap();
+    seed_minimal_prd(&state, project_id);
     let (plan_row, steps) =
         workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
 
@@ -1101,6 +1348,7 @@ fn generate_draft_replaces_existing_draft_plan_for_project() {
     let submitted =
         workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
             .unwrap();
+    seed_minimal_prd(&state, project_id);
     workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
 
     let mut replacement = draft_input();
@@ -1131,6 +1379,7 @@ fn generate_draft_refuses_approved_plan_without_replace_but_replaces_with_optin(
     let submitted =
         workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
             .unwrap();
+    seed_minimal_prd(&state, project_id);
     let (first_plan, _) =
         workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
     workspace_plan_approve_impl(&state, first_plan.id).unwrap();
@@ -1170,6 +1419,7 @@ fn generate_draft_rejects_duplicate_step_slug() {
     let submitted =
         workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
             .unwrap();
+    seed_minimal_prd(&state, project_id);
     let mut input = draft_input();
     input.steps[1].step_id = input.steps[0].step_id.clone();
 
@@ -1192,6 +1442,7 @@ fn discard_plan_removes_draft_plan_and_steps_but_keeps_interview() {
     let submitted =
         workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
             .unwrap();
+    seed_minimal_prd(&state, project_id);
     let (plan_row, steps) =
         workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
     assert_eq!(steps.len(), 2);
@@ -1222,6 +1473,7 @@ fn approve_updates_linked_submitted_interview_status() {
     let submitted =
         workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
             .unwrap();
+    seed_minimal_prd(&state, project_id);
     let (plan_row, _) =
         workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
 

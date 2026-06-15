@@ -115,11 +115,29 @@
       "interview_rail": "인터뷰",
       "live_canvas": "PRD 캔버스",
       "provider_model": "사용할 모델",
+      "history": "기록",
+      "interview_prompt": "짧은 질문에 하나씩 답하세요.",
+      "interview_seed": "이 프로젝트가 사용자에게 가능하게 해야 하는 일은 무엇인가요?",
+      "answer_placeholder": "다음 프로젝트 정보를 입력하세요...",
+      "answer_send": "답변 보내기",
+      "goal_placeholder": "프로젝트가 무엇을 달성해야 하나요?",
+      "intent_placeholder": "사용자의 의도를 한 문장으로 적으세요.",
+      "scope_placeholder": "범위에 포함할 일을 한 줄에 하나씩 적으세요.",
+      "non_goals_placeholder": "하지 않을 일을 한 줄에 하나씩 적으세요.",
+      "constraints_placeholder": "런타임, UX, 수업, 납품 제약을 적으세요.",
+      "criterion_placeholder": "관찰 가능한 완료 기준",
       "patch_applied": "제안이 PRD 초안에 반영되었습니다.",
       "patch_rejected": "제안을 반영하지 않았습니다.",
       "patch_held": "학생이 직접 편집한 필드는 제안으로 보관했습니다.",
       "validation_goal_required": "목표를 입력하세요.",
       "validation_criterion_required": "수락 기준을 하나 이상 추가하세요.",
+      "validation_ready": "프로젝트 PRD로 저장할 수 있습니다.",
+      "turn_failed_title": "PRD 인터뷰 처리 실패",
+      "save_success_title": "PRD 저장됨",
+      "save_success_description": "계획을 만들기 전에 최종 PRD를 확인하세요.",
+      "save_failed_title": "PRD를 저장하지 못했습니다",
+      "save_draft": "초안 저장",
+      "save_create_plan": "PRD 저장 후 계획 만들기",
       "save_prd": "PRD 저장",
       "create_plan": "이 PRD로 계획 만들기"
     },
@@ -260,7 +278,8 @@
     "pick_title": "프로젝트 폴더 선택"
   },
   "project": {
-    "open_pick_title": "열 프로젝트 폴더 선택"
+    "open_pick_title": "열 프로젝트 폴더 선택",
+    "untitled": "프로젝트"
   },
   "settings": {
     "general_eyebrow": "일반",
@@ -410,16 +429,21 @@
   },
   "get_started": {
     "title": "시작하기",
-    "subtitle": "3단계만 끝내면 바로 대화할 수 있어요.",
+    "subtitle": "4단계를 끝내면 프로젝트 작업 흐름을 시작할 수 있어요.",
     "project_title": "프로젝트 열기",
     "project_desc": "DIVE가 작업할 로컬 폴더를 선택하세요.",
     "project_action": "프로젝트 열기",
     "provider_title": "AI 연결",
     "provider_desc": "대화를 처리할 AI 도우미를 연결하세요.",
     "provider_action": "AI 연결하기",
-    "session_title": "첫 세션 시작",
-    "session_desc": "목표를 적을 대화 세션을 만듭니다.",
-    "session_action": "세션 시작"
+    "prd_title": "요구사항 초안 작성",
+    "prd_desc": "질문에 답하며 실제 프로젝트에 맞는 요구사항 초안을 만듭니다.",
+    "prd_action": "PRD 작성",
+    "prd_resume_action": "PRD 이어쓰기",
+    "prd_done_hint": "저장된 PRD 준비됨",
+    "plan_title": "계획과 세션 만들기",
+    "plan_desc": "저장된 PRD를 확인한 뒤 계획을 만들고 첫 작업 세션을 시작합니다.",
+    "plan_action": "계획 만들기"
   },
   "card_state": {
     "decomposed": {

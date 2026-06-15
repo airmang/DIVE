@@ -20,7 +20,11 @@ interface AdaptAcceptanceCriteriaOptions {
   source?: AcceptanceCriterionSource;
 }
 
-interface CreateLiveProjectSpecDraftOverrides extends Partial<ProjectSpecDraft> {
+interface CreateLiveProjectSpecDraftOverrides extends Omit<
+  Partial<ProjectSpecDraft>,
+  "acceptanceCriteria"
+> {
+  acceptanceCriteria?: unknown;
   draftId?: string;
   baseVersion?: number | null;
   dirtyFields?: string[];
