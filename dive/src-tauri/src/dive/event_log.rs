@@ -627,6 +627,7 @@ pub fn prd_patch_proposed_payload(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn prd_patch_applied_payload(
     project_id: i64,
     project_spec_id: impl Into<String>,
@@ -686,6 +687,7 @@ pub fn prd_authored_payload(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn prd_edited_payload(
     project_id: i64,
     project_spec_id: impl Into<String>,
@@ -724,6 +726,7 @@ pub fn prd_version_created_payload(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn plan_step_rationale_challenged_payload(
     project_id: i64,
     plan_id: i64,
@@ -766,6 +769,7 @@ pub fn plan_step_appended_payload(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn plan_step_changed_payload(
     mutation_id: impl Into<String>,
     project_id: i64,

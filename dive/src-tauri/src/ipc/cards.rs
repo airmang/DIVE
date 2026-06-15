@@ -398,8 +398,6 @@ fn build_approval_provenance(
         "verified_with_evidence"
     } else if verification_deferred {
         "verification_deferred"
-    } else if risk_accepted {
-        "unverified_risk_accepted"
     } else {
         "unverified_risk_accepted"
     };

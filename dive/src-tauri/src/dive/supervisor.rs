@@ -1529,7 +1529,7 @@ mod tests {
 
         assert!(prompt.contains("Return exactly one JSON object"));
         assert!(prompt.contains("\"schemaVersion\":1"));
-        assert!(prompt.contains("\"enabledTools\"") == false);
+        assert!(!prompt.contains("\"enabledTools\""));
         assert!(!prompt.contains("dive_context"));
         assert!(!prompt.contains("AGENTS.md"));
         assert!(!prompt.contains(".specify"));

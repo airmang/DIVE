@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ComponentProps, ComponentType } from "react";
+import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
 import type { RoadmapStep } from "../../features/roadmap";
@@ -298,24 +298,22 @@ describe("StepDetailSlideIn criterion-linked rationale challenge", () => {
       objectionId: "obj-001",
       suggestionStatus: "none",
     });
-    const Component = StepDetailSlideIn as ComponentType<any>;
+    const criterionLinkedStep: ComponentProps<typeof StepDetailSlideIn>["step"] = {
+      ...reviewStep(),
+      linkedCriteria: [
+        {
+          criterionId: "AC-001",
+          text: "저장 성공 후 toast가 보인다",
+        },
+      ],
+      decompositionRationale:
+        "저장 완료 기준을 검증하려면 버튼 상태를 먼저 분리해야 한다.",
+    };
 
     render(
-      <Component
+      <StepDetailSlideIn
         open
-        step={
-          {
-            ...reviewStep(),
-            linkedCriteria: [
-              {
-                criterionId: "AC-001",
-                text: "저장 성공 후 toast가 보인다",
-              },
-            ],
-            decompositionRationale:
-              "저장 완료 기준을 검증하려면 버튼 상태를 먼저 분리해야 한다.",
-          } as any
-        }
+        step={criterionLinkedStep}
         toolCallCount={1}
         verifyLog={{
           intent_match: true,

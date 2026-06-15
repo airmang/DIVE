@@ -63,7 +63,7 @@ import { useProductConversationModel } from "./useProductConversationModel";
 import { useProductRecovery } from "./useProductRecovery";
 import { PrdAuthoringBoard, type PrdPatchFeedback } from "./PrdAuthoringBoard";
 import { FinalPrdReadView } from "./FinalPrdReadView";
-import { fallbackModels } from "../settings/ProviderModelSelector";
+import { fallbackModels } from "../settings/providerModels";
 
 const PlanDraftApprovalScreen = lazy(() =>
   import("./PlanDraftApprovalScreen").then((module) => ({
@@ -210,6 +210,7 @@ export function useProductShellController() {
   const roadmapModel = useRoadmap(currentSessionId);
   const planRoadmap = usePlanRoadmap(currentProjectId);
   const plan = usePlan(currentProjectId);
+  const getProjectSpec = plan.getProjectSpec;
   const planRouter = usePlanRouter(currentProjectId);
   const currentDraft = plan.currentDraft;
   const planStatus = plan.status?.status;
@@ -234,8 +235,7 @@ export function useProductShellController() {
       return;
     }
     let cancelled = false;
-    void plan
-      .getProjectSpec()
+    void getProjectSpec()
       .then((projectSpec) => {
         if (cancelled || !projectSpec) return;
         setCurrentProjectSpec(projectSpec);
@@ -249,7 +249,7 @@ export function useProductShellController() {
     return () => {
       cancelled = true;
     };
-  }, [currentProjectId, plan.getProjectSpec, prdMode, prdReadiness]);
+  }, [currentProjectId, getProjectSpec, prdMode, prdReadiness]);
 
   useEffect(() => {
     const handler = (event: Event) => {

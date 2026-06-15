@@ -2,9 +2,14 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
-import type { PlanGenerationResult, InterviewRow } from "../../features/planning";
+import type { AcceptanceCriterion, PlanGenerationResult, InterviewRow } from "../../features/planning";
 import { useUiPreferencesStore } from "../../stores/ui-preferences";
 import { PlanDraftApprovalScreen } from "./PlanDraftApprovalScreen";
+
+type PlanDraftStepWithMetadata = PlanGenerationResult["steps"][number] & {
+  linked_criterion_ids: string[];
+  rationale: string;
+};
 
 function draft(overrides: Partial<PlanGenerationResult> = {}): PlanGenerationResult {
   const base: PlanGenerationResult = {
@@ -119,37 +124,26 @@ describe("PlanDraftApprovalScreen intent and step review surface", () => {
   });
 
   it("shows linked criterion ids, criterion text, and step rationale for each generated step", () => {
+    const criterion: AcceptanceCriterion = {
+      criterionId: "AC-001",
+      text: "저장 성공 후 toast가 보인다",
+      source: "student_edit",
+      status: "active",
+      createdInVersion: 1,
+      retiredInVersion: null,
+    };
+    const draftStep: PlanDraftStepWithMetadata = {
+      ...draft().steps[0],
+      acceptance_criteria: [criterion],
+      linked_criterion_ids: ["AC-001"],
+      rationale: "저장 완료 기준을 검증하려면 버튼 상태를 먼저 분리해야 한다.",
+    };
     const linkedDraft = draft({
       plan: {
         ...draft().plan,
-        acceptance_criteria: [
-          {
-            criterionId: "AC-001",
-            text: "저장 성공 후 toast가 보인다",
-            source: "student_edit",
-            status: "active",
-            createdInVersion: 1,
-            retiredInVersion: null,
-          },
-        ] as any,
+        acceptance_criteria: [criterion],
       },
-      steps: [
-        {
-          ...draft().steps[0],
-          acceptance_criteria: [
-            {
-              criterionId: "AC-001",
-              text: "저장 성공 후 toast가 보인다",
-              source: "student_edit",
-              status: "active",
-              createdInVersion: 1,
-              retiredInVersion: null,
-            },
-          ] as any,
-          linked_criterion_ids: ["AC-001"],
-          rationale: "저장 완료 기준을 검증하려면 버튼 상태를 먼저 분리해야 한다.",
-        } as any,
-      ],
+      steps: [draftStep],
     });
 
     renderScreen({ draft: linkedDraft });

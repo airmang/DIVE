@@ -52,8 +52,10 @@ describe("decodeWorkspacePlanDraftFromLlm criterion-linked decomposition", () =>
     });
 
     expect(decoded).not.toBeNull();
-    const criterion = decoded?.planInput.acceptanceCriteria[0] as any;
-    const step = decoded?.planInput.steps[0] as any;
+    if (!decoded) throw new Error("expected decoded plan draft");
+    const criterion = decoded.planInput.acceptanceCriteria[0];
+    const step = decoded.planInput.steps[0];
+    if (!step) throw new Error("expected decoded plan step");
     expect(criterion).toMatchObject({
       criterionId: "AC-001",
       text: "저장 성공 후 toast가 보인다",
@@ -92,8 +94,11 @@ describe("decodeWorkspacePlanDraftFromLlm criterion-linked decomposition", () =>
       },
     });
 
-    const planCriterion = decoded?.planInput.acceptanceCriteria[0] as any;
-    const step = decoded?.planInput.steps[0] as any;
+    expect(decoded).not.toBeNull();
+    if (!decoded) throw new Error("expected decoded plan draft");
+    const planCriterion = decoded.planInput.acceptanceCriteria[0];
+    const step = decoded.planInput.steps[0];
+    if (!step) throw new Error("expected decoded plan step");
     expect(planCriterion).toMatchObject({
       criterionId: "AC-001",
       text: "저장 성공 후 toast가 보인다",
