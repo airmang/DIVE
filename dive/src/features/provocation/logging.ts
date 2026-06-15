@@ -269,7 +269,9 @@ const CARD_AGENCY_STATE: Record<ProvocationCard["type"], AgencyState> = {
 
 const ACTION_AGENCY_COMPONENT: Partial<Record<ProvocationActionKind, AgencyComponent>> = {
   add_acceptance_criteria: "intent",
+  link_criterion: "plan",
   split_scope: "intent",
+  edit_prd: "intent",
   add_verification_step: "plan",
   open_diff: "diff",
   ask_ai_for_rationale: "action",
@@ -281,6 +283,7 @@ const ACTION_AGENCY_COMPONENT: Partial<Record<ProvocationActionKind, AgencyCompo
   rollback_last_change: "rollback",
   retry_with_ai: "rollback",
   continue_with_risk: "decision",
+  dismiss_review: "plan",
 };
 
 function agencyComponentFor(
@@ -318,6 +321,23 @@ function stringList(value: unknown): string[] {
 
 function metadataStringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function metadataNumberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function metadataArtifactRef(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const ref = value as Record<string, unknown>;
+  const kind = metadataStringValue(ref.kind);
+  const id = metadataStringValue(ref.id);
+  if (!kind || !id) return null;
+  return {
+    kind,
+    id,
+    label: compactActionMetadata(metadataStringValue(ref.label) ?? undefined),
+  };
 }
 
 function affectedFilesFor(card: ProvocationCard, context: Partial<ProvocationContext> | undefined) {
@@ -380,6 +400,14 @@ export function buildProvocationLogPayload(input: ProvocationLogInput) {
   const { card, context, mode, action, reason } = input;
   const metadata = card.metadata ?? {};
   const canonicalMode = canonicalLogMode(mode);
+  const supervisorEvaluationId = metadataStringValue(metadata.supervisorEvaluationId);
+  const contextHash = metadataStringValue(metadata.contextHash);
+  const evidenceHash = metadataStringValue(metadata.evidenceHash);
+  const supervisorEvent =
+    metadataStringValue(metadata.supervisorEvent) ?? metadataStringValue(metadata.concern);
+  const artifactRef = metadataArtifactRef(metadata.artifactRef);
+  const metadataProjectId = metadataNumberValue(metadata.projectId);
+  const metadataPlanId = metadataNumberValue(metadata.planId);
   const selectedAction = action ?? syntheticActionForEvent(input.eventType);
   const trimmedReason = reason?.trim() || null;
   const reasonStats = trimmedReason ? compactTextStats(trimmedReason) : null;
@@ -404,9 +432,18 @@ export function buildProvocationLogPayload(input: ProvocationLogInput) {
     toolCallId: context?.toolCallId ?? null,
     toolName: context?.toolName ?? null,
     cardId: card.id,
-    supervisorEvaluationId: metadataStringValue(metadata.supervisorEvaluationId),
-    contextHash: metadataStringValue(metadata.contextHash),
-    evidenceHash: metadataStringValue(metadata.evidenceHash),
+    supervisorEvaluationId,
+    contextHash,
+    evidenceHash,
+    supervisorCorrelation: {
+      supervisorEvaluationId,
+      contextHash,
+      evidenceHash,
+      event: supervisorEvent,
+      artifactRef,
+      projectId: metadataProjectId ?? context?.projectId ?? null,
+      planId: metadataPlanId ?? null,
+    },
     cardType: card.type,
     stage: card.stage,
     severity: card.severity,

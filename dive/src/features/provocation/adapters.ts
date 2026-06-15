@@ -1,12 +1,21 @@
 import type {
   ChangedFileCategory,
+  ProvocationAction,
+  ProvocationCard,
+  ProvocationEvidence,
   ProvocationAssistantReport,
   ProvocationChangedFile,
   ProvocationContext,
   ProvocationPlanStep,
   ProvocationRetrySignal,
-  SupervisorEvaluationRequest,
+  AnySupervisorEvaluationRequest,
+  ScopeExpansionAssessmentContract,
+  ScopeExpansionSupervisorEvaluationRequest,
+  SupervisorArtifactRef,
+  SupervisorEvidenceRefContract,
   SupervisorEvaluationResponse,
+  SupervisorAllowedActionId,
+  SupervisorDropReason,
   SupervisorMode,
   SupervisorSourceUiMode,
 } from "./types";
@@ -322,8 +331,284 @@ export function normalizeSupervisorRenderMode(mode: SupervisorSourceUiMode): Sup
   return mode === "guided" ? "guided" : "work";
 }
 
+export function createScopeExpansionSupervisorRequest(input: {
+  sessionId: number;
+  projectId: number;
+  planId: number;
+  artifactRef: SupervisorArtifactRef;
+  sourceUiMode?: SupervisorSourceUiMode;
+  locale?: string;
+  contextHash: string;
+  evidenceHash: string;
+  allowedActionIds?: SupervisorAllowedActionId[];
+  evidenceRefs: SupervisorEvidenceRefContract[];
+  scopeExpansion: ScopeExpansionAssessmentContract;
+  uiState?: ScopeExpansionSupervisorEvaluationRequest["uiState"];
+}): ScopeExpansionSupervisorEvaluationRequest {
+  const sourceUiMode = input.sourceUiMode ?? "standard";
+  return {
+    sessionId: input.sessionId,
+    event: "scope_expansion",
+    artifactRef: input.artifactRef,
+    sourceUiMode,
+    mode: normalizeSupervisorRenderMode(sourceUiMode),
+    locale: input.locale,
+    projectId: input.projectId,
+    planId: input.planId,
+    contextHash: input.contextHash,
+    evidenceHash: input.evidenceHash,
+    uiState: input.uiState ?? {
+      goalSummary: undefined,
+      planSummary: { stepCount: 0, activeStep: null },
+      verification: {
+        aiClaimedDone: false,
+        diffReviewed: false,
+        appLaunched: false,
+        previewChecked: false,
+        automatedTestsPassed: false,
+        testResult: null,
+        acceptanceCriterionConfirmed: false,
+        manualChecks: [],
+      },
+      feasibility: {
+        runnable: false,
+        previewable: false,
+        hasTests: false,
+        diffAvailable: false,
+      },
+    },
+    allowedActionIds: input.allowedActionIds ?? [
+      "link_criterion",
+      "split_scope",
+      "edit_prd",
+      "dismiss_review",
+    ],
+    evidenceRefs: input.evidenceRefs,
+    scopeExpansion: input.scopeExpansion,
+  };
+}
+
+const SUPERVISOR_DROP_REASONS: ReadonlySet<string> = new Set<SupervisorDropReason>([
+  "provoke_false",
+  "runtime_unavailable",
+  "timeout",
+  "sidecar_error",
+  "parse_error",
+  "schema_version_unsupported",
+  "invalid_mode",
+  "missing_evidence",
+  "unknown_evidence_ref",
+  "not_question",
+  "unknown_action",
+  "disallowed_concern",
+  "duplicate",
+  "cooldown",
+  "ambiguous_decision",
+  "context_too_large",
+  "content_too_long",
+]);
+
+const SCOPE_EXPANSION_ACTIONS: ReadonlySet<SupervisorAllowedActionId> = new Set([
+  "link_criterion",
+  "split_scope",
+  "edit_prd",
+  "dismiss_review",
+]);
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function stringField(value: Record<string, unknown>, ...keys: string[]): string | null {
+  for (const key of keys) {
+    const candidate = value[key];
+    if (typeof candidate === "string" && candidate.trim().length > 0) return candidate;
+  }
+  return null;
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function booleanOrUndefined(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function normalizeDropReason(value: unknown, fallback: SupervisorDropReason): SupervisorDropReason {
+  return typeof value === "string" && SUPERVISOR_DROP_REASONS.has(value)
+    ? (value as SupervisorDropReason)
+    : fallback;
+}
+
+function normalizeEvidenceRef(input: unknown): ProvocationEvidence | null {
+  const value = recordValue(input);
+  const source = stringField(value, "source");
+  const label = stringField(value, "label");
+  if (!source || !label) return null;
+  return {
+    refId: stringOrNull(value.refId ?? value.ref_id) ?? undefined,
+    source: source as ProvocationEvidence["source"],
+    label,
+    value: stringOrNull(value.value) ?? undefined,
+    kind: stringOrNull(value.kind) ?? undefined,
+    verificationEvidence: booleanOrUndefined(
+      value.verificationEvidence ?? value.verification_evidence,
+    ),
+  };
+}
+
+function normalizeAction(input: unknown): ProvocationAction | null {
+  const value = recordValue(input);
+  const id = stringField(value, "id");
+  const kind = stringField(value, "kind");
+  const label = stringField(value, "label");
+  if (!id || !kind || !label) return null;
+  return {
+    id,
+    kind: kind as ProvocationAction["kind"],
+    label,
+    requiresReason: booleanOrUndefined(value.requiresReason ?? value.requires_reason),
+    reasonPrompt: stringOrNull(value.reasonPrompt ?? value.reason_prompt) ?? undefined,
+    disabledReason: stringOrNull(value.disabledReason ?? value.disabled_reason) ?? undefined,
+    todoId: stringOrNull(value.todoId ?? value.todo_id) ?? undefined,
+  };
+}
+
+function normalizeCard(
+  input: unknown,
+  evaluationId: string,
+  request?: AnySupervisorEvaluationRequest,
+): ProvocationCard | null {
+  const value = recordValue(input);
+  const type = stringField(value, "type", "cardType", "card_type");
+  const stage = stringField(value, "stage");
+  const severity = stringField(value, "severity");
+  const title = stringField(value, "title");
+  const message = stringField(value, "message");
+  if (!type || !stage || !severity || !title || !message) return null;
+
+  const actions = Array.isArray(value.actions)
+    ? value.actions.map(normalizeAction).filter((action): action is ProvocationAction => !!action)
+    : [];
+  const evidence = Array.isArray(value.evidence)
+    ? value.evidence
+        .map(normalizeEvidenceRef)
+        .filter((item): item is ProvocationEvidence => item !== null)
+    : [];
+  const metadata: Record<string, unknown> = {
+    ...recordValue(value.metadata),
+    supervisorEvaluationId: stringField(recordValue(value.metadata), "supervisorEvaluationId")
+      ?? evaluationId,
+  };
+
+  if (request?.event === "scope_expansion") {
+    metadata.supervisorEvent ??= "scope_expansion";
+    metadata.projectId ??= request.projectId;
+    metadata.planId ??= request.planId;
+    metadata.artifactRef ??= request.artifactRef;
+    metadata.contextHash ??= request.contextHash;
+    metadata.evidenceHash ??= request.evidenceHash;
+    metadata.scopeExpansion ??= request.scopeExpansion;
+  }
+
+  return {
+    id: stringField(value, "id") ?? `${type}:${evaluationId}`,
+    type: type as ProvocationCard["type"],
+    stage: stage as ProvocationCard["stage"],
+    severity: severity as ProvocationCard["severity"],
+    title,
+    prompt: stringOrNull(value.prompt) ?? undefined,
+    message,
+    evidence,
+    actions,
+    primaryActionId: stringOrNull(value.primaryActionId ?? value.primary_action_id) ?? undefined,
+    modeCopy: recordValue(value.modeCopy ?? value.mode_copy) as ProvocationCard["modeCopy"],
+    metadata,
+    createdAt: stringField(value, "createdAt", "created_at") ?? new Date().toISOString(),
+  };
+}
+
+function normalizeScopeExpansionShownResponse(
+  raw: Record<string, unknown>,
+  evaluationId: string,
+  request: ScopeExpansionSupervisorEvaluationRequest,
+): SupervisorEvaluationResponse {
+  const card = normalizeCard(raw.card, evaluationId, request);
+  if (!card || card.type !== "scope_expansion") {
+    return {
+      status: "dropped",
+      evaluationId,
+      dropReason: "disallowed_concern",
+    };
+  }
+
+  const allowed = new Set(
+    request.allowedActionIds.filter((actionId) => SCOPE_EXPANSION_ACTIONS.has(actionId)),
+  );
+  const actions = card.actions.filter((action) =>
+    allowed.has(action.kind as SupervisorAllowedActionId),
+  );
+  if (actions.length === 0) {
+    return {
+      status: "dropped",
+      evaluationId,
+      dropReason: "unknown_action",
+    };
+  }
+
+  const primaryActionId = actions.some((action) => action.id === card.primaryActionId)
+    ? card.primaryActionId
+    : actions[0]?.id;
+
+  return {
+    status: "shown",
+    evaluationId,
+    card: {
+      ...card,
+      actions,
+      primaryActionId,
+    },
+  };
+}
+
+export function normalizeSupervisorEvaluationResponse(
+  rawResponse: unknown,
+  request?: AnySupervisorEvaluationRequest,
+): SupervisorEvaluationResponse {
+  const raw = recordValue(rawResponse);
+  const evaluationId = stringField(raw, "evaluationId", "evaluation_id") ?? localEvaluationId();
+  const status = stringField(raw, "status");
+
+  if (status === "shown") {
+    if (request?.event === "scope_expansion") {
+      return normalizeScopeExpansionShownResponse(raw, evaluationId, request);
+    }
+    const card = normalizeCard(raw.card, evaluationId, request);
+    return card
+      ? { status: "shown", evaluationId, card }
+      : { status: "dropped", evaluationId, dropReason: "parse_error" };
+  }
+
+  if (status === "none" || status === "dropped") {
+    return {
+      status,
+      evaluationId,
+      dropReason: normalizeDropReason(raw.dropReason ?? raw.drop_reason, "provoke_false"),
+    };
+  }
+
+  return {
+    status: "dropped",
+    evaluationId,
+    dropReason: "parse_error",
+  };
+}
+
 export async function evaluateProvocationSupervisor(
-  request: SupervisorEvaluationRequest,
+  request: AnySupervisorEvaluationRequest,
 ): Promise<SupervisorEvaluationResponse> {
   const api = await loadTauri();
   if (!api) {
@@ -333,5 +618,6 @@ export async function evaluateProvocationSupervisor(
       dropReason: "runtime_unavailable",
     };
   }
-  return api.invoke<SupervisorEvaluationResponse>("provocation_agent_evaluate", { request });
+  const response = await api.invoke<unknown>("provocation_agent_evaluate", { request });
+  return normalizeSupervisorEvaluationResponse(response, request);
 }

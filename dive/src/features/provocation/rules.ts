@@ -255,61 +255,6 @@ function hasVerificationStep(steps: ProvocationPlanStep[] | undefined): boolean 
   );
 }
 
-export interface ScopeExpansionAssessmentLike {
-  expanded: boolean;
-  reasonCodes: string[];
-  evidenceRefs: string[];
-}
-
-const SCOPE_EXPANSION_REASON_LABELS: Record<string, string> = {
-  missing_criterion_link: "연결된 PRD 기준",
-  new_scope_area: "새 PRD 범위",
-  target_outside_scope: "범위 밖 대상",
-};
-
-function scopeExpansionEvidence(assessment: ScopeExpansionAssessmentLike): ProvocationEvidence[] {
-  return assessment.evidenceRefs.slice(0, 3).map((refId, index) => {
-    const reasonCode = assessment.reasonCodes[index] ?? assessment.reasonCodes[0] ?? "scope";
-    return {
-      refId,
-      source: "plan",
-      label: SCOPE_EXPANSION_REASON_LABELS[reasonCode] ?? "범위 검토 근거",
-      value: refId,
-    };
-  });
-}
-
-export function scopeExpansionAssessmentRule(
-  context: ProvocationContext,
-  assessment: ScopeExpansionAssessmentLike,
-): ProvocationCard | null {
-  if (!assessment.expanded) return null;
-
-  return card({
-    context,
-    type: "scope_expansion",
-    severity: "caution",
-    stage: "instruct",
-    title: "확인 필요 카드",
-    prompt: "이 추가 단계가 현재 PRD 범위와 기준 안에 들어오나요?",
-    message:
-      "새 단계가 PRD 기준과 바로 연결되지 않거나 범위 밖 대상을 건드릴 수 있습니다. 필요하면 PRD를 먼저 갱신하세요.",
-    evidence: scopeExpansionEvidence(assessment),
-    guided:
-      "검증 중 새 일이 보이면 계획에 추가하되, 기존 PRD 기준과 이어지는지 한 번만 확인하면 됩니다.",
-    actions: [
-      action("link-criterion", "PRD 기준 연결", "add_acceptance_criteria"),
-      action("split-scope", "범위 작게 나누기", "split_scope"),
-    ],
-    primaryActionId: "link-criterion",
-    metadata: {
-      placement: "plan_add_step",
-      blocking: false,
-      scopeExpansion: assessment,
-    },
-  });
-}
-
 function categorizePath(path: string): ChangedFileCategory {
   const lower = path.toLowerCase();
   if (HIGH_RISK_PATH_PATTERNS.some((pattern) => pattern.test(path))) {

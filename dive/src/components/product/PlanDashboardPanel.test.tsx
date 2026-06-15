@@ -173,7 +173,7 @@ describe("PlanDashboardPanel add-step area", () => {
     });
   });
 
-  it("keeps criterion linking optional and shows a non-blocking PRD delta preview", () => {
+  it("keeps criterion linking optional without showing a static scope fallback card", () => {
     render(<PlanDashboardPanel />);
 
     const panel = screen.getByTestId("plan-add-step-panel");
@@ -191,6 +191,6 @@ describe("PlanDashboardPanel add-step area", () => {
     expect(within(panel).getByTestId("plan-add-step-prd-delta").textContent).toContain(
       "Add auth check",
     );
-    expect(within(panel).getByTestId("plan-add-step-scope-card")).toBeTruthy();
+    expect(within(panel).queryByTestId("plan-add-step-scope-card")).toBeNull();
   });
 });

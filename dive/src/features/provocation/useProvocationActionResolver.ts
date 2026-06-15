@@ -68,6 +68,13 @@ export function useProvocationActionResolver({
             );
           onStatus?.("완료 기준 보강 요청을 준비했습니다.");
           return;
+        case "link_criterion":
+          if (onAddAcceptanceCriteria) onAddAcceptanceCriteria();
+          onStatus?.("PRD 기준 연결 위치로 이동했습니다.");
+          return;
+        case "edit_prd":
+          onStatus?.("PRD 수정은 전용 계획 영역에서 확인합니다.");
+          return;
         case "add_verification_step":
           if (onAddVerificationStep) onAddVerificationStep();
           else
@@ -159,6 +166,7 @@ export function useProvocationActionResolver({
           onContinueWithRisk?.(reason, card);
           return;
         case "dismiss":
+        case "dismiss_review":
         case "mark_irrelevant":
           return;
       }

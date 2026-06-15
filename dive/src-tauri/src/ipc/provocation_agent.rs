@@ -12,15 +12,20 @@ use std::sync::Mutex;
 use tauri::State;
 use uuid::Uuid;
 
+use crate::db::models::ScopeExpansionAssessment;
 use crate::dive::event_log::append_supervisor_evaluation_to_conn;
+use crate::dive::supervisor::{
+    build_scope_expansion_supervisor_context, supervisor_provoke_gate,
+    ScopeExpansionEvidenceRefInput, ScopeExpansionSupervisorContextBuildInput,
+};
 use crate::dive::{
     build_stage_c_supervisor_decision, build_supervisor_context_from_ui, build_supervisor_prompt,
     dropped_validation_result, no_card_validation_result, normalize_source_ui_mode,
-    p1_provoke_gate, validate_supervisor_decision, validate_supervisor_decision_json, ArtifactRef,
-    PlanSummary, ProvocationCard, SourceUiMode, SupervisorContext, SupervisorContextBuildInput,
-    SupervisorDedupState, SupervisorDropReason, SupervisorEvaluationLog, SupervisorEvent,
-    SupervisorValidationOutcome, SupervisorValidationResult, SupervisorVerificationUiState,
-    VerificationFeasibility,
+    validate_supervisor_decision, validate_supervisor_decision_json, ArtifactRef, PlanSummary,
+    ProvocationCard, SourceUiMode, SupervisorActionId, SupervisorContext,
+    SupervisorContextBuildInput, SupervisorDedupState, SupervisorDropReason,
+    SupervisorEvaluationLog, SupervisorEvent, SupervisorValidationOutcome,
+    SupervisorValidationResult, SupervisorVerificationUiState, VerificationFeasibility,
 };
 use crate::pi_sidecar::{
     run_supervisor_turn, supervisor_turn_timeout, PiSidecarSupervisorErrorKind,
@@ -38,10 +43,21 @@ pub struct ProvocationAgentEvaluateRequest {
     pub session_id: i64,
     pub event: SupervisorEvent,
     pub artifact_ref: ArtifactRef,
+    #[serde(default = "default_source_ui_mode")]
     pub source_ui_mode: String,
     #[serde(default)]
     pub locale: Option<String>,
     pub ui_state: ProvocationAgentUiState,
+    #[serde(default)]
+    pub project_id: Option<i64>,
+    #[serde(default)]
+    pub plan_id: Option<i64>,
+    #[serde(default)]
+    pub allowed_action_ids: Vec<SupervisorActionId>,
+    #[serde(default)]
+    pub evidence_refs: Vec<ScopeExpansionEvidenceRefInput>,
+    #[serde(default)]
+    pub scope_expansion: Option<ScopeExpansionAssessment>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -53,6 +69,10 @@ pub struct ProvocationAgentUiState {
     pub plan_summary: Option<PlanSummary>,
     pub verification: SupervisorVerificationUiState,
     pub feasibility: VerificationFeasibility,
+}
+
+fn default_source_ui_mode() -> String {
+    "standard".to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -128,7 +148,7 @@ async fn supervisor_output_from_runtime(
         Err(_) => return StageCSupervisorOutput::RuntimeUnavailable,
     };
     let context = build_context(request.clone(), normalized.source_ui_mode);
-    if !p1_provoke_gate(&context) {
+    if !supervisor_provoke_gate(&context) {
         return StageCSupervisorOutput::DomainShell;
     }
     let prompt = match build_supervisor_prompt(&context) {
@@ -226,13 +246,17 @@ fn evaluate_with_output_and_log(
     let mut latency_ms = None;
     let mut usage = None;
 
-    let mut validation = if !p1_provoke_gate(&context) {
+    let mut validation = if !supervisor_provoke_gate(&context) {
         no_card_validation_result(SupervisorDropReason::ProvokeFalse)
     } else {
         match output {
             StageCSupervisorOutput::DomainShell => {
-                let decision = build_stage_c_supervisor_decision(&context);
-                validate_supervisor_decision(&context, decision, dedup)
+                if context.event == SupervisorEvent::ScopeExpansion {
+                    dropped_validation_result(SupervisorDropReason::RuntimeUnavailable)
+                } else {
+                    let decision = build_stage_c_supervisor_decision(&context);
+                    validate_supervisor_decision(&context, decision, dedup)
+                }
             }
             StageCSupervisorOutput::DecisionJson {
                 raw,
@@ -282,17 +306,38 @@ fn build_context(
         step_count: 0,
         active_step: None,
     });
-    build_supervisor_context_from_ui(SupervisorContextBuildInput {
-        event: request.event,
-        artifact_ref: request.artifact_ref,
-        source_ui_mode,
-        locale: request.locale.unwrap_or_else(|| "ko-KR".to_string()),
-        goal_summary: request.ui_state.goal_summary.unwrap_or_default(),
-        plan_summary,
-        verification: request.ui_state.verification,
-        feasibility: request.ui_state.feasibility,
-    })
-    .context
+    match request.event {
+        SupervisorEvent::ScopeExpansion => {
+            build_scope_expansion_supervisor_context(ScopeExpansionSupervisorContextBuildInput {
+                artifact_ref: request.artifact_ref,
+                source_ui_mode,
+                locale: request.locale.unwrap_or_else(|| "ko-KR".to_string()),
+                goal_summary: request.ui_state.goal_summary.unwrap_or_default(),
+                plan_summary,
+                allowed_action_ids: request.allowed_action_ids,
+                evidence_refs: request.evidence_refs,
+                scope_expansion: request.scope_expansion.unwrap_or(ScopeExpansionAssessment {
+                    expanded: false,
+                    reason_codes: Vec::new(),
+                    evidence_refs: Vec::new(),
+                }),
+            })
+            .context
+        }
+        SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => {
+            build_supervisor_context_from_ui(SupervisorContextBuildInput {
+                event: request.event,
+                artifact_ref: request.artifact_ref,
+                source_ui_mode,
+                locale: request.locale.unwrap_or_else(|| "ko-KR".to_string()),
+                goal_summary: request.ui_state.goal_summary.unwrap_or_default(),
+                plan_summary,
+                verification: request.ui_state.verification,
+                feasibility: request.ui_state.feasibility,
+            })
+            .context
+        }
+    }
 }
 
 fn attach_evaluation_id(validation: &mut SupervisorValidationResult, evaluation_id: &str) {
@@ -335,7 +380,9 @@ fn response_from_validation(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dive::{ProvocationCardType, SupervisorTestResult as TestResult};
+    use crate::dive::{
+        ProvocationCardStage, ProvocationCardType, SupervisorTestResult as TestResult,
+    };
 
     fn request_with_verification(
         verification: SupervisorVerificationUiState,
@@ -360,7 +407,91 @@ mod tests {
                     diff_available: true,
                 },
             },
+            project_id: None,
+            plan_id: None,
+            allowed_action_ids: Vec::new(),
+            evidence_refs: Vec::new(),
+            scope_expansion: None,
         }
+    }
+
+    fn scope_expansion_request() -> ProvocationAgentEvaluateRequest {
+        ProvocationAgentEvaluateRequest {
+            session_id: 456,
+            event: SupervisorEvent::ScopeExpansion,
+            artifact_ref: ArtifactRef::add_step_draft("draft-analytics", "Add analytics dashboard"),
+            source_ui_mode: "standard".to_string(),
+            locale: Some("ko-KR".to_string()),
+            ui_state: ProvocationAgentUiState {
+                goal_summary: Some("Keep this project to login settings".to_string()),
+                plan_summary: Some(PlanSummary {
+                    step_count: 3,
+                    active_step: Some("Settings page".to_string()),
+                }),
+                verification: SupervisorVerificationUiState {
+                    ai_claimed_done: false,
+                    diff_reviewed: false,
+                    app_launched: false,
+                    preview_checked: false,
+                    automated_tests_passed: false,
+                    test_result: None,
+                    acceptance_criterion_confirmed: false,
+                    manual_checks: vec![],
+                },
+                feasibility: VerificationFeasibility {
+                    runnable: false,
+                    previewable: false,
+                    has_tests: false,
+                    diff_available: false,
+                },
+            },
+            project_id: Some(7),
+            plan_id: Some(9),
+            allowed_action_ids: vec![
+                SupervisorActionId::LinkCriterion,
+                SupervisorActionId::SplitScope,
+                SupervisorActionId::EditPrd,
+                SupervisorActionId::DismissReview,
+            ],
+            evidence_refs: vec![
+                ScopeExpansionEvidenceRefInput {
+                    id: "step.title".to_string(),
+                    source: Some("plan".to_string()),
+                    kind: Some("add_step_draft".to_string()),
+                    label: Some("Add analytics dashboard".to_string()),
+                    value_summary: json!("Add analytics dashboard"),
+                    verification_evidence: false,
+                },
+                ScopeExpansionEvidenceRefInput {
+                    id: "AC-001".to_string(),
+                    source: Some("plan".to_string()),
+                    kind: Some("acceptance_criteria".to_string()),
+                    label: Some("Users can sign in".to_string()),
+                    value_summary: json!({ "criterionId": "AC-001" }),
+                    verification_evidence: false,
+                },
+            ],
+            scope_expansion: Some(ScopeExpansionAssessment {
+                expanded: true,
+                reason_codes: vec!["missing_criterion_link".into()],
+                evidence_refs: vec!["step.linkedCriterionIds".into()],
+            }),
+        }
+    }
+
+    fn valid_scope_expansion_decision_json() -> String {
+        r#"{
+            "schemaVersion": 1,
+            "provoke": true,
+            "concern": "scope_expansion",
+            "severity": "caution",
+            "question": "이 추가 단계가 기존 PRD 기준과 연결되는지 먼저 확인할까요?",
+            "evidenceRefIds": ["add_step.title", "add_step.linked_criterion_ids", "scope.assessment"],
+            "suggestedActionIds": ["link_criterion", "split_scope", "continue_with_risk"],
+            "supervisionHabit": "새 범위는 PRD 기준에 묶어 봅니다.",
+            "logRationale": "Add-step draft lacks a linked criterion"
+        }"#
+        .to_string()
     }
 
     fn self_report_only_verification() -> SupervisorVerificationUiState {
@@ -556,5 +687,176 @@ mod tests {
         assert_eq!(log.supervisor_model.as_deref(), Some("mock-supervisor"));
         assert_eq!(log.latency_ms, Some(42));
         assert_eq!(log.usage, Some(json!({ "inputTokens": 10 })));
+    }
+
+    #[test]
+    fn provocation_agent_evaluate_scope_expansion_maps_valid_decision_to_non_blocking_card() {
+        let mut dedup = SupervisorDedupState::new();
+        let evaluated = evaluate_with_output_and_log(
+            scope_expansion_request(),
+            StageCSupervisorOutput::DecisionJson {
+                raw: valid_scope_expansion_decision_json(),
+                supervisor_model: Some("mock-supervisor".to_string()),
+                latency_ms: Some(88),
+                usage: Some(json!({ "inputTokens": 12 })),
+            },
+            &mut dedup,
+        );
+
+        assert_eq!(
+            evaluated.response.status,
+            ProvocationAgentEvaluateStatus::Shown
+        );
+        let card = evaluated.response.card.as_ref().unwrap();
+        assert_eq!(card.card_type, ProvocationCardType::ScopeExpansion);
+        assert_eq!(card.stage, ProvocationCardStage::Extend);
+        assert_eq!(card.metadata["concern"], json!("scope_expansion"));
+        assert_eq!(
+            card.actions
+                .iter()
+                .map(|action| action.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["link_criterion", "split_scope"]
+        );
+        assert_eq!(
+            card.metadata["supervisorEvaluationId"],
+            json!(evaluated.response.evaluation_id)
+        );
+
+        let log = evaluated.log.expect("scope evaluation is locally logged");
+        assert_eq!(log.event, SupervisorEvent::ScopeExpansion);
+        assert_eq!(log.validation_outcome, SupervisorValidationOutcome::Shown);
+        assert_eq!(log.drop_reason, None);
+        assert_eq!(log.supervisor_model.as_deref(), Some("mock-supervisor"));
+        assert_eq!(log.latency_ms, Some(88));
+        assert!(log
+            .evidence_refs
+            .iter()
+            .any(|evidence| evidence.id == "add_step.linked_criterion_ids"));
+    }
+
+    #[test]
+    fn provocation_agent_evaluate_scope_expansion_drops_invalid_decision_with_log() {
+        let raw = r#"{
+            "schemaVersion": 1,
+            "provoke": true,
+            "concern": "scope_expansion",
+            "severity": "caution",
+            "question": "이 추가 단계가 기존 PRD 기준과 연결되는지 먼저 확인할까요?",
+            "evidenceRefIds": ["prd.ac_missing"],
+            "suggestedActionIds": ["link_criterion"],
+            "supervisionHabit": "새 범위는 PRD 기준에 묶어 봅니다.",
+            "logRationale": "Unknown evidence"
+        }"#;
+        let mut dedup = SupervisorDedupState::new();
+        let evaluated = evaluate_with_output_and_log(
+            scope_expansion_request(),
+            StageCSupervisorOutput::DecisionJson {
+                raw: raw.to_string(),
+                supervisor_model: Some("mock-supervisor".to_string()),
+                latency_ms: Some(30),
+                usage: None,
+            },
+            &mut dedup,
+        );
+
+        assert_eq!(
+            evaluated.response.status,
+            ProvocationAgentEvaluateStatus::Dropped
+        );
+        assert_eq!(
+            evaluated.response.drop_reason,
+            Some(SupervisorDropReason::UnknownEvidenceRef)
+        );
+        assert!(evaluated.response.card.is_none());
+        let log = evaluated.log.expect("invalid scope decision is logged");
+        assert_eq!(log.event, SupervisorEvent::ScopeExpansion);
+        assert_eq!(log.validation_outcome, SupervisorValidationOutcome::Dropped);
+        assert_eq!(
+            log.drop_reason,
+            Some(SupervisorDropReason::UnknownEvidenceRef)
+        );
+    }
+
+    #[test]
+    fn provocation_agent_evaluate_scope_expansion_timeout_and_unavailable_have_no_card_and_log() {
+        for (output, reason) in [
+            (
+                StageCSupervisorOutput::Timeout,
+                SupervisorDropReason::Timeout,
+            ),
+            (
+                StageCSupervisorOutput::RuntimeUnavailable,
+                SupervisorDropReason::RuntimeUnavailable,
+            ),
+        ] {
+            let mut dedup = SupervisorDedupState::new();
+            let evaluated =
+                evaluate_with_output_and_log(scope_expansion_request(), output, &mut dedup);
+
+            assert_eq!(
+                evaluated.response.status,
+                ProvocationAgentEvaluateStatus::Dropped
+            );
+            assert_eq!(evaluated.response.drop_reason, Some(reason));
+            assert!(evaluated.response.card.is_none());
+            let log = evaluated.log.expect("scope no-card outcome is logged");
+            assert_eq!(log.event, SupervisorEvent::ScopeExpansion);
+            assert_eq!(log.validation_outcome, SupervisorValidationOutcome::Dropped);
+            assert_eq!(log.drop_reason, Some(reason));
+        }
+    }
+
+    #[test]
+    fn provocation_agent_evaluate_scope_expansion_has_no_domain_shell_fallback_card() {
+        let mut dedup = SupervisorDedupState::new();
+        let evaluated = evaluate_with_output_and_log(
+            scope_expansion_request(),
+            StageCSupervisorOutput::DomainShell,
+            &mut dedup,
+        );
+
+        assert_eq!(
+            evaluated.response.status,
+            ProvocationAgentEvaluateStatus::Dropped
+        );
+        assert_eq!(
+            evaluated.response.drop_reason,
+            Some(SupervisorDropReason::RuntimeUnavailable)
+        );
+        assert!(evaluated.response.card.is_none());
+        let log = evaluated.log.expect("scope fallback suppression is logged");
+        assert_eq!(log.event, SupervisorEvent::ScopeExpansion);
+        assert_eq!(log.validation_outcome, SupervisorValidationOutcome::Dropped);
+    }
+
+    #[test]
+    fn provocation_agent_evaluate_scope_expansion_false_assessment_logs_no_card() {
+        let mut request = scope_expansion_request();
+        request.scope_expansion.as_mut().unwrap().expanded = false;
+        let mut dedup = SupervisorDedupState::new();
+        let evaluated = evaluate_with_output_and_log(
+            request,
+            StageCSupervisorOutput::DecisionJson {
+                raw: valid_scope_expansion_decision_json(),
+                supervisor_model: Some("mock-supervisor".to_string()),
+                latency_ms: Some(20),
+                usage: None,
+            },
+            &mut dedup,
+        );
+
+        assert_eq!(
+            evaluated.response.status,
+            ProvocationAgentEvaluateStatus::NoCard
+        );
+        assert_eq!(
+            evaluated.response.drop_reason,
+            Some(SupervisorDropReason::ProvokeFalse)
+        );
+        assert!(evaluated.response.card.is_none());
+        let log = evaluated.log.expect("scope no-card evaluation is logged");
+        assert_eq!(log.event, SupervisorEvent::ScopeExpansion);
+        assert_eq!(log.validation_outcome, SupervisorValidationOutcome::NoCard);
     }
 }

@@ -1,21 +1,29 @@
 import { FileText, Link2, Plus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AcceptanceCriterion,
   AppendPlanStepInput,
+  PlanAdjustmentReviewRequestDetail,
   ProjectSpec,
   ProjectSpecDelta,
   ScopeExpansionAssessment,
   StepDraftInput,
 } from "../../features/planning";
+import { PLAN_ADJUSTMENT_REVIEW_REQUEST_EVENT } from "../../features/planning";
 import {
   ProvocationCardHost,
+  createScopeExpansionSupervisorRequest,
+  evaluateProvocationSupervisor,
+  type ProvocationAction,
+  type ProvocationCard,
   type ProvocationContext,
+  type ScopeExpansionSupervisorEvaluationRequest,
+  type SupervisorEvidenceRefContract,
   type SupervisorSourceUiMode,
 } from "../../features/provocation";
-import { scopeExpansionAssessmentRule } from "../../features/provocation/rules";
 import { useT } from "../../i18n";
 import { cn } from "../../lib/utils";
+import { useProjectSessionStore } from "../../stores/project-session";
 import { Button } from "../ui/button";
 
 interface PlanAddStepPanelProps {
@@ -28,6 +36,21 @@ interface PlanAddStepPanelProps {
   onAppended?: () => void | Promise<void>;
 }
 
+type ScopeSupervisorState =
+  | { status: "idle" }
+  | { status: "pending"; evaluationKey: string }
+  | { status: "shown"; evaluationKey: string; evaluationId: string; card: ProvocationCard }
+  | { status: "none"; evaluationKey: string; evaluationId?: string; dropReason?: string };
+
+type ScopeActionRoute = "link_criterion" | "split_scope" | "edit_prd" | "dismiss_review";
+
+const SCOPE_ACTION_ROUTE_COPY: Record<ScopeActionRoute, string> = {
+  link_criterion: "연결할 PRD 기준을 선택하세요. 기준이 없다면 PRD를 먼저 수정하세요.",
+  split_scope: "제목과 이유를 더 작은 단계로 나눈 뒤 저장하세요.",
+  edit_prd: "PRD 수정은 전용 PRD 영역에서 검토 후 반영하세요.",
+  dismiss_review: "검토 카드를 닫았습니다. 저장은 계속 가능합니다.",
+};
+
 function compactUnique(values: string[]): string[] {
   const out: string[] = [];
   for (const raw of values) {
@@ -39,6 +62,15 @@ function compactUnique(values: string[]): string[] {
 
 function lines(value: string): string[] {
   return compactUnique(value.split(/[\n,]/));
+}
+
+function stableHash(value: unknown): string {
+  const json = JSON.stringify(value);
+  let hash = 0;
+  for (let index = 0; index < json.length; index += 1) {
+    hash = (hash * 31 + json.charCodeAt(index)) >>> 0;
+  }
+  return `local:${hash.toString(16)}`;
 }
 
 function normalizedScopeText(value: string): string {
@@ -118,6 +150,119 @@ function buildPrdDelta(
   };
 }
 
+function criterionEvidenceRefs(criteria: AcceptanceCriterion[]): SupervisorEvidenceRefContract[] {
+  return criteria.slice(0, 6).map((criterion) => ({
+    id: criterion.criterionId,
+    source: "plan",
+    kind: "acceptance_criteria",
+    label: criterion.criterionId,
+    valueSummary: {
+      criterionId: criterion.criterionId,
+      text: criterion.text,
+      status: criterion.status,
+    },
+    verificationEvidence: false,
+  }));
+}
+
+function buildScopeEvidenceRefs(input: {
+  title: string;
+  reason: string;
+  selectedCriterionIds: string[];
+  expectedFiles: string[];
+  prdDelta: ProjectSpecDelta | null;
+  activeCriteria: AcceptanceCriterion[];
+  scopeExpansion: ScopeExpansionAssessment;
+}): SupervisorEvidenceRefContract[] {
+  const refs: SupervisorEvidenceRefContract[] = [];
+  const push = (ref: SupervisorEvidenceRefContract) => {
+    if (!refs.some((existing) => existing.id === ref.id)) refs.push(ref);
+  };
+
+  if (input.title.trim()) {
+    push({
+      id: "step.title",
+      source: "plan",
+      kind: "add_step_draft",
+      label: "추가 단계 제목",
+      valueSummary: input.title.trim(),
+      verificationEvidence: false,
+    });
+  }
+  if (input.reason.trim()) {
+    push({
+      id: "step.reason",
+      source: "plan",
+      kind: "add_step_draft",
+      label: "추가 단계 이유",
+      valueSummary: input.reason.trim(),
+      verificationEvidence: false,
+    });
+  }
+  push({
+    id: "step.linkedCriterionIds",
+    source: "plan",
+    kind: "add_step_draft",
+    label: "연결된 PRD 기준",
+    valueSummary: { linkedCriterionIds: input.selectedCriterionIds },
+    verificationEvidence: false,
+  });
+  input.expectedFiles.slice(0, 4).forEach((expectedFile, index) => {
+    push({
+      id: `step.expectedFiles[${index}]`,
+      source: "plan",
+      kind: "add_step_draft",
+      label: "예상 파일",
+      valueSummary: expectedFile,
+      verificationEvidence: false,
+    });
+  });
+  input.prdDelta?.scopeChanges.slice(0, 4).forEach((scopeChange, index) => {
+    push({
+      id: `prdDelta.scopeChanges[${index}]`,
+      source: "plan",
+      kind: "prd_scope",
+      label: "PRD 범위 변경",
+      valueSummary: scopeChange,
+      verificationEvidence: false,
+    });
+  });
+  criterionEvidenceRefs(input.activeCriteria).forEach(push);
+  input.scopeExpansion.evidenceRefs.forEach((refId) => {
+    if (!refs.some((existing) => existing.id === refId)) {
+      push({
+        id: refId,
+        source: "plan",
+        kind: "scope_expansion_assessment",
+        label: "범위 확장 근거",
+        valueSummary: refId,
+        verificationEvidence: false,
+      });
+    }
+  });
+  return refs;
+}
+
+function withScopeCorrelationMetadata(
+  card: ProvocationCard,
+  request: ScopeExpansionSupervisorEvaluationRequest,
+  evaluationId: string,
+): ProvocationCard {
+  return {
+    ...card,
+    metadata: {
+      ...card.metadata,
+      supervisorEvaluationId: card.metadata?.supervisorEvaluationId ?? evaluationId,
+      supervisorEvent: card.metadata?.supervisorEvent ?? "scope_expansion",
+      projectId: card.metadata?.projectId ?? request.projectId,
+      planId: card.metadata?.planId ?? request.planId,
+      artifactRef: card.metadata?.artifactRef ?? request.artifactRef,
+      contextHash: card.metadata?.contextHash ?? request.contextHash,
+      evidenceHash: card.metadata?.evidenceHash ?? request.evidenceHash,
+    },
+  };
+}
+
 export function PlanAddStepPanel({
   projectId,
   planId,
@@ -134,6 +279,17 @@ export function PlanAddStepPanel({
   const [verificationCheck, setVerificationCheck] = useState("");
   const [selectedCriterionIds, setSelectedCriterionIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [scopeSupervisorState, setScopeSupervisorState] = useState<ScopeSupervisorState>({
+    status: "idle",
+  });
+  const [actionRoute, setActionRoute] = useState<ScopeActionRoute | null>(null);
+  const [planAdjustmentSuggestion, setPlanAdjustmentSuggestion] =
+    useState<PlanAdjustmentReviewRequestDetail | null>(null);
+  const currentProjectId = useProjectSessionStore((s) => s.currentProjectId);
+  const currentSessionId = useProjectSessionStore((s) => s.currentSessionId);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const reasonInputRef = useRef<HTMLTextAreaElement>(null);
+  const criteriaRef = useRef<HTMLDivElement>(null);
 
   const activeCriteria = useMemo(
     () =>
@@ -155,16 +311,161 @@ export function PlanAddStepPanel({
     [expectedFiles, prdDelta, projectSpec, selectedCriterionIds],
   );
   const provocationMode: SupervisorSourceUiMode = "work";
+  const supervisorSessionId = currentProjectId === projectId ? currentSessionId : null;
+  const scopeEvidenceRefs = useMemo(
+    () =>
+      buildScopeEvidenceRefs({
+        title,
+        reason,
+        selectedCriterionIds,
+        expectedFiles,
+        prdDelta,
+        activeCriteria,
+        scopeExpansion,
+      }),
+    [activeCriteria, expectedFiles, prdDelta, reason, scopeExpansion, selectedCriterionIds, title],
+  );
+  const scopeSupervisorRequest = useMemo(() => {
+    if (!hasDraftSignal || !scopeExpansion.expanded || typeof supervisorSessionId !== "number") {
+      return null;
+    }
+    const artifactRef = {
+      kind: "add_step_draft" as const,
+      id: `plan-${planId}-add-step-${stableHash({
+        title,
+        reason,
+        expectedFiles,
+        selectedCriterionIds,
+        prdDelta,
+      })}`,
+      label: title.trim() || "manual add step",
+    };
+    return createScopeExpansionSupervisorRequest({
+      sessionId: supervisorSessionId,
+      projectId,
+      planId,
+      artifactRef,
+      sourceUiMode: provocationMode,
+      locale: "ko-KR",
+      contextHash: stableHash({
+        projectId,
+        planId,
+        artifactRef,
+        scopeExpansion,
+      }),
+      evidenceHash: stableHash(scopeEvidenceRefs),
+      evidenceRefs: scopeEvidenceRefs,
+      scopeExpansion,
+      uiState: {
+        goalSummary: projectSpec?.goal ?? projectName,
+        planSummary: { stepCount: 0, activeStep: null },
+        verification: {
+          aiClaimedDone: false,
+          diffReviewed: false,
+          appLaunched: false,
+          previewChecked: false,
+          automatedTestsPassed: false,
+          testResult: null,
+          acceptanceCriterionConfirmed: false,
+          manualChecks: [],
+        },
+        feasibility: {
+          runnable: false,
+          previewable: false,
+          hasTests: false,
+          diffAvailable: false,
+        },
+      },
+    });
+  }, [
+    expectedFiles,
+    hasDraftSignal,
+    planId,
+    prdDelta,
+    projectId,
+    projectName,
+    projectSpec?.goal,
+    provocationMode,
+    reason,
+    scopeEvidenceRefs,
+    scopeExpansion,
+    selectedCriterionIds,
+    supervisorSessionId,
+    title,
+  ]);
   const provocationContext: ProvocationContext = {
     mode: provocationMode,
     stage: "instruct",
     projectId,
+    sessionId: supervisorSessionId,
     taskId: `plan-${planId}-add-step`,
     goalText: projectSpec?.goal ?? projectName,
   };
-  const scopeCard = hasDraftSignal
-    ? scopeExpansionAssessmentRule(provocationContext, scopeExpansion)
-    : null;
+  const scopeSupervisorCard =
+    scopeSupervisorState.status === "shown" ? scopeSupervisorState.card : null;
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<PlanAdjustmentReviewRequestDetail>).detail;
+      if (!detail || detail.projectId !== projectId || detail.planId !== planId) return;
+      setPlanAdjustmentSuggestion(detail);
+      setReason((current) => current || detail.suggestedSeed || detail.message);
+      requestAnimationFrame(() => reasonInputRef.current?.focus());
+    };
+    window.addEventListener(PLAN_ADJUSTMENT_REVIEW_REQUEST_EVENT, handler);
+    return () => window.removeEventListener(PLAN_ADJUSTMENT_REVIEW_REQUEST_EVENT, handler);
+  }, [planId, projectId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setActionRoute(null);
+    if (!scopeSupervisorRequest) {
+      setScopeSupervisorState({ status: "idle" });
+      return;
+    }
+
+    const evaluationKey = `${scopeSupervisorRequest.artifactRef.id}:${scopeSupervisorRequest.evidenceHash}`;
+    setScopeSupervisorState({ status: "pending", evaluationKey });
+    void evaluateProvocationSupervisor(scopeSupervisorRequest)
+      .then((response) => {
+        if (cancelled) return;
+        if (response.status === "shown" && response.card.type === "scope_expansion") {
+          setScopeSupervisorState({
+            status: "shown",
+            evaluationKey,
+            evaluationId: response.evaluationId,
+            card: withScopeCorrelationMetadata(
+              response.card,
+              scopeSupervisorRequest,
+              response.evaluationId,
+            ),
+          });
+          return;
+        }
+        setScopeSupervisorState({
+          status: "none",
+          evaluationKey,
+          evaluationId: response.evaluationId,
+          dropReason: response.status === "shown" ? "disallowed_concern" : response.dropReason,
+        });
+      })
+      .catch((err) => {
+        if (import.meta.env.DEV) {
+          console.warn("scope supervisor evaluation failed:", err);
+        }
+        if (!cancelled) {
+          setScopeSupervisorState({
+            status: "none",
+            evaluationKey,
+            dropReason: "runtime_unavailable",
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [scopeSupervisorRequest]);
 
   const valid = title.trim().length > 0 && reason.trim().length > 0;
 
@@ -174,6 +475,37 @@ export function PlanAddStepPanel({
         ? current.filter((item) => item !== criterionId)
         : [...current, criterionId],
     );
+  };
+
+  const handleScopeCardAction = (action: ProvocationAction) => {
+    if (action.kind === "link_criterion") {
+      setActionRoute("link_criterion");
+      criteriaRef.current?.querySelector("button")?.focus();
+      return;
+    }
+    if (action.kind === "edit_prd") {
+      setActionRoute("edit_prd");
+      titleInputRef.current?.focus();
+      return;
+    }
+    if (action.kind === "split_scope") {
+      setActionRoute("split_scope");
+      reasonInputRef.current?.focus();
+      return;
+    }
+    if (action.kind === "dismiss_review") {
+      setActionRoute("dismiss_review");
+      setScopeSupervisorState((current) =>
+        current.status === "shown"
+          ? {
+              status: "none",
+              evaluationKey: current.evaluationKey,
+              evaluationId: current.evaluationId,
+              dropReason: "provoke_false",
+            }
+          : current,
+      );
+    }
   };
 
   const handleSubmit = async () => {
@@ -222,8 +554,33 @@ export function PlanAddStepPanel({
         <Plus className="h-3.5 w-3.5 text-accent" aria-hidden />
         {t("prd.add_step.title")}
       </div>
+      {planAdjustmentSuggestion ? (
+        <div
+          className="mt-2 rounded-md border border-info/40 bg-info/5 px-2 py-1.5 text-xs"
+          data-testid="plan-adjustment-review-suggestion"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="font-semibold text-info">재분해 제안 검토</p>
+              <p className="mt-1 text-fg-muted">
+                {planAdjustmentSuggestion.suggestedSeed || planAdjustmentSuggestion.message}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setPlanAdjustmentSuggestion(null)}
+              data-testid="plan-adjustment-review-dismiss"
+            >
+              닫기
+            </Button>
+          </div>
+        </div>
+      ) : null}
       <div className="mt-2 grid gap-2">
         <input
+          ref={titleInputRef}
           className="h-8 rounded-md border bg-bg px-2 text-xs text-fg outline-none focus:border-accent"
           value={title}
           onChange={(event) => setTitle(event.target.value)}
@@ -231,6 +588,7 @@ export function PlanAddStepPanel({
           data-testid="plan-add-step-title"
         />
         <textarea
+          ref={reasonInputRef}
           className="min-h-[56px] resize-none rounded-md border bg-bg px-2 py-1.5 text-xs text-fg outline-none focus:border-accent"
           value={reason}
           onChange={(event) => setReason(event.target.value)}
@@ -259,7 +617,7 @@ export function PlanAddStepPanel({
             <Link2 className="h-3 w-3" aria-hidden />
             {t("prd.add_step.criterion_link")}
           </div>
-          <div className="flex flex-wrap gap-1">
+          <div className="flex flex-wrap gap-1" ref={criteriaRef}>
             {activeCriteria.map((criterion) => {
               const selected = selectedCriterionIds.includes(criterion.criterionId);
               return (
@@ -299,13 +657,31 @@ export function PlanAddStepPanel({
         </div>
       </div>
 
-      {scopeCard ? (
-        <div className="mt-2" data-testid="plan-add-step-scope-card">
+      {scopeSupervisorCard ? (
+        <div
+          className="mt-2"
+          data-testid="plan-add-step-scope-card"
+          data-supervisor-status={scopeSupervisorState.status}
+          data-evaluation-id={
+            scopeSupervisorState.status === "shown" ? scopeSupervisorState.evaluationId : undefined
+          }
+        >
           <ProvocationCardHost
-            cards={[scopeCard]}
+            cards={[scopeSupervisorCard]}
             context={provocationContext}
             mode={provocationMode}
+            onAction={handleScopeCardAction}
           />
+        </div>
+      ) : null}
+
+      {actionRoute ? (
+        <div
+          className="mt-2 rounded-md border border-border bg-bg-panel2 px-2 py-1.5 text-[11px] text-fg-muted"
+          data-testid="plan-add-step-action-route"
+          data-route={actionRoute}
+        >
+          {SCOPE_ACTION_ROUTE_COPY[actionRoute]}
         </div>
       ) : null}
 

@@ -48,7 +48,9 @@ export interface ProvocationEvidence {
 
 export type ProvocationActionKind =
   | "add_acceptance_criteria"
+  | "link_criterion"
   | "split_scope"
+  | "edit_prd"
   | "add_verification_step"
   | "open_diff"
   | "ask_ai_for_rationale"
@@ -61,6 +63,7 @@ export type ProvocationActionKind =
   | "retry_with_ai"
   | "continue_with_risk"
   | "dismiss"
+  | "dismiss_review"
   | "mark_irrelevant";
 
 export interface ProvocationAction {
@@ -182,7 +185,34 @@ export interface ProvocationContext {
   userHasViewedTestResult?: boolean;
 }
 
-export type SupervisorEvent = "ai_claimed_done" | "verify_entered";
+export type RuntimeCapabilityStatus = "ready" | "unavailable";
+
+export type RuntimeUnavailableReason =
+  | "provider_not_configured"
+  | "provider_not_pi_capable"
+  | "legacy_requested"
+  | "missing_credentials"
+  | "missing_project_root"
+  | "runtime_unavailable";
+
+export type RuntimeSetupAction =
+  | "configure_provider"
+  | "choose_supported_provider"
+  | "add_credentials"
+  | "open_project"
+  | "retry_runtime";
+
+export interface RuntimeCapabilityState {
+  state: RuntimeCapabilityStatus;
+  providerKind: string;
+  model: string | null;
+  reasonCode: RuntimeUnavailableReason | null;
+  message: string;
+  setupAction: RuntimeSetupAction | null;
+  recordedAt: number;
+}
+
+export type SupervisorEvent = "ai_claimed_done" | "verify_entered" | "scope_expansion";
 
 export type SupervisorEvaluationStatus = "shown" | "none" | "dropped";
 
@@ -209,11 +239,18 @@ export type SupervisorDropReason =
 
 export type SupervisorAllowedActionId = Extract<
   ProvocationActionKind,
-  "open_diff" | "open_preview" | "run_tests" | "run_app"
+  | "open_diff"
+  | "open_preview"
+  | "run_tests"
+  | "run_app"
+  | "link_criterion"
+  | "split_scope"
+  | "edit_prd"
+  | "dismiss_review"
 >;
 
 export interface SupervisorArtifactRef {
-  kind: "step";
+  kind: "step" | "add_step_draft" | "plan_mutation";
   id: string;
   label: string;
 }
@@ -241,19 +278,100 @@ export interface SupervisorFeasibility {
   diffAvailable: boolean;
 }
 
+export interface SupervisorEvaluationUiState {
+  goalSummary?: string;
+  planSummary?: SupervisorPlanSummary;
+  verification: SupervisorVerificationSnapshot;
+  feasibility: SupervisorFeasibility;
+}
+
+export interface ScopeExpansionAssessmentContract {
+  expanded: boolean;
+  reasonCodes: string[];
+  evidenceRefs: string[];
+}
+
+export interface SupervisorEvidenceRefContract {
+  id: string;
+  source: ProvocationEvidenceSource;
+  kind: string;
+  label: string;
+  valueSummary: unknown;
+  verificationEvidence: boolean;
+}
+
+export interface ScopeExpansionSupervisorEvent {
+  event: "scope_expansion";
+  artifactRef: SupervisorArtifactRef;
+  projectId: number;
+  planId: number;
+  mode: SupervisorMode;
+  locale: string;
+  contextHash?: string;
+  evidenceHash?: string;
+  allowedActionIds: SupervisorAllowedActionId[];
+  evidenceRefs: SupervisorEvidenceRefContract[];
+  scopeExpansion: ScopeExpansionAssessmentContract;
+}
+
+export type ScopeExpansionReviewEvent = ScopeExpansionSupervisorEvent;
+
+export type PlanAdjustmentOfferKind = "redecompose_step" | "adjust_plan";
+
+export type PlanAdjustmentOfferStatus = "offered" | "accepted" | "dismissed";
+
+export interface RationaleChallengeOffer {
+  offerId: string;
+  objectionId: string;
+  projectId: number;
+  planId: number;
+  stepDbId: number;
+  stableStepId: string;
+  kind: PlanAdjustmentOfferKind;
+  status: PlanAdjustmentOfferStatus;
+  message: string;
+  suggestedSeed?: string | null;
+  createdAt: number;
+  respondedAt?: number | null;
+}
+
+export interface SpecConformanceRecord {
+  specId: string;
+  gap: string;
+  status: "closed" | "clarified_future" | "deferred";
+  evidence: string[];
+  updatedAt: number | string;
+}
+
 export interface SupervisorEvaluationRequest {
   sessionId: number;
   event: "verify_entered";
   artifactRef: SupervisorArtifactRef;
   sourceUiMode: SupervisorSourceUiMode;
   locale?: string;
-  uiState: {
-    goalSummary?: string;
-    planSummary?: SupervisorPlanSummary;
-    verification: SupervisorVerificationSnapshot;
-    feasibility: SupervisorFeasibility;
-  };
+  uiState: SupervisorEvaluationUiState;
 }
+
+export interface ScopeExpansionSupervisorEvaluationRequest {
+  sessionId: number;
+  event: "scope_expansion";
+  artifactRef: SupervisorArtifactRef;
+  sourceUiMode?: SupervisorSourceUiMode;
+  mode: SupervisorMode;
+  locale?: string;
+  projectId: number;
+  planId: number;
+  contextHash: string;
+  evidenceHash: string;
+  uiState: SupervisorEvaluationUiState;
+  allowedActionIds: SupervisorAllowedActionId[];
+  evidenceRefs: SupervisorEvidenceRefContract[];
+  scopeExpansion: ScopeExpansionAssessmentContract;
+}
+
+export type AnySupervisorEvaluationRequest =
+  | SupervisorEvaluationRequest
+  | ScopeExpansionSupervisorEvaluationRequest;
 
 export type SupervisorEvaluationResponse =
   | {

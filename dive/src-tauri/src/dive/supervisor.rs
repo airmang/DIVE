@@ -9,14 +9,20 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::str::FromStr;
 
+use crate::db::models::ScopeExpansionAssessment;
+
 const SUPERVISOR_SCHEMA_VERSION: u8 = 1;
 const P1_CONCERN: &str = "ai_self_report_only";
+const SCOPE_EXPANSION_CONCERN: &str = "scope_expansion";
 const QUESTION_MAX_CHARS: usize = 140;
 const SUPERVISION_HABIT_MAX_CHARS: usize = 60;
 const CARD_EVIDENCE_CAP: usize = 3;
 const CARD_ACTION_CAP: usize = 3;
 const DEFAULT_CARD_CREATED_AT: &str = "1970-01-01T00:00:00.000Z";
 const SUPERVISOR_PROMPT_MAX_BYTES: usize = 24 * 1024;
+const SCOPE_EVIDENCE_SUMMARY_MAX_CHARS: usize = 160;
+const SCOPE_EVIDENCE_ARRAY_CAP: usize = 6;
+const SCOPE_EVIDENCE_OBJECT_CAP: usize = 12;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -38,6 +44,7 @@ impl SupervisorMode {
 #[serde(rename_all = "snake_case")]
 pub enum SourceUiMode {
     Guided,
+    Work,
     Standard,
     Expert,
 }
@@ -46,6 +53,7 @@ impl SourceUiMode {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Guided => "guided",
+            Self::Work => "work",
             Self::Standard => "standard",
             Self::Expert => "expert",
         }
@@ -58,6 +66,7 @@ impl FromStr for SourceUiMode {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value.trim().to_ascii_lowercase().as_str() {
             "guided" => Ok(Self::Guided),
+            "work" => Ok(Self::Work),
             "standard" => Ok(Self::Standard),
             "expert" => Ok(Self::Expert),
             _ => Err(SupervisorDropReason::InvalidMode),
@@ -78,7 +87,7 @@ pub fn normalize_source_ui_mode(
     let source_ui_mode = SourceUiMode::from_str(input)?;
     let mode = match source_ui_mode {
         SourceUiMode::Guided => SupervisorMode::Guided,
-        SourceUiMode::Standard | SourceUiMode::Expert => SupervisorMode::Work,
+        SourceUiMode::Work | SourceUiMode::Standard | SourceUiMode::Expert => SupervisorMode::Work,
     };
     Ok(NormalizedSupervisorMode {
         mode,
@@ -95,6 +104,7 @@ pub fn invalid_mode_validation_result() -> SupervisorValidationResult {
 pub enum SupervisorEvent {
     AiClaimedDone,
     VerifyEntered,
+    ScopeExpansion,
 }
 
 impl SupervisorEvent {
@@ -102,6 +112,7 @@ impl SupervisorEvent {
         match self {
             Self::AiClaimedDone => "ai_claimed_done",
             Self::VerifyEntered => "verify_entered",
+            Self::ScopeExpansion => "scope_expansion",
         }
     }
 }
@@ -118,6 +129,14 @@ impl ArtifactRef {
     pub fn step(id: impl Into<String>, label: impl Into<String>) -> Self {
         Self {
             kind: "step".to_string(),
+            id: id.into(),
+            label: label.into(),
+        }
+    }
+
+    pub fn add_step_draft(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            kind: "add_step_draft".to_string(),
             id: id.into(),
             label: label.into(),
         }
@@ -170,6 +189,9 @@ pub enum EvidenceKind {
     TerminalError,
     PlanStep,
     AcceptanceCriteria,
+    PrdScope,
+    AddStepDraft,
+    ScopeExpansionAssessment,
     RetryCount,
 }
 
@@ -187,6 +209,9 @@ impl EvidenceKind {
             Self::TerminalError => "terminal_error",
             Self::PlanStep => "plan_step",
             Self::AcceptanceCriteria => "acceptance_criteria",
+            Self::PrdScope => "prd_scope",
+            Self::AddStepDraft => "add_step_draft",
+            Self::ScopeExpansionAssessment => "scope_expansion_assessment",
             Self::RetryCount => "retry_count",
         }
     }
@@ -277,6 +302,43 @@ impl EvidenceRef {
 
     pub fn test_result_skipped() -> Self {
         Self::test_result(TestResult::Skipped)
+    }
+
+    pub fn acceptance_criterion(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            source: EvidenceSource::Plan,
+            kind: EvidenceKind::AcceptanceCriteria,
+            label: label.into(),
+            value_summary: json!({ "kind": "criterion" }),
+            verification_evidence: false,
+        }
+    }
+
+    pub fn add_step_draft(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            source: EvidenceSource::Plan,
+            kind: EvidenceKind::AddStepDraft,
+            label: label.into(),
+            value_summary: json!({ "kind": "draft" }),
+            verification_evidence: false,
+        }
+    }
+
+    pub fn scope_expansion_reason(reason_codes: Vec<String>, evidence_refs: Vec<String>) -> Self {
+        Self {
+            id: "scope.assessment".to_string(),
+            source: EvidenceSource::Workmap,
+            kind: EvidenceKind::ScopeExpansionAssessment,
+            label: "범위 확장 평가".to_string(),
+            value_summary: json!({
+                "kind": "scope_expansion_assessment",
+                "reasonCodes": reason_codes,
+                "evidenceRefs": evidence_refs,
+            }),
+            verification_evidence: false,
+        }
     }
 }
 
@@ -379,6 +441,34 @@ pub struct SupervisorContextBuildInput {
     pub feasibility: VerificationFeasibility,
 }
 
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeExpansionEvidenceRefInput {
+    pub id: String,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub value_summary: Value,
+    #[serde(default)]
+    pub verification_evidence: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScopeExpansionSupervisorContextBuildInput {
+    pub artifact_ref: ArtifactRef,
+    pub source_ui_mode: SourceUiMode,
+    pub locale: String,
+    pub goal_summary: String,
+    pub plan_summary: PlanSummary,
+    pub allowed_action_ids: Vec<SupervisorActionId>,
+    pub evidence_refs: Vec<ScopeExpansionEvidenceRefInput>,
+    pub scope_expansion: ScopeExpansionAssessment,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SupervisorContextBuildResult {
@@ -456,7 +546,7 @@ pub fn build_supervisor_context_from_ui(
 ) -> SupervisorContextBuildResult {
     let mode = match input.source_ui_mode {
         SourceUiMode::Guided => SupervisorMode::Guided,
-        SourceUiMode::Standard | SourceUiMode::Expert => SupervisorMode::Work,
+        SourceUiMode::Work | SourceUiMode::Standard | SourceUiMode::Expert => SupervisorMode::Work,
     };
     let evidence_refs = build_p1_evidence_refs(&input.verification);
     let verification_state = VerificationState {
@@ -490,10 +580,358 @@ pub fn build_supervisor_context_from_ui(
     }
 }
 
+pub fn build_scope_expansion_supervisor_context(
+    input: ScopeExpansionSupervisorContextBuildInput,
+) -> SupervisorContextBuildResult {
+    let mode = match input.source_ui_mode {
+        SourceUiMode::Guided => SupervisorMode::Guided,
+        SourceUiMode::Work | SourceUiMode::Standard | SourceUiMode::Expert => SupervisorMode::Work,
+    };
+    let (evidence_refs, scope_expansion) =
+        build_scope_expansion_evidence_refs(&input.evidence_refs, &input.scope_expansion);
+    let context = SupervisorContext::new(
+        SupervisorEvent::ScopeExpansion,
+        input.artifact_ref,
+        mode,
+        if input.locale.trim().is_empty() {
+            "ko-KR".to_string()
+        } else {
+            input.locale
+        },
+        allowed_actions_for_scope_expansion(&input.allowed_action_ids),
+        input.goal_summary,
+        input.plan_summary,
+        VerificationState {
+            ai_self_report: false,
+            concrete_evidence: false,
+            test_result: None,
+        },
+        VerificationFeasibility {
+            runnable: false,
+            previewable: false,
+            has_tests: false,
+            diff_available: false,
+        },
+        evidence_refs,
+    )
+    .with_scope_expansion(scope_expansion);
+    SupervisorContextBuildResult {
+        context,
+        source_ui_mode: input.source_ui_mode,
+    }
+}
+
+pub fn allowed_actions_for_scope_expansion(
+    requested: &[SupervisorActionId],
+) -> Vec<SupervisorActionId> {
+    let defaults = [
+        SupervisorActionId::LinkCriterion,
+        SupervisorActionId::SplitScope,
+        SupervisorActionId::EditPrd,
+        SupervisorActionId::DismissReview,
+    ];
+    let source = if requested.is_empty() {
+        defaults.as_slice()
+    } else {
+        requested
+    };
+    let allowed = defaults
+        .iter()
+        .copied()
+        .collect::<HashSet<SupervisorActionId>>();
+    let mut seen = HashSet::new();
+    source
+        .iter()
+        .copied()
+        .filter(|action| allowed.contains(action))
+        .filter(|action| seen.insert(*action))
+        .collect()
+}
+
+pub fn build_scope_expansion_evidence_refs(
+    input_refs: &[ScopeExpansionEvidenceRefInput],
+    assessment: &ScopeExpansionAssessment,
+) -> (Vec<EvidenceRef>, ScopeExpansionAssessment) {
+    let mut evidence_refs = Vec::new();
+    for input in input_refs {
+        push_unique_evidence_ref(
+            &mut evidence_refs,
+            scope_expansion_evidence_from_input(input),
+        );
+    }
+
+    let mut normalized_assessment_refs = Vec::new();
+    for raw_id in &assessment.evidence_refs {
+        let id = normalize_scope_evidence_id(raw_id);
+        push_unique_string(&mut normalized_assessment_refs, id.clone());
+        if !evidence_refs
+            .iter()
+            .any(|evidence| evidence.id.as_str() == id.as_str())
+        {
+            push_unique_evidence_ref(
+                &mut evidence_refs,
+                synthetic_scope_expansion_evidence(raw_id, &id),
+            );
+        }
+    }
+
+    let reason_codes = compact_reason_codes(&assessment.reason_codes);
+    let normalized = ScopeExpansionAssessment {
+        expanded: assessment.expanded,
+        reason_codes: reason_codes.clone(),
+        evidence_refs: normalized_assessment_refs,
+    };
+    push_unique_evidence_ref(
+        &mut evidence_refs,
+        EvidenceRef::scope_expansion_reason(
+            normalized.reason_codes.clone(),
+            normalized.evidence_refs.clone(),
+        ),
+    );
+    (evidence_refs, normalized)
+}
+
+fn scope_expansion_evidence_from_input(input: &ScopeExpansionEvidenceRefInput) -> EvidenceRef {
+    let id = normalize_scope_evidence_id(&input.id);
+    let (source, kind) = scope_expansion_evidence_source_kind(&id);
+    EvidenceRef {
+        id: id.clone(),
+        source,
+        kind,
+        label: bounded_scope_label(
+            input
+                .label
+                .as_deref()
+                .filter(|label| !label.trim().is_empty())
+                .unwrap_or_else(|| default_scope_evidence_label(&id)),
+        ),
+        value_summary: bounded_scope_value_summary(if input.value_summary.is_null() {
+            json!({
+                "kind": "scope_evidence",
+                "sourceRef": input.id,
+            })
+        } else {
+            input.value_summary.clone()
+        }),
+        verification_evidence: false,
+    }
+}
+
+fn synthetic_scope_expansion_evidence(raw_id: &str, id: &str) -> EvidenceRef {
+    let (source, kind) = scope_expansion_evidence_source_kind(id);
+    EvidenceRef {
+        id: id.to_string(),
+        source,
+        kind,
+        label: bounded_scope_label(default_scope_evidence_label(id)),
+        value_summary: json!({
+            "kind": "scope_evidence",
+            "sourceRef": raw_id,
+        }),
+        verification_evidence: false,
+    }
+}
+
+fn push_unique_evidence_ref(evidence_refs: &mut Vec<EvidenceRef>, evidence: EvidenceRef) {
+    if !evidence_refs
+        .iter()
+        .any(|existing| existing.id == evidence.id)
+    {
+        evidence_refs.push(evidence);
+    }
+}
+
+fn push_unique_string(values: &mut Vec<String>, value: String) {
+    if !value.is_empty() && !values.iter().any(|existing| existing == &value) {
+        values.push(value);
+    }
+}
+
+fn compact_reason_codes(values: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for raw in values {
+        push_unique_string(&mut out, scope_slug(raw));
+    }
+    out
+}
+
+fn normalize_scope_evidence_id(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return "scope.evidence".to_string();
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if lower == "step.linkedcriterionids" || lower == "step.linked_criterion_ids" {
+        return "add_step.linked_criterion_ids".to_string();
+    }
+    if lower == "step.title" || lower == "addstep.title" || lower == "add_step.title" {
+        return "add_step.title".to_string();
+    }
+    if lower == "step.reason" || lower == "step.summary" || lower == "add_step.reason" {
+        return "add_step.reason".to_string();
+    }
+    if let Some(index) = indexed_ref(&lower, "step.expectedfiles") {
+        return format!("add_step.expected_files_{index}");
+    }
+    if let Some(index) = indexed_ref(&lower, "step.expected_files") {
+        return format!("add_step.expected_files_{index}");
+    }
+    if let Some(index) = indexed_ref(&lower, "prddelta.scopechanges") {
+        return format!("prd_delta.scope_changes_{index}");
+    }
+    if let Some(index) = indexed_ref(&lower, "prd_delta.scope_changes") {
+        return format!("prd_delta.scope_changes_{index}");
+    }
+    if lower.starts_with("ac-") || lower.starts_with("ac_") {
+        return format!("prd.{}", scope_slug(trimmed));
+    }
+
+    let normalized = normalize_evidence_path(trimmed);
+    if is_well_formed_evidence_id(&normalized) {
+        normalized
+    } else {
+        format!("scope.{}", scope_slug(trimmed))
+    }
+}
+
+fn indexed_ref(value: &str, prefix: &str) -> Option<usize> {
+    let remainder = value.strip_prefix(prefix)?;
+    let index = remainder.strip_prefix('[')?.strip_suffix(']')?;
+    index.parse::<usize>().ok()
+}
+
+fn normalize_evidence_path(value: &str) -> String {
+    let mut out = String::new();
+    let mut last_separator = false;
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            last_separator = false;
+        } else if ch == '.' {
+            if !out.ends_with('.') {
+                out.push('.');
+            }
+            last_separator = true;
+        } else if !last_separator && !out.ends_with('.') {
+            out.push('_');
+            last_separator = true;
+        }
+    }
+    out.trim_matches(|ch| ch == '_' || ch == '.').to_string()
+}
+
+fn scope_slug(value: &str) -> String {
+    let mut out = String::new();
+    let mut last_separator = false;
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            last_separator = false;
+        } else if !last_separator {
+            out.push('_');
+            last_separator = true;
+        }
+    }
+    let trimmed = out.trim_matches('_').to_string();
+    if trimmed.is_empty() {
+        "unknown".to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn scope_expansion_evidence_source_kind(id: &str) -> (EvidenceSource, EvidenceKind) {
+    if id.starts_with("prd.ac_") || id.starts_with("prd.acceptance_criteria") {
+        (EvidenceSource::Plan, EvidenceKind::AcceptanceCriteria)
+    } else if id.starts_with("prd.") || id.starts_with("prd_delta.") {
+        (EvidenceSource::Plan, EvidenceKind::PrdScope)
+    } else if id.starts_with("add_step.") {
+        (EvidenceSource::Plan, EvidenceKind::AddStepDraft)
+    } else {
+        (
+            EvidenceSource::Workmap,
+            EvidenceKind::ScopeExpansionAssessment,
+        )
+    }
+}
+
+fn default_scope_evidence_label(id: &str) -> &'static str {
+    if id == "add_step.linked_criterion_ids" {
+        "연결된 PRD 기준"
+    } else if id.starts_with("add_step.expected_files_") {
+        "예상 파일"
+    } else if id == "add_step.title" {
+        "추가 단계 제목"
+    } else if id == "add_step.reason" {
+        "추가 단계 이유"
+    } else if id.starts_with("prd.ac_") || id.starts_with("prd.acceptance_criteria") {
+        "PRD 기준"
+    } else if id.starts_with("prd_delta.scope_changes_") {
+        "PRD 범위 변경"
+    } else if id.starts_with("prd.") {
+        "PRD 범위"
+    } else {
+        "범위 확장 근거"
+    }
+}
+
+fn bounded_scope_label(value: &str) -> String {
+    let trimmed = value.trim();
+    let mut label = trimmed.chars().take(80).collect::<String>();
+    if trimmed.chars().count() > 80 {
+        label.push_str("...");
+    }
+    if label.is_empty() {
+        "범위 확장 근거".to_string()
+    } else {
+        label
+    }
+}
+
+fn bounded_scope_value_summary(value: Value) -> Value {
+    match value {
+        Value::String(text) => {
+            let mut bounded = text
+                .trim()
+                .chars()
+                .take(SCOPE_EVIDENCE_SUMMARY_MAX_CHARS)
+                .collect::<String>();
+            if text.trim().chars().count() > SCOPE_EVIDENCE_SUMMARY_MAX_CHARS {
+                bounded.push_str("...");
+            }
+            Value::String(bounded)
+        }
+        Value::Array(items) => Value::Array(
+            items
+                .into_iter()
+                .take(SCOPE_EVIDENCE_ARRAY_CAP)
+                .map(bounded_scope_value_summary)
+                .collect(),
+        ),
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .take(SCOPE_EVIDENCE_OBJECT_CAP)
+                .map(|(key, value)| (key, bounded_scope_value_summary(value)))
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
 pub fn p1_provoke_gate(context: &SupervisorContext) -> bool {
     context.event == SupervisorEvent::VerifyEntered
         && context.verification_state.ai_self_report
         && !context.verification_state.concrete_evidence
+}
+
+pub fn supervisor_provoke_gate(context: &SupervisorContext) -> bool {
+    match context.event {
+        SupervisorEvent::ScopeExpansion => context
+            .scope_expansion
+            .as_ref()
+            .is_some_and(|assessment| assessment.expanded),
+        SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => p1_provoke_gate(context),
+    }
 }
 
 pub fn build_supervisor_prompt(
@@ -510,17 +948,29 @@ pub fn build_supervisor_prompt(
             "You are a one-shot evaluator. You have no tools, no filesystem access, ",
             "no process access, no resource discovery, no long-term memory, and no shared ",
             "main-agent session.\n",
-            "DIVE has already decided the deterministic P1 provoke gate fired. ",
+            "DIVE has already built deterministic evidence for this review event. ",
             "Return exactly one JSON object matching SupervisorDecision schemaVersion=1. ",
             "Use only evidenceRefIds and suggestedActionIds present in the context. ",
-            "Suggested actions may only be open_diff, open_preview, run_tests, or run_app. ",
+            "{} ",
             "Never suggest continue_with_risk, verification_deferred, dismiss, or mark_irrelevant. ",
             "Ask one criterion-linked Korean question within 140 characters.\n\n",
             "SupervisorContext JSON:\n",
             "{}"
         ),
+        prompt_action_instruction(context.event),
         context_json
     ))
+}
+
+fn prompt_action_instruction(event: SupervisorEvent) -> &'static str {
+    match event {
+        SupervisorEvent::ScopeExpansion => {
+            "Suggested actions may only be link_criterion, split_scope, edit_prd, or dismiss_review."
+        }
+        SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => {
+            "Suggested actions may only be open_diff, open_preview, run_tests, or run_app."
+        }
+    }
 }
 
 pub fn build_stage_c_supervisor_decision(context: &SupervisorContext) -> SupervisorDecision {
@@ -552,6 +1002,10 @@ pub enum SupervisorActionId {
     OpenPreview,
     RunTests,
     RunApp,
+    LinkCriterion,
+    SplitScope,
+    EditPrd,
+    DismissReview,
 }
 
 impl SupervisorActionId {
@@ -561,6 +1015,10 @@ impl SupervisorActionId {
             Self::OpenPreview => "open_preview",
             Self::RunTests => "run_tests",
             Self::RunApp => "run_app",
+            Self::LinkCriterion => "link_criterion",
+            Self::SplitScope => "split_scope",
+            Self::EditPrd => "edit_prd",
+            Self::DismissReview => "dismiss_review",
         }
     }
 
@@ -570,6 +1028,10 @@ impl SupervisorActionId {
             Self::OpenPreview => "미리보기 열기",
             Self::RunTests => "테스트 실행",
             Self::RunApp => "앱 실행",
+            Self::LinkCriterion => "기준 연결",
+            Self::SplitScope => "범위 나누기",
+            Self::EditPrd => "PRD 수정",
+            Self::DismissReview => "닫기",
         }
     }
 }
@@ -583,6 +1045,10 @@ impl FromStr for SupervisorActionId {
             "open_preview" => Ok(Self::OpenPreview),
             "run_tests" => Ok(Self::RunTests),
             "run_app" => Ok(Self::RunApp),
+            "link_criterion" => Ok(Self::LinkCriterion),
+            "split_scope" => Ok(Self::SplitScope),
+            "edit_prd" => Ok(Self::EditPrd),
+            "dismiss_review" => Ok(Self::DismissReview),
             _ => Err(()),
         }
     }
@@ -603,6 +1069,8 @@ pub struct SupervisorContext {
     pub verification_state: VerificationState,
     pub feasibility: VerificationFeasibility,
     pub evidence_refs: Vec<EvidenceRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_expansion: Option<ScopeExpansionAssessment>,
 }
 
 impl SupervisorContext {
@@ -632,9 +1100,16 @@ impl SupervisorContext {
             verification_state,
             feasibility,
             evidence_refs,
+            scope_expansion: None,
         };
         context.context_hash = context.compute_context_hash();
         context
+    }
+
+    pub fn with_scope_expansion(mut self, scope_expansion: ScopeExpansionAssessment) -> Self {
+        self.scope_expansion = Some(scope_expansion);
+        self.context_hash = self.compute_context_hash();
+        self
     }
 
     pub fn compute_context_hash(&self) -> String {
@@ -648,6 +1123,7 @@ impl SupervisorContext {
             "evidenceRefIds": sorted_evidence_ids(&self.evidence_refs),
             "verificationState": self.verification_state.clone(),
             "feasibility": self.feasibility.clone(),
+            "scopeExpansion": self.scope_expansion.clone(),
         }))
     }
 
@@ -1017,7 +1493,19 @@ pub fn validate_supervisor_decision(
         );
     }
 
-    if decision.concern != P1_CONCERN {
+    if context.event == SupervisorEvent::ScopeExpansion
+        && !context
+            .scope_expansion
+            .as_ref()
+            .is_some_and(|assessment| assessment.expanded)
+    {
+        return SupervisorValidationResult::dropped(
+            SupervisorDropReason::MissingEvidence,
+            Some(empty_summary),
+        );
+    }
+
+    if decision.concern != expected_concern_for_event(context.event) {
         return SupervisorValidationResult::dropped(
             SupervisorDropReason::DisallowedConcern,
             Some(empty_summary),
@@ -1061,6 +1549,12 @@ pub fn validate_supervisor_decision(
         strip_unavailable_or_disallowed_actions(&decision.suggested_action_ids, context);
     let decision_summary =
         SupervisorDecisionSummary::from_decision(&decision, stripped_action_ids.clone());
+    if context.event == SupervisorEvent::ScopeExpansion && accepted_action_ids.is_empty() {
+        return SupervisorValidationResult::dropped(
+            SupervisorDropReason::UnknownAction,
+            Some(decision_summary),
+        );
+    }
     let evidence_hash = context.evidence_hash();
     let dedup_key = SupervisorDedupKey::new(context, &decision.concern, &evidence_hash);
     if !dedup.remember_if_new(dedup_key) {
@@ -1083,15 +1577,24 @@ pub fn validate_supervisor_decision(
     SupervisorValidationResult::shown(card, stripped_action_ids, decision_summary)
 }
 
+fn expected_concern_for_event(event: SupervisorEvent) -> &'static str {
+    match event {
+        SupervisorEvent::ScopeExpansion => SCOPE_EXPANSION_CONCERN,
+        SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => P1_CONCERN,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProvocationCardType {
     AiSelfReportOnly,
+    ScopeExpansion,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ProvocationCardStage {
+    Extend,
     Verify,
     FinalApproval,
 }
@@ -1209,18 +1712,54 @@ pub fn map_decision_to_card_at(
 
     ProvocationCard {
         id: card_id.to_string(),
-        card_type: ProvocationCardType::AiSelfReportOnly,
-        stage: ProvocationCardStage::Verify,
+        card_type: card_type_for_event(context.event),
+        stage: card_stage_for_event(context.event),
         severity: ProvocationSeverity::Caution,
-        title: "확인 필요 카드".to_string(),
+        title: card_title_for_event(context.event).to_string(),
         prompt: Some(decision.question.clone()),
-        message: "확인 가능한 증거를 먼저 살펴보세요.".to_string(),
+        message: card_message_for_event(context.event).to_string(),
         evidence,
         actions,
         primary_action_id,
         mode_copy,
         metadata: Value::Object(metadata),
         created_at: created_at.to_string(),
+    }
+}
+
+fn card_type_for_event(event: SupervisorEvent) -> ProvocationCardType {
+    match event {
+        SupervisorEvent::ScopeExpansion => ProvocationCardType::ScopeExpansion,
+        SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => {
+            ProvocationCardType::AiSelfReportOnly
+        }
+    }
+}
+
+fn card_stage_for_event(event: SupervisorEvent) -> ProvocationCardStage {
+    match event {
+        SupervisorEvent::ScopeExpansion => ProvocationCardStage::Extend,
+        SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => {
+            ProvocationCardStage::Verify
+        }
+    }
+}
+
+fn card_title_for_event(event: SupervisorEvent) -> &'static str {
+    match event {
+        SupervisorEvent::ScopeExpansion => "검토 카드",
+        SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => "확인 필요 카드",
+    }
+}
+
+fn card_message_for_event(event: SupervisorEvent) -> &'static str {
+    match event {
+        SupervisorEvent::ScopeExpansion => {
+            "추가하려는 단계가 PRD 범위를 넓히는지 근거와 함께 확인하세요."
+        }
+        SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => {
+            "확인 가능한 증거를 먼저 살펴보세요."
+        }
     }
 }
 
@@ -1339,6 +1878,51 @@ mod tests {
         )
     }
 
+    fn sample_scope_expansion_context() -> SupervisorContext {
+        let assessment = ScopeExpansionAssessment {
+            expanded: true,
+            reason_codes: vec!["missing_criterion_link".into(), "new_scope_area".into()],
+            evidence_refs: vec!["add_step.title".into(), "prd.ac_001".into()],
+        };
+        SupervisorContext::new(
+            SupervisorEvent::ScopeExpansion,
+            ArtifactRef::add_step_draft("draft-1", "Add analytics dashboard"),
+            SupervisorMode::Work,
+            "ko-KR",
+            vec![
+                SupervisorActionId::LinkCriterion,
+                SupervisorActionId::SplitScope,
+                SupervisorActionId::EditPrd,
+                SupervisorActionId::DismissReview,
+            ],
+            "사용자가 대시보드를 추가하려고 함",
+            PlanSummary {
+                step_count: 4,
+                active_step: Some("로그인 플로우 구현".to_string()),
+            },
+            VerificationState {
+                ai_self_report: false,
+                concrete_evidence: false,
+                test_result: None,
+            },
+            VerificationFeasibility {
+                runnable: false,
+                previewable: false,
+                has_tests: false,
+                diff_available: false,
+            },
+            vec![
+                EvidenceRef::add_step_draft("add_step.title", "Analytics dashboard"),
+                EvidenceRef::acceptance_criterion("prd.ac_001", "로그인 폼 기준"),
+                EvidenceRef::scope_expansion_reason(
+                    assessment.reason_codes.clone(),
+                    assessment.evidence_refs.clone(),
+                ),
+            ],
+        )
+        .with_scope_expansion(assessment)
+    }
+
     fn valid_decision() -> SupervisorDecision {
         SupervisorDecision {
             schema_version: SUPERVISOR_SCHEMA_VERSION,
@@ -1355,6 +1939,43 @@ mod tests {
             suggested_action_ids: vec!["open_diff".to_string()],
             supervision_habit: Some("AI의 말과 직접 본 증거를 구분합니다.".to_string()),
             log_rationale: Some("완료 주장은 있으나 독립 검증 증거가 없음".to_string()),
+        }
+    }
+
+    fn valid_scope_expansion_decision() -> SupervisorDecision {
+        SupervisorDecision {
+            schema_version: SUPERVISOR_SCHEMA_VERSION,
+            provoke: true,
+            concern: SCOPE_EXPANSION_CONCERN.to_string(),
+            severity: "caution".to_string(),
+            question: "이 새 단계가 기존 PRD 기준과 연결되는지 먼저 확인할까요?".to_string(),
+            evidence_ref_ids: vec![
+                "add_step.title".to_string(),
+                "prd.ac_001".to_string(),
+                "scope.assessment".to_string(),
+            ],
+            suggested_action_ids: vec![
+                "link_criterion".to_string(),
+                "split_scope".to_string(),
+                "edit_prd".to_string(),
+            ],
+            supervision_habit: Some("새 범위는 PRD 기준과 연결합니다.".to_string()),
+            log_rationale: Some("Add-step draft has no clear criterion link".to_string()),
+        }
+    }
+
+    fn scope_evidence_input(
+        id: &str,
+        label: &str,
+        value_summary: Value,
+    ) -> ScopeExpansionEvidenceRefInput {
+        ScopeExpansionEvidenceRefInput {
+            id: id.to_string(),
+            source: None,
+            kind: None,
+            label: Some(label.to_string()),
+            value_summary,
+            verification_evidence: true,
         }
     }
 
@@ -1422,18 +2043,28 @@ mod tests {
     fn supervisor_p1_gate_fires_only_for_verify_self_report_without_concrete_evidence() {
         let mut context = sample_context_with_event(SupervisorEvent::VerifyEntered);
         assert!(p1_provoke_gate(&context));
+        assert!(supervisor_provoke_gate(&context));
 
         context.verification_state.concrete_evidence = true;
         context.context_hash = context.compute_context_hash();
         assert!(!p1_provoke_gate(&context));
+        assert!(!supervisor_provoke_gate(&context));
 
         context.verification_state.concrete_evidence = false;
         context.verification_state.ai_self_report = false;
         context.context_hash = context.compute_context_hash();
         assert!(!p1_provoke_gate(&context));
+        assert!(!supervisor_provoke_gate(&context));
 
         let claimed = sample_context_with_event(SupervisorEvent::AiClaimedDone);
         assert!(!p1_provoke_gate(&claimed));
+        assert!(!supervisor_provoke_gate(&claimed));
+
+        let mut scope = sample_scope_expansion_context();
+        assert!(supervisor_provoke_gate(&scope));
+        scope.scope_expansion.as_mut().unwrap().expanded = false;
+        scope.context_hash = scope.compute_context_hash();
+        assert!(!supervisor_provoke_gate(&scope));
     }
 
     #[test]
@@ -1541,6 +2172,10 @@ mod tests {
         assert_eq!(guided.mode, SupervisorMode::Guided);
         assert_eq!(guided.source_ui_mode, SourceUiMode::Guided);
 
+        let work = normalize_source_ui_mode("work").unwrap();
+        assert_eq!(work.mode, SupervisorMode::Work);
+        assert_eq!(work.source_ui_mode, SourceUiMode::Work);
+
         let standard = normalize_source_ui_mode("standard").unwrap();
         assert_eq!(standard.mode, SupervisorMode::Work);
         assert_eq!(standard.source_ui_mode, SourceUiMode::Standard);
@@ -1553,7 +2188,7 @@ mod tests {
     #[test]
     fn supervisor_unknown_mode_returns_invalid_mode_drop() {
         assert_eq!(
-            normalize_source_ui_mode("work"),
+            normalize_source_ui_mode("solo"),
             Err(SupervisorDropReason::InvalidMode)
         );
         let result = invalid_mode_validation_result();
@@ -1581,6 +2216,271 @@ mod tests {
         assert_eq!(
             SupervisorDropReason::UnknownAction.as_str(),
             "unknown_action"
+        );
+        assert_eq!(
+            serde_json::to_value(SupervisorEvent::ScopeExpansion).unwrap(),
+            json!("scope_expansion")
+        );
+        assert_eq!(
+            serde_json::to_value(SupervisorActionId::LinkCriterion).unwrap(),
+            json!("link_criterion")
+        );
+    }
+
+    #[test]
+    fn supervisor_scope_expansion_context_carries_assessment_and_hashes() {
+        let context = sample_scope_expansion_context();
+
+        assert_eq!(context.event, SupervisorEvent::ScopeExpansion);
+        assert_eq!(context.artifact_ref.kind, "add_step_draft");
+        assert_eq!(
+            context
+                .scope_expansion
+                .as_ref()
+                .map(|assessment| assessment.expanded),
+            Some(true)
+        );
+        assert_eq!(
+            context
+                .allowed_action_ids
+                .iter()
+                .map(|action| action.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "link_criterion",
+                "split_scope",
+                "edit_prd",
+                "dismiss_review"
+            ]
+        );
+        assert!(context.context_hash.starts_with("sha256:"));
+        assert!(context.evidence_hash().starts_with("sha256:"));
+    }
+
+    #[test]
+    fn supervisor_builds_scope_expansion_context_from_add_step_evidence() {
+        let assessment = ScopeExpansionAssessment {
+            expanded: true,
+            reason_codes: vec!["missing_criterion_link".into(), "new_scope_area".into()],
+            evidence_refs: vec![
+                "step.linkedCriterionIds".into(),
+                "prdDelta.scopeChanges[0]".into(),
+            ],
+        };
+        let result =
+            build_scope_expansion_supervisor_context(ScopeExpansionSupervisorContextBuildInput {
+                artifact_ref: ArtifactRef::add_step_draft("draft-1", "Add analytics dashboard"),
+                source_ui_mode: SourceUiMode::Expert,
+                locale: "".to_string(),
+                goal_summary: "Keep the MVP to login and settings".to_string(),
+                plan_summary: PlanSummary {
+                    step_count: 3,
+                    active_step: Some("Settings form".to_string()),
+                },
+                allowed_action_ids: vec![
+                    SupervisorActionId::LinkCriterion,
+                    SupervisorActionId::RunTests,
+                    SupervisorActionId::SplitScope,
+                    SupervisorActionId::LinkCriterion,
+                ],
+                evidence_refs: vec![
+                    scope_evidence_input(
+                        "step.title",
+                        "Add analytics dashboard",
+                        json!("Add analytics dashboard"),
+                    ),
+                    scope_evidence_input(
+                        "AC-001",
+                        "Users can sign in",
+                        json!({ "criterionId": "AC-001", "text": "Users can sign in" }),
+                    ),
+                    scope_evidence_input(
+                        "prdDelta.scopeChanges[0]",
+                        "Analytics dashboard",
+                        json!({ "scopeChange": "Analytics dashboard" }),
+                    ),
+                ],
+                scope_expansion: assessment,
+            });
+        let context = result.context;
+
+        assert_eq!(result.source_ui_mode, SourceUiMode::Expert);
+        assert_eq!(context.mode, SupervisorMode::Work);
+        assert_eq!(context.locale, "ko-KR");
+        assert_eq!(
+            context.allowed_action_ids,
+            vec![
+                SupervisorActionId::LinkCriterion,
+                SupervisorActionId::SplitScope,
+            ]
+        );
+        let evidence_ids = context
+            .evidence_refs
+            .iter()
+            .map(|evidence| evidence.id.as_str())
+            .collect::<Vec<_>>();
+        assert!(evidence_ids.contains(&"add_step.title"));
+        assert!(evidence_ids.contains(&"prd.ac_001"));
+        assert!(evidence_ids.contains(&"add_step.linked_criterion_ids"));
+        assert!(evidence_ids.contains(&"prd_delta.scope_changes_0"));
+        assert!(evidence_ids.contains(&"scope.assessment"));
+        assert!(context
+            .evidence_refs
+            .iter()
+            .all(|evidence| !evidence.verification_evidence));
+        assert_eq!(
+            context.scope_expansion.as_ref().unwrap().evidence_refs,
+            vec![
+                "add_step.linked_criterion_ids".to_string(),
+                "prd_delta.scope_changes_0".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn supervisor_scope_expansion_validator_maps_valid_card() {
+        let context = sample_scope_expansion_context();
+        let mut dedup = SupervisorDedupState::new();
+        let result =
+            validate_supervisor_decision(&context, valid_scope_expansion_decision(), &mut dedup);
+
+        assert_eq!(
+            result.validation_outcome,
+            SupervisorValidationOutcome::Shown
+        );
+        let card = result.card.unwrap();
+        assert_eq!(card.card_type, ProvocationCardType::ScopeExpansion);
+        assert_eq!(card.stage, ProvocationCardStage::Extend);
+        assert_eq!(card.title, "검토 카드");
+        assert_eq!(card.evidence.len(), CARD_EVIDENCE_CAP);
+        assert_eq!(
+            card.actions
+                .iter()
+                .map(|action| action.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["link_criterion", "split_scope", "edit_prd"]
+        );
+        assert_eq!(card.metadata["concern"], json!("scope_expansion"));
+    }
+
+    #[test]
+    fn supervisor_scope_expansion_prompt_limits_actions_to_review_nudges() {
+        let context = sample_scope_expansion_context();
+        let prompt = build_supervisor_prompt(&context).unwrap();
+
+        assert!(prompt.contains("link_criterion, split_scope, edit_prd, or dismiss_review"));
+        assert!(!prompt.contains("open_diff, open_preview, run_tests, or run_app"));
+    }
+
+    #[test]
+    fn supervisor_scope_expansion_validator_drops_invalid_evidence_and_missing_assessment() {
+        let context = sample_scope_expansion_context();
+        let mut unknown = valid_scope_expansion_decision();
+        unknown.evidence_ref_ids = vec!["prd.ac_missing".to_string()];
+        let mut dedup = SupervisorDedupState::new();
+        let result = validate_supervisor_decision(&context, unknown, &mut dedup);
+        assert_eq!(
+            result.drop_reason,
+            Some(SupervisorDropReason::UnknownEvidenceRef)
+        );
+
+        let missing_assessment = SupervisorContext::new(
+            SupervisorEvent::ScopeExpansion,
+            ArtifactRef::add_step_draft("draft-1", "Add analytics dashboard"),
+            SupervisorMode::Work,
+            "ko-KR",
+            vec![SupervisorActionId::LinkCriterion],
+            "goal",
+            PlanSummary {
+                step_count: 1,
+                active_step: None,
+            },
+            VerificationState {
+                ai_self_report: false,
+                concrete_evidence: false,
+                test_result: None,
+            },
+            VerificationFeasibility {
+                runnable: false,
+                previewable: false,
+                has_tests: false,
+                diff_available: false,
+            },
+            vec![EvidenceRef::add_step_draft(
+                "add_step.title",
+                "Analytics dashboard",
+            )],
+        );
+        let result = validate_supervisor_decision(
+            &missing_assessment,
+            valid_scope_expansion_decision(),
+            &mut SupervisorDedupState::new(),
+        );
+        assert_eq!(
+            result.drop_reason,
+            Some(SupervisorDropReason::MissingEvidence)
+        );
+    }
+
+    #[test]
+    fn supervisor_scope_expansion_filters_actions_and_deduplicates() {
+        let context = sample_scope_expansion_context();
+        let mut decision = valid_scope_expansion_decision();
+        decision.suggested_action_ids = vec![
+            "link_criterion".into(),
+            "continue_with_risk".into(),
+            "run_tests".into(),
+            "dismiss_review".into(),
+        ];
+        let mut dedup = SupervisorDedupState::new();
+        let first = validate_supervisor_decision(&context, decision.clone(), &mut dedup);
+        assert_eq!(first.validation_outcome, SupervisorValidationOutcome::Shown);
+        assert_eq!(
+            first.stripped_action_ids,
+            vec!["continue_with_risk".to_string(), "run_tests".to_string()]
+        );
+
+        let second = validate_supervisor_decision(&context, decision, &mut dedup);
+        assert_eq!(
+            second.validation_outcome,
+            SupervisorValidationOutcome::Dropped
+        );
+        assert_eq!(second.drop_reason, Some(SupervisorDropReason::Duplicate));
+    }
+
+    #[test]
+    fn supervisor_scope_expansion_drops_when_no_valid_action_remains() {
+        let context = sample_scope_expansion_context();
+        let mut decision = valid_scope_expansion_decision();
+        decision.suggested_action_ids = vec![
+            "continue_with_risk".into(),
+            "run_tests".into(),
+            "verification_deferred".into(),
+        ];
+        let result =
+            validate_supervisor_decision(&context, decision, &mut SupervisorDedupState::new());
+
+        assert_eq!(
+            result.validation_outcome,
+            SupervisorValidationOutcome::Dropped
+        );
+        assert_eq!(
+            result.drop_reason,
+            Some(SupervisorDropReason::UnknownAction)
+        );
+        assert!(result.card.is_none());
+    }
+
+    #[test]
+    fn supervisor_scope_expansion_disallows_p1_concern() {
+        let context = sample_scope_expansion_context();
+        let mut decision = valid_scope_expansion_decision();
+        decision.concern = P1_CONCERN.to_string();
+        let result =
+            validate_supervisor_decision(&context, decision, &mut SupervisorDedupState::new());
+        assert_eq!(
+            result.drop_reason,
+            Some(SupervisorDropReason::DisallowedConcern)
         );
     }
 
