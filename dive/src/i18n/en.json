@@ -160,7 +160,11 @@
       "linked_criteria": "Linked criteria",
       "rationale": "Why this split",
       "challenge": "Why is this step needed?",
-      "objection_logged": "Question logged."
+      "objection_logged": "Question logged.",
+      "offer_title": "Review the plan?",
+      "offer_message": "You can keep working, or open a reviewable plan adjustment suggestion.",
+      "offer_accept": "Review plan adjustment",
+      "offer_dismiss": "Dismiss"
     },
     "add_step": {
       "title": "Add step",
@@ -168,8 +172,25 @@
       "criterion_link": "Criterion to link",
       "prd_delta": "PRD change",
       "scope_expansion": "Possible scope expansion",
+      "scope_supervisor": {
+        "pending": "Checking scope evidence",
+        "no_card": "No scope review card shown.",
+        "fallback_blocked": "Static scope cards are disabled; DIVE waits for supervisor evidence.",
+        "actions": {
+          "link_criterion": "Link a criterion",
+          "split_scope": "Split the scope",
+          "edit_prd": "Edit PRD",
+          "dismiss_review": "Dismiss"
+        }
+      },
       "save": "Add step"
     }
+  },
+  "spec_conformance": {
+    "runtime_gap": "Unsupported runtime fallback is blocked for v2 work.",
+    "scope_gap": "Scope-expansion cards use the SupervisorAgent review path.",
+    "rationale_gap": "Rationale challenges offer a non-blocking plan adjustment.",
+    "status_gap": "Active specs distinguish shipped, planned, and future-reserved behavior."
   },
   "rc1_migration": {
     "title": "DIVE v1.0.0-rc.1 was a demo build",
@@ -401,8 +422,23 @@
     "supervised_label": "Supervised",
     "supervised_tooltip": "DIVE runs the agent in a supervised runtime. Every action it wants to take — editing files, running commands — needs your approval first. You stay in control.",
     "pi_label": "Pi runtime",
-    "legacy_label": "Legacy loop",
-    "selected_tooltip": "This response is running through {{runtime}}. Provider: {{provider}}, model: {{model}}. Reason: {{reason}}"
+    "selected_tooltip": "This response is running through {{runtime}}. Provider: {{provider}}, model: {{model}}. Reason: {{reason}}",
+    "capability": {
+      "ready_label": "Supervised Pi ready",
+      "ready_message": "This provider can run through DIVE's supervised Pi runtime.",
+      "unavailable_label": "Runtime unavailable",
+      "unavailable_message": "DIVE cannot start this turn until supervised Pi execution is available.",
+      "unavailable_tooltip": "{{message}} Provider: {{provider}}, model: {{model}}.",
+      "setup_action": "Open provider setup",
+      "reasons": {
+        "provider_not_configured": "No AI provider is configured.",
+        "provider_not_pi_capable": "This provider does not have confirmed Pi runtime support.",
+        "legacy_requested": "A saved old-runtime request is not available for v2 work.",
+        "missing_credentials": "Provider credentials are missing or unavailable.",
+        "missing_project_root": "Select a project before starting work.",
+        "runtime_unavailable": "The supervised runtime is unavailable."
+      }
+    }
   },
   "tool_call": {
     "status": {

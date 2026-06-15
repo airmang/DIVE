@@ -323,6 +323,107 @@ pub enum ObjectionSuggestionStatus {
     Dismissed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeCapabilityStatus {
+    Ready,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeUnavailableReason {
+    ProviderNotConfigured,
+    ProviderNotPiCapable,
+    LegacyRequested,
+    MissingCredentials,
+    MissingProjectRoot,
+    RuntimeUnavailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeSetupAction {
+    ConfigureProvider,
+    ChooseSupportedProvider,
+    AddCredentials,
+    OpenProject,
+    RetryRuntime,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeCapabilityState {
+    pub state: RuntimeCapabilityStatus,
+    pub provider_kind: String,
+    pub model: Option<String>,
+    pub reason_code: Option<RuntimeUnavailableReason>,
+    pub message: String,
+    pub setup_action: Option<RuntimeSetupAction>,
+    pub recorded_at: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanAdjustmentOfferKind {
+    RedecomposeStep,
+    AdjustPlan,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanAdjustmentOfferStatus {
+    Offered,
+    Accepted,
+    Dismissed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanAdjustmentOffer {
+    pub offer_id: String,
+    pub objection_id: String,
+    pub project_id: i64,
+    pub plan_id: i64,
+    pub step_db_id: i64,
+    pub stable_step_id: String,
+    pub kind: PlanAdjustmentOfferKind,
+    pub status: PlanAdjustmentOfferStatus,
+    pub suggested_seed: Option<String>,
+    pub created_at: i64,
+    pub responded_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewPlanAdjustmentOffer {
+    pub offer_id: String,
+    pub objection_id: String,
+    pub project_id: i64,
+    pub plan_id: i64,
+    pub step_db_id: i64,
+    pub stable_step_id: String,
+    pub kind: PlanAdjustmentOfferKind,
+    pub status: PlanAdjustmentOfferStatus,
+    pub suggested_seed: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanAdjustmentOfferRow {
+    pub offer_id: String,
+    pub objection_id: String,
+    pub project_id: i64,
+    pub plan_id: i64,
+    pub step_db_id: i64,
+    pub stable_step_id: String,
+    pub kind: PlanAdjustmentOfferKind,
+    pub status: PlanAdjustmentOfferStatus,
+    pub suggested_seed: Option<String>,
+    pub created_at: i64,
+    pub responded_at: Option<i64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AcceptanceCriterion {

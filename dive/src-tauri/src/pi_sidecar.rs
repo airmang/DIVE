@@ -1303,6 +1303,7 @@ mod tests {
         match event {
             AgentEvent::UserMessage { .. } => "user_message",
             AgentEvent::RuntimeSelected { .. } => "runtime_selected",
+            AgentEvent::RuntimeCapabilityEvaluated { .. } => "runtime_capability_evaluated",
             AgentEvent::AssistantStart { .. } => "assistant_start",
             AgentEvent::AssistantDelta { .. } => "assistant_delta",
             AgentEvent::AssistantEnd { .. } => "assistant_end",

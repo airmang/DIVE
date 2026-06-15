@@ -11,7 +11,10 @@ use super::state::{ActiveTurnGuard, PROJECT_NOT_SELECTED_MESSAGE};
 use super::{AppState, ChatHistoryMessage, ProviderKind, ProviderRuntime};
 use crate::agent::{AgentRunMode, PendingApprovalSnapshot};
 use crate::db::dao::step_session_mapping as mapping_dao;
-use crate::db::models::{CardState, NewCard};
+use crate::db::models::{
+    CardState, NewCard, RuntimeCapabilityState, RuntimeCapabilityStatus, RuntimeSetupAction,
+    RuntimeUnavailableReason,
+};
 use crate::dive::CardTransition;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -84,12 +87,45 @@ fn safest_run_mode_allows_verify_when_plan_is_accepted() {
 }
 
 mod select_runtime_tests {
-    use super::super::chat::select_runtime;
+    use super::super::chat::select_runtime_at;
     use super::super::{ProviderKind, RuntimeChoice};
+    use crate::db::models::{RuntimeCapabilityStatus, RuntimeUnavailableReason};
+
+    fn ready(choice: RuntimeChoice) {
+        match choice {
+            RuntimeChoice::Pi { capability } => {
+                assert_eq!(capability.state, RuntimeCapabilityStatus::Ready);
+                assert_eq!(capability.reason_code, None);
+                assert_eq!(capability.recorded_at, 123);
+            }
+            RuntimeChoice::Blocked { capability } => {
+                panic!("expected ready Pi runtime, got blocked: {capability:?}")
+            }
+        }
+    }
+
+    fn blocked_reason(choice: RuntimeChoice) -> RuntimeUnavailableReason {
+        match choice {
+            RuntimeChoice::Blocked { capability } => {
+                assert_eq!(capability.state, RuntimeCapabilityStatus::Unavailable);
+                assert_eq!(capability.recorded_at, 123);
+                capability.reason_code.expect("blocked reason")
+            }
+            RuntimeChoice::Pi { capability } => {
+                panic!("expected blocked runtime, got ready: {capability:?}")
+            }
+        }
+    }
 
     #[test]
     fn default_routes_codex_to_pi() {
-        assert_eq!(select_runtime(ProviderKind::Codex, None), RuntimeChoice::Pi);
+        ready(select_runtime_at(
+            ProviderKind::Codex,
+            Some("gpt-test"),
+            true,
+            None,
+            123,
+        ));
     }
 
     #[test]
@@ -99,40 +135,148 @@ mod select_runtime_tests {
             ProviderKind::Anthropic,
             ProviderKind::OpenRouter,
         ] {
-            assert_eq!(select_runtime(kind, None), RuntimeChoice::Pi);
+            ready(select_runtime_at(kind, Some("model"), true, None, 123));
         }
     }
 
     #[test]
-    fn default_routes_ineligible_provider_to_legacy() {
+    fn default_blocks_ineligible_provider_instead_of_legacy() {
         assert_eq!(
-            select_runtime(ProviderKind::OpencodeZen, None),
-            RuntimeChoice::Legacy
+            blocked_reason(select_runtime_at(
+                ProviderKind::OpencodeZen,
+                Some("zen-model"),
+                true,
+                None,
+                123,
+            )),
+            RuntimeUnavailableReason::ProviderNotPiCapable
         );
     }
 
     #[test]
-    fn env_legacy_forces_legacy_even_for_eligible() {
+    fn env_legacy_is_blocked_even_for_eligible_provider() {
         assert_eq!(
-            select_runtime(ProviderKind::Codex, Some("legacy")),
-            RuntimeChoice::Legacy
+            blocked_reason(select_runtime_at(
+                ProviderKind::Codex,
+                Some("gpt-test"),
+                true,
+                Some("legacy"),
+                123,
+            )),
+            RuntimeUnavailableReason::LegacyRequested
         );
     }
 
     #[test]
     fn env_pi_forces_pi_for_eligible_provider() {
+        ready(select_runtime_at(
+            ProviderKind::Codex,
+            Some("gpt-test"),
+            true,
+            Some("pi"),
+            123,
+        ));
+    }
+
+    #[test]
+    fn env_pi_blocks_ineligible_provider_instead_of_fallback() {
         assert_eq!(
-            select_runtime(ProviderKind::Codex, Some("pi")),
-            RuntimeChoice::Pi
+            blocked_reason(select_runtime_at(
+                ProviderKind::OpencodeZen,
+                Some("zen-model"),
+                true,
+                Some("pi"),
+                123,
+            )),
+            RuntimeUnavailableReason::ProviderNotPiCapable
         );
     }
 
     #[test]
-    fn env_pi_falls_back_to_legacy_for_ineligible_provider() {
+    fn eligible_provider_without_config_id_is_missing_credentials() {
         assert_eq!(
-            select_runtime(ProviderKind::OpencodeZen, Some("pi")),
-            RuntimeChoice::Legacy
+            blocked_reason(select_runtime_at(
+                ProviderKind::Codex,
+                Some("gpt-test"),
+                false,
+                None,
+                123,
+            )),
+            RuntimeUnavailableReason::MissingCredentials
         );
+    }
+}
+
+mod runtime_capability_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn runtime_capability_state_serializes_ready_contract() {
+        let state = RuntimeCapabilityState {
+            state: RuntimeCapabilityStatus::Ready,
+            provider_kind: "codex".into(),
+            model: Some("gpt-test".into()),
+            reason_code: None,
+            message: "supervised Pi ready".into(),
+            setup_action: None,
+            recorded_at: 42,
+        };
+
+        let value = serde_json::to_value(state).unwrap();
+
+        assert_eq!(value["state"], json!("ready"));
+        assert_eq!(value["providerKind"], json!("codex"));
+        assert_eq!(value["model"], json!("gpt-test"));
+        assert_eq!(value["reasonCode"], serde_json::Value::Null);
+        assert_eq!(value["setupAction"], serde_json::Value::Null);
+        assert_eq!(value["recordedAt"], json!(42));
+    }
+
+    #[test]
+    fn runtime_capability_state_serializes_all_unavailable_reason_codes() {
+        let cases = [
+            (
+                RuntimeUnavailableReason::ProviderNotConfigured,
+                "provider_not_configured",
+            ),
+            (
+                RuntimeUnavailableReason::ProviderNotPiCapable,
+                "provider_not_pi_capable",
+            ),
+            (
+                RuntimeUnavailableReason::LegacyRequested,
+                "legacy_requested",
+            ),
+            (
+                RuntimeUnavailableReason::MissingCredentials,
+                "missing_credentials",
+            ),
+            (
+                RuntimeUnavailableReason::MissingProjectRoot,
+                "missing_project_root",
+            ),
+            (
+                RuntimeUnavailableReason::RuntimeUnavailable,
+                "runtime_unavailable",
+            ),
+        ];
+
+        for (reason, expected) in cases {
+            let state = RuntimeCapabilityState {
+                state: RuntimeCapabilityStatus::Unavailable,
+                provider_kind: "opencode_zen".into(),
+                model: None,
+                reason_code: Some(reason),
+                message: "blocked".into(),
+                setup_action: Some(RuntimeSetupAction::ChooseSupportedProvider),
+                recorded_at: 43,
+            };
+            let value = serde_json::to_value(state).unwrap();
+            assert_eq!(value["state"], json!("unavailable"));
+            assert_eq!(value["reasonCode"], json!(expected));
+            assert_eq!(value["setupAction"], json!("choose_supported_provider"));
+        }
     }
 }
 

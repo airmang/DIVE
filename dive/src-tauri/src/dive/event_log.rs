@@ -16,6 +16,7 @@ use crate::db::DbError;
 use crate::dive::supervisor::SupervisorEvaluationLog;
 
 pub const SUPERVISOR_EVALUATED_EVENT: &str = "provocation.supervisor_evaluated";
+pub const RUNTIME_CAPABILITY_EVALUATED_EVENT: &str = "runtime.capability_evaluated";
 pub const PRD_PATCH_PROPOSED_EVENT: &str = "prd_patch_proposed";
 pub const PRD_PATCH_APPLIED_EVENT: &str = "prd_patch_applied";
 pub const PRD_PATCH_REJECTED_EVENT: &str = "prd_patch_rejected";
@@ -23,6 +24,9 @@ pub const PRD_AUTHORED_EVENT: &str = "prd_authored";
 pub const PRD_EDITED_EVENT: &str = "prd_edited";
 pub const PRD_VERSION_CREATED_EVENT: &str = "prd_version_created";
 pub const PLAN_STEP_RATIONALE_CHALLENGED_EVENT: &str = "plan_step_rationale_challenged";
+pub const PLAN_ADJUSTMENT_OFFERED_EVENT: &str = "plan_adjustment_offered";
+pub const PLAN_ADJUSTMENT_ACCEPTED_EVENT: &str = "plan_adjustment_accepted";
+pub const PLAN_ADJUSTMENT_DISMISSED_EVENT: &str = "plan_adjustment_dismissed";
 pub const PLAN_STEP_APPENDED_EVENT: &str = "plan_step_appended";
 pub const PLAN_STEP_CHANGED_EVENT: &str = "plan_step_changed";
 
@@ -35,6 +39,9 @@ static SECRET_RE: LazyLock<Regex> = LazyLock::new(|| {
         ",
     )
     .expect("secret redaction regex")
+});
+static EMAIL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}\b").expect("email redaction regex")
 });
 
 pub fn append_to_conn(
@@ -136,7 +143,13 @@ fn nested_string_field<'a>(value: &'a Value, parent: &str, key: &str) -> Option<
 
 fn infer_agency_component(event_type: &str, payload: &Value) -> Option<&'static str> {
     match event_type {
-        SUPERVISOR_EVALUATED_EVENT => return Some("verify"),
+        SUPERVISOR_EVALUATED_EVENT => {
+            return match string_field(payload, "event") {
+                Some("scope_expansion") => Some("plan"),
+                _ => Some("verify"),
+            }
+        }
+        RUNTIME_CAPABILITY_EVALUATED_EVENT => return Some("action"),
         PRD_PATCH_PROPOSED_EVENT
         | PRD_PATCH_APPLIED_EVENT
         | PRD_PATCH_REJECTED_EVENT
@@ -247,9 +260,23 @@ fn infer_agency_state(event_type: &str, payload: &Value) -> Option<&'static str>
 
     match event_type {
         SUPERVISOR_EVALUATED_EVENT => {
+            if string_field(payload, "event") == Some("scope_expansion") {
+                return match string_field(payload, "validationOutcome") {
+                    Some("shown") => Some("plan_review_needed"),
+                    Some("none" | "dropped" | "error") => Some("plan_review_dropped"),
+                    _ => None,
+                };
+            }
             return match string_field(payload, "validationOutcome") {
                 Some("shown") => Some("ai_self_report_only"),
                 Some("none" | "dropped" | "error") => Some("verification_needed"),
+                _ => None,
+            };
+        }
+        RUNTIME_CAPABILITY_EVALUATED_EVENT => {
+            return match string_field(payload, "status") {
+                Some("ready") => Some("supervised_runtime_ready"),
+                Some("unavailable") => Some("runtime_unavailable"),
                 _ => None,
             };
         }
@@ -452,6 +479,9 @@ fn infer_evidence_summary(event_type: &str, payload: &Value) -> Option<Value> {
                 "planStepAppended": event_type == "plan_step_appended",
                 "planStepChanged": event_type == PLAN_STEP_CHANGED_EVENT,
                 "planStepRationaleChallenged": event_type == PLAN_STEP_RATIONALE_CHALLENGED_EVENT,
+                "planAdjustmentOffered": event_type == PLAN_ADJUSTMENT_OFFERED_EVENT,
+                "planAdjustmentAccepted": event_type == PLAN_ADJUSTMENT_ACCEPTED_EVENT,
+                "planAdjustmentDismissed": event_type == PLAN_ADJUSTMENT_DISMISSED_EVENT,
             }));
         }
         _ if event_type.starts_with("prd_") => {
@@ -530,12 +560,20 @@ fn infer_decision(event_type: &str, payload: &Value) -> Option<Value> {
         SUPERVISOR_EVALUATED_EVENT => {
             return Some(json!({
                 "kind": "supervisor_evaluation",
+                "event": payload.get("event").cloned().unwrap_or(Value::Null),
                 "validationOutcome": payload
                     .get("validationOutcome")
                     .cloned()
                     .unwrap_or(Value::Null),
                 "dropReason": payload.get("dropReason").cloned().unwrap_or(Value::Null),
                 "cardId": payload.get("cardId").cloned().unwrap_or(Value::Null),
+            }));
+        }
+        RUNTIME_CAPABILITY_EVALUATED_EVENT => {
+            return Some(json!({
+                "kind": "runtime_capability",
+                "status": payload.get("status").cloned().unwrap_or(Value::Null),
+                "reasonCode": payload.get("reason_code").cloned().unwrap_or(Value::Null),
             }));
         }
         "checkpoint_create" => return Some(json!({ "kind": "create_checkpoint" })),
@@ -605,6 +643,27 @@ pub fn error_payload(source: &str, message: &str) -> Value {
         "source": source,
         "message_redacted": redact_text(message),
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn runtime_capability_evaluated_payload(
+    status: impl Into<String>,
+    provider_kind: impl Into<String>,
+    model: Option<String>,
+    reason_code: Option<String>,
+    setup_action: Option<String>,
+    message: impl Into<String>,
+    created_at: i64,
+) -> Value {
+    redact_value(&json!({
+        "status": status.into(),
+        "provider_kind": provider_kind.into(),
+        "model": model,
+        "reason_code": reason_code,
+        "setup_action": setup_action,
+        "message": message.into(),
+        "created_at": created_at,
+    }))
 }
 
 pub fn prd_patch_proposed_payload(
@@ -749,6 +808,50 @@ pub fn plan_step_rationale_challenged_payload(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn plan_adjustment_offered_payload(
+    project_id: i64,
+    plan_id: i64,
+    step_id: i64,
+    stable_step_id: impl Into<String>,
+    objection_id: impl Into<String>,
+    offer_id: impl Into<String>,
+    offer_kind: impl Into<String>,
+    offer_summary: impl Into<String>,
+) -> Value {
+    redact_value(&json!({
+        "project_id": project_id,
+        "plan_id": plan_id,
+        "step_id": step_id,
+        "stable_step_id": stable_step_id.into(),
+        "objection_id": objection_id.into(),
+        "offer_id": offer_id.into(),
+        "offer_kind": offer_kind.into(),
+        "offer_summary": offer_summary.into(),
+    }))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn plan_adjustment_response_payload(
+    project_id: i64,
+    plan_id: i64,
+    step_id: i64,
+    stable_step_id: impl Into<String>,
+    objection_id: impl Into<String>,
+    offer_id: impl Into<String>,
+    response: impl Into<String>,
+) -> Value {
+    redact_value(&json!({
+        "project_id": project_id,
+        "plan_id": plan_id,
+        "step_id": step_id,
+        "stable_step_id": stable_step_id.into(),
+        "objection_id": objection_id.into(),
+        "offer_id": offer_id.into(),
+        "response": response.into(),
+    }))
+}
+
 pub fn plan_step_appended_payload(
     mutation_id: impl Into<String>,
     project_spec_id: impl Into<String>,
@@ -816,7 +919,30 @@ pub fn redact_value(value: &Value) -> Value {
 
 pub fn redact_text(text: &str) -> String {
     let redacted = SECRET_RE.replace_all(text, "[REDACTED_SECRET]");
-    redacted.to_string()
+    let redacted = EMAIL_RE.replace_all(&redacted, "[REDACTED_PII]");
+    redact_phone_like_tokens(&redacted)
+}
+
+fn redact_phone_like_tokens(text: &str) -> String {
+    text.split_whitespace()
+        .map(|token| {
+            let normalized = token.trim_matches(|ch: char| {
+                matches!(
+                    ch,
+                    ',' | '.' | ':' | ';' | '(' | ')' | '[' | ']' | '"' | '\''
+                )
+            });
+            let digits = normalized.chars().filter(|ch| ch.is_ascii_digit()).count();
+            let phone_like =
+                digits >= 10 && (normalized.starts_with("010") || normalized.starts_with('+'));
+            if phone_like {
+                "[REDACTED_PII]"
+            } else {
+                token
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub fn hash_text(text: &str) -> String {
@@ -933,6 +1059,69 @@ mod tests {
         );
         assert_eq!(challenged["objection_id"], "obj-1");
         assert_eq!(challenged["suggestion_status"], "offered");
+    }
+
+    #[test]
+    fn runtime_capability_payload_builder_carries_unavailable_reason_codes() {
+        let payload = runtime_capability_evaluated_payload(
+            "unavailable",
+            "opencode_zen",
+            Some("zen-model".into()),
+            Some("provider_not_pi_capable".into()),
+            Some("choose_supported_provider".into()),
+            "Provider token=secret-token-123 is not Pi capable",
+            1234,
+        );
+
+        assert_eq!(payload["status"], "unavailable");
+        assert_eq!(payload["provider_kind"], "opencode_zen");
+        assert_eq!(payload["reason_code"], "provider_not_pi_capable");
+        assert_eq!(payload["setup_action"], "choose_supported_provider");
+        assert!(!payload.to_string().contains("secret-token-123"));
+        assert!(payload.to_string().contains("[REDACTED_SECRET]"));
+
+        let enriched = enrich_agency_payload(RUNTIME_CAPABILITY_EVALUATED_EVENT, payload);
+        assert_eq!(enriched["agencyComponent"], "action");
+        assert_eq!(enriched["agencyState"], "runtime_unavailable");
+        assert_eq!(enriched["decision"]["kind"], "runtime_capability");
+    }
+
+    #[test]
+    fn plan_adjustment_payload_builders_cover_offer_responses() {
+        let offered = plan_adjustment_offered_payload(
+            1,
+            2,
+            3,
+            "step-001",
+            "obj-1",
+            "offer-1",
+            "adjust_plan",
+            "Student email minji@example.com asked to narrow scope",
+        );
+        assert_eq!(offered["offer_id"], "offer-1");
+        assert_eq!(offered["offer_kind"], "adjust_plan");
+        assert!(!offered.to_string().contains("minji@example.com"));
+
+        let enriched = enrich_agency_payload(PLAN_ADJUSTMENT_OFFERED_EVENT, offered);
+        assert_eq!(enriched["agencyComponent"], "plan");
+        assert_eq!(enriched["evidenceSummary"]["planAdjustmentOffered"], true);
+
+        let accepted =
+            plan_adjustment_response_payload(1, 2, 3, "step-001", "obj-1", "offer-1", "accepted");
+        assert_eq!(accepted["response"], "accepted");
+        assert_eq!(
+            enrich_agency_payload(PLAN_ADJUSTMENT_ACCEPTED_EVENT, accepted)["evidenceSummary"]
+                ["planAdjustmentAccepted"],
+            true
+        );
+
+        let dismissed =
+            plan_adjustment_response_payload(1, 2, 3, "step-001", "obj-1", "offer-1", "dismissed");
+        assert_eq!(
+            enrich_agency_payload(PLAN_ADJUSTMENT_DISMISSED_EVENT, dismissed)["evidenceSummary"]
+                ["planAdjustmentDismissed"],
+            true
+        );
     }
 
     #[test]
@@ -1086,11 +1275,58 @@ mod tests {
             row.payload["decision"],
             json!({
                 "kind": "supervisor_evaluation",
+                "event": "verify_entered",
                 "validationOutcome": "shown",
                 "dropReason": null,
                 "cardId": "provocation:step-3:ai_self_report_only:sha256:evidence"
             })
         );
+    }
+
+    #[test]
+    fn scope_supervisor_evaluation_append_enriches_plan_payload() {
+        let (db, _) = crate::db::tests::fresh_db();
+        let (_, session_id) = crate::db::tests::seed_project_session(db.conn());
+        let log = SupervisorEvaluationLog {
+            schema_version: 1,
+            event: SupervisorEvent::ScopeExpansion,
+            artifact_ref: ArtifactRef::add_step_draft("draft-1", "Add analytics dashboard"),
+            context_hash: "sha256:scope-context".into(),
+            evidence_hash: "sha256:scope-evidence".into(),
+            mode: SupervisorMode::Work,
+            source_ui_mode: Some(SourceUiMode::Standard),
+            evidence_refs: vec![EvidenceRef::scope_expansion_reason(
+                vec!["missing_criterion_link".into()],
+                vec!["add_step.title".into()],
+            )],
+            supervisor_model: Some("openai-codex/gpt-5.4-mini".into()),
+            latency_ms: Some(100),
+            usage: None,
+            decision_summary: Some(SupervisorDecisionSummary {
+                provoke: true,
+                concern: "scope_expansion".into(),
+                severity: "caution".into(),
+                evidence_ref_ids: vec!["scope.assessment".into()],
+                suggested_action_ids: vec!["link_criterion".into()],
+                stripped_action_ids: vec![],
+            }),
+            validation_outcome: SupervisorValidationOutcome::Shown,
+            drop_reason: None,
+            card_id: Some("provocation:draft-1:scope_expansion:sha256:scope-evidence".into()),
+            user_response: None,
+        };
+        let row_id =
+            append_supervisor_evaluation_to_conn(db.conn(), session_id, "scope-eval-1", &log)
+                .unwrap();
+        let row = event_log_dao::get_by_id(db.conn(), row_id)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(row.payload["event"], "scope_expansion");
+        assert_eq!(row.payload["agencyComponent"], "plan");
+        assert_eq!(row.payload["agencyState"], "plan_review_needed");
+        assert_eq!(row.payload["decision"]["event"], "scope_expansion");
+        assert_eq!(row.payload["decision"]["validationOutcome"], "shown");
     }
 
     #[test]

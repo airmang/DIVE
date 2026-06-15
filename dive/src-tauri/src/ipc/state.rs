@@ -18,6 +18,8 @@ use crate::tools::ToolRegistry;
 use crate::providers::MockProvider;
 
 use super::preview::PreviewProcess;
+use crate::db::models::RuntimeCapabilityState;
+
 use super::{ProviderKind, ProviderRuntime};
 
 #[derive(Debug, thiserror::Error)]
@@ -39,10 +41,10 @@ pub enum AppStateError {
 pub(super) const PROJECT_NOT_SELECTED_MESSAGE: &str = "프로젝트를 선택하세요";
 const PROVIDER_RUNTIME_HYDRATE_TIMEOUT: Duration = Duration::from_secs(120);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeChoice {
-    Pi,
-    Legacy,
+    Pi { capability: RuntimeCapabilityState },
+    Blocked { capability: RuntimeCapabilityState },
 }
 const PROVIDER_RUNTIME_HYDRATE_TIMEOUT_MESSAGE: &str =
     "AI 연결 정보를 불러오는 중 시간이 초과되었습니다. macOS 키체인 암호 창이 떠 있다면 로그인 암호를 입력하고 '항상 허용'을 선택한 뒤 다시 시도하세요.";

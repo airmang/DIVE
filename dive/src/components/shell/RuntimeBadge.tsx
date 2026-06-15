@@ -1,4 +1,4 @@
-import { Cpu, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Cpu, ShieldCheck } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useT } from "../../i18n";
 import type { RuntimeSelection } from "../../hooks/useChatSession";
@@ -16,20 +16,28 @@ interface RuntimeBadgeProps {
  */
 export function RuntimeBadge({ className, selection = null }: RuntimeBadgeProps) {
   const t = useT();
-  const runtimeLabel =
-    selection?.runtime === "pi_sidecar"
-      ? t("runtime.pi_label")
-      : selection?.runtime === "legacy_loop"
-        ? t("runtime.legacy_label")
-        : null;
-  const tooltip = selection
-    ? t("runtime.selected_tooltip", {
-        runtime: runtimeLabel ?? selection.runtime,
-        provider: selection.provider,
-        model: selection.model,
-        reason: selection.reason,
-      })
-    : t("runtime.supervised_tooltip");
+  const isUnavailable = selection?.state === "unavailable";
+  const runtimeLabel = selection
+    ? isUnavailable
+      ? t("runtime.capability.unavailable_label")
+      : t("runtime.capability.ready_label")
+    : null;
+  const capabilityMessage = selection?.message || selection?.reason || "";
+  const tooltip = !selection
+    ? t("runtime.supervised_tooltip")
+    : isUnavailable
+      ? t("runtime.capability.unavailable_tooltip", {
+          message: capabilityMessage,
+          provider: selection.provider,
+          model: selection.model,
+        })
+      : t("runtime.selected_tooltip", {
+          runtime: runtimeLabel ?? t("runtime.capability.ready_label"),
+          provider: selection.provider,
+          model: selection.model,
+          reason: selection.reason,
+        });
+  const StatusIcon = isUnavailable ? AlertTriangle : Cpu;
   return (
     <span
       tabIndex={0}
@@ -38,8 +46,11 @@ export function RuntimeBadge({ className, selection = null }: RuntimeBadgeProps)
       aria-label={tooltip}
       data-testid="runtime-badge"
       className={cn(
-        "inline-flex items-center gap-1 rounded-sm border border-accent/40 bg-accent-subtle px-2 py-0.5",
-        "text-[10px] font-semibold uppercase tracking-wide text-accent",
+        "inline-flex items-center gap-1 rounded-sm border px-2 py-0.5",
+        "text-[10px] font-semibold uppercase tracking-wide",
+        isUnavailable
+          ? "border-warn/50 bg-warn/10 text-warn"
+          : "border-accent/40 bg-accent-subtle text-accent",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         className,
       )}
@@ -48,10 +59,10 @@ export function RuntimeBadge({ className, selection = null }: RuntimeBadgeProps)
       {t("runtime.supervised_label")}
       {runtimeLabel ? (
         <>
-          <span className="text-accent/60" aria-hidden>
+          <span className={cn(isUnavailable ? "text-warn/70" : "text-accent/60")} aria-hidden>
             ·
           </span>
-          <Cpu className="h-3 w-3" aria-hidden />
+          <StatusIcon className="h-3 w-3" aria-hidden />
           <span data-testid="runtime-selected-label">{runtimeLabel}</span>
         </>
       ) : null}

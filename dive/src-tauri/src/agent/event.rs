@@ -1,6 +1,7 @@
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::db::models::RuntimeCapabilityState;
 use crate::tools::{BlockReason, RiskLevel};
 
 /// UI-facing event emitted by the Agent Loop. Spec §8.1 defines the sequence;
@@ -20,6 +21,10 @@ pub enum AgentEvent {
         model: String,
         reason: String,
         created_at: i64,
+    },
+    RuntimeCapabilityEvaluated {
+        #[serde(flatten)]
+        capability: RuntimeCapabilityState,
     },
     AssistantStart {
         id: String,

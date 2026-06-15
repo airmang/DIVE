@@ -160,7 +160,11 @@
       "linked_criteria": "연결된 기준",
       "rationale": "나눈 이유",
       "challenge": "이 단계가 왜 필요한가요?",
-      "objection_logged": "질문을 기록했습니다."
+      "objection_logged": "질문을 기록했습니다.",
+      "offer_title": "계획을 검토할까요?",
+      "offer_message": "현재 단계는 계속 진행할 수 있고, 별도로 검토 가능한 계획 조정 제안을 열 수 있습니다.",
+      "offer_accept": "계획 조정 검토",
+      "offer_dismiss": "닫기"
     },
     "add_step": {
       "title": "단계 추가",
@@ -168,8 +172,25 @@
       "criterion_link": "연결할 기준",
       "prd_delta": "PRD 변경",
       "scope_expansion": "범위 확장 가능성",
+      "scope_supervisor": {
+        "pending": "범위 증거 확인 중",
+        "no_card": "범위 검토 카드를 표시하지 않았습니다.",
+        "fallback_blocked": "정적 범위 카드는 비활성화되어 있으며, DIVE는 supervisor 증거를 기다립니다.",
+        "actions": {
+          "link_criterion": "기준 연결",
+          "split_scope": "범위 나누기",
+          "edit_prd": "PRD 수정",
+          "dismiss_review": "닫기"
+        }
+      },
       "save": "단계 추가"
     }
+  },
+  "spec_conformance": {
+    "runtime_gap": "v2 작업에서는 지원되지 않는 런타임 fallback을 차단합니다.",
+    "scope_gap": "범위 확장 카드는 SupervisorAgent 검토 경로를 사용합니다.",
+    "rationale_gap": "근거 질문은 비차단 계획 조정 제안을 제공합니다.",
+    "status_gap": "활성 spec은 출시됨, 계획됨, future-reserved 동작을 구분합니다."
   },
   "rc1_migration": {
     "title": "DIVE v1.0.0-rc.1은 데모 빌드였습니다",
@@ -401,8 +422,23 @@
     "supervised_label": "감독 모드",
     "supervised_tooltip": "DIVE는 에이전트를 감독 런타임에서 실행합니다. 파일 수정·명령 실행 등 에이전트가 하려는 모든 작업은 먼저 당신의 승인이 필요합니다. 통제권은 당신에게 있습니다.",
     "pi_label": "Pi runtime",
-    "legacy_label": "Legacy loop",
-    "selected_tooltip": "이번 응답은 {{runtime}}에서 실행 중입니다. Provider: {{provider}}, model: {{model}}. 이유: {{reason}}"
+    "selected_tooltip": "이번 응답은 {{runtime}}에서 실행 중입니다. Provider: {{provider}}, model: {{model}}. 이유: {{reason}}",
+    "capability": {
+      "ready_label": "감독 Pi 준비됨",
+      "ready_message": "이 provider는 DIVE의 감독 Pi 런타임으로 실행할 수 있습니다.",
+      "unavailable_label": "런타임 사용 불가",
+      "unavailable_message": "감독 Pi 실행이 준비될 때까지 이 작업을 시작할 수 없습니다.",
+      "unavailable_tooltip": "{{message}} Provider: {{provider}}, model: {{model}}.",
+      "setup_action": "Provider 설정 열기",
+      "reasons": {
+        "provider_not_configured": "설정된 AI provider가 없습니다.",
+        "provider_not_pi_capable": "이 provider는 확인된 Pi 런타임 지원이 없습니다.",
+        "legacy_requested": "저장된 이전 런타임 요청은 v2 작업에서 사용할 수 없습니다.",
+        "missing_credentials": "Provider 인증 정보가 없거나 사용할 수 없습니다.",
+        "missing_project_root": "작업을 시작하기 전에 프로젝트를 선택하세요.",
+        "runtime_unavailable": "감독 런타임을 사용할 수 없습니다."
+      }
+    }
   },
   "tool_call": {
     "status": {

@@ -68,6 +68,11 @@ path = "tests/card_state_machine.rs"
 required-features = ["dev-mock"]
 
 [[test]]
+name = "chat_runtime"
+path = "tests/chat_runtime.rs"
+required-features = ["dev-mock"]
+
+[[test]]
 name = "connected_provider_smoke"
 path = "tests/connected_provider_smoke.rs"
 required-features = ["dev-mock"]

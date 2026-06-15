@@ -15,10 +15,11 @@ pub struct PiProviderDescriptor {
     pub credential_mode: CredentialMode,
 }
 
-/// Returns `Some(descriptor)` for providers Pi can drive, `None` to fall back to
-/// the legacy runtime. The mapped `pi_provider_id`s are CONFIRMED via SDK probe
-/// (2026-06-08): `getModel(id, model)` resolves each without a base-URL override.
-/// Extend this allowlist one provider at a time as new providers are verified.
+/// Returns `Some(descriptor)` for providers Pi can drive, `None` when v2 work
+/// must surface an unavailable runtime capability state. The mapped
+/// `pi_provider_id`s are CONFIRMED via SDK probe (2026-06-08): `getModel(id,
+/// model)` resolves each without a base-URL override. Extend this allowlist one
+/// provider at a time as new providers are verified.
 pub fn pi_provider_descriptor(kind: ProviderKind) -> Option<PiProviderDescriptor> {
     match kind {
         ProviderKind::Codex => Some(PiProviderDescriptor {
@@ -72,7 +73,7 @@ mod tests {
 
     #[test]
     fn unmapped_provider_is_not_eligible() {
-        // No confirmed Pi parity yet -> None (legacy fallback).
+        // No confirmed Pi parity yet -> explicit unavailable capability state.
         assert!(pi_provider_descriptor(ProviderKind::OpencodeZen).is_none());
         assert!(pi_provider_descriptor(ProviderKind::CustomOpenAi).is_none());
     }

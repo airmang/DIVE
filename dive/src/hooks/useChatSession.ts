@@ -17,7 +17,7 @@ import { useSlideInStore } from "../stores/slideIn";
  * Mirror of `AgentEvent` (Rust src-tauri/src/agent/event.rs). Variants match
  * exactly so the Rust serde `type` tag drives dispatch here.
  */
-type AgentEvent =
+export type AgentEvent =
   | {
       type: "user_message";
       id: string;
@@ -31,6 +31,16 @@ type AgentEvent =
       model: string;
       reason: string;
       created_at: number;
+    }
+  | {
+      type: "runtime_capability_evaluated";
+      state: RuntimeSelectionState;
+      providerKind: string;
+      model: string | null;
+      reasonCode: RuntimeUnavailableReason | null;
+      message: string;
+      setupAction: RuntimeSetupAction | null;
+      recordedAt: number;
     }
   | { type: "assistant_start"; id: string; created_at: number }
   | { type: "assistant_delta"; id: string; delta: string }
@@ -79,11 +89,32 @@ type AgentEventEnvelope = {
 
 type ChatEventPayload = AgentEvent | AgentEventEnvelope;
 
+export type RuntimeSelectionState = "ready" | "unavailable";
+
+export type RuntimeUnavailableReason =
+  | "provider_not_configured"
+  | "provider_not_pi_capable"
+  | "legacy_requested"
+  | "missing_credentials"
+  | "missing_project_root"
+  | "runtime_unavailable";
+
+export type RuntimeSetupAction =
+  | "configure_provider"
+  | "choose_supported_provider"
+  | "add_credentials"
+  | "open_project"
+  | "retry_runtime";
+
 export interface RuntimeSelection {
-  runtime: "pi_sidecar" | "legacy_loop" | string;
+  state: RuntimeSelectionState;
+  runtime: "pi_sidecar" | string | null;
   provider: string;
   model: string;
   reason: string;
+  reasonCode: RuntimeUnavailableReason | null;
+  message: string;
+  setupAction: RuntimeSetupAction | null;
   selectedAt: number;
 }
 
@@ -160,7 +191,7 @@ async function loadTauri(): Promise<TauriApi | null> {
   };
 }
 
-interface State {
+export interface ChatSessionState {
   messages: ChatMessage[];
   isStreaming: boolean;
   isTauri: boolean;
@@ -252,7 +283,7 @@ export function useChatSession(
   beforeSendUserMessage?: BeforeSendUserMessage,
 ) {
   const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [state, setState] = useState<State>({
+  const [state, setState] = useState<ChatSessionState>({
     messages: [],
     isStreaming: false,
     isTauri: false,
@@ -374,7 +405,7 @@ export function useChatSession(
             return;
           }
           applyEventSideEffects(payload);
-          setState((prev) => reduce(prev, payload));
+          setState((prev) => reduceChatSessionState(prev, payload));
         });
         const [history, pending] = await Promise.all([
           api.invoke<ChatMessage[]>("message_list", { sessionId }),
@@ -386,7 +417,7 @@ export function useChatSession(
         const replayEvents = bufferedEvents.splice(0);
         replayEvents.forEach(applyEventSideEffects);
         setState((s) => {
-          let next: State = {
+          let next: ChatSessionState = {
             ...s,
             messages: mergeMessagesById(history, pendingMessages),
             isStreaming: pendingMessages.length > 0 || s.isStreaming,
@@ -397,7 +428,7 @@ export function useChatSession(
             loadingHistory: false,
           };
           for (const event of replayEvents) {
-            next = reduce(next, event);
+            next = reduceChatSessionState(next, event);
           }
           return next;
         });
@@ -621,7 +652,79 @@ export function useChatSession(
   };
 }
 
-function reduce(prev: State, evt: AgentEvent): State {
+function runtimeUnavailableMessage(reasonCode: RuntimeUnavailableReason): string {
+  return translate(
+    useLocaleStore.getState().locale,
+    `runtime.capability.reasons.${reasonCode}`,
+  );
+}
+
+function normalizeRuntimeSelection(
+  evt: Extract<AgentEvent, { type: "runtime_selected" }>,
+): RuntimeSelection {
+  if (evt.runtime === "pi_sidecar") {
+    return {
+      state: "ready",
+      runtime: "pi_sidecar",
+      provider: evt.provider,
+      model: evt.model,
+      reason: evt.reason,
+      reasonCode: null,
+      message: translate(useLocaleStore.getState().locale, "runtime.capability.ready_message"),
+      setupAction: null,
+      selectedAt: evt.created_at,
+    };
+  }
+
+  const reasonCode: RuntimeUnavailableReason =
+    evt.runtime === "legacy_loop" ? "legacy_requested" : "runtime_unavailable";
+  return {
+    state: "unavailable",
+    runtime: null,
+    provider: evt.provider,
+    model: evt.model,
+    reason: evt.reason,
+    reasonCode,
+    message: runtimeUnavailableMessage(reasonCode),
+    setupAction: reasonCode === "legacy_requested" ? "choose_supported_provider" : "retry_runtime",
+    selectedAt: evt.created_at,
+  };
+}
+
+function normalizeRuntimeCapability(
+  evt: Extract<AgentEvent, { type: "runtime_capability_evaluated" }>,
+): RuntimeSelection {
+  return {
+    state: evt.state,
+    runtime: evt.state === "ready" ? "pi_sidecar" : null,
+    provider: evt.providerKind,
+    model: evt.model ?? "unknown",
+    reason: evt.message,
+    reasonCode: evt.reasonCode,
+    message:
+      evt.message ||
+      (evt.reasonCode
+        ? runtimeUnavailableMessage(evt.reasonCode)
+        : translate(useLocaleStore.getState().locale, "runtime.capability.ready_message")),
+    setupAction: evt.setupAction,
+    selectedAt: evt.recordedAt,
+  };
+}
+
+function runtimeSystemMessage(selection: RuntimeSelection): string {
+  const locale = useLocaleStore.getState().locale;
+  if (selection.state === "ready") {
+    const label = translate(locale, "runtime.capability.ready_label");
+    return `Runtime: ${label} · ${selection.provider}/${selection.model} · ${selection.reason}`;
+  }
+  const label = translate(locale, "runtime.capability.unavailable_label");
+  return `${label}: ${selection.message} · ${selection.provider}/${selection.model}`;
+}
+
+export function reduceChatSessionState(
+  prev: ChatSessionState,
+  evt: AgentEvent,
+): ChatSessionState {
   switch (evt.type) {
     case "user_message": {
       const m: UserMessageData = {
@@ -633,24 +736,26 @@ function reduce(prev: State, evt: AgentEvent): State {
       return { ...prev, messages: [...prev.messages, m] };
     }
     case "runtime_selected": {
-      const selection: RuntimeSelection = {
-        runtime: evt.runtime,
-        provider: evt.provider,
-        model: evt.model,
-        reason: evt.reason,
-        selectedAt: evt.created_at,
-      };
-      const label =
-        evt.runtime === "pi_sidecar"
-          ? "Pi sidecar runtime"
-          : evt.runtime === "legacy_loop"
-            ? "DIVE legacy loop"
-            : evt.runtime;
+      const selection = normalizeRuntimeSelection(evt);
       const m: SystemMessageData = {
         id: `runtime-${evt.created_at}`,
         kind: "system",
         createdAt: evt.created_at,
-        content: `Runtime: ${label} · ${evt.provider}/${evt.model} · ${evt.reason}`,
+        content: runtimeSystemMessage(selection),
+      };
+      return {
+        ...prev,
+        runtimeSelection: selection,
+        messages: mergeMessagesById(prev.messages, [m]),
+      };
+    }
+    case "runtime_capability_evaluated": {
+      const selection = normalizeRuntimeCapability(evt);
+      const m: SystemMessageData = {
+        id: `runtime-capability-${evt.recordedAt}`,
+        kind: "system",
+        createdAt: evt.recordedAt,
+        content: runtimeSystemMessage(selection),
       };
       return {
         ...prev,
