@@ -16,6 +16,15 @@ use crate::db::DbError;
 use crate::dive::supervisor::SupervisorEvaluationLog;
 
 pub const SUPERVISOR_EVALUATED_EVENT: &str = "provocation.supervisor_evaluated";
+pub const PRD_PATCH_PROPOSED_EVENT: &str = "prd_patch_proposed";
+pub const PRD_PATCH_APPLIED_EVENT: &str = "prd_patch_applied";
+pub const PRD_PATCH_REJECTED_EVENT: &str = "prd_patch_rejected";
+pub const PRD_AUTHORED_EVENT: &str = "prd_authored";
+pub const PRD_EDITED_EVENT: &str = "prd_edited";
+pub const PRD_VERSION_CREATED_EVENT: &str = "prd_version_created";
+pub const PLAN_STEP_RATIONALE_CHALLENGED_EVENT: &str = "plan_step_rationale_challenged";
+pub const PLAN_STEP_APPENDED_EVENT: &str = "plan_step_appended";
+pub const PLAN_STEP_CHANGED_EVENT: &str = "plan_step_changed";
 
 static SECRET_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -128,6 +137,12 @@ fn nested_string_field<'a>(value: &'a Value, parent: &str, key: &str) -> Option<
 fn infer_agency_component(event_type: &str, payload: &Value) -> Option<&'static str> {
     match event_type {
         SUPERVISOR_EVALUATED_EVENT => return Some("verify"),
+        PRD_PATCH_PROPOSED_EVENT
+        | PRD_PATCH_APPLIED_EVENT
+        | PRD_PATCH_REJECTED_EVENT
+        | PRD_AUTHORED_EVENT
+        | PRD_EDITED_EVENT
+        | PRD_VERSION_CREATED_EVENT => return Some("plan"),
         "checkpoint_create" | "checkpoint_restore" => return Some("rollback"),
         "verify_start" | "verify_complete" => return Some("verify"),
         "tool_approve" | "tool_call_start" | "tool_call_denied" | "tool_call_blocked"
@@ -433,6 +448,18 @@ fn infer_evidence_summary(event_type: &str, payload: &Value) -> Option<Value> {
                 "planStepOpened": event_type == "plan_step_opened",
                 "planStepBlocked": event_type == "plan_step_open_failed",
                 "planStepAppended": event_type == "plan_step_appended",
+                "planStepChanged": event_type == PLAN_STEP_CHANGED_EVENT,
+                "planStepRationaleChallenged": event_type == PLAN_STEP_RATIONALE_CHALLENGED_EVENT,
+            }));
+        }
+        _ if event_type.starts_with("prd_") => {
+            return Some(json!({
+                "schemaVersion": 1,
+                "projectSpecLifecycle": true,
+                "patchProposed": event_type == PRD_PATCH_PROPOSED_EVENT,
+                "patchApplied": event_type == PRD_PATCH_APPLIED_EVENT,
+                "patchRejected": event_type == PRD_PATCH_REJECTED_EVENT,
+                "versionCreated": event_type == PRD_VERSION_CREATED_EVENT,
             }));
         }
         _ if event_type.starts_with("provocation.") => {
@@ -578,6 +605,189 @@ pub fn error_payload(source: &str, message: &str) -> Value {
     })
 }
 
+pub fn prd_patch_proposed_payload(
+    project_id: i64,
+    project_spec_id: impl Into<String>,
+    draft_id: impl Into<String>,
+    turn_id: impl Into<String>,
+    patch_id: impl Into<String>,
+    operation_kinds: Vec<String>,
+    rationale_summary: Option<String>,
+) -> Value {
+    redact_value(&json!({
+        "project_id": project_id,
+        "project_spec_id": project_spec_id.into(),
+        "draft_id": draft_id.into(),
+        "turn_id": turn_id.into(),
+        "patch_id": patch_id.into(),
+        "operation_kinds": operation_kinds,
+        "rationale_summary": rationale_summary,
+    }))
+}
+
+pub fn prd_patch_applied_payload(
+    project_id: i64,
+    project_spec_id: impl Into<String>,
+    draft_id: impl Into<String>,
+    turn_id: impl Into<String>,
+    patch_id: impl Into<String>,
+    applied_field_paths: Vec<String>,
+    criterion_ids_assigned: Vec<String>,
+    student_edited_fields_respected: Vec<String>,
+) -> Value {
+    redact_value(&json!({
+        "project_id": project_id,
+        "project_spec_id": project_spec_id.into(),
+        "draft_id": draft_id.into(),
+        "turn_id": turn_id.into(),
+        "patch_id": patch_id.into(),
+        "applied_field_paths": applied_field_paths,
+        "criterion_ids_assigned": criterion_ids_assigned,
+        "student_edited_fields_respected": student_edited_fields_respected,
+    }))
+}
+
+pub fn prd_patch_rejected_payload(
+    project_id: i64,
+    project_spec_id: impl Into<String>,
+    draft_id: impl Into<String>,
+    turn_id: impl Into<String>,
+    patch_id: impl Into<String>,
+    reason_codes: Vec<String>,
+    held_for_student: bool,
+) -> Value {
+    redact_value(&json!({
+        "project_id": project_id,
+        "project_spec_id": project_spec_id.into(),
+        "draft_id": draft_id.into(),
+        "turn_id": turn_id.into(),
+        "patch_id": patch_id.into(),
+        "reason_codes": reason_codes,
+        "held_for_student": held_for_student,
+    }))
+}
+
+pub fn prd_authored_payload(
+    project_id: i64,
+    project_spec_id: impl Into<String>,
+    version: i64,
+    criterion_ids: Vec<String>,
+    summary: impl Into<String>,
+) -> Value {
+    redact_value(&json!({
+        "project_id": project_id,
+        "project_spec_id": project_spec_id.into(),
+        "version": version,
+        "source": "interview",
+        "criterion_ids": criterion_ids,
+        "summary": summary.into(),
+    }))
+}
+
+pub fn prd_edited_payload(
+    project_id: i64,
+    project_spec_id: impl Into<String>,
+    from_version: i64,
+    to_version: i64,
+    reason: impl Into<String>,
+    changed_fields: Vec<String>,
+    criterion_ids_added: Vec<String>,
+    criterion_ids_retired: Vec<String>,
+) -> Value {
+    redact_value(&json!({
+        "project_id": project_id,
+        "project_spec_id": project_spec_id.into(),
+        "from_version": from_version,
+        "to_version": to_version,
+        "reason": reason.into(),
+        "changed_fields": changed_fields,
+        "criterion_ids_added": criterion_ids_added,
+        "criterion_ids_retired": criterion_ids_retired,
+    }))
+}
+
+pub fn prd_version_created_payload(
+    project_id: i64,
+    project_spec_id: impl Into<String>,
+    version: i64,
+    previous_version: Option<i64>,
+    delta_summary: Value,
+) -> Value {
+    redact_value(&json!({
+        "project_id": project_id,
+        "project_spec_id": project_spec_id.into(),
+        "version": version,
+        "previous_version": previous_version,
+        "delta_summary": delta_summary,
+    }))
+}
+
+pub fn plan_step_rationale_challenged_payload(
+    project_id: i64,
+    plan_id: i64,
+    step_id: i64,
+    stable_step_id: impl Into<String>,
+    linked_criterion_ids: Vec<String>,
+    objection_id: impl Into<String>,
+    objection_summary: impl Into<String>,
+    suggestion_status: impl Into<String>,
+) -> Value {
+    redact_value(&json!({
+        "project_id": project_id,
+        "plan_id": plan_id,
+        "step_id": step_id,
+        "stable_step_id": stable_step_id.into(),
+        "linked_criterion_ids": linked_criterion_ids,
+        "objection_id": objection_id.into(),
+        "objection_summary": objection_summary.into(),
+        "suggestion_status": suggestion_status.into(),
+    }))
+}
+
+pub fn plan_step_appended_payload(
+    mutation_id: impl Into<String>,
+    project_spec_id: impl Into<String>,
+    from_project_spec_version: i64,
+    to_project_spec_version: i64,
+    linked_criterion_ids: Vec<String>,
+    scope_expansion: Value,
+    prd_delta_summary: Value,
+) -> Value {
+    redact_value(&json!({
+        "mutation_id": mutation_id.into(),
+        "project_spec_id": project_spec_id.into(),
+        "from_project_spec_version": from_project_spec_version,
+        "to_project_spec_version": to_project_spec_version,
+        "linked_criterion_ids": linked_criterion_ids,
+        "scope_expansion": scope_expansion,
+        "prd_delta_summary": prd_delta_summary,
+    }))
+}
+
+pub fn plan_step_changed_payload(
+    mutation_id: impl Into<String>,
+    project_id: i64,
+    plan_id: i64,
+    step_id: i64,
+    stable_step_id: impl Into<String>,
+    changed_fields: Vec<String>,
+    linked_criterion_ids: Vec<String>,
+    from_project_spec_version: i64,
+    to_project_spec_version: i64,
+) -> Value {
+    redact_value(&json!({
+        "mutation_id": mutation_id.into(),
+        "project_id": project_id,
+        "plan_id": plan_id,
+        "step_id": step_id,
+        "stable_step_id": stable_step_id.into(),
+        "changed_fields": changed_fields,
+        "linked_criterion_ids": linked_criterion_ids,
+        "from_project_spec_version": from_project_spec_version,
+        "to_project_spec_version": to_project_spec_version,
+    }))
+}
+
 pub fn redact_value(value: &Value) -> Value {
     match value {
         Value::String(s) => Value::String(redact_text(s)),
@@ -650,6 +860,73 @@ mod tests {
         assert!(!encoded.contains("secret-token-123"));
         assert!(!encoded.contains("hunter2"));
         assert!(encoded.contains("[REDACTED_SECRET]"));
+    }
+
+    #[test]
+    fn prd_lifecycle_event_payload_builders_redact_required_fields() {
+        let proposed = prd_patch_proposed_payload(
+            1,
+            "prd-1",
+            "draft-1",
+            "turn-1",
+            "patch-1",
+            vec!["set_goal".into(), "append_acceptance_criterion".into()],
+            Some("Student mentioned api_key=sk-secret-token".into()),
+        );
+
+        assert_eq!(proposed["project_id"], 1);
+        assert_eq!(proposed["project_spec_id"], "prd-1");
+        assert_eq!(
+            proposed["operation_kinds"][1],
+            "append_acceptance_criterion"
+        );
+        assert!(!proposed.to_string().contains("sk-secret-token"));
+        assert!(proposed.to_string().contains("[REDACTED_SECRET]"));
+
+        let applied = prd_patch_applied_payload(
+            1,
+            "prd-1",
+            "draft-1",
+            "turn-1",
+            "patch-1",
+            vec!["goal".into(), "acceptanceCriteria".into()],
+            vec!["AC-001".into()],
+            vec!["constraints".into()],
+        );
+        assert_eq!(applied["criterion_ids_assigned"][0], "AC-001");
+        assert_eq!(applied["student_edited_fields_respected"][0], "constraints");
+    }
+
+    #[test]
+    fn plan_mutation_payload_builders_carry_export_reconstruction_fields() {
+        let appended = plan_step_appended_payload(
+            "mut-1",
+            "prd-1",
+            1,
+            2,
+            vec!["AC-001".into()],
+            json!({"expanded": false, "reasonCodes": [], "evidenceRefs": ["AC-001"]}),
+            json!({"scopeChanges": ["Added persistence"]}),
+        );
+
+        assert_eq!(appended["mutation_id"], "mut-1");
+        assert_eq!(appended["project_spec_id"], "prd-1");
+        assert_eq!(appended["from_project_spec_version"], 1);
+        assert_eq!(appended["to_project_spec_version"], 2);
+        assert_eq!(appended["linked_criterion_ids"][0], "AC-001");
+
+        let challenged = plan_step_rationale_challenged_payload(
+            1,
+            2,
+            3,
+            "step-001",
+            vec!["AC-001".into()],
+            "obj-1",
+            "Why is this a separate step?",
+            "offered",
+        );
+        assert_eq!(challenged["objection_id"], "obj-1");
+        assert_eq!(challenged["suggestion_status"], "offered");
     }
 
     #[test]

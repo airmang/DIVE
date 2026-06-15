@@ -105,6 +105,54 @@
       }
     }
   },
+  "prd": {
+    "authoring": {
+      "title": "Project PRD Authoring",
+      "subtitle": "Create real project criteria through a short conversation and direct editing.",
+      "state_missing": "PRD required",
+      "state_draft": "Draft saved",
+      "state_minimal": "Minimal PRD ready",
+      "interview_rail": "Interview",
+      "live_canvas": "PRD canvas",
+      "provider_model": "Model for this pass",
+      "patch_applied": "The proposal was applied to the PRD draft.",
+      "patch_rejected": "The proposal was not applied.",
+      "patch_held": "Student-edited fields were kept as suggestions.",
+      "validation_goal_required": "Add a goal.",
+      "validation_criterion_required": "Add at least one acceptance criterion.",
+      "save_prd": "Save PRD",
+      "create_plan": "Create plan from PRD"
+    },
+    "fields": {
+      "goal": "Goal",
+      "intent_summary": "Intent summary",
+      "scope": "Scope",
+      "non_goals": "Non-goals",
+      "constraints": "Constraints",
+      "acceptance_criteria": "Acceptance criteria"
+    },
+    "read_view": {
+      "title": "Final PRD",
+      "version": "Version {{version}}",
+      "edit": "Edit PRD",
+      "empty_scope": "No scope has been added yet.",
+      "next_action": "Next action"
+    },
+    "decomposition": {
+      "linked_criteria": "Linked criteria",
+      "rationale": "Why this split",
+      "challenge": "Why is this step needed?",
+      "objection_logged": "Question logged."
+    },
+    "add_step": {
+      "title": "Add step",
+      "reason": "Reason for adding it",
+      "criterion_link": "Criterion to link",
+      "prd_delta": "PRD change",
+      "scope_expansion": "Possible scope expansion",
+      "save": "Add step"
+    }
+  },
   "rc1_migration": {
     "title": "DIVE v1.0.0-rc.1 was a demo build",
     "description": "It only ran the UI with no real data persistence, so previous session, project, and step data cannot be recovered.",

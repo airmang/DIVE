@@ -1,5 +1,10 @@
-use dive_lib::db::dao::{plan, project, step};
-use dive_lib::db::models::{NewPlan, NewProject, NewStep};
+use dive_lib::db::dao::{plan, plan_mutation, prd, project, step};
+use dive_lib::db::models::{
+    AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus,
+    NewLiveProjectSpecDraft, NewObjection, NewPlan, NewPlanMutation, NewProject,
+    NewProjectSpecVersion, NewStep, ObjectionSuggestionStatus, PlanMutationType, ProjectSpec,
+    ProjectSpecDelta, ProjectSpecDraft, ProjectSpecStatus, ScopeExpansionAssessment,
+};
 use dive_lib::Database;
 use serde_json::Value;
 
@@ -68,6 +73,34 @@ fn seed_plan_with_steps(db: &Database) -> i64 {
     step::insert(db.conn(), &second).unwrap();
 
     plan_id
+}
+
+fn artifact_criterion(id: &str, text: &str) -> AcceptanceCriterion {
+    AcceptanceCriterion {
+        criterion_id: id.into(),
+        text: text.into(),
+        source: AcceptanceCriterionSource::Interview,
+        status: AcceptanceCriterionStatus::Active,
+        created_in_version: 1,
+        retired_in_version: None,
+    }
+}
+
+fn artifact_project_spec(project_id: i64) -> ProjectSpec {
+    ProjectSpec {
+        project_spec_id: format!("prd-{project_id}"),
+        project_id,
+        current_version: 1,
+        goal: "Build dependency aware roadmap".into(),
+        intent_summary: Some("Keep PRD and plan exportable.".into()),
+        scope: vec!["persist approved plans".into()],
+        non_goals: vec!["replace Card execution state".into()],
+        constraints: vec!["SQLite remains runtime source of truth".into()],
+        acceptance_criteria: vec![artifact_criterion("AC-001", "exports plan artifacts")],
+        status: ProjectSpecStatus::Draft,
+        created_at: 100,
+        updated_at: 200,
+    }
 }
 
 #[test]
@@ -153,4 +186,116 @@ fn export_rejects_invalid_dependencies_without_approving() {
 
     broken.dependencies = Some(serde_json::json!(["step-001"]));
     step::update(db.conn(), second.id, &broken).unwrap();
+}
+
+#[test]
+fn approving_plan_exports_prd_lifecycle_foundation() {
+    let db_file = tempfile::NamedTempFile::new().unwrap();
+    let mut db = Database::open(db_file.path()).unwrap();
+    db.migrate().unwrap();
+    let project_root = tempfile::tempdir().unwrap();
+    let plan_id = seed_plan_with_steps(&db);
+    let plan_row = plan::get_by_id(db.conn(), plan_id).unwrap().unwrap();
+    let spec = artifact_project_spec(plan_row.project_id);
+    let first_step = step::get_by_plan_and_step_id(db.conn(), plan_id, "step-001")
+        .unwrap()
+        .unwrap();
+
+    prd::insert_version(
+        db.conn(),
+        &NewProjectSpecVersion {
+            project_spec_id: spec.project_spec_id.clone(),
+            project_id: plan_row.project_id,
+            version: 1,
+            previous_version: None,
+            snapshot: spec.clone(),
+            reason: "interview".into(),
+            delta_summary: serde_json::json!({"changedFields": ["goal"]}),
+        },
+    )
+    .unwrap();
+    prd::upsert_draft(
+        db.conn(),
+        &NewLiveProjectSpecDraft {
+            draft_id: format!("draft-{}", plan_row.project_id),
+            project_id: plan_row.project_id,
+            base_version: Some(1),
+            spec: ProjectSpecDraft {
+                project_spec_id: Some(spec.project_spec_id.clone()),
+                project_id: plan_row.project_id,
+                current_version: Some(1),
+                goal: spec.goal.clone(),
+                intent_summary: spec.intent_summary.clone(),
+                scope: spec.scope.clone(),
+                non_goals: spec.non_goals.clone(),
+                constraints: spec.constraints.clone(),
+                acceptance_criteria: spec.acceptance_criteria.clone(),
+                status: ProjectSpecStatus::Draft,
+            },
+            dirty_fields: vec!["goal".into()],
+            student_edited_fields: vec!["goal".into()],
+            last_patch_id: Some("patch-1".into()),
+        },
+    )
+    .unwrap();
+    plan_mutation::insert_mutation(
+        db.conn(),
+        &NewPlanMutation {
+            mutation_id: "mut-001".into(),
+            project_id: plan_row.project_id,
+            plan_id,
+            r#type: PlanMutationType::AddStep,
+            step_db_id: Some(first_step.id),
+            stable_step_id: Some(first_step.step_id.clone()),
+            reason: Some("Verification found missing export data".into()),
+            criterion_ids: vec!["AC-001".into()],
+            prd_delta: ProjectSpecDelta {
+                from_version: 1,
+                to_version: 2,
+                added_criteria: vec![],
+                retired_criterion_ids: vec![],
+                scope_changes: vec!["Added export metadata".into()],
+                non_goal_changes: vec![],
+            },
+            scope_expansion: ScopeExpansionAssessment {
+                expanded: false,
+                reason_codes: vec![],
+                evidence_refs: vec!["AC-001".into()],
+            },
+        },
+    )
+    .unwrap();
+    plan_mutation::insert_objection(
+        db.conn(),
+        &NewObjection {
+            objection_id: "obj-001".into(),
+            project_id: plan_row.project_id,
+            plan_id,
+            step_db_id: first_step.id,
+            stable_step_id: first_step.step_id.clone(),
+            text: "Why does export belong here?".into(),
+            linked_criterion_ids: vec!["AC-001".into()],
+            suggestion_status: ObjectionSuggestionStatus::Offered,
+        },
+    )
+    .unwrap();
+
+    dive_lib::workspace_plan::approve_plan_and_export(db.conn(), plan_id, project_root.path())
+        .unwrap();
+
+    let artifact: Value = serde_json::from_str(
+        &std::fs::read_to_string(project_root.path().join(".dive/plan.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        artifact["projectSpec"]["projectSpecId"],
+        spec.project_spec_id
+    );
+    assert_eq!(artifact["projectSpecVersions"][0]["version"], 1);
+    assert_eq!(
+        artifact["liveProjectSpecDraft"]["draftId"],
+        format!("draft-{}", plan_row.project_id)
+    );
+    assert_eq!(artifact["planMutations"][0]["mutationId"], "mut-001");
+    assert_eq!(artifact["objections"][0]["objectionId"], "obj-001");
 }
