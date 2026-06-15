@@ -233,6 +233,8 @@
     "review_card_mode_title": "Review card display",
     "review_card_mode_guided": "Guided",
     "review_card_mode_guided_description": "Show the title, message, evidence, one-line explanation, and immediate actions.",
+    "review_card_mode_work": "Work",
+    "review_card_mode_work_description": "Keep review cards concise and low-friction while still showing evidence and immediate actions.",
     "review_card_mode_standard": "Standard",
     "review_card_mode_standard_description": "Show a concise message, evidence chips, and immediate actions.",
     "review_card_mode_expert": "Expert",

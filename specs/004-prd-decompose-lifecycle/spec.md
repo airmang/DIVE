@@ -99,6 +99,12 @@ dedicated plan area (not the chat), and the PRD updates.
 - **FR-009**: All lifecycle events (PRD authored/edited, step added/changed,
   objection raised) MUST be local-first logged/exportable (constitution IV), with
   student PII masked (specs/002 FR-020).
+- **FR-010**: The interview surface MUST expose provider/model selection — the
+  same control available in normal chat. Current gap (deferred here, not patched
+  on this soon-to-be-reworked surface): `ChatArea` renders the interview panel
+  *instead of* `ChatInput` (`ChatArea.tsx` ~line 392), so the interview loses
+  `RuntimeModelSelector` and the user cannot change the model during the first
+  conversation. The reworked interview MUST restore model/provider selection.
 
 ### Key Entities
 
@@ -141,7 +147,9 @@ reconstructable from local export, with student PII masked.
 
 - `dive/src/components/product/SocraticInterviewPanel.tsx` — elevate into the
   PRD-authoring interview (resolves the specs/002 gap boundary check); confirm it
-  is real-project authoring, not a quiz.
+  is real-project authoring, not a quiz. The reworked surface MUST restore
+  provider/model selection (FR-010) — today the interview omits the model
+  selector because `ChatArea` swaps `ChatInput` for the interview panel.
 
 ### Reuse
 

@@ -23,7 +23,7 @@ describe("TerminalTab review-card actions", () => {
     useLocaleStore.setState({ locale: "ko" });
     useUiPreferencesStore.setState({
       enableProvocationCards: true,
-      provocationScaffoldMode: "standard",
+      provocationScaffoldMode: "work",
     });
     useChatComposerStore.setState({ pending: null });
     seedRepeatedTerminalError();

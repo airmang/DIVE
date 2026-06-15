@@ -22,7 +22,7 @@ describe("SettingsPage review-card preferences", () => {
     useUiPreferencesStore.setState({
       tutorialEnabled: true,
       enableProvocationCards: true,
-      provocationScaffoldMode: "standard",
+      provocationScaffoldMode: "guided",
     });
   });
 
@@ -36,19 +36,32 @@ describe("SettingsPage review-card preferences", () => {
 
     const tutorialToggle = screen.getByTestId("settings-tutorial-toggle") as HTMLInputElement;
     const reviewToggle = screen.getByTestId("settings-review-cards-toggle") as HTMLInputElement;
-    const expertMode = screen.getByTestId("settings-review-card-mode-expert");
+    const workMode = screen.getByTestId("settings-review-card-mode-work");
 
     expect(tutorialToggle.checked).toBe(true);
     expect(reviewToggle.checked).toBe(true);
-    expect(screen.getByTestId("settings-review-card-mode-standard").dataset.selected).toBe("true");
+    expect(screen.getByTestId("settings-review-card-mode-guided").dataset.selected).toBe("true");
 
     fireEvent.click(reviewToggle);
     expect(useUiPreferencesStore.getState().enableProvocationCards).toBe(false);
     expect(useUiPreferencesStore.getState().tutorialEnabled).toBe(true);
 
-    fireEvent.click(expertMode);
-    expect(useUiPreferencesStore.getState().provocationScaffoldMode).toBe("expert");
+    fireEvent.click(workMode);
+    expect(useUiPreferencesStore.getState().provocationScaffoldMode).toBe("work");
     expect(useUiPreferencesStore.getState().tutorialEnabled).toBe(true);
+  });
+
+  it("renders exactly the canonical Work and Guided review-card mode options", () => {
+    render(<SettingsPage />);
+
+    const group = screen.getByTestId("settings-review-card-mode");
+    const options = within(group).getAllByRole("radio");
+
+    expect(options).toHaveLength(2);
+    expect(screen.getByTestId("settings-review-card-mode-guided")).toBeTruthy();
+    expect(screen.getByTestId("settings-review-card-mode-work")).toBeTruthy();
+    expect(screen.queryByTestId("settings-review-card-mode-standard")).toBeNull();
+    expect(screen.queryByTestId("settings-review-card-mode-expert")).toBeNull();
   });
 
   it("localizes provider status, host warning, and disconnect confirmation", () => {

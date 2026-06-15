@@ -233,6 +233,8 @@
     "review_card_mode_title": "검토 카드 표시 방식",
     "review_card_mode_guided": "Guided",
     "review_card_mode_guided_description": "제목, 메시지, 근거, 한 줄 설명, 즉시 행동을 모두 표시합니다.",
+    "review_card_mode_work": "작업 모드",
+    "review_card_mode_work_description": "근거와 즉시 행동은 유지하되, 낮은 마찰의 간결한 검토 카드로 표시합니다.",
     "review_card_mode_standard": "Standard",
     "review_card_mode_standard_description": "짧은 메시지와 근거 칩, 즉시 행동만 표시합니다.",
     "review_card_mode_expert": "Expert",

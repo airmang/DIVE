@@ -5,10 +5,10 @@ import type {
   ProvocationContext,
   ProvocationPlanStep,
   ProvocationRetrySignal,
-  ScaffoldMode,
   SupervisorEvaluationRequest,
   SupervisorEvaluationResponse,
   SupervisorMode,
+  SupervisorSourceUiMode,
 } from "./types";
 
 export function stringArray(value: unknown): string[] {
@@ -318,7 +318,7 @@ function localEvaluationId(): string {
   return `supervisor-local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function normalizeSupervisorRenderMode(mode: ScaffoldMode | SupervisorMode): SupervisorMode {
+export function normalizeSupervisorRenderMode(mode: SupervisorSourceUiMode): SupervisorMode {
   return mode === "guided" ? "guided" : "work";
 }
 

@@ -1,3 +1,11 @@
+export type SupervisorMode = "work" | "guided";
+
+export type LegacyScaffoldMode = "standard" | "expert";
+
+export type ScaffoldMode = SupervisorMode;
+
+export type SupervisorSourceUiMode = ScaffoldMode | LegacyScaffoldMode;
+
 export type DiveStage =
   | "decompose"
   | "instruct"
@@ -5,8 +13,6 @@ export type DiveStage =
   | "verify"
   | "extend"
   | "finalApproval";
-
-export type ScaffoldMode = "guided" | "standard" | "expert";
 
 export type ProvocationSeverity = "info" | "caution" | "risk";
 
@@ -149,7 +155,7 @@ export interface ProvocationRetrySignal {
 }
 
 export interface ProvocationContext {
-  mode: ScaffoldMode;
+  mode: SupervisorSourceUiMode;
   stage: DiveStage;
   projectId?: number | string | null;
   sessionId?: number | string | null;
@@ -174,10 +180,6 @@ export interface ProvocationContext {
   userHasViewedPreview?: boolean;
   userHasViewedTestResult?: boolean;
 }
-
-export type SupervisorMode = "work" | "guided";
-
-export type SupervisorSourceUiMode = ScaffoldMode;
 
 export type SupervisorEvent = "ai_claimed_done" | "verify_entered";
 

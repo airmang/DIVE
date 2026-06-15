@@ -99,7 +99,7 @@ function renderStepDetail(overrides: Partial<ComponentProps<typeof StepDetailSli
       onApprovalDecision={vi.fn()}
       onGoToChat={vi.fn()}
       rollbackAvailable
-      provocation={{ enabled: true, mode: "standard", projectId: 1, sessionId: 2 }}
+      provocation={{ enabled: true, mode: "work", projectId: 1, sessionId: 2 }}
       {...overrides}
     />,
   );

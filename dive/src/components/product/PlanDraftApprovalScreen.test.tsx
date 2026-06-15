@@ -132,7 +132,7 @@ describe("PlanDraftApprovalScreen intent and step review surface", () => {
 
     renderScreen({
       draft: noVerificationDraft,
-      provocation: { enabled: true, mode: "standard", projectId: 1, sessionId: 2 },
+      provocation: { enabled: true, mode: "work", projectId: 1, sessionId: 2 },
     });
 
     expect(screen.queryByText("검증 단계가 빠졌습니다")).toBeNull();
@@ -152,7 +152,7 @@ describe("PlanDraftApprovalScreen intent and step review surface", () => {
 
     renderScreen({
       draft: missingCriteriaDraft,
-      provocation: { enabled: true, mode: "standard", projectId: 1, sessionId: 2 },
+      provocation: { enabled: true, mode: "work", projectId: 1, sessionId: 2 },
     });
 
     expect(screen.queryByText("완료 기준이 없습니다")).toBeNull();
@@ -173,7 +173,7 @@ describe("PlanDraftApprovalScreen intent and step review surface", () => {
 
     renderScreen({
       draft: manyStepDraft,
-      provocation: { enabled: true, mode: "standard", projectId: 1, sessionId: 2 },
+      provocation: { enabled: true, mode: "work", projectId: 1, sessionId: 2 },
     });
 
     expect(screen.queryByText("작업 범위가 너무 큽니다")).toBeNull();

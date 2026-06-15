@@ -7,13 +7,12 @@ import { normalizeSupervisorRenderMode } from "./adapters";
 import type {
   ProvocationAction,
   ProvocationCard as ProvocationCardData,
-  ScaffoldMode,
-  SupervisorMode,
+  SupervisorSourceUiMode,
 } from "./types";
 
 interface ProvocationCardProps {
   card: ProvocationCardData;
-  mode: ScaffoldMode | SupervisorMode;
+  mode: SupervisorSourceUiMode;
   onAction?: (action: ProvocationAction, reason?: string) => void;
   onDismiss?: () => void;
   onMarkIrrelevant?: () => void;
