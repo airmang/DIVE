@@ -36,6 +36,10 @@ const planStepLogic = read("dive/src/components/product/productShellPlanStepLogi
 const planStepRuntime = read("dive/src/components/product/useProductPlanStepRuntime.ts");
 const productRecovery = read("dive/src/components/product/useProductRecovery.ts");
 const productLayout = read("dive/src/components/product/ProductShellLayout.tsx");
+const productModalHost = read("dive/src/components/product/ProductModalHost.tsx");
+const planRouteConfirmModal = read("dive/src/components/product/PlanRouteConfirmModal.tsx");
+const planDashboardPanel = read("dive/src/components/product/PlanDashboardPanel.tsx");
+const planAddStepPanel = read("dive/src/components/product/PlanAddStepPanel.tsx");
 const chatSession = read("dive/src/hooks/useChatSession.ts");
 const workmap = read("dive/src/hooks/useWorkmap.ts");
 const usePlan = read("dive/src/features/planning/usePlan.ts");
@@ -269,8 +273,16 @@ check(
     includesAll(controller, [
       "requestPlanRouteConfirmation",
       "settlePlanRouteConfirmation",
-      "planRouter.appendStep",
-    ]),
+      "pendingPlanRoute",
+    ]) &&
+    includesAll(productModalHost, ["PlanRouteConfirmModal", "modals.planRoute"]) &&
+    includesAll(planRouteConfirmModal, [
+      'data-testid="plan-route-confirm"',
+      "onApprove",
+      "onReject",
+    ]) &&
+    includesAll(planDashboardPanel, ["PlanAddStepPanel", "plan.appendStep"]) &&
+    includesAll(planAddStepPanel, ["onAppendStep", "mutationReason", "linkedCriterionIds"]),
 );
 
 check(
