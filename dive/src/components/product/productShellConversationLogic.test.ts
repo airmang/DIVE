@@ -125,14 +125,130 @@ describe("product shell conversation logic", () => {
       providerDoneHint: null,
       onProjectAction: vi.fn(),
       onProviderAction: vi.fn(),
+      onPrdAction: vi.fn(),
+      onPlanAction: vi.fn(),
       onSessionAction: vi.fn(),
+      prdStatus: "missing",
+      hasPlan: false,
+      hasApprovedPlan: false,
       t,
     });
     expect(model?.steps.map((step) => [step.key, step.status])).toEqual([
       ["project", "done"],
       ["provider", "current"],
-      ["session", "pending"],
+      ["prd", "pending"],
+      ["plan", "pending"],
     ]);
+  });
+
+  it("routes provider-complete onboarding into PRD authoring before plan or session", () => {
+    const model = deriveGetStartedModel({
+      isDemoRoute: false,
+      projectSessionLoaded: true,
+      currentProjectId: 1,
+      hasConnectedProvider: true,
+      currentSessionId: null,
+      currentProjectName: "DIVE",
+      providerDoneHint: "OpenAI",
+      onProjectAction: vi.fn(),
+      onProviderAction: vi.fn(),
+      onPrdAction: vi.fn(),
+      onPlanAction: vi.fn(),
+      onSessionAction: vi.fn(),
+      prdStatus: "missing",
+      hasPlan: false,
+      hasApprovedPlan: false,
+      t,
+    });
+
+    expect(model?.steps.map((step) => [step.key, step.status])).toEqual([
+      ["project", "done"],
+      ["provider", "done"],
+      ["prd", "current"],
+      ["plan", "pending"],
+    ]);
+    expect(model?.steps.find((step) => step.key === "prd")?.actionLabel).toBe(
+      "get_started.prd_action",
+    );
+  });
+
+  it("resumes a PRD draft instead of opening ordinary chat", () => {
+    const onPrdAction = vi.fn();
+    const model = deriveGetStartedModel({
+      isDemoRoute: false,
+      projectSessionLoaded: true,
+      currentProjectId: 1,
+      hasConnectedProvider: true,
+      currentSessionId: null,
+      currentProjectName: "DIVE",
+      providerDoneHint: "OpenAI",
+      onProjectAction: vi.fn(),
+      onProviderAction: vi.fn(),
+      onPrdAction,
+      onPlanAction: vi.fn(),
+      onSessionAction: vi.fn(),
+      prdStatus: "draft",
+      hasPlan: false,
+      hasApprovedPlan: false,
+      t,
+    });
+
+    const prd = model?.steps.find((step) => step.key === "prd");
+    expect(prd?.status).toBe("current");
+    expect(prd?.actionLabel).toBe("get_started.prd_resume_action");
+    prd?.onAction?.();
+    expect(onPrdAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes saved minimal PRDs to plan creation before session start", () => {
+    const model = deriveGetStartedModel({
+      isDemoRoute: false,
+      projectSessionLoaded: true,
+      currentProjectId: 1,
+      hasConnectedProvider: true,
+      currentSessionId: null,
+      currentProjectName: "DIVE",
+      providerDoneHint: "OpenAI",
+      onProjectAction: vi.fn(),
+      onProviderAction: vi.fn(),
+      onPrdAction: vi.fn(),
+      onPlanAction: vi.fn(),
+      onSessionAction: vi.fn(),
+      prdStatus: "minimal",
+      hasPlan: false,
+      hasApprovedPlan: false,
+      t,
+    });
+
+    expect(model?.steps.map((step) => [step.key, step.status])).toEqual([
+      ["project", "done"],
+      ["provider", "done"],
+      ["prd", "done"],
+      ["plan", "current"],
+    ]);
+  });
+
+  it("does not show onboarding once an approved plan and session are available", () => {
+    const model = deriveGetStartedModel({
+      isDemoRoute: false,
+      projectSessionLoaded: true,
+      currentProjectId: 1,
+      hasConnectedProvider: true,
+      currentSessionId: 99,
+      currentProjectName: "DIVE",
+      providerDoneHint: "OpenAI",
+      onProjectAction: vi.fn(),
+      onProviderAction: vi.fn(),
+      onPrdAction: vi.fn(),
+      onPlanAction: vi.fn(),
+      onSessionAction: vi.fn(),
+      prdStatus: "minimal",
+      hasPlan: true,
+      hasApprovedPlan: true,
+      t,
+    });
+
+    expect(model).toBeNull();
   });
 
   it("finds latest assistant interview question with fallback", () => {

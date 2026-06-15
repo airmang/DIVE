@@ -41,7 +41,7 @@ describe("ToolActivity provocation permission gate", () => {
         onDeny={vi.fn()}
         provocation={{
           enabled: true,
-          mode: "standard",
+          mode: "work",
           projectId: 1,
           sessionId: 2,
           goalText: "버튼 문구만 바꿔줘",
@@ -75,7 +75,7 @@ describe("ToolActivity provocation permission gate", () => {
         onDeny={vi.fn()}
         provocation={{
           enabled: true,
-          mode: "standard",
+          mode: "work",
           projectId: 1,
           sessionId: 2,
           goalText: "버튼 문구만 바꿔줘",
@@ -120,7 +120,7 @@ describe("ToolActivity provocation permission gate", () => {
         onDeny={vi.fn()}
         provocation={{
           enabled: true,
-          mode: "standard",
+          mode: "work",
           projectId: 1,
           sessionId: 2,
           goalText: "버튼 문구만 바꿔줘",

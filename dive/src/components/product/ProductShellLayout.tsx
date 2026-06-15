@@ -97,7 +97,7 @@ export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
     const mapping = await shell.planRoadmap.openStep(stepId);
     await planActivity.refresh();
     if (mapping.session_id !== null) {
-      shell.roadmap.onPlanStepOpened(mapping);
+      shell.roadmap.onPlanStepOpened(mapping, { autoRun: opts?.openDetail !== true });
       if (opts?.focus !== false) {
         selectSession(mapping.session_id);
       }

@@ -36,7 +36,7 @@ interface ResearchSettingsDto {
 
 const SAFE_TOOLS = ["read_file", "list_dir", "search_files"];
 const WARN_TOOLS = ["write_file", "edit_file"];
-const REVIEW_CARD_MODES: ScaffoldMode[] = ["guided", "standard", "expert"];
+const REVIEW_CARD_MODES: ScaffoldMode[] = ["guided", "work"];
 
 const DEFAULT_PROVIDER_HOSTS: Record<string, string> = {
   anthropic: "api.anthropic.com",
@@ -402,7 +402,7 @@ export function SettingsPage() {
             </div>
 
             <div
-              className="grid grid-cols-1 gap-2 sm:grid-cols-3"
+              className="grid grid-cols-1 gap-2 sm:grid-cols-2"
               role="radiogroup"
               aria-label={t("settings.review_card_mode_title")}
               data-testid="settings-review-card-mode"

@@ -1,7 +1,7 @@
 # PRD-Driven Decompose & Plan Lifecycle Decision Log
 
 **Date**: 2026-06-14
-**Status**: Active Draft
+**Status**: Active Planning
 **Spec**: `specs/004-prd-decompose-lifecycle/spec.md`
 
 ## DEC-001: Interview Is Elevated To PRD Authoring — Required But Minimal
@@ -58,3 +58,55 @@
   research ledger intact.
 - **Implication**: PRD edits are first-class events in the local log/export, with
   student PII masked (specs/002 FR-020).
+
+## DEC-006: PRD Creation Uses A Dedicated Authoring Board, Not Chat Or Wizard
+
+- **Decision**: The first PRD creation experience is a dedicated PRD Authoring
+  Board with a compact header, left interview rail, right live editable PRD
+  canvas, and persistent bottom action bar.
+- **Rationale**: Ordinary chat hides the artifact and makes plan changes hard to
+  audit; a wizard makes the work feel like a classroom form. A board keeps the
+  real project artifact visible while preserving a short conversational
+  interview.
+- **Implication**: `SocraticInterviewPanel` is replaced/elevated into a board
+  surface. Provider/model selection stays available. The primary create-plan
+  action unlocks only after a minimal PRD exists.
+
+## DEC-007: Onboarding Routes To PRD Before Session Or Plan Execution
+
+- **Decision**: First-run onboarding changes from project/provider/session to
+  project/provider/PRD/plan-or-session. When no minimal PRD exists, the current
+  onboarding action opens the PRD Authoring Board.
+- **Rationale**: DIVE's v2 lesson is "spec before decompose." If onboarding
+  jumps from provider setup into a generic session, the PRD becomes optional and
+  the decomposition has no durable source of truth.
+- **Implication**: `GetStartedChecklist` and its model/controller need a PRD
+  state. Existing PRD drafts resume in the board. Saved PRDs unlock plan
+  generation/review; approved plans can continue to route into the roadmap.
+
+## DEC-008: Interview Turns Produce Validated PRD Patches
+
+- **Decision**: During PRD authoring, each interview turn may return a
+  conversational response plus a structured `PrdPatch`. DIVE validates and
+  merges accepted patches into the live PRD draft canvas. Official PRD versions
+  are created only by the student's save action.
+- **Rationale**: This makes the interview visibly productive: students see their
+  answers become a project artifact in real time. Keeping patches as proposals
+  preserves student ownership and prevents the LLM from silently becoming the
+  source of truth.
+- **Implication**: DIVE owns patch validation, merge rules, criterion ID
+  assignment, conflict handling, EventLog/export records, and student override
+  precedence. LLM patches cannot overwrite direct student edits without explicit
+  acceptance.
+
+## DEC-009: Completed PRD Uses A Separate Concise Read View
+
+- **Decision**: After a PRD is saved, DIVE shows a separate Final PRD Read View
+  by default instead of leaving the student inside the authoring board.
+- **Rationale**: The authoring board needs interview context, patch state, and
+  editable fields, which is too much information for reviewing the completed
+  PRD. The completed state should be a quiet handoff artifact that makes the
+  plan-generation decision easy.
+- **Implication**: Authoring and reading are separate UI states. The read view
+  prioritizes goal, acceptance criteria, scope boundaries, key constraints,
+  version metadata, and next action. Editing reopens the authoring board.

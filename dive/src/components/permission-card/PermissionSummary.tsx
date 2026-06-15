@@ -44,9 +44,14 @@ export function PermissionSummary({ toolName, risk, explanation, actionContext }
     writeFiles.length > 0 ||
     diffPreviewPath !== null ||
     actionContext?.checkpointAvailable !== undefined;
+  const hasSecondaryDetails = hasActionContext || explanation.files.length > 0;
 
   return (
-    <div className="space-y-3 text-xs" data-testid="permission-summary">
+    <div
+      className="space-y-3 text-xs"
+      data-testid="permission-summary"
+      data-default-metadata={hasSecondaryDetails ? "collapsed" : "none"}
+    >
       <div>
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-sm font-semibold text-fg">{explanation.actionTitle}</h3>
@@ -57,66 +62,81 @@ export function PermissionSummary({ toolName, risk, explanation, actionContext }
         <p className="mt-1 text-fg-muted">{explanation.riskBody}</p>
       </div>
 
-      {hasActionContext ? (
-        <div className="rounded-md border bg-bg/60 p-2" data-testid="permission-action-context">
-          <p className="font-medium text-fg">{t("permission_card.summary.action_context_title")}</p>
-          <dl className="mt-1 grid gap-1.5 text-[11px] text-fg-muted sm:grid-cols-2">
-            <div data-testid="permission-expected-files">
-              <dt className="font-semibold text-fg">
-                {t("permission_card.summary.expected_files")}
-              </dt>
-              <dd className="mt-0.5 break-words font-mono">
-                {compactList(expectedFiles, t("permission_card.summary.none"))}
-              </dd>
-            </div>
-            <div data-testid="permission-write-files">
-              <dt className="font-semibold text-fg">{t("permission_card.summary.write_files")}</dt>
-              <dd className="mt-0.5 break-words font-mono">
-                {compactList(writeFiles, t("permission_card.summary.none"))}
-              </dd>
-            </div>
-            <div data-testid="permission-read-files">
-              <dt className="font-semibold text-fg">{t("permission_card.summary.read_files")}</dt>
-              <dd className="mt-0.5 break-words font-mono">
-                {compactList(readFiles, t("permission_card.summary.none"))}
-              </dd>
-            </div>
-            <div data-testid="permission-diff-path">
-              <dt className="font-semibold text-fg">{t("permission_card.summary.diff_preview")}</dt>
-              <dd className="mt-0.5 break-words font-mono">
-                {diffPreviewPath ?? t("permission_card.summary.none")}
-              </dd>
-            </div>
-            <div className="sm:col-span-2" data-testid="permission-checkpoint-availability">
-              <dt className="font-semibold text-fg">{t("permission_card.summary.checkpoint")}</dt>
-              <dd className="mt-0.5">{checkpointLabel}</dd>
-            </div>
-          </dl>
-        </div>
-      ) : null}
+      {hasSecondaryDetails ? (
+        <details
+          className="rounded-md border bg-bg/60 px-2 py-1.5"
+          data-testid="permission-secondary-details"
+        >
+          <summary
+            className="cursor-pointer select-none font-medium text-fg-muted hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            aria-label={t("permission_card.summary.details_aria")}
+          >
+            {t("permission_card.summary.details_toggle")}
+          </summary>
+          <div className="mt-2 space-y-2">
+            {hasActionContext ? (
+              <div data-testid="permission-action-context">
+                <p className="font-medium text-fg">
+                  {t("permission_card.summary.action_context_title")}
+                </p>
+                <dl className="mt-1 grid gap-1.5 text-[11px] text-fg-muted sm:grid-cols-2">
+                  <div data-testid="permission-expected-files">
+                    <dt className="font-semibold text-fg">
+                      {t("permission_card.summary.expected_files")}
+                    </dt>
+                    <dd className="mt-0.5 break-words font-mono">
+                      {compactList(expectedFiles, t("permission_card.summary.none"))}
+                    </dd>
+                  </div>
+                  <div data-testid="permission-write-files">
+                    <dt className="font-semibold text-fg">
+                      {t("permission_card.summary.write_files")}
+                    </dt>
+                    <dd className="mt-0.5 break-words font-mono">
+                      {compactList(writeFiles, t("permission_card.summary.none"))}
+                    </dd>
+                  </div>
+                  <div data-testid="permission-read-files">
+                    <dt className="font-semibold text-fg">
+                      {t("permission_card.summary.read_files")}
+                    </dt>
+                    <dd className="mt-0.5 break-words font-mono">
+                      {compactList(readFiles, t("permission_card.summary.none"))}
+                    </dd>
+                  </div>
+                  <div data-testid="permission-diff-path">
+                    <dt className="font-semibold text-fg">
+                      {t("permission_card.summary.diff_preview")}
+                    </dt>
+                    <dd className="mt-0.5 break-words font-mono">
+                      {diffPreviewPath ?? t("permission_card.summary.none")}
+                    </dd>
+                  </div>
+                  <div className="sm:col-span-2" data-testid="permission-checkpoint-availability">
+                    <dt className="font-semibold text-fg">
+                      {t("permission_card.summary.checkpoint")}
+                    </dt>
+                    <dd className="mt-0.5">{checkpointLabel}</dd>
+                  </div>
+                </dl>
+              </div>
+            ) : null}
 
-      <div className="grid gap-2 sm:grid-cols-2">
-        <div className="rounded-md border bg-bg/60 p-2" data-testid="permission-involved-files">
-          <p className="font-medium text-fg">{t("permission_card.summary.files_title")}</p>
-          {explanation.files.length > 0 ? (
-            <ul className="mt-1 space-y-1 font-mono text-[11px] text-fg-muted">
-              {explanation.files.map((file) => (
-                <li key={file}>{file}</li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-1 text-fg-muted">{t("permission_card.summary.files_empty")}</p>
-          )}
-        </div>
-        <div className="rounded-md border bg-bg/60 p-2" data-testid="permission-choices">
-          <p className="font-medium text-fg">{t("permission_card.summary.choices_title")}</p>
-          <ul className="mt-1 list-disc space-y-1 pl-4 text-fg-muted">
-            {explanation.choices.map((choice) => (
-              <li key={choice}>{choice}</li>
-            ))}
-          </ul>
-        </div>
-      </div>
+            <div data-testid="permission-involved-files">
+              <p className="font-medium text-fg">{t("permission_card.summary.files_title")}</p>
+              {explanation.files.length > 0 ? (
+                <ul className="mt-1 space-y-1 font-mono text-[11px] text-fg-muted">
+                  {explanation.files.map((file) => (
+                    <li key={file}>{file}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-1 text-fg-muted">{t("permission_card.summary.files_empty")}</p>
+              )}
+            </div>
+          </div>
+        </details>
+      ) : null}
     </div>
   );
 }

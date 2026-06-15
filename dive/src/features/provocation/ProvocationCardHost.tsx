@@ -11,14 +11,13 @@ import type {
   ProvocationAction,
   ProvocationCard as ProvocationCardData,
   ProvocationContext,
-  ScaffoldMode,
-  SupervisorMode,
+  SupervisorSourceUiMode,
 } from "./types";
 
 interface ProvocationCardHostProps {
   cards: ProvocationCardData[];
   context?: Partial<ProvocationContext>;
-  mode: ScaffoldMode | SupervisorMode;
+  mode: SupervisorSourceUiMode;
   className?: string;
   onAction?: (action: ProvocationAction, card: ProvocationCardData, reason?: string) => void;
 }

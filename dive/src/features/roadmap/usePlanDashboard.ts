@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ProjectSpec } from "../planning";
 import type { PlanActivityLogRow } from "./usePlanActivity";
 import type { StepSessionMappingRow } from "./usePlanRoadmap";
 
@@ -41,6 +42,7 @@ export interface PlanDashboardProject {
   next_ready_steps: PlanDashboardStep[];
   active_steps: PlanDashboardStep[];
   last_activity: PlanActivityLogRow | null;
+  project_spec?: ProjectSpec | null;
 }
 
 export interface PlanDashboardTotals {

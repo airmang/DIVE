@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, CheckCircle2, Circle, Clock3, ExternalLink, FileCode, X } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Circle,
+  Clock3,
+  ExternalLink,
+  FileCode,
+  HelpCircle,
+  Send,
+  X,
+} from "lucide-react";
 import { Button } from "../ui/button";
 import { LearningHint } from "../ui/learning-hint";
 import { cn } from "../../lib/utils";
@@ -54,6 +64,11 @@ export interface StepDetailSlideInProps {
   onVerifyFirst: () => void;
   onApprovalDecision: (decision: ApprovalDecision) => void;
   onGoToChat: () => void;
+  onChallengeStepRationale?: (input: {
+    stepId: number;
+    text: string;
+    linkedCriterionIds: string[];
+  }) => Promise<{ objectionId: string; suggestionStatus: "none" | "offered" }>;
   rollbackAvailable: boolean;
   provocation?: {
     enabled: boolean;
@@ -72,6 +87,20 @@ const STATUS_CLASS: Record<RoadmapStepStatus, string> = {
 };
 
 type CriterionEvidenceRef = "preview" | "app" | null;
+type VerificationFocusActionKind =
+  | "open_preview"
+  | "run_app"
+  | "run_tests"
+  | "open_diff"
+  | "go_chat";
+
+interface VerificationFocusAction {
+  kind: VerificationFocusActionKind;
+  label: string;
+  ariaLabel: string;
+  disabled?: boolean;
+  onClick: () => void;
+}
 
 function uniqueStrings(items: string[]): string[] {
   return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
@@ -114,6 +143,7 @@ export function StepDetailSlideIn({
   onVerifyFirst,
   onApprovalDecision,
   onGoToChat,
+  onChallengeStepRationale,
   rollbackAvailable,
   provocation,
 }: StepDetailSlideInProps) {
@@ -125,6 +155,11 @@ export function StepDetailSlideIn({
   const [criterionEvidenceRef, setCriterionEvidenceRef] = useState<CriterionEvidenceRef>(null);
   const [previewOpenedStepIds, setPreviewOpenedStepIds] = useState<Set<number>>(() => new Set());
   const [appOpenedStepIds, setAppOpenedStepIds] = useState<Set<number>>(() => new Set());
+  const [rationaleChallengeOpen, setRationaleChallengeOpen] = useState(false);
+  const [rationaleObjectionText, setRationaleObjectionText] = useState("");
+  const [rationaleChallengeBusy, setRationaleChallengeBusy] = useState(false);
+  const [rationaleChallengeResult, setRationaleChallengeResult] = useState<string | null>(null);
+  const [rationaleChallengeError, setRationaleChallengeError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -143,6 +178,10 @@ export function StepDetailSlideIn({
 
   useEffect(() => {
     setCriterionEvidenceRef(null);
+    setRationaleChallengeOpen(false);
+    setRationaleObjectionText("");
+    setRationaleChallengeResult(null);
+    setRationaleChallengeError(null);
   }, [step?.id]);
 
   const status = step?.status ?? null;
@@ -167,6 +206,8 @@ export function StepDetailSlideIn({
     planContext?.verificationManualCheck?.trim() ||
     planContext?.verificationKind?.trim() ||
     null;
+  const linkedCriteria = step?.linkedCriteria ?? [];
+  const decompositionRationale = step?.decompositionRationale?.trim() || null;
   const verificationFeasibility = useMemo<SupervisorFeasibility>(() => {
     const verificationKind = planContext?.verificationKind?.trim().toLowerCase() ?? "";
     const hasTestCommand = Boolean(planContext?.verificationCommand?.trim() || step?.testCommand);
@@ -237,6 +278,8 @@ export function StepDetailSlideIn({
       : null;
   const supervisorEvaluationRequest = useMemo<SupervisorEvaluationRequest | null>(() => {
     if (!step || !provocation?.enabled || typeof provocation.sessionId !== "number") return null;
+    // Keep preview-open transitions as reevaluation triggers without recording them as evidence.
+    void previewOpened;
     return {
       sessionId: provocation.sessionId,
       event: "verify_entered",
@@ -325,6 +368,22 @@ export function StepDetailSlideIn({
         acceptanceCriterionConfirmed: criterionConfirmed,
       })
     : null;
+  const hasSecondaryDetails = Boolean(
+    step &&
+    (expectedFiles.length > 0 ||
+      actualChangedFiles.length > 0 ||
+      verificationStatuses.length > 0 ||
+      isReview ||
+      step.description ||
+      step.acceptanceCriteria ||
+      linkedCriteria.length > 0 ||
+      decompositionRationale ||
+      step.assistSummary ||
+      verifyLog ||
+      verifyState !== "idle" ||
+      step.changeSummary ||
+      step.retrospective),
+  );
 
   const handleOpenCode = () => {
     if (step) {
@@ -369,6 +428,70 @@ export function StepDetailSlideIn({
         note: reason?.trim() || null,
       }),
   });
+  const handleSubmitRationaleChallenge = async () => {
+    if (!step || !onChallengeStepRationale) return;
+    const text = rationaleObjectionText.trim();
+    if (!text) return;
+    setRationaleChallengeBusy(true);
+    setRationaleChallengeError(null);
+    try {
+      const result = await onChallengeStepRationale({
+        stepId: step.id,
+        text,
+        linkedCriterionIds: linkedCriteria.map((criterion) => criterion.criterionId),
+      });
+      setRationaleChallengeResult(
+        result.suggestionStatus === "offered"
+          ? "이의 제기를 기록했고, 재분해 제안을 준비했습니다."
+          : "이의 제기를 기록했습니다.",
+      );
+      setRationaleObjectionText("");
+      setRationaleChallengeOpen(false);
+    } catch (err) {
+      setRationaleChallengeError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRationaleChallengeBusy(false);
+    }
+  };
+  const criterionText =
+    step?.acceptanceCriteria?.trim() || verificationPlanText || step?.title || "";
+  const primaryVerificationAction: VerificationFocusAction | null = step
+    ? verificationFeasibility.previewable && onOpenPreview
+      ? {
+          kind: "open_preview",
+          label: t("roadmap.step_detail.verify_action_open_preview"),
+          ariaLabel: t("roadmap.step_detail.verify_action_open_preview"),
+          onClick: handleOpenPreview,
+        }
+      : verificationFeasibility.runnable && onOpenPreview
+        ? {
+            kind: "run_app",
+            label: t("roadmap.step_detail.verify_action_run_app"),
+            ariaLabel: t("roadmap.step_detail.verify_action_run_app"),
+            onClick: handleRunApp,
+          }
+        : verificationFeasibility.diffAvailable
+          ? {
+              kind: "open_diff",
+              label: t("roadmap.step_detail.verify_action_open_diff"),
+              ariaLabel: t("roadmap.step_detail.verify_action_open_diff"),
+              onClick: handleOpenCode,
+            }
+          : verificationFeasibility.hasTests
+            ? {
+                kind: "run_tests",
+                label: t("roadmap.step_detail.verify_action_run_tests"),
+                ariaLabel: t("roadmap.step_detail.verify_action_run_tests"),
+                disabled: verifyState === "running",
+                onClick: onVerifyFirst,
+              }
+            : {
+                kind: "go_chat",
+                label: t("roadmap.step_detail.go_to_chat"),
+                ariaLabel: t("roadmap.step_detail.go_to_chat"),
+                onClick: onGoToChat,
+              }
+    : null;
 
   return (
     <aside
@@ -430,24 +553,19 @@ export function StepDetailSlideIn({
             {t("roadmap.step_detail.read_only_note")}
           </LearningHint>
 
-          {verificationStatuses.length > 0 ? (
-            <div
-              className="mt-3 flex flex-wrap gap-1.5"
-              data-testid="step-detail-verification-statuses"
-            >
-              {verificationStatuses.map((item) => (
-                <VerificationStatusChip key={item.id} item={item} />
-              ))}
-            </div>
-          ) : null}
-
-          {agencyState && agencyState.items.length > 0 ? (
-            <div className="mt-3 flex flex-wrap gap-1.5" data-testid="step-detail-agency-states">
-              {agencyState.items.map((item) => (
-                <AgencyStateChip key={item.id} item={item} />
-              ))}
-            </div>
-          ) : null}
+          <VerificationFocusPanel
+            criterionText={criterionText}
+            verificationPlanText={verificationPlanText}
+            action={primaryVerificationAction}
+            verificationStatuses={verificationStatuses}
+            agencyItems={agencyState?.items ?? []}
+            hasAcceptanceCriteria={Boolean(step.acceptanceCriteria)}
+            criterionEvidenceRef={criterionEvidenceRef}
+            previewOpened={previewOpened}
+            appOpened={appOpened}
+            onConfirmPreview={() => setCriterionEvidenceRef("preview")}
+            onConfirmApp={() => setCriterionEvidenceRef("app")}
+          />
 
           <ProvocationCardHost
             className="mt-3"
@@ -457,195 +575,250 @@ export function StepDetailSlideIn({
             onAction={handleProvocationAction}
           />
 
-          <div className="mt-3 flex flex-wrap gap-2">
-            {isReview ? (
-              <DecisionGate
-                verificationStatuses={verificationStatuses}
-                agencyState={agencyState}
-                provocationCards={provocationCards}
-                verifyLog={verifyLog}
-                rollbackAvailable={rollbackAvailable}
-                acceptanceCriterionConfirmed={criterionConfirmed}
-                verificationFeasibility={verificationFeasibility}
-                verifyRunning={verifyState === "running"}
-                onApprove={() => onApprovalDecision({ outcome: "approved", note: null })}
-                onAcceptRisk={(reason) =>
-                  onApprovalDecision({ outcome: "approved_with_concern", note: reason })
-                }
-                onDeferVerification={() =>
-                  onApprovalDecision({ outcome: "verification_deferred", note: null })
-                }
-                onRequestChanges={() =>
-                  onApprovalDecision({ outcome: "revision_requested", note: null })
-                }
-                onVerifyFirst={onVerifyFirst}
-                onRevert={onOpenRecovery}
-                onStop={(note) => onApprovalDecision({ outcome: "revision_requested", note })}
-              />
-            ) : (
+          {linkedCriteria.length > 0 || decompositionRationale ? (
+            <section className="mt-3 rounded-md border border-border bg-bg-panel2 px-3 py-3">
+              {linkedCriteria.length > 0 ? (
+                <div data-testid="step-detail-linked-criteria">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-fg-muted">
+                    연결된 PRD 기준
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {linkedCriteria.map((criterion) => (
+                      <span
+                        key={criterion.criterionId}
+                        className="inline-flex items-center gap-1 rounded-sm border border-border bg-bg px-2 py-1 text-xs text-fg"
+                      >
+                        <span className="font-semibold text-accent">{criterion.criterionId}</span>
+                        <span>{criterion.text}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {decompositionRationale ? (
+                <p
+                  className="mt-3 whitespace-pre-wrap text-sm text-fg"
+                  data-testid="step-detail-rationale"
+                >
+                  {decompositionRationale}
+                </p>
+              ) : null}
+              {onChallengeStepRationale ? (
+                <div className="mt-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRationaleChallengeOpen((open) => !open)}
+                    disabled={rationaleChallengeBusy}
+                    data-testid="step-rationale-challenge-toggle"
+                  >
+                    <HelpCircle />왜 이 단계?
+                  </Button>
+                  {rationaleChallengeOpen ? (
+                    <div className="mt-2 space-y-2">
+                      <textarea
+                        className="min-h-20 w-full resize-none rounded-md border bg-bg px-3 py-2 text-sm text-fg placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        value={rationaleObjectionText}
+                        onChange={(event) => setRationaleObjectionText(event.target.value)}
+                        placeholder="이 단계가 필요한 이유에 대한 이의나 질문을 적어 주세요."
+                        data-testid="step-rationale-objection-input"
+                      />
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => void handleSubmitRationaleChallenge()}
+                        disabled={
+                          rationaleChallengeBusy || rationaleObjectionText.trim().length === 0
+                        }
+                        data-testid="step-rationale-objection-submit"
+                      >
+                        <Send />
+                        기록
+                      </Button>
+                    </div>
+                  ) : null}
+                  {rationaleChallengeResult ? (
+                    <p className="mt-2 text-xs text-success">{rationaleChallengeResult}</p>
+                  ) : null}
+                  {rationaleChallengeError ? (
+                    <p className="mt-2 text-xs text-danger">{rationaleChallengeError}</p>
+                  ) : null}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
+          {hasSecondaryDetails ? (
+            <details
+              className="mt-3 rounded-md border border-border bg-bg-panel2/60 px-3 py-2 text-xs"
+              data-testid="step-detail-secondary-details"
+            >
+              <summary
+                className="cursor-pointer select-none font-semibold text-fg-muted hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                aria-label={t("roadmap.step_detail.secondary_details_aria")}
+              >
+                {t("roadmap.step_detail.secondary_details_toggle")}
+              </summary>
+              <div className="mt-3">
+                {hasChangedFiles && primaryVerificationAction?.kind !== "open_diff" ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleOpenCode}
+                    aria-label={t("roadmap.step_detail.verify_action_open_diff")}
+                    data-testid="step-detail-open-code"
+                  >
+                    <FileCode />
+                    {t("roadmap.step_detail.verify_action_open_diff")}
+                  </Button>
+                ) : null}
+
+                {expectedFiles.length > 0 ||
+                actualChangedFiles.length > 0 ||
+                verificationStatuses.length > 0 ||
+                isReview ? (
+                  <Section title={t("roadmap.step_detail.section_change_bundle")}>
+                    <ChangeEvidenceBundle
+                      expectedFiles={expectedFiles}
+                      actualChangedFiles={actualChangedFiles}
+                      unexpectedHighRiskFiles={unexpectedHighRiskFiles}
+                      verificationStatuses={verificationStatuses}
+                      rollbackAvailable={rollbackAvailable}
+                      diffViewed={diffViewed}
+                      verificationPlanText={verificationPlanText}
+                    />
+                  </Section>
+                ) : null}
+
+                {step.description ? (
+                  <Section title={t("roadmap.step_detail.section_goal")}>
+                    <p
+                      className="whitespace-pre-wrap text-sm text-fg"
+                      data-testid="step-detail-goal"
+                    >
+                      {step.description}
+                    </p>
+                  </Section>
+                ) : null}
+
+                {step.acceptanceCriteria ? (
+                  <Section title={t("roadmap.step_detail.section_acceptance_criteria")}>
+                    <p
+                      className="whitespace-pre-wrap text-sm text-fg"
+                      data-testid="step-detail-acceptance"
+                    >
+                      {step.acceptanceCriteria}
+                    </p>
+                  </Section>
+                ) : null}
+
+                {step.assistSummary ? (
+                  <Section title={t("roadmap.step_detail.section_instruction")}>
+                    <p
+                      className="whitespace-pre-wrap text-sm text-fg"
+                      data-testid="step-detail-instruction"
+                    >
+                      {step.assistSummary}
+                    </p>
+                    {step.testCommand ? (
+                      <p className="mt-2 break-all font-mono text-[11px] text-fg-muted">
+                        {step.testCommand}
+                      </p>
+                    ) : null}
+                  </Section>
+                ) : null}
+
+                <Section title={t("roadmap.step_detail.section_timeline")}>
+                  <ul className="space-y-1 text-[11px] text-fg-muted">
+                    <li>
+                      {t("roadmap.step_detail.section_instruction")}:{" "}
+                      <span className="text-fg">
+                        {toolCallCount > 0 ? `${toolCallCount}` : "—"}
+                      </span>
+                    </li>
+                    <li>
+                      {t("roadmap.step_detail.section_changed_files")}:{" "}
+                      <span className="text-fg">{changedFiles.length}</span>
+                    </li>
+                  </ul>
+                </Section>
+
+                {verifyLog || verifyState !== "idle" ? (
+                  <Section title={t("roadmap.step_detail.section_verification")}>
+                    <VerificationBlock
+                      verifyLog={verifyLog}
+                      verifyState={verifyState}
+                      verifyError={verifyError}
+                    />
+                  </Section>
+                ) : null}
+
+                {step.changeSummary ? (
+                  <Section title={t("roadmap.step_detail.section_changed_files")}>
+                    <p
+                      className="whitespace-pre-wrap text-sm text-fg"
+                      data-testid="step-detail-change-summary"
+                    >
+                      {step.changeSummary}
+                    </p>
+                  </Section>
+                ) : null}
+
+                {step.retrospective ? (
+                  <Section title={t("roadmap.step_detail.section_retrospective")}>
+                    <p
+                      className="whitespace-pre-wrap text-sm text-fg-muted"
+                      data-testid="step-detail-retrospective"
+                    >
+                      {step.retrospective}
+                    </p>
+                  </Section>
+                ) : null}
+              </div>
+            </details>
+          ) : null}
+
+          {isReview ? (
+            <DecisionGate
+              verificationStatuses={verificationStatuses}
+              agencyState={agencyState}
+              provocationCards={provocationCards}
+              verifyLog={verifyLog}
+              rollbackAvailable={rollbackAvailable}
+              acceptanceCriterionConfirmed={criterionConfirmed}
+              verificationFeasibility={verificationFeasibility}
+              verifyRunning={verifyState === "running"}
+              onApprove={() => onApprovalDecision({ outcome: "approved", note: null })}
+              onAcceptRisk={(reason) =>
+                onApprovalDecision({ outcome: "approved_with_concern", note: reason })
+              }
+              onDeferVerification={() =>
+                onApprovalDecision({ outcome: "verification_deferred", note: null })
+              }
+              onRequestChanges={() =>
+                onApprovalDecision({ outcome: "revision_requested", note: null })
+              }
+              onVerifyFirst={onVerifyFirst}
+              onRevert={onOpenRecovery}
+              onStop={(note) => onApprovalDecision({ outcome: "revision_requested", note })}
+            />
+          ) : (
+            <div className="mt-3 flex flex-wrap gap-2">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={onGoToChat}
+                aria-label={t("roadmap.step_detail.go_to_chat")}
                 data-testid="step-detail-open-chat"
               >
                 <ExternalLink />
                 {t("roadmap.step_detail.go_to_chat")}
               </Button>
-            )}
-            {hasChangedFiles ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleOpenCode}
-                data-testid="step-detail-open-code"
-              >
-                <FileCode />
-                {t("roadmap.step_detail.section_changed_files")}
-              </Button>
-            ) : null}
-          </div>
+            </div>
+          )}
           <LearningHint className="mt-2 text-[11px]">
             {t("roadmap.step_detail.go_to_chat_hint")}
           </LearningHint>
-
-          {expectedFiles.length > 0 ||
-          actualChangedFiles.length > 0 ||
-          verificationStatuses.length > 0 ||
-          isReview ? (
-            <Section title={t("roadmap.step_detail.section_change_bundle")}>
-              <ChangeEvidenceBundle
-                expectedFiles={expectedFiles}
-                actualChangedFiles={actualChangedFiles}
-                unexpectedHighRiskFiles={unexpectedHighRiskFiles}
-                verificationStatuses={verificationStatuses}
-                rollbackAvailable={rollbackAvailable}
-                diffViewed={diffViewed}
-                verificationPlanText={verificationPlanText}
-              />
-            </Section>
-          ) : null}
-
-          {step.description ? (
-            <Section title={t("roadmap.step_detail.section_goal")}>
-              <p className="whitespace-pre-wrap text-sm text-fg" data-testid="step-detail-goal">
-                {step.description}
-              </p>
-            </Section>
-          ) : null}
-
-          {step.acceptanceCriteria ? (
-            <Section title={t("roadmap.step_detail.section_acceptance_criteria")}>
-              <p
-                className="whitespace-pre-wrap text-sm text-fg"
-                data-testid="step-detail-acceptance"
-              >
-                {step.acceptanceCriteria}
-              </p>
-              <div
-                className="mt-3 rounded-sm border border-border bg-bg/60 px-2 py-2 text-xs text-fg"
-                data-testid="step-detail-criterion-confirm"
-              >
-                <p className="font-medium">{t("roadmap.step_detail.criterion_confirm_label")}</p>
-                <p className="mt-0.5 text-[11px] text-fg-muted">
-                  {t("roadmap.step_detail.criterion_confirm_hint")}
-                </p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  <Button
-                    type="button"
-                    variant={criterionEvidenceRef === "preview" ? "primary" : "outline"}
-                    size="sm"
-                    disabled={!previewOpened}
-                    onClick={() => setCriterionEvidenceRef("preview")}
-                    data-testid="step-detail-confirm-preview"
-                  >
-                    {t("roadmap.step_detail.criterion_confirm_preview")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={criterionEvidenceRef === "app" ? "primary" : "outline"}
-                    size="sm"
-                    disabled={!appOpened}
-                    onClick={() => setCriterionEvidenceRef("app")}
-                    data-testid="step-detail-confirm-app"
-                  >
-                    {t("roadmap.step_detail.criterion_confirm_app")}
-                  </Button>
-                </div>
-                {criterionEvidenceRef ? (
-                  <p
-                    className="mt-2 text-[11px] font-medium text-success"
-                    data-testid="step-detail-criterion-evidence-ref"
-                  >
-                    {criterionEvidenceRef === "preview"
-                      ? t("roadmap.step_detail.criterion_confirm_preview_selected")
-                      : t("roadmap.step_detail.criterion_confirm_app_selected")}
-                  </p>
-                ) : null}
-              </div>
-            </Section>
-          ) : null}
-
-          {step.assistSummary ? (
-            <Section title={t("roadmap.step_detail.section_instruction")}>
-              <p
-                className="whitespace-pre-wrap text-sm text-fg"
-                data-testid="step-detail-instruction"
-              >
-                {step.assistSummary}
-              </p>
-              {step.testCommand ? (
-                <p className="mt-2 break-all font-mono text-[11px] text-fg-muted">
-                  {step.testCommand}
-                </p>
-              ) : null}
-            </Section>
-          ) : null}
-
-          <Section title={t("roadmap.step_detail.section_timeline")}>
-            <ul className="space-y-1 text-[11px] text-fg-muted">
-              <li>
-                {t("roadmap.step_detail.section_instruction")}:{" "}
-                <span className="text-fg">{toolCallCount > 0 ? `${toolCallCount}` : "—"}</span>
-              </li>
-              <li>
-                {t("roadmap.step_detail.section_changed_files")}:{" "}
-                <span className="text-fg">{changedFiles.length}</span>
-              </li>
-            </ul>
-          </Section>
-
-          {verifyLog || verifyState !== "idle" ? (
-            <Section title={t("roadmap.step_detail.section_verification")}>
-              <VerificationBlock
-                verifyLog={verifyLog}
-                verifyState={verifyState}
-                verifyError={verifyError}
-              />
-            </Section>
-          ) : null}
-
-          {step.changeSummary ? (
-            <Section title={t("roadmap.step_detail.section_changed_files")}>
-              <p
-                className="whitespace-pre-wrap text-sm text-fg"
-                data-testid="step-detail-change-summary"
-              >
-                {step.changeSummary}
-              </p>
-            </Section>
-          ) : null}
-
-          {step.retrospective ? (
-            <Section title={t("roadmap.step_detail.section_retrospective")}>
-              <p
-                className="whitespace-pre-wrap text-sm text-fg-muted"
-                data-testid="step-detail-retrospective"
-              >
-                {step.retrospective}
-              </p>
-            </Section>
-          ) : null}
         </div>
       ) : (
         <div className="flex flex-1 items-center justify-center px-6 py-8 text-center text-sm text-fg-muted">
@@ -693,6 +866,140 @@ function AgencyStateChip({ item }: { item: AgencyStateItem }) {
     >
       {item.label}
     </span>
+  );
+}
+
+function verificationActionIcon(kind: VerificationFocusActionKind) {
+  if (kind === "open_diff") return <FileCode aria-hidden />;
+  if (kind === "run_tests") return <Clock3 aria-hidden />;
+  return <ExternalLink aria-hidden />;
+}
+
+function VerificationFocusPanel({
+  criterionText,
+  verificationPlanText,
+  action,
+  verificationStatuses,
+  agencyItems,
+  hasAcceptanceCriteria,
+  criterionEvidenceRef,
+  previewOpened,
+  appOpened,
+  onConfirmPreview,
+  onConfirmApp,
+}: {
+  criterionText: string;
+  verificationPlanText: string | null;
+  action: VerificationFocusAction | null;
+  verificationStatuses: VerificationStatusItem[];
+  agencyItems: AgencyStateItem[];
+  hasAcceptanceCriteria: boolean;
+  criterionEvidenceRef: CriterionEvidenceRef;
+  previewOpened: boolean;
+  appOpened: boolean;
+  onConfirmPreview: () => void;
+  onConfirmApp: () => void;
+}) {
+  const t = useT();
+  return (
+    <section
+      className="mt-3 rounded-md border border-border bg-bg-panel2 px-3 py-3"
+      data-testid="step-detail-verification-focus"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-fg-muted">
+            {t("roadmap.step_detail.verify_focus_title")}
+          </div>
+          <p
+            className="mt-1 text-sm font-semibold leading-snug text-fg"
+            data-testid="step-detail-criterion-focal"
+          >
+            {criterionText}
+          </p>
+          {verificationPlanText ? (
+            <p
+              className="mt-1 break-words font-mono text-[11px] text-fg-muted"
+              data-testid="step-detail-feasible-method"
+            >
+              {verificationPlanText}
+            </p>
+          ) : null}
+        </div>
+        {action ? (
+          <Button
+            type="button"
+            variant="primary"
+            size="sm"
+            disabled={action.disabled}
+            onClick={action.onClick}
+            aria-label={action.ariaLabel}
+            data-testid="step-detail-primary-verification-action"
+            data-action-kind={action.kind}
+          >
+            {verificationActionIcon(action.kind)}
+            {action.label}
+          </Button>
+        ) : null}
+      </div>
+
+      {verificationStatuses.length > 0 || agencyItems.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-1.5" data-testid="step-detail-evidence-chips">
+          {verificationStatuses.map((item) => (
+            <VerificationStatusChip key={item.id} item={item} />
+          ))}
+          {agencyItems.map((item) => (
+            <AgencyStateChip key={item.id} item={item} />
+          ))}
+        </div>
+      ) : null}
+
+      {hasAcceptanceCriteria ? (
+        <div
+          className="mt-3 border-t border-border/70 pt-3 text-xs text-fg"
+          data-testid="step-detail-criterion-confirm"
+        >
+          <p className="font-medium">{t("roadmap.step_detail.criterion_confirm_label")}</p>
+          <p className="mt-0.5 text-[11px] text-fg-muted">
+            {t("roadmap.step_detail.criterion_confirm_hint")}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <Button
+              type="button"
+              variant={criterionEvidenceRef === "preview" ? "primary" : "outline"}
+              size="sm"
+              disabled={!previewOpened}
+              onClick={onConfirmPreview}
+              aria-label={t("roadmap.step_detail.criterion_confirm_preview")}
+              data-testid="step-detail-confirm-preview"
+            >
+              {t("roadmap.step_detail.criterion_confirm_preview")}
+            </Button>
+            <Button
+              type="button"
+              variant={criterionEvidenceRef === "app" ? "primary" : "outline"}
+              size="sm"
+              disabled={!appOpened}
+              onClick={onConfirmApp}
+              aria-label={t("roadmap.step_detail.criterion_confirm_app")}
+              data-testid="step-detail-confirm-app"
+            >
+              {t("roadmap.step_detail.criterion_confirm_app")}
+            </Button>
+          </div>
+          {criterionEvidenceRef ? (
+            <p
+              className="mt-2 text-[11px] font-medium text-success"
+              data-testid="step-detail-criterion-evidence-ref"
+            >
+              {criterionEvidenceRef === "preview"
+                ? t("roadmap.step_detail.criterion_confirm_preview_selected")
+                : t("roadmap.step_detail.criterion_confirm_app_selected")}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -821,11 +1128,11 @@ function compactBundleItems(items: string[]): string {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="mt-4">
+    <section className="mt-4 border-t border-border/70 pt-3">
       <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-fg-muted">
         {title}
       </div>
-      <div className="mt-1 rounded-md border border-border bg-bg-panel2 px-3 py-2">{children}</div>
+      <div className="mt-1">{children}</div>
     </section>
   );
 }

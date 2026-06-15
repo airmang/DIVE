@@ -18,13 +18,14 @@ import {
   type RoadmapActionFailure,
   type PlanDashboardStep,
 } from "../../features/roadmap";
-import { requestPlanDraftReview } from "../../features/planning";
+import { requestPlanDraftReview, usePlan, type AppendPlanStepInput } from "../../features/planning";
 import { useT } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { useProjectSessionStore } from "../../stores/project-session";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { useToast } from "../toast/toast-context";
+import { PlanAddStepPanel } from "./PlanAddStepPanel";
 
 function completionPercent(project: PlanDashboardProject) {
   if (project.step_count === 0) return 0;
@@ -216,6 +217,10 @@ export function PlanDashboardPanel() {
                 onOpenProject={handleOpenProject}
                 onResume={handleResume}
                 onStart={handleStart}
+                onPlanMutated={async () => {
+                  dispatchPlanRoadmapRefresh();
+                  await dashboard.refresh();
+                }}
               />
             ))}
           </ul>
@@ -282,6 +287,7 @@ interface DashboardProjectItemProps {
   onOpenProject: (project: PlanDashboardProject) => Promise<void>;
   onResume: (project: PlanDashboardProject, step: PlanDashboardStep) => Promise<void>;
   onStart: (project: PlanDashboardProject, step: PlanDashboardStep) => Promise<void>;
+  onPlanMutated: () => Promise<void>;
 }
 
 function DashboardProjectItem({
@@ -291,8 +297,10 @@ function DashboardProjectItem({
   onOpenProject,
   onResume,
   onStart,
+  onPlanMutated,
 }: DashboardProjectItemProps) {
   const t = useT();
+  const plan = usePlan(project.project_id);
   const activeStep = project.active_steps[0] ?? null;
   const readyStep = project.next_ready_steps[0] ?? null;
   const needsPlanReview = project.plan_id !== null && project.plan_status !== "approved";
@@ -304,6 +312,12 @@ function DashboardProjectItem({
   const openKey = `open:${project.project_id}`;
   const resumeKey = activeStep ? `resume:${project.project_id}:${activeStep.step_db_id}` : "";
   const startKey = readyStep ? `start:${project.project_id}:${readyStep.step_db_id}` : "";
+  const canAppendStep = project.plan_id !== null && project.plan_status === "approved";
+
+  const handleAppendStep = async (input: AppendPlanStepInput) => {
+    await plan.appendStep(input);
+    await onPlanMutated();
+  };
 
   return (
     <li
@@ -410,6 +424,17 @@ function DashboardProjectItem({
           </Button>
         )}
       </div>
+
+      {canAppendStep && project.plan_id !== null ? (
+        <PlanAddStepPanel
+          projectId={project.project_id}
+          planId={project.plan_id}
+          projectName={project.project_name}
+          projectSpec={project.project_spec ?? null}
+          busy={busyAction !== null}
+          onAppendStep={handleAppendStep}
+        />
+      ) : null}
     </li>
   );
 }

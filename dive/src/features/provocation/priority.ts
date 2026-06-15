@@ -2,8 +2,7 @@ import type {
   ProvocationCard,
   ProvocationCardType,
   ProvocationSeverity,
-  ScaffoldMode,
-  SupervisorMode,
+  SupervisorSourceUiMode,
 } from "./types";
 
 const TYPE_PRIORITY: Record<ProvocationCardType, number> = {
@@ -11,6 +10,7 @@ const TYPE_PRIORITY: Record<ProvocationCardType, number> = {
   ai_self_report_only: 500,
   regeneration_loop: 400,
   missing_verification_step: 300,
+  scope_expansion: 250,
   missing_acceptance_criteria: 200,
   oversized_scope: 100,
 };
@@ -49,7 +49,7 @@ export function selectPrimaryProvocationCard(cards: ProvocationCard[]): Provocat
 
 export function shouldShowProvocationCardInMode(
   card: ProvocationCard,
-  mode: ScaffoldMode | SupervisorMode,
+  mode: SupervisorSourceUiMode,
 ): boolean {
   void card;
   void mode;

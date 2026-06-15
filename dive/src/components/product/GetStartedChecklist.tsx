@@ -3,7 +3,7 @@ import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
 import { useT } from "../../i18n";
 
-export type GetStartedStepKey = "project" | "provider" | "session";
+export type GetStartedStepKey = "project" | "provider" | "prd" | "plan";
 export type GetStartedStepStatus = "done" | "current" | "pending";
 
 export interface GetStartedStep {
@@ -25,7 +25,7 @@ interface GetStartedChecklistProps {
 }
 
 /**
- * Single cockpit-center first-run guide: project -> AI -> session, with the
+ * Single cockpit-center first-run guide: project -> AI -> PRD -> plan, with the
  * current step emphasized. Replaces the scattered onboarding dialog / empty
  * state / gate banners. Presentational only; the controller computes the model.
  */

@@ -105,6 +105,72 @@
       }
     }
   },
+  "prd": {
+    "authoring": {
+      "title": "프로젝트 PRD 작성",
+      "subtitle": "짧은 대화와 직접 편집으로 실제 프로젝트 기준을 만듭니다.",
+      "state_missing": "PRD 필요",
+      "state_draft": "초안 저장됨",
+      "state_minimal": "최소 PRD 준비됨",
+      "interview_rail": "인터뷰",
+      "live_canvas": "PRD 캔버스",
+      "provider_model": "사용할 모델",
+      "history": "기록",
+      "interview_prompt": "짧은 질문에 하나씩 답하세요.",
+      "interview_seed": "이 프로젝트가 사용자에게 가능하게 해야 하는 일은 무엇인가요?",
+      "answer_placeholder": "다음 프로젝트 정보를 입력하세요...",
+      "answer_send": "답변 보내기",
+      "goal_placeholder": "프로젝트가 무엇을 달성해야 하나요?",
+      "intent_placeholder": "사용자의 의도를 한 문장으로 적으세요.",
+      "scope_placeholder": "범위에 포함할 일을 한 줄에 하나씩 적으세요.",
+      "non_goals_placeholder": "하지 않을 일을 한 줄에 하나씩 적으세요.",
+      "constraints_placeholder": "런타임, UX, 수업, 납품 제약을 적으세요.",
+      "criterion_placeholder": "관찰 가능한 완료 기준",
+      "patch_applied": "제안이 PRD 초안에 반영되었습니다.",
+      "patch_rejected": "제안을 반영하지 않았습니다.",
+      "patch_held": "학생이 직접 편집한 필드는 제안으로 보관했습니다.",
+      "validation_goal_required": "목표를 입력하세요.",
+      "validation_criterion_required": "수락 기준을 하나 이상 추가하세요.",
+      "validation_ready": "프로젝트 PRD로 저장할 수 있습니다.",
+      "turn_failed_title": "PRD 인터뷰 처리 실패",
+      "save_success_title": "PRD 저장됨",
+      "save_success_description": "계획을 만들기 전에 최종 PRD를 확인하세요.",
+      "save_failed_title": "PRD를 저장하지 못했습니다",
+      "save_draft": "초안 저장",
+      "save_create_plan": "PRD 저장 후 계획 만들기",
+      "save_prd": "PRD 저장",
+      "create_plan": "이 PRD로 계획 만들기"
+    },
+    "fields": {
+      "goal": "목표",
+      "intent_summary": "의도 요약",
+      "scope": "범위",
+      "non_goals": "하지 않을 일",
+      "constraints": "제약",
+      "acceptance_criteria": "수락 기준"
+    },
+    "read_view": {
+      "title": "최종 PRD",
+      "version": "버전 {{version}}",
+      "edit": "PRD 편집",
+      "empty_scope": "아직 범위가 없습니다.",
+      "next_action": "다음 단계"
+    },
+    "decomposition": {
+      "linked_criteria": "연결된 기준",
+      "rationale": "나눈 이유",
+      "challenge": "이 단계가 왜 필요한가요?",
+      "objection_logged": "질문을 기록했습니다."
+    },
+    "add_step": {
+      "title": "단계 추가",
+      "reason": "추가 이유",
+      "criterion_link": "연결할 기준",
+      "prd_delta": "PRD 변경",
+      "scope_expansion": "범위 확장 가능성",
+      "save": "단계 추가"
+    }
+  },
   "rc1_migration": {
     "title": "DIVE v1.0.0-rc.1은 데모 빌드였습니다",
     "description": "실제 데이터 저장 기능 없이 화면만 구동되는 상태였기에, 이전 세션·프로젝트·단계 데이터는 복구할 수 없습니다.",
@@ -212,7 +278,8 @@
     "pick_title": "프로젝트 폴더 선택"
   },
   "project": {
-    "open_pick_title": "열 프로젝트 폴더 선택"
+    "open_pick_title": "열 프로젝트 폴더 선택",
+    "untitled": "프로젝트"
   },
   "settings": {
     "general_eyebrow": "일반",
@@ -233,6 +300,8 @@
     "review_card_mode_title": "검토 카드 표시 방식",
     "review_card_mode_guided": "Guided",
     "review_card_mode_guided_description": "제목, 메시지, 근거, 한 줄 설명, 즉시 행동을 모두 표시합니다.",
+    "review_card_mode_work": "작업 모드",
+    "review_card_mode_work_description": "근거와 즉시 행동은 유지하되, 낮은 마찰의 간결한 검토 카드로 표시합니다.",
     "review_card_mode_standard": "Standard",
     "review_card_mode_standard_description": "짧은 메시지와 근거 칩, 즉시 행동만 표시합니다.",
     "review_card_mode_expert": "Expert",
@@ -360,16 +429,21 @@
   },
   "get_started": {
     "title": "시작하기",
-    "subtitle": "3단계만 끝내면 바로 대화할 수 있어요.",
+    "subtitle": "4단계를 끝내면 프로젝트 작업 흐름을 시작할 수 있어요.",
     "project_title": "프로젝트 열기",
     "project_desc": "DIVE가 작업할 로컬 폴더를 선택하세요.",
     "project_action": "프로젝트 열기",
     "provider_title": "AI 연결",
     "provider_desc": "대화를 처리할 AI 도우미를 연결하세요.",
     "provider_action": "AI 연결하기",
-    "session_title": "첫 세션 시작",
-    "session_desc": "목표를 적을 대화 세션을 만듭니다.",
-    "session_action": "세션 시작"
+    "prd_title": "요구사항 초안 작성",
+    "prd_desc": "질문에 답하며 실제 프로젝트에 맞는 요구사항 초안을 만듭니다.",
+    "prd_action": "PRD 작성",
+    "prd_resume_action": "PRD 이어쓰기",
+    "prd_done_hint": "저장된 PRD 준비됨",
+    "plan_title": "계획과 세션 만들기",
+    "plan_desc": "저장된 PRD를 확인한 뒤 계획을 만들고 첫 작업 세션을 시작합니다.",
+    "plan_action": "계획 만들기"
   },
   "card_state": {
     "decomposed": {
@@ -439,6 +513,24 @@
       "read_only_note": "읽기 전용입니다. 수정은 채팅에서 진행하세요.",
       "go_to_chat": "채팅으로 이동",
       "go_to_chat_hint": "검토, 수정, 승인은 모두 채팅에서 이루어집니다.",
+      "verify_focus_title": "먼저 확인할 기준",
+      "verify_action_open_preview": "미리보기 열기",
+      "verify_action_run_app": "앱 실행",
+      "verify_action_run_tests": "검증 실행",
+      "verify_action_open_diff": "변경 코드 보기",
+      "secondary_details_toggle": "Diff와 세부 정보 보기",
+      "secondary_details_aria": "Diff와 세부 정보 펼치기",
+      "review_card_label": "확인 필요 카드",
+      "review_card_evidence_aria": "검토 카드 근거",
+      "review_card_details_toggle": "근거 설명 보기",
+      "review_card_details_aria": "검토 카드 세부 설명 펼치기",
+      "review_card_hidden_evidence_count": "추가 근거 {{count}}개는 연구 로그에 기록됩니다.",
+      "review_card_hidden_action_count": "추가 행동 {{count}}개는 카드에 표시하지 않습니다.",
+      "review_card_mark_irrelevant_aria": "검토 카드를 관련 없음으로 표시",
+      "review_card_dismiss_aria": "검토 카드 닫기",
+      "review_card_reason_fallback": "계속 진행하는 이유를 한 줄로 남겨주세요.",
+      "review_card_reason_aria": "검토 카드 진행 사유",
+      "review_card_reason_submit": "이유 남기고 진행",
       "test_result": {
         "pass": "테스트 통과",
         "fail": "테스트 실패",
@@ -461,6 +553,9 @@
       "decision_summary_risk": "승인 전에 확인이 필요한 증거가 있습니다.",
       "decision_summary_missing": "검증 증거가 충분하지 않습니다. 먼저 확인하거나 위험을 기록하세요.",
       "decision_risk_badge": "확인 필요",
+      "decision_defer_badge": "위험 아님",
+      "decision_details_toggle": "판단 근거 보기",
+      "decision_details_aria": "승인 판단 근거 펼치기",
       "decision_reason_title": "이유가 필요한 상태",
       "decision_reason_unverified": "검증 증거 없음 — 실행·테스트·완료 기준 확인이 아직 없습니다",
       "decision_reason_ai_self_report_only": "AI 자가보고만 있음",
@@ -468,6 +563,7 @@
       "decision_reason_high_risk_files": "예상 밖 고위험 파일 변경",
       "decision_reason_rollback_unavailable": "되돌리기 지점 없음",
       "decision_reason_label": "위험을 감수하는 이유 (한 줄)",
+      "decision_reason_textarea_aria": "위험 감수 승인 사유",
       "decision_reason_placeholder": "예: 테스트 실패 원인을 확인했고 이 변경은 다음 단계에서 다룰 수 있음",
       "decision_approve": "승인",
       "decision_request_changes": "수정 요청",
@@ -477,6 +573,7 @@
       "decision_accept_risk": "위험 감수 승인",
       "decision_defer_verification": "검증 유예하고 진행",
       "decision_plain_approve_blocked": "이 상태는 위험 감수 승인에 짧은 이유가 필요합니다.",
+      "decision_defer_note": "검증 유예는 위험 감수 승인과 별도로 기록됩니다.",
       "decision_stop_note": "중단: 이 단계는 여기서 멈추고 다음 방향을 다시 정합니다.",
       "section_change_bundle": "변경·검증 묶음",
       "bundle_expected_files": "예상 파일",
@@ -704,8 +801,8 @@
       "cancel_requested": "중지 요청됨",
       "cancel_requested_status": "라우팅 중 중지 요청됨",
       "confirm": {
-        "title": "이 요청을 plan에 새 step으로 추가할까요?",
-        "description": "DIVE가 채팅을 보내기 전에 승인된 plan에 이 요청을 새 단계로 붙일 수 있습니다.",
+        "title": "이 요청을 새 step 후보로 검토할까요?",
+        "description": "채팅은 step을 제안할 수 있지만, plan 변경은 전용 step 추가 영역에서만 이루어집니다.",
         "suggested_title": "제안된 step",
         "dependencies": "의존: {{deps}}",
         "dependencies_label": "의존",
@@ -713,9 +810,11 @@
         "acceptance_label": "완료 기준",
         "no_dependencies": "없음",
         "none": "없음",
-        "add_button": "Plan에 추가",
+        "add_button": "Plan 영역에서 검토",
         "skip_button": "그냥 채팅",
-        "reason_label": "이유"
+        "reason_label": "이유",
+        "dedicated_area_title": "Plan의 step 추가 영역을 사용하세요",
+        "dedicated_area_description": "채팅 요청은 제안으로만 이어집니다. 준비되면 plan dashboard에서 step을 추가하세요."
       },
       "error": {
         "routing_failed": "자동 라우팅 실패: {{message}}"
@@ -799,6 +898,8 @@
       "files_title": "관련 파일/폴더",
       "files_empty": "특정 파일 경로가 제공되지 않았습니다.",
       "choices_title": "선택할 수 있는 행동",
+      "details_toggle": "파일과 실행 맥락 보기",
+      "details_aria": "권한 카드 파일과 실행 맥락 펼치기",
       "action_context_title": "실행 전 확인",
       "expected_files": "계획상 예상 파일",
       "read_files": "읽을 파일",

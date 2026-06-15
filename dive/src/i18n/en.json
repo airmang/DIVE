@@ -105,6 +105,72 @@
       }
     }
   },
+  "prd": {
+    "authoring": {
+      "title": "Project PRD Authoring",
+      "subtitle": "Create real project criteria through a short conversation and direct editing.",
+      "state_missing": "PRD required",
+      "state_draft": "Draft saved",
+      "state_minimal": "Minimal PRD ready",
+      "interview_rail": "Interview",
+      "live_canvas": "PRD canvas",
+      "provider_model": "Model for this pass",
+      "history": "History",
+      "interview_prompt": "Answer one short prompt at a time.",
+      "interview_seed": "What should this project make possible for the user?",
+      "answer_placeholder": "Type the next project detail...",
+      "answer_send": "Send answer",
+      "goal_placeholder": "What should the project accomplish?",
+      "intent_placeholder": "One sentence about the user's intent.",
+      "scope_placeholder": "One in-scope item per line.",
+      "non_goals_placeholder": "One out-of-scope item per line.",
+      "constraints_placeholder": "Runtime, UX, classroom, or delivery constraints.",
+      "criterion_placeholder": "Observable completion criterion",
+      "patch_applied": "The proposal was applied to the PRD draft.",
+      "patch_rejected": "The proposal was not applied.",
+      "patch_held": "Student-edited fields were kept as suggestions.",
+      "validation_goal_required": "Add a goal.",
+      "validation_criterion_required": "Add at least one acceptance criterion.",
+      "validation_ready": "Ready to save as the project PRD.",
+      "turn_failed_title": "PRD interview turn failed",
+      "save_success_title": "PRD saved",
+      "save_success_description": "Review the final PRD before creating the plan.",
+      "save_failed_title": "Could not save PRD",
+      "save_draft": "Save draft",
+      "save_create_plan": "Save PRD & Create Plan",
+      "save_prd": "Save PRD",
+      "create_plan": "Create plan from PRD"
+    },
+    "fields": {
+      "goal": "Goal",
+      "intent_summary": "Intent summary",
+      "scope": "Scope",
+      "non_goals": "Non-goals",
+      "constraints": "Constraints",
+      "acceptance_criteria": "Acceptance criteria"
+    },
+    "read_view": {
+      "title": "Final PRD",
+      "version": "Version {{version}}",
+      "edit": "Edit PRD",
+      "empty_scope": "No scope has been added yet.",
+      "next_action": "Next action"
+    },
+    "decomposition": {
+      "linked_criteria": "Linked criteria",
+      "rationale": "Why this split",
+      "challenge": "Why is this step needed?",
+      "objection_logged": "Question logged."
+    },
+    "add_step": {
+      "title": "Add step",
+      "reason": "Reason for adding it",
+      "criterion_link": "Criterion to link",
+      "prd_delta": "PRD change",
+      "scope_expansion": "Possible scope expansion",
+      "save": "Add step"
+    }
+  },
   "rc1_migration": {
     "title": "DIVE v1.0.0-rc.1 was a demo build",
     "description": "It only ran the UI with no real data persistence, so previous session, project, and step data cannot be recovered.",
@@ -212,7 +278,8 @@
     "pick_title": "Choose project folder"
   },
   "project": {
-    "open_pick_title": "Choose project folder to open"
+    "open_pick_title": "Choose project folder to open",
+    "untitled": "Project"
   },
   "settings": {
     "general_eyebrow": "General",
@@ -233,6 +300,8 @@
     "review_card_mode_title": "Review card display",
     "review_card_mode_guided": "Guided",
     "review_card_mode_guided_description": "Show the title, message, evidence, one-line explanation, and immediate actions.",
+    "review_card_mode_work": "Work",
+    "review_card_mode_work_description": "Keep review cards concise and low-friction while still showing evidence and immediate actions.",
     "review_card_mode_standard": "Standard",
     "review_card_mode_standard_description": "Show a concise message, evidence chips, and immediate actions.",
     "review_card_mode_expert": "Expert",
@@ -360,16 +429,21 @@
   },
   "get_started": {
     "title": "Get started",
-    "subtitle": "Finish these 3 steps to start chatting.",
+    "subtitle": "Finish these 4 steps to start the project workflow.",
     "project_title": "Open a project",
     "project_desc": "Pick the local folder DIVE will work in.",
     "project_action": "Open project",
     "provider_title": "Connect AI",
     "provider_desc": "Connect the AI assistant that will handle your chats.",
     "provider_action": "Connect AI",
-    "session_title": "Start your first session",
-    "session_desc": "Create a chat session to describe your goal.",
-    "session_action": "Start session"
+    "prd_title": "Write the PRD",
+    "prd_desc": "Answer a few questions and keep the live draft grounded in this project.",
+    "prd_action": "Write PRD",
+    "prd_resume_action": "Resume PRD",
+    "prd_done_hint": "Saved PRD ready",
+    "plan_title": "Create plan and session",
+    "plan_desc": "Review the saved PRD, then create a plan and begin the first work session.",
+    "plan_action": "Create plan"
   },
   "card_state": {
     "decomposed": {
@@ -439,6 +513,24 @@
       "read_only_note": "Read only. Make changes from chat.",
       "go_to_chat": "Open chat",
       "go_to_chat_hint": "Reviews, edits, and approvals happen in chat.",
+      "verify_focus_title": "Verify this first",
+      "verify_action_open_preview": "Open preview",
+      "verify_action_run_app": "Run app",
+      "verify_action_run_tests": "Run check",
+      "verify_action_open_diff": "View changed code",
+      "secondary_details_toggle": "Show diff and details",
+      "secondary_details_aria": "Expand diff and details",
+      "review_card_label": "Needs review",
+      "review_card_evidence_aria": "Review card evidence",
+      "review_card_details_toggle": "Show why this appeared",
+      "review_card_details_aria": "Expand review card details",
+      "review_card_hidden_evidence_count": "{{count}} more evidence item(s) remain in the research log.",
+      "review_card_hidden_action_count": "{{count}} more action(s) are not shown on this card.",
+      "review_card_mark_irrelevant_aria": "Mark review card as irrelevant",
+      "review_card_dismiss_aria": "Dismiss review card",
+      "review_card_reason_fallback": "Leave a one-line reason before continuing.",
+      "review_card_reason_aria": "Review card proceed reason",
+      "review_card_reason_submit": "Continue with reason",
       "test_result": {
         "pass": "Tests passed",
         "fail": "Tests failed",
@@ -461,6 +553,9 @@
       "decision_summary_risk": "Some evidence needs attention before approval.",
       "decision_summary_missing": "Verification evidence is limited. Check first or record the risk.",
       "decision_risk_badge": "Needs review",
+      "decision_defer_badge": "Not risk",
+      "decision_details_toggle": "Show decision basis",
+      "decision_details_aria": "Expand approval decision basis",
       "decision_reason_title": "Reason required because",
       "decision_reason_unverified": "No verification evidence yet — nothing run, tested, or confirmed against the acceptance criterion",
       "decision_reason_ai_self_report_only": "Only AI self-report is present",
@@ -468,6 +563,7 @@
       "decision_reason_high_risk_files": "Unexpected high-risk files changed",
       "decision_reason_rollback_unavailable": "No rollback point is available",
       "decision_reason_label": "Reason for accepting the risk (one line)",
+      "decision_reason_textarea_aria": "Risk approval reason",
       "decision_reason_placeholder": "Example: I checked the failure and can handle it in the next step",
       "decision_approve": "Approve",
       "decision_request_changes": "Request changes",
@@ -477,6 +573,7 @@
       "decision_accept_risk": "Approve with risk",
       "decision_defer_verification": "Defer verification",
       "decision_plain_approve_blocked": "This state needs a short reason before risk approval.",
+      "decision_defer_note": "Deferred verification is recorded separately from risk acceptance.",
       "decision_stop_note": "Stop: pause this step and decide the next direction again.",
       "section_change_bundle": "Change and evidence bundle",
       "bundle_expected_files": "Expected files",
@@ -704,8 +801,8 @@
       "cancel_requested": "Stop requested",
       "cancel_requested_status": "Routing stop requested",
       "confirm": {
-        "title": "Add this as a new step?",
-        "description": "DIVE can append this request to the approved plan before sending it to chat.",
+        "title": "Review this as a possible new step?",
+        "description": "Chat can suggest a step, but plan changes happen only from the dedicated add-step area.",
         "suggested_title": "Suggested step",
         "dependencies": "Depends on: {{deps}}",
         "dependencies_label": "Dependencies",
@@ -713,9 +810,11 @@
         "acceptance_label": "Acceptance criteria",
         "no_dependencies": "None",
         "none": "None",
-        "add_button": "Add to plan",
+        "add_button": "Use plan area",
         "skip_button": "Just chat",
-        "reason_label": "Reason"
+        "reason_label": "Reason",
+        "dedicated_area_title": "Use the plan add-step area",
+        "dedicated_area_description": "The chat request will continue as a suggestion. Add the step from the plan dashboard when you are ready."
       },
       "error": {
         "routing_failed": "Routing failed: {{message}}"
@@ -799,6 +898,8 @@
       "files_title": "Files or folders involved",
       "files_empty": "No specific file path was provided.",
       "choices_title": "Your choices",
+      "details_toggle": "Show files and run context",
+      "details_aria": "Expand permission card files and run context",
       "action_context_title": "Before running",
       "expected_files": "Expected by plan",
       "read_files": "Files to read",

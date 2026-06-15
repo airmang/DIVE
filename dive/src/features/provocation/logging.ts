@@ -5,8 +5,9 @@ import type {
   ProvocationEvidence,
   ProvocationActionKind,
   ProvocationVerification,
-  ScaffoldMode,
+  LegacyScaffoldMode,
   SupervisorMode,
+  SupervisorSourceUiMode,
 } from "./types";
 import { deriveVerificationStatuses, summarizeVerificationEvidence } from "./verificationStatus";
 
@@ -37,7 +38,7 @@ export interface ProvocationLogInput {
   eventType: ProvocationLogEventType;
   card: ProvocationCard;
   context?: Partial<ProvocationContext>;
-  mode: ScaffoldMode | SupervisorMode;
+  mode: SupervisorSourceUiMode;
   action?: ProvocationAction;
   reason?: string | null;
 }
@@ -177,11 +178,11 @@ function summarizeEvidence(evidence: ProvocationEvidence[]): SafeEvidenceItem[] 
 function contextForVerification(
   card: ProvocationCard,
   context: Partial<ProvocationContext> | undefined,
-  mode: ScaffoldMode | SupervisorMode,
+  mode: SupervisorSourceUiMode,
 ): ProvocationContext {
   return {
     ...context,
-    mode: mode === "guided" ? "guided" : "standard",
+    mode: mode === "guided" ? "guided" : "work",
     stage: context?.stage ?? card.stage,
   } as ProvocationContext;
 }
@@ -207,7 +208,7 @@ function verificationStateFromSummary(
 function summarizeVerification(
   card: ProvocationCard,
   context: Partial<ProvocationContext> | undefined,
-  mode: ScaffoldMode | SupervisorMode,
+  mode: SupervisorSourceUiMode,
 ) {
   const fullContext = contextForVerification(card, context, mode);
   const verification = fullContext.verification;
@@ -248,6 +249,7 @@ function syntheticActionForEvent(eventType: ProvocationLogEventType): Provocatio
 
 const CARD_AGENCY_COMPONENT: Record<ProvocationCard["type"], AgencyComponent> = {
   oversized_scope: "intent",
+  scope_expansion: "plan",
   missing_acceptance_criteria: "intent",
   missing_verification_step: "plan",
   diff_scope_drift: "diff",
@@ -257,6 +259,7 @@ const CARD_AGENCY_COMPONENT: Record<ProvocationCard["type"], AgencyComponent> = 
 
 const CARD_AGENCY_STATE: Record<ProvocationCard["type"], AgencyState> = {
   oversized_scope: "intent_needed",
+  scope_expansion: "plan_review_needed",
   missing_acceptance_criteria: "intent_needed",
   missing_verification_step: "verification_needed",
   diff_scope_drift: "diff_review_needed",
@@ -365,11 +368,11 @@ function compactActionMetadata(value: string | undefined): string | undefined {
   return trimmed.length > 96 ? `${trimmed.slice(0, 96)}...` : trimmed;
 }
 
-function canonicalLogMode(mode: ScaffoldMode | SupervisorMode): SupervisorMode {
+function canonicalLogMode(mode: SupervisorSourceUiMode): SupervisorMode {
   return mode === "guided" ? "guided" : "work";
 }
 
-function sourceUiMode(mode: ScaffoldMode | SupervisorMode): ScaffoldMode | undefined {
+function sourceUiMode(mode: SupervisorSourceUiMode): LegacyScaffoldMode | undefined {
   return mode === "standard" || mode === "expert" ? mode : undefined;
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { WorkspacePlanStatus } from "../planning";
+import { normalizeStepCriteria, type WorkspacePlanStatus } from "../planning";
 import { deriveAgencyStateView } from "./agencyStatus";
 import type { AgencyStateView } from "./types";
 
@@ -67,6 +67,8 @@ export interface PlanRoadmapStep {
   mapping: StepSessionMappingRow | null;
   status: PlanRoadmapStatus;
   agency?: AgencyStateView;
+  linkedCriteria?: { criterionId: string; text: string }[];
+  decompositionRationale?: string | null;
   blockedDependencies: string[];
   parallelBucket: string | null;
 }
@@ -92,6 +94,10 @@ export function derivePlanRoadmapSteps(
 
   const derived = steps.map((step) => {
     const mapping = mappingByStepId.get(step.id) ?? null;
+    const criteriaMetadata = normalizeStepCriteria(step.acceptance_criteria);
+    const acceptanceCriteriaText = criteriaMetadata.linkedCriteria.map(
+      (criterion) => criterion.text,
+    );
     if (mapping) {
       const status: PlanRoadmapStatus =
         mapping.status === "done" || mapping.status === "shipped" || mapping.status === "blocked"
@@ -103,11 +109,13 @@ export function derivePlanRoadmapSteps(
         status,
         agency: deriveAgencyStateView({
           goalText: [step.title, step.summary].filter(Boolean).join("\n"),
-          acceptanceCriteria: stringArray(step.acceptance_criteria),
+          acceptanceCriteria: acceptanceCriteriaText,
           status,
           verificationState: mapping.verification_status,
           checkpointAvailable: stringArray(mapping.checkpoint_ids).length > 0,
         }),
+        linkedCriteria: criteriaMetadata.linkedCriteria,
+        decompositionRationale: criteriaMetadata.rationale,
         blockedDependencies: [],
         parallelBucket: null,
       };
@@ -123,10 +131,12 @@ export function derivePlanRoadmapSteps(
       status,
       agency: deriveAgencyStateView({
         goalText: [step.title, step.summary].filter(Boolean).join("\n"),
-        acceptanceCriteria: stringArray(step.acceptance_criteria),
+        acceptanceCriteria: acceptanceCriteriaText,
         planDraftPending: status === "ready" || status === "blocked",
         status,
       }),
+      linkedCriteria: criteriaMetadata.linkedCriteria,
+      decompositionRationale: criteriaMetadata.rationale,
       blockedDependencies,
       parallelBucket: null,
     };

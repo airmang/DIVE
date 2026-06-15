@@ -4,6 +4,8 @@ pub mod event_log;
 pub mod interview;
 pub mod message;
 pub mod plan;
+pub mod plan_mutation;
+pub mod prd;
 pub mod project;
 pub mod provider_config;
 pub mod session;

@@ -208,3 +208,65 @@ CREATE TABLE IF NOT EXISTS McpServer (
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 )";
+
+pub const CREATE_PROJECT_SPEC_VERSION: &str = "
+CREATE TABLE IF NOT EXISTS ProjectSpecVersion (
+    id INTEGER PRIMARY KEY,
+    project_spec_id TEXT NOT NULL,
+    project_id INTEGER NOT NULL REFERENCES Project(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    previous_version INTEGER,
+    snapshot TEXT NOT NULL,
+    reason TEXT NOT NULL CHECK(reason IN ('interview','student_edit','ai_assist','plan_mutation','migration')),
+    delta_summary TEXT NOT NULL DEFAULT '{}',
+    created_at INTEGER NOT NULL,
+    UNIQUE(project_spec_id, version)
+)";
+
+pub const CREATE_LIVE_PROJECT_SPEC_DRAFT: &str = "
+CREATE TABLE IF NOT EXISTS LiveProjectSpecDraft (
+    draft_id TEXT PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES Project(id) ON DELETE CASCADE,
+    base_version INTEGER,
+    spec TEXT NOT NULL,
+    dirty_fields TEXT NOT NULL DEFAULT '[]',
+    student_edited_fields TEXT NOT NULL DEFAULT '[]',
+    last_patch_id TEXT,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(project_id)
+)";
+
+pub const CREATE_PLAN_MUTATION: &str = "
+CREATE TABLE IF NOT EXISTS PlanMutation (
+    mutation_id TEXT PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES Project(id) ON DELETE CASCADE,
+    plan_id INTEGER NOT NULL REFERENCES Plan(id) ON DELETE CASCADE,
+    type TEXT NOT NULL CHECK(type IN ('add_step','change_step','retire_step')),
+    step_db_id INTEGER REFERENCES Step(id) ON DELETE SET NULL,
+    stable_step_id TEXT,
+    reason TEXT,
+    criterion_ids TEXT NOT NULL DEFAULT '[]',
+    prd_delta TEXT NOT NULL,
+    scope_expansion TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+)";
+
+pub const CREATE_OBJECTION: &str = "
+CREATE TABLE IF NOT EXISTS Objection (
+    objection_id TEXT PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES Project(id) ON DELETE CASCADE,
+    plan_id INTEGER NOT NULL REFERENCES Plan(id) ON DELETE CASCADE,
+    step_db_id INTEGER NOT NULL REFERENCES Step(id) ON DELETE CASCADE,
+    stable_step_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    linked_criterion_ids TEXT NOT NULL DEFAULT '[]',
+    suggestion_status TEXT NOT NULL CHECK(suggestion_status IN ('none','offered','accepted','dismissed')),
+    created_at INTEGER NOT NULL
+)";
+
+pub const CREATE_V11_INDEXES: &[&str] = &[
+    "CREATE INDEX IF NOT EXISTS idx_project_spec_version_project ON ProjectSpecVersion(project_id, version)",
+    "CREATE INDEX IF NOT EXISTS idx_live_prd_draft_project ON LiveProjectSpecDraft(project_id)",
+    "CREATE INDEX IF NOT EXISTS idx_plan_mutation_plan ON PlanMutation(plan_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_objection_plan ON Objection(plan_id, created_at)",
+];

@@ -274,6 +274,313 @@ pub struct EventLogRow {
     pub created_at: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AcceptanceCriterionSource {
+    Interview,
+    StudentEdit,
+    PlanMutation,
+    Migration,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AcceptanceCriterionStatus {
+    Active,
+    Retired,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectSpecStatus {
+    Draft,
+    Approved,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrdPatchValidationOutcome {
+    None,
+    Applied,
+    Rejected,
+    HeldForStudent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanMutationType {
+    AddStep,
+    ChangeStep,
+    RetireStep,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ObjectionSuggestionStatus {
+    None,
+    Offered,
+    Accepted,
+    Dismissed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptanceCriterion {
+    pub criterion_id: String,
+    pub text: String,
+    pub source: AcceptanceCriterionSource,
+    pub status: AcceptanceCriterionStatus,
+    pub created_in_version: i64,
+    pub retired_in_version: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSpec {
+    pub project_spec_id: String,
+    pub project_id: i64,
+    pub current_version: i64,
+    pub goal: String,
+    pub intent_summary: Option<String>,
+    pub scope: Vec<String>,
+    pub non_goals: Vec<String>,
+    pub constraints: Vec<String>,
+    pub acceptance_criteria: Vec<AcceptanceCriterion>,
+    pub status: ProjectSpecStatus,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSpecDraft {
+    pub project_spec_id: Option<String>,
+    pub project_id: i64,
+    pub current_version: Option<i64>,
+    pub goal: String,
+    pub intent_summary: Option<String>,
+    pub scope: Vec<String>,
+    pub non_goals: Vec<String>,
+    pub constraints: Vec<String>,
+    pub acceptance_criteria: Vec<AcceptanceCriterion>,
+    pub status: ProjectSpecStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveProjectSpecDraft {
+    pub draft_id: String,
+    pub project_id: i64,
+    pub base_version: Option<i64>,
+    pub spec: ProjectSpecDraft,
+    pub dirty_fields: Vec<String>,
+    pub student_edited_fields: Vec<String>,
+    pub last_patch_id: Option<String>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrdPatchOperation {
+    pub op: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub criterion_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrdPatch {
+    pub patch_id: String,
+    pub operations: Vec<PrdPatchOperation>,
+    pub rationale: Option<String>,
+    pub source_turn_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InterviewTurn {
+    pub turn_id: String,
+    pub draft_id: String,
+    pub student_answer_summary: String,
+    pub assistant_response_summary: String,
+    pub patch_id: Option<String>,
+    pub validation_outcome: PrdPatchValidationOutcome,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DecompositionRationale {
+    pub step_id: String,
+    pub linked_criterion_ids: Vec<String>,
+    pub rationale: String,
+    pub risk_notes: Vec<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSpecDelta {
+    pub from_version: i64,
+    pub to_version: i64,
+    pub added_criteria: Vec<AcceptanceCriterion>,
+    pub retired_criterion_ids: Vec<String>,
+    pub scope_changes: Vec<String>,
+    pub non_goal_changes: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeExpansionAssessment {
+    pub expanded: bool,
+    pub reason_codes: Vec<String>,
+    pub evidence_refs: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanMutation {
+    pub mutation_id: String,
+    pub project_id: i64,
+    pub plan_id: i64,
+    pub r#type: PlanMutationType,
+    pub step_db_id: Option<i64>,
+    pub stable_step_id: Option<String>,
+    pub reason: Option<String>,
+    pub criterion_ids: Vec<String>,
+    pub prd_delta: ProjectSpecDelta,
+    pub scope_expansion: ScopeExpansionAssessment,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Objection {
+    pub objection_id: String,
+    pub project_id: i64,
+    pub plan_id: i64,
+    pub step_db_id: i64,
+    pub stable_step_id: String,
+    pub text: String,
+    pub linked_criterion_ids: Vec<String>,
+    pub suggestion_status: ObjectionSuggestionStatus,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewProjectSpecVersion {
+    pub project_spec_id: String,
+    pub project_id: i64,
+    pub version: i64,
+    pub previous_version: Option<i64>,
+    pub snapshot: ProjectSpec,
+    pub reason: String,
+    pub delta_summary: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSpecVersionRow {
+    pub id: i64,
+    pub project_spec_id: String,
+    pub project_id: i64,
+    pub version: i64,
+    pub previous_version: Option<i64>,
+    pub snapshot: ProjectSpec,
+    pub reason: String,
+    pub delta_summary: Value,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewLiveProjectSpecDraft {
+    pub draft_id: String,
+    pub project_id: i64,
+    pub base_version: Option<i64>,
+    pub spec: ProjectSpecDraft,
+    pub dirty_fields: Vec<String>,
+    pub student_edited_fields: Vec<String>,
+    pub last_patch_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveProjectSpecDraftRow {
+    pub draft_id: String,
+    pub project_id: i64,
+    pub base_version: Option<i64>,
+    pub spec: ProjectSpecDraft,
+    pub dirty_fields: Vec<String>,
+    pub student_edited_fields: Vec<String>,
+    pub last_patch_id: Option<String>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewPlanMutation {
+    pub mutation_id: String,
+    pub project_id: i64,
+    pub plan_id: i64,
+    pub r#type: PlanMutationType,
+    pub step_db_id: Option<i64>,
+    pub stable_step_id: Option<String>,
+    pub reason: Option<String>,
+    pub criterion_ids: Vec<String>,
+    pub prd_delta: ProjectSpecDelta,
+    pub scope_expansion: ScopeExpansionAssessment,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanMutationRow {
+    pub mutation_id: String,
+    pub project_id: i64,
+    pub plan_id: i64,
+    pub r#type: PlanMutationType,
+    pub step_db_id: Option<i64>,
+    pub stable_step_id: Option<String>,
+    pub reason: Option<String>,
+    pub criterion_ids: Vec<String>,
+    pub prd_delta: ProjectSpecDelta,
+    pub scope_expansion: ScopeExpansionAssessment,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewObjection {
+    pub objection_id: String,
+    pub project_id: i64,
+    pub plan_id: i64,
+    pub step_db_id: i64,
+    pub stable_step_id: String,
+    pub text: String,
+    pub linked_criterion_ids: Vec<String>,
+    pub suggestion_status: ObjectionSuggestionStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObjectionRow {
+    pub objection_id: String,
+    pub project_id: i64,
+    pub plan_id: i64,
+    pub step_db_id: i64,
+    pub stable_step_id: String,
+    pub text: String,
+    pub linked_criterion_ids: Vec<String>,
+    pub suggestion_status: ObjectionSuggestionStatus,
+    pub created_at: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NewInterview {
     pub project_id: i64,

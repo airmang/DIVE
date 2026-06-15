@@ -19,7 +19,11 @@ import {
   selectCurrentCard,
   useWorkmapStore,
 } from "../../stores/workmap";
-import { selectHasConnectedProvider, useProjectSessionStore } from "../../stores/project-session";
+import {
+  selectHasConnectedProvider,
+  useProjectSessionStore,
+  type ProviderSummary,
+} from "../../stores/project-session";
 import { cockpitProviderLabel } from "../../lib/provider-format";
 import { useToast } from "../toast/toast-context";
 import { getCardStateMeta } from "../workmap/card-state-meta";
@@ -28,8 +32,11 @@ import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts";
 import { usePlanRoadmap, useRoadmap } from "../../features/roadmap";
 import {
   PLAN_DRAFT_REVIEW_REQUEST_EVENT,
+  createLiveProjectSpecDraft,
   usePlan,
   usePlanRouter,
+  type LiveProjectSpecDraft,
+  type ProjectSpec,
   type RouteDecision,
 } from "../../features/planning";
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
@@ -54,6 +61,9 @@ import { SocraticInterviewPanel } from "./SocraticInterviewPanel";
 import { useProductPlanStepRuntime } from "./useProductPlanStepRuntime";
 import { useProductConversationModel } from "./useProductConversationModel";
 import { useProductRecovery } from "./useProductRecovery";
+import { PrdAuthoringBoard, type PrdPatchFeedback } from "./PrdAuthoringBoard";
+import { FinalPrdReadView } from "./FinalPrdReadView";
+import { fallbackModels } from "../settings/providerModels";
 
 const PlanDraftApprovalScreen = lazy(() =>
   import("./PlanDraftApprovalScreen").then((module) => ({
@@ -99,6 +109,41 @@ function downloadSessionExport(
   URL.revokeObjectURL(url);
 }
 
+function activeConnectedProvider(providers: ProviderSummary[]): ProviderSummary | null {
+  return (
+    providers.find((provider) => provider.is_connected && provider.is_active) ??
+    providers.find((provider) => provider.is_connected) ??
+    null
+  );
+}
+
+function prdRuntimeSelection(
+  providers: ProviderSummary[],
+): { provider: string; model: string } | null {
+  const provider = activeConnectedProvider(providers);
+  if (!provider) return null;
+  return {
+    provider: provider.kind,
+    model: provider.selected_model?.trim() || fallbackModels(provider.kind)[0]?.id || "default",
+  };
+}
+
+function draftFromProjectSpec(projectSpec: ProjectSpec): LiveProjectSpecDraft {
+  return createLiveProjectSpecDraft(projectSpec.projectId, {
+    draftId: `prd-draft-${projectSpec.projectId}`,
+    projectSpecId: projectSpec.projectSpecId,
+    baseVersion: projectSpec.currentVersion,
+    currentVersion: projectSpec.currentVersion,
+    goal: projectSpec.goal,
+    intentSummary: projectSpec.intentSummary,
+    scope: projectSpec.scope,
+    nonGoals: projectSpec.nonGoals,
+    constraints: projectSpec.constraints,
+    acceptanceCriteria: projectSpec.acceptanceCriteria,
+    status: "draft",
+  });
+}
+
 export function useProductShellController() {
   const t = useT();
   const dialogs = useProductShellDialogs();
@@ -110,6 +155,11 @@ export function useProductShellController() {
   const [planDraftFailure, setPlanDraftFailure] = useState<{
     reason: PlanDraftLlmErrorReason;
   } | null>(null);
+  const [prdMode, setPrdMode] = useState<"authoring" | "read" | null>(null);
+  const [prdDraft, setPrdDraft] = useState<LiveProjectSpecDraft | null>(null);
+  const [currentProjectSpec, setCurrentProjectSpec] = useState<ProjectSpec | null>(null);
+  const [prdPatchFeedback, setPrdPatchFeedback] = useState<PrdPatchFeedback | null>(null);
+  const [prdBusy, setPrdBusy] = useState(false);
   const expectingPlanDraftRef = useRef(false);
   const [pendingPlanRoute, setPendingPlanRoute] = useState<PendingPlanRouteConfirmation | null>(
     null,
@@ -132,6 +182,9 @@ export function useProductShellController() {
   const provocationScaffoldMode = useUiPreferencesStore((s) => s.provocationScaffoldMode);
   const currentProjectName = useProjectSessionStore(
     (s) => s.projects.find((p) => p.id === s.currentProjectId)?.name ?? null,
+  );
+  const currentProjectPath = useProjectSessionStore(
+    (s) => s.projects.find((p) => p.id === s.currentProjectId)?.path ?? null,
   );
   const currentSessionTitle = useProjectSessionStore((s) =>
     s.currentSessionId === null
@@ -157,15 +210,46 @@ export function useProductShellController() {
   const roadmapModel = useRoadmap(currentSessionId);
   const planRoadmap = usePlanRoadmap(currentProjectId);
   const plan = usePlan(currentProjectId);
+  const getProjectSpec = plan.getProjectSpec;
   const planRouter = usePlanRouter(currentProjectId);
   const currentDraft = plan.currentDraft;
   const planStatus = plan.status?.status;
+  const prdReadiness = plan.prdStatus?.status ?? "missing";
 
   useEffect(() => {
     if (generatedPlanDraft && generatedPlanDraft.plan.project_id !== currentProjectId) {
       setGeneratedPlanDraft(null);
     }
   }, [currentProjectId, generatedPlanDraft]);
+
+  useEffect(() => {
+    setPrdMode(null);
+    setPrdDraft(null);
+    setCurrentProjectSpec(null);
+    setPrdPatchFeedback(null);
+    setPrdBusy(false);
+  }, [currentProjectId]);
+
+  useEffect(() => {
+    if (currentProjectId === null || prdReadiness !== "minimal") {
+      return;
+    }
+    let cancelled = false;
+    void getProjectSpec()
+      .then((projectSpec) => {
+        if (cancelled || !projectSpec) return;
+        setCurrentProjectSpec(projectSpec);
+        if (prdMode === null) {
+          setPrdMode("read");
+        }
+      })
+      .catch((err) => {
+        console.warn("load project spec failed:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProjectId, getProjectSpec, prdMode, prdReadiness]);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -284,17 +368,11 @@ export function useProductShellController() {
       const approved = await requestPlanRouteConfirmation(decision);
       if (!approved) return true;
 
-      try {
-        await planRouter.appendStep(approvedPlanId, decision.draft);
-        await Promise.all([planRoadmap.refresh(), plan.refresh()]);
-      } catch (err) {
-        toast({
-          variant: "error",
-          title: t("planning.route.error.routing_failed", {
-            message: err instanceof Error ? err.message : String(err),
-          }),
-        });
-      }
+      toast({
+        variant: "info",
+        title: t("planning.route.confirm.dedicated_area_title"),
+        description: t("planning.route.confirm.dedicated_area_description"),
+      });
       return true;
     },
     [plan, planRoadmap, planRouter, requestPlanRouteConfirmation, t, toast],
@@ -426,6 +504,32 @@ export function useProductShellController() {
       purpose: step.summary,
     };
   }, [currentPlanRoadmapStep]);
+  const currentStepDetailStep = useMemo(() => {
+    if (!currentCard) return null;
+    const base = roadmapModel.steps.find((s) => s.id === currentCard.id) ?? null;
+    if (!base) return null;
+    return {
+      ...base,
+      linkedCriteria: currentPlanRoadmapStep?.linkedCriteria ?? base.linkedCriteria ?? [],
+      decompositionRationale:
+        currentPlanRoadmapStep?.decompositionRationale ?? base.decompositionRationale ?? null,
+    };
+  }, [currentCard, currentPlanRoadmapStep, roadmapModel.steps]);
+  const handleChallengeStepRationale = useCallback(
+    async (input: { stepId: number; text: string; linkedCriterionIds: string[] }) => {
+      void input.stepId;
+      if (!currentPlanRoadmapStep) {
+        throw new Error("Plan step context unavailable");
+      }
+      return plan.challengeStepRationale({
+        planId: currentPlanRoadmapStep.step.plan_id,
+        stepDbId: currentPlanRoadmapStep.step.id,
+        text: input.text,
+        linkedCriterionIds: input.linkedCriterionIds,
+      });
+    },
+    [currentPlanRoadmapStep, plan],
+  );
   const planAccepted = planRoadmap.hasPlan;
 
   const openSlideIn = useSlideInStore((s) => s.open);
@@ -790,6 +894,132 @@ export function useProductShellController() {
     }
     void createSession(currentProjectId);
   }, [createSession, currentProjectId, dialogs]);
+
+  const ensurePrdDraft = useCallback(() => {
+    if (currentProjectId === null) return null;
+    if (prdDraft?.projectId === currentProjectId && currentProjectSpec === null) {
+      return prdDraft;
+    }
+    if (currentProjectSpec) {
+      return draftFromProjectSpec(currentProjectSpec);
+    }
+    return createLiveProjectSpecDraft(currentProjectId, {
+      draftId: plan.prdStatus?.draftId ?? `prd-draft-${currentProjectId}`,
+      projectSpecId: plan.prdStatus?.projectSpecId ?? undefined,
+      baseVersion: plan.prdStatus?.baseVersion ?? null,
+      currentVersion: plan.prdStatus?.baseVersion ?? undefined,
+    });
+  }, [currentProjectId, currentProjectSpec, plan.prdStatus, prdDraft]);
+
+  const handleOpenPrdAuthoring = useCallback(() => {
+    if (currentProjectId === null) {
+      dialogs.setNewProjectOpen(true);
+      return;
+    }
+    if (!hasConnectedProvider) {
+      openSettingsRoute();
+      return;
+    }
+    const nextDraft = ensurePrdDraft();
+    if (!nextDraft) return;
+    setPrdDraft(nextDraft);
+    setPrdPatchFeedback(null);
+    setPrdMode("authoring");
+  }, [currentProjectId, dialogs, ensurePrdDraft, hasConnectedProvider, openSettingsRoute]);
+
+  const handleSubmitPrdAnswer = useCallback(
+    (answer: string) => {
+      if (!prdDraft || prdBusy) return;
+      const runtime = prdRuntimeSelection(providers);
+      if (!runtime) {
+        openSettingsRoute();
+        return;
+      }
+      setPrdBusy(true);
+      void plan
+        .submitPrdInterviewTurn({
+          draftId: prdDraft.draftId,
+          answer,
+          provider: runtime.provider,
+          model: runtime.model,
+        })
+        .then((result) => {
+          setPrdDraft(result.liveDraft);
+          setPrdPatchFeedback({
+            validationOutcome: result.validationOutcome,
+            appliedFieldPaths: result.appliedFieldPaths,
+            rejectedReasons: result.rejectedReasons,
+          });
+        })
+        .catch((err) => {
+          toast({
+            variant: "error",
+            title: t("prd.authoring.turn_failed_title"),
+            description: err instanceof Error ? err.message : String(err),
+          });
+        })
+        .finally(() => {
+          setPrdBusy(false);
+        });
+    },
+    [openSettingsRoute, plan, prdBusy, prdDraft, providers, t, toast],
+  );
+
+  const handleSavePrdAndCreatePlan = useCallback(
+    (draft: LiveProjectSpecDraft) => {
+      if (currentProjectId === null || prdBusy) return;
+      setPrdBusy(true);
+      void plan
+        .saveProjectSpec(draft.spec, "interview")
+        .then((saved) => {
+          setCurrentProjectSpec(saved);
+          setPrdDraft(null);
+          setPrdPatchFeedback(null);
+          setPrdMode("read");
+          toast({
+            variant: "success",
+            title: t("prd.authoring.save_success_title"),
+            description: t("prd.authoring.save_success_description"),
+          });
+        })
+        .catch((err) => {
+          toast({
+            variant: "error",
+            title: t("prd.authoring.save_failed_title"),
+            description: err instanceof Error ? err.message : String(err),
+          });
+        })
+        .finally(() => {
+          setPrdBusy(false);
+        });
+    },
+    [currentProjectId, plan, prdBusy, t, toast],
+  );
+
+  const handleCreatePlanFromRail = useCallback(() => {
+    if (currentProjectId === null) {
+      dialogs.setNewProjectOpen(true);
+      return;
+    }
+    if (!hasConnectedProvider) {
+      openSettingsRoute();
+      return;
+    }
+    if (currentSessionId === null) {
+      void createSession(currentProjectId).then(() => requestChatFocus());
+      return;
+    }
+    requestChatFocus();
+  }, [
+    createSession,
+    currentProjectId,
+    currentSessionId,
+    dialogs,
+    hasConnectedProvider,
+    openSettingsRoute,
+    requestChatFocus,
+  ]);
+
   const {
     stageBanner,
     inputBlocked,
@@ -813,10 +1043,17 @@ export function useProductShellController() {
     messages: chat.messages,
     generatedPlanDraftPresent: generatedPlanDraft !== null,
     planStatus: plan.status,
+    prdStatus: prdReadiness,
+    hasPlan: Boolean(plan.status?.has_plan || planRoadmap.hasPlan || generatedPlanDraft !== null),
+    hasApprovedPlan: Boolean(
+      plan.status?.has_approved_plan || planRoadmap.status?.has_approved_plan,
+    ),
     onEmptyStateAction: handleEmptyStateAction,
     onOpenSettings: openSettingsRoute,
     onWriteInstruction: () => dialogs.setStepDetailOpen(true),
     onProviderAction: () => setOnboardingOpen(true),
+    onPrdAction: handleOpenPrdAuthoring,
+    onPlanAction: handleCreatePlanFromRail,
     onSessionAction: () => {
       if (currentProjectId !== null) void createSession(currentProjectId);
     },
@@ -824,25 +1061,6 @@ export function useProductShellController() {
     onOpenReviewPanel: () => dialogs.setStepDetailOpen(true),
     t,
   });
-
-  const handleCreatePlanFromRail = useCallback(() => {
-    if (currentProjectId === null || currentSessionId === null) {
-      handleEmptyStateAction();
-      return;
-    }
-    if (!hasConnectedProvider) {
-      openSettingsRoute();
-      return;
-    }
-    requestChatFocus();
-  }, [
-    currentProjectId,
-    currentSessionId,
-    handleEmptyStateAction,
-    hasConnectedProvider,
-    openSettingsRoute,
-    requestChatFocus,
-  ]);
 
   const sendMessage = useCallback(
     (text: string) => {
@@ -1059,6 +1277,50 @@ export function useProductShellController() {
     })();
   }, [generatedPlanDraft, plan, t, toast]);
 
+  const prdSurface = useMemo(() => {
+    if (prdMode === "authoring" && prdDraft) {
+      return createElement(PrdAuthoringBoard, {
+        projectName: currentProjectName ?? t("project.untitled"),
+        projectPath: currentProjectPath,
+        prdState: prdReadiness === "minimal" ? "editing" : prdReadiness,
+        draft: prdDraft,
+        busy: prdBusy,
+        recentlyChangedFields: prdPatchFeedback?.appliedFieldPaths ?? [],
+        patchFeedback: prdPatchFeedback,
+        onDraftChange: setPrdDraft,
+        onSubmitAnswer: handleSubmitPrdAnswer,
+        onSavePrdAndCreatePlan: handleSavePrdAndCreatePlan,
+      });
+    }
+    if (prdMode === "read" && currentProjectSpec) {
+      return createElement(FinalPrdReadView, {
+        projectName: currentProjectName ?? t("project.untitled"),
+        projectSpec: currentProjectSpec,
+        planActionLabel: t("get_started.plan_action"),
+        onEdit: () => {
+          setPrdDraft(draftFromProjectSpec(currentProjectSpec));
+          setPrdPatchFeedback(null);
+          setPrdMode("authoring");
+        },
+        onCreatePlan: handleCreatePlanFromRail,
+      });
+    }
+    return null;
+  }, [
+    currentProjectName,
+    currentProjectPath,
+    currentProjectSpec,
+    handleCreatePlanFromRail,
+    handleSavePrdAndCreatePlan,
+    handleSubmitPrdAnswer,
+    prdBusy,
+    prdDraft,
+    prdMode,
+    prdPatchFeedback,
+    prdReadiness,
+    t,
+  ]);
+
   return {
     projectName: currentProjectName,
     providerBanner: {
@@ -1184,6 +1446,7 @@ export function useProductShellController() {
               onDismiss: () => setPlanDraftFailure(null),
             })
           : null,
+      prdSurface,
     },
     roadmap: {
       visible: roadmapModel.steps.length > 0 || planAccepted,
@@ -1199,7 +1462,7 @@ export function useProductShellController() {
     planRoadmap,
     stepDetail: {
       open: dialogs.stepDetailOpen,
-      step: currentCard ? (roadmapModel.steps.find((s) => s.id === currentCard.id) ?? null) : null,
+      step: currentStepDetailStep,
       toolCallCount: currentCard ? roadmapModel.toolCallCountForStep(currentCard.id) : 0,
       verifyLog: currentVerifyLog,
       verifyState: currentVerifyState,
@@ -1229,6 +1492,7 @@ export function useProductShellController() {
       },
       onApprovalDecision: handleApprovalDecision,
       onGoToChat: handleGoToChatFromStepDetail,
+      onChallengeStepRationale: handleChallengeStepRationale,
     },
     recovery: {
       open: dialogs.recoveryOpen,

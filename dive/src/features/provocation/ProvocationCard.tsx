@@ -2,33 +2,31 @@ import { AlertTriangle, CheckCircle2, Eye, X } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../../lib/utils";
 import { Button } from "../../components/ui/button";
+import { useT } from "../../i18n";
 import { normalizeSupervisorRenderMode } from "./adapters";
 import type {
   ProvocationAction,
   ProvocationCard as ProvocationCardData,
-  ScaffoldMode,
-  SupervisorMode,
+  SupervisorSourceUiMode,
 } from "./types";
 
 interface ProvocationCardProps {
   card: ProvocationCardData;
-  mode: ScaffoldMode | SupervisorMode;
+  mode: SupervisorSourceUiMode;
   onAction?: (action: ProvocationAction, reason?: string) => void;
   onDismiss?: () => void;
   onMarkIrrelevant?: () => void;
 }
 
-const TONE_CLASS: Record<ProvocationCardData["severity"], string> = {
-  info: "border-info/40 bg-info/5",
-  caution: "border-warn/50 bg-warn/10",
-  risk: "border-danger/60 bg-danger/10",
-};
-
-const ICON_CLASS: Record<ProvocationCardData["severity"], string> = {
-  info: "text-info",
-  caution: "text-warn",
-  risk: "text-danger",
-};
+const EVIDENCE_LIMIT = 3;
+const ACTION_LIMIT = 3;
+const REVIEW_CARD_TONE = "border-warn/50 bg-warn/10";
+const REVIEW_ICON_TONE = "text-warn";
+const HIDDEN_ACTION_KINDS: ReadonlySet<ProvocationAction["kind"]> = new Set([
+  "continue_with_risk",
+  "dismiss",
+  "mark_irrelevant",
+]);
 
 export function ProvocationCard({
   card,
@@ -37,18 +35,45 @@ export function ProvocationCard({
   onDismiss,
   onMarkIrrelevant,
 }: ProvocationCardProps) {
+  const t = useT();
   const [pendingReasonAction, setPendingReasonAction] = useState<ProvocationAction | null>(null);
   const [reason, setReason] = useState("");
   const canonicalMode = normalizeSupervisorRenderMode(mode);
-  const explanation =
-    canonicalMode === "guided" ? card.modeCopy?.guided : card.modeCopy?.work;
-  const showSupportingMessage = canonicalMode === "guided" && !explanation && card.message.trim();
-  const primaryAction = card.primaryActionId
-    ? card.actions.find((action) => action.id === card.primaryActionId)
+  const focalQuestion = card.prompt?.trim() || card.message.trim() || card.title.trim();
+  const title = card.title.trim();
+  const message = card.message.trim();
+  const guidedExplanation =
+    canonicalMode === "guided"
+      ? card.modeCopy?.guided?.trim() || card.modeCopy?.work?.trim() || message
+      : "";
+  const showGuidedExplanation =
+    canonicalMode === "guided" &&
+    guidedExplanation.length > 0 &&
+    guidedExplanation !== focalQuestion;
+  const secondaryMessage =
+    message.length > 0 && message !== focalQuestion && message !== guidedExplanation ? message : "";
+  const visibleEvidence = card.evidence.slice(0, EVIDENCE_LIMIT);
+  const visibleActionCandidates = card.actions.filter(
+    (action) => !HIDDEN_ACTION_KINDS.has(action.kind),
+  );
+  const requestedPrimaryAction = card.primaryActionId
+    ? visibleActionCandidates.find((action) => action.id === card.primaryActionId)
     : undefined;
-  const secondaryActions = primaryAction
-    ? card.actions.filter((action) => action.id !== primaryAction.id)
-    : card.actions;
+  const primaryAction = requestedPrimaryAction ?? visibleActionCandidates[0];
+  const visibleActions = primaryAction
+    ? [
+        primaryAction,
+        ...visibleActionCandidates.filter((action) => action.id !== primaryAction.id),
+      ].slice(0, ACTION_LIMIT)
+    : [];
+  const secondaryActions = visibleActions.slice(1);
+  const hiddenEvidenceCount = Math.max(0, card.evidence.length - visibleEvidence.length);
+  const hiddenActionCount = Math.max(0, visibleActionCandidates.length - visibleActions.length);
+  const showDetails =
+    (title.length > 0 && title !== focalQuestion) ||
+    secondaryMessage.length > 0 ||
+    hiddenEvidenceCount > 0 ||
+    hiddenActionCount > 0;
 
   const chooseAction = (action: ProvocationAction) => {
     if (action.disabledReason) return;
@@ -70,17 +95,18 @@ export function ProvocationCard({
 
   const renderAction = (action: ProvocationAction, emphasized = false) => {
     const disabled = Boolean(action.disabledReason);
-    const variant = action.kind === "continue_with_risk" ? "outline" : "ghost";
     return (
       <Button
         key={action.id}
         type="button"
-        variant={emphasized ? "primary" : variant}
+        variant={emphasized ? "primary" : "outline"}
         size="sm"
         disabled={disabled}
         title={action.disabledReason}
+        aria-label={action.label}
         onClick={() => chooseAction(action)}
         data-testid={emphasized ? "provocation-primary-action" : "provocation-action"}
+        data-provocation-action="visible"
         data-action-kind={action.kind}
         data-disabled-reason={action.disabledReason}
       >
@@ -94,28 +120,41 @@ export function ProvocationCard({
 
   return (
     <aside
-      className={cn("rounded-md border px-3 py-3 text-sm shadow-sm", TONE_CLASS[card.severity])}
+      className={cn("rounded-md border border-l-4 px-3 py-3 text-sm shadow-sm", REVIEW_CARD_TONE)}
       data-testid="provocation-card"
+      data-card-family="review-card"
       data-card-type={card.type}
       data-severity={card.severity}
       data-mode={canonicalMode}
     >
       <div className="flex items-start gap-2">
-        <AlertTriangle className={cn("mt-0.5 h-4 w-4 shrink-0", ICON_CLASS[card.severity])} />
+        <AlertTriangle className={cn("mt-0.5 h-4 w-4 shrink-0", REVIEW_ICON_TONE)} aria-hidden />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <div>
-              <p className="font-semibold text-fg">{card.title}</p>
-              {card.prompt ? (
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-warn">
+                <span>{t("roadmap.step_detail.review_card_label")}</span>
+                {title.length > 0 && title !== focalQuestion ? (
+                  <span className="truncate normal-case tracking-normal text-fg-muted">
+                    {title}
+                  </span>
+                ) : null}
+              </div>
+              <p
+                className="mt-2 text-base font-semibold leading-snug text-fg"
+                data-testid="provocation-focal-question"
+                data-focal="true"
+              >
+                {focalQuestion}
+              </p>
+              {showGuidedExplanation ? (
                 <p
-                  className="mt-1 text-sm font-semibold leading-snug text-fg"
-                  data-testid="provocation-prompt"
+                  className="mt-1 truncate text-xs leading-snug text-fg-muted"
+                  title={guidedExplanation}
+                  data-testid="provocation-guided-explanation"
                 >
-                  {card.prompt}
+                  {guidedExplanation}
                 </p>
-              ) : null}
-              {showSupportingMessage ? (
-                <p className="mt-1 text-[11px] leading-snug text-fg-muted">{card.message}</p>
               ) : null}
             </div>
             <div className="flex shrink-0 gap-1">
@@ -125,7 +164,7 @@ export function ProvocationCard({
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7"
-                  aria-label="관련 없음으로 표시"
+                  aria-label={t("roadmap.step_detail.review_card_mark_irrelevant_aria")}
                   onClick={onMarkIrrelevant}
                   data-testid="provocation-mark-irrelevant"
                 >
@@ -138,7 +177,7 @@ export function ProvocationCard({
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7"
-                  aria-label="검토 카드 닫기"
+                  aria-label={t("roadmap.step_detail.review_card_dismiss_aria")}
                   onClick={onDismiss}
                   data-testid="provocation-dismiss"
                 >
@@ -148,21 +187,58 @@ export function ProvocationCard({
             </div>
           </div>
 
-          <div className="mt-2 flex flex-wrap gap-1.5" data-testid="provocation-evidence">
-            {card.evidence.map((item) => (
-              <span
-                key={`${item.source}:${item.label}:${item.value ?? ""}`}
-                className="inline-flex max-w-full items-center gap-1 rounded-sm border border-border/80 bg-bg/70 px-2 py-0.5 text-[11px] text-fg"
-              >
-                <Eye className="h-3 w-3 shrink-0 text-fg-muted" aria-hidden />
-                <span className="font-semibold">{item.label}</span>
-                {item.value ? <span className="truncate text-fg-muted">{item.value}</span> : null}
-              </span>
-            ))}
-          </div>
+          {visibleEvidence.length > 0 ? (
+            <div
+              className="mt-3 flex flex-wrap gap-1.5"
+              aria-label={t("roadmap.step_detail.review_card_evidence_aria")}
+              data-testid="provocation-evidence"
+              data-evidence-count={visibleEvidence.length}
+            >
+              {visibleEvidence.map((item) => (
+                <span
+                  key={`${item.source}:${item.label}:${item.value ?? ""}`}
+                  className="inline-flex max-w-full items-center gap-1 rounded-sm border border-border/80 bg-bg/70 px-2 py-0.5 text-[11px] text-fg"
+                  data-testid="provocation-evidence-chip"
+                >
+                  <Eye className="h-3 w-3 shrink-0 text-fg-muted" aria-hidden />
+                  <span className="font-semibold">{item.label}</span>
+                  {item.value ? <span className="truncate text-fg-muted">{item.value}</span> : null}
+                </span>
+              ))}
+            </div>
+          ) : null}
 
-          {canonicalMode === "guided" && explanation ? (
-            <p className="mt-2 text-[11px] leading-snug text-fg-muted">{explanation}</p>
+          {showDetails ? (
+            <details
+              className="mt-3 rounded-md border border-warn/20 bg-bg/60 px-2 py-1.5 text-[11px]"
+              data-testid="provocation-secondary-details"
+            >
+              <summary
+                className="cursor-pointer select-none font-medium text-fg-muted hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                aria-label={t("roadmap.step_detail.review_card_details_aria")}
+              >
+                {t("roadmap.step_detail.review_card_details_toggle")}
+              </summary>
+              <div className="mt-2 space-y-1.5 text-fg-muted">
+                {secondaryMessage ? (
+                  <p data-testid="provocation-secondary-message">{secondaryMessage}</p>
+                ) : null}
+                {hiddenEvidenceCount > 0 ? (
+                  <p>
+                    {t("roadmap.step_detail.review_card_hidden_evidence_count", {
+                      count: hiddenEvidenceCount,
+                    })}
+                  </p>
+                ) : null}
+                {hiddenActionCount > 0 ? (
+                  <p>
+                    {t("roadmap.step_detail.review_card_hidden_action_count", {
+                      count: hiddenActionCount,
+                    })}
+                  </p>
+                ) : null}
+              </div>
+            </details>
           ) : null}
 
           {pendingReasonAction ? (
@@ -171,12 +247,14 @@ export function ProvocationCard({
                 className="text-[11px] font-medium text-fg"
                 data-testid="provocation-risk-reason-label"
               >
-                {pendingReasonAction?.reasonPrompt ?? "계속 진행하는 이유를 한 줄로 남겨주세요."}
+                {pendingReasonAction?.reasonPrompt ??
+                  t("roadmap.step_detail.review_card_reason_fallback")}
               </label>
               <textarea
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
                 rows={2}
+                aria-label={t("roadmap.step_detail.review_card_reason_aria")}
                 className="mt-1 w-full resize-none rounded-md border bg-bg-panel2 px-2 py-1.5 text-xs text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 data-testid="provocation-risk-reason"
               />
@@ -185,29 +263,35 @@ export function ProvocationCard({
                   type="button"
                   variant="ghost"
                   size="sm"
+                  aria-label={t("common.cancel")}
                   onClick={() => {
                     setPendingReasonAction(null);
                     setReason("");
                   }}
                 >
-                  취소
+                  {t("common.cancel")}
                 </Button>
                 <Button
                   type="button"
                   variant="danger"
                   size="sm"
                   disabled={reason.trim().length === 0}
+                  aria-label={t("roadmap.step_detail.review_card_reason_submit")}
                   onClick={submitReason}
                   data-testid="provocation-risk-submit"
                 >
-                  이유 남기고 진행
+                  {t("roadmap.step_detail.review_card_reason_submit")}
                 </Button>
               </div>
             </div>
           ) : null}
 
           {!pendingReasonAction ? (
-            <div className="mt-3 flex flex-wrap gap-1.5">
+            <div
+              className="mt-3 flex flex-wrap gap-1.5"
+              data-testid="provocation-actions"
+              data-action-count={visibleActions.length}
+            >
               {primaryAction ? renderAction(primaryAction, true) : null}
               {secondaryActions.map((action) => renderAction(action))}
             </div>

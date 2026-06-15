@@ -27,7 +27,7 @@ describe("MessageList supervision cards", () => {
         messages={completionMessages}
         provocation={{
           enabled: true,
-          mode: "standard",
+          mode: "work",
           sessionId: 1,
         }}
       />,
@@ -43,7 +43,7 @@ describe("MessageList supervision cards", () => {
         messages={completionMessages}
         provocation={{
           enabled: true,
-          mode: "standard",
+          mode: "work",
           sessionId: 1,
           suppressAiSelfReportOnly: true,
         }}

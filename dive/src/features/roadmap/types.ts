@@ -72,6 +72,11 @@ export interface RoadmapStepProgress {
   totalUnits: number;
 }
 
+export interface RoadmapLinkedCriterion {
+  criterionId: string;
+  text: string;
+}
+
 export interface RoadmapStep {
   id: number;
   position: number;
@@ -79,6 +84,8 @@ export interface RoadmapStep {
   description: string | null;
   assistSummary: string | null;
   acceptanceCriteria: string | null;
+  linkedCriteria?: RoadmapLinkedCriterion[];
+  decompositionRationale?: string | null;
   retrospective: string | null;
   changeSummary: string | null;
   testCommand: string | null;

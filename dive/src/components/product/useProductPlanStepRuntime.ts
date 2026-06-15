@@ -18,6 +18,10 @@ interface PlanStepRuntimeChat {
   ) => Promise<void>;
 }
 
+interface RememberPlanStepMappingOptions {
+  autoRun?: boolean;
+}
+
 export function useProductPlanStepRuntime(input: {
   currentSessionId: number | null;
   currentCard: Pick<CardTileData, "id"> | null;
@@ -31,18 +35,29 @@ export function useProductPlanStepRuntime(input: {
     Record<number, number>
   >({});
 
-  const rememberJustOpenedPlanStepMapping = useCallback((mapping: StepSessionMappingRow) => {
-    const sessionId = mapping.session_id;
-    if (sessionId === null) return;
-    setJustOpenedPlanStepBySession((current) => ({
-      ...current,
-      [sessionId]: mapping.step_id,
-    }));
-    setPendingAutoRunPlanStepBySession((current) => ({
-      ...current,
-      [sessionId]: mapping.step_id,
-    }));
-  }, []);
+  const rememberJustOpenedPlanStepMapping = useCallback(
+    (mapping: StepSessionMappingRow, options: RememberPlanStepMappingOptions = {}) => {
+      const sessionId = mapping.session_id;
+      if (sessionId === null) return;
+      setJustOpenedPlanStepBySession((current) => ({
+        ...current,
+        [sessionId]: mapping.step_id,
+      }));
+      setPendingAutoRunPlanStepBySession((current) => {
+        if (options.autoRun ?? true) {
+          return {
+            ...current,
+            [sessionId]: mapping.step_id,
+          };
+        }
+        if (!(sessionId in current)) return current;
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
+    },
+    [],
+  );
 
   const activePlanStepIdForChat = useMemo(
     () =>

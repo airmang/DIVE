@@ -1,0 +1,44 @@
+export interface ModelInfo {
+  id: string;
+  display_name: string;
+}
+
+export function fallbackModels(providerKind: string): ModelInfo[] {
+  if (providerKind === "anthropic") {
+    return [
+      { id: "claude-opus-4-7", display_name: "Claude Opus 4.7" },
+      { id: "claude-sonnet-4-6", display_name: "Claude Sonnet 4.6" },
+      { id: "claude-haiku-4-5-20251001", display_name: "Claude Haiku 4.5" },
+    ];
+  }
+  if (providerKind === "openrouter") {
+    return [
+      { id: "mistralai/ministral-3b-2512", display_name: "Mistral · Ministral 3B 2512" },
+      { id: "openai/gpt-5.5", display_name: "OpenAI · GPT-5.5" },
+      { id: "openai/gpt-5.3-codex", display_name: "OpenAI · GPT-5.3 Codex" },
+      { id: "openai/gpt-5.4", display_name: "OpenAI · GPT-5.4" },
+      { id: "openai/gpt-5.4-mini", display_name: "OpenAI · GPT-5.4 Mini" },
+    ];
+  }
+  if (providerKind === "opencode_zen" || providerKind === "opencode-zen") {
+    return [
+      { id: "big-pickle", display_name: "Big Pickle" },
+      { id: "minimax-m2.5-free", display_name: "MiniMax M2.5 Free" },
+      { id: "hy3-preview-free", display_name: "Hy3 Preview Free" },
+    ];
+  }
+  if (providerKind === "codex") {
+    return [
+      { id: "gpt-5.5", display_name: "GPT-5.5" },
+      { id: "gpt-5.4", display_name: "GPT-5.4" },
+      { id: "gpt-5.4-mini", display_name: "GPT-5.4 Mini" },
+      { id: "gpt-5.3-codex-spark", display_name: "GPT-5.3 Codex Spark" },
+    ];
+  }
+  return [
+    { id: "gpt-5.5", display_name: "GPT-5.5" },
+    { id: "gpt-5.4", display_name: "GPT-5.4" },
+    { id: "gpt-5.4-mini", display_name: "GPT-5.4 Mini" },
+    { id: "gpt-5.3-codex", display_name: "GPT-5.3 Codex" },
+  ];
+}

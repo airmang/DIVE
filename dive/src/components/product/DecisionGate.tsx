@@ -85,6 +85,9 @@ export function DecisionGate({
       : policy.requiresReason
         ? t("roadmap.step_detail.decision_summary_risk")
         : t("roadmap.step_detail.decision_summary_missing");
+  const blockedApprovalNote = policy.canDeferVerification
+    ? t("roadmap.step_detail.decision_defer_note")
+    : t("roadmap.step_detail.decision_plain_approve_blocked");
 
   const submitRiskApproval = () => {
     const trimmed = riskReason.trim();
@@ -97,8 +100,9 @@ export function DecisionGate({
 
   return (
     <section
-      className="rounded-md border border-border bg-bg-panel2 px-3 py-3"
+      className="mt-3 rounded-md border border-l-4 border-border border-l-accent bg-bg-panel2 px-3 py-3"
       data-testid="decision-gate"
+      data-card-family="decision-gate"
       data-reason-required={policy.requiresReason ? "true" : "false"}
     >
       <div className="flex items-start justify-between gap-3">
@@ -108,7 +112,15 @@ export function DecisionGate({
           </div>
           <p className="mt-1 text-xs text-fg-muted">{summary}</p>
         </div>
-        {policy.requiresReason ? (
+        {policy.canDeferVerification ? (
+          <span
+            className="inline-flex shrink-0 items-center gap-1 rounded-sm border border-info/50 bg-info/10 px-2 py-0.5 text-[10px] font-semibold text-info"
+            data-testid="decision-gate-defer-badge"
+          >
+            <Clock3 className="h-3 w-3" aria-hidden />
+            {t("roadmap.step_detail.decision_defer_badge")}
+          </span>
+        ) : policy.requiresReason ? (
           <span
             className="inline-flex shrink-0 items-center gap-1 rounded-sm border border-danger/60 bg-danger/10 px-2 py-0.5 text-[10px] font-semibold text-danger"
             data-testid="decision-gate-risk-badge"
@@ -133,22 +145,33 @@ export function DecisionGate({
       ) : null}
 
       {policy.reasons.length > 0 ? (
-        <div
-          className="mt-2 rounded-sm border border-danger/40 bg-danger/5 px-2 py-2 text-[11px] text-fg"
-          data-testid="decision-gate-reasons"
+        <details
+          className="mt-3 rounded-md border border-border/80 bg-bg/60 px-2 py-1.5 text-[11px]"
+          data-testid="decision-gate-details"
         >
-          <div className="font-semibold">{t("roadmap.step_detail.decision_reason_title")}</div>
-          <ul className="mt-1 space-y-1">
-            {policy.reasons.map((reason) => (
-              <li key={reason.id}>
-                {t(REASON_LABEL_KEY[reason.id])}
-                {reason.evidence ? (
-                  <span className="ml-1 text-fg-muted">({reason.evidence})</span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </div>
+          <summary
+            className="cursor-pointer select-none font-medium text-fg-muted hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            aria-label={t("roadmap.step_detail.decision_details_aria")}
+          >
+            {t("roadmap.step_detail.decision_details_toggle")}
+          </summary>
+          <div
+            className="mt-2 rounded-sm border border-danger/40 bg-danger/5 px-2 py-2 text-fg"
+            data-testid="decision-gate-reasons"
+          >
+            <div className="font-semibold">{t("roadmap.step_detail.decision_reason_title")}</div>
+            <ul className="mt-1 space-y-1">
+              {policy.reasons.map((reason) => (
+                <li key={reason.id}>
+                  {t(REASON_LABEL_KEY[reason.id])}
+                  {reason.evidence ? (
+                    <span className="ml-1 text-fg-muted">({reason.evidence})</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </details>
       ) : null}
 
       {policy.requiresReason ? (
@@ -158,6 +181,7 @@ export function DecisionGate({
             value={riskReason}
             onChange={(event) => setRiskReason(event.target.value)}
             rows={2}
+            aria-label={t("roadmap.step_detail.decision_reason_textarea_aria")}
             className="mt-1 w-full resize-none rounded-md border bg-bg px-2 py-1.5 text-xs text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             placeholder={t("roadmap.step_detail.decision_reason_placeholder")}
             data-testid="decision-gate-risk-reason"
@@ -170,6 +194,7 @@ export function DecisionGate({
           type="button"
           size="sm"
           disabled={!policy.canApproveDirectly}
+          aria-label={t("roadmap.step_detail.decision_approve")}
           onClick={onApprove}
           data-testid="decision-gate-approve"
         >
@@ -181,6 +206,7 @@ export function DecisionGate({
             type="button"
             variant="primary"
             size="sm"
+            aria-label={t("roadmap.step_detail.decision_defer_verification")}
             onClick={submitDeferredVerification}
             data-testid="decision-gate-defer-verification"
             data-decision-outcome="verification_deferred"
@@ -195,6 +221,7 @@ export function DecisionGate({
             variant="danger"
             size="sm"
             disabled={!riskReasonOk}
+            aria-label={t("roadmap.step_detail.decision_accept_risk")}
             onClick={submitRiskApproval}
             data-testid="decision-gate-risk-approve"
             data-decision-outcome="continue_with_risk"
@@ -207,6 +234,7 @@ export function DecisionGate({
           type="button"
           variant="outline"
           size="sm"
+          aria-label={t("roadmap.step_detail.decision_request_changes")}
           onClick={onRequestChanges}
           data-testid="decision-gate-request-changes"
         >
@@ -218,6 +246,7 @@ export function DecisionGate({
           variant="outline"
           size="sm"
           disabled={verifyRunning}
+          aria-label={t("roadmap.step_detail.decision_verify_first")}
           onClick={onVerifyFirst}
           data-testid="decision-gate-verify-first"
         >
@@ -228,6 +257,7 @@ export function DecisionGate({
           type="button"
           variant="ghost"
           size="sm"
+          aria-label={t("roadmap.step_detail.decision_revert")}
           onClick={onRevert}
           data-testid="decision-gate-revert"
         >
@@ -238,6 +268,7 @@ export function DecisionGate({
           type="button"
           variant="ghost"
           size="sm"
+          aria-label={t("roadmap.step_detail.decision_stop")}
           onClick={() => onStop(t("roadmap.step_detail.decision_stop_note"))}
           data-testid="decision-gate-stop"
         >
@@ -248,7 +279,7 @@ export function DecisionGate({
 
       {!policy.canApproveDirectly ? (
         <p className="mt-2 text-[10px] text-fg-muted" data-testid="decision-gate-approve-note">
-          {t("roadmap.step_detail.decision_plain_approve_blocked")}
+          {blockedApprovalNote}
         </p>
       ) : null}
     </section>

@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useToast } from "../toast/toast-context";
-import { fallbackModels } from "../settings/ProviderModelSelector";
+import { fallbackModels, type ModelInfo } from "../settings/providerModels";
 import { useProjectSessionStore, type ProviderSummary } from "../../stores/project-session";
 import { modelDisplayName, providerDisplayName } from "../../lib/provider-format";
 import { useT } from "../../i18n";
-
-type ModelInfo = ReturnType<typeof fallbackModels>[number];
 
 type TauriApi = {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -55,8 +53,11 @@ export function RuntimeModelSelector({
     connectedProviders.find((provider) => provider.id === selectedProviderId) ??
     currentProvider ??
     null;
+  const selectedRuntimeProviderId = selectedProvider?.id ?? null;
+  const selectedProviderKind = selectedProvider?.kind ?? null;
+  const selectedProviderModel = selectedProvider?.selected_model ?? "";
   const [models, setModels] = useState<ModelInfo[]>([]);
-  const [selectedModel, setSelectedModel] = useState(selectedProvider?.selected_model ?? "");
+  const [selectedModel, setSelectedModel] = useState(selectedProviderModel);
   const [loadingModels, setLoadingModels] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -69,12 +70,12 @@ export function RuntimeModelSelector({
   }, [currentProvider?.id]);
 
   useEffect(() => {
-    setSelectedModel(selectedProvider?.selected_model ?? "");
-  }, [selectedProvider?.id, selectedProvider?.selected_model]);
+    setSelectedModel(selectedProviderModel);
+  }, [selectedProviderModel]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!selectedProvider) {
+    if (selectedRuntimeProviderId === null || !selectedProviderKind) {
       setModels([]);
       return;
     }
@@ -84,15 +85,15 @@ export function RuntimeModelSelector({
         const api = await loadTauri();
         const list = api
           ? await api.invoke<ModelInfo[]>("provider_list_models", {
-              providerId: selectedProvider.id,
+              providerId: selectedRuntimeProviderId,
             })
-          : fallbackModels(selectedProvider.kind);
+          : fallbackModels(selectedProviderKind);
         if (!cancelled) {
-          setModels(list.length > 0 ? list : fallbackModels(selectedProvider.kind));
+          setModels(list.length > 0 ? list : fallbackModels(selectedProviderKind));
         }
       } catch (err) {
         console.warn("provider_list_models failed:", err);
-        if (!cancelled) setModels(fallbackModels(selectedProvider.kind));
+        if (!cancelled) setModels(fallbackModels(selectedProviderKind));
       } finally {
         if (!cancelled) setLoadingModels(false);
       }
@@ -100,7 +101,7 @@ export function RuntimeModelSelector({
     return () => {
       cancelled = true;
     };
-  }, [selectedProvider?.id, selectedProvider?.kind]);
+  }, [selectedProviderKind, selectedRuntimeProviderId]);
 
   useEffect(() => {
     if (models.length === 0) return;

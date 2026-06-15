@@ -15,9 +15,10 @@ const MIGRATIONS: &[(i64, MigrationFn)] = &[
     (8, migration_v8),
     (9, migration_v9),
     (10, migration_v10),
+    (11, migration_v11),
 ];
 
-pub const LATEST_SCHEMA_VERSION: i64 = 10;
+pub const LATEST_SCHEMA_VERSION: i64 = 11;
 
 pub fn migrate(conn: &mut Connection) -> Result<(), DbError> {
     migrate_with_migrations(conn, MIGRATIONS)
@@ -229,6 +230,17 @@ fn migration_v10(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     Ok(())
 }
 
+fn migration_v11(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    tx.execute_batch(schema::CREATE_PROJECT_SPEC_VERSION)?;
+    tx.execute_batch(schema::CREATE_LIVE_PROJECT_SPEC_DRAFT)?;
+    tx.execute_batch(schema::CREATE_PLAN_MUTATION)?;
+    tx.execute_batch(schema::CREATE_OBJECTION)?;
+    for index in schema::CREATE_V11_INDEXES {
+        tx.execute_batch(index)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use rusqlite::Transaction;
@@ -424,6 +436,30 @@ mod tests {
             )
             .unwrap();
         assert_eq!(exists, 1);
+    }
+
+    #[test]
+    fn migration_v11_creates_prd_lifecycle_tables() {
+        let (db, _tmp) = fresh_db();
+        let tables: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('ProjectSpecVersion','LiveProjectSpecDraft','PlanMutation','Objection')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 4);
+
+        let indexes: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name IN ('idx_project_spec_version_project','idx_live_prd_draft_project','idx_plan_mutation_plan','idx_objection_plan')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(indexes, 4);
     }
 
     #[test]

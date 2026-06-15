@@ -7,19 +7,28 @@ use std::time::Duration;
 use async_trait::async_trait;
 use dive_lib::auth::InMemoryKeyring;
 use dive_lib::db::dao::{
-    card, interview, plan, project, session, step, step_session_mapping as mapping, workmap,
+    card, event_log, interview, plan, plan_mutation, prd, project, session, step,
+    step_session_mapping as mapping, workmap,
 };
-use dive_lib::db::models::{NewInterview, NewPlan, NewProject, NewStep};
+use dive_lib::db::models::{
+    AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus, NewInterview,
+    NewLiveProjectSpecDraft, NewPlan, NewProject, NewStep, PlanMutationType, ProjectSpecDelta,
+    ProjectSpecDraft, ProjectSpecStatus,
+};
 use dive_lib::ipc::workspace_plan::{
     roadmap_step_open_impl, roadmap_step_update_state_impl, workspace_plan_activity_impl,
-    workspace_plan_append_step_impl, workspace_plan_approve_impl,
+    workspace_plan_append_step_impl, workspace_plan_append_step_with_options_impl,
+    workspace_plan_approve_impl, workspace_plan_challenge_step_rationale_impl,
     workspace_plan_current_draft_impl, workspace_plan_dashboard_impl,
     workspace_plan_discard_plan_impl, workspace_plan_generate_draft_impl,
     workspace_plan_list_steps_impl, workspace_plan_route_cancel_impl,
     workspace_plan_route_chat_impl, workspace_plan_save_interview_answer_impl,
     workspace_plan_start_interview_impl, workspace_plan_status_impl,
-    workspace_plan_step_mappings_impl, workspace_plan_submit_interview_impl, PlanDraftInput,
-    RouteDecision, StepDraftInput, StepStateUpdateInput,
+    workspace_plan_step_mappings_impl, workspace_plan_submit_interview_impl,
+    workspace_prd_get_impl, workspace_prd_interview_turn_impl, workspace_prd_save_impl,
+    workspace_prd_status_impl, AcceptanceCriterionInput, AppendStepOptions, PlanDraftInput,
+    PrdInterviewTurnInput, PrdSaveInput, RouteDecision, StepDraftInput,
+    StepRationaleChallengeInput, StepStateUpdateInput,
 };
 use dive_lib::{
     AppState, ChatEvent, ChatRequest, Database, FinishReason, LlmProvider, ModelInfo, ProviderError,
@@ -276,14 +285,22 @@ fn draft_input() -> PlanDraftInput {
         scope: vec!["persist approved plans".into()],
         non_goals: vec!["replace Card execution state".into()],
         constraints: vec!["SQLite remains runtime source of truth".into()],
-        acceptance_criteria: vec!["draft plan is persisted".into()],
+        acceptance_criteria: vec![AcceptanceCriterionInput::Text(
+            "draft plan is persisted".into(),
+        )],
         steps: vec![
             StepDraftInput {
                 title: "Create schema".into(),
                 summary: "Add durable plan tables.".into(),
                 instruction_seed: "Implement schema and migration.".into(),
                 expected_files: vec!["src-tauri/src/db/schema.rs".into()],
-                acceptance_criteria: vec!["migration reaches v7".into()],
+                acceptance_criteria: vec![AcceptanceCriterionInput::Text(
+                    "A saved PRD unlocks plan generation".into(),
+                )],
+                linked_criterion_ids: vec!["AC-001".into()],
+                rationale: Some(
+                    "The schema step persists the PRD-backed plan needed for AC-001.".into(),
+                ),
                 verification_command: Some("cargo test".into()),
                 verification_type: Some("command".into()),
                 dependencies: vec![],
@@ -296,7 +313,14 @@ fn draft_input() -> PlanDraftInput {
                 summary: "Write plan artifacts.".into(),
                 instruction_seed: "Export from SQLite.".into(),
                 expected_files: vec![".dive/plan.json".into()],
-                acceptance_criteria: vec!["exports include dependencies".into()],
+                acceptance_criteria: vec![AcceptanceCriterionInput::Text(
+                    "A saved PRD unlocks plan generation".into(),
+                )],
+                linked_criterion_ids: vec!["AC-001".into()],
+                rationale: Some(
+                    "The export step proves the PRD-backed decomposition remains reconstructable."
+                        .into(),
+                ),
                 verification_command: None,
                 verification_type: Some("manual".into()),
                 dependencies: vec!["step-001".into()],
@@ -314,7 +338,9 @@ fn append_step_draft(dependencies: Vec<String>) -> StepDraftInput {
         summary: "Add sign-in and session handling.".into(),
         instruction_seed: "Implement authentication flows and update related UI.".into(),
         expected_files: vec!["src/auth.ts".into()],
-        acceptance_criteria: vec!["Users can sign in.".into()],
+        acceptance_criteria: vec![AcceptanceCriterionInput::Text("Users can sign in.".into())],
+        linked_criterion_ids: Vec::new(),
+        rationale: None,
         verification_command: Some("pnpm test".into()),
         verification_type: Some("command".into()),
         dependencies,
@@ -322,6 +348,353 @@ fn append_step_draft(dependencies: Vec<String>) -> StepDraftInput {
         position: 99,
         step_id: "ignored-by-append".into(),
     }
+}
+
+fn prd_criterion(text: &str) -> AcceptanceCriterion {
+    AcceptanceCriterion {
+        criterion_id: "AC-001".into(),
+        text: text.into(),
+        source: AcceptanceCriterionSource::StudentEdit,
+        status: AcceptanceCriterionStatus::Active,
+        created_in_version: 1,
+        retired_in_version: None,
+    }
+}
+
+fn minimal_prd_draft(project_id: i64) -> ProjectSpecDraft {
+    ProjectSpecDraft {
+        project_spec_id: Some(format!("prd-{project_id}")),
+        project_id,
+        current_version: None,
+        goal: "Build a PRD-backed roadmap".into(),
+        intent_summary: Some("Turn the project goal into a saved PRD.".into()),
+        scope: vec!["PRD authoring".into()],
+        non_goals: vec!["Add-step mutation".into()],
+        constraints: vec!["Local-first EventLog".into()],
+        acceptance_criteria: vec![prd_criterion("A saved PRD unlocks plan generation")],
+        status: ProjectSpecStatus::Draft,
+    }
+}
+
+fn seed_minimal_prd(state: &AppState, project_id: i64) {
+    workspace_prd_save_impl(
+        state,
+        PrdSaveInput {
+            project_id,
+            spec: minimal_prd_draft(project_id),
+            reason: "interview".into(),
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn prd_status_get_and_save_distinguish_missing_draft_and_minimal() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+
+    let missing = workspace_prd_status_impl(&state, project_id).unwrap();
+    assert_eq!(missing.status, "missing");
+    assert_eq!(missing.project_spec_id, None);
+    assert_eq!(workspace_prd_get_impl(&state, project_id).unwrap(), None);
+
+    {
+        let db = state.db.lock().unwrap();
+        prd::upsert_draft(
+            db.conn(),
+            &NewLiveProjectSpecDraft {
+                draft_id: "prd-draft-test".into(),
+                project_id,
+                base_version: None,
+                spec: ProjectSpecDraft {
+                    project_spec_id: Some(format!("prd-{project_id}")),
+                    project_id,
+                    current_version: None,
+                    goal: "Draft goal only".into(),
+                    intent_summary: None,
+                    scope: vec![],
+                    non_goals: vec![],
+                    constraints: vec![],
+                    acceptance_criteria: vec![],
+                    status: ProjectSpecStatus::Draft,
+                },
+                dirty_fields: vec!["goal".into()],
+                student_edited_fields: vec!["goal".into()],
+                last_patch_id: None,
+            },
+        )
+        .unwrap();
+    }
+
+    let draft = workspace_prd_status_impl(&state, project_id).unwrap();
+    assert_eq!(draft.status, "draft");
+    assert_eq!(draft.draft_id.as_deref(), Some("prd-draft-test"));
+
+    let saved = workspace_prd_save_impl(
+        &state,
+        PrdSaveInput {
+            project_id,
+            spec: minimal_prd_draft(project_id),
+            reason: "interview".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(saved.current_version, 1);
+    assert_eq!(saved.acceptance_criteria[0].criterion_id, "AC-001");
+
+    let minimal = workspace_prd_status_impl(&state, project_id).unwrap();
+    assert_eq!(minimal.status, "minimal");
+    let expected_prd_id = format!("prd-{project_id}");
+    assert_eq!(
+        minimal.project_spec_id.as_deref(),
+        Some(expected_prd_id.as_str())
+    );
+    assert_eq!(minimal.current_version, Some(1));
+    assert_eq!(
+        workspace_prd_get_impl(&state, project_id)
+            .unwrap()
+            .unwrap()
+            .goal,
+        "Build a PRD-backed roadmap"
+    );
+}
+
+#[tokio::test]
+async fn prd_interview_turn_applies_validated_patch_without_creating_version() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(
+                r#"좋아요. 초안에 반영할게요.
+```json
+{
+  "assistantMessage": "목표와 확인 기준을 PRD 초안에 반영했어요.",
+  "patch": {
+    "operations": [
+      { "op": "set_goal", "value": "Build a focus timer" },
+      { "op": "append_acceptance_criterion", "text": "Timer counts down visibly" }
+    ],
+    "rationale": "학생 답변에서 목표와 완료 기준을 추출했습니다."
+  }
+}
+```"#
+                    .into(),
+            ),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+
+    let turn = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-focus".into(),
+            answer: "A focus timer that shows a countdown".into(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(turn.validation_outcome, "applied");
+    assert_eq!(turn.applied_field_paths, vec!["goal", "acceptanceCriteria"]);
+    assert!(turn.rejected_reasons.is_empty());
+    assert_eq!(turn.live_draft.spec.goal, "Build a focus timer");
+    assert_eq!(
+        turn.live_draft.spec.acceptance_criteria[0].criterion_id,
+        "AC-001"
+    );
+    assert_eq!(
+        prd::latest_version(state.db.lock().unwrap().conn(), project_id)
+            .unwrap()
+            .map(|row| row.version),
+        None
+    );
+    assert_eq!(provider.requests_snapshot()[0].model, "mock-model");
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    assert!(events
+        .iter()
+        .any(|event| event.r#type == "prd_patch_proposed"));
+    assert!(events
+        .iter()
+        .any(|event| event.r#type == "prd_patch_applied"));
+}
+
+#[tokio::test]
+async fn prd_interview_turn_rejects_invalid_patch_and_leaves_draft_unchanged() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(
+                r#"{"assistantMessage":"그 값은 초안에 넣지 않을게요.","patch":{"operations":[{"op":"set_goal","value":"token = sk-secret123"}],"rationale":"bad"}}"#
+                    .into(),
+            ),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+
+    let turn = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-secret".into(),
+            answer: "Use this token: sk-secret123".into(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(turn.validation_outcome, "rejected");
+    assert!(turn.rejected_reasons.contains(&"secret_like_text".into()));
+    assert_eq!(turn.live_draft.spec.goal, "");
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    assert!(events
+        .iter()
+        .any(|event| event.r#type == "prd_patch_rejected"));
+}
+
+#[test]
+fn generate_draft_refuses_missing_minimal_prd() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let interview =
+        workspace_plan_start_interview_impl(&state, project_id, "Build a roadmap".into()).unwrap();
+    let submitted =
+        workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
+            .unwrap();
+
+    let err =
+        workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap_err();
+
+    assert!(err.contains("minimal PRD"));
+    assert!(
+        plan::get_by_project(state.db.lock().unwrap().conn(), project_id)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn generate_draft_rejects_steps_without_linked_criteria_or_rationale() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    seed_minimal_prd(&state, project_id);
+    let interview =
+        workspace_plan_start_interview_impl(&state, project_id, "Build a roadmap".into()).unwrap();
+    let submitted =
+        workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
+            .unwrap();
+
+    let mut input = draft_input();
+    input.steps[0].linked_criterion_ids.clear();
+    input.steps[0].rationale = None;
+
+    let err = workspace_plan_generate_draft_impl(&state, submitted.id, input, false).unwrap_err();
+
+    assert!(
+        err.contains("linkedCriterionIds"),
+        "unexpected error: {err}"
+    );
+    assert!(err.contains("rationale"), "unexpected error: {err}");
+}
+
+#[test]
+fn generate_draft_accepts_legacy_criteria_with_step_links_and_rationale() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    seed_minimal_prd(&state, project_id);
+    let interview =
+        workspace_plan_start_interview_impl(&state, project_id, "Build a roadmap".into()).unwrap();
+    let submitted =
+        workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
+            .unwrap();
+    let input: PlanDraftInput = serde_json::from_value(json!({
+        "goal": "Build a graph roadmap",
+        "intentSummary": "Keep plan metadata separate from execution cards.",
+        "scope": ["persist approved plans"],
+        "nonGoals": ["replace Card execution state"],
+        "constraints": ["SQLite remains runtime source of truth"],
+        "acceptanceCriteria": ["A saved PRD unlocks plan generation"],
+        "steps": [{
+            "stepId": "step-001",
+            "title": "Create schema",
+            "summary": "Add durable plan tables.",
+            "instructionSeed": "Implement schema and migration.",
+            "expectedFiles": ["src-tauri/src/db/schema.rs"],
+            "acceptanceCriteria": ["A saved PRD unlocks plan generation"],
+            "linkedCriterionIds": ["AC-001"],
+            "rationale": "This step creates the durable storage needed for AC-001.",
+            "verificationCommand": "cargo test",
+            "verificationType": "command",
+            "dependencies": [],
+            "parallelGroup": null,
+            "position": 1
+        }]
+    }))
+    .unwrap();
+
+    let (_plan, steps) =
+        workspace_plan_generate_draft_impl(&state, submitted.id, input, false).unwrap();
+    let criteria = steps[0].acceptance_criteria.as_ref().unwrap();
+
+    assert_eq!(criteria["linkedCriterionIds"], json!(["AC-001"]));
+    assert_eq!(
+        criteria["rationale"],
+        "This step creates the durable storage needed for AC-001."
+    );
+    assert_eq!(criteria["criteria"][0]["criterionId"], "AC-001");
+    assert_eq!(
+        criteria["criteria"][0]["text"],
+        "A saved PRD unlocks plan generation"
+    );
+}
+
+#[test]
+fn challenging_step_rationale_logs_objection_without_blocking_start() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    let step_id = insert_step(&state, plan_id, "step-001", &[]);
+
+    let result = workspace_plan_challenge_step_rationale_impl(
+        &state,
+        StepRationaleChallengeInput {
+            plan_id,
+            step_db_id: step_id,
+            text: "이 단계가 AC-001과 직접 연결되는지 다시 확인하고 싶어요.".into(),
+            linked_criterion_ids: vec!["AC-001".into()],
+        },
+    )
+    .unwrap();
+
+    assert_eq!(result.suggestion_status, "none");
+    assert!(result.objection_id.starts_with("obj-"));
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    assert!(events
+        .iter()
+        .any(|event| event.r#type == "plan_step_rationale_challenged"));
+
+    let opened = roadmap_step_open_impl(&state, step_id).unwrap();
+    assert_eq!(opened.step_id, step_id);
 }
 
 #[test]
@@ -746,6 +1119,188 @@ fn append_step_rejects_when_plan_not_approved() {
 }
 
 #[test]
+fn append_step_records_mutation_prd_delta_and_event_payload() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    seed_minimal_prd(&state, project_id);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    insert_step(&state, plan_id, "step-001", &[]);
+
+    let mut draft = append_step_draft(vec!["step-001".into()]);
+    draft.title = "Add mutation export".into();
+    draft.summary = "Persist added-step mutation reconstruction data.".into();
+    draft.instruction_seed = "Write mutation export fields into the artifact.".into();
+    draft.expected_files = vec!["src/features/planning/export.ts".into()];
+    draft.acceptance_criteria = vec![AcceptanceCriterionInput::Text(
+        "Added steps are reconstructable from export".into(),
+    )];
+    draft.linked_criterion_ids = vec!["AC-001".into()];
+    draft.rationale = Some("The export step preserves AC-001 evidence after mutation.".into());
+
+    let prd_delta = ProjectSpecDelta {
+        from_version: 1,
+        to_version: 2,
+        added_criteria: vec![AcceptanceCriterion {
+            criterion_id: "AC-002".into(),
+            text: "Added steps are reconstructable from export".into(),
+            source: AcceptanceCriterionSource::PlanMutation,
+            status: AcceptanceCriterionStatus::Active,
+            created_in_version: 2,
+            retired_in_version: None,
+        }],
+        retired_criterion_ids: vec![],
+        scope_changes: vec!["Mutation export".into()],
+        non_goal_changes: vec![],
+    };
+
+    let row = workspace_plan_append_step_with_options_impl(
+        &state,
+        plan_id,
+        draft,
+        AppendStepOptions {
+            mutation_reason: Some("Verification revealed export reconstruction was missing".into()),
+            linked_criterion_ids: vec!["AC-001".into()],
+            prd_delta: Some(prd_delta.clone()),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(row.step_id, "step-002");
+    assert_eq!(
+        row.acceptance_criteria.as_ref().unwrap()["linkedCriterionIds"],
+        json!(["AC-001"])
+    );
+    assert_eq!(
+        row.acceptance_criteria.as_ref().unwrap()["rationale"],
+        "The export step preserves AC-001 evidence after mutation."
+    );
+
+    let db = state.db.lock().unwrap();
+    let latest_prd = prd::latest_version(db.conn(), project_id).unwrap().unwrap();
+    assert_eq!(latest_prd.version, 2);
+    assert_eq!(latest_prd.previous_version, Some(1));
+    assert_eq!(latest_prd.snapshot.current_version, 2);
+    assert!(latest_prd
+        .snapshot
+        .scope
+        .iter()
+        .any(|item| item == "Mutation export"));
+    assert!(latest_prd
+        .snapshot
+        .acceptance_criteria
+        .iter()
+        .any(|criterion| criterion.criterion_id == "AC-002"));
+
+    let mutations = plan_mutation::list_mutations_by_plan(db.conn(), plan_id).unwrap();
+    assert_eq!(mutations.len(), 1);
+    assert_eq!(mutations[0].r#type, PlanMutationType::AddStep);
+    assert_eq!(
+        mutations[0].reason.as_deref(),
+        Some("Verification revealed export reconstruction was missing")
+    );
+    assert_eq!(mutations[0].step_db_id, Some(row.id));
+    assert_eq!(mutations[0].stable_step_id.as_deref(), Some("step-002"));
+    assert_eq!(mutations[0].criterion_ids, vec!["AC-001"]);
+    assert_eq!(
+        mutations[0].prd_delta.added_criteria[0].criterion_id,
+        "AC-002"
+    );
+
+    let events = event_log::list(db.conn()).unwrap();
+    let appended = events
+        .iter()
+        .find(|event| event.r#type == "plan_step_appended")
+        .expect("append flow should log plan_step_appended");
+    assert!(appended.payload["mutation_id"]
+        .as_str()
+        .unwrap()
+        .starts_with("mut-step-002-"));
+    assert_eq!(appended.payload["project_id"], json!(project_id));
+    assert_eq!(appended.payload["plan_id"], json!(plan_id));
+    assert_eq!(appended.payload["step_id"], json!(row.id));
+    assert_eq!(appended.payload["stable_step_id"], json!("step-002"));
+    assert_eq!(appended.payload["from_project_spec_version"], json!(1));
+    assert_eq!(appended.payload["to_project_spec_version"], json!(2));
+    assert_eq!(appended.payload["linked_criterion_ids"], json!(["AC-001"]));
+    assert_eq!(
+        appended.payload["prd_delta_summary"]["criterionIdsAdded"],
+        json!(["AC-002"])
+    );
+}
+
+#[test]
+fn append_step_exports_mutation_prd_delta_and_scope_assessment() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    seed_minimal_prd(&state, project_id);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    insert_step(&state, plan_id, "step-001", &[]);
+
+    let mut draft = append_step_draft(vec!["step-001".into()]);
+    draft.title = "Add manual mutation export".into();
+    draft.summary = "Persist manual added-step export state.".into();
+    draft.expected_files = vec!["src/add-step-mutation.ts".into()];
+    draft.linked_criterion_ids = vec![];
+
+    let row = workspace_plan_append_step_with_options_impl(
+        &state,
+        plan_id,
+        draft,
+        AppendStepOptions {
+            mutation_reason: Some("Student found a missing export step".into()),
+            linked_criterion_ids: vec![],
+            prd_delta: Some(ProjectSpecDelta {
+                from_version: 1,
+                to_version: 2,
+                added_criteria: vec![AcceptanceCriterion {
+                    criterion_id: "AC-002".into(),
+                    text: "Manual added steps are exported".into(),
+                    source: AcceptanceCriterionSource::PlanMutation,
+                    status: AcceptanceCriterionStatus::Active,
+                    created_in_version: 2,
+                    retired_in_version: None,
+                }],
+                retired_criterion_ids: vec![],
+                scope_changes: vec!["Manual mutation export".into()],
+                non_goal_changes: vec![],
+            }),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(row.step_id, "step-002");
+    let artifact: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(tmp.path().join(".dive/plan.json")).unwrap())
+            .unwrap();
+    assert_eq!(artifact["steps"][1]["id"], json!("step-002"));
+    assert_eq!(artifact["projectSpec"]["currentVersion"], json!(2));
+    assert_eq!(artifact["projectSpecVersions"][1]["version"], json!(2));
+    assert_eq!(artifact["planMutations"][0]["type"], json!("add_step"));
+    assert_eq!(
+        artifact["planMutations"][0]["reason"],
+        json!("Student found a missing export step")
+    );
+    assert_eq!(
+        artifact["planMutations"][0]["prdDelta"]["addedCriteria"][0]["criterionId"],
+        json!("AC-002")
+    );
+    assert_eq!(
+        artifact["planMutations"][0]["scopeExpansion"]["expanded"],
+        json!(true)
+    );
+    assert_eq!(
+        artifact["planMutations"][0]["scopeExpansion"]["reasonCodes"],
+        json!([
+            "missing_criterion_link",
+            "new_scope_area",
+            "target_outside_scope"
+        ])
+    );
+}
+
+#[test]
 fn approve_exports_artifacts_and_returns_approved_plan() {
     let tmp = tempfile::tempdir().unwrap();
     let state = mk_state(&tmp);
@@ -1052,6 +1607,7 @@ fn generate_draft_creates_plan_and_steps_in_one_transaction() {
     let submitted =
         workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
             .unwrap();
+    seed_minimal_prd(&state, project_id);
 
     let (plan_row, steps) =
         workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
@@ -1074,6 +1630,7 @@ fn current_draft_returns_project_draft_plan_and_steps() {
     let submitted =
         workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
             .unwrap();
+    seed_minimal_prd(&state, project_id);
     let (plan_row, steps) =
         workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
 
@@ -1101,6 +1658,7 @@ fn generate_draft_replaces_existing_draft_plan_for_project() {
     let submitted =
         workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
             .unwrap();
+    seed_minimal_prd(&state, project_id);
     workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
 
     let mut replacement = draft_input();
@@ -1131,6 +1689,7 @@ fn generate_draft_refuses_approved_plan_without_replace_but_replaces_with_optin(
     let submitted =
         workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
             .unwrap();
+    seed_minimal_prd(&state, project_id);
     let (first_plan, _) =
         workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
     workspace_plan_approve_impl(&state, first_plan.id).unwrap();
@@ -1170,6 +1729,7 @@ fn generate_draft_rejects_duplicate_step_slug() {
     let submitted =
         workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
             .unwrap();
+    seed_minimal_prd(&state, project_id);
     let mut input = draft_input();
     input.steps[1].step_id = input.steps[0].step_id.clone();
 
@@ -1192,6 +1752,7 @@ fn discard_plan_removes_draft_plan_and_steps_but_keeps_interview() {
     let submitted =
         workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
             .unwrap();
+    seed_minimal_prd(&state, project_id);
     let (plan_row, steps) =
         workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
     assert_eq!(steps.len(), 2);
@@ -1222,6 +1783,7 @@ fn approve_updates_linked_submitted_interview_status() {
     let submitted =
         workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
             .unwrap();
+    seed_minimal_prd(&state, project_id);
     let (plan_row, _) =
         workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
 

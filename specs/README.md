@@ -10,7 +10,7 @@ implementation planning.
 | [`001-dive-v2-foundation`](001-dive-v2-foundation/spec.md) | Active foundation | Defines DIVE v2 scope, non-goals, runtime direction, evidence rules, and repo strategy. |
 | [`002-provocation-supervisor-agent`](002-provocation-supervisor-agent/spec.md) | Active draft | Defines the dedicated Pi SupervisorAgent that evaluates project evidence and produces review-card decisions. |
 | [`003-supervision-card-ux`](003-supervision-card-ux/spec.md) | Active draft | Defines supervision card presentation and information architecture (focal criterion, review-vs-permission distinction, density reduction); presentation only, no flow-logic change. |
-| [`004-prd-decompose-lifecycle`](004-prd-decompose-lifecycle/spec.md) | Active draft | Elevates the interview into PRD authoring; criterion-linked, challengeable decomposition; mid-flow step add in a dedicated area; PRD as a living, versioned artifact. |
+| [`004-prd-decompose-lifecycle`](004-prd-decompose-lifecycle/spec.md) | Active planning | Elevates onboarding/interview into a dedicated PRD Authoring Board with validated turn-by-turn PRD patches and a concise completed PRD read view; criterion-linked, challengeable decomposition; mid-flow step add in a dedicated area; PRD as a living, versioned artifact. |
 
 ## Authority Rules
 
@@ -37,9 +37,14 @@ implementation planning.
 - Supervision card presentation/IA (lean review card, criterion as focal point,
   review-vs-permission visual distinction) is governed by
   `specs/003-supervision-card-ux/spec.md`; supervision flow logic is unchanged.
-- The interview is elevated to PRD authoring, decomposition is criterion-linked
-  and challengeable, and steps are addable mid-flow in a dedicated area, governed
-  by `specs/004-prd-decompose-lifecycle/spec.md`.
+- Onboarding routes to a dedicated PRD Authoring Board before plan/session work,
+  interview turns update the live PRD draft through validated patches,
+  saved PRDs use a separate concise read view, decomposition is criterion-linked
+  and challengeable, and steps are addable mid-flow in a dedicated area, governed by
+  `specs/004-prd-decompose-lifecycle/spec.md`.
+- The 004 implementation plan and design contracts are governed by
+  `specs/004-prd-decompose-lifecycle/plan.md`, `data-model.md`, `contracts/`,
+  `research.md`, `quickstart.md`, and `tasks.md`.
 
 ## Adding Or Changing Specs
 

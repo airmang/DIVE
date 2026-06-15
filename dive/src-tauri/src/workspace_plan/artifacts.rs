@@ -4,8 +4,11 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::db::dao::{plan as plan_dao, step as step_dao};
-use crate::db::models::{PlanRow, StepRow};
+use crate::db::dao::{plan as plan_dao, plan_mutation, prd, step as step_dao};
+use crate::db::models::{
+    LiveProjectSpecDraftRow, ObjectionRow, PlanMutationRow, PlanRow, ProjectSpec,
+    ProjectSpecVersionRow, StepRow,
+};
 use crate::db::DbError;
 
 const ARTIFACT_SCHEMA_VERSION: i32 = 1;
@@ -26,6 +29,16 @@ pub struct PlanArtifact {
     pub constraints: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub acceptance_criteria: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_spec: Option<ProjectSpec>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub project_spec_versions: Vec<ProjectSpecVersionRow>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live_project_spec_draft: Option<LiveProjectSpecDraftRow>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plan_mutations: Vec<PlanMutationRow>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub objections: Vec<ObjectionRow>,
     pub steps: Vec<StepArtifact>,
     pub created_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -45,6 +58,10 @@ pub struct StepArtifact {
     pub expected_files: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub acceptance_criteria: Option<Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub linked_criterion_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decomposition_rationale: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub verification: Option<VerificationArtifact>,
     pub dependencies: Vec<String>,
@@ -73,7 +90,7 @@ pub fn export_plan_artifacts(
     let dive_dir = project_root.join(".dive");
     std::fs::create_dir_all(&dive_dir)?;
 
-    let artifact = build_plan_artifact(&plan, &steps);
+    let artifact = build_plan_artifact(conn, &plan, &steps)?;
     std::fs::write(
         dive_dir.join("plan.json"),
         serde_json::to_string_pretty(&artifact)?,
@@ -83,8 +100,16 @@ pub fn export_plan_artifacts(
     Ok(())
 }
 
-fn build_plan_artifact(plan: &PlanRow, steps: &[StepRow]) -> PlanArtifact {
-    PlanArtifact {
+fn build_plan_artifact(
+    conn: &Connection,
+    plan: &PlanRow,
+    steps: &[StepRow],
+) -> Result<PlanArtifact, DbError> {
+    let project_spec_versions = prd::list_versions(conn, plan.project_id)?;
+    let project_spec = project_spec_versions
+        .last()
+        .map(|version| version.snapshot.clone());
+    Ok(PlanArtifact {
         schema_version: ARTIFACT_SCHEMA_VERSION,
         status: plan.status.clone(),
         goal: plan.goal.clone(),
@@ -93,10 +118,15 @@ fn build_plan_artifact(plan: &PlanRow, steps: &[StepRow]) -> PlanArtifact {
         non_goals: plan.non_goals.clone(),
         constraints: plan.constraints.clone(),
         acceptance_criteria: plan.acceptance_criteria.clone(),
+        project_spec,
+        project_spec_versions,
+        live_project_spec_draft: prd::get_draft(conn, plan.project_id)?,
+        plan_mutations: plan_mutation::list_mutations_by_plan(conn, plan.id)?,
+        objections: plan_mutation::list_objections_by_plan(conn, plan.id)?,
         steps: steps.iter().map(build_step_artifact).collect(),
         created_at: plan.created_at,
         approved_at: plan.approved_at,
-    }
+    })
 }
 
 fn build_step_artifact(step: &StepRow) -> StepArtifact {
@@ -107,6 +137,8 @@ fn build_step_artifact(step: &StepRow) -> StepArtifact {
         instruction_seed: step.instruction_seed.clone(),
         expected_files: step.expected_files.clone(),
         acceptance_criteria: step.acceptance_criteria.clone(),
+        linked_criterion_ids: linked_criterion_ids(step.acceptance_criteria.as_ref()),
+        decomposition_rationale: decomposition_rationale(step.acceptance_criteria.as_ref()),
         verification: step
             .verification_kind
             .as_ref()
@@ -159,6 +191,16 @@ fn build_plan_markdown(plan: &PlanRow, steps: &[StepRow]) -> String {
             step.acceptance_criteria.as_ref(),
             false,
         );
+        let linked_ids = linked_criterion_ids(step.acceptance_criteria.as_ref());
+        if !linked_ids.is_empty() {
+            md.push_str(&format!(
+                "**Linked PRD Criteria:** {}\n\n",
+                linked_ids.join(", ")
+            ));
+        }
+        if let Some(rationale) = decomposition_rationale(step.acceptance_criteria.as_ref()) {
+            md.push_str(&format!("**Rationale:** {}\n\n", rationale));
+        }
         if let Some(kind) = &step.verification_kind {
             md.push_str(&format!("**Verification:** {}\n", kind));
             if let Some(command) = &step.verification_command {
@@ -215,14 +257,88 @@ fn build_flow_mermaid(steps: &[StepRow]) -> String {
 }
 
 fn string_array(value: Option<&Value>) -> Vec<String> {
-    value
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|item| item.as_str().map(ToOwned::to_owned))
-                .collect()
-        })
-        .unwrap_or_default()
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    match value {
+        Value::Array(arr) => arr.iter().filter_map(criterion_text).collect(),
+        Value::Object(map) => map
+            .get("criteria")
+            .or_else(|| map.get("acceptanceCriteria"))
+            .or_else(|| map.get("acceptance_criteria"))
+            .and_then(Value::as_array)
+            .map(|arr| arr.iter().filter_map(criterion_text).collect())
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+fn criterion_text(value: &Value) -> Option<String> {
+    if let Some(text) = value.as_str() {
+        let text = text.trim();
+        return (!text.is_empty()).then(|| text.to_owned());
+    }
+    let text = value.get("text").and_then(Value::as_str)?.trim();
+    (!text.is_empty()).then(|| text.to_owned())
+}
+
+fn linked_criterion_ids(value: Option<&Value>) -> Vec<String> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    collect_linked_criterion_ids(value, &mut out);
+    out
+}
+
+fn collect_linked_criterion_ids(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                collect_linked_criterion_ids(item, out);
+            }
+        }
+        Value::Object(map) => {
+            if let Some(id) = map
+                .get("criterionId")
+                .or_else(|| map.get("criterion_id"))
+                .and_then(Value::as_str)
+            {
+                push_unique(out, id);
+            }
+            for key in ["linkedCriterionIds", "linked_criterion_ids"] {
+                if let Some(ids) = map.get(key).and_then(Value::as_array) {
+                    for id in ids.iter().filter_map(Value::as_str) {
+                        push_unique(out, id);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn decomposition_rationale(value: Option<&Value>) -> Option<String> {
+    let value = value?;
+    if let Some(rationale) = value.get("rationale").and_then(Value::as_str) {
+        let rationale = rationale.trim();
+        if !rationale.is_empty() {
+            return Some(rationale.to_owned());
+        }
+    }
+    value.as_array()?.iter().find_map(|item| {
+        item.get("rationale")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|rationale| !rationale.is_empty())
+            .map(ToOwned::to_owned)
+    })
+}
+
+fn push_unique(out: &mut Vec<String>, value: &str) {
+    if !out.iter().any(|existing| existing == value) {
+        out.push(value.to_owned());
+    }
 }
 
 fn mermaid_id(step_id: &str) -> String {

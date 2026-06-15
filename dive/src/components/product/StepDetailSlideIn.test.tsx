@@ -99,7 +99,7 @@ function renderStepDetail(overrides: Partial<ComponentProps<typeof StepDetailSli
       onApprovalDecision={vi.fn()}
       onGoToChat={vi.fn()}
       rollbackAvailable
-      provocation={{ enabled: true, mode: "standard", projectId: 1, sessionId: 2 }}
+      provocation={{ enabled: true, mode: "work", projectId: 1, sessionId: 2 }}
       {...overrides}
     />,
   );
@@ -130,13 +130,27 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
     expect(card.dataset.cardType).toBe("ai_self_report_only");
     expect(card.textContent).toContain("확인 필요 카드");
     expect(card.textContent).not.toContain("도발카드");
-    expect(screen.getByTestId("provocation-prompt").textContent).toContain("직접 확인");
+    expect(screen.getByTestId("provocation-focal-question").textContent).toContain("직접 확인");
+
+    const focusPanel = screen.getByTestId("step-detail-verification-focus");
+    const details = screen.getByTestId("step-detail-secondary-details") as HTMLDetailsElement;
+    const gate = screen.getByTestId("decision-gate");
+    expect(
+      Boolean(focusPanel.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING),
+    ).toBe(true);
+    expect(Boolean(card.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
+      true,
+    );
+    expect(Boolean(details.compareDocumentPosition(gate) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
+      true,
+    );
+    expect(details.open).toBe(false);
 
     expect(evaluateMock).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: 2,
         event: "verify_entered",
-        sourceUiMode: "standard",
+        sourceUiMode: "work",
         artifactRef: expect.objectContaining({ kind: "step", id: "1" }),
       }),
     );
@@ -252,5 +266,111 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
       hasTests: false,
       diffAvailable: true,
     });
+    expect(screen.getByTestId("step-detail-primary-verification-action").textContent).toContain(
+      "변경 코드 보기",
+    );
+    expect(
+      screen
+        .getByTestId("step-detail-primary-verification-action")
+        .getAttribute("data-action-kind"),
+    ).toBe("open_diff");
+    expect(screen.queryByText("미리보기 열기")).toBeNull();
+  });
+});
+
+describe("StepDetailSlideIn criterion-linked rationale challenge", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: "ko" });
+    evaluateMock.mockReset();
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-criteria",
+      dropReason: "provoke_false",
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("renders linked criteria and rationale, then logs a non-blocking challenge", async () => {
+    const onChallengeStepRationale = vi.fn().mockResolvedValue({
+      objectionId: "obj-001",
+      suggestionStatus: "none",
+    });
+    const criterionLinkedStep: ComponentProps<typeof StepDetailSlideIn>["step"] = {
+      ...reviewStep(),
+      linkedCriteria: [
+        {
+          criterionId: "AC-001",
+          text: "저장 성공 후 toast가 보인다",
+        },
+      ],
+      decompositionRationale: "저장 완료 기준을 검증하려면 버튼 상태를 먼저 분리해야 한다.",
+    };
+
+    render(
+      <StepDetailSlideIn
+        open
+        step={criterionLinkedStep}
+        toolCallCount={1}
+        verifyLog={{
+          intent_match: true,
+          test_result: "skipped",
+          details: "AI reported completion without external verification.",
+          model: "mock",
+          ran_at: 1,
+        }}
+        verifyState="idle"
+        verifyError={null}
+        changedFiles={[{ path: "src/App.tsx", diff: null }]}
+        planContext={{
+          expectedFiles: ["src/App.tsx"],
+          verificationCommand: "pnpm test",
+          verificationManualCheck: null,
+          verificationKind: "command",
+          dependencies: [],
+          parallelGroup: null,
+          purpose: "버튼 문구만 수정한다",
+        }}
+        onOpenChange={vi.fn()}
+        onOpenCode={vi.fn()}
+        onOpenPreview={vi.fn()}
+        onOpenRecovery={vi.fn()}
+        onVerifyFirst={vi.fn()}
+        onApprovalDecision={vi.fn()}
+        onGoToChat={vi.fn()}
+        onChallengeStepRationale={onChallengeStepRationale}
+        rollbackAvailable
+        provocation={{ enabled: true, mode: "work", projectId: 1, sessionId: 2 }}
+      />,
+    );
+
+    const linkedCriteria = screen.getByTestId("step-detail-linked-criteria");
+    expect(linkedCriteria.textContent).toContain("AC-001");
+    expect(linkedCriteria.textContent).toContain("저장 성공 후 toast가 보인다");
+    expect(screen.getByTestId("step-detail-rationale").textContent).toContain(
+      "저장 완료 기준을 검증하려면 버튼 상태를 먼저 분리해야 한다.",
+    );
+
+    const primaryAction = screen.getByTestId(
+      "step-detail-primary-verification-action",
+    ) as HTMLButtonElement;
+    expect(primaryAction.disabled).toBe(false);
+
+    fireEvent.click(screen.getByTestId("step-rationale-challenge-toggle"));
+    fireEvent.change(screen.getByTestId("step-rationale-objection-input"), {
+      target: { value: "이 순서가 AC-001에 꼭 필요한지 다시 보고 싶어요." },
+    });
+    fireEvent.click(screen.getByTestId("step-rationale-objection-submit"));
+
+    await waitFor(() =>
+      expect(onChallengeStepRationale).toHaveBeenCalledWith({
+        stepId: 1,
+        text: "이 순서가 AC-001에 꼭 필요한지 다시 보고 싶어요.",
+        linkedCriterionIds: ["AC-001"],
+      }),
+    );
+    expect(primaryAction.disabled).toBe(false);
   });
 });

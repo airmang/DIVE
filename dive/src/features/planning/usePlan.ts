@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
-import type { InterviewRow, PlanDraftInput, PlanGenerationResult, PlanRow } from "./types";
+import type {
+  AppendPlanStepInput,
+  InterviewRow,
+  LiveProjectSpecDraft,
+  PlanDraftInput,
+  PlanGenerationResult,
+  PlanRow,
+  PrdPatch,
+  PrdPatchValidationOutcome,
+  ProjectSpec,
+  ProjectSpecDraft,
+} from "./types";
 import type { PlanStepRow } from "../roadmap";
 
 export const PLAN_DRAFT_REVIEW_REQUEST_EVENT = "dive:plan-draft-review-request";
@@ -36,6 +47,58 @@ export interface WorkspacePlanStatus {
   blocked_count: number;
   active_count: number;
   done_count: number;
+  prd_status?: WorkspacePrdStatusWire | null;
+}
+
+export type WorkspacePrdReadiness = "missing" | "draft" | "minimal";
+
+interface WorkspacePrdStatusWire {
+  status: WorkspacePrdReadiness;
+  project_spec_id?: string | null;
+  projectSpecId?: string | null;
+  current_version?: number | null;
+  currentVersion?: number | null;
+  draft_id?: string | null;
+  draftId?: string | null;
+  base_version?: number | null;
+  baseVersion?: number | null;
+}
+
+export interface WorkspacePrdStatus {
+  status: WorkspacePrdReadiness;
+  projectSpecId: string | null;
+  currentVersion: number | null;
+  draftId: string | null;
+  baseVersion: number | null;
+}
+
+export interface SubmitPrdInterviewTurnInput {
+  draftId: string;
+  answer: string;
+  provider: string;
+  model: string;
+}
+
+export interface PrdInterviewTurnResult {
+  turnId: string;
+  assistantMessage: string;
+  patch: PrdPatch | null;
+  validationOutcome: PrdPatchValidationOutcome;
+  appliedFieldPaths: string[];
+  rejectedReasons: string[];
+  liveDraft: LiveProjectSpecDraft;
+}
+
+export interface ChallengeStepRationaleInput {
+  planId: number;
+  stepDbId: number;
+  text: string;
+  linkedCriterionIds?: string[];
+}
+
+export interface ChallengeStepRationaleResult {
+  objectionId: string;
+  suggestionStatus: "none" | "offered";
 }
 
 function normalizeGeneratedDraft(value: unknown): PlanGenerationResult {
@@ -52,9 +115,29 @@ function normalizeGeneratedDraft(value: unknown): PlanGenerationResult {
   };
 }
 
+function normalizePrdStatus(value: WorkspacePrdStatusWire | null | undefined): WorkspacePrdStatus {
+  if (!value) {
+    return {
+      status: "missing",
+      projectSpecId: null,
+      currentVersion: null,
+      draftId: null,
+      baseVersion: null,
+    };
+  }
+  return {
+    status: value.status,
+    projectSpecId: value.projectSpecId ?? value.project_spec_id ?? null,
+    currentVersion: value.currentVersion ?? value.current_version ?? null,
+    draftId: value.draftId ?? value.draft_id ?? null,
+    baseVersion: value.baseVersion ?? value.base_version ?? null,
+  };
+}
+
 export function usePlan(projectId: number | null) {
   const [api, setApi] = useState<TauriApi | null>(null);
   const [status, setStatus] = useState<WorkspacePlanStatus | null>(null);
+  const [prdStatus, setPrdStatus] = useState<WorkspacePrdStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,18 +148,24 @@ export function usePlan(projectId: number | null) {
   const refresh = useCallback(async () => {
     if (projectId === null) {
       setStatus(null);
+      setPrdStatus(null);
       setError(null);
       return;
     }
     if (!api) {
       setStatus(null);
+      setPrdStatus(null);
       setError(null);
       return;
     }
     setLoading(true);
     try {
-      const next = await api.invoke<WorkspacePlanStatus>("workspace_plan_status", { projectId });
+      const [next, nextPrd] = await Promise.all([
+        api.invoke<WorkspacePlanStatus>("workspace_plan_status", { projectId }),
+        api.invoke<WorkspacePrdStatusWire>("workspace_prd_status", { projectId }),
+      ]);
       setStatus(next);
+      setPrdStatus(normalizePrdStatus(nextPrd ?? next.prd_status));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -88,6 +177,18 @@ export function usePlan(projectId: number | null) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const refreshPrdStatus = useCallback(async () => {
+    if (!api || projectId === null) {
+      setPrdStatus(null);
+      return null;
+    }
+    const next = normalizePrdStatus(
+      await api.invoke<WorkspacePrdStatusWire>("workspace_prd_status", { projectId }),
+    );
+    setPrdStatus(next);
+    return next;
+  }, [api, projectId]);
 
   const startInterview = useCallback(
     async (goal: string) => {
@@ -148,6 +249,81 @@ export function usePlan(projectId: number | null) {
     return raw === null ? null : normalizeGeneratedDraft(raw);
   }, [api, projectId]);
 
+  const getProjectSpec = useCallback(async () => {
+    if (!api || projectId === null) return null;
+    return api.invoke<ProjectSpec | null>("workspace_prd_get", { projectId });
+  }, [api, projectId]);
+
+  const submitPrdInterviewTurn = useCallback(
+    async (input: SubmitPrdInterviewTurnInput) => {
+      if (!api || projectId === null) throw new Error("Tauri IPC unavailable");
+      const result = await api.invoke<PrdInterviewTurnResult>("workspace_prd_interview_turn", {
+        projectId,
+        draftId: input.draftId,
+        answer: input.answer,
+        provider: input.provider,
+        model: input.model,
+      });
+      await refreshPrdStatus();
+      return result;
+    },
+    [api, projectId, refreshPrdStatus],
+  );
+
+  const saveProjectSpec = useCallback(
+    async (
+      spec: ProjectSpec | ProjectSpecDraft,
+      reason: "interview" | "student_edit" | "plan_mutation",
+    ) => {
+      if (!api || projectId === null) throw new Error("Tauri IPC unavailable");
+      const saved = await api.invoke<ProjectSpec>("workspace_prd_save", {
+        projectId,
+        spec,
+        reason,
+      });
+      await refresh();
+      await refreshPrdStatus();
+      return saved;
+    },
+    [api, projectId, refresh, refreshPrdStatus],
+  );
+
+  const challengeStepRationale = useCallback(
+    async (input: ChallengeStepRationaleInput) => {
+      if (!api) throw new Error("Tauri IPC unavailable");
+      const result = await api.invoke<ChallengeStepRationaleResult>(
+        "workspace_plan_challenge_step_rationale",
+        {
+          input,
+        },
+      );
+      await refresh();
+      return result;
+    },
+    [api, refresh],
+  );
+
+  const appendStep = useCallback(
+    async (input: AppendPlanStepInput) => {
+      if (!api) throw new Error("Tauri IPC unavailable");
+      const linkedCriterionIds = input.linkedCriterionIds ?? input.draft.linkedCriterionIds;
+      const row = await api.invoke<PlanStepRow>("workspace_plan_append_step", {
+        planId: input.planId,
+        draft: {
+          ...input.draft,
+          linkedCriterionIds,
+        },
+        mutationReason: input.mutationReason ?? null,
+        linkedCriterionIds,
+        prdDelta: input.prdDelta ?? null,
+      });
+      await refresh();
+      await refreshPrdStatus();
+      return row;
+    },
+    [api, refresh, refreshPrdStatus],
+  );
+
   const approvePlan = useCallback(
     async (planId: number) => {
       if (!api) throw new Error("Tauri IPC unavailable");
@@ -169,14 +345,21 @@ export function usePlan(projectId: number | null) {
 
   return {
     status,
+    prdStatus,
     loading,
     error,
     refresh,
+    refreshPrdStatus,
     startInterview,
     saveInterviewAnswer,
     submitInterview,
     generateDraft,
     currentDraft,
+    getProjectSpec,
+    submitPrdInterviewTurn,
+    saveProjectSpec,
+    challengeStepRationale,
+    appendStep,
     approvePlan,
     discardPlan,
   };

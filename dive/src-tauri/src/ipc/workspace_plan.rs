@@ -3,17 +3,25 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use tauri::State;
 
 use crate::db::dao::{
     card as card_dao, event_log as event_log_dao, interview as interview_dao, plan as plan_dao,
-    project as project_dao, session as session_dao, step as step_dao,
-    step_session_mapping as mapping_dao, workmap as workmap_dao,
+    plan_mutation as plan_mutation_dao, prd as prd_dao, project as project_dao,
+    session as session_dao, step as step_dao, step_session_mapping as mapping_dao,
+    workmap as workmap_dao,
 };
 use crate::db::models::{
-    CardState, EventLogRow, InterviewRow, NewCard, NewInterview, NewPlan, NewSession, NewStep,
-    NewStepSessionMapping, NewWorkmap, PlanRow, ProjectRow, StepRow, StepSessionMappingRow,
+    AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus, CardState,
+    EventLogRow, InterviewRow, LiveProjectSpecDraftRow, NewCard, NewInterview,
+    NewLiveProjectSpecDraft, NewObjection, NewPlan, NewPlanMutation, NewProjectSpecVersion,
+    NewSession, NewStep, NewStepSessionMapping, NewWorkmap, ObjectionSuggestionStatus,
+    PlanMutationType, PlanRow, PrdPatch, PrdPatchOperation, ProjectRow, ProjectSpec,
+    ProjectSpecDelta, ProjectSpecDraft, ProjectSpecStatus, ProjectSpecVersionRow,
+    ScopeExpansionAssessment, StepRow, StepSessionMappingRow,
 };
 use crate::db::now_ms;
 use crate::dive::event_log as dive_event_log;
@@ -21,6 +29,7 @@ use crate::dive::plan_router::{
     self, PlanRouterContext, PlanRouterDecision, PlanRouterStepContext, RouterStepDraft,
 };
 use crate::ipc::AppState;
+use crate::providers::{ChatEvent, ChatRequest, FinishReason, Message, ToolChoice};
 use crate::workspace_plan as workspace_plan_service;
 
 const ROUTE_CANCELLED_MESSAGE: &str = "route chat cancelled";
@@ -28,6 +37,8 @@ const MAX_PLAN_STEPS: usize = 8;
 const MAX_STEP_EXPECTED_FILES: usize = 8;
 const MAX_STEP_ACCEPTANCE_CRITERIA: usize = 8;
 const MAX_VERIFICATION_COMMAND_WORDS: usize = 24;
+const MAX_PRD_PATCH_OPERATIONS: usize = 20;
+const MAX_PRD_PATCH_TEXT_CHARS: usize = 1200;
 const BROAD_SCOPE_MARKERS: &[&str] = &[
     "desktop app",
     "full app",
@@ -63,6 +74,47 @@ pub struct WorkspacePlanStatus {
     pub blocked_count: i64,
     pub active_count: i64,
     pub done_count: i64,
+    pub prd_status: WorkspacePrdStatus,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspacePrdStatus {
+    pub status: String,
+    pub project_spec_id: Option<String>,
+    pub current_version: Option<i64>,
+    pub draft_id: Option<String>,
+    pub base_version: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrdInterviewTurnInput {
+    pub project_id: i64,
+    pub draft_id: String,
+    pub answer: String,
+    pub provider: String,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PrdInterviewTurnOutput {
+    pub turn_id: String,
+    pub assistant_message: String,
+    pub patch: Option<PrdPatch>,
+    pub validation_outcome: String,
+    pub applied_field_paths: Vec<String>,
+    pub rejected_reasons: Vec<String>,
+    pub live_draft: LiveProjectSpecDraftRow,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrdSaveInput {
+    pub project_id: i64,
+    pub spec: ProjectSpecDraft,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -107,6 +159,7 @@ pub struct WorkspacePlanDashboardProject {
     pub next_ready_steps: Vec<WorkspacePlanDashboardStep>,
     pub active_steps: Vec<WorkspacePlanDashboardStep>,
     pub last_activity: Option<PlanActivityLogRow>,
+    pub project_spec: Option<ProjectSpec>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -119,19 +172,41 @@ pub struct StepStateUpdateInput {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum AcceptanceCriterionInput {
+    Text(String),
+    Object(AcceptanceCriterion),
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct StepDraftInput {
     pub title: String,
     pub summary: String,
     pub instruction_seed: String,
     pub expected_files: Vec<String>,
-    pub acceptance_criteria: Vec<String>,
+    pub acceptance_criteria: Vec<AcceptanceCriterionInput>,
+    #[serde(default)]
+    pub linked_criterion_ids: Vec<String>,
+    #[serde(default)]
+    pub rationale: Option<String>,
     pub verification_command: Option<String>,
     pub verification_type: Option<String>,
     pub dependencies: Vec<String>,
     pub parallel_group: Option<i64>,
     pub position: i64,
     pub step_id: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AppendStepOptions {
+    #[serde(default)]
+    pub mutation_reason: Option<String>,
+    #[serde(default)]
+    pub linked_criterion_ids: Vec<String>,
+    #[serde(default)]
+    pub prd_delta: Option<ProjectSpecDelta>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -157,8 +232,25 @@ pub struct PlanDraftInput {
     pub scope: Vec<String>,
     pub non_goals: Vec<String>,
     pub constraints: Vec<String>,
-    pub acceptance_criteria: Vec<String>,
+    pub acceptance_criteria: Vec<AcceptanceCriterionInput>,
     pub steps: Vec<StepDraftInput>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StepRationaleChallengeInput {
+    pub plan_id: i64,
+    pub step_db_id: i64,
+    pub text: String,
+    #[serde(default)]
+    pub linked_criterion_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StepRationaleChallengeOutput {
+    pub objection_id: String,
+    pub suggestion_status: String,
 }
 
 #[tauri::command]
@@ -167,6 +259,61 @@ pub async fn workspace_plan_status(
     project_id: i64,
 ) -> Result<WorkspacePlanStatus, String> {
     workspace_plan_status_impl(&state, project_id)
+}
+
+#[tauri::command]
+pub async fn workspace_prd_status(
+    state: State<'_, AppState>,
+    project_id: i64,
+) -> Result<WorkspacePrdStatus, String> {
+    workspace_prd_status_impl(&state, project_id)
+}
+
+#[tauri::command]
+pub async fn workspace_prd_get(
+    state: State<'_, AppState>,
+    project_id: i64,
+) -> Result<Option<ProjectSpec>, String> {
+    workspace_prd_get_impl(&state, project_id)
+}
+
+#[tauri::command]
+pub async fn workspace_prd_interview_turn(
+    state: State<'_, AppState>,
+    project_id: i64,
+    draft_id: String,
+    answer: String,
+    provider: String,
+    model: String,
+) -> Result<PrdInterviewTurnOutput, String> {
+    workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id,
+            answer,
+            provider,
+            model,
+        },
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn workspace_prd_save(
+    state: State<'_, AppState>,
+    project_id: i64,
+    spec: ProjectSpecDraft,
+    reason: String,
+) -> Result<ProjectSpec, String> {
+    workspace_prd_save_impl(
+        &state,
+        PrdSaveInput {
+            project_id,
+            spec,
+            reason,
+        },
+    )
 }
 
 #[tauri::command]
@@ -292,8 +439,28 @@ pub async fn workspace_plan_append_step(
     state: State<'_, AppState>,
     plan_id: i64,
     draft: StepDraftInput,
+    mutation_reason: Option<String>,
+    linked_criterion_ids: Option<Vec<String>>,
+    prd_delta: Option<ProjectSpecDelta>,
 ) -> Result<StepRow, String> {
-    workspace_plan_append_step_impl(&state, plan_id, draft)
+    workspace_plan_append_step_with_options_impl(
+        &state,
+        plan_id,
+        draft,
+        AppendStepOptions {
+            mutation_reason,
+            linked_criterion_ids: linked_criterion_ids.unwrap_or_default(),
+            prd_delta,
+        },
+    )
+}
+
+#[tauri::command]
+pub async fn workspace_plan_challenge_step_rationale(
+    state: State<'_, AppState>,
+    input: StepRationaleChallengeInput,
+) -> Result<StepRationaleChallengeOutput, String> {
+    workspace_plan_challenge_step_rationale_impl(&state, input)
 }
 
 #[tauri::command]
@@ -317,8 +484,29 @@ pub fn workspace_plan_status_impl(
     project_id: i64,
 ) -> Result<WorkspacePlanStatus, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
+    let prd_status = workspace_prd_status_from_conn(db.conn(), project_id)?;
     let plan = plan_dao::get_by_project(db.conn(), project_id).map_err(|e| e.to_string())?;
     let Some(plan) = plan else {
+        if prd_status.status != "minimal" {
+            let status = if prd_status.status == "draft" {
+                "prd_draft"
+            } else {
+                "needs_prd"
+            };
+            return Ok(WorkspacePlanStatus {
+                status: status.to_string(),
+                has_plan: false,
+                has_approved_plan: false,
+                plan_summary: None,
+                plan_id: None,
+                step_count: 0,
+                ready_count: 0,
+                blocked_count: 0,
+                active_count: 0,
+                done_count: 0,
+                prd_status,
+            });
+        }
         let interview =
             interview_dao::get_by_project(db.conn(), project_id).map_err(|e| e.to_string())?;
         let status = interview
@@ -341,6 +529,7 @@ pub fn workspace_plan_status_impl(
             blocked_count: 0,
             active_count: 0,
             done_count: 0,
+            prd_status,
         });
     };
 
@@ -363,7 +552,1491 @@ pub fn workspace_plan_status_impl(
         blocked_count: progress.blocked_count,
         active_count: progress.active_count,
         done_count: progress.done_count,
+        prd_status,
     })
+}
+
+pub fn workspace_prd_status_impl(
+    state: &AppState,
+    project_id: i64,
+) -> Result<WorkspacePrdStatus, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    workspace_prd_status_from_conn(db.conn(), project_id)
+}
+
+pub fn workspace_prd_get_impl(
+    state: &AppState,
+    project_id: i64,
+) -> Result<Option<ProjectSpec>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(prd_dao::latest_version(db.conn(), project_id)
+        .map_err(|e| e.to_string())?
+        .map(|row| row.snapshot))
+}
+
+pub fn workspace_prd_save_impl(
+    state: &AppState,
+    input: PrdSaveInput,
+) -> Result<ProjectSpec, String> {
+    let mut db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn_mut();
+    project_dao::get_by_id(conn, input.project_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("project {} not found", input.project_id))?;
+    let save_reason = normalize_prd_save_reason(&input.reason);
+    let latest = prd_dao::latest_version(conn, input.project_id).map_err(|e| e.to_string())?;
+    let snapshot = project_spec_from_save_input(input, latest.as_ref(), &save_reason)?;
+    if !is_minimal_project_spec(&snapshot) {
+        return Err("minimal PRD requires a goal and at least one acceptance criterion".into());
+    }
+    let previous_version = latest.as_ref().map(|row| row.version);
+    let reason = save_reason;
+    let delta_summary = prd_delta_summary(latest.as_ref().map(|row| &row.snapshot), &snapshot);
+    let changed_fields =
+        changed_project_spec_fields(latest.as_ref().map(|row| &row.snapshot), &snapshot);
+    let added_criterion_ids =
+        added_criterion_ids(latest.as_ref().map(|row| &row.snapshot), &snapshot);
+    let retired_criterion_ids =
+        retired_criterion_ids(latest.as_ref().map(|row| &row.snapshot), &snapshot);
+    let criterion_ids = snapshot
+        .acceptance_criteria
+        .iter()
+        .filter(|criterion| criterion.status == AcceptanceCriterionStatus::Active)
+        .map(|criterion| criterion.criterion_id.clone())
+        .collect::<Vec<_>>();
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    prd_dao::insert_version(
+        &tx,
+        &NewProjectSpecVersion {
+            project_spec_id: snapshot.project_spec_id.clone(),
+            project_id: snapshot.project_id,
+            version: snapshot.current_version,
+            previous_version,
+            snapshot: snapshot.clone(),
+            reason: reason.clone(),
+            delta_summary: delta_summary.clone(),
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    prd_dao::delete_draft(&tx, snapshot.project_id).map_err(|e| e.to_string())?;
+
+    if previous_version.is_none() {
+        dive_event_log::append_to_conn(
+            &tx,
+            None,
+            dive_event_log::PRD_AUTHORED_EVENT,
+            dive_event_log::prd_authored_payload(
+                snapshot.project_id,
+                snapshot.project_spec_id.clone(),
+                snapshot.current_version,
+                criterion_ids,
+                summarize_prd(&snapshot),
+            ),
+        )
+        .map_err(|e| e.to_string())?;
+    } else {
+        dive_event_log::append_to_conn(
+            &tx,
+            None,
+            dive_event_log::PRD_EDITED_EVENT,
+            dive_event_log::prd_edited_payload(
+                snapshot.project_id,
+                snapshot.project_spec_id.clone(),
+                previous_version.unwrap_or(0),
+                snapshot.current_version,
+                reason,
+                changed_fields,
+                added_criterion_ids,
+                retired_criterion_ids,
+            ),
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    dive_event_log::append_to_conn(
+        &tx,
+        None,
+        dive_event_log::PRD_VERSION_CREATED_EVENT,
+        dive_event_log::prd_version_created_payload(
+            snapshot.project_id,
+            snapshot.project_spec_id.clone(),
+            snapshot.current_version,
+            previous_version,
+            delta_summary,
+        ),
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(snapshot)
+}
+
+pub async fn workspace_prd_interview_turn_impl(
+    state: &AppState,
+    input: PrdInterviewTurnInput,
+) -> Result<PrdInterviewTurnOutput, String> {
+    if input.provider.trim().is_empty() {
+        return Err("provider is required for PRD interview turn".into());
+    }
+    if input.model.trim().is_empty() {
+        return Err("model is required for PRD interview turn".into());
+    }
+    let base_draft = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        project_dao::get_by_id(db.conn(), input.project_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("project {} not found", input.project_id))?;
+        load_or_create_prd_draft(db.conn(), input.project_id, &input.draft_id)?
+    };
+
+    let runtime = state.ensure_provider_runtime().await?;
+    let raw = run_prd_interview_turn(
+        runtime.provider.as_ref(),
+        input.model.clone(),
+        &base_draft,
+        &input.answer,
+    )
+    .await?;
+    let turn_id = format!("prd-turn-{}", now_ms());
+    let parsed = parse_prd_turn_response(&raw, &turn_id);
+    let assistant_message = parsed
+        .assistant_message
+        .filter(|message| !message.trim().is_empty())
+        .unwrap_or_else(|| raw.trim().to_string());
+    let patch = parsed.patch;
+
+    let mut output = PrdInterviewTurnOutput {
+        turn_id: turn_id.clone(),
+        assistant_message,
+        patch: patch.clone(),
+        validation_outcome: "none".into(),
+        applied_field_paths: Vec::new(),
+        rejected_reasons: Vec::new(),
+        live_draft: base_draft,
+    };
+
+    let mut db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn_mut();
+    let current_draft = load_or_create_prd_draft(conn, input.project_id, &input.draft_id)?;
+    if let Some(patch) = patch {
+        let operation_kinds = patch
+            .operations
+            .iter()
+            .map(|operation| operation.op.clone())
+            .collect::<Vec<_>>();
+        dive_event_log::append_to_conn(
+            conn,
+            None,
+            dive_event_log::PRD_PATCH_PROPOSED_EVENT,
+            dive_event_log::prd_patch_proposed_payload(
+                input.project_id,
+                project_spec_id_for_draft(&current_draft),
+                current_draft.draft_id.clone(),
+                turn_id.clone(),
+                patch.patch_id.clone(),
+                operation_kinds,
+                patch.rationale.clone(),
+            ),
+        )
+        .map_err(|e| e.to_string())?;
+
+        let applied = apply_prd_patch_to_draft(current_draft, &patch);
+        output.validation_outcome = applied.validation_outcome.clone();
+        output.applied_field_paths = applied.applied_field_paths.clone();
+        output.rejected_reasons = applied.rejected_reasons.clone();
+        output.live_draft = applied.draft.clone();
+        persist_live_prd_draft(conn, &applied.draft)?;
+
+        if applied.validation_outcome == "applied" {
+            dive_event_log::append_to_conn(
+                conn,
+                None,
+                dive_event_log::PRD_PATCH_APPLIED_EVENT,
+                dive_event_log::prd_patch_applied_payload(
+                    input.project_id,
+                    project_spec_id_for_draft(&applied.draft),
+                    applied.draft.draft_id.clone(),
+                    turn_id,
+                    patch.patch_id,
+                    applied.applied_field_paths,
+                    applied.criterion_ids_assigned,
+                    applied.student_edited_fields_respected,
+                ),
+            )
+            .map_err(|e| e.to_string())?;
+        } else if applied.validation_outcome == "rejected"
+            || applied.validation_outcome == "held_for_student"
+        {
+            dive_event_log::append_to_conn(
+                conn,
+                None,
+                dive_event_log::PRD_PATCH_REJECTED_EVENT,
+                dive_event_log::prd_patch_rejected_payload(
+                    input.project_id,
+                    project_spec_id_for_draft(&applied.draft),
+                    applied.draft.draft_id,
+                    turn_id,
+                    patch.patch_id,
+                    applied.rejected_reasons,
+                    applied.validation_outcome == "held_for_student",
+                ),
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    } else {
+        persist_live_prd_draft(conn, &output.live_draft)?;
+    }
+    Ok(output)
+}
+
+fn workspace_prd_status_from_conn(
+    conn: &rusqlite::Connection,
+    project_id: i64,
+) -> Result<WorkspacePrdStatus, String> {
+    project_dao::get_by_id(conn, project_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("project {project_id} not found"))?;
+    let latest = prd_dao::latest_version(conn, project_id).map_err(|e| e.to_string())?;
+    let draft = prd_dao::get_draft(conn, project_id).map_err(|e| e.to_string())?;
+    if let Some(row) = latest
+        .as_ref()
+        .filter(|row| is_minimal_project_spec(&row.snapshot))
+    {
+        return Ok(WorkspacePrdStatus {
+            status: "minimal".into(),
+            project_spec_id: Some(row.project_spec_id.clone()),
+            current_version: Some(row.version),
+            draft_id: draft.as_ref().map(|row| row.draft_id.clone()),
+            base_version: draft.as_ref().and_then(|row| row.base_version),
+        });
+    }
+    if let Some(row) = draft {
+        return Ok(WorkspacePrdStatus {
+            status: "draft".into(),
+            project_spec_id: row.spec.project_spec_id.clone(),
+            current_version: row.spec.current_version,
+            draft_id: Some(row.draft_id),
+            base_version: row.base_version,
+        });
+    }
+    if let Some(row) = latest {
+        return Ok(WorkspacePrdStatus {
+            status: "draft".into(),
+            project_spec_id: Some(row.project_spec_id),
+            current_version: Some(row.version),
+            draft_id: None,
+            base_version: None,
+        });
+    }
+    Ok(WorkspacePrdStatus {
+        status: "missing".into(),
+        project_spec_id: None,
+        current_version: None,
+        draft_id: None,
+        base_version: None,
+    })
+}
+
+fn project_spec_from_save_input(
+    input: PrdSaveInput,
+    latest: Option<&ProjectSpecVersionRow>,
+    reason: &str,
+) -> Result<ProjectSpec, String> {
+    let now = now_ms();
+    let version = latest.map(|row| row.version + 1).unwrap_or(1);
+    let project_spec_id = input
+        .spec
+        .project_spec_id
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| latest.map(|row| row.project_spec_id.clone()))
+        .unwrap_or_else(|| format!("prd-{}", input.project_id));
+    let acceptance_criteria = normalize_acceptance_criteria(
+        input.spec.acceptance_criteria,
+        version,
+        criterion_source_for_reason(reason),
+    );
+    Ok(ProjectSpec {
+        project_spec_id,
+        project_id: input.project_id,
+        current_version: version,
+        goal: input.spec.goal.trim().to_string(),
+        intent_summary: input
+            .spec
+            .intent_summary
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
+        scope: compact_unique_strings(input.spec.scope),
+        non_goals: compact_unique_strings(input.spec.non_goals),
+        constraints: compact_unique_strings(input.spec.constraints),
+        acceptance_criteria,
+        status: input.spec.status,
+        created_at: latest
+            .map(|row| row.snapshot.created_at)
+            .filter(|created_at| *created_at > 0)
+            .unwrap_or(now),
+        updated_at: now,
+    })
+}
+
+fn normalize_prd_save_reason(reason: &str) -> String {
+    match reason {
+        "interview" | "student_edit" | "ai_assist" | "plan_mutation" => reason.to_string(),
+        _ => "student_edit".into(),
+    }
+}
+
+fn criterion_source_for_reason(reason: &str) -> AcceptanceCriterionSource {
+    match reason {
+        "interview" | "ai_assist" => AcceptanceCriterionSource::Interview,
+        "plan_mutation" => AcceptanceCriterionSource::PlanMutation,
+        _ => AcceptanceCriterionSource::StudentEdit,
+    }
+}
+
+fn compact_unique_strings(values: Vec<String>) -> Vec<String> {
+    let mut out = Vec::new();
+    for raw in values {
+        let value = raw.trim();
+        if !value.is_empty() && !out.iter().any(|existing| existing == value) {
+            out.push(value.to_string());
+        }
+    }
+    out
+}
+
+fn normalize_acceptance_criteria(
+    criteria: Vec<AcceptanceCriterion>,
+    version: i64,
+    fallback_source: AcceptanceCriterionSource,
+) -> Vec<AcceptanceCriterion> {
+    let mut out = Vec::new();
+    let mut used_ids = HashSet::new();
+    for mut criterion in criteria {
+        let text = criterion.text.trim().to_string();
+        if text.is_empty() {
+            continue;
+        }
+        criterion.text = text;
+        criterion.criterion_id = criterion.criterion_id.trim().to_string();
+        if criterion.criterion_id.is_empty() || used_ids.contains(&criterion.criterion_id) {
+            criterion.criterion_id = allocate_acceptance_criterion_id(&out);
+        }
+        used_ids.insert(criterion.criterion_id.clone());
+        if criterion.created_in_version <= 0 {
+            criterion.created_in_version = version;
+        }
+        if criterion.status != AcceptanceCriterionStatus::Retired {
+            criterion.status = AcceptanceCriterionStatus::Active;
+            criterion.retired_in_version = None;
+        }
+        if matches!(criterion.source, AcceptanceCriterionSource::Migration)
+            && fallback_source != AcceptanceCriterionSource::Migration
+        {
+            criterion.source = fallback_source;
+        }
+        out.push(criterion);
+    }
+    out
+}
+
+fn criterion_input_text(input: &AcceptanceCriterionInput) -> Option<String> {
+    match input {
+        AcceptanceCriterionInput::Text(value) => {
+            let value = value.trim();
+            (!value.is_empty()).then(|| value.to_string())
+        }
+        AcceptanceCriterionInput::Object(criterion) => {
+            let value = criterion.text.trim();
+            (!value.is_empty()).then(|| value.to_string())
+        }
+    }
+}
+
+fn criterion_input_to_object(
+    input: &AcceptanceCriterionInput,
+    existing: &[AcceptanceCriterion],
+    version: i64,
+    fallback_source: AcceptanceCriterionSource,
+) -> Option<AcceptanceCriterion> {
+    match input {
+        AcceptanceCriterionInput::Text(text) => {
+            let text = text.trim();
+            if text.is_empty() {
+                return None;
+            }
+            if let Some(existing) = existing.iter().find(|criterion| {
+                criterion.status == AcceptanceCriterionStatus::Active
+                    && criterion.text.trim() == text
+            }) {
+                return Some(existing.clone());
+            }
+            Some(AcceptanceCriterion {
+                criterion_id: String::new(),
+                text: text.to_string(),
+                source: fallback_source,
+                status: AcceptanceCriterionStatus::Active,
+                created_in_version: version,
+                retired_in_version: None,
+            })
+        }
+        AcceptanceCriterionInput::Object(criterion) => Some(criterion.clone()),
+    }
+}
+
+fn normalize_criterion_inputs(
+    inputs: &[AcceptanceCriterionInput],
+    existing: &[AcceptanceCriterion],
+    version: i64,
+    fallback_source: AcceptanceCriterionSource,
+) -> Vec<AcceptanceCriterion> {
+    normalize_acceptance_criteria(
+        inputs
+            .iter()
+            .filter_map(|input| {
+                criterion_input_to_object(input, existing, version, fallback_source)
+            })
+            .collect(),
+        version,
+        fallback_source,
+    )
+}
+
+fn compact_linked_criterion_ids(ids: &[String]) -> Vec<String> {
+    compact_unique_strings(ids.to_vec())
+}
+
+fn criterion_by_id(
+    criteria: &[AcceptanceCriterion],
+    criterion_id: &str,
+) -> Option<AcceptanceCriterion> {
+    criteria
+        .iter()
+        .find(|criterion| {
+            criterion.status == AcceptanceCriterionStatus::Active
+                && criterion.criterion_id == criterion_id
+        })
+        .cloned()
+}
+
+fn step_traceability_error(step: &StepDraftInput) -> Option<String> {
+    let mut missing = Vec::new();
+    if compact_linked_criterion_ids(&step.linked_criterion_ids).is_empty() {
+        missing.push("linkedCriterionIds");
+    }
+    if step
+        .rationale
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+    {
+        missing.push("rationale");
+    }
+    (!missing.is_empty()).then(|| {
+        format!(
+            "generated step '{}' requires {}",
+            step.step_id,
+            missing.join(" and ")
+        )
+    })
+}
+
+fn validate_generated_step_traceability(
+    plan_input: &PlanDraftInput,
+    project_prd: &ProjectSpec,
+) -> Result<(), String> {
+    let active_ids: HashSet<&str> = project_prd
+        .acceptance_criteria
+        .iter()
+        .filter(|criterion| criterion.status == AcceptanceCriterionStatus::Active)
+        .map(|criterion| criterion.criterion_id.as_str())
+        .collect();
+    for step in &plan_input.steps {
+        if let Some(err) = step_traceability_error(step) {
+            return Err(err);
+        }
+        for criterion_id in compact_linked_criterion_ids(&step.linked_criterion_ids) {
+            if !active_ids.contains(criterion_id.as_str()) {
+                return Err(format!(
+                    "generated step '{}' linkedCriterionIds contains unknown criterion '{}'",
+                    step.step_id, criterion_id
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn step_criteria_payload(
+    step: &StepDraftInput,
+    project_prd: &ProjectSpec,
+) -> Result<Value, String> {
+    let linked_criterion_ids = compact_linked_criterion_ids(&step.linked_criterion_ids);
+    let draft_criteria = normalize_criterion_inputs(
+        &step.acceptance_criteria,
+        &project_prd.acceptance_criteria,
+        project_prd.current_version,
+        AcceptanceCriterionSource::Migration,
+    );
+    let mut criteria = Vec::new();
+    for criterion_id in &linked_criterion_ids {
+        let criterion = criterion_by_id(&project_prd.acceptance_criteria, criterion_id)
+            .or_else(|| criterion_by_id(&draft_criteria, criterion_id))
+            .ok_or_else(|| {
+                format!(
+                    "generated step '{}' linkedCriterionIds contains unknown criterion '{}'",
+                    step.step_id, criterion_id
+                )
+            })?;
+        criteria.push(criterion);
+    }
+    let rationale = step
+        .rationale
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("generated step '{}' requires rationale", step.step_id))?;
+    Ok(json!({
+        "criteria": criteria,
+        "linkedCriterionIds": linked_criterion_ids,
+        "rationale": rationale,
+    }))
+}
+
+fn append_step_criteria_payload(
+    step: &StepDraftInput,
+    latest_prd: Option<&ProjectSpecVersionRow>,
+) -> Result<Value, String> {
+    let linked_criterion_ids = compact_linked_criterion_ids(&step.linked_criterion_ids);
+    let rationale = step
+        .rationale
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if linked_criterion_ids.is_empty() && rationale.is_none() {
+        return Ok(serde_json::json!(step.acceptance_criteria));
+    }
+
+    let (existing_criteria, version) = latest_prd
+        .map(|row| (row.snapshot.acceptance_criteria.as_slice(), row.version))
+        .unwrap_or((&[] as &[AcceptanceCriterion], 1));
+    let draft_criteria = normalize_criterion_inputs(
+        &step.acceptance_criteria,
+        existing_criteria,
+        version,
+        AcceptanceCriterionSource::Migration,
+    );
+    let mut criteria = Vec::new();
+    if linked_criterion_ids.is_empty() {
+        criteria = draft_criteria;
+    } else {
+        for criterion_id in &linked_criterion_ids {
+            let criterion = latest_prd
+                .and_then(|row| criterion_by_id(&row.snapshot.acceptance_criteria, criterion_id))
+                .or_else(|| criterion_by_id(&draft_criteria, criterion_id))
+                .ok_or_else(|| {
+                    format!(
+                        "appended step linkedCriterionIds contains unknown criterion '{}'",
+                        criterion_id
+                    )
+                })?;
+            criteria.push(criterion);
+        }
+    }
+
+    let mut payload = json!({
+        "criteria": criteria,
+        "linkedCriterionIds": linked_criterion_ids,
+    });
+    if let Some(rationale) = rationale {
+        if let Value::Object(map) = &mut payload {
+            map.insert("rationale".into(), Value::String(rationale));
+        }
+    }
+    Ok(payload)
+}
+
+#[derive(Debug, Clone)]
+struct AppendPrdUpdate {
+    project_spec_id: String,
+    from_version: i64,
+    to_version: i64,
+    delta: ProjectSpecDelta,
+    delta_summary: Value,
+}
+
+fn empty_project_spec_delta(from_version: i64, to_version: i64) -> ProjectSpecDelta {
+    ProjectSpecDelta {
+        from_version,
+        to_version,
+        added_criteria: Vec::new(),
+        retired_criterion_ids: Vec::new(),
+        scope_changes: Vec::new(),
+        non_goal_changes: Vec::new(),
+    }
+}
+
+fn normalize_plan_mutation_delta(
+    provided: Option<&ProjectSpecDelta>,
+    from_version: i64,
+    to_version: i64,
+) -> ProjectSpecDelta {
+    let mut delta = provided
+        .cloned()
+        .unwrap_or_else(|| empty_project_spec_delta(from_version, to_version));
+    delta.from_version = from_version;
+    delta.to_version = to_version;
+    delta.scope_changes = compact_unique_strings(delta.scope_changes);
+    delta.non_goal_changes = compact_unique_strings(delta.non_goal_changes);
+    delta.retired_criterion_ids = compact_unique_strings(delta.retired_criterion_ids);
+    delta.added_criteria = normalize_acceptance_criteria(
+        delta.added_criteria,
+        to_version.max(1),
+        AcceptanceCriterionSource::PlanMutation,
+    );
+    for criterion in &mut delta.added_criteria {
+        criterion.source = AcceptanceCriterionSource::PlanMutation;
+        criterion.status = AcceptanceCriterionStatus::Active;
+        criterion.created_in_version = to_version.max(1);
+        criterion.retired_in_version = None;
+    }
+    delta
+}
+
+fn persist_prd_delta_for_plan_mutation(
+    conn: &rusqlite::Connection,
+    project_id: i64,
+    latest_prd: Option<&ProjectSpecVersionRow>,
+    provided_delta: Option<&ProjectSpecDelta>,
+) -> Result<AppendPrdUpdate, String> {
+    let Some(latest_prd) = latest_prd else {
+        let from_version = provided_delta.map(|delta| delta.from_version).unwrap_or(0);
+        let to_version = provided_delta
+            .map(|delta| delta.to_version)
+            .unwrap_or(from_version);
+        let delta = normalize_plan_mutation_delta(provided_delta, from_version, to_version);
+        let delta_summary = delta_summary_for_plan_mutation(&delta);
+        return Ok(AppendPrdUpdate {
+            project_spec_id: format!("prd-{project_id}"),
+            from_version,
+            to_version,
+            delta,
+            delta_summary,
+        });
+    };
+
+    let from_version = latest_prd.version;
+    let to_version = from_version + 1;
+    let delta = normalize_plan_mutation_delta(provided_delta, from_version, to_version);
+    let mut next = latest_prd.snapshot.clone();
+    next.current_version = to_version;
+    next.updated_at = now_ms();
+
+    for mut criterion in delta.added_criteria.clone() {
+        if criterion.text.trim().is_empty() {
+            continue;
+        }
+        if criterion.criterion_id.trim().is_empty()
+            || next
+                .acceptance_criteria
+                .iter()
+                .any(|existing| existing.criterion_id == criterion.criterion_id)
+        {
+            criterion.criterion_id = allocate_acceptance_criterion_id(&next.acceptance_criteria);
+        }
+        criterion.source = AcceptanceCriterionSource::PlanMutation;
+        criterion.status = AcceptanceCriterionStatus::Active;
+        criterion.created_in_version = to_version;
+        criterion.retired_in_version = None;
+        next.acceptance_criteria.push(criterion);
+    }
+
+    let retired_ids = delta
+        .retired_criterion_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    for criterion in &mut next.acceptance_criteria {
+        if retired_ids.contains(criterion.criterion_id.as_str())
+            && criterion.status == AcceptanceCriterionStatus::Active
+        {
+            criterion.status = AcceptanceCriterionStatus::Retired;
+            criterion.retired_in_version = Some(to_version);
+        }
+    }
+    for scope_change in &delta.scope_changes {
+        next.scope = append_unique_string(next.scope, scope_change);
+    }
+    for non_goal_change in &delta.non_goal_changes {
+        next.non_goals = append_unique_string(next.non_goals, non_goal_change);
+    }
+
+    let delta_summary = delta_summary_for_plan_mutation(&delta);
+    prd_dao::insert_version(
+        conn,
+        &NewProjectSpecVersion {
+            project_spec_id: next.project_spec_id.clone(),
+            project_id,
+            version: to_version,
+            previous_version: Some(from_version),
+            snapshot: next.clone(),
+            reason: "plan_mutation".into(),
+            delta_summary: delta_summary.clone(),
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    let added_ids = delta
+        .added_criteria
+        .iter()
+        .map(|criterion| criterion.criterion_id.clone())
+        .collect::<Vec<_>>();
+    dive_event_log::append_to_conn(
+        conn,
+        None,
+        dive_event_log::PRD_EDITED_EVENT,
+        dive_event_log::prd_edited_payload(
+            project_id,
+            next.project_spec_id.clone(),
+            from_version,
+            to_version,
+            "plan_mutation",
+            changed_fields_for_plan_mutation_delta(&delta),
+            added_ids,
+            delta.retired_criterion_ids.clone(),
+        ),
+    )
+    .map_err(|e| e.to_string())?;
+    dive_event_log::append_to_conn(
+        conn,
+        None,
+        dive_event_log::PRD_VERSION_CREATED_EVENT,
+        dive_event_log::prd_version_created_payload(
+            project_id,
+            next.project_spec_id.clone(),
+            to_version,
+            Some(from_version),
+            delta_summary.clone(),
+        ),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(AppendPrdUpdate {
+        project_spec_id: next.project_spec_id,
+        from_version,
+        to_version,
+        delta,
+        delta_summary,
+    })
+}
+
+fn changed_fields_for_plan_mutation_delta(delta: &ProjectSpecDelta) -> Vec<String> {
+    let mut fields = Vec::new();
+    if !delta.scope_changes.is_empty() {
+        fields.push("scope".into());
+    }
+    if !delta.non_goal_changes.is_empty() {
+        fields.push("nonGoals".into());
+    }
+    if !delta.added_criteria.is_empty() || !delta.retired_criterion_ids.is_empty() {
+        fields.push("acceptanceCriteria".into());
+    }
+    fields
+}
+
+fn delta_summary_for_plan_mutation(delta: &ProjectSpecDelta) -> Value {
+    json!({
+        "changedFields": changed_fields_for_plan_mutation_delta(delta),
+        "criterionIdsAdded": delta
+            .added_criteria
+            .iter()
+            .map(|criterion| criterion.criterion_id.clone())
+            .collect::<Vec<_>>(),
+        "criterionIdsRetired": delta.retired_criterion_ids,
+        "scopeChanges": delta.scope_changes,
+        "nonGoalChanges": delta.non_goal_changes,
+    })
+}
+
+pub fn assess_scope_expansion_for_append(
+    project_spec: &ProjectSpec,
+    draft: &StepDraftInput,
+    linked_criterion_ids: &[String],
+    prd_delta: Option<&ProjectSpecDelta>,
+) -> ScopeExpansionAssessment {
+    let mut reason_codes = Vec::new();
+    let mut evidence_refs = Vec::new();
+    if compact_linked_criterion_ids(linked_criterion_ids).is_empty() {
+        push_unique(&mut reason_codes, "missing_criterion_link".into());
+        push_unique(&mut evidence_refs, "step.linkedCriterionIds".into());
+    }
+
+    if let Some(delta) = prd_delta {
+        for (index, scope_change) in delta.scope_changes.iter().enumerate() {
+            if !scope_change_is_covered_by_prd(scope_change, project_spec) {
+                push_unique(&mut reason_codes, "new_scope_area".into());
+                push_unique(
+                    &mut evidence_refs,
+                    format!("prdDelta.scopeChanges[{index}]"),
+                );
+            }
+        }
+    }
+
+    for (index, expected_file) in draft.expected_files.iter().enumerate() {
+        if target_file_matches_non_goal(expected_file, project_spec) {
+            push_unique(&mut reason_codes, "target_outside_scope".into());
+            push_unique(&mut evidence_refs, format!("step.expectedFiles[{index}]"));
+        }
+    }
+
+    ScopeExpansionAssessment {
+        expanded: !reason_codes.is_empty(),
+        reason_codes,
+        evidence_refs,
+    }
+}
+
+fn scope_change_is_covered_by_prd(scope_change: &str, project_spec: &ProjectSpec) -> bool {
+    let change = normalized_scope_text(scope_change);
+    if change.is_empty() {
+        return true;
+    }
+    project_spec
+        .scope
+        .iter()
+        .any(|item| scope_texts_overlap(&change, item))
+        || project_spec
+            .acceptance_criteria
+            .iter()
+            .filter(|criterion| criterion.status == AcceptanceCriterionStatus::Active)
+            .any(|criterion| scope_texts_overlap(&change, &criterion.text))
+}
+
+fn target_file_matches_non_goal(expected_file: &str, project_spec: &ProjectSpec) -> bool {
+    let target = normalized_scope_text(expected_file);
+    if target.is_empty() {
+        return false;
+    }
+    project_spec
+        .non_goals
+        .iter()
+        .any(|non_goal| scope_texts_overlap(&target, non_goal))
+}
+
+fn scope_texts_overlap(normalized_left: &str, right: &str) -> bool {
+    let right = normalized_scope_text(right);
+    if normalized_left.is_empty() || right.is_empty() {
+        return false;
+    }
+    normalized_left.contains(&right) || right.contains(normalized_left)
+}
+
+fn normalized_scope_text(value: &str) -> String {
+    value
+        .chars()
+        .flat_map(char::to_lowercase)
+        .map(|ch| if ch.is_alphanumeric() { ch } else { ' ' })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn is_minimal_project_spec(spec: &ProjectSpec) -> bool {
+    !spec.goal.trim().is_empty()
+        && spec.acceptance_criteria.iter().any(|criterion| {
+            criterion.status == AcceptanceCriterionStatus::Active
+                && !criterion.text.trim().is_empty()
+        })
+}
+
+fn is_minimal_project_spec_draft(spec: &ProjectSpecDraft) -> bool {
+    !spec.goal.trim().is_empty()
+        && spec.acceptance_criteria.iter().any(|criterion| {
+            criterion.status == AcceptanceCriterionStatus::Active
+                && !criterion.text.trim().is_empty()
+        })
+}
+
+fn allocate_acceptance_criterion_id(criteria: &[AcceptanceCriterion]) -> String {
+    let mut max = 0_i64;
+    for criterion in criteria {
+        if let Some(raw) = criterion.criterion_id.strip_prefix("AC-") {
+            if let Ok(value) = raw.parse::<i64>() {
+                max = max.max(value);
+            }
+        }
+    }
+    format!("AC-{:03}", max + 1)
+}
+
+fn changed_project_spec_fields(previous: Option<&ProjectSpec>, next: &ProjectSpec) -> Vec<String> {
+    let Some(previous) = previous else {
+        return vec![
+            "goal".into(),
+            "intentSummary".into(),
+            "scope".into(),
+            "nonGoals".into(),
+            "constraints".into(),
+            "acceptanceCriteria".into(),
+        ];
+    };
+    let mut fields = Vec::new();
+    if previous.goal != next.goal {
+        fields.push("goal".into());
+    }
+    if previous.intent_summary != next.intent_summary {
+        fields.push("intentSummary".into());
+    }
+    if previous.scope != next.scope {
+        fields.push("scope".into());
+    }
+    if previous.non_goals != next.non_goals {
+        fields.push("nonGoals".into());
+    }
+    if previous.constraints != next.constraints {
+        fields.push("constraints".into());
+    }
+    if previous.acceptance_criteria != next.acceptance_criteria {
+        fields.push("acceptanceCriteria".into());
+    }
+    fields
+}
+
+fn added_criterion_ids(previous: Option<&ProjectSpec>, next: &ProjectSpec) -> Vec<String> {
+    let previous_ids = previous
+        .map(|spec| {
+            spec.acceptance_criteria
+                .iter()
+                .map(|criterion| criterion.criterion_id.as_str())
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default();
+    next.acceptance_criteria
+        .iter()
+        .filter(|criterion| !previous_ids.contains(criterion.criterion_id.as_str()))
+        .map(|criterion| criterion.criterion_id.clone())
+        .collect()
+}
+
+fn retired_criterion_ids(previous: Option<&ProjectSpec>, next: &ProjectSpec) -> Vec<String> {
+    let next_retired = next
+        .acceptance_criteria
+        .iter()
+        .filter(|criterion| criterion.status == AcceptanceCriterionStatus::Retired)
+        .map(|criterion| criterion.criterion_id.clone())
+        .collect::<HashSet<_>>();
+    let Some(previous) = previous else {
+        return next_retired.into_iter().collect();
+    };
+    previous
+        .acceptance_criteria
+        .iter()
+        .filter(|criterion| {
+            criterion.status == AcceptanceCriterionStatus::Active
+                && next_retired.contains(&criterion.criterion_id)
+        })
+        .map(|criterion| criterion.criterion_id.clone())
+        .collect()
+}
+
+fn prd_delta_summary(previous: Option<&ProjectSpec>, next: &ProjectSpec) -> Value {
+    json!({
+        "changedFields": changed_project_spec_fields(previous, next),
+        "criterionIdsAdded": added_criterion_ids(previous, next),
+        "criterionIdsRetired": retired_criterion_ids(previous, next),
+        "goalChanged": previous.map(|spec| spec.goal.as_str()) != Some(next.goal.as_str()),
+    })
+}
+
+fn summarize_prd(spec: &ProjectSpec) -> String {
+    format!(
+        "{} criterion(s), {} scope item(s)",
+        spec.acceptance_criteria
+            .iter()
+            .filter(|criterion| criterion.status == AcceptanceCriterionStatus::Active)
+            .count(),
+        spec.scope.len()
+    )
+}
+
+fn load_or_create_prd_draft(
+    conn: &rusqlite::Connection,
+    project_id: i64,
+    draft_id: &str,
+) -> Result<LiveProjectSpecDraftRow, String> {
+    if let Some(row) = prd_dao::get_draft(conn, project_id).map_err(|e| e.to_string())? {
+        return Ok(row);
+    }
+    let latest = prd_dao::latest_version(conn, project_id).map_err(|e| e.to_string())?;
+    let now = now_ms();
+    let spec = latest
+        .as_ref()
+        .map(|row| ProjectSpecDraft {
+            project_spec_id: Some(row.snapshot.project_spec_id.clone()),
+            project_id,
+            current_version: Some(row.version),
+            goal: row.snapshot.goal.clone(),
+            intent_summary: row.snapshot.intent_summary.clone(),
+            scope: row.snapshot.scope.clone(),
+            non_goals: row.snapshot.non_goals.clone(),
+            constraints: row.snapshot.constraints.clone(),
+            acceptance_criteria: row.snapshot.acceptance_criteria.clone(),
+            status: row.snapshot.status,
+        })
+        .unwrap_or_else(|| ProjectSpecDraft {
+            project_spec_id: Some(format!("prd-{project_id}")),
+            project_id,
+            current_version: None,
+            goal: String::new(),
+            intent_summary: None,
+            scope: Vec::new(),
+            non_goals: Vec::new(),
+            constraints: Vec::new(),
+            acceptance_criteria: Vec::new(),
+            status: ProjectSpecStatus::Draft,
+        });
+    Ok(LiveProjectSpecDraftRow {
+        draft_id: if draft_id.trim().is_empty() {
+            format!("prd-draft-{project_id}")
+        } else {
+            draft_id.trim().to_string()
+        },
+        project_id,
+        base_version: latest.map(|row| row.version),
+        spec,
+        dirty_fields: Vec::new(),
+        student_edited_fields: Vec::new(),
+        last_patch_id: None,
+        updated_at: now,
+    })
+}
+
+fn persist_live_prd_draft(
+    conn: &rusqlite::Connection,
+    draft: &LiveProjectSpecDraftRow,
+) -> Result<(), String> {
+    prd_dao::upsert_draft(
+        conn,
+        &NewLiveProjectSpecDraft {
+            draft_id: draft.draft_id.clone(),
+            project_id: draft.project_id,
+            base_version: draft.base_version,
+            spec: draft.spec.clone(),
+            dirty_fields: draft.dirty_fields.clone(),
+            student_edited_fields: draft.student_edited_fields.clone(),
+            last_patch_id: draft.last_patch_id.clone(),
+        },
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn project_spec_id_for_draft(draft: &LiveProjectSpecDraftRow) -> String {
+    draft
+        .spec
+        .project_spec_id
+        .clone()
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or_else(|| format!("prd-{}", draft.project_id))
+}
+
+async fn run_prd_interview_turn(
+    provider: &dyn crate::providers::LlmProvider,
+    model: String,
+    draft: &LiveProjectSpecDraftRow,
+    answer: &str,
+) -> Result<String, String> {
+    let req = ChatRequest {
+        model,
+        messages: vec![
+            Message::System {
+                content: build_prd_interview_system_prompt(),
+            },
+            Message::User {
+                content: build_prd_interview_user_prompt(draft, answer),
+            },
+        ],
+        tools: None,
+        tool_choice: Some(ToolChoice::None),
+        temperature: Some(0.2),
+        max_tokens: Some(900),
+        stream: true,
+    };
+    let mut stream = provider.chat(req).await.map_err(|e| e.to_string())?;
+    let mut text = String::new();
+    let mut finish_reason = FinishReason::Stop;
+    while let Some(event) = stream.next().await {
+        match event {
+            ChatEvent::TextDelta(delta) => text.push_str(&delta),
+            ChatEvent::Done {
+                finish_reason: done,
+            } => {
+                finish_reason = done;
+                break;
+            }
+            ChatEvent::Error(err) => return Err(err),
+            ChatEvent::ReasoningDelta(_)
+            | ChatEvent::ToolCallStart { .. }
+            | ChatEvent::ToolCallDelta { .. }
+            | ChatEvent::ToolCallEnd { .. }
+            | ChatEvent::Usage { .. } => {}
+        }
+    }
+    if finish_reason == FinishReason::Error {
+        return Err("PRD interview provider finished with an error".into());
+    }
+    Ok(text)
+}
+
+fn build_prd_interview_system_prompt() -> String {
+    [
+        "You are helping a novice author a real project PRD inside DIVE.",
+        "Return a short conversational assistantMessage and an optional JSON patch.",
+        "The patch may only use these operation names: set_goal, set_intent_summary, append_scope, append_non_goal, append_constraint, append_acceptance_criterion, revise_acceptance_criterion_text.",
+        "Do not invent IDs for new criteria; DIVE assigns AC IDs.",
+        "Use concise JSON with shape {\"assistantMessage\":\"...\",\"patch\":{\"operations\":[...],\"rationale\":\"...\"}}.",
+    ]
+    .join("\n")
+}
+
+fn build_prd_interview_user_prompt(draft: &LiveProjectSpecDraftRow, answer: &str) -> String {
+    let draft_json = serde_json::to_string(&draft.spec).unwrap_or_else(|_| "{}".into());
+    format!(
+        "Current live PRD draft JSON:\n{draft_json}\n\nStudent answer:\n{answer}\n\nReturn the conversational response plus optional PrdPatch JSON."
+    )
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawPrdTurnResponse {
+    assistant_message: Option<String>,
+    patch: Option<RawPrdPatch>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawPrdPatch {
+    operations: Vec<PrdPatchOperation>,
+    rationale: Option<String>,
+}
+
+fn parse_prd_turn_response(raw: &str, turn_id: &str) -> ParsedPrdTurn {
+    let Some(json_text) = extract_json_object(raw) else {
+        return ParsedPrdTurn {
+            assistant_message: Some(raw.trim().to_string()),
+            patch: None,
+        };
+    };
+    if let Ok(response) = serde_json::from_str::<RawPrdTurnResponse>(json_text) {
+        return ParsedPrdTurn {
+            assistant_message: response.assistant_message,
+            patch: response.patch.map(|patch| PrdPatch {
+                patch_id: format!("prd-patch-{}", now_ms()),
+                operations: patch.operations,
+                rationale: patch.rationale,
+                source_turn_id: turn_id.to_string(),
+            }),
+        };
+    }
+    if let Ok(patch) = serde_json::from_str::<RawPrdPatch>(json_text) {
+        return ParsedPrdTurn {
+            assistant_message: Some(raw.replace(json_text, "").trim().to_string()),
+            patch: Some(PrdPatch {
+                patch_id: format!("prd-patch-{}", now_ms()),
+                operations: patch.operations,
+                rationale: patch.rationale,
+                source_turn_id: turn_id.to_string(),
+            }),
+        };
+    }
+    ParsedPrdTurn {
+        assistant_message: Some(raw.trim().to_string()),
+        patch: None,
+    }
+}
+
+struct ParsedPrdTurn {
+    assistant_message: Option<String>,
+    patch: Option<PrdPatch>,
+}
+
+fn extract_json_object(raw: &str) -> Option<&str> {
+    let start = raw.find('{')?;
+    let end = raw.rfind('}')?;
+    if end <= start {
+        return None;
+    }
+    Some(&raw[start..=end])
+}
+
+struct PrdPatchApplyResult {
+    draft: LiveProjectSpecDraftRow,
+    validation_outcome: String,
+    applied_field_paths: Vec<String>,
+    rejected_reasons: Vec<String>,
+    criterion_ids_assigned: Vec<String>,
+    student_edited_fields_respected: Vec<String>,
+}
+
+fn apply_prd_patch_to_draft(
+    draft: LiveProjectSpecDraftRow,
+    patch: &PrdPatch,
+) -> PrdPatchApplyResult {
+    let validation_errors = validate_prd_patch_for_draft(patch, &draft);
+    if !validation_errors.is_empty() {
+        return PrdPatchApplyResult {
+            draft,
+            validation_outcome: "rejected".into(),
+            applied_field_paths: Vec::new(),
+            rejected_reasons: validation_errors,
+            criterion_ids_assigned: Vec::new(),
+            student_edited_fields_respected: Vec::new(),
+        };
+    }
+
+    let mut next = draft;
+    next.spec.scope = compact_unique_strings(next.spec.scope);
+    next.spec.non_goals = compact_unique_strings(next.spec.non_goals);
+    next.spec.constraints = compact_unique_strings(next.spec.constraints);
+    next.last_patch_id = Some(patch.patch_id.clone());
+    next.updated_at = now_ms();
+    let mut applied_field_paths = Vec::new();
+    let mut held_field_paths = Vec::new();
+    let mut criterion_ids_assigned = Vec::new();
+    let mut student_edited_fields_respected = Vec::new();
+
+    for operation in &patch.operations {
+        let field_path = field_path_for_prd_operation(operation);
+        if let Some(conflict) =
+            conflicts_with_student_edit(&field_path, &next.student_edited_fields)
+        {
+            push_unique(&mut held_field_paths, field_path_root(&field_path));
+            push_unique(&mut student_edited_fields_respected, conflict);
+            continue;
+        }
+
+        match operation.op.as_str() {
+            "set_goal" => {
+                next.spec.goal = operation
+                    .value
+                    .clone()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+                push_unique(&mut applied_field_paths, "goal".into());
+            }
+            "set_intent_summary" => {
+                next.spec.intent_summary = operation
+                    .value
+                    .clone()
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty());
+                push_unique(&mut applied_field_paths, "intentSummary".into());
+            }
+            "append_scope" => {
+                if let Some(value) = operation.value.as_ref() {
+                    next.spec.scope = append_unique_string(next.spec.scope, value);
+                    push_unique(&mut applied_field_paths, "scope".into());
+                }
+            }
+            "append_non_goal" => {
+                if let Some(value) = operation.value.as_ref() {
+                    next.spec.non_goals = append_unique_string(next.spec.non_goals, value);
+                    push_unique(&mut applied_field_paths, "nonGoals".into());
+                }
+            }
+            "append_constraint" => {
+                if let Some(value) = operation.value.as_ref() {
+                    next.spec.constraints = append_unique_string(next.spec.constraints, value);
+                    push_unique(&mut applied_field_paths, "constraints".into());
+                }
+            }
+            "append_acceptance_criterion" => {
+                if let Some(text) = operation.text.as_ref() {
+                    let criterion_id =
+                        allocate_acceptance_criterion_id(&next.spec.acceptance_criteria);
+                    next.spec.acceptance_criteria.push(AcceptanceCriterion {
+                        criterion_id: criterion_id.clone(),
+                        text: text.trim().to_string(),
+                        source: AcceptanceCriterionSource::Interview,
+                        status: AcceptanceCriterionStatus::Active,
+                        created_in_version: next.spec.current_version.unwrap_or(1),
+                        retired_in_version: None,
+                    });
+                    push_unique(&mut criterion_ids_assigned, criterion_id);
+                    push_unique(&mut applied_field_paths, "acceptanceCriteria".into());
+                }
+            }
+            "revise_acceptance_criterion_text" => {
+                if let (Some(criterion_id), Some(text)) =
+                    (operation.criterion_id.as_ref(), operation.text.as_ref())
+                {
+                    for criterion in &mut next.spec.acceptance_criteria {
+                        if criterion.criterion_id == *criterion_id {
+                            criterion.text = text.trim().to_string();
+                        }
+                    }
+                    push_unique(
+                        &mut applied_field_paths,
+                        format!("acceptanceCriteria.{criterion_id}.text"),
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    for field in &applied_field_paths {
+        push_unique(&mut next.dirty_fields, field_path_root(field));
+    }
+
+    let validation_outcome = if !held_field_paths.is_empty() {
+        "held_for_student"
+    } else if !applied_field_paths.is_empty() {
+        "applied"
+    } else {
+        "none"
+    }
+    .to_string();
+    let rejected_reasons = if validation_outcome == "held_for_student" {
+        vec!["student_edit_conflict".into()]
+    } else {
+        Vec::new()
+    };
+
+    PrdPatchApplyResult {
+        draft: next,
+        validation_outcome,
+        applied_field_paths,
+        rejected_reasons,
+        criterion_ids_assigned,
+        student_edited_fields_respected,
+    }
+}
+
+fn validate_prd_patch_for_draft(patch: &PrdPatch, draft: &LiveProjectSpecDraftRow) -> Vec<String> {
+    let mut reasons = Vec::new();
+    if patch.operations.len() > MAX_PRD_PATCH_OPERATIONS {
+        push_unique(&mut reasons, "too_many_operations".into());
+    }
+    for operation in &patch.operations {
+        if !is_supported_prd_operation(operation.op.as_str()) {
+            push_unique(&mut reasons, "unsupported_operation".into());
+            continue;
+        }
+        let text = prd_operation_text(operation);
+        if text
+            .as_ref()
+            .map(|value| value.trim().is_empty())
+            .unwrap_or(true)
+        {
+            push_unique(&mut reasons, "missing_text".into());
+            continue;
+        }
+        let text = text.unwrap();
+        if text.chars().count() > MAX_PRD_PATCH_TEXT_CHARS {
+            push_unique(&mut reasons, "text_too_large".into());
+        }
+        if looks_secret_like(text) {
+            push_unique(&mut reasons, "secret_like_text".into());
+        }
+        if operation.op == "revise_acceptance_criterion_text" {
+            let Some(criterion_id) = operation.criterion_id.as_ref() else {
+                push_unique(&mut reasons, "criterion_not_found".into());
+                continue;
+            };
+            if !draft
+                .spec
+                .acceptance_criteria
+                .iter()
+                .any(|criterion| criterion.criterion_id == *criterion_id)
+            {
+                push_unique(&mut reasons, "criterion_not_found".into());
+            }
+        }
+    }
+    reasons
+}
+
+fn is_supported_prd_operation(op: &str) -> bool {
+    matches!(
+        op,
+        "set_goal"
+            | "set_intent_summary"
+            | "append_scope"
+            | "append_non_goal"
+            | "append_constraint"
+            | "append_acceptance_criterion"
+            | "revise_acceptance_criterion_text"
+    )
+}
+
+fn prd_operation_text(operation: &PrdPatchOperation) -> Option<&str> {
+    operation
+        .value
+        .as_deref()
+        .or(operation.text.as_deref())
+        .map(str::trim)
+}
+
+fn field_path_for_prd_operation(operation: &PrdPatchOperation) -> String {
+    match operation.op.as_str() {
+        "set_goal" => "goal".into(),
+        "set_intent_summary" => "intentSummary".into(),
+        "append_scope" => "scope".into(),
+        "append_non_goal" => "nonGoals".into(),
+        "append_constraint" => "constraints".into(),
+        "append_acceptance_criterion" => "acceptanceCriteria".into(),
+        "revise_acceptance_criterion_text" => operation
+            .criterion_id
+            .as_ref()
+            .map(|id| format!("acceptanceCriteria.{id}.text"))
+            .unwrap_or_else(|| "acceptanceCriteria".into()),
+        _ => "unknown".into(),
+    }
+}
+
+fn field_path_root(path: &str) -> String {
+    path.split('.').next().unwrap_or(path).to_string()
+}
+
+fn conflicts_with_student_edit(
+    field_path: &str,
+    student_edited_fields: &[String],
+) -> Option<String> {
+    let root = field_path_root(field_path);
+    student_edited_fields
+        .iter()
+        .find(|field| field.as_str() == field_path || field.as_str() == root)
+        .cloned()
+}
+
+fn append_unique_string(mut values: Vec<String>, value: &str) -> Vec<String> {
+    let value = value.trim();
+    if !value.is_empty() && !values.iter().any(|existing| existing == value) {
+        values.push(value.to_string());
+    }
+    values
+}
+
+fn looks_secret_like(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.contains("sk-")
+        || lower.contains("api_key")
+        || lower.contains("api-key")
+        || lower.contains("token =")
+        || lower.contains("token:")
+        || lower.contains("secret =")
+        || lower.contains("secret:")
+        || lower.contains("bearer ")
+}
+
+fn push_unique(items: &mut Vec<String>, value: String) {
+    if !items.contains(&value) {
+        items.push(value);
+    }
 }
 
 pub fn workspace_plan_dashboard_impl(
@@ -521,6 +2194,24 @@ pub fn workspace_plan_generate_draft_impl(
     let interview = interview_dao::get_by_id(conn, interview_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("interview {interview_id} not found"))?;
+    let project_prd = prd_dao::latest_version(conn, interview.project_id)
+        .map_err(|e| e.to_string())?
+        .map(|row| row.snapshot);
+    if !project_prd
+        .as_ref()
+        .map(is_minimal_project_spec)
+        .unwrap_or(false)
+    {
+        return Err("minimal PRD is required before generating a plan draft".into());
+    }
+    let project_prd = project_prd.expect("minimal PRD checked above");
+    validate_generated_step_traceability(&plan_input, &project_prd)?;
+    let plan_acceptance_criteria = normalize_criterion_inputs(
+        &plan_input.acceptance_criteria,
+        &project_prd.acceptance_criteria,
+        project_prd.current_version,
+        AcceptanceCriterionSource::Migration,
+    );
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     if let Some(existing) =
         plan_dao::get_by_project(&tx, interview.project_id).map_err(|e| e.to_string())?
@@ -550,13 +2241,14 @@ pub fn workspace_plan_generate_draft_impl(
             scope: Some(serde_json::json!(plan_input.scope)),
             non_goals: Some(serde_json::json!(plan_input.non_goals)),
             constraints: Some(serde_json::json!(plan_input.constraints)),
-            acceptance_criteria: Some(serde_json::json!(plan_input.acceptance_criteria)),
+            acceptance_criteria: Some(serde_json::json!(plan_acceptance_criteria)),
             status: "draft".into(),
         },
     )
     .map_err(|e| e.to_string())?;
 
     for step in plan_input.steps {
+        let acceptance_criteria = step_criteria_payload(&step, &project_prd)?;
         step_dao::insert(
             &tx,
             &NewStep {
@@ -566,7 +2258,7 @@ pub fn workspace_plan_generate_draft_impl(
                 summary: Some(step.summary),
                 instruction_seed: Some(step.instruction_seed),
                 expected_files: Some(serde_json::json!(step.expected_files)),
-                acceptance_criteria: Some(serde_json::json!(step.acceptance_criteria)),
+                acceptance_criteria: Some(acceptance_criteria),
                 verification_kind: step.verification_type,
                 verification_command: step.verification_command,
                 verification_manual_check: None,
@@ -817,8 +2509,34 @@ async fn wait_for_route_cancel(cancel: Arc<AtomicBool>) {
 pub fn workspace_plan_append_step_impl(
     state: &AppState,
     plan_id: i64,
-    mut draft: StepDraftInput,
+    draft: StepDraftInput,
 ) -> Result<StepRow, String> {
+    workspace_plan_append_step_with_options_impl(
+        state,
+        plan_id,
+        draft,
+        AppendStepOptions::default(),
+    )
+}
+
+pub fn workspace_plan_append_step_with_options_impl(
+    state: &AppState,
+    plan_id: i64,
+    mut draft: StepDraftInput,
+    options: AppendStepOptions,
+) -> Result<StepRow, String> {
+    let option_linked_criterion_ids = compact_linked_criterion_ids(&options.linked_criterion_ids);
+    if !option_linked_criterion_ids.is_empty() {
+        draft.linked_criterion_ids = option_linked_criterion_ids;
+    } else {
+        draft.linked_criterion_ids = compact_linked_criterion_ids(&draft.linked_criterion_ids);
+    }
+    let mutation_reason = options
+        .mutation_reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     validate_append_draft(&draft)?;
     sanitize_step_verification(&mut draft);
     let mut db = state.db.lock().map_err(|e| e.to_string())?;
@@ -846,22 +2564,39 @@ pub fn workspace_plan_append_step_impl(
             existing.step_id, existing.title
         ));
     }
+    let latest_prd = prd_dao::latest_version(&tx, plan.project_id).map_err(|e| e.to_string())?;
+    let scope_expansion = latest_prd
+        .as_ref()
+        .map(|row| {
+            assess_scope_expansion_for_append(
+                &row.snapshot,
+                &draft,
+                &draft.linked_criterion_ids,
+                options.prd_delta.as_ref(),
+            )
+        })
+        .unwrap_or_else(|| ScopeExpansionAssessment {
+            expanded: false,
+            reason_codes: Vec::new(),
+            evidence_refs: Vec::new(),
+        });
     let step_id = step_dao::next_step_id(&tx, plan_id).map_err(|e| e.to_string())?;
     let position = step_dao::next_position(&tx, plan_id).map_err(|e| e.to_string())?;
+    let acceptance_criteria = append_step_criteria_payload(&draft, latest_prd.as_ref())?;
     let inserted_id = step_dao::insert(
         &tx,
         &NewStep {
             plan_id,
             step_id,
-            title: draft.title,
-            summary: Some(draft.summary),
-            instruction_seed: Some(draft.instruction_seed),
-            expected_files: Some(serde_json::json!(draft.expected_files)),
-            acceptance_criteria: Some(serde_json::json!(draft.acceptance_criteria)),
-            verification_kind: draft.verification_type,
-            verification_command: draft.verification_command,
+            title: draft.title.clone(),
+            summary: Some(draft.summary.clone()),
+            instruction_seed: Some(draft.instruction_seed.clone()),
+            expected_files: Some(serde_json::json!(draft.expected_files.clone())),
+            acceptance_criteria: Some(acceptance_criteria),
+            verification_kind: draft.verification_type.clone(),
+            verification_command: draft.verification_command.clone(),
             verification_manual_check: None,
-            dependencies: Some(serde_json::json!(draft.dependencies)),
+            dependencies: Some(serde_json::json!(draft.dependencies.clone())),
             parallel_group: draft.parallel_group.map(|group| group.to_string()),
             position,
         },
@@ -871,17 +2606,131 @@ pub fn workspace_plan_append_step_impl(
     let row = step_dao::get_by_id(&tx, inserted_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "step not found after insert".to_string())?;
-    tx.commit().map_err(|e| e.to_string())?;
-    let _ = append_plan_activity(
-        conn,
-        &plan,
-        Some(&row),
-        None,
-        "plan_step_appended",
-        "Step appended to plan",
-        None,
+    let prd_update = persist_prd_delta_for_plan_mutation(
+        &tx,
+        plan.project_id,
+        latest_prd.as_ref(),
+        options.prd_delta.as_ref(),
+    )?;
+    let mutation_id = format!("mut-{}-{}", row.step_id, now_ms());
+    plan_mutation_dao::insert_mutation(
+        &tx,
+        &NewPlanMutation {
+            mutation_id: mutation_id.clone(),
+            project_id: plan.project_id,
+            plan_id: plan.id,
+            r#type: PlanMutationType::AddStep,
+            step_db_id: Some(row.id),
+            stable_step_id: Some(row.step_id.clone()),
+            reason: mutation_reason.clone(),
+            criterion_ids: draft.linked_criterion_ids.clone(),
+            prd_delta: prd_update.delta.clone(),
+            scope_expansion: scope_expansion.clone(),
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    let mut payload = dive_event_log::plan_step_appended_payload(
+        mutation_id,
+        prd_update.project_spec_id,
+        prd_update.from_version,
+        prd_update.to_version,
+        draft.linked_criterion_ids.clone(),
+        serde_json::to_value(&scope_expansion).unwrap_or_else(|_| json!({})),
+        prd_update.delta_summary,
     );
+    if let Value::Object(map) = &mut payload {
+        map.insert("project_id".into(), json!(plan.project_id));
+        map.insert("plan_id".into(), json!(plan.id));
+        map.insert("step_id".into(), json!(row.id));
+        map.insert("stable_step_id".into(), json!(row.step_id.clone()));
+        map.insert("step_title".into(), json!(row.title.clone()));
+        map.insert("message".into(), json!("Step appended to plan"));
+        map.insert("reason".into(), json!(mutation_reason));
+    }
+    dive_event_log::append_to_conn(&tx, None, dive_event_log::PLAN_STEP_APPENDED_EVENT, payload)
+        .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    let project_root = state.project_root_required()?;
+    workspace_plan_service::artifacts::export_plan_artifacts(conn, plan_id, &project_root)
+        .map_err(|e| e.to_string())?;
     Ok(row)
+}
+
+pub fn workspace_plan_challenge_step_rationale_impl(
+    state: &AppState,
+    input: StepRationaleChallengeInput,
+) -> Result<StepRationaleChallengeOutput, String> {
+    let text = input.text.trim().to_string();
+    if text.is_empty() {
+        return Err("objection text is required".into());
+    }
+    let mut db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn_mut();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let plan = plan_dao::get_by_id(&tx, input.plan_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("plan {} not found", input.plan_id))?;
+    let step = step_dao::get_by_id(&tx, input.step_db_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("step {} not found", input.step_db_id))?;
+    if step.plan_id != plan.id {
+        return Err(format!(
+            "step {} does not belong to plan {}",
+            step.id, plan.id
+        ));
+    }
+    let linked_criterion_ids = {
+        let provided = compact_linked_criterion_ids(&input.linked_criterion_ids);
+        if provided.is_empty() {
+            json_linked_criterion_ids(step.acceptance_criteria.as_ref())
+        } else {
+            provided
+        }
+    };
+    let objection_id = format!("obj-{}-{}", step.step_id, now_ms());
+    plan_mutation_dao::insert_objection(
+        &tx,
+        &NewObjection {
+            objection_id: objection_id.clone(),
+            project_id: plan.project_id,
+            plan_id: plan.id,
+            step_db_id: step.id,
+            stable_step_id: step.step_id.clone(),
+            text: text.clone(),
+            linked_criterion_ids: linked_criterion_ids.clone(),
+            suggestion_status: ObjectionSuggestionStatus::None,
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    let mut payload = dive_event_log::plan_step_rationale_challenged_payload(
+        plan.project_id,
+        plan.id,
+        step.id,
+        step.step_id.clone(),
+        linked_criterion_ids,
+        objection_id.clone(),
+        text,
+        "none",
+    );
+    if let Value::Object(map) = &mut payload {
+        map.insert(
+            "message".into(),
+            Value::String("Step rationale challenged".into()),
+        );
+        map.insert("step_title".into(), Value::String(step.title.clone()));
+    }
+    dive_event_log::append_to_conn(
+        &tx,
+        None,
+        dive_event_log::PLAN_STEP_RATIONALE_CHALLENGED_EVENT,
+        payload,
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(StepRationaleChallengeOutput {
+        objection_id,
+        suggestion_status: "none".into(),
+    })
 }
 
 pub fn roadmap_step_open_impl(
@@ -1084,6 +2933,7 @@ fn dashboard_row_for_project(
             next_ready_steps: Vec::new(),
             active_steps: Vec::new(),
             last_activity: None,
+            project_spec: None,
         });
     };
 
@@ -1091,6 +2941,9 @@ fn dashboard_row_for_project(
     let mappings = mappings_for_steps(conn, &steps)?;
     let progress = derive_plan_progress(&steps, &mappings);
     let last_activity = latest_plan_activity(conn, plan.id)?;
+    let project_spec = prd_dao::latest_version(conn, plan.project_id)
+        .map_err(|e| e.to_string())?
+        .map(|row| row.snapshot);
 
     Ok(WorkspacePlanDashboardProject {
         project_id: project.id,
@@ -1109,6 +2962,7 @@ fn dashboard_row_for_project(
         next_ready_steps: progress.next_ready_steps,
         active_steps: progress.active_steps,
         last_activity,
+        project_spec,
     })
 }
 
@@ -1364,12 +3218,15 @@ fn validate_step_envelope(step: &StepDraftInput) -> Result<(), String> {
 }
 
 fn broad_scope_score(step: &StepDraftInput) -> usize {
+    let acceptance_text = step
+        .acceptance_criteria
+        .iter()
+        .filter_map(criterion_input_text)
+        .collect::<Vec<_>>()
+        .join("\n");
     let mut text = format!(
         "{}\n{}\n{}\n{}",
-        step.title,
-        step.summary,
-        step.instruction_seed,
-        step.acceptance_criteria.join("\n")
+        step.title, step.summary, step.instruction_seed, acceptance_text
     )
     .to_ascii_lowercase();
     for item in &step.expected_files {
@@ -1478,7 +3335,13 @@ fn step_draft_input_from_router(
         summary: draft.summary,
         instruction_seed: draft.instruction_seed,
         expected_files: draft.expected_files,
-        acceptance_criteria: draft.acceptance_criteria,
+        acceptance_criteria: draft
+            .acceptance_criteria
+            .into_iter()
+            .map(AcceptanceCriterionInput::Text)
+            .collect(),
+        linked_criterion_ids: Vec::new(),
+        rationale: None,
         verification_command: draft.verification_command,
         verification_type: draft.verification_type,
         dependencies: draft.dependencies,
@@ -1558,28 +3421,74 @@ fn validate_draft_dependencies(
 }
 
 fn json_string_array(value: Option<&serde_json::Value>) -> Vec<String> {
-    value
-        .and_then(|value| value.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| item.as_str().map(ToOwned::to_owned))
-                .collect()
-        })
-        .unwrap_or_default()
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    match value {
+        Value::Array(items) => items.iter().filter_map(json_criterion_text).collect(),
+        Value::Object(map) => map
+            .get("criteria")
+            .or_else(|| map.get("acceptanceCriteria"))
+            .or_else(|| map.get("acceptance_criteria"))
+            .and_then(Value::as_array)
+            .map(|items| items.iter().filter_map(json_criterion_text).collect())
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+fn json_linked_criterion_ids(value: Option<&serde_json::Value>) -> Vec<String> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    collect_json_linked_criterion_ids(value, &mut out);
+    out
+}
+
+fn collect_json_linked_criterion_ids(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                collect_json_linked_criterion_ids(item, out);
+            }
+        }
+        Value::Object(map) => {
+            if let Some(id) = map
+                .get("criterionId")
+                .or_else(|| map.get("criterion_id"))
+                .and_then(Value::as_str)
+            {
+                push_unique(out, id.to_string());
+            }
+            for key in ["linkedCriterionIds", "linked_criterion_ids"] {
+                if let Some(ids) = map.get(key).and_then(Value::as_array) {
+                    for id in ids.iter().filter_map(Value::as_str) {
+                        push_unique(out, id.to_string());
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 fn join_string_array(value: Option<&serde_json::Value>) -> Option<String> {
-    let items = value?
-        .as_array()?
-        .iter()
-        .filter_map(|item| item.as_str())
-        .collect::<Vec<_>>();
+    let items = json_string_array(value);
     if items.is_empty() {
         None
     } else {
         Some(items.join("\n"))
     }
+}
+
+fn json_criterion_text(value: &Value) -> Option<String> {
+    if let Some(text) = value.as_str() {
+        let text = text.trim();
+        return (!text.is_empty()).then(|| text.to_string());
+    }
+    let text = value.get("text").and_then(Value::as_str)?.trim();
+    (!text.is_empty()).then(|| text.to_string())
 }
 
 #[cfg(test)]
@@ -1592,7 +3501,11 @@ mod envelope_tests {
             summary: "Store current question and selected answer.".into(),
             instruction_seed: "Implement the current-question state in src/App.tsx only.".into(),
             expected_files: vec!["src/App.tsx".into()],
-            acceptance_criteria: vec!["Selecting an answer updates visible state.".into()],
+            acceptance_criteria: vec![AcceptanceCriterionInput::Text(
+                "Selecting an answer updates visible state.".into(),
+            )],
+            linked_criterion_ids: vec!["AC-001".into()],
+            rationale: Some("This step isolates the visible state required by AC-001.".into()),
             verification_command: Some("pnpm test".into()),
             verification_type: Some("command".into()),
             dependencies: Vec::new(),

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { LlmPlanDraftPayload, PlanDraftInput, StepDraftInput } from "./types";
+import { adaptAcceptanceCriteria } from "./projectSpec";
 
 interface AssistantEndEvent {
   type: "assistant_end";
@@ -36,6 +37,10 @@ function optionalNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function criteriaArray(value: unknown) {
+  return adaptAcceptanceCriteria(value);
+}
+
 function decodeStep(raw: unknown, index: number): StepDraftInput | null {
   if (typeof raw !== "object" || raw === null) return null;
   const source = raw as Record<string, unknown>;
@@ -43,6 +48,14 @@ function decodeStep(raw: unknown, index: number): StepDraftInput | null {
   const summary = optionalString(source.summary);
   const instructionSeed = optionalString(source.instruction_seed ?? source.instructionSeed);
   if (!title || !summary || !instructionSeed) return null;
+  const acceptanceCriteria = criteriaArray(source.acceptance_criteria ?? source.acceptanceCriteria);
+  const linkedCriterionIds = stringArray(source.linked_criterion_ids ?? source.linkedCriterionIds);
+  const derivedLinkedCriterionIds =
+    linkedCriterionIds.length > 0
+      ? linkedCriterionIds
+      : acceptanceCriteria.map((criterion) => criterion.criterionId);
+  const rationale = optionalString(source.rationale ?? source.decomposition_rationale);
+  if (derivedLinkedCriterionIds.length === 0 || !rationale) return null;
   return {
     stepId:
       optionalString(source.step_id ?? source.stepId) ??
@@ -51,7 +64,9 @@ function decodeStep(raw: unknown, index: number): StepDraftInput | null {
     summary,
     instructionSeed,
     expectedFiles: stringArray(source.expected_files ?? source.expectedFiles),
-    acceptanceCriteria: stringArray(source.acceptance_criteria ?? source.acceptanceCriteria),
+    acceptanceCriteria,
+    linkedCriterionIds: derivedLinkedCriterionIds,
+    rationale,
     verificationCommand: optionalString(source.verification_command ?? source.verificationCommand),
     verificationType: optionalString(source.verification_type ?? source.verificationType),
     dependencies: stringArray(source.dependencies),
@@ -63,7 +78,7 @@ function decodeStep(raw: unknown, index: number): StepDraftInput | null {
 export function decodeWorkspacePlanDraftFromLlm(raw: unknown): LlmPlanDraftPayload | null {
   if (typeof raw !== "object" || raw === null) return null;
   const source = raw as Record<string, unknown>;
-  const payload = (source.plan_draft ?? source) as Record<string, unknown>;
+  const payload = (source.plan_draft ?? source.planDraft ?? source) as Record<string, unknown>;
   const planInputRaw = payload.plan_input ?? payload.planInput;
   if (typeof planInputRaw !== "object" || planInputRaw === null) return null;
   const planSource = planInputRaw as Record<string, unknown>;
@@ -84,7 +99,7 @@ export function decodeWorkspacePlanDraftFromLlm(raw: unknown): LlmPlanDraftPaylo
     scope: stringArray(planSource.scope),
     nonGoals: stringArray(planSource.non_goals ?? planSource.nonGoals),
     constraints: stringArray(planSource.constraints),
-    acceptanceCriteria: stringArray(
+    acceptanceCriteria: criteriaArray(
       planSource.acceptance_criteria ?? planSource.acceptanceCriteria,
     ),
     steps,

@@ -145,6 +145,10 @@ pub fn run() {
             ipc::menu_refresh_recents,
             menu::menu_set_locale,
             ipc::workspace_plan_status,
+            ipc::workspace_prd_status,
+            ipc::workspace_prd_get,
+            ipc::workspace_prd_interview_turn,
+            ipc::workspace_prd_save,
             ipc::workspace_plan_dashboard,
             ipc::workspace_plan_activity,
             ipc::workspace_plan_start_interview,
@@ -159,6 +163,7 @@ pub fn run() {
             ipc::workspace_plan_route_chat,
             ipc::workspace_plan_route_cancel,
             ipc::workspace_plan_append_step,
+            ipc::workspace_plan_challenge_step_rationale,
             ipc::roadmap_step_open,
             ipc::roadmap_step_update_state
         ])
