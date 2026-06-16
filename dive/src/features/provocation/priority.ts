@@ -6,11 +6,14 @@ import type {
 } from "./types";
 
 const TYPE_PRIORITY: Record<ProvocationCardType, number> = {
+  diff_scope_review: 650,
   diff_scope_drift: 600,
   ai_self_report_only: 500,
+  retry_loop_review: 450,
   regeneration_loop: 400,
   missing_verification_step: 300,
   scope_expansion: 250,
+  plan_draft_review: 240,
   missing_acceptance_criteria: 200,
   oversized_scope: 100,
 };

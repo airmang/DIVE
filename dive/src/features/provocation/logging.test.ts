@@ -150,6 +150,71 @@ describe("provocation lifecycle logging payloads", () => {
     }
   });
 
+  it("correlates expanded card lifecycle logs with artifact and assessment metadata", () => {
+    const expandedCard = card({
+      id: "provocation:step-1:diff_scope_drift:sha256:evidence",
+      type: "diff_scope_review",
+      stage: "verify",
+      severity: "caution",
+      metadata: {
+        supervisorEvaluationId: "eval-diff",
+        supervisorEvent: "diff_ready",
+        contextHash: "fnv1a:context",
+        evidenceHash: "fnv1a:evidence",
+        projectId: 7,
+        planId: 9,
+        artifactRef: { kind: "diff", id: "step-1:diff", label: "Changed work" },
+        assessmentSummary: {
+          unexpectedFiles: ["src/auth/session.ts"],
+          highRiskFiles: ["src/auth/session.ts"],
+        },
+      },
+      actions: [{ id: "open_diff", kind: "open_diff", label: "변경 보기" }],
+    });
+    const base = {
+      card: expandedCard,
+      mode: "work" as const,
+      context: {
+        projectId: 7,
+        sessionId: 2,
+        taskId: 1,
+        changedFiles: [{ path: "src/App.tsx" }],
+        targetFiles: ["src/App.tsx"],
+      } satisfies Partial<ProvocationContext>,
+    };
+    const payloads = [
+      buildProvocationLogPayload({ ...base, eventType: "provocation.card_shown" }),
+      buildProvocationLogPayload({
+        ...base,
+        eventType: "provocation.action_clicked",
+        action: { id: "open_diff", kind: "open_diff", label: "변경 보기" },
+      }),
+      buildProvocationLogPayload({ ...base, eventType: "provocation.dismissed" }),
+      buildProvocationLogPayload({ ...base, eventType: "provocation.marked_irrelevant" }),
+    ];
+
+    for (const payload of payloads) {
+      expect(payload.supervisorCorrelation).toMatchObject({
+        supervisorEvaluationId: "eval-diff",
+        event: "diff_ready",
+        artifactRef: { kind: "diff", id: "step-1:diff" },
+        projectId: 7,
+        planId: 9,
+      });
+      expect(payload.affectedFiles).toEqual({
+        changedFiles: ["src/auth/session.ts", "src/App.tsx"],
+        targetFiles: ["src/App.tsx"],
+        highRiskFiles: ["src/auth/session.ts"],
+      });
+    }
+    expect(payloads.map((payload) => payload.lifecycleEvent)).toEqual([
+      "card_shown",
+      "action_clicked",
+      "dismissed",
+      "marked_irrelevant",
+    ]);
+  });
+
   it("keeps action availability metadata compact and explicit", () => {
     const payload = buildProvocationLogPayload({
       eventType: "provocation.action_clicked",

@@ -321,7 +321,10 @@ fn approving_plan_exports_prd_lifecycle_foundation() {
     );
     assert_eq!(artifact["planMutations"][0]["mutationId"], "mut-001");
     assert_eq!(artifact["objections"][0]["objectionId"], "obj-001");
-    assert_eq!(artifact["objections"][0]["objectionSummary"]["redacted"], true);
+    assert_eq!(
+        artifact["objections"][0]["objectionSummary"]["redacted"],
+        true
+    );
     assert!(!artifact_raw.contains("student@example.edu"));
     assert!(!artifact_raw.contains("Why does export belong here?"));
     assert_eq!(

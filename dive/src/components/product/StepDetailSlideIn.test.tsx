@@ -21,6 +21,10 @@ function lastSupervisorRequest() {
   return evaluateMock.mock.calls[evaluateMock.mock.calls.length - 1]?.[0];
 }
 
+function findSupervisorRequest(event: string) {
+  return evaluateMock.mock.calls.find(([request]) => request.event === event)?.[0];
+}
+
 function reviewStep(overrides: Partial<RoadmapStep> = {}): RoadmapStep {
   return {
     id: 1,
@@ -66,8 +70,8 @@ function supervisorCard(overrides: Partial<ProvocationCard> = {}): ProvocationCa
   };
 }
 
-function renderStepDetail(overrides: Partial<ComponentProps<typeof StepDetailSlideIn>> = {}) {
-  return render(
+function stepDetailElement(overrides: Partial<ComponentProps<typeof StepDetailSlideIn>> = {}) {
+  return (
     <StepDetailSlideIn
       open
       step={reviewStep()}
@@ -101,8 +105,12 @@ function renderStepDetail(overrides: Partial<ComponentProps<typeof StepDetailSli
       rollbackAvailable
       provocation={{ enabled: true, mode: "work", projectId: 1, sessionId: 2 }}
       {...overrides}
-    />,
+    />
   );
+}
+
+function renderStepDetail(overrides: Partial<ComponentProps<typeof StepDetailSlideIn>> = {}) {
+  return render(stepDetailElement(overrides));
 }
 
 describe("StepDetailSlideIn supervisor-backed review cards", () => {
@@ -117,10 +125,19 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
 
   it("places a backend ai_self_report_only 검토 카드 near final approval and routes actions", async () => {
     const onOpenCode = vi.fn();
-    evaluateMock.mockResolvedValue({
-      status: "shown",
-      evaluationId: "eval-1",
-      card: supervisorCard(),
+    evaluateMock.mockImplementation((request) => {
+      if (request.event === "diff_ready") {
+        return Promise.resolve({
+          status: "none",
+          evaluationId: "eval-diff",
+          dropReason: "provoke_false",
+        });
+      }
+      return Promise.resolve({
+        status: "shown",
+        evaluationId: "eval-1",
+        card: supervisorCard(),
+      });
     });
 
     renderStepDetail({ onOpenCode });
@@ -176,8 +193,10 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
       },
     });
 
-    await waitFor(() => expect(evaluateMock).toHaveBeenCalledTimes(1));
-    expect(evaluateMock.mock.calls[0][0].uiState.verification.automatedTestsPassed).toBe(true);
+    await waitFor(() => expect(findSupervisorRequest("verify_entered")).toBeTruthy());
+    expect(findSupervisorRequest("verify_entered")?.uiState.verification.automatedTestsPassed).toBe(
+      true,
+    );
     expect(screen.queryByTestId("provocation-card")).toBeNull();
   });
 
@@ -190,20 +209,29 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
 
     renderStepDetail();
 
-    await waitFor(() => expect(evaluateMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(findSupervisorRequest("verify_entered")).toBeTruthy());
     expect(screen.queryByTestId("provocation-card")).toBeNull();
     expect(screen.queryByText("확인 필요 카드")).toBeNull();
   });
 
   it("does not fabricate preview verification evidence from the preview click alone", async () => {
     const onOpenPreview = vi.fn();
-    evaluateMock.mockResolvedValue({
-      status: "shown",
-      evaluationId: "eval-preview",
-      card: supervisorCard({
-        actions: [{ id: "open_preview", kind: "open_preview", label: "미리보기 열기" }],
-        primaryActionId: "open_preview",
-      }),
+    evaluateMock.mockImplementation((request) => {
+      if (request.event === "diff_ready") {
+        return Promise.resolve({
+          status: "none",
+          evaluationId: "eval-diff",
+          dropReason: "provoke_false",
+        });
+      }
+      return Promise.resolve({
+        status: "shown",
+        evaluationId: "eval-preview",
+        card: supervisorCard({
+          actions: [{ id: "open_preview", kind: "open_preview", label: "미리보기 열기" }],
+          primaryActionId: "open_preview",
+        }),
+      });
     });
 
     renderStepDetail({
@@ -259,8 +287,8 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
       },
     });
 
-    await waitFor(() => expect(evaluateMock).toHaveBeenCalledTimes(1));
-    expect(evaluateMock.mock.calls[0][0].uiState.feasibility).toEqual({
+    await waitFor(() => expect(findSupervisorRequest("verify_entered")).toBeTruthy());
+    expect(findSupervisorRequest("verify_entered")?.uiState.feasibility).toEqual({
       runnable: false,
       previewable: false,
       hasTests: false,
@@ -295,10 +323,162 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
       }),
     });
 
-    await waitFor(() => expect(evaluateMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(findSupervisorRequest("verify_entered")).toBeTruthy());
     expect(screen.queryByTestId("step-detail-linked-criteria")).toBeNull();
     expect(screen.queryByTestId("step-detail-rationale")).toBeNull();
     expect(screen.queryByTestId("step-rationale-challenge-toggle")).toBeNull();
     expect(screen.getByTestId("step-detail-verification-focus")).toBeTruthy();
+  });
+
+  it("places a diff_ready card near changed-work review and opens the diff", async () => {
+    const onOpenCode = vi.fn();
+    evaluateMock.mockImplementation((request) => {
+      if (request.event === "diff_ready") {
+        return Promise.resolve({
+          status: "shown",
+          evaluationId: "eval-diff",
+          card: supervisorCard({
+            id: "provocation:step-1:diff_scope_drift:sha256:test",
+            type: "diff_scope_review",
+            stage: "verify",
+            title: "확인 필요 카드",
+            prompt: "이 변경 파일이 현재 목표 범위 안에 있나요?",
+            message: "변경된 파일이 현재 목표와 계획 범위 안에 있는지 확인하세요.",
+            evidence: [
+              {
+                refId: "diff.changed_files",
+                label: "Changed files",
+                source: "diff",
+                kind: "changed_file",
+              },
+            ],
+            actions: [{ id: "open_diff", kind: "open_diff", label: "변경 보기" }],
+            primaryActionId: "open_diff",
+            metadata: {
+              supervisorEvaluationId: "eval-diff",
+              supervisorEvent: "diff_ready",
+              highRiskFiles: ["src/auth/session.ts"],
+            },
+          }),
+        });
+      }
+      return Promise.resolve({
+        status: "shown",
+        evaluationId: "eval-verify",
+        card: supervisorCard(),
+      });
+    });
+
+    renderStepDetail({
+      onOpenCode,
+      changedFiles: [
+        { path: "src/App.tsx", diff: null },
+        { path: "src/auth/session.ts", diff: null },
+      ],
+    });
+
+    const card = await screen.findByTestId("provocation-card");
+    expect(card.dataset.cardType).toBe("diff_scope_review");
+    expect(findSupervisorRequest("diff_ready")).toMatchObject({
+      event: "diff_ready",
+      diffReadyAssessment: {
+        eligible: true,
+        unexpectedFiles: ["src/auth/session.ts"],
+        highRiskFiles: ["src/auth/session.ts"],
+      },
+    });
+    expect(findSupervisorRequest("verify_entered")).toBeUndefined();
+
+    fireEvent.click(screen.getByTestId("provocation-primary-action"));
+    expect(onOpenCode).toHaveBeenCalledTimes(1);
+  });
+
+  it("places a retry_loop card after the same step failure repeats and opens recovery", async () => {
+    const onOpenRecovery = vi.fn();
+    evaluateMock.mockImplementation((request) => {
+      if (request.event === "retry_loop") {
+        return Promise.resolve({
+          status: "shown",
+          evaluationId: "eval-retry",
+          card: supervisorCard({
+            id: "provocation:step-1:retry_loop:sha256:test",
+            type: "retry_loop_review",
+            stage: "verify",
+            title: "확인 필요 카드",
+            prompt: "같은 실패가 반복되니 먼저 복구 지점을 확인할까요?",
+            message: "같은 실패가 반복되고 있습니다. 재현과 복구 지점을 먼저 확인하세요.",
+            evidence: [
+              {
+                refId: "failure.fingerprint",
+                label: "Repeated failure",
+                source: "terminal",
+                kind: "failure_summary",
+              },
+            ],
+            actions: [
+              { id: "rollback_last_change", kind: "rollback_last_change", label: "복구 열기" },
+            ],
+            primaryActionId: "rollback_last_change",
+            metadata: {
+              supervisorEvaluationId: "eval-retry",
+              supervisorEvent: "retry_loop",
+            },
+          }),
+        });
+      }
+      return Promise.resolve({
+        status: "none",
+        evaluationId: "eval-none",
+        dropReason: "provoke_false",
+      });
+    });
+
+    const firstFailureLog = {
+      intent_match: false,
+      test_result: "fail" as const,
+      details: "TypeError: Cannot read properties of undefined at src/settings/save.ts:42",
+      model: "mock",
+      ran_at: 1,
+    };
+    const secondFailureLog = {
+      ...firstFailureLog,
+      details: "TypeError: Cannot read properties of undefined at src/settings/save.ts:99",
+      ran_at: 2,
+    };
+    const view = renderStepDetail({
+      onOpenRecovery,
+      verifyState: "error",
+      verifyError: firstFailureLog.details,
+      verifyLog: firstFailureLog,
+    });
+
+    await waitFor(() => expect(findSupervisorRequest("verify_entered")).toBeTruthy());
+    expect(findSupervisorRequest("diff_ready")).toBeUndefined();
+    expect(findSupervisorRequest("retry_loop")).toBeUndefined();
+    evaluateMock.mockClear();
+
+    view.rerender(
+      stepDetailElement({
+        onOpenRecovery,
+        verifyState: "error",
+        verifyError: secondFailureLog.details,
+        verifyLog: secondFailureLog,
+      }),
+    );
+
+    const card = await screen.findByTestId("provocation-card");
+    expect(card.dataset.cardType).toBe("retry_loop_review");
+    expect(findSupervisorRequest("retry_loop")).toMatchObject({
+      event: "retry_loop",
+      retryLoopAssessment: {
+        eligible: true,
+        failureCount: 2,
+        recoveryAvailable: true,
+      },
+    });
+    expect(findSupervisorRequest("diff_ready")).toBeUndefined();
+
+    fireEvent.click(screen.getByTestId("provocation-primary-action"));
+    expect(onOpenRecovery).toHaveBeenCalledTimes(1);
   });
 });

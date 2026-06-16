@@ -146,6 +146,9 @@ fn infer_agency_component(event_type: &str, payload: &Value) -> Option<&'static 
         SUPERVISOR_EVALUATED_EVENT => {
             return match string_field(payload, "event") {
                 Some("scope_expansion") => Some("plan"),
+                Some("plan_drafted") => Some("plan"),
+                Some("diff_ready") => Some("diff"),
+                Some("retry_loop") => Some("rollback"),
                 _ => Some("verify"),
             }
         }
@@ -222,6 +225,9 @@ fn component_for_card_type(card_type: &str) -> Option<&'static str> {
     match card_type {
         "oversized_scope" | "missing_acceptance_criteria" => Some("intent"),
         "scope_expansion" => Some("plan"),
+        "plan_draft_review" => Some("plan"),
+        "diff_scope_review" => Some("diff"),
+        "retry_loop_review" => Some("rollback"),
         "missing_verification_step" => Some("plan"),
         "diff_scope_drift" => Some("diff"),
         "ai_self_report_only" => Some("verify"),
@@ -260,12 +266,29 @@ fn infer_agency_state(event_type: &str, payload: &Value) -> Option<&'static str>
 
     match event_type {
         SUPERVISOR_EVALUATED_EVENT => {
-            if string_field(payload, "event") == Some("scope_expansion") {
-                return match string_field(payload, "validationOutcome") {
-                    Some("shown") => Some("plan_review_needed"),
-                    Some("none" | "dropped" | "error") => Some("plan_review_dropped"),
-                    _ => None,
-                };
+            match string_field(payload, "event") {
+                Some("scope_expansion" | "plan_drafted") => {
+                    return match string_field(payload, "validationOutcome") {
+                        Some("shown") => Some("plan_review_needed"),
+                        Some("none" | "dropped" | "error") => Some("plan_review_dropped"),
+                        _ => None,
+                    }
+                }
+                Some("diff_ready") => {
+                    return match string_field(payload, "validationOutcome") {
+                        Some("shown") => Some("diff_review_needed"),
+                        Some("none" | "dropped" | "error") => Some("verification_needed"),
+                        _ => None,
+                    }
+                }
+                Some("retry_loop") => {
+                    return match string_field(payload, "validationOutcome") {
+                        Some("shown") => Some("verification_failed"),
+                        Some("none" | "dropped" | "error") => Some("verification_needed"),
+                        _ => None,
+                    }
+                }
+                _ => {}
             }
             return match string_field(payload, "validationOutcome") {
                 Some("shown") => Some("ai_self_report_only"),
@@ -333,6 +356,9 @@ fn state_for_card_type(card_type: &str) -> Option<&'static str> {
     match card_type {
         "oversized_scope" | "missing_acceptance_criteria" => Some("intent_needed"),
         "scope_expansion" => Some("plan_review_needed"),
+        "plan_draft_review" => Some("plan_review_needed"),
+        "diff_scope_review" => Some("diff_review_needed"),
+        "retry_loop_review" => Some("verification_failed"),
         "missing_verification_step" => Some("verification_needed"),
         "diff_scope_drift" => Some("diff_review_needed"),
         "ai_self_report_only" => Some("ai_self_report_only"),
@@ -356,6 +382,15 @@ fn infer_affected_files(payload: &Value) -> Option<Value> {
 
     if let Some(metadata) = payload.get("approval_metadata") {
         copy_existing_value_as(metadata, &mut out, "highRiskFiles", "highRiskFiles");
+    }
+
+    if let Some(assessment) = payload
+        .get("assessmentSummary")
+        .or_else(|| payload.get("diffReadyAssessment"))
+    {
+        copy_existing_value_as(assessment, &mut out, "unexpectedFiles", "changedFiles");
+        copy_existing_value_as(assessment, &mut out, "highRiskFiles", "highRiskFiles");
+        copy_existing_value_as(assessment, &mut out, "changedFileCount", "changedFileCount");
     }
 
     if let Some(path) = string_field(payload, "path") {
@@ -1232,6 +1267,7 @@ mod tests {
                 suggested_action_ids: vec!["open_diff".into()],
                 stripped_action_ids: vec![],
             }),
+            assessment_summary: None,
             validation_outcome,
             drop_reason,
             card_id: card_id.map(str::to_owned),
@@ -1310,6 +1346,10 @@ mod tests {
                 suggested_action_ids: vec!["link_criterion".into()],
                 stripped_action_ids: vec![],
             }),
+            assessment_summary: Some(json!({
+                "reasonCodes": ["missing_criterion_link"],
+                "evidenceRefs": ["add_step.title"]
+            })),
             validation_outcome: SupervisorValidationOutcome::Shown,
             drop_reason: None,
             card_id: Some("provocation:draft-1:scope_expansion:sha256:scope-evidence".into()),
@@ -1327,6 +1367,163 @@ mod tests {
         assert_eq!(row.payload["agencyState"], "plan_review_needed");
         assert_eq!(row.payload["decision"]["event"], "scope_expansion");
         assert_eq!(row.payload["decision"]["validationOutcome"], "shown");
+    }
+
+    #[test]
+    fn expanded_supervisor_evaluation_append_enriches_plan_drafted_payload() {
+        let enriched = enrich_agency_payload(
+            SUPERVISOR_EVALUATED_EVENT,
+            json!({
+                "schemaVersion": 1,
+                "event": "plan_drafted",
+                "artifactRef": {"kind": "plan_draft", "id": "plan-1:draft", "label": "Plan draft"},
+                "validationOutcome": "shown",
+                "dropReason": null,
+                "cardId": "provocation:plan-1:plan_draft_weakness:sha256:evidence",
+                "evidenceRefs": [
+                    {
+                        "id": "plan.step.s_001.verification",
+                        "source": "plan",
+                        "kind": "verification_coverage",
+                        "label": "Missing verification",
+                        "verificationEvidence": false
+                    }
+                ]
+            }),
+        );
+
+        assert_eq!(enriched["agencyComponent"], "plan");
+        assert_eq!(enriched["agencyState"], "plan_review_needed");
+        assert_eq!(enriched["evidenceSummary"]["count"], 1);
+        assert_eq!(enriched["decision"]["event"], "plan_drafted");
+    }
+
+    #[test]
+    fn expanded_supervisor_evaluation_rows_preserve_audit_correlation_fields() {
+        let (db, _) = crate::db::tests::fresh_db();
+        let (_, session_id) = crate::db::tests::seed_project_session(db.conn());
+        let cases = [
+            json!({
+                "schemaVersion": 1,
+                "event": "plan_drafted",
+                "artifactRef": {"kind": "plan_draft", "id": "plan-1:draft", "label": "Plan draft"},
+                "contextHash": "fnv1a:plan-context",
+                "evidenceHash": "fnv1a:plan-evidence",
+                "validationOutcome": "shown",
+                "dropReason": null,
+                "cardId": "provocation:plan-1:plan_draft_weakness:sha256:evidence",
+                "supervisorEvaluationId": "eval-plan",
+                "decisionSummary": {
+                    "provoke": true,
+                    "concern": "plan_draft_weakness",
+                    "severity": "caution",
+                    "evidenceRefIds": ["plan.step.s_001.verification"],
+                    "suggestedActionIds": ["add_verification_step"],
+                    "strippedActionIds": []
+                },
+                "assessmentSummary": {
+                    "reasonCodes": ["missing_verification"],
+                    "evidenceRefs": ["plan.step.s_001.verification"]
+                },
+                "evidenceRefs": [{
+                    "id": "plan.step.s_001.verification",
+                    "source": "plan",
+                    "kind": "verification_coverage",
+                    "label": "Missing verification",
+                    "verificationEvidence": false
+                }]
+            }),
+            json!({
+                "schemaVersion": 1,
+                "event": "diff_ready",
+                "artifactRef": {"kind": "diff", "id": "step-1:diff", "label": "Changed work"},
+                "contextHash": "fnv1a:diff-context",
+                "evidenceHash": "fnv1a:diff-evidence",
+                "validationOutcome": "none",
+                "dropReason": "provoke_false",
+                "cardId": null,
+                "supervisorEvaluationId": "eval-diff",
+                "decisionSummary": {
+                    "provoke": false,
+                    "concern": "diff_scope_drift",
+                    "severity": "caution",
+                    "evidenceRefIds": ["diff.changed_files"],
+                    "suggestedActionIds": ["open_diff"],
+                    "strippedActionIds": []
+                },
+                "assessmentSummary": {
+                    "reasonCodes": [],
+                    "evidenceRefs": ["diff.changed_files"],
+                    "changedFileCount": 1,
+                    "unexpectedFiles": ["src/auth/session.ts"],
+                    "highRiskFiles": ["src/auth/session.ts"]
+                },
+                "evidenceRefs": [{
+                    "id": "diff.changed_files",
+                    "source": "diff",
+                    "kind": "changed_file",
+                    "label": "Changed files",
+                    "verificationEvidence": false
+                }]
+            }),
+            json!({
+                "schemaVersion": 1,
+                "event": "retry_loop",
+                "artifactRef": {"kind": "failure", "id": "step-1:failure", "label": "Repeated failure"},
+                "contextHash": "fnv1a:retry-context",
+                "evidenceHash": "fnv1a:retry-evidence",
+                "validationOutcome": "dropped",
+                "dropReason": "runtime_unavailable",
+                "cardId": null,
+                "supervisorEvaluationId": "eval-retry",
+                "decisionSummary": {
+                    "provoke": true,
+                    "concern": "retry_loop",
+                    "severity": "caution",
+                    "evidenceRefIds": ["failure.fingerprint"],
+                    "suggestedActionIds": ["create_repro_steps"],
+                    "strippedActionIds": []
+                },
+                "assessmentSummary": {
+                    "reasonCodes": ["same_failure_repeated"],
+                    "evidenceRefs": ["failure.fingerprint"],
+                    "failureFingerprint": "typeerror_at_save",
+                    "failureCount": 2
+                },
+                "evidenceRefs": [{
+                    "id": "failure.fingerprint",
+                    "source": "terminal",
+                    "kind": "failure_summary",
+                    "label": "Failure fingerprint",
+                    "verificationEvidence": false
+                }]
+            }),
+        ];
+
+        for payload in cases {
+            let row_id = append_to_conn(
+                db.conn(),
+                Some(session_id),
+                SUPERVISOR_EVALUATED_EVENT,
+                payload,
+            )
+            .unwrap();
+            let row = event_log_dao::get_by_id(db.conn(), row_id)
+                .unwrap()
+                .unwrap();
+            assert!(row.payload.get("supervisorEvaluationId").is_some());
+            assert!(row.payload.get("artifactRef").is_some());
+            assert!(row.payload.get("evidenceRefs").is_some());
+            assert!(row.payload.get("assessmentSummary").is_some());
+            assert!(row.payload.get("validationOutcome").is_some());
+            assert!(row.payload.get("decision").is_some());
+            if row.payload["event"] == "diff_ready" {
+                assert_eq!(
+                    row.payload["affectedFiles"]["highRiskFiles"],
+                    json!(["src/auth/session.ts"])
+                );
+            }
+        }
     }
 
     #[test]

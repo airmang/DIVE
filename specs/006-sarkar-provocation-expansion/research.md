@@ -108,3 +108,25 @@ action concepts.
   plan-draft and retry-loop cards need revision/recovery-oriented actions.
 - Add new action kinds such as `inspect_last_change`: deferred until a visible
   UI route exists.
+
+## Phase 1 Implementation Inventory (2026-06-16)
+
+Current code drift from the design plan is small and compatible with the 006
+scope:
+
+- `PlanDraftApprovalScreen.tsx` still calls public `generateProvocationCards`
+  for plan approval, but that public function is shipped-safe no-op unless the
+  internal `VITE_DIVE_INTERNAL_PROVOCATION_RULE_CARDS` flag is enabled. This
+  surface should switch to `plan_drafted` backend evaluation.
+- `StepDetailSlideIn.tsx` already calls `provocation_agent_evaluate` for the
+  existing `verify_entered` path and is the correct place to arbitrate
+  `diff_ready`, `retry_loop`, and `verify_entered` cards.
+- `TerminalTab.tsx`, `MessageList.tsx`, and `useProvocationCards.ts` still call
+  public rule-card helpers, but the shipped path returns no cards. `TerminalTab`
+  must not regain global terminal heuristics; any retry card needs active
+  step/session evidence through the backend-backed path.
+- Rust supervisor, IPC, EventLog, and export code already support
+  `scope_expansion` no-static-fallback behavior. 006 should extend those typed
+  seams instead of adding a new command or EventLog type.
+
+No implementation scope change is required before coding.

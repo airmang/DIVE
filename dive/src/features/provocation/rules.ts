@@ -640,6 +640,9 @@ function cardEligibleForStage(card: ProvocationCard, context: ProvocationContext
     case "oversized_scope":
       return context.stage === "decompose" || context.stage === "instruct";
     case "scope_expansion":
+    case "plan_draft_review":
+    case "diff_scope_review":
+    case "retry_loop_review":
       return false;
     case "missing_acceptance_criteria":
       return context.stage === "decompose" || context.stage === "instruct";

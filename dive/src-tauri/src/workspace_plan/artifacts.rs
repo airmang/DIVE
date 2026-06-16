@@ -186,19 +186,17 @@ fn build_plan_adjustment_offer_artifacts(
     objections
         .iter()
         .filter_map(plan_mutation::reconstruct_plan_adjustment_offer)
-        .map(|offer| {
-            PlanAdjustmentOfferArtifact {
-                offer_id: offer.offer_id,
-                objection_id: offer.objection_id,
-                plan_id: offer.plan_id,
-                step_db_id: offer.step_db_id,
-                stable_step_id: offer.stable_step_id,
-                status: offer.status.as_str().to_string(),
-                kind: offer.kind.as_str().to_string(),
-                suggested_seed: offer.suggested_seed,
-                created_at: offer.created_at,
-                responded_at: offer.responded_at,
-            }
+        .map(|offer| PlanAdjustmentOfferArtifact {
+            offer_id: offer.offer_id,
+            objection_id: offer.objection_id,
+            plan_id: offer.plan_id,
+            step_db_id: offer.step_db_id,
+            stable_step_id: offer.stable_step_id,
+            status: offer.status.as_str().to_string(),
+            kind: offer.kind.as_str().to_string(),
+            suggested_seed: offer.suggested_seed,
+            created_at: offer.created_at,
+            responded_at: offer.responded_at,
         })
         .collect()
 }
@@ -231,7 +229,7 @@ fn event_log_export_contracts() -> Vec<EventLogExportContract> {
         },
         EventLogExportContract {
             event_type: SUPERVISOR_EVALUATED_EVENT.to_string(),
-            purpose: "scope-expansion supervisor evaluations and no-card outcomes".to_string(),
+            purpose: "supervisor evaluations, no-card outcomes, and dropped outcomes for scope-expansion, plan-drafted, diff-ready, retry-loop, and verification review cards".to_string(),
         },
         EventLogExportContract {
             event_type: PLAN_ADJUSTMENT_OFFERED_EVENT.to_string(),

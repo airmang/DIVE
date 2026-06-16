@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Current branch: `codex/sarkar-provocation-expansion`
+- Current implementation branch: `codex/s-022-sarkar-provocation-expansion`
 - Feature spec: `specs/006-sarkar-provocation-expansion/spec.md`
 - Implementation plan: `specs/006-sarkar-provocation-expansion/plan.md`
 - Pi supervisor runtime available for shown-card scenarios
@@ -99,3 +99,30 @@ cargo test
 - Retry-loop cards are step-scoped; terminal-only repeated text without active
   step/session evidence does not produce a shipped card.
 - Work Mode does not require long-form reflection for low-risk states.
+
+## Phase 1 Inventory Result (2026-06-16)
+
+- 006 spec branch content was merged into implementation branch
+  `codex/s-022-sarkar-provocation-expansion`.
+- Public `generateProvocationCards` is still shipped-safe no-op by default and
+  only delegates to quarantined rule cards when
+  `VITE_DIVE_INTERNAL_PROVOCATION_RULE_CARDS=true`.
+- Remaining production call sites before implementation:
+  `PlanDraftApprovalScreen.tsx`, `TerminalTab.tsx`, `MessageList.tsx`, and
+  `useProvocationCards.ts`. The plan approval surface will switch to
+  SupervisorAgent-backed `plan_drafted`; terminal/chat rule-card calls stay
+  no-op in shipped builds unless active step/session backend evidence is added.
+
+## Validation Results (2026-06-16)
+
+- `pnpm typecheck` passed.
+- `pnpm test:unit` passed: 45 test files, 241 tests.
+- `cargo test` passed from `dive/src-tauri`: 465 library tests passed, 7 ignored,
+  plus all integration/doc test targets passed.
+- Focused validation during implementation also passed for:
+  - `pnpm test:unit -- StepDetailSlideIn provocation adapters`
+  - `pnpm test:unit -- provocation logging`
+  - `cargo test supervisor`
+  - `cargo test provocation_agent`
+  - `cargo test event_log`
+  - `cargo test export`

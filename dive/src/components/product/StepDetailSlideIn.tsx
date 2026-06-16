@@ -1,13 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  AlertCircle,
-  CheckCircle2,
-  Circle,
-  Clock3,
-  ExternalLink,
-  FileCode,
-  X,
-} from "lucide-react";
+import { AlertCircle, CheckCircle2, Circle, Clock3, ExternalLink, FileCode, X } from "lucide-react";
 import { Button } from "../ui/button";
 import { LearningHint } from "../ui/learning-hint";
 import { cn } from "../../lib/utils";
@@ -26,8 +18,11 @@ import { useChatComposerStore } from "../../stores/chatComposer";
 import { DecisionGate } from "./DecisionGate";
 import {
   ProvocationCardHost,
+  createDiffReadySupervisorRequest,
+  createRetryLoopSupervisorRequest,
   deriveVerificationStatuses,
   evaluateProvocationSupervisor,
+  normalizeFailureFingerprint,
   normalizeChangedFile,
   type ProvocationCard,
   type ProvocationContext,
@@ -95,6 +90,14 @@ interface VerificationFocusAction {
   onClick: () => void;
 }
 
+interface RetryLoopFailureSnapshot {
+  failureFingerprint: string;
+  failureSummary: string;
+  failureCount: number;
+  lastFailureAt: number | string;
+  lastOccurrenceKey: string;
+}
+
 function uniqueStrings(items: string[]): string[] {
   return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
 }
@@ -108,7 +111,11 @@ function metadataStringArray(value: unknown): string[] {
 function highRiskFilesFromCards(cards: ProvocationCard[]): string[] {
   return uniqueStrings(
     cards
-      .filter((card) => card.type === "diff_scope_drift" && card.severity === "risk")
+      .filter(
+        (card) =>
+          (card.type === "diff_scope_drift" || card.type === "diff_scope_review") &&
+          card.severity === "risk",
+      )
       .flatMap((card) => metadataStringArray(card.metadata?.highRiskFiles)),
   );
 }
@@ -147,6 +154,8 @@ export function StepDetailSlideIn({
   const [criterionEvidenceRef, setCriterionEvidenceRef] = useState<CriterionEvidenceRef>(null);
   const [previewOpenedStepIds, setPreviewOpenedStepIds] = useState<Set<number>>(() => new Set());
   const [appOpenedStepIds, setAppOpenedStepIds] = useState<Set<number>>(() => new Set());
+  const retryLoopByStepRef = useRef<Map<number, RetryLoopFailureSnapshot>>(new Map());
+  const [retryLoopSnapshot, setRetryLoopSnapshot] = useState<RetryLoopFailureSnapshot | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -166,6 +175,58 @@ export function StepDetailSlideIn({
   useEffect(() => {
     setCriterionEvidenceRef(null);
   }, [step?.id]);
+
+  useEffect(() => {
+    if (!step) {
+      setRetryLoopSnapshot(null);
+      return;
+    }
+
+    const failureSummary =
+      verifyState === "error" && verifyError?.trim()
+        ? verifyError
+        : verifyLog?.test_result === "fail" && verifyLog.details?.trim()
+          ? verifyLog.details
+          : null;
+
+    if (!failureSummary || verifyLog?.test_result === "pass") {
+      retryLoopByStepRef.current.delete(step.id);
+      setRetryLoopSnapshot(null);
+      return;
+    }
+
+    const failureFingerprint = normalizeFailureFingerprint(failureSummary);
+    if (!failureFingerprint) {
+      setRetryLoopSnapshot(null);
+      return;
+    }
+
+    const lastFailureAt = verifyLog?.ran_at ?? Date.now();
+    const lastOccurrenceKey = `${failureFingerprint}:${lastFailureAt}`;
+    const previous = retryLoopByStepRef.current.get(step.id);
+    const failureCount =
+      previous?.failureFingerprint === failureFingerprint
+        ? previous.lastOccurrenceKey === lastOccurrenceKey
+          ? previous.failureCount
+          : previous.failureCount + 1
+        : 1;
+    const next = {
+      failureFingerprint,
+      failureSummary,
+      failureCount,
+      lastFailureAt,
+      lastOccurrenceKey,
+    };
+    retryLoopByStepRef.current.set(step.id, next);
+    setRetryLoopSnapshot(next);
+  }, [
+    step,
+    verifyError,
+    verifyLog?.details,
+    verifyLog?.ran_at,
+    verifyLog?.test_result,
+    verifyState,
+  ]);
 
   const status = step?.status ?? null;
   const isReview = status === "review";
@@ -257,8 +318,44 @@ export function StepDetailSlideIn({
           userHasViewedPreview: previewOpened,
         }
       : null;
+  const supervisorUiState = useMemo(() => {
+    if (!step) return null;
+    return {
+      goalSummary: [step.title, step.description].filter(Boolean).join("\n"),
+      planSummary: {
+        stepCount: 1,
+        activeStep: step.title,
+      },
+      verification: {
+        aiClaimedDone: Boolean(verifyLog?.intent_match),
+        diffReviewed: diffViewed,
+        appLaunched,
+        previewChecked: previewObserved,
+        automatedTestsPassed: verifyLog?.test_result === "pass",
+        testResult: verifyLog?.test_result ?? "skipped",
+        acceptanceCriterionConfirmed: criterionConfirmed,
+        manualChecks: [],
+      },
+      feasibility: verificationFeasibility,
+    };
+  }, [
+    appLaunched,
+    criterionConfirmed,
+    diffViewed,
+    previewObserved,
+    step,
+    verificationFeasibility,
+    verifyLog?.intent_match,
+    verifyLog?.test_result,
+  ]);
   const supervisorEvaluationRequest = useMemo<SupervisorEvaluationRequest | null>(() => {
-    if (!step || !provocation?.enabled || typeof provocation.sessionId !== "number") return null;
+    if (
+      !step ||
+      !supervisorUiState ||
+      !provocation?.enabled ||
+      typeof provocation.sessionId !== "number"
+    )
+      return null;
     // Keep preview-open transitions as reevaluation triggers without recording them as evidence.
     void previewOpened;
     return {
@@ -271,44 +368,126 @@ export function StepDetailSlideIn({
       },
       sourceUiMode: provocation.mode,
       locale: "ko-KR",
-      uiState: {
-        goalSummary: [step.title, step.description].filter(Boolean).join("\n"),
-        planSummary: {
-          stepCount: 1,
-          activeStep: step.title,
-        },
-        verification: {
-          aiClaimedDone: Boolean(verifyLog?.intent_match),
-          diffReviewed: diffViewed,
-          appLaunched,
-          previewChecked: previewObserved,
-          automatedTestsPassed: verifyLog?.test_result === "pass",
-          testResult: verifyLog?.test_result ?? "skipped",
-          acceptanceCriterionConfirmed: criterionConfirmed,
-          manualChecks: [],
-        },
-        feasibility: verificationFeasibility,
-      },
+      uiState: supervisorUiState,
     };
   }, [
-    appLaunched,
-    criterionConfirmed,
-    diffViewed,
-    previewObserved,
     previewOpened,
     provocation?.enabled,
     provocation?.mode,
     provocation?.sessionId,
     step,
-    verificationFeasibility,
-    verifyLog?.intent_match,
+    supervisorUiState,
+  ]);
+  const diffReadySupervisorRequest = useMemo(() => {
+    if (
+      !step ||
+      !supervisorUiState ||
+      !provocation?.enabled ||
+      typeof provocation.sessionId !== "number" ||
+      changedFiles.length === 0 ||
+      verifyState === "error" ||
+      verifyLog?.test_result === "fail"
+    ) {
+      return null;
+    }
+    const goalSummary = [step.title, step.description].filter(Boolean).join("\n");
+    const stepSummary = [
+      step.title,
+      step.description,
+      step.assistSummary,
+      planContext?.purpose,
+      verificationPlanText,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    return createDiffReadySupervisorRequest({
+      sessionId: provocation.sessionId,
+      projectId: typeof provocation.projectId === "number" ? provocation.projectId : undefined,
+      stepId: step.id,
+      stepTitle: step.title || `Step ${step.position}`,
+      sourceUiMode: provocation.mode,
+      locale: "ko-KR",
+      goalSummary,
+      stepSummary,
+      changedFiles: changedFiles.map((file) => normalizeChangedFile({ path: file.path })),
+      expectedFiles,
+      diffViewed,
+      uiState: supervisorUiState,
+    });
+  }, [
+    changedFiles,
+    diffViewed,
+    expectedFiles,
+    planContext?.purpose,
+    provocation?.enabled,
+    provocation?.mode,
+    provocation?.projectId,
+    provocation?.sessionId,
+    step,
+    supervisorUiState,
+    verificationPlanText,
     verifyLog?.test_result,
+    verifyState,
+  ]);
+  const retryLoopSupervisorRequest = useMemo(() => {
+    if (
+      !step ||
+      !supervisorUiState ||
+      !retryLoopSnapshot ||
+      retryLoopSnapshot.failureCount < 2 ||
+      !provocation?.enabled ||
+      typeof provocation.sessionId !== "number"
+    ) {
+      return null;
+    }
+    const goalSummary = [step.title, step.description].filter(Boolean).join("\n");
+    const stepSummary = [
+      step.title,
+      step.description,
+      step.assistSummary,
+      planContext?.purpose,
+      verificationPlanText,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    return createRetryLoopSupervisorRequest({
+      sessionId: provocation.sessionId,
+      projectId: typeof provocation.projectId === "number" ? provocation.projectId : undefined,
+      stepId: step.id,
+      stepTitle: step.title || `Step ${step.position}`,
+      sourceUiMode: provocation.mode,
+      locale: "ko-KR",
+      goalSummary,
+      stepSummary,
+      failureSummary: retryLoopSnapshot.failureSummary,
+      failureCount: retryLoopSnapshot.failureCount,
+      lastFailureAt: retryLoopSnapshot.lastFailureAt,
+      recoveryAvailable: rollbackAvailable,
+      lastActionSummary: "verification_failed",
+      uiState: supervisorUiState,
+    });
+  }, [
+    planContext?.purpose,
+    provocation?.enabled,
+    provocation?.mode,
+    provocation?.projectId,
+    provocation?.sessionId,
+    retryLoopSnapshot,
+    rollbackAvailable,
+    step,
+    supervisorUiState,
+    verificationPlanText,
   ]);
   const [provocationCards, setProvocationCards] = useState<ProvocationCard[]>([]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!supervisorEvaluationRequest) {
+    const requests = [
+      retryLoopSupervisorRequest,
+      diffReadySupervisorRequest,
+      supervisorEvaluationRequest,
+    ].filter((request): request is NonNullable<typeof request> => request !== null);
+    if (requests.length === 0) {
       setProvocationCards([]);
       return () => {
         cancelled = true;
@@ -316,22 +495,27 @@ export function StepDetailSlideIn({
     }
 
     setProvocationCards([]);
-    void evaluateProvocationSupervisor(supervisorEvaluationRequest)
-      .then((response) => {
+    void (async () => {
+      for (const request of requests) {
+        const response = await evaluateProvocationSupervisor(request);
         if (cancelled) return;
-        setProvocationCards(response.status === "shown" ? [response.card] : []);
-      })
-      .catch((err) => {
-        if (import.meta.env.DEV) {
-          console.warn("supervisor evaluation failed:", err);
+        if (response.status === "shown") {
+          setProvocationCards([response.card]);
+          return;
         }
-        if (!cancelled) setProvocationCards([]);
-      });
+      }
+      setProvocationCards([]);
+    })().catch((err) => {
+      if (import.meta.env.DEV) {
+        console.warn("supervisor evaluation failed:", err);
+      }
+      if (!cancelled) setProvocationCards([]);
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [supervisorEvaluationRequest]);
+  }, [diffReadySupervisorRequest, retryLoopSupervisorRequest, supervisorEvaluationRequest]);
   const unexpectedHighRiskFiles = highRiskFilesFromCards(provocationCards);
   const verificationStatuses = provocationContext
     ? deriveVerificationStatuses(provocationContext)

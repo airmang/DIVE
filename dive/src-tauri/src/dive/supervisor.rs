@@ -14,6 +14,9 @@ use crate::db::models::ScopeExpansionAssessment;
 const SUPERVISOR_SCHEMA_VERSION: u8 = 1;
 const P1_CONCERN: &str = "ai_self_report_only";
 const SCOPE_EXPANSION_CONCERN: &str = "scope_expansion";
+const PLAN_DRAFT_CONCERN: &str = "plan_draft_weakness";
+const DIFF_READY_CONCERN: &str = "diff_scope_drift";
+const RETRY_LOOP_CONCERN: &str = "retry_loop";
 const QUESTION_MAX_CHARS: usize = 140;
 const SUPERVISION_HABIT_MAX_CHARS: usize = 60;
 const CARD_EVIDENCE_CAP: usize = 3;
@@ -105,6 +108,9 @@ pub enum SupervisorEvent {
     AiClaimedDone,
     VerifyEntered,
     ScopeExpansion,
+    PlanDrafted,
+    DiffReady,
+    RetryLoop,
 }
 
 impl SupervisorEvent {
@@ -113,6 +119,9 @@ impl SupervisorEvent {
             Self::AiClaimedDone => "ai_claimed_done",
             Self::VerifyEntered => "verify_entered",
             Self::ScopeExpansion => "scope_expansion",
+            Self::PlanDrafted => "plan_drafted",
+            Self::DiffReady => "diff_ready",
+            Self::RetryLoop => "retry_loop",
         }
     }
 }
@@ -137,6 +146,30 @@ impl ArtifactRef {
     pub fn add_step_draft(id: impl Into<String>, label: impl Into<String>) -> Self {
         Self {
             kind: "add_step_draft".to_string(),
+            id: id.into(),
+            label: label.into(),
+        }
+    }
+
+    pub fn plan_draft(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            kind: "plan_draft".to_string(),
+            id: id.into(),
+            label: label.into(),
+        }
+    }
+
+    pub fn diff(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            kind: "diff".to_string(),
+            id: id.into(),
+            label: label.into(),
+        }
+    }
+
+    pub fn failure(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            kind: "failure".to_string(),
             id: id.into(),
             label: label.into(),
         }
@@ -192,6 +225,17 @@ pub enum EvidenceKind {
     PrdScope,
     AddStepDraft,
     ScopeExpansionAssessment,
+    PlanDraftAssessment,
+    VerificationCoverage,
+    CriterionLinkage,
+    BroadStep,
+    ExpectedFile,
+    StepScope,
+    DiffView,
+    DiffReadyAssessment,
+    FailureSummary,
+    RecoveryState,
+    RetryLoopAssessment,
     RetryCount,
 }
 
@@ -212,6 +256,17 @@ impl EvidenceKind {
             Self::PrdScope => "prd_scope",
             Self::AddStepDraft => "add_step_draft",
             Self::ScopeExpansionAssessment => "scope_expansion_assessment",
+            Self::PlanDraftAssessment => "plan_draft_assessment",
+            Self::VerificationCoverage => "verification_coverage",
+            Self::CriterionLinkage => "criterion_linkage",
+            Self::BroadStep => "broad_step",
+            Self::ExpectedFile => "expected_file",
+            Self::StepScope => "step_scope",
+            Self::DiffView => "diff_view",
+            Self::DiffReadyAssessment => "diff_ready_assessment",
+            Self::FailureSummary => "failure_summary",
+            Self::RecoveryState => "recovery_state",
+            Self::RetryLoopAssessment => "retry_loop_assessment",
             Self::RetryCount => "retry_count",
         }
     }
@@ -457,6 +512,67 @@ pub struct ScopeExpansionEvidenceRefInput {
     pub verification_evidence: bool,
 }
 
+pub type SupervisorEvidenceRefInput = ScopeExpansionEvidenceRefInput;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanDraftReviewAssessment {
+    #[serde(default)]
+    pub eligible: bool,
+    #[serde(default)]
+    pub reason_codes: Vec<String>,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub step_count: usize,
+    #[serde(default)]
+    pub criteria_count: usize,
+    #[serde(default)]
+    pub unverified_step_ids: Vec<String>,
+    #[serde(default)]
+    pub unlinked_step_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffReadyReviewAssessment {
+    #[serde(default)]
+    pub eligible: bool,
+    #[serde(default)]
+    pub reason_codes: Vec<String>,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub changed_file_count: usize,
+    #[serde(default)]
+    pub unexpected_files: Vec<String>,
+    #[serde(default)]
+    pub high_risk_files: Vec<String>,
+    #[serde(default)]
+    pub diff_viewed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RetryLoopReviewAssessment {
+    #[serde(default)]
+    pub eligible: bool,
+    #[serde(default)]
+    pub reason_codes: Vec<String>,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub failure_fingerprint: String,
+    #[serde(default)]
+    pub failure_count: usize,
+    #[serde(default)]
+    pub last_failure_at: Value,
+    #[serde(default)]
+    pub last_action_summary: Option<String>,
+    #[serde(default)]
+    pub recovery_available: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScopeExpansionSupervisorContextBuildInput {
     pub artifact_ref: ArtifactRef,
@@ -467,6 +583,46 @@ pub struct ScopeExpansionSupervisorContextBuildInput {
     pub allowed_action_ids: Vec<SupervisorActionId>,
     pub evidence_refs: Vec<ScopeExpansionEvidenceRefInput>,
     pub scope_expansion: ScopeExpansionAssessment,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlanDraftSupervisorContextBuildInput {
+    pub artifact_ref: ArtifactRef,
+    pub source_ui_mode: SourceUiMode,
+    pub locale: String,
+    pub goal_summary: String,
+    pub plan_summary: PlanSummary,
+    pub allowed_action_ids: Vec<SupervisorActionId>,
+    pub evidence_refs: Vec<SupervisorEvidenceRefInput>,
+    pub plan_draft_assessment: PlanDraftReviewAssessment,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DiffReadySupervisorContextBuildInput {
+    pub artifact_ref: ArtifactRef,
+    pub source_ui_mode: SourceUiMode,
+    pub locale: String,
+    pub goal_summary: String,
+    pub plan_summary: PlanSummary,
+    pub verification: SupervisorVerificationUiState,
+    pub feasibility: VerificationFeasibility,
+    pub allowed_action_ids: Vec<SupervisorActionId>,
+    pub evidence_refs: Vec<SupervisorEvidenceRefInput>,
+    pub diff_ready_assessment: DiffReadyReviewAssessment,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RetryLoopSupervisorContextBuildInput {
+    pub artifact_ref: ArtifactRef,
+    pub source_ui_mode: SourceUiMode,
+    pub locale: String,
+    pub goal_summary: String,
+    pub plan_summary: PlanSummary,
+    pub verification: SupervisorVerificationUiState,
+    pub feasibility: VerificationFeasibility,
+    pub allowed_action_ids: Vec<SupervisorActionId>,
+    pub evidence_refs: Vec<SupervisorEvidenceRefInput>,
+    pub retry_loop_assessment: RetryLoopReviewAssessment,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -621,6 +777,200 @@ pub fn build_scope_expansion_supervisor_context(
     }
 }
 
+pub fn build_plan_drafted_supervisor_context(
+    input: PlanDraftSupervisorContextBuildInput,
+) -> SupervisorContextBuildResult {
+    let mode = mode_from_source(input.source_ui_mode);
+    let evidence_refs = build_expanded_evidence_refs(&input.evidence_refs);
+    let context = SupervisorContext::new(
+        SupervisorEvent::PlanDrafted,
+        input.artifact_ref,
+        mode,
+        locale_or_default(input.locale),
+        allowed_actions_for_plan_drafted(&input.allowed_action_ids),
+        input.goal_summary,
+        input.plan_summary,
+        VerificationState {
+            ai_self_report: false,
+            concrete_evidence: false,
+            test_result: None,
+        },
+        VerificationFeasibility {
+            runnable: false,
+            previewable: false,
+            has_tests: false,
+            diff_available: false,
+        },
+        evidence_refs,
+    )
+    .with_plan_draft_assessment(input.plan_draft_assessment);
+    SupervisorContextBuildResult {
+        context,
+        source_ui_mode: input.source_ui_mode,
+    }
+}
+
+pub fn build_diff_ready_supervisor_context(
+    input: DiffReadySupervisorContextBuildInput,
+) -> SupervisorContextBuildResult {
+    let mode = mode_from_source(input.source_ui_mode);
+    let evidence_refs = build_expanded_evidence_refs(&input.evidence_refs);
+    let verification_state = VerificationState {
+        ai_self_report: input.verification.ai_claimed_done,
+        concrete_evidence: input.verification.has_concrete_evidence(),
+        test_result: input.verification.test_result.or(input
+            .verification
+            .automated_tests_passed
+            .then_some(TestResult::Pass)),
+    };
+    let context = SupervisorContext::new(
+        SupervisorEvent::DiffReady,
+        input.artifact_ref,
+        mode,
+        locale_or_default(input.locale),
+        allowed_actions_for_diff_ready(&input.allowed_action_ids),
+        input.goal_summary,
+        input.plan_summary,
+        verification_state,
+        input.feasibility,
+        evidence_refs,
+    )
+    .with_diff_ready_assessment(input.diff_ready_assessment);
+    SupervisorContextBuildResult {
+        context,
+        source_ui_mode: input.source_ui_mode,
+    }
+}
+
+pub fn build_retry_loop_supervisor_context(
+    input: RetryLoopSupervisorContextBuildInput,
+) -> SupervisorContextBuildResult {
+    let mode = mode_from_source(input.source_ui_mode);
+    let evidence_refs = build_expanded_evidence_refs(&input.evidence_refs);
+    let verification_state = VerificationState {
+        ai_self_report: input.verification.ai_claimed_done,
+        concrete_evidence: input.verification.has_concrete_evidence(),
+        test_result: input.verification.test_result.or(input
+            .verification
+            .automated_tests_passed
+            .then_some(TestResult::Pass)),
+    };
+    let context = SupervisorContext::new(
+        SupervisorEvent::RetryLoop,
+        input.artifact_ref,
+        mode,
+        locale_or_default(input.locale),
+        allowed_actions_for_retry_loop(&input.allowed_action_ids),
+        input.goal_summary,
+        input.plan_summary,
+        verification_state,
+        input.feasibility,
+        evidence_refs,
+    )
+    .with_retry_loop_assessment(input.retry_loop_assessment);
+    SupervisorContextBuildResult {
+        context,
+        source_ui_mode: input.source_ui_mode,
+    }
+}
+
+fn mode_from_source(source_ui_mode: SourceUiMode) -> SupervisorMode {
+    match source_ui_mode {
+        SourceUiMode::Guided => SupervisorMode::Guided,
+        SourceUiMode::Work | SourceUiMode::Standard | SourceUiMode::Expert => SupervisorMode::Work,
+    }
+}
+
+fn locale_or_default(locale: String) -> String {
+    if locale.trim().is_empty() {
+        "ko-KR".to_string()
+    } else {
+        locale
+    }
+}
+
+fn build_expanded_evidence_refs(input_refs: &[SupervisorEvidenceRefInput]) -> Vec<EvidenceRef> {
+    let mut evidence_refs = Vec::new();
+    for input in input_refs {
+        push_unique_evidence_ref(&mut evidence_refs, expanded_evidence_from_input(input));
+    }
+    evidence_refs
+}
+
+fn expanded_evidence_from_input(input: &SupervisorEvidenceRefInput) -> EvidenceRef {
+    let id = normalize_evidence_path(&input.id);
+    EvidenceRef {
+        id: if is_well_formed_evidence_id(&id) {
+            id
+        } else {
+            format!("evidence.{}", scope_slug(&input.id))
+        },
+        source: evidence_source_from_input(input.source.as_deref()),
+        kind: evidence_kind_from_input(input.kind.as_deref()),
+        label: bounded_scope_label(
+            input
+                .label
+                .as_deref()
+                .filter(|label| !label.trim().is_empty())
+                .unwrap_or("감독 근거"),
+        ),
+        value_summary: bounded_scope_value_summary(if input.value_summary.is_null() {
+            json!({ "kind": "summary" })
+        } else {
+            input.value_summary.clone()
+        }),
+        verification_evidence: input.verification_evidence,
+    }
+}
+
+fn evidence_source_from_input(value: Option<&str>) -> EvidenceSource {
+    match value.unwrap_or_default() {
+        "goal" => EvidenceSource::Goal,
+        "plan" => EvidenceSource::Plan,
+        "prompt" => EvidenceSource::Prompt,
+        "diff" => EvidenceSource::Diff,
+        "verification" => EvidenceSource::Verification,
+        "terminal" => EvidenceSource::Terminal,
+        "agent" => EvidenceSource::Agent,
+        "workmap" => EvidenceSource::Workmap,
+        "history" => EvidenceSource::History,
+        "ui_observation" => EvidenceSource::UiObservation,
+        _ => EvidenceSource::Workmap,
+    }
+}
+
+fn evidence_kind_from_input(value: Option<&str>) -> EvidenceKind {
+    match value.unwrap_or_default() {
+        "assistant_claim" => EvidenceKind::AssistantClaim,
+        "verify_log" => EvidenceKind::VerifyLog,
+        "test_result" => EvidenceKind::TestResult,
+        "diff_review" => EvidenceKind::DiffReview,
+        "preview_observed" => EvidenceKind::PreviewObserved,
+        "app_launched" => EvidenceKind::AppLaunched,
+        "manual_check" => EvidenceKind::ManualCheck,
+        "changed_file" => EvidenceKind::ChangedFile,
+        "terminal_error" => EvidenceKind::TerminalError,
+        "plan_step" => EvidenceKind::PlanStep,
+        "acceptance_criteria" => EvidenceKind::AcceptanceCriteria,
+        "prd_scope" => EvidenceKind::PrdScope,
+        "add_step_draft" => EvidenceKind::AddStepDraft,
+        "scope_expansion_assessment" => EvidenceKind::ScopeExpansionAssessment,
+        "plan_draft_assessment" => EvidenceKind::PlanDraftAssessment,
+        "verification_coverage" => EvidenceKind::VerificationCoverage,
+        "criterion_linkage" => EvidenceKind::CriterionLinkage,
+        "broad_step" => EvidenceKind::BroadStep,
+        "expected_file" => EvidenceKind::ExpectedFile,
+        "step_scope" => EvidenceKind::StepScope,
+        "diff_view" => EvidenceKind::DiffView,
+        "diff_ready_assessment" => EvidenceKind::DiffReadyAssessment,
+        "failure_summary" => EvidenceKind::FailureSummary,
+        "recovery_state" => EvidenceKind::RecoveryState,
+        "retry_loop_assessment" => EvidenceKind::RetryLoopAssessment,
+        "retry_count" => EvidenceKind::RetryCount,
+        _ => EvidenceKind::ScopeExpansionAssessment,
+    }
+}
+
 pub fn allowed_actions_for_scope_expansion(
     requested: &[SupervisorActionId],
 ) -> Vec<SupervisorActionId> {
@@ -632,6 +982,70 @@ pub fn allowed_actions_for_scope_expansion(
     ];
     let source = if requested.is_empty() {
         defaults.as_slice()
+    } else {
+        requested
+    };
+    let allowed = defaults
+        .iter()
+        .copied()
+        .collect::<HashSet<SupervisorActionId>>();
+    let mut seen = HashSet::new();
+    source
+        .iter()
+        .copied()
+        .filter(|action| allowed.contains(action))
+        .filter(|action| seen.insert(*action))
+        .collect()
+}
+
+pub fn allowed_actions_for_plan_drafted(
+    requested: &[SupervisorActionId],
+) -> Vec<SupervisorActionId> {
+    filter_requested_actions(
+        requested,
+        &[
+            SupervisorActionId::AddVerificationStep,
+            SupervisorActionId::LinkCriterion,
+            SupervisorActionId::SplitScope,
+            SupervisorActionId::EditPrd,
+            SupervisorActionId::DismissReview,
+        ],
+    )
+}
+
+pub fn allowed_actions_for_diff_ready(requested: &[SupervisorActionId]) -> Vec<SupervisorActionId> {
+    filter_requested_actions(
+        requested,
+        &[
+            SupervisorActionId::OpenDiff,
+            SupervisorActionId::AskAiForRationale,
+            SupervisorActionId::RevertUnrelatedChanges,
+            SupervisorActionId::RunTests,
+            SupervisorActionId::DismissReview,
+        ],
+    )
+}
+
+pub fn allowed_actions_for_retry_loop(requested: &[SupervisorActionId]) -> Vec<SupervisorActionId> {
+    filter_requested_actions(
+        requested,
+        &[
+            SupervisorActionId::CreateReproSteps,
+            SupervisorActionId::RollbackLastChange,
+            SupervisorActionId::OpenDiff,
+            SupervisorActionId::RunTests,
+            SupervisorActionId::SplitScope,
+            SupervisorActionId::DismissReview,
+        ],
+    )
+}
+
+fn filter_requested_actions(
+    requested: &[SupervisorActionId],
+    defaults: &[SupervisorActionId],
+) -> Vec<SupervisorActionId> {
+    let source = if requested.is_empty() {
+        defaults
     } else {
         requested
     };
@@ -930,6 +1344,39 @@ pub fn supervisor_provoke_gate(context: &SupervisorContext) -> bool {
             .scope_expansion
             .as_ref()
             .is_some_and(|assessment| assessment.expanded),
+        SupervisorEvent::PlanDrafted => {
+            context
+                .plan_draft_assessment
+                .as_ref()
+                .is_some_and(|assessment| {
+                    assessment.eligible
+                        && !assessment.reason_codes.is_empty()
+                        && !assessment.evidence_refs.is_empty()
+                })
+        }
+        SupervisorEvent::DiffReady => {
+            context
+                .diff_ready_assessment
+                .as_ref()
+                .is_some_and(|assessment| {
+                    assessment.eligible
+                        && assessment.changed_file_count > 0
+                        && !assessment.reason_codes.is_empty()
+                        && !assessment.evidence_refs.is_empty()
+                })
+        }
+        SupervisorEvent::RetryLoop => {
+            context
+                .retry_loop_assessment
+                .as_ref()
+                .is_some_and(|assessment| {
+                    assessment.eligible
+                        && assessment.failure_count >= 2
+                        && !assessment.failure_fingerprint.trim().is_empty()
+                        && !assessment.evidence_refs.is_empty()
+                        && context.verification_state.test_result != Some(TestResult::Pass)
+                })
+        }
         SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => p1_provoke_gate(context),
     }
 }
@@ -966,6 +1413,15 @@ fn prompt_action_instruction(event: SupervisorEvent) -> &'static str {
     match event {
         SupervisorEvent::ScopeExpansion => {
             "Suggested actions may only be link_criterion, split_scope, edit_prd, or dismiss_review."
+        }
+        SupervisorEvent::PlanDrafted => {
+            "Suggested actions may only be add_verification_step, link_criterion, split_scope, edit_prd, or dismiss_review."
+        }
+        SupervisorEvent::DiffReady => {
+            "Suggested actions may only be open_diff, ask_ai_for_rationale, revert_unrelated_changes, run_tests, or dismiss_review."
+        }
+        SupervisorEvent::RetryLoop => {
+            "Suggested actions may only be create_repro_steps, rollback_last_change, open_diff, run_tests, split_scope, or dismiss_review. Do not make retry_with_ai the primary action."
         }
         SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => {
             "Suggested actions may only be open_diff, open_preview, run_tests, or run_app."
@@ -1005,6 +1461,11 @@ pub enum SupervisorActionId {
     LinkCriterion,
     SplitScope,
     EditPrd,
+    AddVerificationStep,
+    AskAiForRationale,
+    RevertUnrelatedChanges,
+    CreateReproSteps,
+    RollbackLastChange,
     DismissReview,
 }
 
@@ -1018,6 +1479,11 @@ impl SupervisorActionId {
             Self::LinkCriterion => "link_criterion",
             Self::SplitScope => "split_scope",
             Self::EditPrd => "edit_prd",
+            Self::AddVerificationStep => "add_verification_step",
+            Self::AskAiForRationale => "ask_ai_for_rationale",
+            Self::RevertUnrelatedChanges => "revert_unrelated_changes",
+            Self::CreateReproSteps => "create_repro_steps",
+            Self::RollbackLastChange => "rollback_last_change",
             Self::DismissReview => "dismiss_review",
         }
     }
@@ -1031,6 +1497,11 @@ impl SupervisorActionId {
             Self::LinkCriterion => "기준 연결",
             Self::SplitScope => "범위 나누기",
             Self::EditPrd => "PRD 수정",
+            Self::AddVerificationStep => "검증 단계 추가",
+            Self::AskAiForRationale => "근거 묻기",
+            Self::RevertUnrelatedChanges => "관련 없는 변경 복구",
+            Self::CreateReproSteps => "재현 단계 만들기",
+            Self::RollbackLastChange => "마지막 변경 되돌리기",
             Self::DismissReview => "닫기",
         }
     }
@@ -1048,6 +1519,11 @@ impl FromStr for SupervisorActionId {
             "link_criterion" => Ok(Self::LinkCriterion),
             "split_scope" => Ok(Self::SplitScope),
             "edit_prd" => Ok(Self::EditPrd),
+            "add_verification_step" => Ok(Self::AddVerificationStep),
+            "ask_ai_for_rationale" => Ok(Self::AskAiForRationale),
+            "revert_unrelated_changes" => Ok(Self::RevertUnrelatedChanges),
+            "create_repro_steps" => Ok(Self::CreateReproSteps),
+            "rollback_last_change" => Ok(Self::RollbackLastChange),
             "dismiss_review" => Ok(Self::DismissReview),
             _ => Err(()),
         }
@@ -1071,6 +1547,12 @@ pub struct SupervisorContext {
     pub evidence_refs: Vec<EvidenceRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope_expansion: Option<ScopeExpansionAssessment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_draft_assessment: Option<PlanDraftReviewAssessment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff_ready_assessment: Option<DiffReadyReviewAssessment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_loop_assessment: Option<RetryLoopReviewAssessment>,
 }
 
 impl SupervisorContext {
@@ -1101,6 +1583,9 @@ impl SupervisorContext {
             feasibility,
             evidence_refs,
             scope_expansion: None,
+            plan_draft_assessment: None,
+            diff_ready_assessment: None,
+            retry_loop_assessment: None,
         };
         context.context_hash = context.compute_context_hash();
         context
@@ -1108,6 +1593,24 @@ impl SupervisorContext {
 
     pub fn with_scope_expansion(mut self, scope_expansion: ScopeExpansionAssessment) -> Self {
         self.scope_expansion = Some(scope_expansion);
+        self.context_hash = self.compute_context_hash();
+        self
+    }
+
+    pub fn with_plan_draft_assessment(mut self, assessment: PlanDraftReviewAssessment) -> Self {
+        self.plan_draft_assessment = Some(assessment);
+        self.context_hash = self.compute_context_hash();
+        self
+    }
+
+    pub fn with_diff_ready_assessment(mut self, assessment: DiffReadyReviewAssessment) -> Self {
+        self.diff_ready_assessment = Some(assessment);
+        self.context_hash = self.compute_context_hash();
+        self
+    }
+
+    pub fn with_retry_loop_assessment(mut self, assessment: RetryLoopReviewAssessment) -> Self {
+        self.retry_loop_assessment = Some(assessment);
         self.context_hash = self.compute_context_hash();
         self
     }
@@ -1124,6 +1627,9 @@ impl SupervisorContext {
             "verificationState": self.verification_state.clone(),
             "feasibility": self.feasibility.clone(),
             "scopeExpansion": self.scope_expansion.clone(),
+            "planDraftAssessment": self.plan_draft_assessment.clone(),
+            "diffReadyAssessment": self.diff_ready_assessment.clone(),
+            "retryLoopAssessment": self.retry_loop_assessment.clone(),
         }))
     }
 
@@ -1377,6 +1883,8 @@ pub struct SupervisorEvaluationLog {
     pub usage: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub decision_summary: Option<SupervisorDecisionSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assessment_summary: Option<Value>,
     pub validation_outcome: SupervisorValidationOutcome,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drop_reason: Option<SupervisorDropReason>,
@@ -1408,6 +1916,7 @@ impl SupervisorEvaluationLog {
             latency_ms,
             usage,
             decision_summary: validation.decision_summary.clone(),
+            assessment_summary: assessment_summary_for_context(context),
             validation_outcome: validation.validation_outcome,
             drop_reason: validation.drop_reason,
             card_id: validation.card_id.clone(),
@@ -1493,12 +2002,7 @@ pub fn validate_supervisor_decision(
         );
     }
 
-    if context.event == SupervisorEvent::ScopeExpansion
-        && !context
-            .scope_expansion
-            .as_ref()
-            .is_some_and(|assessment| assessment.expanded)
-    {
+    if requires_supervisor_assessment(context.event) && !supervisor_provoke_gate(context) {
         return SupervisorValidationResult::dropped(
             SupervisorDropReason::MissingEvidence,
             Some(empty_summary),
@@ -1549,7 +2053,7 @@ pub fn validate_supervisor_decision(
         strip_unavailable_or_disallowed_actions(&decision.suggested_action_ids, context);
     let decision_summary =
         SupervisorDecisionSummary::from_decision(&decision, stripped_action_ids.clone());
-    if context.event == SupervisorEvent::ScopeExpansion && accepted_action_ids.is_empty() {
+    if requires_supervisor_assessment(context.event) && accepted_action_ids.is_empty() {
         return SupervisorValidationResult::dropped(
             SupervisorDropReason::UnknownAction,
             Some(decision_summary),
@@ -1580,8 +2084,21 @@ pub fn validate_supervisor_decision(
 fn expected_concern_for_event(event: SupervisorEvent) -> &'static str {
     match event {
         SupervisorEvent::ScopeExpansion => SCOPE_EXPANSION_CONCERN,
+        SupervisorEvent::PlanDrafted => PLAN_DRAFT_CONCERN,
+        SupervisorEvent::DiffReady => DIFF_READY_CONCERN,
+        SupervisorEvent::RetryLoop => RETRY_LOOP_CONCERN,
         SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => P1_CONCERN,
     }
+}
+
+fn requires_supervisor_assessment(event: SupervisorEvent) -> bool {
+    matches!(
+        event,
+        SupervisorEvent::ScopeExpansion
+            | SupervisorEvent::PlanDrafted
+            | SupervisorEvent::DiffReady
+            | SupervisorEvent::RetryLoop
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1589,11 +2106,15 @@ fn expected_concern_for_event(event: SupervisorEvent) -> &'static str {
 pub enum ProvocationCardType {
     AiSelfReportOnly,
     ScopeExpansion,
+    PlanDraftReview,
+    DiffScopeReview,
+    RetryLoopReview,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ProvocationCardStage {
+    Instruct,
     Extend,
     Verify,
     FinalApproval,
@@ -1701,11 +2222,19 @@ pub fn map_decision_to_card_at(
         json!(context.context_hash.clone()),
     );
     metadata.insert("evidenceHash".to_string(), json!(evidence_hash));
+    metadata.insert("supervisorEvent".to_string(), json!(context.event.as_str()));
+    metadata.insert(
+        "artifactRef".to_string(),
+        json!(context.artifact_ref.clone()),
+    );
     metadata.insert("concern".to_string(), json!(decision.concern.clone()));
     metadata.insert(
         "validationOutcome".to_string(),
         json!(SupervisorValidationOutcome::Shown),
     );
+    if let Some(assessment) = assessment_summary_for_context(context) {
+        metadata.insert("assessmentSummary".to_string(), assessment);
+    }
     if let Some(evaluation_id) = supervisor_evaluation_id {
         metadata.insert("supervisorEvaluationId".to_string(), json!(evaluation_id));
     }
@@ -1727,9 +2256,56 @@ pub fn map_decision_to_card_at(
     }
 }
 
+fn assessment_summary_for_context(context: &SupervisorContext) -> Option<Value> {
+    match context.event {
+        SupervisorEvent::PlanDrafted => context.plan_draft_assessment.as_ref().map(|assessment| {
+            json!({
+                "reasonCodes": assessment.reason_codes.clone(),
+                "evidenceRefs": assessment.evidence_refs.clone(),
+                "stepCount": assessment.step_count,
+                "criteriaCount": assessment.criteria_count,
+                "unverifiedStepIds": assessment.unverified_step_ids.clone(),
+                "unlinkedStepIds": assessment.unlinked_step_ids.clone(),
+            })
+        }),
+        SupervisorEvent::DiffReady => context.diff_ready_assessment.as_ref().map(|assessment| {
+            json!({
+                "reasonCodes": assessment.reason_codes.clone(),
+                "evidenceRefs": assessment.evidence_refs.clone(),
+                "changedFileCount": assessment.changed_file_count,
+                "unexpectedFiles": assessment.unexpected_files.clone(),
+                "highRiskFiles": assessment.high_risk_files.clone(),
+                "diffViewed": assessment.diff_viewed,
+            })
+        }),
+        SupervisorEvent::RetryLoop => context.retry_loop_assessment.as_ref().map(|assessment| {
+            json!({
+                "reasonCodes": assessment.reason_codes.clone(),
+                "evidenceRefs": assessment.evidence_refs.clone(),
+                "failureFingerprint": assessment.failure_fingerprint.clone(),
+                "failureCount": assessment.failure_count,
+                "lastFailureAt": assessment.last_failure_at.clone(),
+                "lastActionSummary": assessment.last_action_summary.clone(),
+                "recoveryAvailable": assessment.recovery_available,
+            })
+        }),
+        SupervisorEvent::ScopeExpansion => context.scope_expansion.as_ref().map(|assessment| {
+            json!({
+                "expanded": assessment.expanded,
+                "reasonCodes": assessment.reason_codes.clone(),
+                "evidenceRefs": assessment.evidence_refs.clone(),
+            })
+        }),
+        SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => None,
+    }
+}
+
 fn card_type_for_event(event: SupervisorEvent) -> ProvocationCardType {
     match event {
         SupervisorEvent::ScopeExpansion => ProvocationCardType::ScopeExpansion,
+        SupervisorEvent::PlanDrafted => ProvocationCardType::PlanDraftReview,
+        SupervisorEvent::DiffReady => ProvocationCardType::DiffScopeReview,
+        SupervisorEvent::RetryLoop => ProvocationCardType::RetryLoopReview,
         SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => {
             ProvocationCardType::AiSelfReportOnly
         }
@@ -1739,6 +2315,8 @@ fn card_type_for_event(event: SupervisorEvent) -> ProvocationCardType {
 fn card_stage_for_event(event: SupervisorEvent) -> ProvocationCardStage {
     match event {
         SupervisorEvent::ScopeExpansion => ProvocationCardStage::Extend,
+        SupervisorEvent::PlanDrafted => ProvocationCardStage::Instruct,
+        SupervisorEvent::DiffReady | SupervisorEvent::RetryLoop => ProvocationCardStage::Verify,
         SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => {
             ProvocationCardStage::Verify
         }
@@ -1748,6 +2326,9 @@ fn card_stage_for_event(event: SupervisorEvent) -> ProvocationCardStage {
 fn card_title_for_event(event: SupervisorEvent) -> &'static str {
     match event {
         SupervisorEvent::ScopeExpansion => "검토 카드",
+        SupervisorEvent::PlanDrafted => "검토 카드",
+        SupervisorEvent::DiffReady => "확인 필요 카드",
+        SupervisorEvent::RetryLoop => "확인 필요 카드",
         SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => "확인 필요 카드",
     }
 }
@@ -1756,6 +2337,13 @@ fn card_message_for_event(event: SupervisorEvent) -> &'static str {
     match event {
         SupervisorEvent::ScopeExpansion => {
             "추가하려는 단계가 PRD 범위를 넓히는지 근거와 함께 확인하세요."
+        }
+        SupervisorEvent::PlanDrafted => {
+            "계획을 승인하기 전에 판단과 검증 근거가 충분한지 확인하세요."
+        }
+        SupervisorEvent::DiffReady => "변경된 파일이 현재 목표와 계획 범위 안에 있는지 확인하세요.",
+        SupervisorEvent::RetryLoop => {
+            "같은 실패가 반복되고 있으니 재시도 전에 재현·복구·범위를 확인하세요."
         }
         SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => {
             "확인 가능한 증거를 먼저 살펴보세요."
@@ -1961,6 +2549,198 @@ mod tests {
             ],
             supervision_habit: Some("새 범위는 PRD 기준과 연결합니다.".to_string()),
             log_rationale: Some("Add-step draft has no clear criterion link".to_string()),
+        }
+    }
+
+    fn sample_plan_drafted_context() -> SupervisorContext {
+        SupervisorContext::new(
+            SupervisorEvent::PlanDrafted,
+            ArtifactRef::plan_draft("plan-9:draft", "Plan draft"),
+            SupervisorMode::Work,
+            "ko-KR",
+            vec![
+                SupervisorActionId::AddVerificationStep,
+                SupervisorActionId::LinkCriterion,
+                SupervisorActionId::DismissReview,
+            ],
+            "Build a todo app",
+            PlanSummary {
+                step_count: 2,
+                active_step: None,
+            },
+            VerificationState {
+                ai_self_report: false,
+                concrete_evidence: false,
+                test_result: None,
+            },
+            VerificationFeasibility {
+                runnable: false,
+                previewable: false,
+                has_tests: false,
+                diff_available: false,
+            },
+            vec![
+                EvidenceRef {
+                    id: "plan.goal".to_string(),
+                    source: EvidenceSource::Goal,
+                    kind: EvidenceKind::PlanDraftAssessment,
+                    label: "Plan goal".to_string(),
+                    value_summary: json!("Build a todo app"),
+                    verification_evidence: false,
+                },
+                EvidenceRef {
+                    id: "plan.step.s_001.verification".to_string(),
+                    source: EvidenceSource::Plan,
+                    kind: EvidenceKind::VerificationCoverage,
+                    label: "Missing verification".to_string(),
+                    value_summary: json!({"stepId":"s_001"}),
+                    verification_evidence: false,
+                },
+            ],
+        )
+        .with_plan_draft_assessment(PlanDraftReviewAssessment {
+            eligible: true,
+            reason_codes: vec!["missing_verification".into()],
+            evidence_refs: vec!["plan.goal".into(), "plan.step.s_001.verification".into()],
+            step_count: 2,
+            criteria_count: 1,
+            unverified_step_ids: vec!["s_001".into()],
+            unlinked_step_ids: vec![],
+        })
+    }
+
+    fn valid_plan_drafted_decision() -> SupervisorDecision {
+        SupervisorDecision {
+            schema_version: SUPERVISOR_SCHEMA_VERSION,
+            provoke: true,
+            concern: PLAN_DRAFT_CONCERN.to_string(),
+            severity: "caution".to_string(),
+            question: "이 계획은 검증 없이 승인해도 완료 판단이 가능한가요?".to_string(),
+            evidence_ref_ids: vec![
+                "plan.goal".to_string(),
+                "plan.step.s_001.verification".to_string(),
+            ],
+            suggested_action_ids: vec![
+                "add_verification_step".to_string(),
+                "link_criterion".to_string(),
+            ],
+            supervision_habit: Some("승인 전 검증 계획을 확인합니다.".to_string()),
+            log_rationale: Some("Missing verification".to_string()),
+        }
+    }
+
+    fn sample_diff_ready_context() -> SupervisorContext {
+        SupervisorContext::new(
+            SupervisorEvent::DiffReady,
+            ArtifactRef::diff("step-1:diff", "Changed work"),
+            SupervisorMode::Work,
+            "ko-KR",
+            vec![
+                SupervisorActionId::OpenDiff,
+                SupervisorActionId::AskAiForRationale,
+            ],
+            "Keep settings changes scoped",
+            PlanSummary {
+                step_count: 1,
+                active_step: Some("Settings save".to_string()),
+            },
+            VerificationState {
+                ai_self_report: false,
+                concrete_evidence: false,
+                test_result: None,
+            },
+            VerificationFeasibility {
+                runnable: false,
+                previewable: false,
+                has_tests: true,
+                diff_available: true,
+            },
+            vec![EvidenceRef {
+                id: "diff.changed_files".to_string(),
+                source: EvidenceSource::Diff,
+                kind: EvidenceKind::ChangedFile,
+                label: "Changed files".to_string(),
+                value_summary: json!({"paths":["src/auth.ts"]}),
+                verification_evidence: false,
+            }],
+        )
+        .with_diff_ready_assessment(DiffReadyReviewAssessment {
+            eligible: true,
+            reason_codes: vec!["unexpected_file".into()],
+            evidence_refs: vec!["diff.changed_files".into()],
+            changed_file_count: 1,
+            unexpected_files: vec!["src/auth.ts".into()],
+            high_risk_files: vec!["src/auth.ts".into()],
+            diff_viewed: false,
+        })
+    }
+
+    fn sample_retry_loop_context() -> SupervisorContext {
+        SupervisorContext::new(
+            SupervisorEvent::RetryLoop,
+            ArtifactRef::failure("step-1:failure", "Repeated failure"),
+            SupervisorMode::Work,
+            "ko-KR",
+            vec![
+                SupervisorActionId::CreateReproSteps,
+                SupervisorActionId::RollbackLastChange,
+            ],
+            "Fix settings save",
+            PlanSummary {
+                step_count: 1,
+                active_step: Some("Settings save".to_string()),
+            },
+            VerificationState {
+                ai_self_report: false,
+                concrete_evidence: false,
+                test_result: Some(TestResult::Fail),
+            },
+            VerificationFeasibility {
+                runnable: false,
+                previewable: false,
+                has_tests: true,
+                diff_available: true,
+            },
+            vec![EvidenceRef {
+                id: "failure.fingerprint".to_string(),
+                source: EvidenceSource::Terminal,
+                kind: EvidenceKind::FailureSummary,
+                label: "Repeated failure".to_string(),
+                value_summary: json!({"fingerprint":"panic_at_line"}),
+                verification_evidence: false,
+            }],
+        )
+        .with_retry_loop_assessment(RetryLoopReviewAssessment {
+            eligible: true,
+            reason_codes: vec!["same_failure_repeated".into()],
+            evidence_refs: vec!["failure.fingerprint".into()],
+            failure_fingerprint: "panic_at_line".into(),
+            failure_count: 2,
+            last_failure_at: json!(2),
+            last_action_summary: Some("asked_ai_to_fix".into()),
+            recovery_available: true,
+        })
+    }
+
+    fn decision_for(
+        concern: &str,
+        question: &str,
+        evidence_ref_ids: Vec<&str>,
+        suggested_action_ids: Vec<&str>,
+    ) -> SupervisorDecision {
+        SupervisorDecision {
+            schema_version: SUPERVISOR_SCHEMA_VERSION,
+            provoke: true,
+            concern: concern.to_string(),
+            severity: "caution".to_string(),
+            question: question.to_string(),
+            evidence_ref_ids: evidence_ref_ids.into_iter().map(str::to_owned).collect(),
+            suggested_action_ids: suggested_action_ids
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            supervision_habit: Some("근거를 보고 다음 행동을 고릅니다.".to_string()),
+            log_rationale: Some("expanded test decision".to_string()),
         }
     }
 
@@ -2224,6 +3004,14 @@ mod tests {
         assert_eq!(
             serde_json::to_value(SupervisorActionId::LinkCriterion).unwrap(),
             json!("link_criterion")
+        );
+        assert_eq!(
+            serde_json::to_value(SupervisorEvent::PlanDrafted).unwrap(),
+            json!("plan_drafted")
+        );
+        assert_eq!(
+            serde_json::to_value(SupervisorActionId::AddVerificationStep).unwrap(),
+            json!("add_verification_step")
         );
     }
 
@@ -2808,5 +3596,248 @@ mod tests {
         assert_eq!(value["validationOutcome"], json!("shown"));
         assert_eq!(value["evidenceHash"], json!(context.evidence_hash()));
         assert_eq!(value["decisionSummary"]["severity"], json!("risk"));
+    }
+
+    #[test]
+    fn supervisor_plan_drafted_gate_and_mapping_use_assessment() {
+        let context = sample_plan_drafted_context();
+        assert!(supervisor_provoke_gate(&context));
+
+        let mut dedup = SupervisorDedupState::new();
+        let result =
+            validate_supervisor_decision(&context, valid_plan_drafted_decision(), &mut dedup);
+        assert_eq!(
+            result.validation_outcome,
+            SupervisorValidationOutcome::Shown
+        );
+        let card = result.card.as_ref().unwrap();
+        assert_eq!(card.card_type, ProvocationCardType::PlanDraftReview);
+        assert_eq!(card.stage, ProvocationCardStage::Instruct);
+        assert_eq!(card.metadata["supervisorEvent"], json!("plan_drafted"));
+
+        let log =
+            SupervisorEvaluationLog::from_validation(&context, None, &result, None, None, None);
+        assert_eq!(log.event, SupervisorEvent::PlanDrafted);
+        assert!(log.assessment_summary.is_some());
+    }
+
+    #[test]
+    fn supervisor_diff_ready_and_retry_loop_gate_and_map_card_types() {
+        let cases = [
+            (
+                sample_diff_ready_context(),
+                decision_for(
+                    DIFF_READY_CONCERN,
+                    "이 변경 파일이 현재 목표 범위 안에 있나요?",
+                    vec!["diff.changed_files"],
+                    vec!["open_diff", "ask_ai_for_rationale"],
+                ),
+                ProvocationCardType::DiffScopeReview,
+            ),
+            (
+                sample_retry_loop_context(),
+                decision_for(
+                    RETRY_LOOP_CONCERN,
+                    "같은 실패가 반복되니 먼저 재현 단계를 좁혀볼까요?",
+                    vec!["failure.fingerprint"],
+                    vec!["create_repro_steps", "rollback_last_change"],
+                ),
+                ProvocationCardType::RetryLoopReview,
+            ),
+        ];
+
+        for (context, decision, expected_type) in cases {
+            assert!(supervisor_provoke_gate(&context));
+            let mut dedup = SupervisorDedupState::new();
+            let result = validate_supervisor_decision(&context, decision, &mut dedup);
+            assert_eq!(
+                result.validation_outcome,
+                SupervisorValidationOutcome::Shown
+            );
+            let card = result.card.unwrap();
+            assert_eq!(card.card_type, expected_type);
+            assert_eq!(card.stage, ProvocationCardStage::Verify);
+        }
+    }
+
+    #[test]
+    fn supervisor_diff_ready_gate_covers_scope_drift_edges() {
+        let unexpected = sample_diff_ready_context();
+        assert!(supervisor_provoke_gate(&unexpected));
+
+        let mut high_risk = sample_diff_ready_context();
+        high_risk
+            .diff_ready_assessment
+            .as_mut()
+            .unwrap()
+            .reason_codes = vec!["high_risk_area".into()];
+        high_risk
+            .diff_ready_assessment
+            .as_mut()
+            .unwrap()
+            .unexpected_files = vec![];
+        high_risk.context_hash = high_risk.compute_context_hash();
+        assert!(supervisor_provoke_gate(&high_risk));
+
+        let mut expected_only = sample_diff_ready_context();
+        expected_only
+            .diff_ready_assessment
+            .as_mut()
+            .unwrap()
+            .eligible = false;
+        expected_only
+            .diff_ready_assessment
+            .as_mut()
+            .unwrap()
+            .reason_codes = vec![];
+        expected_only
+            .diff_ready_assessment
+            .as_mut()
+            .unwrap()
+            .unexpected_files = vec![];
+        expected_only
+            .diff_ready_assessment
+            .as_mut()
+            .unwrap()
+            .high_risk_files = vec![];
+        expected_only.context_hash = expected_only.compute_context_hash();
+        assert!(!supervisor_provoke_gate(&expected_only));
+
+        let mut no_changed_files = sample_diff_ready_context();
+        no_changed_files
+            .diff_ready_assessment
+            .as_mut()
+            .unwrap()
+            .changed_file_count = 0;
+        no_changed_files.context_hash = no_changed_files.compute_context_hash();
+        assert!(!supervisor_provoke_gate(&no_changed_files));
+
+        let mut missing_assessment_evidence = sample_diff_ready_context();
+        missing_assessment_evidence
+            .diff_ready_assessment
+            .as_mut()
+            .unwrap()
+            .evidence_refs = vec![];
+        missing_assessment_evidence.context_hash =
+            missing_assessment_evidence.compute_context_hash();
+        assert!(!supervisor_provoke_gate(&missing_assessment_evidence));
+    }
+
+    #[test]
+    fn supervisor_diff_ready_validation_drops_missing_or_unknown_evidence_refs() {
+        let context = sample_diff_ready_context();
+
+        let no_evidence = decision_for(
+            DIFF_READY_CONCERN,
+            "이 변경 파일이 현재 목표 범위 안에 있나요?",
+            vec![],
+            vec!["open_diff"],
+        );
+        let result =
+            validate_supervisor_decision(&context, no_evidence, &mut SupervisorDedupState::new());
+        assert_eq!(
+            result.drop_reason,
+            Some(SupervisorDropReason::MissingEvidence)
+        );
+
+        let unknown_evidence = decision_for(
+            DIFF_READY_CONCERN,
+            "이 변경 파일이 현재 목표 범위 안에 있나요?",
+            vec!["diff.raw_hunk"],
+            vec!["open_diff"],
+        );
+        let result = validate_supervisor_decision(
+            &context,
+            unknown_evidence,
+            &mut SupervisorDedupState::new(),
+        );
+        assert_eq!(
+            result.drop_reason,
+            Some(SupervisorDropReason::UnknownEvidenceRef)
+        );
+    }
+
+    #[test]
+    fn supervisor_retry_loop_gate_covers_repeated_failure_edges() {
+        let repeated = sample_retry_loop_context();
+        assert!(supervisor_provoke_gate(&repeated));
+
+        let mut one_failure = sample_retry_loop_context();
+        one_failure
+            .retry_loop_assessment
+            .as_mut()
+            .unwrap()
+            .failure_count = 1;
+        one_failure.context_hash = one_failure.compute_context_hash();
+        assert!(!supervisor_provoke_gate(&one_failure));
+
+        let mut different_failure = sample_retry_loop_context();
+        different_failure
+            .retry_loop_assessment
+            .as_mut()
+            .unwrap()
+            .failure_fingerprint = "different_failure".into();
+        different_failure
+            .retry_loop_assessment
+            .as_mut()
+            .unwrap()
+            .failure_count = 1;
+        different_failure.context_hash = different_failure.compute_context_hash();
+        assert!(!supervisor_provoke_gate(&different_failure));
+
+        let mut success_reset = sample_retry_loop_context();
+        success_reset.verification_state.test_result = Some(TestResult::Pass);
+        success_reset.context_hash = success_reset.compute_context_hash();
+        assert!(!supervisor_provoke_gate(&success_reset));
+
+        let mut missing_evidence = sample_retry_loop_context();
+        missing_evidence
+            .retry_loop_assessment
+            .as_mut()
+            .unwrap()
+            .evidence_refs = vec![];
+        missing_evidence.context_hash = missing_evidence.compute_context_hash();
+        assert!(!supervisor_provoke_gate(&missing_evidence));
+    }
+
+    #[test]
+    fn supervisor_retry_loop_deduplicates_same_failure_evidence_hash() {
+        let context = sample_retry_loop_context();
+        let decision = decision_for(
+            RETRY_LOOP_CONCERN,
+            "같은 실패가 반복되니 먼저 재현 단계를 좁혀볼까요?",
+            vec!["failure.fingerprint"],
+            vec!["create_repro_steps", "rollback_last_change"],
+        );
+        let mut dedup = SupervisorDedupState::new();
+        let first = validate_supervisor_decision(&context, decision.clone(), &mut dedup);
+        assert_eq!(first.validation_outcome, SupervisorValidationOutcome::Shown);
+
+        let second = validate_supervisor_decision(&context, decision, &mut dedup);
+        assert_eq!(
+            second.validation_outcome,
+            SupervisorValidationOutcome::Dropped
+        );
+        assert_eq!(second.drop_reason, Some(SupervisorDropReason::Duplicate));
+    }
+
+    #[test]
+    fn supervisor_expanded_gate_rejects_missing_assessment_evidence() {
+        let mut context = sample_plan_drafted_context();
+        context.plan_draft_assessment.as_mut().unwrap().eligible = false;
+        context.context_hash = context.compute_context_hash();
+        assert!(!supervisor_provoke_gate(&context));
+
+        let mut dedup = SupervisorDedupState::new();
+        let result =
+            validate_supervisor_decision(&context, valid_plan_drafted_decision(), &mut dedup);
+        assert_eq!(
+            result.validation_outcome,
+            SupervisorValidationOutcome::Dropped
+        );
+        assert_eq!(
+            result.drop_reason,
+            Some(SupervisorDropReason::MissingEvidence)
+        );
     }
 }

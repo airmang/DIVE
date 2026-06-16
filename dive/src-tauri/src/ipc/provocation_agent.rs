@@ -15,8 +15,12 @@ use uuid::Uuid;
 use crate::db::models::ScopeExpansionAssessment;
 use crate::dive::event_log::append_supervisor_evaluation_to_conn;
 use crate::dive::supervisor::{
-    build_scope_expansion_supervisor_context, supervisor_provoke_gate,
-    ScopeExpansionEvidenceRefInput, ScopeExpansionSupervisorContextBuildInput,
+    build_diff_ready_supervisor_context, build_plan_drafted_supervisor_context,
+    build_retry_loop_supervisor_context, build_scope_expansion_supervisor_context,
+    supervisor_provoke_gate, DiffReadyReviewAssessment, DiffReadySupervisorContextBuildInput,
+    PlanDraftReviewAssessment, PlanDraftSupervisorContextBuildInput, RetryLoopReviewAssessment,
+    RetryLoopSupervisorContextBuildInput, ScopeExpansionEvidenceRefInput,
+    ScopeExpansionSupervisorContextBuildInput,
 };
 use crate::dive::{
     build_stage_c_supervisor_decision, build_supervisor_context_from_ui, build_supervisor_prompt,
@@ -58,6 +62,12 @@ pub struct ProvocationAgentEvaluateRequest {
     pub evidence_refs: Vec<ScopeExpansionEvidenceRefInput>,
     #[serde(default)]
     pub scope_expansion: Option<ScopeExpansionAssessment>,
+    #[serde(default)]
+    pub plan_draft_assessment: Option<PlanDraftReviewAssessment>,
+    #[serde(default)]
+    pub diff_ready_assessment: Option<DiffReadyReviewAssessment>,
+    #[serde(default)]
+    pub retry_loop_assessment: Option<RetryLoopReviewAssessment>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -251,7 +261,13 @@ fn evaluate_with_output_and_log(
     } else {
         match output {
             StageCSupervisorOutput::DomainShell => {
-                if context.event == SupervisorEvent::ScopeExpansion {
+                if matches!(
+                    context.event,
+                    SupervisorEvent::ScopeExpansion
+                        | SupervisorEvent::PlanDrafted
+                        | SupervisorEvent::DiffReady
+                        | SupervisorEvent::RetryLoop
+                ) {
                     dropped_validation_result(SupervisorDropReason::RuntimeUnavailable)
                 } else {
                     let decision = build_stage_c_supervisor_decision(&context);
@@ -321,6 +337,49 @@ fn build_context(
                     reason_codes: Vec::new(),
                     evidence_refs: Vec::new(),
                 }),
+            })
+            .context
+        }
+        SupervisorEvent::PlanDrafted => {
+            build_plan_drafted_supervisor_context(PlanDraftSupervisorContextBuildInput {
+                artifact_ref: request.artifact_ref,
+                source_ui_mode,
+                locale: request.locale.unwrap_or_else(|| "ko-KR".to_string()),
+                goal_summary: request.ui_state.goal_summary.unwrap_or_default(),
+                plan_summary,
+                allowed_action_ids: request.allowed_action_ids,
+                evidence_refs: request.evidence_refs,
+                plan_draft_assessment: request.plan_draft_assessment.unwrap_or_default(),
+            })
+            .context
+        }
+        SupervisorEvent::DiffReady => {
+            build_diff_ready_supervisor_context(DiffReadySupervisorContextBuildInput {
+                artifact_ref: request.artifact_ref,
+                source_ui_mode,
+                locale: request.locale.unwrap_or_else(|| "ko-KR".to_string()),
+                goal_summary: request.ui_state.goal_summary.unwrap_or_default(),
+                plan_summary,
+                verification: request.ui_state.verification,
+                feasibility: request.ui_state.feasibility,
+                allowed_action_ids: request.allowed_action_ids,
+                evidence_refs: request.evidence_refs,
+                diff_ready_assessment: request.diff_ready_assessment.unwrap_or_default(),
+            })
+            .context
+        }
+        SupervisorEvent::RetryLoop => {
+            build_retry_loop_supervisor_context(RetryLoopSupervisorContextBuildInput {
+                artifact_ref: request.artifact_ref,
+                source_ui_mode,
+                locale: request.locale.unwrap_or_else(|| "ko-KR".to_string()),
+                goal_summary: request.ui_state.goal_summary.unwrap_or_default(),
+                plan_summary,
+                verification: request.ui_state.verification,
+                feasibility: request.ui_state.feasibility,
+                allowed_action_ids: request.allowed_action_ids,
+                evidence_refs: request.evidence_refs,
+                retry_loop_assessment: request.retry_loop_assessment.unwrap_or_default(),
             })
             .context
         }
@@ -412,6 +471,9 @@ mod tests {
             allowed_action_ids: Vec::new(),
             evidence_refs: Vec::new(),
             scope_expansion: None,
+            plan_draft_assessment: None,
+            diff_ready_assessment: None,
+            retry_loop_assessment: None,
         }
     }
 
@@ -476,6 +538,223 @@ mod tests {
                 reason_codes: vec!["missing_criterion_link".into()],
                 evidence_refs: vec!["step.linkedCriterionIds".into()],
             }),
+            plan_draft_assessment: None,
+            diff_ready_assessment: None,
+            retry_loop_assessment: None,
+        }
+    }
+
+    fn plan_drafted_request() -> ProvocationAgentEvaluateRequest {
+        ProvocationAgentEvaluateRequest {
+            session_id: 789,
+            event: SupervisorEvent::PlanDrafted,
+            artifact_ref: ArtifactRef::plan_draft("plan-9:draft", "Plan draft"),
+            source_ui_mode: "work".to_string(),
+            locale: Some("ko-KR".to_string()),
+            ui_state: ProvocationAgentUiState {
+                goal_summary: Some("Build a todo app".to_string()),
+                plan_summary: Some(PlanSummary {
+                    step_count: 2,
+                    active_step: None,
+                }),
+                verification: SupervisorVerificationUiState {
+                    ai_claimed_done: false,
+                    diff_reviewed: false,
+                    app_launched: false,
+                    preview_checked: false,
+                    automated_tests_passed: false,
+                    test_result: None,
+                    acceptance_criterion_confirmed: false,
+                    manual_checks: vec![],
+                },
+                feasibility: VerificationFeasibility {
+                    runnable: false,
+                    previewable: false,
+                    has_tests: false,
+                    diff_available: false,
+                },
+            },
+            project_id: Some(7),
+            plan_id: Some(9),
+            allowed_action_ids: vec![
+                SupervisorActionId::AddVerificationStep,
+                SupervisorActionId::LinkCriterion,
+                SupervisorActionId::DismissReview,
+            ],
+            evidence_refs: vec![
+                ScopeExpansionEvidenceRefInput {
+                    id: "plan.goal".to_string(),
+                    source: Some("goal".to_string()),
+                    kind: Some("plan_goal".to_string()),
+                    label: Some("Plan goal".to_string()),
+                    value_summary: json!("Build a todo app"),
+                    verification_evidence: false,
+                },
+                ScopeExpansionEvidenceRefInput {
+                    id: "plan.step.s_001.verification".to_string(),
+                    source: Some("plan".to_string()),
+                    kind: Some("verification_coverage".to_string()),
+                    label: Some("Missing verification".to_string()),
+                    value_summary: json!({"stepId":"s_001"}),
+                    verification_evidence: false,
+                },
+            ],
+            scope_expansion: None,
+            plan_draft_assessment: Some(PlanDraftReviewAssessment {
+                eligible: true,
+                reason_codes: vec!["missing_verification".into()],
+                evidence_refs: vec!["plan.goal".into(), "plan.step.s_001.verification".into()],
+                step_count: 2,
+                criteria_count: 1,
+                unverified_step_ids: vec!["s_001".into()],
+                unlinked_step_ids: vec![],
+            }),
+            diff_ready_assessment: None,
+            retry_loop_assessment: None,
+        }
+    }
+
+    fn diff_ready_request() -> ProvocationAgentEvaluateRequest {
+        ProvocationAgentEvaluateRequest {
+            session_id: 790,
+            event: SupervisorEvent::DiffReady,
+            artifact_ref: ArtifactRef::diff("step-1:diff", "Changed work"),
+            source_ui_mode: "work".to_string(),
+            locale: Some("ko-KR".to_string()),
+            ui_state: ProvocationAgentUiState {
+                goal_summary: Some("Keep settings changes scoped".to_string()),
+                plan_summary: Some(PlanSummary {
+                    step_count: 1,
+                    active_step: Some("Settings save".to_string()),
+                }),
+                verification: SupervisorVerificationUiState {
+                    ai_claimed_done: false,
+                    diff_reviewed: false,
+                    app_launched: false,
+                    preview_checked: false,
+                    automated_tests_passed: false,
+                    test_result: None,
+                    acceptance_criterion_confirmed: false,
+                    manual_checks: vec![],
+                },
+                feasibility: VerificationFeasibility {
+                    runnable: false,
+                    previewable: false,
+                    has_tests: true,
+                    diff_available: true,
+                },
+            },
+            project_id: Some(7),
+            plan_id: Some(9),
+            allowed_action_ids: vec![
+                SupervisorActionId::OpenDiff,
+                SupervisorActionId::AskAiForRationale,
+                SupervisorActionId::RunTests,
+                SupervisorActionId::DismissReview,
+            ],
+            evidence_refs: vec![
+                ScopeExpansionEvidenceRefInput {
+                    id: "diff.changed_files".to_string(),
+                    source: Some("diff".to_string()),
+                    kind: Some("changed_file".to_string()),
+                    label: Some("Changed files".to_string()),
+                    value_summary: json!({"paths":["src/auth/session.ts"]}),
+                    verification_evidence: false,
+                },
+                ScopeExpansionEvidenceRefInput {
+                    id: "diff.unexpected_files".to_string(),
+                    source: Some("diff".to_string()),
+                    kind: Some("changed_file".to_string()),
+                    label: Some("Unexpected files".to_string()),
+                    value_summary: json!({"paths":["src/auth/session.ts"]}),
+                    verification_evidence: false,
+                },
+            ],
+            scope_expansion: None,
+            plan_draft_assessment: None,
+            diff_ready_assessment: Some(DiffReadyReviewAssessment {
+                eligible: true,
+                reason_codes: vec!["outside_expected_files".into()],
+                evidence_refs: vec!["diff.changed_files".into(), "diff.unexpected_files".into()],
+                changed_file_count: 1,
+                unexpected_files: vec!["src/auth/session.ts".into()],
+                high_risk_files: vec!["src/auth/session.ts".into()],
+                diff_viewed: false,
+            }),
+            retry_loop_assessment: None,
+        }
+    }
+
+    fn retry_loop_request() -> ProvocationAgentEvaluateRequest {
+        ProvocationAgentEvaluateRequest {
+            session_id: 791,
+            event: SupervisorEvent::RetryLoop,
+            artifact_ref: ArtifactRef::failure("step-1:failure", "Repeated failure"),
+            source_ui_mode: "work".to_string(),
+            locale: Some("ko-KR".to_string()),
+            ui_state: ProvocationAgentUiState {
+                goal_summary: Some("Fix settings save".to_string()),
+                plan_summary: Some(PlanSummary {
+                    step_count: 1,
+                    active_step: Some("Settings save".to_string()),
+                }),
+                verification: SupervisorVerificationUiState {
+                    ai_claimed_done: false,
+                    diff_reviewed: false,
+                    app_launched: false,
+                    preview_checked: false,
+                    automated_tests_passed: false,
+                    test_result: Some(TestResult::Fail),
+                    acceptance_criterion_confirmed: false,
+                    manual_checks: vec![],
+                },
+                feasibility: VerificationFeasibility {
+                    runnable: false,
+                    previewable: false,
+                    has_tests: true,
+                    diff_available: true,
+                },
+            },
+            project_id: Some(7),
+            plan_id: Some(9),
+            allowed_action_ids: vec![
+                SupervisorActionId::CreateReproSteps,
+                SupervisorActionId::RollbackLastChange,
+                SupervisorActionId::OpenDiff,
+                SupervisorActionId::RunTests,
+                SupervisorActionId::DismissReview,
+            ],
+            evidence_refs: vec![
+                ScopeExpansionEvidenceRefInput {
+                    id: "failure.fingerprint".to_string(),
+                    source: Some("terminal".to_string()),
+                    kind: Some("failure_summary".to_string()),
+                    label: Some("Failure fingerprint".to_string()),
+                    value_summary: json!({"fingerprint":"typeerror_at_save"}),
+                    verification_evidence: false,
+                },
+                ScopeExpansionEvidenceRefInput {
+                    id: "failure.count".to_string(),
+                    source: Some("verification".to_string()),
+                    kind: Some("retry_loop_assessment".to_string()),
+                    label: Some("Failure count".to_string()),
+                    value_summary: json!({"count":2}),
+                    verification_evidence: false,
+                },
+            ],
+            scope_expansion: None,
+            plan_draft_assessment: None,
+            diff_ready_assessment: None,
+            retry_loop_assessment: Some(RetryLoopReviewAssessment {
+                eligible: true,
+                reason_codes: vec!["same_failure_repeated".into()],
+                evidence_refs: vec!["failure.fingerprint".into(), "failure.count".into()],
+                failure_fingerprint: "typeerror_at_save".into(),
+                failure_count: 2,
+                last_failure_at: json!(2000),
+                last_action_summary: Some("verification_failed".into()),
+                recovery_available: true,
+            }),
         }
     }
 
@@ -490,6 +769,51 @@ mod tests {
             "suggestedActionIds": ["link_criterion", "split_scope", "continue_with_risk"],
             "supervisionHabit": "새 범위는 PRD 기준에 묶어 봅니다.",
             "logRationale": "Add-step draft lacks a linked criterion"
+        }"#
+        .to_string()
+    }
+
+    fn valid_plan_drafted_decision_json() -> String {
+        r#"{
+            "schemaVersion": 1,
+            "provoke": true,
+            "concern": "plan_draft_weakness",
+            "severity": "caution",
+            "question": "이 계획은 검증 없이 승인해도 완료 판단이 가능한가요?",
+            "evidenceRefIds": ["plan.goal", "plan.step.s_001.verification"],
+            "suggestedActionIds": ["add_verification_step", "link_criterion", "run_tests"],
+            "supervisionHabit": "승인 전 검증 가능한 계획인지 봅니다.",
+            "logRationale": "Missing verification coverage"
+        }"#
+        .to_string()
+    }
+
+    fn valid_diff_ready_decision_json() -> String {
+        r#"{
+            "schemaVersion": 1,
+            "provoke": true,
+            "concern": "diff_scope_drift",
+            "severity": "caution",
+            "question": "이 변경 파일이 현재 목표 범위 안에 있나요?",
+            "evidenceRefIds": ["diff.changed_files", "diff.unexpected_files"],
+            "suggestedActionIds": ["open_diff", "ask_ai_for_rationale", "run_tests"],
+            "supervisionHabit": "변경 범위는 목표와 나란히 확인합니다.",
+            "logRationale": "Changed files include an unexpected path"
+        }"#
+        .to_string()
+    }
+
+    fn valid_retry_loop_decision_json() -> String {
+        r#"{
+            "schemaVersion": 1,
+            "provoke": true,
+            "concern": "retry_loop",
+            "severity": "caution",
+            "question": "같은 실패가 반복되니 먼저 재현 단계를 좁혀볼까요?",
+            "evidenceRefIds": ["failure.fingerprint", "failure.count"],
+            "suggestedActionIds": ["create_repro_steps", "rollback_last_change", "run_tests"],
+            "supervisionHabit": "반복 실패는 재현과 복구 지점부터 봅니다.",
+            "logRationale": "Same failure fingerprint repeated"
         }"#
         .to_string()
     }
@@ -858,5 +1182,246 @@ mod tests {
         let log = evaluated.log.expect("scope no-card evaluation is logged");
         assert_eq!(log.event, SupervisorEvent::ScopeExpansion);
         assert_eq!(log.validation_outcome, SupervisorValidationOutcome::NoCard);
+    }
+
+    #[test]
+    fn provocation_agent_evaluate_plan_drafted_maps_valid_decision_without_static_fallback() {
+        let mut dedup = SupervisorDedupState::new();
+        let evaluated = evaluate_with_output_and_log(
+            plan_drafted_request(),
+            StageCSupervisorOutput::DecisionJson {
+                raw: valid_plan_drafted_decision_json(),
+                supervisor_model: Some("mock-supervisor".to_string()),
+                latency_ms: Some(40),
+                usage: None,
+            },
+            &mut dedup,
+        );
+
+        assert_eq!(
+            evaluated.response.status,
+            ProvocationAgentEvaluateStatus::Shown
+        );
+        let card = evaluated.response.card.as_ref().unwrap();
+        assert_eq!(card.card_type, ProvocationCardType::PlanDraftReview);
+        assert_eq!(card.stage, ProvocationCardStage::Instruct);
+        assert_eq!(card.metadata["supervisorEvent"], json!("plan_drafted"));
+        assert_eq!(
+            card.actions
+                .iter()
+                .map(|action| action.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["add_verification_step", "link_criterion"]
+        );
+        let log = evaluated.log.expect("plan-draft evaluation is logged");
+        assert_eq!(log.event, SupervisorEvent::PlanDrafted);
+        assert_eq!(log.validation_outcome, SupervisorValidationOutcome::Shown);
+        assert!(log.assessment_summary.is_some());
+    }
+
+    #[test]
+    fn provocation_agent_evaluate_plan_drafted_false_or_unavailable_has_no_card() {
+        let mut request = plan_drafted_request();
+        request.plan_draft_assessment.as_mut().unwrap().eligible = false;
+        let mut dedup = SupervisorDedupState::new();
+        let evaluated = evaluate_with_output_and_log(
+            request,
+            StageCSupervisorOutput::DecisionJson {
+                raw: valid_plan_drafted_decision_json(),
+                supervisor_model: Some("mock-supervisor".to_string()),
+                latency_ms: Some(20),
+                usage: None,
+            },
+            &mut dedup,
+        );
+        assert_eq!(
+            evaluated.response.status,
+            ProvocationAgentEvaluateStatus::NoCard
+        );
+        assert!(evaluated.response.card.is_none());
+
+        let mut dedup = SupervisorDedupState::new();
+        let unavailable = evaluate_with_output_and_log(
+            plan_drafted_request(),
+            StageCSupervisorOutput::DomainShell,
+            &mut dedup,
+        );
+        assert_eq!(
+            unavailable.response.status,
+            ProvocationAgentEvaluateStatus::Dropped
+        );
+        assert_eq!(
+            unavailable.response.drop_reason,
+            Some(SupervisorDropReason::RuntimeUnavailable)
+        );
+        assert!(unavailable.response.card.is_none());
+    }
+
+    #[test]
+    fn provocation_agent_evaluate_diff_ready_maps_valid_decision_without_static_fallback() {
+        let mut dedup = SupervisorDedupState::new();
+        let evaluated = evaluate_with_output_and_log(
+            diff_ready_request(),
+            StageCSupervisorOutput::DecisionJson {
+                raw: valid_diff_ready_decision_json(),
+                supervisor_model: Some("mock-supervisor".to_string()),
+                latency_ms: Some(41),
+                usage: None,
+            },
+            &mut dedup,
+        );
+
+        assert_eq!(
+            evaluated.response.status,
+            ProvocationAgentEvaluateStatus::Shown
+        );
+        let card = evaluated.response.card.as_ref().unwrap();
+        assert_eq!(card.card_type, ProvocationCardType::DiffScopeReview);
+        assert_eq!(card.stage, ProvocationCardStage::Verify);
+        assert_eq!(card.metadata["supervisorEvent"], json!("diff_ready"));
+        assert_eq!(
+            card.actions
+                .iter()
+                .map(|action| action.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["open_diff", "ask_ai_for_rationale", "run_tests"]
+        );
+        let log = evaluated.log.expect("diff-ready evaluation is logged");
+        assert_eq!(log.event, SupervisorEvent::DiffReady);
+        assert_eq!(log.validation_outcome, SupervisorValidationOutcome::Shown);
+        assert!(log.assessment_summary.is_some());
+    }
+
+    #[test]
+    fn provocation_agent_evaluate_diff_ready_false_or_unavailable_has_no_card() {
+        let mut request = diff_ready_request();
+        request.diff_ready_assessment.as_mut().unwrap().eligible = false;
+        request.diff_ready_assessment.as_mut().unwrap().reason_codes = vec![];
+        let mut dedup = SupervisorDedupState::new();
+        let evaluated = evaluate_with_output_and_log(
+            request,
+            StageCSupervisorOutput::DecisionJson {
+                raw: valid_diff_ready_decision_json(),
+                supervisor_model: Some("mock-supervisor".to_string()),
+                latency_ms: Some(20),
+                usage: None,
+            },
+            &mut dedup,
+        );
+        assert_eq!(
+            evaluated.response.status,
+            ProvocationAgentEvaluateStatus::NoCard
+        );
+        assert_eq!(
+            evaluated.response.drop_reason,
+            Some(SupervisorDropReason::ProvokeFalse)
+        );
+        assert!(evaluated.response.card.is_none());
+
+        let mut dedup = SupervisorDedupState::new();
+        let unavailable = evaluate_with_output_and_log(
+            diff_ready_request(),
+            StageCSupervisorOutput::DomainShell,
+            &mut dedup,
+        );
+        assert_eq!(
+            unavailable.response.status,
+            ProvocationAgentEvaluateStatus::Dropped
+        );
+        assert_eq!(
+            unavailable.response.drop_reason,
+            Some(SupervisorDropReason::RuntimeUnavailable)
+        );
+        assert!(unavailable.response.card.is_none());
+    }
+
+    #[test]
+    fn provocation_agent_evaluate_retry_loop_maps_valid_decision_without_static_fallback() {
+        let mut dedup = SupervisorDedupState::new();
+        let evaluated = evaluate_with_output_and_log(
+            retry_loop_request(),
+            StageCSupervisorOutput::DecisionJson {
+                raw: valid_retry_loop_decision_json(),
+                supervisor_model: Some("mock-supervisor".to_string()),
+                latency_ms: Some(42),
+                usage: None,
+            },
+            &mut dedup,
+        );
+
+        assert_eq!(
+            evaluated.response.status,
+            ProvocationAgentEvaluateStatus::Shown
+        );
+        let card = evaluated.response.card.as_ref().unwrap();
+        assert_eq!(card.card_type, ProvocationCardType::RetryLoopReview);
+        assert_eq!(card.stage, ProvocationCardStage::Verify);
+        assert_eq!(card.metadata["supervisorEvent"], json!("retry_loop"));
+        assert_eq!(
+            card.actions
+                .iter()
+                .map(|action| action.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["create_repro_steps", "rollback_last_change", "run_tests"]
+        );
+        let log = evaluated.log.expect("retry-loop evaluation is logged");
+        assert_eq!(log.event, SupervisorEvent::RetryLoop);
+        assert_eq!(log.validation_outcome, SupervisorValidationOutcome::Shown);
+        assert!(log.assessment_summary.is_some());
+    }
+
+    #[test]
+    fn provocation_agent_evaluate_retry_loop_false_timeout_or_unavailable_has_no_card() {
+        let mut request = retry_loop_request();
+        request
+            .retry_loop_assessment
+            .as_mut()
+            .unwrap()
+            .failure_count = 1;
+        let mut dedup = SupervisorDedupState::new();
+        let evaluated = evaluate_with_output_and_log(
+            request,
+            StageCSupervisorOutput::DecisionJson {
+                raw: valid_retry_loop_decision_json(),
+                supervisor_model: Some("mock-supervisor".to_string()),
+                latency_ms: Some(20),
+                usage: None,
+            },
+            &mut dedup,
+        );
+        assert_eq!(
+            evaluated.response.status,
+            ProvocationAgentEvaluateStatus::NoCard
+        );
+        assert_eq!(
+            evaluated.response.drop_reason,
+            Some(SupervisorDropReason::ProvokeFalse)
+        );
+        assert!(evaluated.response.card.is_none());
+
+        for (output, reason) in [
+            (
+                StageCSupervisorOutput::DomainShell,
+                SupervisorDropReason::RuntimeUnavailable,
+            ),
+            (
+                StageCSupervisorOutput::Timeout,
+                SupervisorDropReason::Timeout,
+            ),
+            (
+                StageCSupervisorOutput::RuntimeUnavailable,
+                SupervisorDropReason::RuntimeUnavailable,
+            ),
+        ] {
+            let mut dedup = SupervisorDedupState::new();
+            let unavailable =
+                evaluate_with_output_and_log(retry_loop_request(), output, &mut dedup);
+            assert_eq!(
+                unavailable.response.status,
+                ProvocationAgentEvaluateStatus::Dropped
+            );
+            assert_eq!(unavailable.response.drop_reason, Some(reason));
+            assert!(unavailable.response.card.is_none());
+        }
     }
 }

@@ -45,13 +45,23 @@ authority. The canonical DIVE v2 source of truth lives in `.specify/` and
 
 ## 006 Specification Status
 
-As of 2026-06-16, `specs/006-sarkar-provocation-expansion/` has specification,
-plan, research, data model, contract, quickstart, tasks, and
-requirements-checklist artifacts. It does not implement product behavior yet;
-the next spec-kit step is implementation. It extends the
-`specs/002-provocation-supervisor-agent/` SupervisorAgent architecture and preserves the
-`specs/003-supervision-card-ux/` presentation constraints plus the
-`specs/005-v2-spec-conformance-gaps/` `scope_expansion` behavior.
+As of 2026-06-16, `specs/006-sarkar-provocation-expansion/` is implemented by
+Wily Stage S-022. The implementation adds SupervisorAgent-backed
+`plan_drafted`, `diff_ready`, and `retry_loop` review-card events, preserves
+no-static-fallback behavior, keeps cards artifact-adjacent and non-blocking,
+and logs/exports shown, silent, and dropped expanded evaluations through the
+local EventLog/export path. It extends the
+`specs/002-provocation-supervisor-agent/` SupervisorAgent architecture and
+preserves the `specs/003-supervision-card-ux/` presentation constraints plus
+the `specs/005-v2-spec-conformance-gaps/` `scope_expansion` behavior.
+
+| Wily Stage | Scope | Status |
+| --- | --- | --- |
+| S-022 | T001-T065 006 Sarkar-style plan-draft, diff-ready, retry-loop, EventLog/export, regression, and validation handoff | Done |
+
+S-022 validation evidence is recorded in
+`specs/006-sarkar-provocation-expansion/quickstart.md`. Final validation passed
+with `pnpm typecheck`, `pnpm test:unit`, and full `cargo test`.
 
 ## 005 Implementation Status
 
