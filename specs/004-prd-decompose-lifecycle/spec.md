@@ -20,8 +20,10 @@ since verifying always reveals changes."
 This feature strengthens the D (Decompose) and I (Instruct) of DIVE by producing a
 real artifact — a project spec / PRD — and making the decomposition explainable.
 Each step links to PRD acceptance criteria and carries a short rationale the
-student can challenge. The plan stays mutable: steps can be added mid-flow because
-implementing and verifying always surface changes.
+student can challenge from plan/decomposition review surfaces. The step-end
+verification review stays focused on evidence, review cards, and approval. The
+plan stays mutable: steps can be added mid-flow because implementing and
+verifying always surface changes.
 
 This positively resolves the `SocraticInterviewPanel` boundary concern raised in
 specs/002 implementation-gap: the interview is not a quiz or classroom theater, it
@@ -94,10 +96,12 @@ it satisfies and why it was split that way, and I can ask "why this step?".
 
 **Acceptance Scenarios**:
 
-1. **Given** a decomposition, **When** it renders, **Then** each step shows at
-   least one linked acceptance-criterion ID and a short rationale.
-2. **Given** a step rationale, **When** the student raises an objection, **Then**
-   it is logged and a non-blocking re-decomposition suggestion may follow.
+1. **Given** a decomposition, **When** it renders in plan review or roadmap
+   explanation surfaces, **Then** each step shows at least one linked
+   acceptance-criterion ID and a short rationale.
+2. **Given** a step rationale in a plan/decomposition review surface, **When**
+   the student raises an objection, **Then** it is logged and a non-blocking
+   re-decomposition suggestion may follow.
 
 ### User Story 3 - Add A Step Mid-Implementation (Priority: P2)
 
@@ -123,11 +127,12 @@ dedicated plan area (not the chat), and the PRD updates.
   export.
 - **FR-003**: PRD acceptance criteria MUST carry stable IDs that steps reference.
 - **FR-004**: Decomposition MUST attach, per step, the PRD criteria it satisfies
-  and a short rationale for why the work was split this way (criterion-linked, not
-  generic).
-- **FR-005**: The student MUST be able to challenge a step's rationale; an
-  objection MUST be logged and MAY trigger a non-blocking re-decomposition
-  suggestion (no hard gate).
+  and a short rationale for why the work was split this way (criterion-linked,
+  not generic). These details belong to plan review, roadmap explanation, and
+  plan-adjustment surfaces; they MUST NOT crowd the step-end verification panel.
+- **FR-005**: The student MUST be able to challenge a step's rationale from a
+  plan/decomposition review surface; an objection MUST be logged and MAY trigger
+  a non-blocking re-decomposition suggestion (no hard gate).
 - **FR-006**: Steps MUST be addable mid-implementation from a dedicated plan area
   (not the chat), low-friction (one action; criterion link encouraged, not
   forced), and always logged.
@@ -205,6 +210,11 @@ dedicated plan area (not the chat), and the PRD updates.
 - **FR-027**: Editing a completed PRD MUST reopen the PRD Authoring Board or an
   equivalent edit mode with versioning; the read view itself remains optimized
   for review and plan handoff.
+- **FR-028**: After a PRD-backed plan exists or a plan step is active, the Final
+  PRD Read View MUST remain available as a collapsible reference and MUST NOT
+  replace the chat/execution surface or hide the step-start/composer controls.
+  In this state it MUST show an existing-plan status instead of the primary
+  create-plan action.
 
 ### Key Entities
 
@@ -239,7 +249,7 @@ reconstructable from local export, with student PII masked.
 
 - **SC-001**: A new project cannot reach decomposition without a minimal PRD.
 - **SC-002**: Every step shows at least one linked acceptance criterion and a
-  rationale.
+  rationale in the plan review or roadmap explanation surface.
 - **SC-003**: An objection is logged and offers re-decomposition without blocking
   the student.
 - **SC-004**: A step added mid-flow updates the PRD and is logged.
@@ -257,6 +267,9 @@ reconstructable from local export, with student PII masked.
 - **SC-009**: After saving, the completed PRD opens in a concise read view with
   no interview rail or patch controls, and the student can intentionally enter
   edit mode when needed.
+- **SC-010**: After plan approval or step start, the completed PRD can be
+  expanded/collapsed for review while chat and execution controls remain
+  available, and the PRD view no longer offers another create-plan action.
 
 ## Current Implementation Alignment *(mandatory)*
 

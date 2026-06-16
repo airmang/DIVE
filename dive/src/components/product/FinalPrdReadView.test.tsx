@@ -91,4 +91,18 @@ describe("FinalPrdReadView", () => {
     expect(props.onEdit).toHaveBeenCalledTimes(1);
     expect(props.onCreatePlan).toHaveBeenCalledTimes(1);
   });
+
+  it("shows a plan-created state instead of create-plan when a plan already exists", () => {
+    const props = renderView({
+      canCreatePlan: false,
+      planStatusLabel: "Plan created",
+    });
+
+    expect(screen.queryByTestId("final-prd-create-plan")).toBeNull();
+    expect(screen.getByTestId("final-prd-plan-created").textContent).toContain("Plan created");
+
+    fireEvent.click(screen.getByTestId("final-prd-edit"));
+    expect(props.onEdit).toHaveBeenCalledTimes(1);
+    expect(props.onCreatePlan).not.toHaveBeenCalled();
+  });
 });

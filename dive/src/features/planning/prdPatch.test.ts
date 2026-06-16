@@ -58,6 +58,34 @@ describe("PRD patch helpers", () => {
     expect(result.draft.lastPatchId).toBe("patch-1");
   });
 
+  it("accepts text/value aliases for interview patch fields", () => {
+    const draft = createLiveProjectSpecDraft(12);
+    const patch: PrdPatch = {
+      patchId: "patch-aliases",
+      sourceTurnId: "turn-aliases",
+      rationale: "The provider returned text for field updates.",
+      operations: [
+        { op: "set_goal", text: "Build a deadline tracker" },
+        { op: "set_intent_summary", text: "Students can see urgent assignments first" },
+        { op: "append_scope", text: "Show assignments due this week" },
+        { op: "append_constraint", text: "Local project data only" },
+        { op: "append_acceptance_criterion", value: "Urgent assignments appear at the top" },
+      ],
+    };
+
+    const result = applyPrdPatch(draft, patch);
+
+    expect(result.outcome).toBe("applied");
+    expect(result.draft.spec.goal).toBe("Build a deadline tracker");
+    expect(result.draft.spec.intentSummary).toBe("Students can see urgent assignments first");
+    expect(result.draft.spec.scope).toEqual(["Show assignments due this week"]);
+    expect(result.draft.spec.constraints).toEqual(["Local project data only"]);
+    expect(result.draft.spec.acceptanceCriteria[0]).toMatchObject({
+      criterionId: "AC-001",
+      text: "Urgent assignments appear at the top",
+    });
+  });
+
   it("holds conflicting operations when a student edited the field", () => {
     const draft = markDraftStudentEdited(
       createLiveProjectSpecDraft(3, { goal: "Student-owned goal" }),

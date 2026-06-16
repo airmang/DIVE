@@ -1,12 +1,13 @@
-import { History, Save, Send } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { CheckCircle2, History, Save, Send } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   allocateCriterionId,
   markDraftStudentEdited,
-  validateMinimalProjectSpec,
+  validateConfirmableProjectSpec,
   type AcceptanceCriterion,
   type LiveProjectSpecDraft,
   type PrdPatchValidationOutcome,
+  type PrdInterviewConversationTurn,
 } from "../../features/planning";
 import { useT } from "../../i18n";
 import { Button } from "../ui/button";
@@ -47,6 +48,7 @@ export interface PrdAuthoringBoardProps {
   onDraftChange: (draft: LiveProjectSpecDraft) => void;
   onSubmitAnswer: (
     answer: string,
+    conversation: PrdInterviewConversationTurn[],
   ) => PrdInterviewSubmissionResult | void | Promise<PrdInterviewSubmissionResult | void>;
   onSaveDraft?: (draft: LiveProjectSpecDraft) => void;
   onSavePrdAndCreatePlan: (draft: LiveProjectSpecDraft) => void;
@@ -133,6 +135,35 @@ function persistableConversationTurns(turns: PrdConversationTurn[]): PrdConversa
     .map((turn) => (turn.state ? turn : { id: turn.id, role: turn.role, text: turn.text }));
 }
 
+function prdConversationContext(turns: PrdConversationTurn[]): PrdInterviewConversationTurn[] {
+  return turns
+    .filter((turn) => turn.state === undefined && turn.text.trim().length > 0)
+    .slice(-12)
+    .map((turn) => ({ role: turn.role, text: turn.text.trim() }));
+}
+
+export function isPrdCompletionIntent(text: string): boolean {
+  const normalized = text
+    .trim()
+    .toLowerCase()
+    .replace(/[.!?。！？…]+$/g, "")
+    .replace(/\s+/g, " ");
+  if (!normalized || normalized.length > 80) return false;
+
+  const koreanDirect =
+    /(이\s*정도면|그\s*정도면).*(충분|됐|돼)/.test(normalized) ||
+    /(충분해|충분합니다|됐어|됐다|됐습니다|됐다니까|끝내자|끝내줘|끝낼게|끝났|그만|넘어가|언제\s*끝)/.test(
+      normalized,
+    ) ||
+    /(마무리|확정|저장)(해|하자|하면|해줘|해주세요)/.test(normalized);
+  const englishDirect =
+    /^(that'?s|that is|this is)? ?(enough|done|all set)$/.test(normalized) ||
+    /^(looks good|no more|finish|finished|save it|confirm it)$/.test(normalized) ||
+    /^(please )?(finish|save|confirm)( it| this| the prd)?$/.test(normalized);
+
+  return koreanDirect || englishDirect;
+}
+
 export function PrdAuthoringBoard({
   projectName,
   projectPath,
@@ -151,6 +182,7 @@ export function PrdAuthoringBoard({
   const [localDraft, setLocalDraft] = useState(draft);
   const [answer, setAnswer] = useState("");
   const [submittingAnswer, setSubmittingAnswer] = useState(false);
+  const submittingAnswerRef = useRef(false);
   const [conversationStorageKey, setConversationStorageKey] = useState(() =>
     conversationStorageKeyForDraft(draft),
   );
@@ -180,9 +212,17 @@ export function PrdAuthoringBoard({
     window.localStorage.setItem(conversationStorageKey, JSON.stringify(turns));
   }, [conversationStorageKey, conversationTurns]);
 
-  const validation = useMemo(() => validateMinimalProjectSpec(localDraft.spec), [localDraft.spec]);
+  const validation = useMemo(
+    () => validateConfirmableProjectSpec(localDraft.spec),
+    [localDraft.spec],
+  );
   const criteria = normalizeCriteria(localDraft.spec.acceptanceCriteria);
   const isAnswerBusy = busy || submittingAnswer;
+  const canConfirmPrd = validation.valid && !busy;
+  const confirmPrd = () => {
+    if (!canConfirmPrd) return;
+    onSavePrdAndCreatePlan(localDraft);
+  };
 
   const updateDraft = (next: LiveProjectSpecDraft, changedFields: string[]) => {
     const marked = markDraftStudentEdited(next, changedFields);
@@ -233,16 +273,32 @@ export function PrdAuthoringBoard({
 
   const submitAnswer = async () => {
     const trimmed = answer.trim();
-    if (!trimmed || isAnswerBusy) return;
+    if (!trimmed || isAnswerBusy || submittingAnswerRef.current) return;
+    if (canConfirmPrd && isPrdCompletionIntent(trimmed)) {
+      const stamp = Date.now();
+      setConversationTurns((turns) => [
+        ...turns,
+        {
+          id: `student-${stamp}`,
+          role: "student",
+          text: trimmed,
+        },
+      ]);
+      setAnswer("");
+      confirmPrd();
+      return;
+    }
+    submittingAnswerRef.current = true;
     const stamp = Date.now();
     const pendingId = `assistant-${stamp}`;
+    const studentTurn: PrdConversationTurn = {
+      id: `student-${stamp}`,
+      role: "student",
+      text: trimmed,
+    };
     setConversationTurns((turns) => [
       ...turns,
-      {
-        id: `student-${stamp}`,
-        role: "student",
-        text: trimmed,
-      },
+      studentTurn,
       {
         id: pendingId,
         role: "assistant",
@@ -253,7 +309,10 @@ export function PrdAuthoringBoard({
     setAnswer("");
     setSubmittingAnswer(true);
     try {
-      const result = await onSubmitAnswer(trimmed);
+      const result = await onSubmitAnswer(
+        trimmed,
+        prdConversationContext([...conversationTurns, studentTurn]),
+      );
       const assistantText = result?.assistantMessage?.trim();
       setConversationTurns((turns) =>
         assistantText
@@ -271,6 +330,7 @@ export function PrdAuthoringBoard({
         ),
       );
     } finally {
+      submittingAnswerRef.current = false;
       setSubmittingAnswer(false);
     }
   };
@@ -308,6 +368,16 @@ export function PrdAuthoringBoard({
               {t("prd.authoring.history")}
             </Button>
           ) : null}
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={confirmPrd}
+            disabled={!canConfirmPrd}
+            data-testid="prd-confirm-header"
+          >
+            <CheckCircle2 />
+            {t("prd.authoring.confirm_prd")}
+          </Button>
         </div>
       </header>
 
@@ -507,9 +577,13 @@ export function PrdAuthoringBoard({
                 .map((code) =>
                   code === "missing_goal"
                     ? t("prd.authoring.validation_goal_required")
-                    : t("prd.authoring.validation_criterion_required"),
+                    : code === "missing_intent_summary"
+                      ? t("prd.authoring.validation_intent_required")
+                      : code === "missing_scope"
+                        ? t("prd.authoring.validation_scope_required")
+                        : t("prd.authoring.validation_criterion_required"),
                 )
-                .join(" · ")}
+                .join(" / ")}
         </div>
         <div className="flex items-center gap-2">
           {onSaveDraft ? (
@@ -527,12 +601,12 @@ export function PrdAuthoringBoard({
           <Button
             variant="primary"
             size="sm"
-            onClick={() => onSavePrdAndCreatePlan(localDraft)}
-            disabled={!validation.valid || busy}
+            onClick={confirmPrd}
+            disabled={!canConfirmPrd}
             data-testid="prd-save-create-plan"
           >
-            <Save />
-            {t("prd.authoring.save_create_plan")}
+            <CheckCircle2 />
+            {t("prd.authoring.confirm_prd")}
           </Button>
         </div>
       </footer>

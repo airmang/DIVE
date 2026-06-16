@@ -10,6 +10,7 @@ import type {
   PlanAdjustmentReviewRequestDetail,
   PlanRow,
   PrdPatch,
+  PrdInterviewConversationTurn,
   PrdPatchValidationOutcome,
   ProjectSpec,
   ProjectSpecDraft,
@@ -87,6 +88,7 @@ export interface WorkspacePrdStatus {
 export interface SubmitPrdInterviewTurnInput {
   draftId: string;
   answer: string;
+  conversation?: PrdInterviewConversationTurn[];
   provider: string;
   model: string;
 }
@@ -136,9 +138,7 @@ function normalizeChallengeStepRationaleResult(value: unknown): ChallengeStepRat
   const record = objectRecord(value);
   const objectionId = stringField(record, "objectionId", "objection_id") ?? "";
   const suggestionStatus =
-    stringField(record, "suggestionStatus", "suggestion_status") === "offered"
-      ? "offered"
-      : "none";
+    stringField(record, "suggestionStatus", "suggestion_status") === "offered" ? "offered" : "none";
   const offerKind = stringField(record, "offerKind", "offer_kind");
 
   return {
@@ -342,6 +342,7 @@ export function usePlan(projectId: number | null) {
         projectId,
         draftId: input.draftId,
         answer: input.answer,
+        conversation: input.conversation ?? [],
         provider: input.provider,
         model: input.model,
       });
@@ -372,12 +373,9 @@ export function usePlan(projectId: number | null) {
   const challengeStepRationale = useCallback(
     async (input: ChallengeStepRationaleInput) => {
       if (!api) throw new Error("Tauri IPC unavailable");
-      const result = await api.invoke<unknown>(
-        "workspace_plan_challenge_step_rationale",
-        {
-          input,
-        },
-      );
+      const result = await api.invoke<unknown>("workspace_plan_challenge_step_rationale", {
+        input,
+      });
       await refresh();
       return normalizeChallengeStepRationaleResult(result);
     },
@@ -387,15 +385,12 @@ export function usePlan(projectId: number | null) {
   const acceptRationaleChallengeOffer = useCallback(
     async (input: RationaleChallengeOfferActionInput) => {
       if (!api) throw new Error("Tauri IPC unavailable");
-      const result = await api.invoke<unknown>(
-        "workspace_plan_respond_to_plan_adjustment_offer",
-        {
-          input: {
-            ...input,
-            response: "accepted",
-          },
+      const result = await api.invoke<unknown>("workspace_plan_respond_to_plan_adjustment_offer", {
+        input: {
+          ...input,
+          response: "accepted",
         },
-      );
+      });
       await refresh();
       return normalizeRationaleChallengeOfferActionResult(result, {
         ...input,
@@ -408,15 +403,12 @@ export function usePlan(projectId: number | null) {
   const dismissRationaleChallengeOffer = useCallback(
     async (input: RationaleChallengeOfferActionInput) => {
       if (!api) throw new Error("Tauri IPC unavailable");
-      const result = await api.invoke<unknown>(
-        "workspace_plan_respond_to_plan_adjustment_offer",
-        {
-          input: {
-            ...input,
-            response: "dismissed",
-          },
+      const result = await api.invoke<unknown>("workspace_plan_respond_to_plan_adjustment_offer", {
+        input: {
+          ...input,
+          response: "dismissed",
         },
-      );
+      });
       await refresh();
       return normalizeRationaleChallengeOfferActionResult(result, {
         ...input,

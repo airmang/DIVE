@@ -172,7 +172,7 @@ export function deriveGetStartedModel(input: {
   const hasMinimalPrd = prdStatus === "minimal";
   const hasPlan = input.hasPlan ?? hasSession;
   const hasApprovedPlan = input.hasApprovedPlan ?? hasSession;
-  if (hasProject && hasProvider && hasMinimalPrd && hasApprovedPlan && hasSession) return null;
+  if (hasProject && hasProvider && hasMinimalPrd && hasApprovedPlan) return null;
 
   const firstIncomplete: GetStartedStepKey = !hasProject
     ? "project"

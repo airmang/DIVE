@@ -68,17 +68,23 @@ export interface InterviewTurn {
   createdAt: number;
 }
 
+export interface PrdInterviewConversationTurn {
+  role: "assistant" | "student";
+  text: string;
+}
+
 export type PrdPatchOperation =
-  | { op: "set_goal"; value: string }
-  | { op: "set_intent_summary"; value: string }
-  | { op: "append_scope"; value: string }
-  | { op: "append_non_goal"; value: string }
-  | { op: "append_constraint"; value: string }
-  | { op: "append_acceptance_criterion"; text: string }
+  | { op: "set_goal"; value?: string; text?: string }
+  | { op: "set_intent_summary"; value?: string; text?: string }
+  | { op: "append_scope"; value?: string; text?: string }
+  | { op: "append_non_goal"; value?: string; text?: string }
+  | { op: "append_constraint"; value?: string; text?: string }
+  | { op: "append_acceptance_criterion"; text?: string; value?: string }
   | {
       op: "revise_acceptance_criterion_text";
       criterionId: string;
-      text: string;
+      text?: string;
+      value?: string;
     };
 
 export interface PrdPatch {

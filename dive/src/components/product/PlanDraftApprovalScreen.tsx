@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, RotateCcw, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronUp, RotateCcw, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useT } from "../../i18n";
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
@@ -36,6 +36,52 @@ interface PlanDraftApprovalScreenProps {
   onRequestRevision: (feedback: string) => void;
   onDiscard: () => void;
 }
+
+type StepReviewAction = "too_large" | "split" | "merge" | "criteria" | "unneeded";
+
+type StepRevisionTarget = {
+  kind: "step";
+  stepId: string;
+  title: string;
+  summary: string | null;
+  linkedCriteria: { criterionId: string; text: string }[];
+  rationale: string | null;
+  reviewAction: StepReviewAction | null;
+};
+
+type RevisionTarget = { kind: "plan" } | StepRevisionTarget;
+
+const STEP_REVIEW_ACTIONS: {
+  id: StepReviewAction;
+  labelKey: string;
+  feedbackKey: string;
+}[] = [
+  {
+    id: "too_large",
+    labelKey: "planning.approval.quick_too_large",
+    feedbackKey: "planning.approval.quick_too_large_feedback",
+  },
+  {
+    id: "split",
+    labelKey: "planning.approval.quick_split",
+    feedbackKey: "planning.approval.quick_split_feedback",
+  },
+  {
+    id: "merge",
+    labelKey: "planning.approval.quick_merge",
+    feedbackKey: "planning.approval.quick_merge_feedback",
+  },
+  {
+    id: "criteria",
+    labelKey: "planning.approval.quick_criteria",
+    feedbackKey: "planning.approval.quick_criteria_feedback",
+  },
+  {
+    id: "unneeded",
+    labelKey: "planning.approval.quick_unneeded",
+    feedbackKey: "planning.approval.quick_unneeded_feedback",
+  },
+];
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value)
@@ -94,6 +140,27 @@ function hasStepVerification(step: PlanGenerationResult["steps"][number]): boole
   );
 }
 
+function stepVerificationDetail(step: PlanGenerationResult["steps"][number]): string | null {
+  return step.verification_command?.trim() || step.verification_manual_check?.trim() || null;
+}
+
+function buildStepRevisionFeedback(feedback: string, target: StepRevisionTarget): string {
+  const criteria =
+    target.linkedCriteria
+      .map((criterion) => `${criterion.criterionId} ${criterion.text}`)
+      .join("; ") || "none";
+
+  return [
+    "[STEP_REVISION]",
+    `Target step: ${target.stepId} ${target.title}`,
+    `Review action: ${target.reviewAction ?? "custom"}`,
+    `User feedback: ${feedback}`,
+    `Current purpose: ${target.summary ?? "none"}`,
+    `Linked criteria: ${criteria}`,
+    `Current rationale: ${target.rationale ?? "none"}`,
+  ].join("\n");
+}
+
 function MarkdownPreview({ markdown }: { markdown: string }) {
   const nodes = markdown.split("\n").map((line, index) => {
     const key = `${index}-${line}`;
@@ -147,12 +214,16 @@ export function PlanDraftApprovalScreen({
   const t = useT();
   const tutorialEnabled = useTutorialEnabled();
   const [feedback, setFeedback] = useState("");
+  const [revisionTarget, setRevisionTarget] = useState<RevisionTarget | null>(null);
+  const [rawDraftOpen, setRawDraftOpen] = useState(false);
+  const [expandedStepIds, setExpandedStepIds] = useState<Set<string>>(() => new Set());
   const [critique, setCritique] = useState<"unset" | "none" | "found">("unset");
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
   const unresolved = stringArray(interview?.unresolved_questions);
   const markdown = useMemo(() => buildPlanMarkdown(draft), [draft]);
   const plan = draft.plan;
   const approveBlocked = tutorialEnabled && critique !== "none";
+  const revisionOpen = revisionTarget !== null;
   const provocationCards = useMemo(() => {
     if (!provocation?.enabled) return [];
     return generateProvocationCards({
@@ -167,28 +238,66 @@ export function PlanDraftApprovalScreen({
     });
   }, [draft.steps, plan.acceptance_criteria, plan.goal, plan.id, provocation]);
 
+  const openRevisionFeedback = (
+    nextFeedback: string,
+    target: RevisionTarget = { kind: "plan" },
+  ) => {
+    setFeedback(nextFeedback);
+    setRevisionTarget(target);
+  };
+
+  const openStepRevision = (
+    step: PlanGenerationResult["steps"][number],
+    metadata: ReturnType<typeof normalizeStepCriteria>,
+    reviewAction: StepReviewAction | null,
+    nextFeedback: string,
+  ) => {
+    openRevisionFeedback(nextFeedback, {
+      kind: "step",
+      stepId: step.step_id,
+      title: step.title,
+      summary: step.summary,
+      linkedCriteria: metadata.linkedCriteria,
+      rationale: metadata.rationale,
+      reviewAction,
+    });
+  };
+
+  const toggleStepDetails = (stepId: string) => {
+    setExpandedStepIds((current) => {
+      const next = new Set(current);
+      if (next.has(stepId)) next.delete(stepId);
+      else next.add(stepId);
+      return next;
+    });
+  };
+
   const handleProvocationAction = useProvocationActionResolver({
     onAddAcceptanceCriteria: () => {
-      setFeedback(
+      openRevisionFeedback(
         "완료 기준을 계획에 추가해 주세요. 예: 사용자가 무엇을 보면 끝났다고 판단할 수 있는지 2~3개로 적어 주세요.",
       );
     },
     onAddVerificationStep: () => {
-      setFeedback(
+      openRevisionFeedback(
         "검증 단계가 필요합니다. 실행/프리뷰/테스트 중 무엇으로 확인할지 계획에 추가해 주세요.",
       );
     },
     onSplitScope: () => {
-      setFeedback(
+      openRevisionFeedback(
         "범위를 더 작게 나눠 주세요. 첫 번째 기능 하나만 승인 가능한 계획으로 다시 작성해 주세요.",
       );
     },
     onContinueWithRisk: () => {
-      setFeedback(
+      openRevisionFeedback(
         "남은 위험을 알고 진행하려면, 변경 요청란에 왜 그대로 진행해도 되는지 짧게 남겨 주세요.",
       );
     },
   });
+  const selectedStepReviewAction =
+    revisionTarget?.kind === "step" && revisionTarget.reviewAction
+      ? STEP_REVIEW_ACTIONS.find((action) => action.id === revisionTarget.reviewAction)
+      : null;
 
   return (
     <div className="h-full overflow-y-auto bg-bg" data-testid="plan-draft-approval">
@@ -198,7 +307,17 @@ export function PlanDraftApprovalScreen({
             <h2 className="text-lg font-semibold text-fg">{t("planning.approval.title")}</h2>
             <p className="mt-1 text-sm text-fg-muted">{plan.goal}</p>
           </div>
-          <div className="flex shrink-0 gap-2">
+          <div className="flex shrink-0 flex-wrap justify-end gap-2">
+            <Button
+              variant={revisionOpen ? "secondary" : "outline"}
+              size="sm"
+              onClick={() => openRevisionFeedback("", { kind: "plan" })}
+              disabled={busy}
+              data-testid="plan-draft-request-changes-toggle"
+            >
+              <RotateCcw />
+              {t("planning.approval.request_plan_changes")}
+            </Button>
             <Button
               variant="primary"
               size="sm"
@@ -280,9 +399,120 @@ export function PlanDraftApprovalScreen({
           </div>
         ) : null}
 
-        <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_420px]">
-          <div className="space-y-5">
-            <MarkdownPreview markdown={markdown} />
+        <section className="space-y-5">
+          <section>
+            <h3 className="mb-2 text-sm font-semibold text-fg">
+              {t("planning.approval.step_dag")}
+            </h3>
+            <PlanDraftDependencyMap steps={draft.steps} />
+          </section>
+
+          {revisionOpen ? (
+            <section
+              className="rounded-md border bg-bg-panel2 p-3"
+              data-testid="plan-draft-request-changes-panel"
+              data-revision-target={revisionTarget?.kind ?? "plan"}
+            >
+              <h3 className="text-sm font-semibold text-fg">
+                {revisionTarget?.kind === "step"
+                  ? `${t("planning.approval.request_step_changes")}: ${revisionTarget.stepId}`
+                  : t("planning.approval.request_plan_changes")}
+              </h3>
+              {revisionTarget?.kind === "step" ? (
+                <div
+                  className="mt-3 rounded-md border border-info/30 bg-info/5 p-3 text-xs"
+                  data-testid="plan-draft-step-revision-context"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-fg">
+                      {revisionTarget.stepId} · {revisionTarget.title}
+                    </span>
+                    {selectedStepReviewAction ? (
+                      <span className="rounded-sm border border-border bg-bg px-2 py-0.5 font-semibold text-accent">
+                        {t(selectedStepReviewAction.labelKey)}
+                      </span>
+                    ) : null}
+                  </div>
+                  {revisionTarget.linkedCriteria.length > 0 ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {revisionTarget.linkedCriteria.map((criterion) => (
+                        <span
+                          key={criterion.criterionId}
+                          className="rounded-sm border border-border bg-bg px-2 py-1 text-fg"
+                        >
+                          <span className="font-semibold text-accent">{criterion.criterionId}</span>{" "}
+                          {criterion.text}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {revisionTarget.rationale ? (
+                    <p className="mt-2 text-fg-muted">{revisionTarget.rationale}</p>
+                  ) : null}
+                </div>
+              ) : null}
+              <textarea
+                className="mt-2 min-h-24 w-full resize-none rounded-md border bg-bg px-3 py-2 text-sm text-fg placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                value={feedback}
+                onChange={(event) => setFeedback(event.target.value)}
+                placeholder={t("planning.approval.request_changes_placeholder")}
+                disabled={busy}
+                data-testid="plan-draft-request-changes-input"
+              />
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const trimmed = feedback.trim();
+                    if (!trimmed) return;
+                    onRequestRevision(
+                      revisionTarget?.kind === "step"
+                        ? buildStepRevisionFeedback(trimmed, revisionTarget)
+                        : trimmed,
+                    );
+                    setFeedback("");
+                    setRevisionTarget(null);
+                  }}
+                  disabled={busy || feedback.trim().length === 0}
+                  data-testid="plan-draft-request-changes-submit"
+                >
+                  <RotateCcw />
+                  {revisionTarget?.kind === "step"
+                    ? t("planning.approval.request_step_changes")
+                    : t("planning.approval.request_plan_changes")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setRevisionTarget(null)}
+                  disabled={busy}
+                  data-testid="plan-draft-request-changes-cancel"
+                >
+                  {t("common.cancel")}
+                </Button>
+              </div>
+            </section>
+          ) : null}
+
+          <div className="space-y-5" data-testid="plan-draft-review-content">
+            <section className="rounded-md border bg-bg-panel2 p-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setRawDraftOpen((open) => !open)}
+                data-testid="plan-draft-raw-toggle"
+              >
+                {rawDraftOpen
+                  ? t("planning.approval.hide_raw_draft")
+                  : t("planning.approval.show_raw_draft")}
+              </Button>
+              {rawDraftOpen ? (
+                <div className="mt-3" data-testid="plan-draft-raw-markdown">
+                  <MarkdownPreview markdown={markdown} />
+                </div>
+              ) : null}
+            </section>
             <section className="rounded-md border bg-bg-panel2 p-3">
               <h3 className="text-sm font-semibold text-fg">
                 {t("planning.approval.intent_surface_title")}
@@ -369,11 +599,13 @@ export function PlanDraftApprovalScreen({
                       (step as unknown as Record<string, unknown>).decomposition_rationale,
                   });
                   const verificationIncluded = hasStepVerification(step);
-                  const verificationText =
-                    step.verification_command?.trim() ||
-                    step.verification_manual_check?.trim() ||
-                    step.verification_kind?.trim() ||
-                    t("planning.approval.step_verification_missing");
+                  const verificationText = stepVerificationDetail(step);
+                  const detailsOpen = expandedStepIds.has(step.step_id);
+                  const hasDetails =
+                    expectedFiles.length > 0 ||
+                    Boolean(verificationText) ||
+                    dependencies.length > 0 ||
+                    Boolean(step.parallel_group);
                   return (
                     <li
                       key={step.id}
@@ -412,98 +644,142 @@ export function PlanDraftApprovalScreen({
                           data-testid="plan-draft-step-criteria"
                         >
                           {stepMetadata.linkedCriteria.length > 0 ? (
-                            <div className="flex flex-wrap gap-1.5">
-                              {stepMetadata.linkedCriteria.map((criterion) => (
-                                <span
-                                  key={criterion.criterionId}
-                                  className="inline-flex items-center gap-1 rounded-sm border border-border bg-bg px-2 py-1 text-fg"
-                                >
-                                  <span className="font-semibold text-accent">
-                                    {criterion.criterionId}
+                            <div className="space-y-1.5">
+                              <p className="text-[10.5px] font-semibold uppercase text-fg-muted">
+                                {t("prd.decomposition.linked_criteria")}
+                              </p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {stepMetadata.linkedCriteria.map((criterion) => (
+                                  <span
+                                    key={criterion.criterionId}
+                                    className="inline-flex items-center gap-1 rounded-sm border border-border bg-bg px-2 py-1 text-fg"
+                                  >
+                                    <span className="font-semibold text-accent">
+                                      {criterion.criterionId}
+                                    </span>
+                                    <span>{criterion.text}</span>
                                   </span>
-                                  <span>{criterion.text}</span>
-                                </span>
-                              ))}
+                                ))}
+                              </div>
                             </div>
                           ) : null}
                           {stepMetadata.rationale ? (
-                            <p className="mt-2 text-fg-muted">{stepMetadata.rationale}</p>
+                            <div
+                              className={
+                                stepMetadata.linkedCriteria.length > 0 ? "mt-3" : undefined
+                              }
+                            >
+                              <p className="text-[10.5px] font-semibold uppercase text-fg-muted">
+                                {t("prd.decomposition.rationale")}
+                              </p>
+                              <p className="mt-1 text-fg-muted">{stepMetadata.rationale}</p>
+                            </div>
                           ) : null}
                         </div>
                       ) : null}
-                      <dl className="mt-3 grid gap-2 text-xs text-fg-muted md:grid-cols-2">
-                        <div>
-                          <dt className="font-semibold text-fg">
-                            {t("planning.approval.step_expected_files")}
-                          </dt>
-                          <dd className="mt-0.5 break-words">
-                            {compactList(expectedFiles, t("planning.approval.none"))}
-                          </dd>
+                      <div
+                        className="mt-3 rounded-md border border-border/80 bg-bg/60 px-3 py-2"
+                        data-testid="plan-draft-step-quick-actions"
+                      >
+                        <p className="text-[10.5px] font-semibold uppercase text-fg-muted">
+                          {t("planning.approval.quick_review_label")}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {STEP_REVIEW_ACTIONS.map((action) => (
+                            <Button
+                              key={action.id}
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                openStepRevision(
+                                  step,
+                                  stepMetadata,
+                                  action.id,
+                                  t(action.feedbackKey),
+                                )
+                              }
+                              disabled={busy}
+                              data-testid={`plan-draft-step-quick-${action.id}`}
+                            >
+                              {t(action.labelKey)}
+                            </Button>
+                          ))}
                         </div>
-                        <div>
-                          <dt className="font-semibold text-fg">
-                            {t("planning.approval.step_verification")}
-                          </dt>
-                          <dd className="mt-0.5 break-words">{verificationText}</dd>
-                        </div>
-                        <div>
-                          <dt className="font-semibold text-fg">
-                            {t("planning.approval.step_dependencies")}
-                          </dt>
-                          <dd className="mt-0.5 break-words">
-                            {compactList(dependencies, t("planning.approval.none"))}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="font-semibold text-fg">
-                            {t("planning.approval.step_parallel_group")}
-                          </dt>
-                          <dd className="mt-0.5 break-words">
-                            {step.parallel_group ?? t("planning.approval.none")}
-                          </dd>
-                        </div>
-                      </dl>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openStepRevision(step, stepMetadata, null, "")}
+                          disabled={busy}
+                          data-testid="plan-draft-step-revision"
+                        >
+                          <RotateCcw />
+                          {t("planning.approval.request_step_changes")}
+                        </Button>
+                        {hasDetails ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => toggleStepDetails(step.step_id)}
+                            data-testid="plan-draft-step-details-toggle"
+                          >
+                            {detailsOpen ? <ChevronUp /> : <ChevronDown />}
+                            {detailsOpen
+                              ? t("planning.approval.hide_step_details")
+                              : t("planning.approval.show_step_details")}
+                          </Button>
+                        ) : null}
+                      </div>
+                      {detailsOpen ? (
+                        <dl
+                          className="mt-3 grid gap-2 border-t pt-3 text-xs text-fg-muted md:grid-cols-2"
+                          data-testid="plan-draft-step-details"
+                        >
+                          {expectedFiles.length > 0 ? (
+                            <div>
+                              <dt className="font-semibold text-fg">
+                                {t("planning.approval.step_expected_files")}
+                              </dt>
+                              <dd className="mt-0.5 break-words">
+                                {compactList(expectedFiles, t("planning.approval.none"))}
+                              </dd>
+                            </div>
+                          ) : null}
+                          {verificationText ? (
+                            <div>
+                              <dt className="font-semibold text-fg">
+                                {t("planning.approval.step_verification")}
+                              </dt>
+                              <dd className="mt-0.5 break-words">{verificationText}</dd>
+                            </div>
+                          ) : null}
+                          {dependencies.length > 0 ? (
+                            <div>
+                              <dt className="font-semibold text-fg">
+                                {t("planning.approval.step_dependencies")}
+                              </dt>
+                              <dd className="mt-0.5 break-words">
+                                {compactList(dependencies, t("planning.approval.none"))}
+                              </dd>
+                            </div>
+                          ) : null}
+                          {step.parallel_group ? (
+                            <div>
+                              <dt className="font-semibold text-fg">
+                                {t("planning.approval.step_parallel_group")}
+                              </dt>
+                              <dd className="mt-0.5 break-words">{step.parallel_group}</dd>
+                            </div>
+                          ) : null}
+                        </dl>
+                      ) : null}
                     </li>
                   );
                 })}
               </ol>
             </section>
           </div>
-          <aside className="space-y-4">
-            <section>
-              <h3 className="mb-2 text-sm font-semibold text-fg">
-                {t("planning.approval.step_dag")}
-              </h3>
-              <PlanDraftDependencyMap steps={draft.steps} />
-            </section>
-            <section className="rounded-md border bg-bg-panel2 p-3">
-              <h3 className="text-sm font-semibold text-fg">
-                {t("planning.approval.request_changes")}
-              </h3>
-              <textarea
-                className="mt-2 min-h-24 w-full resize-none rounded-md border bg-bg px-3 py-2 text-sm text-fg placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                value={feedback}
-                onChange={(event) => setFeedback(event.target.value)}
-                placeholder={t("planning.approval.request_changes_placeholder")}
-                disabled={busy}
-              />
-              <Button
-                className="mt-2"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const trimmed = feedback.trim();
-                  if (!trimmed) return;
-                  onRequestRevision(trimmed);
-                  setFeedback("");
-                }}
-                disabled={busy || feedback.trim().length === 0}
-              >
-                <RotateCcw />
-                {t("planning.approval.request_changes")}
-              </Button>
-            </section>
-          </aside>
         </section>
       </div>
 

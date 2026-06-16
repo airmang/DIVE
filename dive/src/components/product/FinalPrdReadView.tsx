@@ -1,4 +1,4 @@
-import { Edit3, History, ListChecks, Play } from "lucide-react";
+import { CheckCircle2, Edit3, History, ListChecks, Play } from "lucide-react";
 import type { ProjectSpec } from "../../features/planning";
 import { useT } from "../../i18n";
 import { Button } from "../ui/button";
@@ -7,6 +7,8 @@ export interface FinalPrdReadViewProps {
   projectName: string;
   projectSpec: ProjectSpec;
   planActionLabel: string;
+  canCreatePlan?: boolean;
+  planStatusLabel?: string | null;
   onEdit: () => void;
   onCreatePlan: () => void;
   onOpenHistory?: () => void;
@@ -21,6 +23,8 @@ export function FinalPrdReadView({
   projectName,
   projectSpec,
   planActionLabel,
+  canCreatePlan = true,
+  planStatusLabel = null,
   onEdit,
   onCreatePlan,
   onOpenHistory,
@@ -53,15 +57,25 @@ export function FinalPrdReadView({
             <Edit3 />
             {t("prd.read_view.edit")}
           </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={onCreatePlan}
-            data-testid="final-prd-create-plan"
-          >
-            <Play />
-            {planActionLabel}
-          </Button>
+          {canCreatePlan ? (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={onCreatePlan}
+              data-testid="final-prd-create-plan"
+            >
+              <Play />
+              {planActionLabel}
+            </Button>
+          ) : (
+            <div
+              className="inline-flex min-h-9 items-center gap-2 rounded-md border border-success/40 bg-success/10 px-3 text-sm font-medium text-fg"
+              data-testid="final-prd-plan-created"
+            >
+              <CheckCircle2 className="h-4 w-4 text-success" aria-hidden />
+              {planStatusLabel ?? t("prd.read_view.plan_created")}
+            </div>
+          )}
         </div>
       </header>
 

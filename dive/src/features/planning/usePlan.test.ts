@@ -164,6 +164,16 @@ describe("usePlan PRD IPC methods", () => {
       result.current.submitPrdInterviewTurn({
         draftId: "draft-42",
         answer: "It should update the canvas.",
+        conversation: [
+          {
+            role: "assistant",
+            text: "Who needs this first?",
+          },
+          {
+            role: "student",
+            text: "Teachers need it.",
+          },
+        ],
         provider: "openai",
         model: "gpt-5.4",
       }),
@@ -181,6 +191,16 @@ describe("usePlan PRD IPC methods", () => {
       projectId: 42,
       draftId: "draft-42",
       answer: "It should update the canvas.",
+      conversation: [
+        {
+          role: "assistant",
+          text: "Who needs this first?",
+        },
+        {
+          role: "student",
+          text: "Teachers need it.",
+        },
+      ],
       provider: "openai",
       model: "gpt-5.4",
     });

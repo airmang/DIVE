@@ -6,8 +6,6 @@ import {
   Clock3,
   ExternalLink,
   FileCode,
-  HelpCircle,
-  Send,
   X,
 } from "lucide-react";
 import { Button } from "../ui/button";
@@ -25,10 +23,6 @@ import type { ApprovalDecision } from "../workmap/ApprovalJudgment";
 import type { VerifyLogView } from "../workmap/types";
 import { useT } from "../../i18n";
 import { useChatComposerStore } from "../../stores/chatComposer";
-import type {
-  ChallengeStepRationaleResult,
-  RationaleChallengeOffer,
-} from "../../features/planning/types";
 import { DecisionGate } from "./DecisionGate";
 import {
   ProvocationCardHost,
@@ -68,13 +62,6 @@ export interface StepDetailSlideInProps {
   onVerifyFirst: () => void;
   onApprovalDecision: (decision: ApprovalDecision) => void;
   onGoToChat: () => void;
-  onChallengeStepRationale?: (input: {
-    stepId: number;
-    text: string;
-    linkedCriterionIds: string[];
-  }) => Promise<ChallengeStepRationaleResult>;
-  onAcceptRationaleChallengeOffer?: (offer: RationaleChallengeOffer) => Promise<void>;
-  onDismissRationaleChallengeOffer?: (offer: RationaleChallengeOffer) => Promise<void>;
   rollbackAvailable: boolean;
   provocation?: {
     enabled: boolean;
@@ -149,9 +136,6 @@ export function StepDetailSlideIn({
   onVerifyFirst,
   onApprovalDecision,
   onGoToChat,
-  onChallengeStepRationale,
-  onAcceptRationaleChallengeOffer,
-  onDismissRationaleChallengeOffer,
   rollbackAvailable,
   provocation,
 }: StepDetailSlideInProps) {
@@ -163,15 +147,6 @@ export function StepDetailSlideIn({
   const [criterionEvidenceRef, setCriterionEvidenceRef] = useState<CriterionEvidenceRef>(null);
   const [previewOpenedStepIds, setPreviewOpenedStepIds] = useState<Set<number>>(() => new Set());
   const [appOpenedStepIds, setAppOpenedStepIds] = useState<Set<number>>(() => new Set());
-  const [rationaleChallengeOpen, setRationaleChallengeOpen] = useState(false);
-  const [rationaleObjectionText, setRationaleObjectionText] = useState("");
-  const [rationaleChallengeBusy, setRationaleChallengeBusy] = useState(false);
-  const [rationaleChallengeResult, setRationaleChallengeResult] = useState<string | null>(null);
-  const [rationaleChallengeError, setRationaleChallengeError] = useState<string | null>(null);
-  const [rationaleChallengeOffer, setRationaleChallengeOffer] =
-    useState<RationaleChallengeOffer | null>(null);
-  const [rationaleOfferBusy, setRationaleOfferBusy] = useState<"accept" | "dismiss" | null>(null);
-  const [rationaleOfferError, setRationaleOfferError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -190,13 +165,6 @@ export function StepDetailSlideIn({
 
   useEffect(() => {
     setCriterionEvidenceRef(null);
-    setRationaleChallengeOpen(false);
-    setRationaleObjectionText("");
-    setRationaleChallengeResult(null);
-    setRationaleChallengeError(null);
-    setRationaleChallengeOffer(null);
-    setRationaleOfferBusy(null);
-    setRationaleOfferError(null);
   }, [step?.id]);
 
   const status = step?.status ?? null;
@@ -221,8 +189,6 @@ export function StepDetailSlideIn({
     planContext?.verificationManualCheck?.trim() ||
     planContext?.verificationKind?.trim() ||
     null;
-  const linkedCriteria = step?.linkedCriteria ?? [];
-  const decompositionRationale = step?.decompositionRationale?.trim() || null;
   const verificationFeasibility = useMemo<SupervisorFeasibility>(() => {
     const verificationKind = planContext?.verificationKind?.trim().toLowerCase() ?? "";
     const hasTestCommand = Boolean(planContext?.verificationCommand?.trim() || step?.testCommand);
@@ -391,8 +357,6 @@ export function StepDetailSlideIn({
       isReview ||
       step.description ||
       step.acceptanceCriteria ||
-      linkedCriteria.length > 0 ||
-      decompositionRationale ||
       step.assistSummary ||
       verifyLog ||
       verifyState !== "idle" ||
@@ -443,67 +407,6 @@ export function StepDetailSlideIn({
         note: reason?.trim() || null,
       }),
   });
-  const handleSubmitRationaleChallenge = async () => {
-    if (!step || !onChallengeStepRationale) return;
-    const text = rationaleObjectionText.trim();
-    if (!text) return;
-    setRationaleChallengeBusy(true);
-    setRationaleChallengeError(null);
-    setRationaleOfferError(null);
-    try {
-      const result = await onChallengeStepRationale({
-        stepId: step.id,
-        text,
-        linkedCriterionIds: linkedCriteria.map((criterion) => criterion.criterionId),
-      });
-      setRationaleChallengeResult(t("planning.decomposition.objection_logged"));
-      setRationaleChallengeOffer(
-        result.suggestionStatus === "offered" && result.offerId && result.offerKind
-          ? {
-              objectionId: result.objectionId,
-              offerId: result.offerId,
-              offerKind: result.offerKind,
-              message: result.message,
-              suggestedSeed: result.suggestedSeed ?? null,
-            }
-          : null,
-      );
-      setRationaleObjectionText("");
-      setRationaleChallengeOpen(false);
-    } catch (err) {
-      setRationaleChallengeError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRationaleChallengeBusy(false);
-    }
-  };
-  const handleAcceptRationaleChallengeOffer = async () => {
-    if (!rationaleChallengeOffer || !onAcceptRationaleChallengeOffer) return;
-    setRationaleOfferBusy("accept");
-    setRationaleOfferError(null);
-    try {
-      await onAcceptRationaleChallengeOffer(rationaleChallengeOffer);
-      setRationaleChallengeOffer(null);
-      setRationaleChallengeResult("계획 검토 영역에 제안을 열었습니다.");
-    } catch (err) {
-      setRationaleOfferError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRationaleOfferBusy(null);
-    }
-  };
-  const handleDismissRationaleChallengeOffer = async () => {
-    if (!rationaleChallengeOffer) return;
-    setRationaleOfferBusy("dismiss");
-    setRationaleOfferError(null);
-    try {
-      await onDismissRationaleChallengeOffer?.(rationaleChallengeOffer);
-      setRationaleChallengeOffer(null);
-      setRationaleChallengeResult("제안을 닫았습니다. 현재 단계는 계속 진행할 수 있습니다.");
-    } catch (err) {
-      setRationaleOfferError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRationaleOfferBusy(null);
-    }
-  };
   const criterionText =
     step?.acceptanceCriteria?.trim() || verificationPlanText || step?.title || "";
   const primaryVerificationAction: VerificationFocusAction | null = step
@@ -625,129 +528,6 @@ export function StepDetailSlideIn({
             mode={provocation?.mode ?? "standard"}
             onAction={handleProvocationAction}
           />
-
-          {linkedCriteria.length > 0 || decompositionRationale ? (
-            <section className="mt-3 rounded-md border border-border bg-bg-panel2 px-3 py-3">
-              {linkedCriteria.length > 0 ? (
-                <div data-testid="step-detail-linked-criteria">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-fg-muted">
-                    연결된 PRD 기준
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {linkedCriteria.map((criterion) => (
-                      <span
-                        key={criterion.criterionId}
-                        className="inline-flex items-center gap-1 rounded-sm border border-border bg-bg px-2 py-1 text-xs text-fg"
-                      >
-                        <span className="font-semibold text-accent">{criterion.criterionId}</span>
-                        <span>{criterion.text}</span>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              {decompositionRationale ? (
-                <p
-                  className="mt-3 whitespace-pre-wrap text-sm text-fg"
-                  data-testid="step-detail-rationale"
-                >
-                  {decompositionRationale}
-                </p>
-              ) : null}
-              {onChallengeStepRationale ? (
-                <div className="mt-3">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setRationaleChallengeOpen((open) => !open)}
-                    disabled={rationaleChallengeBusy}
-                    data-testid="step-rationale-challenge-toggle"
-                  >
-                    <HelpCircle />왜 이 단계?
-                  </Button>
-                  {rationaleChallengeOpen ? (
-                    <div className="mt-2 space-y-2">
-                      <textarea
-                        className="min-h-20 w-full resize-none rounded-md border bg-bg px-3 py-2 text-sm text-fg placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        value={rationaleObjectionText}
-                        onChange={(event) => setRationaleObjectionText(event.target.value)}
-                        placeholder="이 단계가 필요한 이유에 대한 이의나 질문을 적어 주세요."
-                        data-testid="step-rationale-objection-input"
-                      />
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        onClick={() => void handleSubmitRationaleChallenge()}
-                        disabled={
-                          rationaleChallengeBusy || rationaleObjectionText.trim().length === 0
-                        }
-                        data-testid="step-rationale-objection-submit"
-                      >
-                        <Send />
-                        기록
-                      </Button>
-                    </div>
-                  ) : null}
-                  {rationaleChallengeResult ? (
-                    <p className="mt-2 text-xs text-success">{rationaleChallengeResult}</p>
-                  ) : null}
-                  {rationaleChallengeOffer ? (
-                    <div
-                      className="mt-2 rounded-md border border-info/40 bg-info/5 px-3 py-2"
-                      data-testid="step-rationale-offer"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-xs font-semibold text-fg">
-                            {t("planning.decomposition.offer_title")}
-                          </p>
-                          <p className="mt-1 text-xs text-fg-muted">
-                            {rationaleChallengeOffer.message ||
-                              t("planning.decomposition.offer_message")}
-                          </p>
-                        </div>
-                        <span className="shrink-0 rounded-sm border border-info/40 bg-bg px-2 py-0.5 text-[10px] font-semibold text-info">
-                          {rationaleChallengeOffer.offerKind === "redecompose_step"
-                            ? "재분해"
-                            : "계획 조정"}
-                        </span>
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          onClick={() => void handleAcceptRationaleChallengeOffer()}
-                          disabled={rationaleOfferBusy !== null || !onAcceptRationaleChallengeOffer}
-                          data-testid="step-rationale-offer-accept"
-                        >
-                          <ExternalLink />
-                          {t("planning.decomposition.offer_accept")}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => void handleDismissRationaleChallengeOffer()}
-                          disabled={
-                            rationaleOfferBusy !== null || !onDismissRationaleChallengeOffer
-                          }
-                          data-testid="step-rationale-offer-dismiss"
-                        >
-                          <X />
-                          {t("planning.decomposition.offer_dismiss")}
-                        </Button>
-                      </div>
-                      {rationaleOfferError ? (
-                        <p className="mt-2 text-xs text-danger">{rationaleOfferError}</p>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  {rationaleChallengeError ? (
-                    <p className="mt-2 text-xs text-danger">{rationaleChallengeError}</p>
-                  ) : null}
-                </div>
-              ) : null}
-            </section>
-          ) : null}
 
           {hasSecondaryDetails ? (
             <details

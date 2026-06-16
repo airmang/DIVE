@@ -42,8 +42,18 @@ function pushUnique<T>(items: T[], value: T): void {
 }
 
 function operationText(operation: Record<string, unknown>): string | null {
-  const raw = operation.text ?? operation.value;
+  const raw = operation.value ?? operation.text;
   return typeof raw === "string" ? raw.trim() : null;
+}
+
+function prdPatchOperationText(operation: PrdPatchOperation): string {
+  const raw =
+    "value" in operation && typeof operation.value === "string"
+      ? operation.value
+      : "text" in operation && typeof operation.text === "string"
+        ? operation.text
+        : "";
+  return raw.trim();
 }
 
 function isSupportedOperation(operation: Record<string, unknown>): operation is PrdPatchOperation {
@@ -173,32 +183,35 @@ export function applyPrdPatch(draft: LiveProjectSpecDraft, patch: PrdPatch): App
 
     switch (operation.op) {
       case "set_goal":
-        nextDraft.spec.goal = operation.value.trim();
+        nextDraft.spec.goal = prdPatchOperationText(operation);
         pushUnique(appliedFieldPaths, "goal");
         break;
       case "set_intent_summary":
-        nextDraft.spec.intentSummary = operation.value.trim();
+        nextDraft.spec.intentSummary = prdPatchOperationText(operation);
         pushUnique(appliedFieldPaths, "intentSummary");
         break;
       case "append_scope":
-        nextDraft.spec.scope = appendString(nextDraft.spec.scope, operation.value.trim());
+        nextDraft.spec.scope = appendString(nextDraft.spec.scope, prdPatchOperationText(operation));
         pushUnique(appliedFieldPaths, "scope");
         break;
       case "append_non_goal":
-        nextDraft.spec.nonGoals = appendString(nextDraft.spec.nonGoals, operation.value.trim());
+        nextDraft.spec.nonGoals = appendString(
+          nextDraft.spec.nonGoals,
+          prdPatchOperationText(operation),
+        );
         pushUnique(appliedFieldPaths, "nonGoals");
         break;
       case "append_constraint":
         nextDraft.spec.constraints = appendString(
           nextDraft.spec.constraints,
-          operation.value.trim(),
+          prdPatchOperationText(operation),
         );
         pushUnique(appliedFieldPaths, "constraints");
         break;
       case "append_acceptance_criterion": {
         const criterion: AcceptanceCriterion = {
           criterionId: allocateCriterionId(nextDraft.spec.acceptanceCriteria),
-          text: operation.text.trim(),
+          text: prdPatchOperationText(operation),
           source: "interview",
           status: "active",
           createdInVersion: nextDraft.spec.currentVersion ?? 1,
@@ -212,7 +225,7 @@ export function applyPrdPatch(draft: LiveProjectSpecDraft, patch: PrdPatch): App
       case "revise_acceptance_criterion_text":
         nextDraft.spec.acceptanceCriteria = nextDraft.spec.acceptanceCriteria.map((criterion) =>
           criterion.criterionId === operation.criterionId
-            ? { ...criterion, text: operation.text.trim() }
+            ? { ...criterion, text: prdPatchOperationText(operation) }
             : criterion,
         );
         pushUnique(appliedFieldPaths, fieldPath);

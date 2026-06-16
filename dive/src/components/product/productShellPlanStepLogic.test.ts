@@ -35,7 +35,7 @@ function roadmapStep(overrides: Partial<PlanRoadmapStep> = {}): PlanRoadmapStep 
 }
 
 describe("product shell plan-step logic", () => {
-  it("builds the auto-run prompt from instruction seed, expected files, and criteria", () => {
+  it("builds the suggested step prompt from instruction seed, expected files, and criteria", () => {
     expect(buildPlanStepExecutionPrompt(roadmapStep())).toBe(
       [
         "이 roadmap step을 바로 실행해 주세요.",

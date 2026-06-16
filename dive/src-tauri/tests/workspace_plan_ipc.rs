@@ -29,8 +29,8 @@ use dive_lib::ipc::workspace_plan::{
     workspace_prd_draft_save_impl, workspace_prd_get_impl, workspace_prd_interview_turn_impl,
     workspace_prd_save_impl, workspace_prd_status_impl, AcceptanceCriterionInput,
     AppendStepOptions, PlanAdjustmentOfferResponse, PlanAdjustmentOfferResponseInput,
-    PlanDraftInput, PrdDraftSaveInput, PrdInterviewTurnInput, PrdSaveInput, RouteDecision,
-    StepDraftInput, StepRationaleChallengeInput, StepStateUpdateInput,
+    PlanDraftInput, PrdDraftSaveInput, PrdInterviewConversationTurnInput, PrdInterviewTurnInput,
+    PrdSaveInput, RouteDecision, StepDraftInput, StepRationaleChallengeInput, StepStateUpdateInput,
 };
 use dive_lib::{
     AppState, ChatEvent, ChatRequest, Database, FinishReason, LlmProvider, Message, ModelInfo,
@@ -464,6 +464,51 @@ fn prd_status_get_and_save_distinguish_missing_draft_and_minimal() {
 }
 
 #[test]
+fn prd_save_reassigns_invalid_ac_zero_ids() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let mut draft = minimal_prd_draft(project_id);
+    draft.acceptance_criteria[0].criterion_id = "AC-000".into();
+
+    let saved = workspace_prd_save_impl(
+        &state,
+        PrdSaveInput {
+            project_id,
+            spec: draft,
+            reason: "interview".into(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(saved.acceptance_criteria[0].criterion_id, "AC-001");
+}
+
+#[test]
+fn prd_save_allows_missing_optional_context_fields() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let mut draft = minimal_prd_draft(project_id);
+    draft.intent_summary = None;
+    draft.scope.clear();
+
+    let saved = workspace_prd_save_impl(
+        &state,
+        PrdSaveInput {
+            project_id,
+            spec: draft,
+            reason: "interview".into(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(saved.goal, "Build a PRD-backed roadmap");
+    assert!(saved.intent_summary.is_none());
+    assert!(saved.scope.is_empty());
+}
+
+#[test]
 fn prd_draft_get_and_save_restore_unsaved_authoring_state() {
     let tmp = tempfile::tempdir().unwrap();
     let state = mk_state(&tmp);
@@ -537,6 +582,16 @@ async fn prd_interview_turn_applies_validated_patch_without_creating_version() {
             project_id,
             draft_id: "draft-focus".into(),
             answer: "A focus timer that shows a countdown".into(),
+            conversation: vec![
+                PrdInterviewConversationTurnInput {
+                    role: "assistant".into(),
+                    text: "Who needs this first?".into(),
+                },
+                PrdInterviewConversationTurnInput {
+                    role: "student".into(),
+                    text: "Students doing Pomodoro sessions.".into(),
+                },
+            ],
             provider: "mock".into(),
             model: "mock-model".into(),
         },
@@ -568,14 +623,17 @@ async fn prd_interview_turn_applies_validated_patch_without_creating_version() {
     assert!(system_prompt.contains("gently lead the student"));
     assert!(system_prompt.contains("Do not run a fixed checklist"));
     assert!(system_prompt.contains("Use the same language as the student's answer"));
-    assert!(system_prompt.contains("ready to save"));
+    assert!(system_prompt.contains("ready to confirm"));
     let user_prompt = match &requests[0].messages[1] {
         Message::User { content } => content,
         _ => panic!("expected PRD interview user prompt"),
     };
-    assert!(user_prompt.contains("Missing minimal PRD fields"));
+    assert!(user_prompt.contains("Missing fields required before PRD confirmation"));
     assert!(user_prompt.contains("Suggested next interview focus"));
     assert!(user_prompt.contains("clarify_goal_in_plain_language"));
+    assert!(user_prompt.contains("Assistant: Who needs this first?"));
+    assert!(user_prompt.contains("Student: Students doing Pomodoro sessions."));
+    assert!(user_prompt.contains("Do not repeat a question that the student has already answered"));
 
     let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
     assert!(events
@@ -584,6 +642,71 @@ async fn prd_interview_turn_applies_validated_patch_without_creating_version() {
     assert!(events
         .iter()
         .any(|event| event.r#type == "prd_patch_applied"));
+}
+
+#[tokio::test]
+async fn prd_interview_turn_applies_text_aliases_for_prd_fields() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(
+                r#"{"assistantMessage":"I captured the first version shape.","patch":{"operations":[{"op":"set_goal","text":"Build a deadline tracker"},{"op":"set_intent_summary","text":"Students can see urgent assignments first"},{"op":"append_scope","text":"Show assignments due this week"},{"op":"append_constraint","text":"Use local project data only"},{"op":"append_acceptance_criterion","value":"Urgent assignments appear at the top"}],"rationale":"The answer named the user, goal, scope, constraint, and done state."}}"#
+                    .into(),
+            ),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+
+    let turn = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-aliases".into(),
+            answer: "Students need a local deadline tracker for this week's assignments.".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(turn.validation_outcome, "applied");
+    assert_eq!(
+        turn.applied_field_paths,
+        vec![
+            "goal",
+            "intentSummary",
+            "scope",
+            "constraints",
+            "acceptanceCriteria"
+        ]
+    );
+    assert_eq!(turn.live_draft.spec.goal, "Build a deadline tracker");
+    assert_eq!(
+        turn.live_draft.spec.intent_summary.as_deref(),
+        Some("Students can see urgent assignments first")
+    );
+    assert_eq!(
+        turn.live_draft.spec.scope,
+        vec!["Show assignments due this week"]
+    );
+    assert_eq!(
+        turn.live_draft.spec.constraints,
+        vec!["Use local project data only"]
+    );
+    assert_eq!(
+        turn.live_draft.spec.acceptance_criteria[0].criterion_id,
+        "AC-001"
+    );
+    assert_eq!(
+        turn.live_draft.spec.acceptance_criteria[0].text,
+        "Urgent assignments appear at the top"
+    );
 }
 
 #[tokio::test]
@@ -609,6 +732,7 @@ async fn prd_interview_turn_rejects_invalid_patch_and_leaves_draft_unchanged() {
             project_id,
             draft_id: "draft-secret".into(),
             answer: "Use this token: sk-secret123".into(),
+            conversation: Vec::new(),
             provider: "mock".into(),
             model: "mock-model".into(),
         },
@@ -649,6 +773,7 @@ async fn prd_interview_turn_accepts_operation_alias_without_leaking_patch_json()
             project_id,
             draft_id: "draft-schedule".into(),
             answer: "혼자 쓰는 일정관리 앱이요".into(),
+            conversation: Vec::new(),
             provider: "mock".into(),
             model: "mock-model".into(),
         },

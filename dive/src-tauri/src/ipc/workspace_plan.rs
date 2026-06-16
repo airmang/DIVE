@@ -93,8 +93,17 @@ pub struct PrdInterviewTurnInput {
     pub project_id: i64,
     pub draft_id: String,
     pub answer: String,
+    #[serde(default)]
+    pub conversation: Vec<PrdInterviewConversationTurnInput>,
     pub provider: String,
     pub model: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrdInterviewConversationTurnInput {
+    pub role: String,
+    pub text: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -360,6 +369,7 @@ pub async fn workspace_prd_interview_turn(
     project_id: i64,
     draft_id: String,
     answer: String,
+    conversation: Option<Vec<PrdInterviewConversationTurnInput>>,
     provider: String,
     model: String,
 ) -> Result<PrdInterviewTurnOutput, String> {
@@ -369,6 +379,7 @@ pub async fn workspace_prd_interview_turn(
             project_id,
             draft_id,
             answer,
+            conversation: conversation.unwrap_or_default(),
             provider,
             model,
         },
@@ -707,7 +718,7 @@ pub fn workspace_prd_save_impl(
     let save_reason = normalize_prd_save_reason(&input.reason);
     let latest = prd_dao::latest_version(conn, input.project_id).map_err(|e| e.to_string())?;
     let snapshot = project_spec_from_save_input(input, latest.as_ref(), &save_reason)?;
-    if !is_minimal_project_spec(&snapshot) {
+    if !is_confirmable_project_spec(&snapshot) {
         return Err("minimal PRD requires a goal and at least one acceptance criterion".into());
     }
     let previous_version = latest.as_ref().map(|row| row.version);
@@ -814,6 +825,7 @@ pub async fn workspace_prd_interview_turn_impl(
         runtime.provider.as_ref(),
         input.model.clone(),
         &base_draft,
+        &input.conversation,
         &input.answer,
     )
     .await?;
@@ -1041,7 +1053,9 @@ fn normalize_acceptance_criteria(
         }
         criterion.text = text;
         criterion.criterion_id = criterion.criterion_id.trim().to_string();
-        if criterion.criterion_id.is_empty() || used_ids.contains(&criterion.criterion_id) {
+        if !is_valid_acceptance_criterion_id(&criterion.criterion_id)
+            || used_ids.contains(&criterion.criterion_id)
+        {
             criterion.criterion_id = allocate_acceptance_criterion_id(&out);
         }
         used_ids.insert(criterion.criterion_id.clone());
@@ -1360,7 +1374,7 @@ fn persist_prd_delta_for_plan_mutation(
         if criterion.text.trim().is_empty() {
             continue;
         }
-        if criterion.criterion_id.trim().is_empty()
+        if !is_valid_acceptance_criterion_id(criterion.criterion_id.trim())
             || next
                 .acceptance_criteria
                 .iter()
@@ -1573,6 +1587,10 @@ fn is_minimal_project_spec(spec: &ProjectSpec) -> bool {
         })
 }
 
+fn is_confirmable_project_spec(spec: &ProjectSpec) -> bool {
+    is_minimal_project_spec(spec)
+}
+
 fn is_minimal_project_spec_draft(spec: &ProjectSpecDraft) -> bool {
     !spec.goal.trim().is_empty()
         && spec.acceptance_criteria.iter().any(|criterion| {
@@ -1581,16 +1599,30 @@ fn is_minimal_project_spec_draft(spec: &ProjectSpecDraft) -> bool {
         })
 }
 
+fn is_confirmable_project_spec_draft(spec: &ProjectSpecDraft) -> bool {
+    is_minimal_project_spec_draft(spec)
+}
+
 fn allocate_acceptance_criterion_id(criteria: &[AcceptanceCriterion]) -> String {
     let mut max = 0_i64;
     for criterion in criteria {
         if let Some(raw) = criterion.criterion_id.strip_prefix("AC-") {
             if let Ok(value) = raw.parse::<i64>() {
-                max = max.max(value);
+                if value > 0 {
+                    max = max.max(value);
+                }
             }
         }
     }
     format!("AC-{:03}", max + 1)
+}
+
+fn is_valid_acceptance_criterion_id(criterion_id: &str) -> bool {
+    criterion_id
+        .strip_prefix("AC-")
+        .and_then(|raw| raw.parse::<i64>().ok())
+        .map(|value| value > 0)
+        .unwrap_or(false)
 }
 
 fn changed_project_spec_fields(previous: Option<&ProjectSpec>, next: &ProjectSpec) -> Vec<String> {
@@ -1767,6 +1799,7 @@ async fn run_prd_interview_turn(
     provider: &dyn crate::providers::LlmProvider,
     model: String,
     draft: &LiveProjectSpecDraftRow,
+    conversation: &[PrdInterviewConversationTurnInput],
     answer: &str,
 ) -> Result<String, String> {
     let req = ChatRequest {
@@ -1776,7 +1809,7 @@ async fn run_prd_interview_turn(
                 content: build_prd_interview_system_prompt(),
             },
             Message::User {
-                content: build_prd_interview_user_prompt(draft, answer),
+                content: build_prd_interview_user_prompt(draft, conversation, answer),
             },
         ],
         tools: None,
@@ -1832,8 +1865,8 @@ fn build_prd_interview_system_prompt() -> String {
         "Do not ask jargon questions like 'what are the acceptance criteria?' or 'what is the scope?'. Ask about visible outcomes, first version, users, constraints, or what can wait.",
         "assistantMessage should briefly reflect what you captured, explain the next useful angle, then continue warmly.",
         "Prefer concrete user outcomes and observable done states over PRD jargon.",
-        "A PRD is complete enough when it has a goal, intended user/use context, first-version scope, at least one observable done state, and any important constraints or exclusions that surfaced.",
-        "When the draft is complete enough, stop asking required questions; tell the student it is ready to save and invite only final corrections.",
+        "A PRD is complete enough when it has a goal and at least one observable done state. Capture intended user/use context, first-version scope, constraints, or exclusions when they surface, but do not make them prerequisites.",
+        "When the draft is complete enough, stop asking required questions; tell the student it is ready to confirm.",
         "Return a short conversational assistantMessage and an optional JSON patch.",
         "The patch may only use these operation names: set_goal, set_intent_summary, append_scope, append_non_goal, append_constraint, append_acceptance_criterion, revise_acceptance_criterion_text.",
         "Each patch operation object MUST use the key \"op\" for the operation name; do not use \"operation\".",
@@ -1844,16 +1877,45 @@ fn build_prd_interview_system_prompt() -> String {
     .join("\n")
 }
 
-fn build_prd_interview_user_prompt(draft: &LiveProjectSpecDraftRow, answer: &str) -> String {
+fn build_prd_interview_user_prompt(
+    draft: &LiveProjectSpecDraftRow,
+    conversation: &[PrdInterviewConversationTurnInput],
+    answer: &str,
+) -> String {
     let draft_json = serde_json::to_string(&draft.spec).unwrap_or_else(|_| "{}".into());
-    let missing_minimal = missing_minimal_prd_fields(&draft.spec).join(", ");
+    let missing_confirmable = missing_confirmable_prd_fields(&draft.spec).join(", ");
     let next_focus = prd_interview_next_focus(&draft.spec);
+    let conversation = format_prd_interview_conversation(conversation);
     format!(
-        "Current live PRD draft JSON:\n{draft_json}\n\nMissing minimal PRD fields, if any: {missing_minimal}\n\nSuggested next interview focus: {next_focus}\n\nStudent answer:\n{answer}\n\nReturn the conversational response plus optional PrdPatch JSON. If the answer is vague, still capture any likely goal, user, constraint, first-version boundary, or observable done state that is grounded in the answer. If the suggested focus is ready_to_save, summarize that the PRD is ready and invite final corrections instead of asking a new required question."
+        "Current live PRD draft JSON:\n{draft_json}\n\nMissing fields required before PRD confirmation, if any: {missing_confirmable}\n\nSuggested next interview focus: {next_focus}\n\nRecent interview conversation, oldest to newest:\n{conversation}\n\nLatest student answer:\n{answer}\n\nReturn the conversational response plus optional PrdPatch JSON. Use the recent conversation as evidence when the live draft has not caught up yet. Do not repeat a question that the student has already answered in the conversation. If the answer is vague, still capture any likely goal, user, first-version boundary, constraint, or observable done state that is grounded in the answer. If the suggested focus is ready_to_save, say the PRD has enough information to confirm and point the student to the PRD confirmation action instead of asking a new required question, offering another wording pass, or asking whether to save."
     )
 }
 
-fn missing_minimal_prd_fields(spec: &ProjectSpecDraft) -> Vec<&'static str> {
+fn format_prd_interview_conversation(conversation: &[PrdInterviewConversationTurnInput]) -> String {
+    let turns = conversation
+        .iter()
+        .filter_map(|turn| {
+            let text = turn.text.trim();
+            if text.is_empty() {
+                return None;
+            }
+            let role = match turn.role.as_str() {
+                "assistant" => "Assistant",
+                "student" => "Student",
+                _ => return None,
+            };
+            Some(format!("{role}: {text}"))
+        })
+        .rev()
+        .take(12)
+        .collect::<Vec<_>>();
+    if turns.is_empty() {
+        return "None yet.".into();
+    }
+    turns.into_iter().rev().collect::<Vec<_>>().join("\n")
+}
+
+fn missing_confirmable_prd_fields(spec: &ProjectSpecDraft) -> Vec<&'static str> {
     let mut fields = Vec::new();
     if spec.goal.trim().is_empty() {
         fields.push("goal");
@@ -1863,7 +1925,7 @@ fn missing_minimal_prd_fields(spec: &ProjectSpecDraft) -> Vec<&'static str> {
         .iter()
         .all(|criterion| criterion.text.trim().is_empty())
     {
-        fields.push("acceptance criteria");
+        fields.push("observable done state");
     }
     if fields.is_empty() {
         fields.push("none");
@@ -1882,16 +1944,10 @@ fn prd_interview_next_focus(spec: &ProjectSpecDraft) -> &'static str {
     {
         return "capture_observable_done_state: ask what the student would see when the project is working";
     }
-    if spec.scope.is_empty() {
-        return "define_first_version: ask what must be included in the first useful version";
+    if !is_confirmable_project_spec_draft(spec) {
+        return "tighten_confirmation_fields: ask one short question about the missing confirmation field";
     }
-    if spec.constraints.is_empty() {
-        return "surface_constraints: ask about platform, data, time, class, or delivery limits only if they matter";
-    }
-    if spec.non_goals.is_empty() {
-        return "set_aside_later_work: ask what can wait so the first plan stays small";
-    }
-    "ready_to_save: the draft is complete enough; invite final corrections and saving"
+    "ready_to_save: the draft is complete enough; point to the PRD confirmation action"
 }
 
 #[derive(Debug, Deserialize)]
@@ -1921,17 +1977,31 @@ struct RawPrdPatchOperation {
 
 impl RawPrdPatchOperation {
     fn into_prd_operation(self) -> PrdPatchOperation {
-        let text = match self.op.as_str() {
+        let RawPrdPatchOperation {
+            op,
+            value,
+            text,
+            criterion_id,
+        } = self;
+        let value = match op.as_str() {
+            "set_goal"
+            | "set_intent_summary"
+            | "append_scope"
+            | "append_non_goal"
+            | "append_constraint" => value.or_else(|| text.clone()),
+            _ => value,
+        };
+        let text = match op.as_str() {
             "append_acceptance_criterion" | "revise_acceptance_criterion_text" => {
-                self.text.or_else(|| self.value.clone())
+                text.or_else(|| value.clone())
             }
-            _ => self.text,
+            _ => text,
         };
         PrdPatchOperation {
-            op: self.op,
-            value: self.value,
+            op,
+            value,
             text,
-            criterion_id: self.criterion_id,
+            criterion_id,
         }
     }
 }
@@ -2142,47 +2212,38 @@ fn apply_prd_patch_to_draft(
 
         match operation.op.as_str() {
             "set_goal" => {
-                next.spec.goal = operation
-                    .value
-                    .clone()
-                    .unwrap_or_default()
-                    .trim()
-                    .to_string();
+                next.spec.goal = prd_operation_text(operation).unwrap_or_default().to_string();
                 push_unique(&mut applied_field_paths, "goal".into());
             }
             "set_intent_summary" => {
-                next.spec.intent_summary = operation
-                    .value
-                    .clone()
-                    .map(|value| value.trim().to_string())
-                    .filter(|value| !value.is_empty());
+                next.spec.intent_summary = prd_operation_text(operation).map(str::to_string);
                 push_unique(&mut applied_field_paths, "intentSummary".into());
             }
             "append_scope" => {
-                if let Some(value) = operation.value.as_ref() {
+                if let Some(value) = prd_operation_text(operation) {
                     next.spec.scope = append_unique_string(next.spec.scope, value);
                     push_unique(&mut applied_field_paths, "scope".into());
                 }
             }
             "append_non_goal" => {
-                if let Some(value) = operation.value.as_ref() {
+                if let Some(value) = prd_operation_text(operation) {
                     next.spec.non_goals = append_unique_string(next.spec.non_goals, value);
                     push_unique(&mut applied_field_paths, "nonGoals".into());
                 }
             }
             "append_constraint" => {
-                if let Some(value) = operation.value.as_ref() {
+                if let Some(value) = prd_operation_text(operation) {
                     next.spec.constraints = append_unique_string(next.spec.constraints, value);
                     push_unique(&mut applied_field_paths, "constraints".into());
                 }
             }
             "append_acceptance_criterion" => {
-                if let Some(text) = operation.text.as_ref() {
+                if let Some(text) = prd_operation_text(operation) {
                     let criterion_id =
                         allocate_acceptance_criterion_id(&next.spec.acceptance_criteria);
                     next.spec.acceptance_criteria.push(AcceptanceCriterion {
                         criterion_id: criterion_id.clone(),
-                        text: text.trim().to_string(),
+                        text: text.to_string(),
                         source: AcceptanceCriterionSource::Interview,
                         status: AcceptanceCriterionStatus::Active,
                         created_in_version: next.spec.current_version.unwrap_or(1),
@@ -2193,12 +2254,13 @@ fn apply_prd_patch_to_draft(
                 }
             }
             "revise_acceptance_criterion_text" => {
-                if let (Some(criterion_id), Some(text)) =
-                    (operation.criterion_id.as_ref(), operation.text.as_ref())
-                {
+                if let (Some(criterion_id), Some(text)) = (
+                    operation.criterion_id.as_ref(),
+                    prd_operation_text(operation),
+                ) {
                     for criterion in &mut next.spec.acceptance_criteria {
                         if criterion.criterion_id == *criterion_id {
-                            criterion.text = text.trim().to_string();
+                            criterion.text = text.to_string();
                         }
                     }
                     push_unique(
@@ -3897,6 +3959,84 @@ fn json_criterion_text(value: &Value) -> Option<String> {
     }
     let text = value.get("text").and_then(Value::as_str)?.trim();
     (!text.is_empty()).then(|| text.to_string())
+}
+
+#[cfg(test)]
+mod prd_interview_prompt_tests {
+    use super::*;
+    use crate::db::models::{ProjectSpecDraft, ProjectSpecStatus};
+
+    fn empty_draft() -> LiveProjectSpecDraftRow {
+        LiveProjectSpecDraftRow {
+            draft_id: "draft-1".into(),
+            project_id: 1,
+            base_version: None,
+            spec: ProjectSpecDraft {
+                project_spec_id: Some("prd-1".into()),
+                project_id: 1,
+                current_version: None,
+                goal: String::new(),
+                intent_summary: None,
+                scope: Vec::new(),
+                non_goals: Vec::new(),
+                constraints: Vec::new(),
+                acceptance_criteria: Vec::new(),
+                status: ProjectSpecStatus::Draft,
+            },
+            dirty_fields: Vec::new(),
+            student_edited_fields: Vec::new(),
+            last_patch_id: None,
+            updated_at: 1,
+        }
+    }
+
+    #[test]
+    fn prd_interview_prompt_includes_recent_conversation_to_avoid_loops() {
+        let prompt = build_prd_interview_user_prompt(
+            &empty_draft(),
+            &[
+                PrdInterviewConversationTurnInput {
+                    role: "assistant".into(),
+                    text: "Who needs this first?".into(),
+                },
+                PrdInterviewConversationTurnInput {
+                    role: "student".into(),
+                    text: "Teachers checking late submissions.".into(),
+                },
+            ],
+            "They need a dashboard.",
+        );
+
+        assert!(prompt.contains("Recent interview conversation"));
+        assert!(prompt.contains("Assistant: Who needs this first?"));
+        assert!(prompt.contains("Student: Teachers checking late submissions."));
+        assert!(prompt.contains("Do not repeat a question that the student has already answered"));
+        assert!(prompt.contains("Latest student answer:\nThey need a dashboard."));
+    }
+
+    #[test]
+    fn prd_interview_ready_focus_does_not_require_optional_scope_or_constraints() {
+        let mut draft = empty_draft();
+        draft.spec.goal = "Build a personal schedule app".into();
+        draft.spec.acceptance_criteria.push(AcceptanceCriterion {
+            criterion_id: "AC-001".into(),
+            text: "Schedules and tasks appear in separate lists".into(),
+            source: AcceptanceCriterionSource::Interview,
+            status: AcceptanceCriterionStatus::Active,
+            created_in_version: 1,
+            retired_in_version: None,
+        });
+
+        assert_eq!(
+            prd_interview_next_focus(&draft.spec),
+            "ready_to_save: the draft is complete enough; point to the PRD confirmation action"
+        );
+
+        let prompt = build_prd_interview_user_prompt(&draft, &[], "이 정도면 충분해");
+        assert!(prompt.contains("Missing fields required before PRD confirmation, if any: none"));
+        assert!(prompt.contains("instead of asking a new required question"));
+        assert!(prompt.contains("or asking whether to save"));
+    }
 }
 
 #[cfg(test)]

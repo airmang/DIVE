@@ -38,6 +38,12 @@ function pointsFor(steps: PlanStepRow[]) {
     group.push(step);
     groups.set(level, group);
   }
+  const maxLevel = Math.max(...levels.values(), 0);
+  const compact = steps.length > 5 || maxLevel > 3;
+  const levelGap = compact ? 78 : 108;
+  const rowGap = compact ? 52 : 62;
+  const nodeX = compact ? 36 : 44;
+  const nodeY = compact ? 36 : 44;
   const points = new Map<string, Point>();
   for (const [level, group] of groups) {
     group
@@ -45,31 +51,38 @@ function pointsFor(steps: PlanStepRow[]) {
       .forEach((step, index) => {
         points.set(step.step_id, {
           step,
-          x: 44 + level * 108,
-          y: 44 + index * 62,
+          x: nodeX + level * levelGap,
+          y: nodeY + index * rowGap,
         });
       });
   }
-  const width = Math.max(330, 88 + (Math.max(...levels.values(), 0) + 1) * 108);
+  const width = Math.max(280, nodeX * 2 + maxLevel * levelGap + 40);
   const height = Math.max(
-    150,
-    88 + Math.max(...Array.from(groups.values(), (value) => value.length), 1) * 62,
+    compact ? 130 : 150,
+    nodeY * 2 + (Math.max(...Array.from(groups.values(), (value) => value.length), 1) - 1) * rowGap,
   );
-  return { points, width, height };
+  return { compact, points, width, height };
 }
 
 export function PlanDraftDependencyMap({ steps }: { steps: PlanStepRow[] }) {
   const t = useT();
-  const { points, width, height } = pointsFor(steps);
+  const { compact, points, width, height } = pointsFor(steps);
   const list = Array.from(points.values()).sort((a, b) => a.step.position - b.step.position);
 
   return (
     <div
-      className="plan-blueprint-grid overflow-auto border bg-bg p-3"
+      className="plan-blueprint-grid max-h-56 overflow-auto border bg-bg p-3"
       data-testid="plan-draft-dependency-map"
+      data-compact={compact ? "true" : "false"}
       aria-label={t("planning.approval.step_dag")}
     >
-      <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        width={width}
+        height={height}
+        role="img"
+        className="h-auto max-w-full"
+      >
         {list.flatMap((point) =>
           stringArray(point.step.dependencies).flatMap((dep) => {
             const source = points.get(dep);
@@ -80,7 +93,7 @@ export function PlanDraftDependencyMap({ steps }: { steps: PlanStepRow[] }) {
                 key={`${dep}:${point.step.step_id}`}
                 d={`M${source.x + 13},${source.y} C${mid},${source.y} ${mid},${point.y} ${point.x - 13},${point.y}`}
                 className="fill-none stroke-border"
-                strokeWidth="1.5"
+                strokeWidth={compact ? "1.25" : "1.5"}
               />
             );
           }),
@@ -103,7 +116,11 @@ export function PlanDraftDependencyMap({ steps }: { steps: PlanStepRow[] }) {
               x={point.x}
               y={point.y + 30}
               textAnchor="middle"
-              className="fill-fg font-mono text-[9.5px] font-bold"
+              className={
+                compact
+                  ? "fill-fg font-mono text-[8.5px] font-bold"
+                  : "fill-fg font-mono text-[9.5px] font-bold"
+              }
             >
               {point.step.step_id}
             </text>

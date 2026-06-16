@@ -118,13 +118,103 @@ describe("PlanDraftApprovalScreen intent and step review surface", () => {
 
     const steps = screen.getAllByTestId("plan-draft-step");
     expect(steps).toHaveLength(2);
+    expect(within(steps[0]).queryByTestId("plan-draft-step-details")).toBeNull();
     expect(within(steps[0]).getByText("검증 포함")).toBeTruthy();
+    fireEvent.click(within(steps[0]).getByTestId("plan-draft-step-details-toggle"));
     expect(within(steps[0]).getByText("src/settings/SettingsPage.tsx")).toBeTruthy();
     expect(within(steps[0]).getByText("pnpm test SettingsPage")).toBeTruthy();
+    fireEvent.click(within(steps[1]).getByTestId("plan-draft-step-details-toggle"));
 
     expect(within(steps[1]).getByText("설정 화면에서 저장을 누르고 toast를 확인한다")).toBeTruthy();
     expect(within(steps[1]).getByText("P2-1")).toBeTruthy();
     expect(within(steps[1]).getByText("ui-check")).toBeTruthy();
+  });
+
+  it("shows dependency map before review content and opens request changes on demand", () => {
+    const props = renderScreen();
+
+    const dependencyMap = screen.getByTestId("plan-draft-dependency-map");
+    const reviewContent = screen.getByTestId("plan-draft-review-content");
+    expect(
+      dependencyMap.compareDocumentPosition(reviewContent) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.queryByTestId("plan-draft-request-changes-panel")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("plan-draft-request-changes-toggle"));
+    expect(screen.getByTestId("plan-draft-request-changes-panel")).toBeTruthy();
+
+    fireEvent.change(screen.getByTestId("plan-draft-request-changes-input"), {
+      target: { value: "Split the first step into a smaller setup step." },
+    });
+    fireEvent.click(screen.getByTestId("plan-draft-request-changes-submit"));
+
+    expect(props.onRequestRevision).toHaveBeenCalledWith(
+      "Split the first step into a smaller setup step.",
+    );
+    expect(screen.queryByTestId("plan-draft-request-changes-panel")).toBeNull();
+  });
+
+  it("keeps raw generated markdown collapsed until requested", () => {
+    renderScreen();
+
+    expect(screen.queryByTestId("plan-draft-raw-markdown")).toBeNull();
+    fireEvent.click(screen.getByTestId("plan-draft-raw-toggle"));
+    expect(screen.getByTestId("plan-draft-raw-markdown")).toBeTruthy();
+  });
+
+  it("opens a step-scoped revision request with step context", () => {
+    const props = renderScreen();
+    const steps = screen.getAllByTestId("plan-draft-step");
+
+    fireEvent.click(within(steps[1]).getByTestId("plan-draft-step-revision"));
+    const panel = screen.getByTestId("plan-draft-request-changes-panel");
+    expect(panel.getAttribute("data-revision-target")).toBe("step");
+
+    fireEvent.change(screen.getByTestId("plan-draft-request-changes-input"), {
+      target: { value: "Merge this with the final check step." },
+    });
+    fireEvent.click(screen.getByTestId("plan-draft-request-changes-submit"));
+
+    expect(props.onRequestRevision).toHaveBeenCalledTimes(1);
+    const feedback = vi.mocked(props.onRequestRevision).mock.calls[0]?.[0] ?? "";
+    expect(feedback).toContain("[STEP_REVISION]");
+    expect(feedback).toContain("P2-2");
+    expect(feedback).toContain("Review action: custom");
+    expect(feedback).toContain("Merge this with the final check step.");
+  });
+
+  it("prefills a step-scoped revision from quick review actions", () => {
+    const props = renderScreen();
+    const steps = screen.getAllByTestId("plan-draft-step");
+
+    fireEvent.click(within(steps[0]).getByTestId("plan-draft-step-quick-split"));
+    const input = screen.getByTestId("plan-draft-request-changes-input") as HTMLTextAreaElement;
+    expect(input.value.length).toBeGreaterThan(0);
+    expect(screen.getByTestId("plan-draft-step-revision-context").textContent).toContain("P2-1");
+
+    fireEvent.click(screen.getByTestId("plan-draft-request-changes-submit"));
+
+    const feedback = vi.mocked(props.onRequestRevision).mock.calls[0]?.[0] ?? "";
+    expect(feedback).toContain("[STEP_REVISION]");
+    expect(feedback).toContain("Review action: split");
+  });
+
+  it("uses compact dependency map sizing for long step chains", () => {
+    const base = draft().steps[0];
+    const longChain = Array.from({ length: 7 }, (_, index) => ({
+      ...base,
+      id: 200 + index,
+      step_id: `S-${index + 1}`,
+      title: `Step ${index + 1}`,
+      dependencies: index === 0 ? [] : [`S-${index}`],
+      position: index + 1,
+    }));
+
+    renderScreen({ draft: draft({ steps: longChain }) });
+
+    expect(screen.getByTestId("plan-draft-dependency-map").getAttribute("data-compact")).toBe(
+      "true",
+    );
   });
 
   it("shows linked criterion ids, criterion text, and step rationale for each generated step", () => {

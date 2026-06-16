@@ -33,12 +33,11 @@ import { usePlanRoadmap, useRoadmap } from "../../features/roadmap";
 import {
   PLAN_DRAFT_REVIEW_REQUEST_EVENT,
   createLiveProjectSpecDraft,
-  requestPlanAdjustmentReview,
   usePlan,
   usePlanRouter,
   type LiveProjectSpecDraft,
+  type PrdInterviewConversationTurn,
   type ProjectSpec,
-  type RationaleChallengeOffer,
   type RouteDecision,
 } from "../../features/planning";
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
@@ -66,6 +65,68 @@ import { useProductRecovery } from "./useProductRecovery";
 import { PrdAuthoringBoard, type PrdPatchFeedback } from "./PrdAuthoringBoard";
 import { FinalPrdReadView } from "./FinalPrdReadView";
 import { fallbackModels } from "../settings/providerModels";
+
+export type PrdMode = "authoring" | "read" | null;
+
+export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
+  const activeCriteria = projectSpec.acceptanceCriteria
+    .filter((criterion) => criterion.status === "active" && criterion.text.trim().length > 0)
+    .map((criterion) => ({
+      criterionId: criterion.criterionId,
+      text: criterion.text,
+    }));
+  const prd = {
+    goal: projectSpec.goal,
+    intentSummary: projectSpec.intentSummary ?? "",
+    scope: projectSpec.scope,
+    nonGoals: projectSpec.nonGoals,
+    constraints: projectSpec.constraints,
+    acceptanceCriteria: activeCriteria,
+  };
+
+  return [
+    "[PRD_PLAN_GENERATION]",
+    "Use the saved PRD below as the source of truth and return compact JSON only.",
+    "Return shape: {\"intent_summary\":\"...\",\"unresolved_questions\":[],\"plan_input\":{\"goal\":\"...\",\"intent_summary\":\"...\",\"scope\":[],\"non_goals\":[],\"constraints\":[],\"acceptance_criteria\":[],\"steps\":[]}}.",
+    "Generate 2-6 steps and never exceed 8.",
+    "Each step must be small enough for one supervised DIVE turn.",
+    "Each step must include: step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, linked_criterion_ids, rationale, verification_command, verification_type, dependencies, parallel_group.",
+    "Every step must link to at least one saved PRD criterion ID through linked_criterion_ids and explain the link in rationale.",
+    "Use the saved PRD criterion IDs exactly; do not invent AC IDs.",
+    "verification_command must be one no-shell command with explicit args when a command is appropriate, otherwise null with a clear manual verification summary in the step text.",
+    "Do not include Markdown fences or prose.",
+    "",
+    `Saved PRD JSON:\n${JSON.stringify(prd)}`,
+  ].join("\n");
+}
+
+export function shouldShowEmptyPlanRail(input: {
+  currentProjectId: number | null;
+  planAccepted: boolean;
+  roadmapStepCount: number;
+  prdReadiness: "missing" | "draft" | "minimal";
+  prdMode: PrdMode;
+}) {
+  return (
+    input.currentProjectId !== null &&
+    !input.planAccepted &&
+    input.roadmapStepCount === 0 &&
+    input.prdReadiness === "minimal" &&
+    input.prdMode === "read"
+  );
+}
+
+export function shouldUsePrdReferenceSurface(input: {
+  prdMode: PrdMode;
+  hasPlan: boolean;
+  roadmapStepCount: number;
+  activePlanStepIdForChat?: number;
+}) {
+  return (
+    input.prdMode === "read" &&
+    (input.hasPlan || input.roadmapStepCount > 0 || input.activePlanStepIdForChat !== undefined)
+  );
+}
 
 const PlanDraftApprovalScreen = lazy(() =>
   import("./PlanDraftApprovalScreen").then((module) => ({
@@ -163,6 +224,41 @@ function draftFromProjectSpec(projectSpec: ProjectSpec): LiveProjectSpecDraft {
   });
 }
 
+export function restorePrdDraftIfCurrent(input: {
+  currentDraft: LiveProjectSpecDraft | null;
+  restoredDraft: LiveProjectSpecDraft | null;
+  requestedProjectId: number;
+  requestedDraftId: string;
+  requestedDraftUpdatedAt: number;
+}): LiveProjectSpecDraft | null {
+  const {
+    currentDraft,
+    restoredDraft,
+    requestedProjectId,
+    requestedDraftId,
+    requestedDraftUpdatedAt,
+  } = input;
+  if (!restoredDraft || !currentDraft) {
+    return currentDraft;
+  }
+  if (
+    restoredDraft.projectId !== requestedProjectId ||
+    restoredDraft.draftId !== requestedDraftId
+  ) {
+    return currentDraft;
+  }
+  if (
+    currentDraft.projectId !== requestedProjectId ||
+    currentDraft.draftId !== requestedDraftId
+  ) {
+    return currentDraft;
+  }
+  if (currentDraft.updatedAt !== requestedDraftUpdatedAt) {
+    return currentDraft;
+  }
+  return restoredDraft;
+}
+
 export function useProductShellController() {
   const t = useT();
   const dialogs = useProductShellDialogs();
@@ -174,11 +270,12 @@ export function useProductShellController() {
   const [planDraftFailure, setPlanDraftFailure] = useState<{
     reason: PlanDraftLlmErrorReason;
   } | null>(null);
-  const [prdMode, setPrdMode] = useState<"authoring" | "read" | null>(null);
+  const [prdMode, setPrdMode] = useState<PrdMode>(null);
   const [prdDraft, setPrdDraft] = useState<LiveProjectSpecDraft | null>(null);
   const [currentProjectSpec, setCurrentProjectSpec] = useState<ProjectSpec | null>(null);
   const [prdPatchFeedback, setPrdPatchFeedback] = useState<PrdPatchFeedback | null>(null);
   const [prdBusy, setPrdBusy] = useState(false);
+  const [pendingPrdPlanRequest, setPendingPrdPlanRequest] = useState<ProjectSpec | null>(null);
   const expectingPlanDraftRef = useRef(false);
   const [pendingPlanRoute, setPendingPlanRoute] = useState<PendingPlanRouteConfirmation | null>(
     null,
@@ -189,6 +286,7 @@ export function useProductShellController() {
   } | null>(null);
   const pendingPlanReplaceRef = useRef<{ resolve: (confirmed: boolean) => void } | null>(null);
   const wasStreaming = useRef(false);
+  const prdDraftRestoreRequestRef = useRef(0);
 
   const projectSessionLoaded = useProjectSessionStore((s) => s.loaded);
   const loadProjectSession = useProjectSessionStore((s) => s.loadAll);
@@ -244,11 +342,13 @@ export function useProductShellController() {
   }, [currentProjectId, generatedPlanDraft]);
 
   useEffect(() => {
+    prdDraftRestoreRequestRef.current += 1;
     setPrdMode(null);
     setPrdDraft(null);
     setCurrentProjectSpec(null);
     setPrdPatchFeedback(null);
     setPrdBusy(false);
+    setPendingPrdPlanRequest(null);
   }, [currentProjectId]);
 
   useEffect(() => {
@@ -481,11 +581,17 @@ export function useProductShellController() {
   const currentCard = useWorkmapStore(selectCurrentCard);
   const currentCardId = roadmapModel.activeStepId;
   const allVerified = useWorkmapStore(selectAllCardsVerified);
-  const { activePlanStepIdForChat, rememberJustOpenedPlanStepMapping } = useProductPlanStepRuntime({
+  const pushChatComposerSeed = useChatComposerStore((s) => s.pushSeed);
+  const requestChatFocus = useChatComposerStore((s) => s.requestFocus);
+  const {
+    activePlanStepIdForChat,
+    pendingPlanStepPrompt,
+    clearPendingPlanStepPrompt,
+    rememberJustOpenedPlanStepMapping,
+  } = useProductPlanStepRuntime({
     currentSessionId,
     currentCard,
     planRoadmapSteps: planRoadmap.steps,
-    chat,
   });
   const activePlanStep = useMemo(
     () =>
@@ -536,69 +642,27 @@ export function useProductShellController() {
         currentPlanRoadmapStep?.decompositionRationale ?? base.decompositionRationale ?? null,
     };
   }, [currentCard, currentPlanRoadmapStep, roadmapModel.steps]);
-  const handleChallengeStepRationale = useCallback(
-    async (input: { stepId: number; text: string; linkedCriterionIds: string[] }) => {
-      void input.stepId;
-      if (!currentPlanRoadmapStep) {
-        throw new Error("Plan step context unavailable");
-      }
-      return plan.challengeStepRationale({
-        planId: currentPlanRoadmapStep.step.plan_id,
-        stepDbId: currentPlanRoadmapStep.step.id,
-        text: input.text,
-        linkedCriterionIds: input.linkedCriterionIds,
-      });
-    },
-    [currentPlanRoadmapStep, plan],
+  const hasExistingPlan = Boolean(
+    plan.status?.has_plan ||
+      plan.status?.has_approved_plan ||
+      planRoadmap.hasPlan ||
+      planRoadmap.status?.has_plan ||
+      planRoadmap.status?.has_approved_plan,
   );
-  const handleAcceptRationaleChallengeOffer = useCallback(
-    async (offer: RationaleChallengeOffer) => {
-      if (!currentPlanRoadmapStep) {
-        throw new Error("Plan step context unavailable");
-      }
-      await plan.acceptRationaleChallengeOffer({
-        planId: currentPlanRoadmapStep.step.plan_id,
-        stepDbId: currentPlanRoadmapStep.step.id,
-        objectionId: offer.objectionId,
-        offerId: offer.offerId,
-      });
-      const offerMessage = offer.message || t("planning.decomposition.offer_message");
-      if (currentProjectId !== null) {
-        requestPlanAdjustmentReview({
-          projectId: currentProjectId,
-          planId: currentPlanRoadmapStep.step.plan_id,
-          stepDbId: currentPlanRoadmapStep.step.id,
-          objectionId: offer.objectionId,
-          offerId: offer.offerId,
-          offerKind: offer.offerKind,
-          message: offerMessage,
-          suggestedSeed: offer.suggestedSeed,
-        });
-      }
-      await planRoadmap.refresh();
-      toast({
-        variant: "info",
-        title: t("planning.decomposition.offer_title"),
-        description: offerMessage,
-      });
-    },
-    [currentPlanRoadmapStep, currentProjectId, plan, planRoadmap, t, toast],
-  );
-  const handleDismissRationaleChallengeOffer = useCallback(
-    async (offer: RationaleChallengeOffer) => {
-      if (!currentPlanRoadmapStep) {
-        throw new Error("Plan step context unavailable");
-      }
-      await plan.dismissRationaleChallengeOffer({
-        planId: currentPlanRoadmapStep.step.plan_id,
-        stepDbId: currentPlanRoadmapStep.step.id,
-        objectionId: offer.objectionId,
-        offerId: offer.offerId,
-      });
-    },
-    [currentPlanRoadmapStep, plan],
-  );
+  const prdReferenceMode = shouldUsePrdReferenceSurface({
+    prdMode,
+    hasPlan: hasExistingPlan,
+    roadmapStepCount: roadmapModel.steps.length,
+    activePlanStepIdForChat,
+  });
   const planAccepted = planRoadmap.hasPlan;
+  const showEmptyPlanRail = shouldShowEmptyPlanRail({
+    currentProjectId,
+    planAccepted,
+    roadmapStepCount: roadmapModel.steps.length,
+    prdReadiness,
+    prdMode,
+  });
 
   const openSlideIn = useSlideInStore((s) => s.open);
   const closeSlideIn = useSlideInStore((s) => s.close);
@@ -662,9 +726,6 @@ export function useProductShellController() {
     },
     [setOnboardingOpen],
   );
-
-  const pushChatComposerSeed = useChatComposerStore((s) => s.pushSeed);
-  const requestChatFocus = useChatComposerStore((s) => s.requestFocus);
 
   const handleApprovalDecision = useCallback(
     (decision: ApprovalDecision) => {
@@ -968,7 +1029,7 @@ export function useProductShellController() {
     if (prdDraft?.projectId === currentProjectId && currentProjectSpec === null) {
       return prdDraft;
     }
-    if (currentProjectSpec) {
+    if (currentProjectSpec?.projectId === currentProjectId) {
       return draftFromProjectSpec(currentProjectSpec);
     }
     return createLiveProjectSpecDraft(currentProjectId, {
@@ -993,9 +1054,23 @@ export function useProductShellController() {
     setPrdDraft(nextDraft);
     setPrdPatchFeedback(null);
     setPrdMode("authoring");
+    const restoreRequestId = prdDraftRestoreRequestRef.current + 1;
+    prdDraftRestoreRequestRef.current = restoreRequestId;
+    const requestedProjectId = nextDraft.projectId;
+    const requestedDraftId = nextDraft.draftId;
+    const requestedDraftUpdatedAt = nextDraft.updatedAt;
     void getProjectSpecDraft(nextDraft.draftId)
       .then((savedDraft) => {
-        if (savedDraft) setPrdDraft(savedDraft);
+        if (prdDraftRestoreRequestRef.current !== restoreRequestId) return;
+        setPrdDraft((currentDraft) =>
+          restorePrdDraftIfCurrent({
+            currentDraft,
+            restoredDraft: savedDraft,
+            requestedProjectId,
+            requestedDraftId,
+            requestedDraftUpdatedAt,
+          }),
+        );
       })
       .catch(() => {
         // Keep the local draft visible; autosave will retry on the next edit.
@@ -1010,18 +1085,20 @@ export function useProductShellController() {
   ]);
 
   const handleSubmitPrdAnswer = useCallback(
-    (answer: string) => {
+    (answer: string, conversation: PrdInterviewConversationTurn[] = []) => {
       if (!prdDraft || prdBusy) return;
       const runtime = prdRuntimeSelection(providers);
       if (!runtime) {
         openSettingsRoute();
         return;
       }
+      prdDraftRestoreRequestRef.current += 1;
       setPrdBusy(true);
       return plan
         .submitPrdInterviewTurn({
           draftId: prdDraft.draftId,
           answer,
+          conversation,
           provider: runtime.provider,
           model: runtime.model,
         })
@@ -1050,6 +1127,11 @@ export function useProductShellController() {
     },
     [openSettingsRoute, plan, prdBusy, prdDraft, providers, t, toast],
   );
+
+  const handlePrdDraftChange = useCallback((draft: LiveProjectSpecDraft) => {
+    prdDraftRestoreRequestRef.current += 1;
+    setPrdDraft(draft);
+  }, []);
 
   useEffect(() => {
     if (prdMode !== "authoring" || !prdDraft || currentProjectId === null) return;
@@ -1092,6 +1174,54 @@ export function useProductShellController() {
     [currentProjectId, plan, prdBusy, t, toast],
   );
 
+  const startPlanGenerationFromPrd = useCallback(
+    async (projectSpec: ProjectSpec) => {
+      if (currentProjectId === null) return;
+      if (chat.isStreaming) {
+        requestChatFocus();
+        return;
+      }
+      try {
+        const interview = await plan.startInterview(projectSpec.goal);
+        activeInterviewRef.current = interview;
+        setActiveInterview(interview);
+        expectingPlanDraftRef.current = true;
+        setPlanDraftFailure(null);
+        setGeneratedPlanDraft(null);
+        requestChatFocus();
+        await chat.sendUserMessage(buildPrdPlanGenerationPrompt(projectSpec), "interview", false);
+      } catch (err) {
+        expectingPlanDraftRef.current = false;
+        toast({
+          variant: "error",
+          title: t("planning.interview.draft_failed_title"),
+          description: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [chat, currentProjectId, plan, requestChatFocus, t, toast],
+  );
+
+  useEffect(() => {
+    if (
+      pendingPrdPlanRequest === null ||
+      currentSessionId === null ||
+      chat.loadingHistory ||
+      !chat.isTauri
+    ) {
+      return;
+    }
+    const projectSpec = pendingPrdPlanRequest;
+    setPendingPrdPlanRequest(null);
+    void startPlanGenerationFromPrd(projectSpec);
+  }, [
+    chat.isTauri,
+    chat.loadingHistory,
+    currentSessionId,
+    pendingPrdPlanRequest,
+    startPlanGenerationFromPrd,
+  ]);
+
   const handleCreatePlanFromRail = useCallback(() => {
     if (currentProjectId === null) {
       dialogs.setNewProjectOpen(true);
@@ -1101,25 +1231,52 @@ export function useProductShellController() {
       openSettingsRoute();
       return;
     }
+    if (currentProjectSpec) {
+      if (hasExistingPlan) {
+        setPrdMode("read");
+        requestChatFocus();
+        toast({
+          variant: "info",
+          title: t("prd.read_view.plan_created"),
+          description: t("prd.read_view.plan_created_description"),
+        });
+        return;
+      }
+      if (currentSessionId === null || chat.loadingHistory || !chat.isTauri) {
+        setPendingPrdPlanRequest(currentProjectSpec);
+        if (currentSessionId === null) {
+          void createSession(currentProjectId);
+        }
+        requestChatFocus();
+        return;
+      }
+      void startPlanGenerationFromPrd(currentProjectSpec);
+      return;
+    }
     if (currentSessionId === null) {
       void createSession(currentProjectId).then(() => requestChatFocus());
       return;
     }
     requestChatFocus();
   }, [
+    chat.isTauri,
+    chat.loadingHistory,
     createSession,
     currentProjectId,
+    currentProjectSpec,
     currentSessionId,
     dialogs,
+    hasExistingPlan,
     hasConnectedProvider,
     openSettingsRoute,
     requestChatFocus,
+    startPlanGenerationFromPrd,
   ]);
 
   const {
     stageBanner,
     inputBlocked,
-    composerHint,
+    composerHint: baseComposerHint,
     emptyState,
     getStarted,
     latestInterviewQuestion,
@@ -1158,12 +1315,35 @@ export function useProductShellController() {
     t,
   });
 
+  const planStepComposerHint = useMemo(
+    () =>
+      pendingPlanStepPrompt
+        ? {
+            message: t("stage.hint_plan_step_prompt"),
+            actionLabel: t("stage.action_insert_step_prompt"),
+            onAction: () => {
+              pushChatComposerSeed(pendingPlanStepPrompt.prompt);
+              clearPendingPlanStepPrompt();
+            },
+          }
+        : null,
+    [clearPendingPlanStepPrompt, pendingPlanStepPrompt, pushChatComposerSeed, t],
+  );
+  const composerHint = planStepComposerHint ?? baseComposerHint;
+
   const sendMessage = useCallback(
     (text: string) => {
       const effectivePlanAccepted = planAccepted || activePlanStepIdForChat !== undefined;
       void chat.sendUserMessage(text, undefined, effectivePlanAccepted, activePlanStepIdForChat);
+      if (pendingPlanStepPrompt) clearPendingPlanStepPrompt();
     },
-    [activePlanStepIdForChat, chat, planAccepted],
+    [
+      activePlanStepIdForChat,
+      chat,
+      clearPendingPlanStepPrompt,
+      pendingPlanStepPrompt,
+      planAccepted,
+    ],
   );
 
   const handleRetryError = useCallback(() => {
@@ -1383,7 +1563,7 @@ export function useProductShellController() {
         busy: prdBusy,
         recentlyChangedFields: prdPatchFeedback?.appliedFieldPaths ?? [],
         patchFeedback: prdPatchFeedback,
-        onDraftChange: setPrdDraft,
+        onDraftChange: handlePrdDraftChange,
         onSubmitAnswer: handleSubmitPrdAnswer,
         onSavePrdAndCreatePlan: handleSavePrdAndCreatePlan,
       });
@@ -1392,7 +1572,9 @@ export function useProductShellController() {
       return createElement(FinalPrdReadView, {
         projectName: currentProjectName ?? t("project.untitled"),
         projectSpec: currentProjectSpec,
-        planActionLabel: t("get_started.plan_action"),
+        planActionLabel: t("prd.authoring.create_plan"),
+        canCreatePlan: !hasExistingPlan,
+        planStatusLabel: hasExistingPlan ? t("prd.read_view.plan_created") : null,
         onEdit: () => {
           setPrdDraft(draftFromProjectSpec(currentProjectSpec));
           setPrdPatchFeedback(null);
@@ -1406,7 +1588,9 @@ export function useProductShellController() {
     currentProjectName,
     currentProjectPath,
     currentProjectSpec,
+    hasExistingPlan,
     handleCreatePlanFromRail,
+    handlePrdDraftChange,
     handleSavePrdAndCreatePlan,
     handleSubmitPrdAnswer,
     prdBusy,
@@ -1543,10 +1727,11 @@ export function useProductShellController() {
             })
           : null,
       prdSurface,
+      prdSurfaceMode: prdReferenceMode ? ("reference" as const) : ("full" as const),
     },
     roadmap: {
       visible: roadmapModel.steps.length > 0 || planAccepted,
-      showEmpty: currentProjectId !== null && !planAccepted && roadmapModel.steps.length === 0,
+      showEmpty: showEmptyPlanRail,
       steps: roadmapModel.steps,
       activeStepId: roadmapModel.activeStepId,
       progress: roadmapModel.progress,
@@ -1588,9 +1773,6 @@ export function useProductShellController() {
       },
       onApprovalDecision: handleApprovalDecision,
       onGoToChat: handleGoToChatFromStepDetail,
-      onChallengeStepRationale: handleChallengeStepRationale,
-      onAcceptRationaleChallengeOffer: handleAcceptRationaleChallengeOffer,
-      onDismissRationaleChallengeOffer: handleDismissRationaleChallengeOffer,
     },
     recovery: {
       open: dialogs.recoveryOpen,

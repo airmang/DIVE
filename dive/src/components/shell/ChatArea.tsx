@@ -1,4 +1,13 @@
-import { AlertCircle, Eye, Lightbulb, MessagesSquare, PanelRight, X } from "lucide-react";
+import {
+  AlertCircle,
+  ChevronDown,
+  Eye,
+  FileText,
+  Lightbulb,
+  MessagesSquare,
+  PanelRight,
+  X,
+} from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
@@ -44,6 +53,7 @@ function MessageHistorySkeleton({ label }: { label: string }) {
 }
 
 export type ChatStageBannerTone = "info" | "warn" | "success";
+export type PrdSurfaceMode = "full" | "reference";
 
 export interface ChatStageBanner {
   tone: ChatStageBannerTone;
@@ -93,6 +103,7 @@ interface ChatAreaProps {
     onAction?: () => void;
   };
   prdSurface?: ReactNode;
+  prdSurfaceMode?: PrdSurfaceMode;
   planDraftApproval?: ReactNode;
   provocation?: {
     enabled: boolean;
@@ -143,17 +154,22 @@ export function ChatArea({
   context,
   emptyState,
   prdSurface,
+  prdSurfaceMode = "full",
   planDraftApproval,
   provocation,
 }: ChatAreaProps) {
   const t = useT();
   const [now, setNow] = useState(() => Date.now());
   const [hintDismissed, setHintDismissed] = useState(false);
+  const [prdReferenceOpen, setPrdReferenceOpen] = useState(false);
   useEffect(() => {
     setHintDismissed(false);
   }, [composerHint?.message]);
   const showComposerHint = composerHint !== null && composerHint !== undefined && !hintDismissed;
   const hasConversation = messages !== undefined && messages.length > 0;
+  const prdSurfaceIsReference = Boolean(prdSurface && prdSurfaceMode === "reference");
+  const prdSurfaceIsFull = Boolean(prdSurface && prdSurfaceMode !== "reference");
+  const showingFullPrdSurface = !planDraftApproval && prdSurfaceIsFull;
   const elapsedSeconds =
     isStreaming && runStartedAt !== null ? Math.max(0, Math.floor((now - runStartedAt) / 1000)) : 0;
   const runningLabel = isStreaming
@@ -179,6 +195,12 @@ export function ChatArea({
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [isRouting, isStreaming, routeStartedAt, runStartedAt]);
+
+  useEffect(() => {
+    if (!prdSurfaceIsReference) {
+      setPrdReferenceOpen(false);
+    }
+  }, [prdSurfaceIsReference]);
 
   return (
     <section
@@ -257,47 +279,86 @@ export function ChatArea({
       <div className="flex-1 min-h-0 overflow-hidden">
         {planDraftApproval ? (
           planDraftApproval
-        ) : prdSurface ? (
+        ) : showingFullPrdSurface ? (
           prdSurface
-        ) : getStarted ? (
-          <GetStartedChecklist model={getStarted} />
-        ) : messagesLoading && !hasConversation ? (
-          <MessageHistorySkeleton label={t("chat.history_loading_aria")} />
-        ) : hasConversation ? (
-          <MessageList
-            messages={messages}
-            onRetryError={onRetryError}
-            onApproveToolCall={onApproveToolCall}
-            onDenyToolCall={onDenyToolCall}
-            provocation={provocation}
-          />
         ) : (
-          <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 px-6 text-center">
-            <MessagesSquare className="h-10 w-10 text-fg-subtle" aria-hidden />
-            <p className="text-xl font-semibold text-fg">
-              {emptyState?.title ?? t("chat.empty_default_title")}
-            </p>
-            <p className="text-sm text-fg-muted">
-              {emptyState?.description ?? t("chat.empty_default_description")}
-            </p>
-            {!emptyState?.actionLabel ? (
-              <LearningHint className="text-sm">{t("chat.empty_hint")}</LearningHint>
+          <div className="flex h-full min-h-0 flex-col">
+            {prdSurfaceIsReference ? (
+              <div className="shrink-0 border-b bg-bg-panel" data-testid="prd-reference-panel">
+                <button
+                  type="button"
+                  className="flex min-h-11 w-full items-center gap-2 px-6 text-left text-sm font-medium text-fg hover:bg-bg-panel2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                  onClick={() => setPrdReferenceOpen((open) => !open)}
+                  aria-expanded={prdReferenceOpen}
+                  data-testid="prd-reference-toggle"
+                >
+                  <FileText className="h-4 w-4 text-accent" aria-hidden />
+                  <span className="flex-1">
+                    {prdReferenceOpen
+                      ? t("prd.read_view.hide_reference")
+                      : t("prd.read_view.show_reference")}
+                  </span>
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 text-fg-muted transition-transform",
+                      prdReferenceOpen && "rotate-180",
+                    )}
+                    aria-hidden
+                  />
+                </button>
+                {prdReferenceOpen ? (
+                  <div
+                    className="max-h-[45vh] overflow-auto border-t"
+                    data-testid="prd-reference-content"
+                  >
+                    {prdSurface}
+                  </div>
+                ) : null}
+              </div>
             ) : null}
-            {emptyState?.actionLabel && emptyState.onAction ? (
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={emptyState.onAction}
-                data-testid="chat-empty-cta"
-              >
-                {emptyState.actionLabel}
-              </Button>
-            ) : null}
+            <div className="min-h-0 flex-1 overflow-hidden">
+              {getStarted ? (
+                <GetStartedChecklist model={getStarted} />
+              ) : messagesLoading && !hasConversation ? (
+                <MessageHistorySkeleton label={t("chat.history_loading_aria")} />
+              ) : hasConversation ? (
+                <MessageList
+                  messages={messages}
+                  onRetryError={onRetryError}
+                  onApproveToolCall={onApproveToolCall}
+                  onDenyToolCall={onDenyToolCall}
+                  provocation={provocation}
+                />
+              ) : (
+                <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 px-6 text-center">
+                  <MessagesSquare className="h-10 w-10 text-fg-subtle" aria-hidden />
+                  <p className="text-xl font-semibold text-fg">
+                    {emptyState?.title ?? t("chat.empty_default_title")}
+                  </p>
+                  <p className="text-sm text-fg-muted">
+                    {emptyState?.description ?? t("chat.empty_default_description")}
+                  </p>
+                  {!emptyState?.actionLabel ? (
+                    <LearningHint className="text-sm">{t("chat.empty_hint")}</LearningHint>
+                  ) : null}
+                  {emptyState?.actionLabel && emptyState.onAction ? (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={emptyState.onAction}
+                      data-testid="chat-empty-cta"
+                    >
+                      {emptyState.actionLabel}
+                    </Button>
+                  ) : null}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
 
-      {!prdSurface ? (
+      {!showingFullPrdSurface ? (
         <footer className="shrink-0 border-t p-4">
           {isRouting ? (
             <div

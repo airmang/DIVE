@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
 import { createLiveProjectSpecDraft } from "../../features/planning";
 import { useProjectSessionStore } from "../../stores/project-session";
-import { PrdAuthoringBoard } from "./PrdAuthoringBoard";
+import { PrdAuthoringBoard, isPrdCompletionIntent } from "./PrdAuthoringBoard";
 
 function renderBoard(overrides: Partial<Parameters<typeof PrdAuthoringBoard>[0]> = {}) {
   const props: Parameters<typeof PrdAuthoringBoard>[0] = {
@@ -62,11 +62,13 @@ describe("PrdAuthoringBoard", () => {
     await waitFor(() => expect(screen.getByTestId("chat-runtime-selector")).toBeTruthy());
   });
 
-  it("requires a goal and at least one acceptance criterion before saving for plan creation", () => {
-    renderBoard();
+  it("requires a goal and at least one acceptance criterion before confirming the PRD", () => {
+    const props = renderBoard();
 
     const primary = screen.getByTestId("prd-save-create-plan");
+    const headerConfirm = screen.getByTestId("prd-confirm-header");
     expect(primary).toHaveProperty("disabled", true);
+    expect(headerConfirm).toHaveProperty("disabled", true);
 
     fireEvent.change(screen.getByTestId("prd-goal-input"), {
       target: { value: "Build a PRD-first planning flow" },
@@ -76,6 +78,10 @@ describe("PrdAuthoringBoard", () => {
     });
 
     expect(primary).toHaveProperty("disabled", false);
+    expect(headerConfirm).toHaveProperty("disabled", false);
+
+    fireEvent.click(headerConfirm);
+    expect(props.onSavePrdAndCreatePlan).toHaveBeenCalledTimes(1);
   });
 
   it("highlights fields changed by an applied interview-turn patch", () => {
@@ -134,7 +140,69 @@ describe("PrdAuthoringBoard", () => {
 
     expect(props.onSubmitAnswer).toHaveBeenCalledWith(
       "Users need to see the PRD before plan creation.",
+      expect.arrayContaining([
+        expect.objectContaining({ role: "assistant" }),
+        {
+          role: "student",
+          text: "Users need to see the PRD before plan creation.",
+        },
+      ]),
     );
+  });
+
+  it("confirms instead of calling the LLM when a ready PRD receives a completion intent", () => {
+    const onSubmitAnswer = vi.fn();
+    const onSavePrdAndCreatePlan = vi.fn();
+    renderBoard({
+      draft: createLiveProjectSpecDraft(42, {
+        goal: "Build a personal schedule app",
+        acceptanceCriteria: ["Schedules and tasks appear in separate lists"],
+      }),
+      onSubmitAnswer,
+      onSavePrdAndCreatePlan,
+    });
+    const rail = screen.getByTestId("prd-interview-rail");
+
+    fireEvent.change(within(rail).getByTestId("prd-interview-input"), {
+      target: { value: "아냐 이 정도면 돼" },
+    });
+    fireEvent.click(within(rail).getByTestId("prd-interview-send"));
+
+    expect(onSubmitAnswer).not.toHaveBeenCalled();
+    expect(onSavePrdAndCreatePlan).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps completion intent detection narrow enough for done-state content", () => {
+    expect(isPrdCompletionIntent("아냐 이 정도면 돼")).toBe(true);
+    expect(isPrdCompletionIntent("save it")).toBe(true);
+    expect(isPrdCompletionIntent("Users can mark a task done")).toBe(false);
+    expect(isPrdCompletionIntent("일정 저장 기능이 필요해")).toBe(false);
+  });
+
+  it("does not submit the same interview answer twice while the first turn is pending", async () => {
+    let resolveTurn: (value: { assistantMessage: string }) => void = () => {};
+    const onSubmitAnswer = vi.fn(
+      () =>
+        new Promise<{ assistantMessage: string }>((resolve) => {
+          resolveTurn = resolve;
+        }),
+    );
+    renderBoard({ onSubmitAnswer });
+    const rail = screen.getByTestId("prd-interview-rail");
+
+    fireEvent.change(within(rail).getByTestId("prd-interview-input"), {
+      target: { value: "Teachers need to see missing submissions quickly." },
+    });
+    const send = within(rail).getByTestId("prd-interview-send");
+    fireEvent.click(send);
+    fireEvent.click(send);
+
+    expect(onSubmitAnswer).toHaveBeenCalledTimes(1);
+
+    resolveTurn({ assistantMessage: "반영했어요. 다음으로 첫 화면에서 보여야 할 상태를 볼게요." });
+    expect(
+      await screen.findByText("반영했어요. 다음으로 첫 화면에서 보여야 할 상태를 볼게요."),
+    ).toBeTruthy();
   });
 
   it("shows the assistant interview response as part of the PRD conversation", async () => {
@@ -193,13 +261,42 @@ describe("PrdAuthoringBoard", () => {
     fireEvent.click(within(rail).getByTestId("prd-interview-send"));
 
     expect(await screen.findByText("학생 제출물을 빨리 확인하고 싶어요.")).toBeTruthy();
-    expect(await screen.findByText("좋아요. 먼저 누가 이걸 쓰는지 조금 더 좁혀볼게요.")).toBeTruthy();
+    expect(
+      await screen.findByText("좋아요. 먼저 누가 이걸 쓰는지 조금 더 좁혀볼게요."),
+    ).toBeTruthy();
 
     cleanup();
     renderBoard({ draft });
 
     expect(screen.getByText("학생 제출물을 빨리 확인하고 싶어요.")).toBeTruthy();
     expect(screen.getByText("좋아요. 먼저 누가 이걸 쓰는지 조금 더 좁혀볼게요.")).toBeTruthy();
+  });
+
+  it("keeps interview conversation isolated across projects even when draft ids match", async () => {
+    const sharedDraftId = "shared-draft";
+    renderBoard({
+      draft: createLiveProjectSpecDraft(42, { draftId: sharedDraftId }),
+      onSubmitAnswer: vi.fn().mockResolvedValue({
+        assistantMessage: "I stored the first project's PRD context.",
+      }),
+    });
+    const rail = screen.getByTestId("prd-interview-rail");
+
+    fireEvent.change(within(rail).getByTestId("prd-interview-input"), {
+      target: { value: "First project conversation" },
+    });
+    fireEvent.click(within(rail).getByTestId("prd-interview-send"));
+
+    expect(await screen.findByText("First project conversation")).toBeTruthy();
+    expect(await screen.findByText("I stored the first project's PRD context.")).toBeTruthy();
+
+    cleanup();
+    renderBoard({
+      draft: createLiveProjectSpecDraft(84, { draftId: sharedDraftId }),
+    });
+
+    expect(screen.queryByText("First project conversation")).toBeNull();
+    expect(screen.queryByText("I stored the first project's PRD context.")).toBeNull();
   });
 
   it("frames PRD fields as conversation-filled rather than user-authored form prompts", () => {

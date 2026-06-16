@@ -10,10 +10,19 @@ export const DEFAULT_PROJECT_SPEC_VERSION = 1;
 export const ACCEPTANCE_CRITERION_ID_PREFIX = "AC";
 
 export type MinimalProjectSpecReasonCode = "missing_goal" | "missing_acceptance_criterion";
+export type ConfirmableProjectSpecReasonCode =
+  | MinimalProjectSpecReasonCode
+  | "missing_intent_summary"
+  | "missing_scope";
 
 export interface MinimalProjectSpecValidation {
   valid: boolean;
   reasonCodes: MinimalProjectSpecReasonCode[];
+}
+
+export interface ConfirmableProjectSpecValidation {
+  valid: boolean;
+  reasonCodes: ConfirmableProjectSpecReasonCode[];
 }
 
 interface AdaptAcceptanceCriteriaOptions {
@@ -54,7 +63,16 @@ function isCriterionSource(value: unknown): value is AcceptanceCriterionSource {
   );
 }
 
-function isAcceptanceCriterion(value: unknown): value is AcceptanceCriterion {
+export function isValidCriterionId(
+  criterionId: string,
+  prefix = ACCEPTANCE_CRITERION_ID_PREFIX,
+): boolean {
+  const pattern = new RegExp(`^${prefix}-(\\d+)$`);
+  const match = criterionId.trim().match(pattern);
+  return match ? Number.parseInt(match[1], 10) > 0 : false;
+}
+
+function isAcceptanceCriterionShape(value: unknown): value is AcceptanceCriterion {
   if (typeof value !== "object" || value === null) return false;
   const source = value as Record<string, unknown>;
   return (
@@ -69,6 +87,10 @@ function isAcceptanceCriterion(value: unknown): value is AcceptanceCriterion {
     (source.retiredInVersion === null ||
       (typeof source.retiredInVersion === "number" && Number.isFinite(source.retiredInVersion)))
   );
+}
+
+function isAcceptanceCriterion(value: unknown): value is AcceptanceCriterion {
+  return isAcceptanceCriterionShape(value) && isValidCriterionId(value.criterionId);
 }
 
 export function allocateCriterionId(
@@ -96,6 +118,19 @@ export function adaptAcceptanceCriteria(
   for (const item of value) {
     if (isAcceptanceCriterion(item)) {
       criteria.push({ ...item, text: item.text.trim(), criterionId: item.criterionId.trim() });
+      continue;
+    }
+    if (isAcceptanceCriterionShape(item)) {
+      const criterionId = item.criterionId.trim();
+      criteria.push({
+        ...item,
+        text: item.text.trim(),
+        criterionId:
+          isValidCriterionId(criterionId) &&
+          !criteria.some((criterion) => criterion.criterionId === criterionId)
+            ? criterionId
+            : allocateCriterionId(criteria),
+      });
       continue;
     }
     if (typeof item !== "string") continue;
@@ -281,6 +316,17 @@ export function validateMinimalProjectSpec(
   if (!hasActiveCriterion) {
     reasonCodes.push("missing_acceptance_criterion");
   }
+  return {
+    valid: reasonCodes.length === 0,
+    reasonCodes,
+  };
+}
+
+export function validateConfirmableProjectSpec(
+  spec: Pick<ProjectSpecDraft, "goal" | "intentSummary" | "scope" | "acceptanceCriteria">,
+): ConfirmableProjectSpecValidation {
+  const minimal = validateMinimalProjectSpec(spec);
+  const reasonCodes: ConfirmableProjectSpecReasonCode[] = [...minimal.reasonCodes];
   return {
     valid: reasonCodes.length === 0,
     reasonCodes,

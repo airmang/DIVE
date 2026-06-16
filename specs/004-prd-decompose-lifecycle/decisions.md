@@ -123,3 +123,35 @@
 - **Implication**: Future agents must not cite `change_step` or `retire_step` as
   shipped behavior. They may only use them as reserved contract names when
   planning a later visible mutation feature.
+
+## DEC-011: Completed PRD Becomes A Reference After Plan Creation
+
+- **Decision**: The completed PRD read view is the primary handoff surface only
+  before a PRD-backed plan exists. Once a plan has been generated/approved and
+  steps are available, the PRD remains openable and editable, but it must render
+  as a collapsible reference instead of replacing the chat/execution surface.
+- **Rationale**: After decomposition, the student's primary task is executing
+  and verifying steps. Keeping the final PRD as a full-screen surface blocks the
+  real workflow, while hiding it entirely makes the source-of-truth artifact hard
+  to inspect.
+- **Implication**: Starting or continuing a step must keep chat and execution
+  controls visible. The PRD read view must show a non-generative plan-created
+  state instead of offering another "create plan from this PRD" action when a
+  plan already exists. Editing the PRD is still allowed, but visible step
+  mutation remains limited to the shipped dedicated `add_step` path.
+
+## DEC-012: Step Review Panel Prioritizes Verification Over PRD Rationale
+
+- **Decision**: The step-end review panel opened by "Open review" is a
+  verification and approval surface. It must lead with the verification
+  criterion, feasible evidence actions, Sakar/Sarkar review cards when present,
+  and the decision gate. It should not show the linked PRD criteria/rationale or
+  the "why this step?" challenge by default.
+- **Rationale**: After a plan is confirmed and a step is being reviewed, the
+  user's immediate job is to judge evidence. Repeating decomposition rationale
+  above the decision flow makes the review feel like plan editing and can hide
+  the contextual review card.
+- **Implication**: Criterion links, decomposition rationale, and rationale
+  challenge offers remain plan/decomposition review responsibilities (for
+  example, plan draft review and roadmap explanation surfaces). `StepDetailSlideIn`
+  should stay focused on verification evidence and review-card interaction.

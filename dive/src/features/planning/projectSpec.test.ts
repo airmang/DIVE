@@ -6,6 +6,7 @@ import {
   createLiveProjectSpecDraft,
   markDraftStudentEdited,
   validateMinimalProjectSpec,
+  validateConfirmableProjectSpec,
 } from "./projectSpec";
 
 describe("project spec helpers", () => {
@@ -59,6 +60,21 @@ describe("project spec helpers", () => {
     expect(allocateCriterionId(existing)).toBe("AC-011");
   });
 
+  it("reassigns invalid AC-000 criterion ids instead of preserving them", () => {
+    const criteria = adaptAcceptanceCriteria([
+      {
+        criterionId: "AC-000",
+        text: "Zero should not be persisted",
+        source: "interview",
+        status: "active",
+        createdInVersion: 1,
+        retiredInVersion: null,
+      },
+    ]);
+
+    expect(criteria[0].criterionId).toBe("AC-001");
+  });
+
   it("validates only minimal PRDs with a goal and an active criterion", () => {
     const draft = createLiveProjectSpecDraft(42);
     expect(validateMinimalProjectSpec(draft.spec)).toEqual({
@@ -72,6 +88,18 @@ describe("project spec helpers", () => {
       acceptanceCriteria: adaptAcceptanceCriteria(["Can add a task"]),
     };
     expect(validateMinimalProjectSpec(withGoal)).toEqual({
+      valid: true,
+      reasonCodes: [],
+    });
+  });
+
+  it("allows a minimal goal and criterion PRD to be confirmed", () => {
+    const draft = createLiveProjectSpecDraft(42, {
+      goal: "Build a focused todo app",
+      acceptanceCriteria: ["Can add a task"],
+    });
+
+    expect(validateConfirmableProjectSpec(draft.spec)).toEqual({
       valid: true,
       reasonCodes: [],
     });

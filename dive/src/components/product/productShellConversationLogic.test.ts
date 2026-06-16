@@ -251,6 +251,29 @@ describe("product shell conversation logic", () => {
     expect(model).toBeNull();
   });
 
+  it("does not reopen onboarding when an approved plan exists but no step session is selected", () => {
+    const model = deriveGetStartedModel({
+      isDemoRoute: false,
+      projectSessionLoaded: true,
+      currentProjectId: 1,
+      hasConnectedProvider: true,
+      currentSessionId: null,
+      currentProjectName: "DIVE",
+      providerDoneHint: "OpenAI",
+      onProjectAction: vi.fn(),
+      onProviderAction: vi.fn(),
+      onPrdAction: vi.fn(),
+      onPlanAction: vi.fn(),
+      onSessionAction: vi.fn(),
+      prdStatus: "minimal",
+      hasPlan: true,
+      hasApprovedPlan: true,
+      t,
+    });
+
+    expect(model).toBeNull();
+  });
+
   it("finds latest assistant interview question with fallback", () => {
     const messages: ChatMessage[] = [
       { id: "u", kind: "user", createdAt: 1, content: "answer" },

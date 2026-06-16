@@ -7,31 +7,24 @@ import {
   pruneCaughtUpPlanStepSessionMap,
 } from "./productShellPlanStepLogic";
 
-interface PlanStepRuntimeChat {
-  isStreaming: boolean;
-  isTauri: boolean;
-  sendUserMessage: (
-    text: string,
-    runMode?: "interview" | "plan" | "build" | "verify",
-    planAccepted?: boolean,
-    stepId?: number,
-  ) => Promise<void>;
+interface RememberPlanStepMappingOptions {
+  suggestPrompt?: boolean;
 }
 
-interface RememberPlanStepMappingOptions {
-  autoRun?: boolean;
+export interface PendingPlanStepPrompt {
+  stepId: number;
+  prompt: string;
 }
 
 export function useProductPlanStepRuntime(input: {
   currentSessionId: number | null;
   currentCard: Pick<CardTileData, "id"> | null;
   planRoadmapSteps: PlanRoadmapStep[];
-  chat: PlanStepRuntimeChat;
 }) {
   const [justOpenedPlanStepBySession, setJustOpenedPlanStepBySession] = useState<
     Record<number, number>
   >({});
-  const [pendingAutoRunPlanStepBySession, setPendingAutoRunPlanStepBySession] = useState<
+  const [pendingPromptPlanStepBySession, setPendingPromptPlanStepBySession] = useState<
     Record<number, number>
   >({});
 
@@ -43,8 +36,8 @@ export function useProductPlanStepRuntime(input: {
         ...current,
         [sessionId]: mapping.step_id,
       }));
-      setPendingAutoRunPlanStepBySession((current) => {
-        if (options.autoRun ?? true) {
+      setPendingPromptPlanStepBySession((current) => {
+        if (options.suggestPrompt ?? true) {
           return {
             ...current,
             [sessionId]: mapping.step_id,
@@ -81,27 +74,33 @@ export function useProductPlanStepRuntime(input: {
     );
   }, [input.planRoadmapSteps]);
 
-  useEffect(() => {
-    if (input.currentSessionId === null || input.chat.isStreaming || !input.chat.isTauri) return;
-    const stepId = pendingAutoRunPlanStepBySession[input.currentSessionId];
-    if (stepId === undefined) return;
+  const pendingPlanStepPrompt = useMemo<PendingPlanStepPrompt | null>(() => {
+    if (input.currentSessionId === null) return null;
+    const stepId = pendingPromptPlanStepBySession[input.currentSessionId];
+    if (stepId === undefined) return null;
     const item = input.planRoadmapSteps.find((candidate) => candidate.step.id === stepId);
-    if (!item) return;
-    setPendingAutoRunPlanStepBySession((current) => {
+    if (!item) return null;
+    return {
+      stepId,
+      prompt: buildPlanStepExecutionPrompt(item),
+    };
+  }, [input.currentSessionId, input.planRoadmapSteps, pendingPromptPlanStepBySession]);
+
+  const clearPendingPlanStepPrompt = useCallback(() => {
+    const sessionId = input.currentSessionId;
+    if (sessionId === null) return;
+    setPendingPromptPlanStepBySession((current) => {
+      if (!(sessionId in current)) return current;
       const next = { ...current };
-      delete next[input.currentSessionId as number];
+      delete next[sessionId];
       return next;
     });
-    void input.chat.sendUserMessage(
-      buildPlanStepExecutionPrompt(item),
-      "build",
-      true,
-      item.step.id,
-    );
-  }, [input.chat, input.currentSessionId, input.planRoadmapSteps, pendingAutoRunPlanStepBySession]);
+  }, [input.currentSessionId]);
 
   return {
     activePlanStepIdForChat,
+    pendingPlanStepPrompt,
+    clearPendingPlanStepPrompt,
     rememberJustOpenedPlanStepMapping,
   };
 }

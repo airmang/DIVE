@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { act, renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, renderHook } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 import type { PlanRoadmapStep, PlanStepRow, StepSessionMappingRow } from "../../features/roadmap";
 import { useProductPlanStepRuntime } from "./useProductPlanStepRuntime";
 
@@ -56,8 +56,7 @@ function roadmapStep(): PlanRoadmapStep {
 }
 
 describe("useProductPlanStepRuntime", () => {
-  it("keeps auto-run for newly opened executable plan steps", async () => {
-    const sendUserMessage = vi.fn().mockResolvedValue(undefined);
+  it("exposes a suggested prompt for newly opened executable plan steps without sending", () => {
     const item = roadmapStep();
     const opened = mapping(item.step);
 
@@ -66,27 +65,22 @@ describe("useProductPlanStepRuntime", () => {
         currentSessionId: opened.session_id,
         currentCard: null,
         planRoadmapSteps: [item],
-        chat: {
-          isStreaming: false,
-          isTauri: true,
-          sendUserMessage,
-        },
       }),
     );
 
     act(() => result.current.rememberJustOpenedPlanStepMapping(opened));
 
-    await waitFor(() => expect(sendUserMessage).toHaveBeenCalledTimes(1));
-    expect(sendUserMessage).toHaveBeenCalledWith(
-      expect.stringContaining("Step: S-010 - Reviewable step"),
-      "build",
-      true,
-      item.step.id,
+    expect(result.current.pendingPlanStepPrompt?.stepId).toBe(item.step.id);
+    expect(result.current.pendingPlanStepPrompt?.prompt).toContain(
+      "Step: S-010 - Reviewable step",
     );
+
+    act(() => result.current.clearPendingPlanStepPrompt());
+
+    expect(result.current.pendingPlanStepPrompt).toBeNull();
   });
 
-  it("does not send an execution prompt when opening an existing review", async () => {
-    const sendUserMessage = vi.fn().mockResolvedValue(undefined);
+  it("does not suggest an execution prompt when opening an existing review", async () => {
     const item = roadmapStep();
     const opened = mapping(item.step);
 
@@ -95,19 +89,14 @@ describe("useProductPlanStepRuntime", () => {
         currentSessionId: opened.session_id,
         currentCard: null,
         planRoadmapSteps: [item],
-        chat: {
-          isStreaming: false,
-          isTauri: true,
-          sendUserMessage,
-        },
       }),
     );
 
-    act(() => result.current.rememberJustOpenedPlanStepMapping(opened, { autoRun: false }));
+    act(() => result.current.rememberJustOpenedPlanStepMapping(opened, { suggestPrompt: false }));
     await act(async () => {
       await Promise.resolve();
     });
 
-    expect(sendUserMessage).not.toHaveBeenCalled();
+    expect(result.current.pendingPlanStepPrompt).toBeNull();
   });
 });
