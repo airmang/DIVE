@@ -43,6 +43,7 @@ type ScopeSupervisorState =
   | { status: "none"; evaluationKey: string; evaluationId?: string; dropReason?: string };
 
 type ScopeActionRoute = "link_criterion" | "split_scope" | "edit_prd" | "dismiss_review";
+const SCOPE_SUPERVISOR_DEBOUNCE_MS = 650;
 
 const SCOPE_ACTION_ROUTE_COPY: Record<ScopeActionRoute, string> = {
   link_criterion: "연결할 PRD 기준을 선택하세요. 기준이 없다면 PRD를 먼저 수정하세요.",
@@ -298,8 +299,7 @@ export function PlanAddStepPanel({
   );
   const expectedFiles = useMemo(() => lines(expectedFilesText), [expectedFilesText]);
   const prdDelta = useMemo(() => buildPrdDelta(projectSpec, title), [projectSpec, title]);
-  const hasDraftSignal =
-    title.trim().length > 0 || reason.trim().length > 0 || expectedFiles.length > 0;
+  const hasReviewableDraft = title.trim().length > 0 && reason.trim().length > 0;
   const scopeExpansion = useMemo(
     () =>
       assessScopeExpansion({
@@ -326,7 +326,7 @@ export function PlanAddStepPanel({
     [activeCriteria, expectedFiles, prdDelta, reason, scopeExpansion, selectedCriterionIds, title],
   );
   const scopeSupervisorRequest = useMemo(() => {
-    if (!hasDraftSignal || !scopeExpansion.expanded || typeof supervisorSessionId !== "number") {
+    if (!hasReviewableDraft || !scopeExpansion.expanded || typeof supervisorSessionId !== "number") {
       return null;
     }
     const artifactRef = {
@@ -379,7 +379,7 @@ export function PlanAddStepPanel({
     });
   }, [
     expectedFiles,
-    hasDraftSignal,
+    hasReviewableDraft,
     planId,
     prdDelta,
     projectId,
@@ -418,6 +418,7 @@ export function PlanAddStepPanel({
 
   useEffect(() => {
     let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     setActionRoute(null);
     if (!scopeSupervisorRequest) {
       setScopeSupervisorState({ status: "idle" });
@@ -426,44 +427,48 @@ export function PlanAddStepPanel({
 
     const evaluationKey = `${scopeSupervisorRequest.artifactRef.id}:${scopeSupervisorRequest.evidenceHash}`;
     setScopeSupervisorState({ status: "pending", evaluationKey });
-    void evaluateProvocationSupervisor(scopeSupervisorRequest)
-      .then((response) => {
-        if (cancelled) return;
-        if (response.status === "shown" && response.card.type === "scope_expansion") {
-          setScopeSupervisorState({
-            status: "shown",
-            evaluationKey,
-            evaluationId: response.evaluationId,
-            card: withScopeCorrelationMetadata(
-              response.card,
-              scopeSupervisorRequest,
-              response.evaluationId,
-            ),
-          });
-          return;
-        }
-        setScopeSupervisorState({
-          status: "none",
-          evaluationKey,
-          evaluationId: response.evaluationId,
-          dropReason: response.status === "shown" ? "disallowed_concern" : response.dropReason,
-        });
-      })
-      .catch((err) => {
-        if (import.meta.env.DEV) {
-          console.warn("scope supervisor evaluation failed:", err);
-        }
-        if (!cancelled) {
+
+    timeoutId = setTimeout(() => {
+      void evaluateProvocationSupervisor(scopeSupervisorRequest)
+        .then((response) => {
+          if (cancelled) return;
+          if (response.status === "shown" && response.card.type === "scope_expansion") {
+            setScopeSupervisorState({
+              status: "shown",
+              evaluationKey,
+              evaluationId: response.evaluationId,
+              card: withScopeCorrelationMetadata(
+                response.card,
+                scopeSupervisorRequest,
+                response.evaluationId,
+              ),
+            });
+            return;
+          }
           setScopeSupervisorState({
             status: "none",
             evaluationKey,
-            dropReason: "runtime_unavailable",
+            evaluationId: response.evaluationId,
+            dropReason: response.status === "shown" ? "disallowed_concern" : response.dropReason,
           });
-        }
-      });
+        })
+        .catch((err) => {
+          if (import.meta.env.DEV) {
+            console.warn("scope supervisor evaluation failed:", err);
+          }
+          if (!cancelled) {
+            setScopeSupervisorState({
+              status: "none",
+              evaluationKey,
+              dropReason: "runtime_unavailable",
+            });
+          }
+        });
+    }, SCOPE_SUPERVISOR_DEBOUNCE_MS);
 
     return () => {
       cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
     };
   }, [scopeSupervisorRequest]);
 

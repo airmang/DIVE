@@ -181,6 +181,8 @@ pub fn looks_like_user_text_key(key: &str) -> bool {
             | "risk_reason"
             | "note"
             | "message"
+            | "objection_summary"
+            | "offer_summary"
             | "prompt"
             | "promptbody"
             | "prompt_body"

@@ -47,6 +47,7 @@ describe("PrdAuthoringBoard", () => {
 
   afterEach(() => {
     cleanup();
+    window.localStorage.clear();
     useProjectSessionStore.setState({ loaded: false, providers: [] });
   });
 
@@ -133,6 +134,88 @@ describe("PrdAuthoringBoard", () => {
 
     expect(props.onSubmitAnswer).toHaveBeenCalledWith(
       "Users need to see the PRD before plan creation.",
+    );
+  });
+
+  it("shows the assistant interview response as part of the PRD conversation", async () => {
+    renderBoard({
+      onSubmitAnswer: vi.fn().mockResolvedValue({
+        assistantMessage:
+          "I captured the goal and added a done state to the PRD draft. Who will use it first?",
+      }),
+    });
+    const rail = screen.getByTestId("prd-interview-rail");
+
+    fireEvent.change(within(rail).getByTestId("prd-interview-input"), {
+      target: { value: "Teachers need a quick handoff checklist." },
+    });
+    fireEvent.click(within(rail).getByTestId("prd-interview-send"));
+
+    expect(await screen.findByText("Teachers need a quick handoff checklist.")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "I captured the goal and added a done state to the PRD draft. Who will use it first?",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("does not fabricate a generic assistant response when the turn returns no message", async () => {
+    renderBoard({
+      onSubmitAnswer: vi.fn().mockResolvedValue(undefined),
+    });
+    const rail = screen.getByTestId("prd-interview-rail");
+
+    fireEvent.change(within(rail).getByTestId("prd-interview-input"), {
+      target: { value: "Teachers need a quick handoff checklist." },
+    });
+    fireEvent.click(within(rail).getByTestId("prd-interview-send"));
+
+    expect(await screen.findByText("Teachers need a quick handoff checklist.")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.queryByText(/I reflected that in the PRD draft/)).toBeNull();
+      expect(screen.queryByText(/Got it\. I am folding that into the PRD draft/)).toBeNull();
+    });
+  });
+
+  it("restores the in-progress interview conversation when the board remounts", async () => {
+    const draft = createLiveProjectSpecDraft(42, { draftId: "draft-restored" });
+    renderBoard({
+      draft,
+      onSubmitAnswer: vi.fn().mockResolvedValue({
+        assistantMessage: "좋아요. 먼저 누가 이걸 쓰는지 조금 더 좁혀볼게요.",
+      }),
+    });
+    const rail = screen.getByTestId("prd-interview-rail");
+
+    fireEvent.change(within(rail).getByTestId("prd-interview-input"), {
+      target: { value: "학생 제출물을 빨리 확인하고 싶어요." },
+    });
+    fireEvent.click(within(rail).getByTestId("prd-interview-send"));
+
+    expect(await screen.findByText("학생 제출물을 빨리 확인하고 싶어요.")).toBeTruthy();
+    expect(await screen.findByText("좋아요. 먼저 누가 이걸 쓰는지 조금 더 좁혀볼게요.")).toBeTruthy();
+
+    cleanup();
+    renderBoard({ draft });
+
+    expect(screen.getByText("학생 제출물을 빨리 확인하고 싶어요.")).toBeTruthy();
+    expect(screen.getByText("좋아요. 먼저 누가 이걸 쓰는지 조금 더 좁혀볼게요.")).toBeTruthy();
+  });
+
+  it("frames PRD fields as conversation-filled rather than user-authored form prompts", () => {
+    renderBoard();
+
+    expect(screen.getByTestId("prd-goal-input")).toHaveProperty(
+      "placeholder",
+      "The goal will appear here as the conversation clarifies.",
+    );
+    expect(screen.getByTestId("prd-intent-input")).toHaveProperty(
+      "placeholder",
+      "The user's intent will be summarized here as it emerges.",
+    );
+    expect(screen.getByTestId("prd-scope-input")).toHaveProperty(
+      "placeholder",
+      "In-scope work gathered from the conversation will appear here.",
     );
   });
 });

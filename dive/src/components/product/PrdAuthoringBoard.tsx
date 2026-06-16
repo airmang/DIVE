@@ -21,6 +21,21 @@ export interface PrdPatchFeedback {
   rejectedReasons: string[];
 }
 
+export interface PrdInterviewSubmissionResult {
+  assistantMessage?: string | null;
+}
+
+type PrdConversationTurnState = "pending" | "error";
+
+interface PrdConversationTurn {
+  id: string;
+  role: "assistant" | "student";
+  text: string;
+  state?: PrdConversationTurnState;
+}
+
+const PRD_CONVERSATION_STORAGE_PREFIX = "dive:prd-authoring-conversation:";
+
 export interface PrdAuthoringBoardProps {
   projectName: string;
   projectPath?: string | null;
@@ -30,7 +45,9 @@ export interface PrdAuthoringBoardProps {
   recentlyChangedFields?: string[];
   patchFeedback?: PrdPatchFeedback | null;
   onDraftChange: (draft: LiveProjectSpecDraft) => void;
-  onSubmitAnswer: (answer: string) => void;
+  onSubmitAnswer: (
+    answer: string,
+  ) => PrdInterviewSubmissionResult | void | Promise<PrdInterviewSubmissionResult | void>;
   onSaveDraft?: (draft: LiveProjectSpecDraft) => void;
   onSavePrdAndCreatePlan: (draft: LiveProjectSpecDraft) => void;
   onOpenHistory?: () => void;
@@ -70,6 +87,52 @@ function includesField(fields: string[], field: string) {
   return fields.some((path) => path === field || path.startsWith(`${field}.`));
 }
 
+function seedTurn(text: string): PrdConversationTurn {
+  return {
+    id: "prd-seed",
+    role: "assistant",
+    text,
+  };
+}
+
+function conversationStorageKeyForDraft(draft: LiveProjectSpecDraft): string {
+  return `${PRD_CONVERSATION_STORAGE_PREFIX}${draft.projectId}:${draft.draftId}:${
+    draft.baseVersion ?? "new"
+  }`;
+}
+
+function isStoredConversationTurn(value: unknown): value is PrdConversationTurn {
+  if (!value || typeof value !== "object") return false;
+  const turn = value as Record<string, unknown>;
+  return (
+    typeof turn.id === "string" &&
+    (turn.role === "assistant" || turn.role === "student") &&
+    typeof turn.text === "string" &&
+    turn.text.trim().length > 0 &&
+    (turn.state === undefined || turn.state === "error")
+  );
+}
+
+function loadConversationTurns(key: string): PrdConversationTurn[] | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    const turns = parsed.filter(isStoredConversationTurn);
+    return turns.length > 0 ? turns : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistableConversationTurns(turns: PrdConversationTurn[]): PrdConversationTurn[] {
+  return turns
+    .filter((turn) => turn.state !== "pending")
+    .map((turn) => (turn.state ? turn : { id: turn.id, role: turn.role, text: turn.text }));
+}
+
 export function PrdAuthoringBoard({
   projectName,
   projectPath,
@@ -87,13 +150,39 @@ export function PrdAuthoringBoard({
   const t = useT();
   const [localDraft, setLocalDraft] = useState(draft);
   const [answer, setAnswer] = useState("");
+  const [submittingAnswer, setSubmittingAnswer] = useState(false);
+  const [conversationStorageKey, setConversationStorageKey] = useState(() =>
+    conversationStorageKeyForDraft(draft),
+  );
+  const [conversationTurns, setConversationTurns] = useState<PrdConversationTurn[]>(() => [
+    ...(loadConversationTurns(conversationStorageKeyForDraft(draft)) ?? [
+      seedTurn(t("prd.authoring.interview_seed")),
+    ]),
+  ]);
 
   useEffect(() => {
     setLocalDraft(draft);
   }, [draft]);
 
+  useEffect(() => {
+    const nextKey = conversationStorageKeyForDraft(draft);
+    if (conversationStorageKey === nextKey) return;
+    setConversationStorageKey(nextKey);
+    setConversationTurns(
+      loadConversationTurns(nextKey) ?? [seedTurn(t("prd.authoring.interview_seed"))],
+    );
+  }, [conversationStorageKey, draft, t]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const turns = persistableConversationTurns(conversationTurns);
+    if (turns.length === 0) return;
+    window.localStorage.setItem(conversationStorageKey, JSON.stringify(turns));
+  }, [conversationStorageKey, conversationTurns]);
+
   const validation = useMemo(() => validateMinimalProjectSpec(localDraft.spec), [localDraft.spec]);
   const criteria = normalizeCriteria(localDraft.spec.acceptanceCriteria);
+  const isAnswerBusy = busy || submittingAnswer;
 
   const updateDraft = (next: LiveProjectSpecDraft, changedFields: string[]) => {
     const marked = markDraftStudentEdited(next, changedFields);
@@ -142,11 +231,48 @@ export function PrdAuthoringBoard({
     updateSpecField("acceptanceCriteria", next, "acceptanceCriteria");
   };
 
-  const submitAnswer = () => {
+  const submitAnswer = async () => {
     const trimmed = answer.trim();
-    if (!trimmed || busy) return;
-    onSubmitAnswer(trimmed);
+    if (!trimmed || isAnswerBusy) return;
+    const stamp = Date.now();
+    const pendingId = `assistant-${stamp}`;
+    setConversationTurns((turns) => [
+      ...turns,
+      {
+        id: `student-${stamp}`,
+        role: "student",
+        text: trimmed,
+      },
+      {
+        id: pendingId,
+        role: "assistant",
+        text: t("prd.authoring.turn_pending"),
+        state: "pending",
+      },
+    ]);
     setAnswer("");
+    setSubmittingAnswer(true);
+    try {
+      const result = await onSubmitAnswer(trimmed);
+      const assistantText = result?.assistantMessage?.trim();
+      setConversationTurns((turns) =>
+        assistantText
+          ? turns.map((turn) =>
+              turn.id === pendingId ? { ...turn, text: assistantText, state: undefined } : turn,
+            )
+          : turns.filter((turn) => turn.id !== pendingId),
+      );
+    } catch {
+      setConversationTurns((turns) =>
+        turns.map((turn) =>
+          turn.id === pendingId
+            ? { ...turn, text: t("prd.authoring.turn_error_retryable"), state: "error" }
+            : turn,
+        ),
+      );
+    } finally {
+      setSubmittingAnswer(false);
+    }
   };
 
   const stateLabel =
@@ -195,15 +321,32 @@ export function PrdAuthoringBoard({
             <p className="mt-1 text-xs text-fg-muted">{t("prd.authoring.interview_prompt")}</p>
           </div>
           <div className="min-h-0 flex-1 space-y-2 overflow-auto px-4 py-3 text-sm">
-            <div className="rounded-md border bg-bg-panel2 p-3 text-fg">
-              {t("prd.authoring.interview_seed")}
-            </div>
+            {conversationTurns.map((turn) => (
+              <div
+                key={turn.id}
+                className={cn(
+                  "rounded-md border p-3 text-fg",
+                  turn.role === "assistant" ? "mr-5 bg-bg-panel2" : "ml-5 bg-accent-subtle",
+                  turn.state === "pending" && "text-fg-muted",
+                  turn.state === "error" && "border-warn/50 bg-warn/10",
+                )}
+                data-testid={`prd-interview-turn-${turn.role}`}
+                data-state={turn.state ?? "ready"}
+              >
+                <p className="text-[11px] font-semibold uppercase tracking-normal text-fg-muted">
+                  {turn.role === "assistant"
+                    ? t("prd.authoring.assistant_label")
+                    : t("prd.authoring.student_label")}
+                </p>
+                <p className="mt-1 whitespace-pre-wrap leading-relaxed">{turn.text}</p>
+              </div>
+            ))}
           </div>
           <div className="border-t p-3">
             <textarea
               value={answer}
               onChange={(event) => setAnswer(event.target.value)}
-              disabled={busy}
+              disabled={isAnswerBusy}
               rows={3}
               className="w-full resize-none rounded-md border bg-bg px-3 py-2 text-sm text-fg placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
               placeholder={t("prd.authoring.answer_placeholder")}
@@ -213,8 +356,8 @@ export function PrdAuthoringBoard({
               variant="primary"
               size="sm"
               className="mt-2 w-full"
-              disabled={!answer.trim() || busy}
-              onClick={submitAnswer}
+              disabled={!answer.trim() || isAnswerBusy}
+              onClick={() => void submitAnswer()}
               data-testid="prd-interview-send"
             >
               <Send />

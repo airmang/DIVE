@@ -309,6 +309,32 @@ export function usePlan(projectId: number | null) {
     return api.invoke<ProjectSpec | null>("workspace_prd_get", { projectId });
   }, [api, projectId]);
 
+  const getProjectSpecDraft = useCallback(
+    async (draftId?: string | null) => {
+      if (!api || projectId === null) return null;
+      return api.invoke<LiveProjectSpecDraft>("workspace_prd_draft_get", {
+        projectId,
+        draftId: draftId ?? null,
+      });
+    },
+    [api, projectId],
+  );
+
+  const saveProjectSpecDraft = useCallback(
+    async (draft: LiveProjectSpecDraft) => {
+      if (!api || projectId === null) throw new Error("Tauri IPC unavailable");
+      const saved = await api.invoke<LiveProjectSpecDraft>("workspace_prd_draft_save", {
+        input: {
+          projectId,
+          draft,
+        },
+      });
+      await refreshPrdStatus();
+      return saved;
+    },
+    [api, projectId, refreshPrdStatus],
+  );
+
   const submitPrdInterviewTurn = useCallback(
     async (input: SubmitPrdInterviewTurnInput) => {
       if (!api || projectId === null) throw new Error("Tauri IPC unavailable");
@@ -453,6 +479,8 @@ export function usePlan(projectId: number | null) {
     generateDraft,
     currentDraft,
     getProjectSpec,
+    getProjectSpecDraft,
+    saveProjectSpecDraft,
     submitPrdInterviewTurn,
     saveProjectSpec,
     challengeStepRationale,

@@ -694,6 +694,11 @@ function normalizeRuntimeSelection(
 function normalizeRuntimeCapability(
   evt: Extract<AgentEvent, { type: "runtime_capability_evaluated" }>,
 ): RuntimeSelection {
+  const displayMessage =
+    evt.state === "unavailable" && evt.reasonCode
+      ? runtimeUnavailableMessage(evt.reasonCode)
+      : evt.message ||
+        translate(useLocaleStore.getState().locale, "runtime.capability.ready_message");
   return {
     state: evt.state,
     runtime: evt.state === "ready" ? "pi_sidecar" : null,
@@ -701,11 +706,7 @@ function normalizeRuntimeCapability(
     model: evt.model ?? "unknown",
     reason: evt.message,
     reasonCode: evt.reasonCode,
-    message:
-      evt.message ||
-      (evt.reasonCode
-        ? runtimeUnavailableMessage(evt.reasonCode)
-        : translate(useLocaleStore.getState().locale, "runtime.capability.ready_message")),
+    message: displayMessage,
     setupAction: evt.setupAction,
     selectedAt: evt.recordedAt,
   };

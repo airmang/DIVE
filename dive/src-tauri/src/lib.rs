@@ -147,6 +147,8 @@ pub fn run() {
             ipc::workspace_plan_status,
             ipc::workspace_prd_status,
             ipc::workspace_prd_get,
+            ipc::workspace_prd_draft_get,
+            ipc::workspace_prd_draft_save,
             ipc::workspace_prd_interview_turn,
             ipc::workspace_prd_save,
             ipc::workspace_plan_dashboard,

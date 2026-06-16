@@ -98,6 +98,10 @@ function lastSupervisorRequest() {
   return evaluateMock.mock.calls[evaluateMock.mock.calls.length - 1]?.[0];
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 describe("PlanAddStepPanel scope-expansion supervisor cards", () => {
   beforeEach(() => {
     useLocaleStore.setState({ locale: "ko" });
@@ -122,8 +126,11 @@ describe("PlanAddStepPanel scope-expansion supervisor cards", () => {
     fireEvent.change(screen.getByTestId("plan-add-step-title"), {
       target: { value: "Analytics dashboard" },
     });
+    fireEvent.change(screen.getByTestId("plan-add-step-reason"), {
+      target: { value: "학생이 사용량을 볼 수 있게 한다." },
+    });
 
-    const wrapper = await screen.findByTestId("plan-add-step-scope-card");
+    const wrapper = await screen.findByTestId("plan-add-step-scope-card", {}, { timeout: 2000 });
     const card = within(wrapper).getByTestId("provocation-card");
     expect(card.closest('[data-testid="plan-add-step-panel"]')).toBeTruthy();
     expect(card.dataset.cardType).toBe("scope_expansion");
@@ -152,6 +159,30 @@ describe("PlanAddStepPanel scope-expansion supervisor cards", () => {
     expect(request.evidenceRefs.map((ref) => ref.id)).toEqual(
       expect.arrayContaining(["step.linkedCriterionIds", "prdDelta.scopeChanges[0]"]),
     );
+  });
+
+  it("waits for a reviewable draft before invoking the scope supervisor", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+
+    renderPanel();
+
+    fireEvent.change(screen.getByTestId("plan-add-step-title"), {
+      target: { value: "Analytics dashboard" },
+    });
+    await wait(700);
+    expect(evaluateMock).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByTestId("plan-add-step-reason"), {
+      target: { value: "학생이 사용량을 볼 수 있게 한다." },
+    });
+    await wait(600);
+    expect(evaluateMock).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(evaluateMock).toHaveBeenCalledTimes(1));
   });
 
   it("keeps save non-blocking while supervisor evaluation is pending or dropped", async () => {
@@ -202,8 +233,11 @@ describe("PlanAddStepPanel scope-expansion supervisor cards", () => {
     fireEvent.change(screen.getByTestId("plan-add-step-title"), {
       target: { value: "Analytics dashboard" },
     });
+    fireEvent.change(screen.getByTestId("plan-add-step-reason"), {
+      target: { value: "학생이 사용량을 볼 수 있게 한다." },
+    });
 
-    await screen.findByTestId("provocation-card");
+    await screen.findByTestId("provocation-card", {}, { timeout: 2000 });
     fireEvent.click(screen.getByTestId("provocation-primary-action"));
     expect(screen.getByTestId("plan-add-step-action-route").dataset.route).toBe("link_criterion");
     expect(document.activeElement).toBe(screen.getByTestId("plan-add-step-criterion-AC-001"));

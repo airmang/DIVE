@@ -25,14 +25,16 @@ use dive_lib::ipc::workspace_plan::{
     workspace_plan_route_cancel_impl, workspace_plan_route_chat_impl,
     workspace_plan_save_interview_answer_impl, workspace_plan_start_interview_impl,
     workspace_plan_status_impl, workspace_plan_step_mappings_impl,
-    workspace_plan_submit_interview_impl, workspace_prd_get_impl, workspace_prd_interview_turn_impl,
+    workspace_plan_submit_interview_impl, workspace_prd_draft_get_impl,
+    workspace_prd_draft_save_impl, workspace_prd_get_impl, workspace_prd_interview_turn_impl,
     workspace_prd_save_impl, workspace_prd_status_impl, AcceptanceCriterionInput,
     AppendStepOptions, PlanAdjustmentOfferResponse, PlanAdjustmentOfferResponseInput,
-    PlanDraftInput, PrdInterviewTurnInput, PrdSaveInput, RouteDecision, StepDraftInput,
-    StepRationaleChallengeInput, StepStateUpdateInput,
+    PlanDraftInput, PrdDraftSaveInput, PrdInterviewTurnInput, PrdSaveInput, RouteDecision,
+    StepDraftInput, StepRationaleChallengeInput, StepStateUpdateInput,
 };
 use dive_lib::{
-    AppState, ChatEvent, ChatRequest, Database, FinishReason, LlmProvider, ModelInfo, ProviderError,
+    AppState, ChatEvent, ChatRequest, Database, FinishReason, LlmProvider, Message, ModelInfo,
+    ProviderError,
 };
 use futures::stream::{self, BoxStream};
 use futures::StreamExt;
@@ -461,6 +463,45 @@ fn prd_status_get_and_save_distinguish_missing_draft_and_minimal() {
     );
 }
 
+#[test]
+fn prd_draft_get_and_save_restore_unsaved_authoring_state() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+
+    let mut draft =
+        workspace_prd_draft_get_impl(&state, project_id, Some("draft-autosave".into())).unwrap();
+    draft.spec.goal = "Help teachers review missing submissions".into();
+    draft.spec.intent_summary = Some("Turn a vague classroom need into a usable PRD.".into());
+    draft.spec.scope = vec!["Show missing submissions".into()];
+    draft.spec.acceptance_criteria = vec![prd_criterion("Teacher can see who has not submitted")];
+    draft.dirty_fields = vec!["goal".into(), "acceptanceCriteria".into()];
+    draft.student_edited_fields = vec!["goal".into()];
+
+    let saved = workspace_prd_draft_save_impl(
+        &state,
+        PrdDraftSaveInput {
+            project_id,
+            draft: draft.clone(),
+        },
+    )
+    .unwrap();
+    assert_eq!(saved.draft_id, "draft-autosave");
+
+    let restored =
+        workspace_prd_draft_get_impl(&state, project_id, Some("draft-autosave".into())).unwrap();
+    assert_eq!(
+        restored.spec.goal,
+        "Help teachers review missing submissions"
+    );
+    assert_eq!(restored.spec.scope, vec!["Show missing submissions"]);
+    assert_eq!(restored.student_edited_fields, vec!["goal"]);
+    assert_eq!(
+        restored.spec.acceptance_criteria[0].text,
+        "Teacher can see who has not submitted"
+    );
+}
+
 #[tokio::test]
 async fn prd_interview_turn_applies_validated_patch_without_creating_version() {
     let tmp = tempfile::tempdir().unwrap();
@@ -517,7 +558,24 @@ async fn prd_interview_turn_applies_validated_patch_without_creating_version() {
             .map(|row| row.version),
         None
     );
-    assert_eq!(provider.requests_snapshot()[0].model, "mock-model");
+    let requests = provider.requests_snapshot();
+    assert_eq!(requests[0].model, "mock-model");
+    let system_prompt = match &requests[0].messages[0] {
+        Message::System { content } => content,
+        _ => panic!("expected PRD interview system prompt"),
+    };
+    assert!(system_prompt.contains("Assume the student has never written a PRD"));
+    assert!(system_prompt.contains("gently lead the student"));
+    assert!(system_prompt.contains("Do not run a fixed checklist"));
+    assert!(system_prompt.contains("Use the same language as the student's answer"));
+    assert!(system_prompt.contains("ready to save"));
+    let user_prompt = match &requests[0].messages[1] {
+        Message::User { content } => content,
+        _ => panic!("expected PRD interview user prompt"),
+    };
+    assert!(user_prompt.contains("Missing minimal PRD fields"));
+    assert!(user_prompt.contains("Suggested next interview focus"));
+    assert!(user_prompt.contains("clarify_goal_in_plain_language"));
 
     let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
     assert!(events
@@ -566,6 +624,50 @@ async fn prd_interview_turn_rejects_invalid_patch_and_leaves_draft_unchanged() {
     assert!(events
         .iter()
         .any(|event| event.r#type == "prd_patch_rejected"));
+}
+
+#[tokio::test]
+async fn prd_interview_turn_accepts_operation_alias_without_leaking_patch_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(
+                r#"{"assistantMessage":"좋아요. 실행 환경은 다음에 하나만 고르면 돼요: 휴대폰에서만, 웹에서만, 둘 다 가능하게.","patch":{"operations":[{"operation":"set_goal","value":"사용자가 자신의 일정을 쉽게 관리할 수 있게 한다. 혼자 사용하는 개인 일정 관리 앱을 만든다."},{"operation":"set_intent_summary","value":"개인 사용자가 제목, 날짜, 시간, 간단한 메모를 기준으로 일정을 등록하고 확인할 수 있도록 한다."},{"operation":"append_scope","value":"혼자 사용하는 개인 일정 관리 앱"},{"operation":"append_acceptance_criterion","value":"사용자가 일정 등록 화면에서 제목, 날짜, 시간, 간단한 메모를 입력해 일정을 저장할 수 있다."}],"rationale":"사용자 답변에서 개인용 앱이라는 사용 맥락이 확인되어 목표와 의도를 구체화했습니다."}}"#
+                    .into(),
+            ),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+
+    let turn = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-schedule".into(),
+            answer: "혼자 쓰는 일정관리 앱이요".into(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(turn.validation_outcome, "applied");
+    assert!(!turn.assistant_message.contains("\"patch\""));
+    assert!(!turn.assistant_message.contains("\"operation\""));
+    assert!(turn.assistant_message.contains("실행 환경"));
+    assert_eq!(
+        turn.live_draft.spec.goal,
+        "사용자가 자신의 일정을 쉽게 관리할 수 있게 한다. 혼자 사용하는 개인 일정 관리 앱을 만든다."
+    );
+    assert_eq!(
+        turn.live_draft.spec.acceptance_criteria[0].text,
+        "사용자가 일정 등록 화면에서 제목, 날짜, 시간, 간단한 메모를 입력해 일정을 저장할 수 있다."
+    );
 }
 
 #[test]
@@ -723,7 +825,10 @@ fn challenging_step_rationale_offers_plan_adjustment_without_blocking_start() {
         challenged.payload["linked_criterion_ids"],
         json!(["AC-001"])
     );
-    assert_eq!(challenged.payload["objection_id"], json!(&result.objection_id));
+    assert_eq!(
+        challenged.payload["objection_id"],
+        json!(&result.objection_id)
+    );
     assert_eq!(challenged.payload["suggestion_status"], json!("offered"));
 
     let offered = events

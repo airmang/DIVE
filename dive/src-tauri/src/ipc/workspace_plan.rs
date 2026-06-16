@@ -29,7 +29,7 @@ use crate::dive::plan_router::{
     self, PlanRouterContext, PlanRouterDecision, PlanRouterStepContext, RouterStepDraft,
 };
 use crate::ipc::AppState;
-use crate::providers::{ChatEvent, ChatRequest, FinishReason, Message, ToolChoice};
+use crate::providers::{with_retry, ChatEvent, ChatRequest, FinishReason, Message, ToolChoice};
 use crate::workspace_plan as workspace_plan_service;
 
 const ROUTE_CANCELLED_MESSAGE: &str = "route chat cancelled";
@@ -107,6 +107,13 @@ pub struct PrdInterviewTurnOutput {
     pub applied_field_paths: Vec<String>,
     pub rejected_reasons: Vec<String>,
     pub live_draft: LiveProjectSpecDraftRow,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrdDraftSaveInput {
+    pub project_id: i64,
+    pub draft: LiveProjectSpecDraftRow,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -328,6 +335,23 @@ pub async fn workspace_prd_get(
     project_id: i64,
 ) -> Result<Option<ProjectSpec>, String> {
     workspace_prd_get_impl(&state, project_id)
+}
+
+#[tauri::command]
+pub async fn workspace_prd_draft_get(
+    state: State<'_, AppState>,
+    project_id: i64,
+    draft_id: Option<String>,
+) -> Result<LiveProjectSpecDraftRow, String> {
+    workspace_prd_draft_get_impl(&state, project_id, draft_id)
+}
+
+#[tauri::command]
+pub async fn workspace_prd_draft_save(
+    state: State<'_, AppState>,
+    input: PrdDraftSaveInput,
+) -> Result<LiveProjectSpecDraftRow, String> {
+    workspace_prd_draft_save_impl(&state, input)
 }
 
 #[tauri::command]
@@ -635,6 +659,42 @@ pub fn workspace_prd_get_impl(
         .map(|row| row.snapshot))
 }
 
+pub fn workspace_prd_draft_get_impl(
+    state: &AppState,
+    project_id: i64,
+    draft_id: Option<String>,
+) -> Result<LiveProjectSpecDraftRow, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    project_dao::get_by_id(db.conn(), project_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("project {} not found", project_id))?;
+    load_or_create_prd_draft(
+        db.conn(),
+        project_id,
+        draft_id.as_deref().unwrap_or_default(),
+    )
+}
+
+pub fn workspace_prd_draft_save_impl(
+    state: &AppState,
+    input: PrdDraftSaveInput,
+) -> Result<LiveProjectSpecDraftRow, String> {
+    let mut db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn_mut();
+    project_dao::get_by_id(conn, input.project_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("project {} not found", input.project_id))?;
+    let mut draft = input.draft;
+    draft.project_id = input.project_id;
+    draft.spec.project_id = input.project_id;
+    if draft.draft_id.trim().is_empty() {
+        draft.draft_id = format!("prd-draft-{}", input.project_id);
+    }
+    draft.updated_at = now_ms();
+    persist_live_prd_draft(conn, &draft)?;
+    Ok(draft)
+}
+
 pub fn workspace_prd_save_impl(
     state: &AppState,
     input: PrdSaveInput,
@@ -762,7 +822,7 @@ pub async fn workspace_prd_interview_turn_impl(
     let assistant_message = parsed
         .assistant_message
         .filter(|message| !message.trim().is_empty())
-        .unwrap_or_else(|| raw.trim().to_string());
+        .unwrap_or_default();
     let patch = parsed.patch;
 
     let mut output = PrdInterviewTurnOutput {
@@ -1725,7 +1785,16 @@ async fn run_prd_interview_turn(
         max_tokens: Some(900),
         stream: true,
     };
-    let mut stream = provider.chat(req).await.map_err(|e| e.to_string())?;
+    let mut stream = with_retry(
+        || {
+            let req = req.clone();
+            provider.chat(req)
+        },
+        2,
+        Duration::from_millis(350),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     let mut text = String::new();
     let mut finish_reason = FinishReason::Stop;
     while let Some(event) = stream.next().await {
@@ -1753,9 +1822,22 @@ async fn run_prd_interview_turn(
 
 fn build_prd_interview_system_prompt() -> String {
     [
-        "You are helping a novice author a real project PRD inside DIVE.",
+        "You are helping a novice author a real project PRD inside DIVE through a relaxed conversation.",
+        "Assume the student has never written a PRD and does not know what PRD fields mean.",
+        "You own the interview flow: gently lead the student from vague idea to a complete-enough PRD.",
+        "Do not run a fixed checklist, quiz, or wizard. Do not ask the student to fill PRD fields.",
+        "Use the same language as the student's answer unless the draft clearly uses another language.",
+        "On every turn, infer useful PRD details from casual wording and update the draft with a patch when evidence is present.",
+        "If something important is missing, ask at most one concrete follow-up question in ordinary product language.",
+        "Do not ask jargon questions like 'what are the acceptance criteria?' or 'what is the scope?'. Ask about visible outcomes, first version, users, constraints, or what can wait.",
+        "assistantMessage should briefly reflect what you captured, explain the next useful angle, then continue warmly.",
+        "Prefer concrete user outcomes and observable done states over PRD jargon.",
+        "A PRD is complete enough when it has a goal, intended user/use context, first-version scope, at least one observable done state, and any important constraints or exclusions that surfaced.",
+        "When the draft is complete enough, stop asking required questions; tell the student it is ready to save and invite only final corrections.",
         "Return a short conversational assistantMessage and an optional JSON patch.",
         "The patch may only use these operation names: set_goal, set_intent_summary, append_scope, append_non_goal, append_constraint, append_acceptance_criterion, revise_acceptance_criterion_text.",
+        "Each patch operation object MUST use the key \"op\" for the operation name; do not use \"operation\".",
+        "For append_acceptance_criterion and revise_acceptance_criterion_text, put the criterion wording in \"text\".",
         "Do not invent IDs for new criteria; DIVE assigns AC IDs.",
         "Use concise JSON with shape {\"assistantMessage\":\"...\",\"patch\":{\"operations\":[...],\"rationale\":\"...\"}}.",
     ]
@@ -1764,9 +1846,52 @@ fn build_prd_interview_system_prompt() -> String {
 
 fn build_prd_interview_user_prompt(draft: &LiveProjectSpecDraftRow, answer: &str) -> String {
     let draft_json = serde_json::to_string(&draft.spec).unwrap_or_else(|_| "{}".into());
+    let missing_minimal = missing_minimal_prd_fields(&draft.spec).join(", ");
+    let next_focus = prd_interview_next_focus(&draft.spec);
     format!(
-        "Current live PRD draft JSON:\n{draft_json}\n\nStudent answer:\n{answer}\n\nReturn the conversational response plus optional PrdPatch JSON."
+        "Current live PRD draft JSON:\n{draft_json}\n\nMissing minimal PRD fields, if any: {missing_minimal}\n\nSuggested next interview focus: {next_focus}\n\nStudent answer:\n{answer}\n\nReturn the conversational response plus optional PrdPatch JSON. If the answer is vague, still capture any likely goal, user, constraint, first-version boundary, or observable done state that is grounded in the answer. If the suggested focus is ready_to_save, summarize that the PRD is ready and invite final corrections instead of asking a new required question."
     )
+}
+
+fn missing_minimal_prd_fields(spec: &ProjectSpecDraft) -> Vec<&'static str> {
+    let mut fields = Vec::new();
+    if spec.goal.trim().is_empty() {
+        fields.push("goal");
+    }
+    if spec
+        .acceptance_criteria
+        .iter()
+        .all(|criterion| criterion.text.trim().is_empty())
+    {
+        fields.push("acceptance criteria");
+    }
+    if fields.is_empty() {
+        fields.push("none");
+    }
+    fields
+}
+
+fn prd_interview_next_focus(spec: &ProjectSpecDraft) -> &'static str {
+    if spec.goal.trim().is_empty() {
+        return "clarify_goal_in_plain_language: ask who needs this, in what situation, and what problem it should solve";
+    }
+    if spec
+        .acceptance_criteria
+        .iter()
+        .all(|criterion| criterion.text.trim().is_empty())
+    {
+        return "capture_observable_done_state: ask what the student would see when the project is working";
+    }
+    if spec.scope.is_empty() {
+        return "define_first_version: ask what must be included in the first useful version";
+    }
+    if spec.constraints.is_empty() {
+        return "surface_constraints: ask about platform, data, time, class, or delivery limits only if they matter";
+    }
+    if spec.non_goals.is_empty() {
+        return "set_aside_later_work: ask what can wait so the first plan stays small";
+    }
+    "ready_to_save: the draft is complete enough; invite final corrections and saving"
 }
 
 #[derive(Debug, Deserialize)]
@@ -1779,41 +1904,76 @@ struct RawPrdTurnResponse {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RawPrdPatch {
-    operations: Vec<PrdPatchOperation>,
+    operations: Vec<RawPrdPatchOperation>,
     rationale: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawPrdPatchOperation {
+    #[serde(alias = "operation")]
+    op: String,
+    value: Option<String>,
+    text: Option<String>,
+    #[serde(alias = "criterion_id")]
+    criterion_id: Option<String>,
+}
+
+impl RawPrdPatchOperation {
+    fn into_prd_operation(self) -> PrdPatchOperation {
+        let text = match self.op.as_str() {
+            "append_acceptance_criterion" | "revise_acceptance_criterion_text" => {
+                self.text.or_else(|| self.value.clone())
+            }
+            _ => self.text,
+        };
+        PrdPatchOperation {
+            op: self.op,
+            value: self.value,
+            text,
+            criterion_id: self.criterion_id,
+        }
+    }
+}
+
+impl RawPrdPatch {
+    fn into_prd_patch(self, turn_id: &str) -> PrdPatch {
+        PrdPatch {
+            patch_id: format!("prd-patch-{}", now_ms()),
+            operations: self
+                .operations
+                .into_iter()
+                .map(RawPrdPatchOperation::into_prd_operation)
+                .collect(),
+            rationale: self.rationale,
+            source_turn_id: turn_id.to_string(),
+        }
+    }
+}
+
 fn parse_prd_turn_response(raw: &str, turn_id: &str) -> ParsedPrdTurn {
-    let Some(json_text) = extract_json_object(raw) else {
+    let Some(json_text) = extract_prd_turn_json_candidate(raw) else {
         return ParsedPrdTurn {
-            assistant_message: Some(raw.trim().to_string()),
+            assistant_message: clean_prd_assistant_message(raw),
             patch: None,
         };
     };
     if let Ok(response) = serde_json::from_str::<RawPrdTurnResponse>(json_text) {
         return ParsedPrdTurn {
-            assistant_message: response.assistant_message,
-            patch: response.patch.map(|patch| PrdPatch {
-                patch_id: format!("prd-patch-{}", now_ms()),
-                operations: patch.operations,
-                rationale: patch.rationale,
-                source_turn_id: turn_id.to_string(),
+            assistant_message: response.assistant_message.and_then(|message| {
+                clean_prd_assistant_message(&strip_prd_json_payloads(&message))
             }),
+            patch: response.patch.map(|patch| patch.into_prd_patch(turn_id)),
         };
     }
     if let Ok(patch) = serde_json::from_str::<RawPrdPatch>(json_text) {
         return ParsedPrdTurn {
-            assistant_message: Some(raw.replace(json_text, "").trim().to_string()),
-            patch: Some(PrdPatch {
-                patch_id: format!("prd-patch-{}", now_ms()),
-                operations: patch.operations,
-                rationale: patch.rationale,
-                source_turn_id: turn_id.to_string(),
-            }),
+            assistant_message: clean_prd_assistant_message(&raw.replace(json_text, "")),
+            patch: Some(patch.into_prd_patch(turn_id)),
         };
     }
     ParsedPrdTurn {
-        assistant_message: Some(raw.trim().to_string()),
+        assistant_message: clean_prd_assistant_message(&strip_prd_json_payloads(raw)),
         patch: None,
     }
 }
@@ -1823,13 +1983,115 @@ struct ParsedPrdTurn {
     patch: Option<PrdPatch>,
 }
 
-fn extract_json_object(raw: &str) -> Option<&str> {
-    let start = raw.find('{')?;
-    let end = raw.rfind('}')?;
-    if end <= start {
-        return None;
+fn extract_prd_turn_json_candidate(raw: &str) -> Option<&str> {
+    let spans = json_object_spans(raw);
+    for (start, end) in spans.iter().copied() {
+        let candidate = &raw[start..end];
+        if serde_json::from_str::<RawPrdTurnResponse>(candidate).is_ok()
+            || serde_json::from_str::<RawPrdPatch>(candidate).is_ok()
+        {
+            return Some(candidate);
+        }
     }
-    Some(&raw[start..=end])
+    spans
+        .iter()
+        .copied()
+        .find(|(start, end)| raw[*start..*end].contains("\"operations\""))
+        .map(|(start, end)| &raw[start..end])
+}
+
+fn json_object_spans(raw: &str) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    let mut depth = 0usize;
+    let mut start = None;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (index, ch) in raw.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            if ch == '\\' {
+                escaped = true;
+                continue;
+            }
+            if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_string = true,
+            '{' => {
+                if depth == 0 {
+                    start = Some(index);
+                }
+                depth += 1;
+            }
+            '}' => {
+                if depth == 0 {
+                    continue;
+                }
+                depth -= 1;
+                if depth == 0 {
+                    if let Some(start_index) = start.take() {
+                        spans.push((start_index, index + ch.len_utf8()));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    spans
+}
+
+fn strip_prd_json_payloads(raw: &str) -> String {
+    let spans = json_object_spans(raw);
+    if spans.is_empty() {
+        return raw.to_string();
+    }
+    let mut cleaned = String::with_capacity(raw.len());
+    let mut cursor = 0;
+    for (start, end) in spans {
+        if start > cursor {
+            cleaned.push_str(&raw[cursor..start]);
+        }
+        cursor = end;
+    }
+    if cursor < raw.len() {
+        cleaned.push_str(&raw[cursor..]);
+    }
+    cleaned
+}
+
+fn clean_prd_assistant_message(raw: &str) -> Option<String> {
+    let without_fences = raw
+        .replace("```json", "")
+        .replace("```JSON", "")
+        .replace("```", "");
+    let before_patch = without_fences
+        .find("\"patch\"")
+        .map(|index| &without_fences[..index])
+        .unwrap_or(without_fences.as_str());
+    let cleaned = before_patch
+        .trim()
+        .trim_matches(|ch: char| {
+            ch.is_whitespace() || matches!(ch, '"' | ',' | ':' | '{' | '}' | '[' | ']' | '`')
+        })
+        .trim();
+    if cleaned.is_empty()
+        || cleaned.contains("\"operations\"")
+        || cleaned.contains("\"operation\"")
+        || cleaned.contains("\"assistantMessage\"")
+    {
+        None
+    } else {
+        Some(cleaned.to_string())
+    }
 }
 
 struct PrdPatchApplyResult {
@@ -2855,12 +3117,9 @@ pub fn workspace_plan_respond_to_plan_adjustment_offer_impl(
     if objection.suggestion_status == ObjectionSuggestionStatus::None {
         return Err("objection has no plan-adjustment offer".into());
     }
-    let updated = plan_mutation_dao::update_objection_suggestion_status(
-        &tx,
-        &input.objection_id,
-        status,
-    )
-    .map_err(|e| e.to_string())?;
+    let updated =
+        plan_mutation_dao::update_objection_suggestion_status(&tx, &input.objection_id, status)
+            .map_err(|e| e.to_string())?;
     let payload = dive_event_log::plan_adjustment_response_payload(
         updated.project_id,
         updated.plan_id,

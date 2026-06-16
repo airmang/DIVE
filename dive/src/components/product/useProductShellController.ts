@@ -119,6 +119,23 @@ function activeConnectedProvider(providers: ProviderSummary[]): ProviderSummary 
   );
 }
 
+function prdTurnFailureDescription(
+  err: unknown,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  const message = err instanceof Error ? err.message : String(err);
+  const normalized = message.toLowerCase();
+  if (
+    normalized.includes("internal_error") ||
+    normalized.includes("internal server error") ||
+    normalized.includes("api error (5") ||
+    normalized.includes("provider chat api error")
+  ) {
+    return t("prd.authoring.turn_failed_retryable_description");
+  }
+  return message;
+}
+
 function prdRuntimeSelection(
   providers: ProviderSummary[],
 ): { provider: string; model: string } | null {
@@ -213,6 +230,8 @@ export function useProductShellController() {
   const planRoadmap = usePlanRoadmap(currentProjectId);
   const plan = usePlan(currentProjectId);
   const getProjectSpec = plan.getProjectSpec;
+  const getProjectSpecDraft = plan.getProjectSpecDraft;
+  const saveProjectSpecDraft = plan.saveProjectSpecDraft;
   const planRouter = usePlanRouter(currentProjectId);
   const currentDraft = plan.currentDraft;
   const planStatus = plan.status?.status;
@@ -974,7 +993,21 @@ export function useProductShellController() {
     setPrdDraft(nextDraft);
     setPrdPatchFeedback(null);
     setPrdMode("authoring");
-  }, [currentProjectId, dialogs, ensurePrdDraft, hasConnectedProvider, openSettingsRoute]);
+    void getProjectSpecDraft(nextDraft.draftId)
+      .then((savedDraft) => {
+        if (savedDraft) setPrdDraft(savedDraft);
+      })
+      .catch(() => {
+        // Keep the local draft visible; autosave will retry on the next edit.
+      });
+  }, [
+    currentProjectId,
+    dialogs,
+    ensurePrdDraft,
+    getProjectSpecDraft,
+    hasConnectedProvider,
+    openSettingsRoute,
+  ]);
 
   const handleSubmitPrdAnswer = useCallback(
     (answer: string) => {
@@ -985,7 +1018,7 @@ export function useProductShellController() {
         return;
       }
       setPrdBusy(true);
-      void plan
+      return plan
         .submitPrdInterviewTurn({
           draftId: prdDraft.draftId,
           answer,
@@ -999,13 +1032,17 @@ export function useProductShellController() {
             appliedFieldPaths: result.appliedFieldPaths,
             rejectedReasons: result.rejectedReasons,
           });
+          return {
+            assistantMessage: result.assistantMessage,
+          };
         })
         .catch((err) => {
           toast({
             variant: "error",
             title: t("prd.authoring.turn_failed_title"),
-            description: err instanceof Error ? err.message : String(err),
+            description: prdTurnFailureDescription(err, t),
           });
+          throw err;
         })
         .finally(() => {
           setPrdBusy(false);
@@ -1013,6 +1050,16 @@ export function useProductShellController() {
     },
     [openSettingsRoute, plan, prdBusy, prdDraft, providers, t, toast],
   );
+
+  useEffect(() => {
+    if (prdMode !== "authoring" || !prdDraft || currentProjectId === null) return;
+    const handle = window.setTimeout(() => {
+      void saveProjectSpecDraft(prdDraft).catch(() => {
+        // Draft autosave is best-effort; the next edit or interview turn retries.
+      });
+    }, 600);
+    return () => window.clearTimeout(handle);
+  }, [currentProjectId, prdDraft, prdMode, saveProjectSpecDraft]);
 
   const handleSavePrdAndCreatePlan = useCallback(
     (draft: LiveProjectSpecDraft) => {

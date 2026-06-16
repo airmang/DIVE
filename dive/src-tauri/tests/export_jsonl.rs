@@ -4,6 +4,7 @@ use dive_lib::db::dao::{card, event_log, message, project, session, tool_call};
 use dive_lib::db::models::{
     CardState, NewCard, NewEventLog, NewMessage, NewProject, NewSession, NewToolCall,
 };
+use dive_lib::dive::event_log as dive_event_log;
 use dive_lib::export::{ExportEngine, ExportOptions};
 use rusqlite::params;
 use serde_json::{json, Value};
@@ -558,6 +559,161 @@ fn provocation_event_export_summarizes_raw_bodies_even_when_hashing_is_off() {
     assert_eq!(event["payload"]["transcript"]["redacted"], true);
     assert_eq!(event["payload"]["sourceCode"]["redacted"], true);
     assert_eq!(event["payload"]["evidence"][0]["value"]["redacted"], true);
+}
+
+#[test]
+fn export_preserves_005_eventlog_contracts_without_raw_sensitive_text() {
+    let (db, sid) = seed();
+    {
+        let db_guard = db.lock().unwrap();
+        event_log::insert(
+            db_guard.conn(),
+            &NewEventLog {
+                session_id: Some(sid),
+                r#type: dive_event_log::RUNTIME_CAPABILITY_EVALUATED_EVENT.into(),
+                payload: dive_event_log::runtime_capability_evaluated_payload(
+                    "unavailable",
+                    "opencode_zen",
+                    Some("zen-model".into()),
+                    Some("provider_not_pi_capable".into()),
+                    Some("choose_supported_provider".into()),
+                    "Provider token=secret-token-123 lacks Pi support",
+                    100,
+                ),
+            },
+        )
+        .unwrap();
+        event_log::insert(
+            db_guard.conn(),
+            &NewEventLog {
+                session_id: Some(sid),
+                r#type: dive_event_log::SUPERVISOR_EVALUATED_EVENT.into(),
+                payload: json!({
+                    "schemaVersion": 1,
+                    "event": "scope_expansion",
+                    "artifactRef": {"kind": "add_step_draft", "id": "draft-1", "label": "Analytics"},
+                    "contextHash": "sha256:context",
+                    "evidenceHash": "sha256:evidence",
+                    "mode": "work",
+                    "validationOutcome": "dropped",
+                    "dropReason": "unknown_evidence_ref",
+                    "cardId": null,
+                    "evidenceRefs": [{
+                        "id": "scope.assessment",
+                        "source": "workmap",
+                        "kind": "scope_expansion_assessment",
+                        "label": "Scope assessment",
+                        "verificationEvidence": false,
+                        "valueSummary": {"kind": "raw", "rawText": "student@example.edu token=secret-token-123"}
+                    }],
+                    "decisionSummary": {
+                        "provoke": true,
+                        "concern": "scope_expansion",
+                        "severity": "caution",
+                        "evidenceRefIds": ["scope.assessment"],
+                        "suggestedActionIds": ["link_criterion"],
+                        "strippedActionIds": []
+                    }
+                }),
+            },
+        )
+        .unwrap();
+        event_log::insert(
+            db_guard.conn(),
+            &NewEventLog {
+                session_id: Some(sid),
+                r#type: dive_event_log::PLAN_ADJUSTMENT_OFFERED_EVENT.into(),
+                payload: dive_event_log::plan_adjustment_offered_payload(
+                    1,
+                    2,
+                    3,
+                    "step-001",
+                    "obj-1",
+                    "offer-1",
+                    "adjust_plan",
+                    "Student minji@example.com asked to narrow scope",
+                ),
+            },
+        )
+        .unwrap();
+        event_log::insert(
+            db_guard.conn(),
+            &NewEventLog {
+                session_id: Some(sid),
+                r#type: dive_event_log::PLAN_ADJUSTMENT_ACCEPTED_EVENT.into(),
+                payload: dive_event_log::plan_adjustment_response_payload(
+                    1, 2, 3, "step-001", "obj-1", "offer-1", "accepted",
+                ),
+            },
+        )
+        .unwrap();
+    }
+
+    let out = ExportEngine::new(db)
+        .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+        .unwrap();
+
+    for event_type in [
+        dive_event_log::RUNTIME_CAPABILITY_EVALUATED_EVENT,
+        dive_event_log::SUPERVISOR_EVALUATED_EVENT,
+        dive_event_log::PLAN_ADJUSTMENT_OFFERED_EVENT,
+        dive_event_log::PLAN_ADJUSTMENT_ACCEPTED_EVENT,
+    ] {
+        assert!(out.contains(event_type), "missing {event_type}: {out}");
+    }
+    for raw in [
+        "secret-token-123",
+        "student@example.edu",
+        "minji@example.com",
+        "Student minji",
+    ] {
+        assert!(!out.contains(raw), "export leaked {raw}: {out}");
+    }
+
+    let records = lines(&out);
+    let runtime = records
+        .iter()
+        .find(|record| {
+            record["kind"] == "event"
+                && record["type"] == dive_event_log::RUNTIME_CAPABILITY_EVALUATED_EVENT
+        })
+        .expect("runtime capability event");
+    assert_eq!(runtime["payload"]["status"], "unavailable");
+    assert_eq!(runtime["payload"]["reason_code"], "provider_not_pi_capable");
+    assert!(runtime["payload"]["message"]
+        .as_str()
+        .is_some_and(|value| value.starts_with("h:")));
+
+    let offered = records
+        .iter()
+        .find(|record| {
+            record["kind"] == "event"
+                && record["type"] == dive_event_log::PLAN_ADJUSTMENT_OFFERED_EVENT
+        })
+        .expect("plan adjustment offered event");
+    assert_eq!(offered["payload"]["offer_id"], "offer-1");
+    assert!(offered["payload"]["offer_summary"]
+        .as_str()
+        .is_some_and(|value| value.starts_with("h:")));
+
+    let supervisor = records
+        .iter()
+        .find(|record| {
+            record["kind"] == "event"
+                && record["type"] == dive_event_log::SUPERVISOR_EVALUATED_EVENT
+        })
+        .expect("scope supervisor event");
+    assert_eq!(supervisor["payload"]["event"], "scope_expansion");
+    assert_eq!(supervisor["payload"]["dropReason"], "unknown_evidence_ref");
+    assert_eq!(
+        supervisor["payload"]["evidenceRefs"][0]["valueSummary"]["rawText"]["redacted"],
+        true
+    );
+    assert!(
+        supervisor["payload"]["evidenceRefs"][0]["valueSummary"]["rawText"]["reason"]
+            .as_str()
+            .is_some_and(|value| value.starts_with("h:"))
+    );
 }
 
 #[test]

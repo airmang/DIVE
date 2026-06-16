@@ -134,4 +134,27 @@ describe("useChatSession runtime event reducer", () => {
     expect(message.content).toContain("confirmed Pi runtime support");
     expect(message.content).not.toContain("legacy_loop");
   });
+
+  it("uses localized reason copy for backend runtime capability blocks", () => {
+    useLocaleStore.setState({ locale: "ko" });
+
+    const next = reduceChatSessionState(
+      initialState(),
+      runtimeCapability({
+        reasonCode: "missing_credentials",
+        message: "Provider credentials are missing or unavailable.",
+      }),
+    );
+
+    expect(next.runtimeSelection).toMatchObject({
+      state: "unavailable",
+      reason: "Provider credentials are missing or unavailable.",
+      message: "Provider 인증 정보가 없거나 사용할 수 없습니다.",
+    });
+    const message = next.messages[0];
+    expect(message?.kind).toBe("system");
+    if (!message || message.kind !== "system") throw new Error("expected system message");
+    expect(message.content).toContain("Provider 인증 정보가 없거나 사용할 수 없습니다.");
+    expect(message.content).not.toContain("Provider credentials are missing");
+  });
 });
