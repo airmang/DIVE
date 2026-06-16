@@ -34,6 +34,22 @@ authority. The canonical DIVE v2 source of truth lives in `.specify/` and
 | `specs/005-v2-spec-conformance-gaps/contracts/` | Canonical planning aid | Defines runtime capability, scope supervisor, rationale challenge, and EventLog/export contracts. |
 | `specs/005-v2-spec-conformance-gaps/quickstart.md` | Canonical planning aid | Defines validation scenarios and commands for 005. |
 | `specs/005-v2-spec-conformance-gaps/tasks.md` | Canonical planning aid | Defines dependency-ordered implementation tasks for 005, including the shared foundation tracked by Wily Stage S-016. |
+| `specs/007-llm-verification-coach/spec.md` | Active draft | Defines adaptive AI verification coaching in step review, criterion-linked user observation evidence, and evidence-aware approval separation from AI self-report. |
+| `specs/007-llm-verification-coach/plan.md` | Canonical planning aid | Defines implementation plan, architecture, and test strategy for the verification coach. |
+| `specs/007-llm-verification-coach/research.md` | Canonical planning aid | Records decisions separating coach guidance from review cards and approval evidence. |
+| `specs/007-llm-verification-coach/data-model.md` | Canonical planning aid | Defines VerificationCoachingEvent, VerificationGuide, ObservationEvidence, GuidanceValidationResult, and EvidenceBackedDecision. |
+| `specs/007-llm-verification-coach/contracts/` | Canonical planning aid | Defines guidance generation, observation evidence, and EventLog/export contracts. |
+| `specs/007-llm-verification-coach/quickstart.md` | Canonical planning aid | Defines validation scenarios and commands for 007. |
+| `specs/007-llm-verification-coach/tasks.md` | Canonical planning aid | Defines dependency-ordered implementation tasks for 007, with MVP focus on guidance plus observation-backed approval. |
+
+## 007 Draft Scope
+
+As of 2026-06-16, `specs/007-llm-verification-coach/` is a draft with plan and
+tasks created to address manual/CLI/no-preview verification ambiguity
+discovered while testing `DIVE_TEST9`. The feature is intentionally separate
+from the in-flight 006 Sarkar provocation expansion: 006 expands grounded
+review-card moments, while 007 defines verification guidance and evidence
+capture inside the step review decision flow.
 
 ## 005 Implementation Status
 

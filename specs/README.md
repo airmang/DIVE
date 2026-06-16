@@ -12,6 +12,7 @@ implementation planning.
 | [`003-supervision-card-ux`](003-supervision-card-ux/spec.md) | Active presentation spec | Defines supervision card presentation and information architecture (focal criterion, review-vs-permission distinction, density reduction); presentation only, no flow-logic change. Current status is clarified in its decision log and `docs/spec-status.md`. |
 | [`004-prd-decompose-lifecycle`](004-prd-decompose-lifecycle/spec.md) | Implemented with reserved follow-up scope | Elevates onboarding/interview into a dedicated PRD Authoring Board with validated turn-by-turn PRD patches and a concise completed PRD read view; criterion-linked, challengeable decomposition; mid-flow `add_step` in a dedicated area; PRD as a living, versioned artifact. `change_step` and `retire_step` remain future/contract-reserved until a visible path is separately specified and implemented. |
 | [`005-v2-spec-conformance-gaps`](005-v2-spec-conformance-gaps/spec.md) | Implemented conformance cleanup | Closes v2 conformance gaps for user-visible legacy runtime fallback removal, add-step scope cards through SupervisorAgent, rationale challenge offers, and truthful spec-status cleanup. |
+| [`007-llm-verification-coach`](007-llm-verification-coach/spec.md) | Active draft with plan/tasks | Defines the step-review verification coach: adaptive AI guidance for how to verify a step, criterion-linked user observation capture, and evidence-aware approval separation from AI self-report. |
 
 ## Authority Rules
 
@@ -55,6 +56,14 @@ implementation planning.
 - The 005 implementation plan and design contracts are governed by
   `specs/005-v2-spec-conformance-gaps/plan.md`, `data-model.md`, `contracts/`,
   `research.md`, `quickstart.md`, and `tasks.md`.
+- Step-review verification coaching is governed by
+  `specs/007-llm-verification-coach/spec.md`: AI may guide the student through
+  how to verify a step, but evidence-backed approval still requires automated
+  results or criterion-linked user observation. It is separate from
+  Sarkar/provocation review-card expansion.
+- The 007 implementation plan and MVP task breakdown are governed by
+  `specs/007-llm-verification-coach/plan.md`, `research.md`,
+  `data-model.md`, `contracts/`, `quickstart.md`, and `tasks.md`.
 - `change_step` and `retire_step` are contract-reserved mutation concepts only.
   The shipped visible plan-mutation path from 004/005 is `add_step`; any visible
   change/retire flow needs a later spec, implementation, validation, and status
