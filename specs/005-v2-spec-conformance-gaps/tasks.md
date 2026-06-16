@@ -187,14 +187,14 @@ behavior.
 
 **Purpose**: Final validation, cleanup, and handoff.
 
-- [ ] T063 Run TypeScript typecheck with `pnpm typecheck` from `dive/package.json`
-- [ ] T064 Run frontend unit tests with `pnpm test:unit` from `dive/package.json`
-- [ ] T065 Run Rust tests with `cargo test` from `dive/src-tauri/Cargo.toml`
-- [ ] T066 Run targeted supervisor tests with `cargo test supervisor` from `dive/src-tauri/Cargo.toml`
-- [ ] T067 Run targeted Pi sidecar supervisor tests with `cargo test pi_sidecar_supervisor` from `dive/src-tauri/Cargo.toml`
-- [ ] T068 Run the 005 quickstart scenarios for legacy runtime block, unsupported provider block, scope supervisor no-fallback, rationale challenge offer, and docs status in `specs/005-v2-spec-conformance-gaps/quickstart.md`
-- [ ] T069 Remove obsolete comments or tests that describe user-visible legacy fallback in `dive/src-tauri/src/ipc/chat.rs`
-- [ ] T070 Remove obsolete comments or tests that describe shipped static scope-expansion cards in `dive/src/features/provocation/rules.ts`
+- [x] T063 Run TypeScript typecheck with `pnpm typecheck` from `dive/package.json`
+- [x] T064 Run frontend unit tests with `pnpm test:unit` from `dive/package.json`
+- [x] T065 Run Rust tests with `cargo test` from `dive/src-tauri/Cargo.toml`
+- [x] T066 Run targeted supervisor tests with `cargo test supervisor` from `dive/src-tauri/Cargo.toml`
+- [x] T067 Run targeted Pi sidecar supervisor tests with `cargo test pi_sidecar_supervisor` from `dive/src-tauri/Cargo.toml`
+- [x] T068 Run the 005 quickstart scenarios for legacy runtime block, unsupported provider block, scope supervisor no-fallback, rationale challenge offer, and docs status in `specs/005-v2-spec-conformance-gaps/quickstart.md`
+- [x] T069 Remove obsolete comments or tests that describe user-visible legacy fallback in `dive/src-tauri/src/ipc/chat.rs`
+- [x] T070 Remove obsolete comments or tests that describe shipped static scope-expansion cards in `dive/src/features/provocation/rules.ts`
 
 ---
 

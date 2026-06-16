@@ -618,6 +618,8 @@ export const PROVOCATION_RULES = [
   oversizedScopeRule,
 ] as const;
 
+// Internal quarantine only. Shipped add-step scope-expansion cards come from
+// the SupervisorAgent path, not frontend rule-card generation.
 export function isQuarantinedRuleCardGenerationEnabled(): boolean {
   return (
     import.meta.env.DEV === true &&
@@ -638,7 +640,7 @@ function cardEligibleForStage(card: ProvocationCard, context: ProvocationContext
     case "oversized_scope":
       return context.stage === "decompose" || context.stage === "instruct";
     case "scope_expansion":
-      return context.stage === "instruct";
+      return false;
     case "missing_acceptance_criteria":
       return context.stage === "decompose" || context.stage === "instruct";
     case "missing_verification_step":

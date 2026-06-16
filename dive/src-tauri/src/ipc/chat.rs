@@ -197,7 +197,7 @@ pub(super) fn select_runtime_at(
                 &kind,
                 model,
                 RuntimeUnavailableReason::LegacyRequested,
-                "Legacy execution is unavailable for DIVE v2 work.",
+                "The requested runtime is unavailable for DIVE v2 work.",
                 Some(RuntimeSetupAction::RetryRuntime),
                 recorded_at,
             ),
@@ -566,7 +566,7 @@ pub async fn chat_send(
 ) -> Result<(), String> {
     tracing::info!(
         session_id,
-        legacy_stage = stage.as_deref().unwrap_or("default"),
+        requested_stage = stage.as_deref().unwrap_or("default"),
         requested_run_mode = run_mode.as_deref().unwrap_or("default"),
         text_chars = text.chars().count(),
         step_id,
