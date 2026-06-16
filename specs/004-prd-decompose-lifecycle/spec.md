@@ -4,8 +4,10 @@
 
 **Created**: 2026-06-14
 
-**Status**: Active Planning (scope, decisions, and PRD authoring board UI
-contract captured; ready for task generation after checklist refresh)
+**Status**: Implemented with reserved follow-up scope (PRD authoring,
+criterion-linked decomposition, rationale challenge, and dedicated add-step
+paths are shipped; `change_step` and `retire_step` remain
+future/contract-reserved until separately specified and implemented)
 
 **Input**: User description: "Elevate the Socratic interview into a stage that
 authors a living project spec (PRD). Decomposition must explain, per step, why the
@@ -129,8 +131,10 @@ dedicated plan area (not the chat), and the PRD updates.
 - **FR-006**: Steps MUST be addable mid-implementation from a dedicated plan area
   (not the chat), low-friction (one action; criterion link encouraged, not
   forced), and always logged.
-- **FR-007**: Adding or changing a step MUST update the PRD; a step that expands
-  scope beyond the PRD MUST surface a non-blocking review card (reuses specs/002).
+- **FR-007**: Adding a step MUST update the PRD; any future visible
+  change-step or retire-step path MUST do the same before it can be marked
+  shipped. A step that expands scope beyond the PRD MUST surface a non-blocking
+  review card (reuses specs/002).
 - **FR-008**: This feature MUST stay inside real project work — no separate
   lesson, quiz, score, or badge flow.
 - **FR-009**: All lifecycle events (PRD authored/edited, step added/changed,
@@ -295,3 +299,7 @@ reconstructable from local export, with student PII masked.
 - The LLM may help draft the PRD incrementally, but DIVE remains authoritative
   for patch validation, criterion IDs, merge policy, logging, and official PRD
   version creation.
+- As clarified by `specs/005-v2-spec-conformance-gaps/`, `add_step` is the only
+  shipped visible plan-mutation path from this feature. `change_step` and
+  `retire_step` are future/contract-reserved and must not be treated as shipped
+  until a later spec adds the visible path, tests, and EventLog/export coverage.

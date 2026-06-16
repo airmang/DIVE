@@ -1,7 +1,7 @@
 # Supervision Card UX & IA Decision Log
 
 **Date**: 2026-06-14
-**Status**: Active Draft
+**Status**: Active presentation/IA authority
 **Spec**: `specs/003-supervision-card-ux/spec.md`
 
 ## DEC-001: Presentation-Only — Flow Logic Is Untouched
@@ -61,3 +61,17 @@
   cleanup removes; the focal question, not color coding, carries the message.
 - **Implication**: severity is fixed to `caution` in P1 (specs/002 FR-026); the
   003 layout does not branch tone by evidence state.
+
+## DEC-007: 005 Status Cleanup Does Not Ship New Card UX
+
+- **Decision**: The 005 conformance cleanup records the current 003 status
+  without expanding card UX scope. Review-card presentation work already covered
+  by existing implementation remains the baseline; full permission/guard-card
+  harmonization under 003 FR-009 remains active/future unless a later UI slice
+  validates it directly.
+- **Rationale**: S-020 is a documentation truth pass, not a new presentation
+  implementation. Overstating harmonization would recreate the spec-status drift
+  that 005 is closing.
+- **Implication**: Future agents may rely on 003 for presentation requirements,
+  but must not treat every permission/guard-card harmonization item as shipped
+  without concrete tests or a later status update.

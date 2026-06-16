@@ -9,8 +9,9 @@ implementation planning.
 | --- | --- | --- |
 | [`001-dive-v2-foundation`](001-dive-v2-foundation/spec.md) | Active foundation | Defines DIVE v2 scope, non-goals, runtime direction, evidence rules, and repo strategy. |
 | [`002-provocation-supervisor-agent`](002-provocation-supervisor-agent/spec.md) | Active draft | Defines the dedicated Pi SupervisorAgent that evaluates project evidence and produces review-card decisions. |
-| [`003-supervision-card-ux`](003-supervision-card-ux/spec.md) | Active draft | Defines supervision card presentation and information architecture (focal criterion, review-vs-permission distinction, density reduction); presentation only, no flow-logic change. |
-| [`004-prd-decompose-lifecycle`](004-prd-decompose-lifecycle/spec.md) | Active planning | Elevates onboarding/interview into a dedicated PRD Authoring Board with validated turn-by-turn PRD patches and a concise completed PRD read view; criterion-linked, challengeable decomposition; mid-flow step add in a dedicated area; PRD as a living, versioned artifact. |
+| [`003-supervision-card-ux`](003-supervision-card-ux/spec.md) | Active presentation spec | Defines supervision card presentation and information architecture (focal criterion, review-vs-permission distinction, density reduction); presentation only, no flow-logic change. Current status is clarified in its decision log and `docs/spec-status.md`. |
+| [`004-prd-decompose-lifecycle`](004-prd-decompose-lifecycle/spec.md) | Implemented with reserved follow-up scope | Elevates onboarding/interview into a dedicated PRD Authoring Board with validated turn-by-turn PRD patches and a concise completed PRD read view; criterion-linked, challengeable decomposition; mid-flow `add_step` in a dedicated area; PRD as a living, versioned artifact. `change_step` and `retire_step` remain future/contract-reserved until a visible path is separately specified and implemented. |
+| [`005-v2-spec-conformance-gaps`](005-v2-spec-conformance-gaps/spec.md) | Implemented conformance cleanup | Closes v2 conformance gaps for user-visible legacy runtime fallback removal, add-step scope cards through SupervisorAgent, rationale challenge offers, and truthful spec-status cleanup. |
 
 ## Authority Rules
 
@@ -45,6 +46,19 @@ implementation planning.
 - The 004 implementation plan and design contracts are governed by
   `specs/004-prd-decompose-lifecycle/plan.md`, `data-model.md`, `contracts/`,
   `research.md`, `quickstart.md`, and `tasks.md`.
+- Remaining v2 conformance cleanup is governed by
+  `specs/005-v2-spec-conformance-gaps/spec.md`: legacy runtime fallback has been
+  removed from user-visible v2 work, add-step scope-expansion cards use the
+  dedicated SupervisorAgent path, rationale challenges offer a non-blocking
+  plan-adjustment next action, and future/reserved mutation behavior must not be
+  documented as shipped.
+- The 005 implementation plan and design contracts are governed by
+  `specs/005-v2-spec-conformance-gaps/plan.md`, `data-model.md`, `contracts/`,
+  `research.md`, `quickstart.md`, and `tasks.md`.
+- `change_step` and `retire_step` are contract-reserved mutation concepts only.
+  The shipped visible plan-mutation path from 004/005 is `add_step`; any visible
+  change/retire flow needs a later spec, implementation, validation, and status
+  update.
 
 ## Adding Or Changing Specs
 

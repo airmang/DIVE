@@ -1,7 +1,7 @@
 # PRD-Driven Decompose & Plan Lifecycle Decision Log
 
 **Date**: 2026-06-14
-**Status**: Active Planning
+**Status**: Implemented with reserved follow-up scope
 **Spec**: `specs/004-prd-decompose-lifecycle/spec.md`
 
 ## DEC-001: Interview Is Elevated To PRD Authoring — Required But Minimal
@@ -110,3 +110,16 @@
 - **Implication**: Authoring and reading are separate UI states. The read view
   prioritizes goal, acceptance criteria, scope boundaries, key constraints,
   version metadata, and next action. Editing reopens the authoring board.
+
+## DEC-010: Add-Step Is Shipped; Change/Retire Are Reserved
+
+- **Decision**: The shipped visible plan-mutation path for this feature is
+  `add_step`. `change_step` and `retire_step` remain future/contract-reserved
+  concepts until a later feature defines visible UI, persistence behavior,
+  EventLog/export records, and validation tests for them.
+- **Rationale**: 004 introduced the broader mutation vocabulary so the contract
+  can evolve, but 005 status cleanup confirmed that only add-step behavior has
+  been implemented and validated for students.
+- **Implication**: Future agents must not cite `change_step` or `retire_step` as
+  shipped behavior. They may only use them as reserved contract names when
+  planning a later visible mutation feature.

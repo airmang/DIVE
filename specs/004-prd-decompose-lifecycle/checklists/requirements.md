@@ -4,8 +4,9 @@
 **Created**: 2026-06-14
 **Feature**: [spec.md](../spec.md)
 
-**Status**: Active Planning — scope, decisions, and the PRD Authoring Board UI
-contract are captured. Ready for task generation after this checklist refresh.
+**Status**: Passed during planning. Later implementation/status truth is tracked
+in [docs/spec-status.md](../../../docs/spec-status.md); `change_step` and
+`retire_step` remain future/contract-reserved unless separately implemented.
 
 ## Content Quality
 
@@ -40,9 +41,11 @@ contract are captured. Ready for task generation after this checklist refresh.
 
 ## Notes
 
-- This spec is now active planning: scope plus nine decisions (DEC-001–DEC-009)
-  are captured, including the onboarding bridge, turn-by-turn PRD patching, the
-  PRD Authoring Board, and the concise completed PRD read view.
+- This checklist passed during planning: scope plus nine initial decisions
+  (DEC-001–DEC-009) were captured, including the onboarding bridge,
+  turn-by-turn PRD patching, the PRD Authoring Board, and the concise completed
+  PRD read view. Later implementation status is recorded in
+  `docs/spec-status.md` and `specs/004-prd-decompose-lifecycle/decisions.md`.
 - Boundary: specs/002 owns review-card content/feasibility; specs/003 owns card
   presentation; specs/004 owns the PRD and plan lifecycle. Flow logic unchanged.
 - Resolves the `SocraticInterviewPanel` boundary concern by elevating it to PRD

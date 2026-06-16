@@ -123,13 +123,15 @@ Validation:
 
 ## PlanMutation
 
-Auditable add/change-step event.
+Auditable plan-mutation contract. The shipped visible mutation path is
+`add_step`; `change_step` and `retire_step` are reserved contract values for a
+future visible mutation feature.
 
 | Field | Type | Notes |
 | --- | --- | --- |
 | `mutationId` | string | Stable event ID. |
 | `projectId` / `planId` | number | Existing project/plan IDs. |
-| `type` | `add_step` \| `change_step` \| `retire_step` | Initial implementation must cover `add_step`. |
+| `type` | `add_step` \| `change_step` \| `retire_step` | Shipped visible behavior covers `add_step`. `change_step` and `retire_step` are future/contract-reserved until a later feature implements visible paths. |
 | `stepDbId` | number \| null | Present after persistence. |
 | `stableStepId` | string \| null | Step ID after assignment. |
 | `reason` | string \| null | Student or router reason. |
@@ -143,6 +145,9 @@ Validation:
 - Mutations happen through the dedicated plan area.
 - Add-step mutations on approved plans reuse existing dependency, duplicate,
   and execution-envelope validation.
+- `change_step` and `retire_step` must not be documented or exposed as shipped
+  behavior without a separate visible path, tests, EventLog/export coverage, and
+  spec-status update.
 - A mutation that expands scope creates a non-blocking specs/002 review-card
   evaluation near the add-step area.
 
@@ -153,7 +158,7 @@ Validation:
 | `fromVersion` | number | Previous PRD version. |
 | `toVersion` | number | New PRD version. |
 | `addedCriteria` | AcceptanceCriterion[] | Criteria added by the mutation. |
-| `retiredCriterionIds` | string[] | Criteria retired by the mutation. |
+| `retiredCriterionIds` | string[] | Criteria retired by the mutation. Non-empty retirement is future/contract-reserved until a visible retire-step or PRD-edit path implements it. |
 | `scopeChanges` | string[] | Human-readable summary of scope changes. |
 | `nonGoalChanges` | string[] | Human-readable summary of non-goal changes. |
 

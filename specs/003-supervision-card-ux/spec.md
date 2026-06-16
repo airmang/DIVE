@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-14
 
-**Status**: Active Draft
+**Status**: Active presentation/IA authority
 
 **Input**: User description: "The review/supervision cards carry too much text and
 look cluttered. Clean up the card UI so the verification criterion is the focal
