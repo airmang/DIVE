@@ -34,6 +34,24 @@ authority. The canonical DIVE v2 source of truth lives in `.specify/` and
 | `specs/005-v2-spec-conformance-gaps/contracts/` | Canonical planning aid | Defines runtime capability, scope supervisor, rationale challenge, and EventLog/export contracts. |
 | `specs/005-v2-spec-conformance-gaps/quickstart.md` | Canonical planning aid | Defines validation scenarios and commands for 005. |
 | `specs/005-v2-spec-conformance-gaps/tasks.md` | Canonical planning aid | Defines dependency-ordered implementation tasks for 005, including the shared foundation tracked by Wily Stage S-016. |
+| `specs/006-sarkar-provocation-expansion/spec.md` | Canonical | Defines planned expansion of Sarkar-style review-card coverage to plan draft approval, diff-ready review, and retry-loop review. |
+| `specs/006-sarkar-provocation-expansion/plan.md` | Canonical planning aid | Defines implementation plan, architecture, and test strategy for 006. |
+| `specs/006-sarkar-provocation-expansion/research.md` | Canonical planning aid | Records decisions for reusing `provocation_agent_evaluate`, deterministic assessments, artifact-adjacent rendering, EventLog reuse, step-scoped retry loops, and action allowlist expansion. |
+| `specs/006-sarkar-provocation-expansion/data-model.md` | Canonical planning aid | Defines expanded supervisor events, artifact refs, plan-draft/diff-ready/retry-loop assessments, expanded cards, and supervisor evaluation logs. |
+| `specs/006-sarkar-provocation-expansion/contracts/` | Canonical planning aid | Defines request, response, validation, EventLog, export, and UI placement contracts for expanded supervisor events. |
+| `specs/006-sarkar-provocation-expansion/quickstart.md` | Canonical planning aid | Defines validation scenarios and commands for 006. |
+| `specs/006-sarkar-provocation-expansion/tasks.md` | Canonical planning aid | Defines dependency-ordered implementation tasks for 006, organized by independently testable user story. |
+| `specs/006-sarkar-provocation-expansion/checklists/requirements.md` | Canonical planning aid | Validates 006 specification completeness before planning. |
+
+## 006 Specification Status
+
+As of 2026-06-16, `specs/006-sarkar-provocation-expansion/` has specification,
+plan, research, data model, contract, quickstart, tasks, and
+requirements-checklist artifacts. It does not implement product behavior yet;
+the next spec-kit step is implementation. It extends the
+`specs/002-provocation-supervisor-agent/` SupervisorAgent architecture and preserves the
+`specs/003-supervision-card-ux/` presentation constraints plus the
+`specs/005-v2-spec-conformance-gaps/` `scope_expansion` behavior.
 
 ## 005 Implementation Status
 
