@@ -1156,4 +1156,109 @@ mod tests {
             .as_str()
             .is_some_and(|value| value.starts_with("h:")));
     }
+
+    #[test]
+    fn supervisor_evaluation_payload_sanitizer_handles_expanded_plan_diff_retry_events() {
+        let payload = json!({
+            "schemaVersion": 1,
+            "evaluations": [
+                {
+                    "event": "plan_drafted",
+                    "artifactRef": {"kind": "plan_draft", "id": "plan-1:draft"},
+                    "validationOutcome": "shown",
+                    "dropReason": null,
+                    "supervisorEvaluationId": "eval-plan",
+                    "assessmentSummary": {
+                        "reasonCodes": ["missing_verification"],
+                        "evidenceRefs": ["plan.step.s_001.verification"]
+                    },
+                    "decisionSummary": {
+                        "concern": "plan_draft_weakness",
+                        "evidenceRefIds": ["plan.step.s_001.verification"],
+                        "suggestedActionIds": ["add_verification_step"],
+                        "strippedActionIds": []
+                    },
+                    "evidenceRefs": [{
+                        "id": "plan.step.s_001.verification",
+                        "source": "plan",
+                        "kind": "verification_coverage",
+                        "label": "Missing verification",
+                        "valueSummary": {"stepId": "s_001"}
+                    }]
+                },
+                {
+                    "event": "diff_ready",
+                    "artifactRef": {"kind": "diff", "id": "step-1:diff"},
+                    "validationOutcome": "none",
+                    "dropReason": "provoke_false",
+                    "supervisorEvaluationId": "eval-diff",
+                    "assessmentSummary": {
+                        "reasonCodes": ["outside_expected_files"],
+                        "evidenceRefs": ["diff.changed_files"],
+                        "unexpectedFiles": ["src/auth/session.ts"],
+                        "highRiskFiles": ["src/auth/session.ts"]
+                    },
+                    "evidenceRefs": [{
+                        "id": "diff.changed_files",
+                        "source": "diff",
+                        "kind": "changed_file",
+                        "label": "Changed files",
+                        "rawDiff": "diff --git a/src/auth/session.ts b/src/auth/session.ts\n+const token = 'sk-expandedsecret';",
+                        "valueSummary": {"paths": ["src/auth/session.ts"]}
+                    }]
+                },
+                {
+                    "event": "retry_loop",
+                    "artifactRef": {"kind": "failure", "id": "step-1:failure"},
+                    "validationOutcome": "dropped",
+                    "dropReason": "runtime_unavailable",
+                    "supervisorEvaluationId": "eval-retry",
+                    "assessmentSummary": {
+                        "reasonCodes": ["same_failure_repeated"],
+                        "evidenceRefs": ["failure.fingerprint"],
+                        "failureFingerprint": "typeerror_at_save",
+                        "failureCount": 2
+                    },
+                    "userResponse": {
+                        "actionKind": "create_repro_steps",
+                        "studentEmail": "student@example.com"
+                    },
+                    "evidenceRefs": [{
+                        "id": "failure.fingerprint",
+                        "source": "terminal",
+                        "kind": "failure_summary",
+                        "label": "Failure fingerprint",
+                        "terminalOutput": "TOKEN=secret-token-123\nTypeError stack line 1",
+                        "valueSummary": {"fingerprint": "typeerror_at_save"}
+                    }]
+                }
+            ]
+        });
+
+        let sanitized = sanitize_provocation_event_payload(&payload);
+        let encoded = sanitized.to_string();
+
+        assert_eq!(sanitized["evaluations"][0]["event"], json!("plan_drafted"));
+        assert_eq!(sanitized["evaluations"][1]["event"], json!("diff_ready"));
+        assert_eq!(sanitized["evaluations"][2]["event"], json!("retry_loop"));
+        assert_eq!(
+            sanitized["evaluations"][1]["assessmentSummary"]["highRiskFiles"],
+            json!(["src/auth/session.ts"])
+        );
+        assert_eq!(
+            sanitized["evaluations"][1]["evidenceRefs"][0]["rawDiff"]["reason"],
+            json!("raw_body_key")
+        );
+        assert_eq!(
+            sanitized["evaluations"][2]["evidenceRefs"][0]["terminalOutput"]["reason"],
+            json!("raw_body_key")
+        );
+        assert_eq!(
+            sanitized["evaluations"][2]["userResponse"]["studentEmail"]["reason"],
+            json!("student_pii")
+        );
+        assert!(!encoded.contains("sk-expandedsecret"));
+        assert!(!encoded.contains("secret-token-123"));
+        assert!(!encoded.contains("student@example.com"));
+    }
 }

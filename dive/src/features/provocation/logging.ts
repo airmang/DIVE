@@ -250,9 +250,12 @@ function syntheticActionForEvent(eventType: ProvocationLogEventType): Provocatio
 const CARD_AGENCY_COMPONENT: Record<ProvocationCard["type"], AgencyComponent> = {
   oversized_scope: "intent",
   scope_expansion: "plan",
+  plan_draft_review: "plan",
   missing_acceptance_criteria: "intent",
   missing_verification_step: "plan",
+  diff_scope_review: "diff",
   diff_scope_drift: "diff",
+  retry_loop_review: "rollback",
   ai_self_report_only: "verify",
   regeneration_loop: "rollback",
 };
@@ -260,9 +263,12 @@ const CARD_AGENCY_COMPONENT: Record<ProvocationCard["type"], AgencyComponent> = 
 const CARD_AGENCY_STATE: Record<ProvocationCard["type"], AgencyState> = {
   oversized_scope: "intent_needed",
   scope_expansion: "plan_review_needed",
+  plan_draft_review: "plan_review_needed",
   missing_acceptance_criteria: "intent_needed",
   missing_verification_step: "verification_needed",
+  diff_scope_review: "diff_review_needed",
   diff_scope_drift: "diff_review_needed",
+  retry_loop_review: "verification_failed",
   ai_self_report_only: "ai_self_report_only",
   regeneration_loop: "verification_failed",
 };
@@ -340,18 +346,28 @@ function metadataArtifactRef(value: unknown) {
   };
 }
 
+function metadataRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 function affectedFilesFor(card: ProvocationCard, context: Partial<ProvocationContext> | undefined) {
   const metadata = card.metadata ?? {};
+  const assessment = metadataRecord(metadata.diffReadyAssessment ?? metadata.assessmentSummary);
   const changedFiles = [
     ...new Set([
       ...stringList(metadata.changedFiles),
+      ...stringList(assessment.unexpectedFiles),
       ...(context?.changedFiles?.map((file) => file.path).filter(Boolean) ?? []),
     ]),
   ];
   const targetFiles = [
     ...new Set([...stringList(metadata.targetFiles), ...(context?.targetFiles ?? [])]),
   ];
-  const highRiskFiles = stringList(metadata.highRiskFiles);
+  const highRiskFiles = [
+    ...new Set([...stringList(metadata.highRiskFiles), ...stringList(assessment.highRiskFiles)]),
+  ];
 
   if (changedFiles.length === 0 && targetFiles.length === 0 && highRiskFiles.length === 0) {
     return null;

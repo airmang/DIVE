@@ -12,6 +12,7 @@ implementation planning.
 | [`003-supervision-card-ux`](003-supervision-card-ux/spec.md) | Active presentation spec | Defines supervision card presentation and information architecture (focal criterion, review-vs-permission distinction, density reduction); presentation only, no flow-logic change. Current status is clarified in its decision log and `docs/spec-status.md`. |
 | [`004-prd-decompose-lifecycle`](004-prd-decompose-lifecycle/spec.md) | Implemented with reserved follow-up scope | Elevates onboarding/interview into a dedicated PRD Authoring Board with validated turn-by-turn PRD patches and a concise completed PRD read view; criterion-linked, challengeable decomposition; mid-flow `add_step` in a dedicated area; PRD as a living, versioned artifact. `change_step` and `retire_step` remain future/contract-reserved until a visible path is separately specified and implemented. |
 | [`005-v2-spec-conformance-gaps`](005-v2-spec-conformance-gaps/spec.md) | Implemented conformance cleanup | Closes v2 conformance gaps for user-visible legacy runtime fallback removal, add-step scope cards through SupervisorAgent, rationale challenge offers, and truthful spec-status cleanup. |
+| [`006-sarkar-provocation-expansion`](006-sarkar-provocation-expansion/spec.md) | Implemented | Expands Sarkar-style SupervisorAgent review-card coverage to plan draft approval, diff-ready review, and retry-loop review while preserving evidence, locality, and no static fallback. |
 | [`007-llm-verification-coach`](007-llm-verification-coach/spec.md) | Active draft with plan/tasks | Defines the step-review verification coach: adaptive AI guidance for how to verify a step, criterion-linked user observation capture, and evidence-aware approval separation from AI self-report. |
 
 ## Authority Rules
@@ -56,6 +57,14 @@ implementation planning.
 - The 005 implementation plan and design contracts are governed by
   `specs/005-v2-spec-conformance-gaps/plan.md`, `data-model.md`, `contracts/`,
   `research.md`, `quickstart.md`, and `tasks.md`.
+- Expanded Sarkar-style review-card coverage is governed by
+  `specs/006-sarkar-provocation-expansion/spec.md`: `plan_drafted`,
+  `diff_ready`, and `retry_loop` are implemented SupervisorAgent events; cards
+  remain evidence-grounded, artifact-adjacent, non-blocking, sparse,
+  logged/exportable, and have no static fallback.
+- The 006 implementation plan and design contracts are governed by
+  `specs/006-sarkar-provocation-expansion/plan.md`, `research.md`,
+  `data-model.md`, `contracts/`, `quickstart.md`, and `tasks.md`.
 - Step-review verification coaching is governed by
   `specs/007-llm-verification-coach/spec.md`: AI may guide the student through
   how to verify a step, but evidence-backed approval still requires automated

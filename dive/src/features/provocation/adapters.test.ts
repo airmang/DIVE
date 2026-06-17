@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  createDiffReadySupervisorRequest,
+  createPlanDraftSupervisorRequest,
+  createRetryLoopSupervisorRequest,
   createScopeExpansionSupervisorRequest,
+  normalizeChangedFile,
   normalizeSupervisorEvaluationResponse,
 } from "./adapters";
 
@@ -126,5 +130,262 @@ describe("scope-expansion supervisor adapters", () => {
       evaluationId: "eval-3",
       dropReason: "parse_error",
     });
+  });
+});
+
+describe("expanded supervisor adapters", () => {
+  it("builds plan_drafted request with deterministic assessment and evidence refs", () => {
+    const request = createPlanDraftSupervisorRequest({
+      sessionId: 12,
+      projectId: 3,
+      planId: 44,
+      sourceUiMode: "expert",
+      goalSummary: "Build a todo app",
+      acceptanceCriteria: ["User can add a todo"],
+      unresolvedQuestions: ["Which browser should be checked?"],
+      planSteps: [
+        {
+          id: "s_001",
+          text: "Build the whole UI and API",
+          expectedFiles: ["src/App.tsx", "src/api.ts", "package.json", "src/db.ts"],
+          linkedCriterionIds: [],
+          verificationCommand: null,
+          verificationManualCheck: null,
+        },
+      ],
+    });
+
+    expect(request).toMatchObject({
+      event: "plan_drafted",
+      mode: "work",
+      projectId: 3,
+      planId: 44,
+      artifactRef: { kind: "plan_draft", id: "plan-44:draft" },
+      allowedActionIds: [
+        "add_verification_step",
+        "link_criterion",
+        "split_scope",
+        "edit_prd",
+        "dismiss_review",
+      ],
+      planDraftAssessment: {
+        eligible: true,
+        reasonCodes: [
+          "missing_verification",
+          "unlinked_criteria",
+          "broad_step",
+          "unresolved_question",
+        ],
+        unverifiedStepIds: ["s_001"],
+        unlinkedStepIds: ["s_001"],
+      },
+    });
+    expect(request.contextHash).toMatch(/^fnv1a:/);
+    expect(request.evidenceHash).toMatch(/^fnv1a:/);
+    expect(request.evidenceRefs.map((ref) => ref.id)).toEqual(
+      expect.arrayContaining([
+        "plan.goal",
+        "plan.criteria",
+        "plan.step_count",
+        "plan.step.s_001.verification",
+        "plan.step.s_001.criteria",
+        "plan.step.s_001.scope",
+        "plan.unresolved.0",
+      ]),
+    );
+  });
+
+  it("normalizes expanded supervisor metadata and filters event actions", () => {
+    const request = createPlanDraftSupervisorRequest({
+      sessionId: 12,
+      projectId: 3,
+      planId: 44,
+      sourceUiMode: "work",
+      goalSummary: "Build a todo app",
+      acceptanceCriteria: ["User can add a todo"],
+      planSteps: [
+        {
+          id: "s_001",
+          text: "Build form",
+          linkedCriterionIds: [],
+          verificationCommand: null,
+          verificationManualCheck: null,
+        },
+      ],
+    });
+
+    const response = normalizeSupervisorEvaluationResponse(
+      {
+        status: "shown",
+        evaluation_id: "eval-plan",
+        card: {
+          id: "card-plan",
+          type: "plan_draft_review",
+          stage: "instruct",
+          severity: "caution",
+          title: "검토 카드",
+          prompt: "이 계획은 검증할 수 있나요?",
+          message: "계획을 확인하세요.",
+          evidence: [],
+          actions: [
+            { id: "add_verification_step", kind: "add_verification_step", label: "검증 추가" },
+            { id: "open_diff", kind: "open_diff", label: "Diff 열기" },
+          ],
+          primary_action_id: "open_diff",
+          metadata: { concern: "plan_draft_weakness" },
+          created_at: "2026-06-16T00:00:00.000Z",
+        },
+      },
+      request,
+    );
+
+    expect(response.status).toBe("shown");
+    if (response.status !== "shown") throw new Error("expected shown response");
+    expect(response.card.actions.map((action) => action.kind)).toEqual(["add_verification_step"]);
+    expect(response.card.primaryActionId).toBe("add_verification_step");
+    expect(response.card.metadata).toMatchObject({
+      supervisorEvaluationId: "eval-plan",
+      supervisorEvent: "plan_drafted",
+      projectId: 3,
+      planId: 44,
+      artifactRef: { kind: "plan_draft", id: "plan-44:draft" },
+    });
+  });
+
+  it("builds diff_ready request from changed-work evidence without raw diff bodies", () => {
+    const request = createDiffReadySupervisorRequest({
+      sessionId: 5,
+      projectId: 1,
+      stepId: 9,
+      stepTitle: "Settings save",
+      sourceUiMode: "work",
+      goalSummary: "Keep settings changes scoped",
+      stepSummary: "Only update the settings screen",
+      changedFiles: [
+        normalizeChangedFile({ path: "src/settings/SettingsPage.tsx" }),
+        normalizeChangedFile({ path: "src/auth/session.ts" }),
+      ],
+      expectedFiles: ["src/settings/SettingsPage.tsx"],
+      diffViewed: false,
+      uiState: {
+        goalSummary: "Keep settings changes scoped",
+        planSummary: { stepCount: 1, activeStep: "Settings save" },
+        verification: {
+          aiClaimedDone: false,
+          diffReviewed: false,
+          appLaunched: false,
+          previewChecked: false,
+          automatedTestsPassed: false,
+          testResult: "skipped",
+          acceptanceCriterionConfirmed: false,
+          manualChecks: [],
+        },
+        feasibility: {
+          runnable: false,
+          previewable: false,
+          hasTests: true,
+          diffAvailable: true,
+        },
+      },
+    });
+
+    expect(request).toMatchObject({
+      event: "diff_ready",
+      artifactRef: { kind: "diff", id: "step-9:diff" },
+      allowedActionIds: expect.arrayContaining(["open_diff", "ask_ai_for_rationale"]),
+      diffReadyAssessment: {
+        eligible: true,
+        reasonCodes: ["outside_expected_files", "high_risk_area"],
+        unexpectedFiles: ["src/auth/session.ts"],
+        highRiskFiles: ["src/auth/session.ts"],
+      },
+    });
+    expect(JSON.stringify(request.evidenceRefs)).not.toContain("@@");
+
+    const expectedOnly = createDiffReadySupervisorRequest({
+      ...request,
+      changedFiles: [normalizeChangedFile({ path: "src/settings/SettingsPage.tsx" })],
+      expectedFiles: ["src/settings/SettingsPage.tsx"],
+      uiState: request.uiState,
+      stepId: 9,
+      stepTitle: "Settings save",
+      goalSummary: "Keep settings changes scoped",
+      stepSummary: "Only update the settings screen",
+    });
+    expect(expectedOnly.diffReadyAssessment.eligible).toBe(false);
+  });
+
+  it("builds retry_loop request from repeated failure evidence without raw terminal bodies", () => {
+    const request = createRetryLoopSupervisorRequest({
+      sessionId: 6,
+      projectId: 1,
+      stepId: 9,
+      stepTitle: "Settings save",
+      sourceUiMode: "guided",
+      goalSummary: "Fix settings save",
+      stepSummary: "Run the failing save test",
+      failureSummary:
+        "stderr: TypeError: Cannot read properties of undefined at src/settings/save.ts:42\nTOKEN=secret",
+      failureCount: 2,
+      lastFailureAt: 2000,
+      recoveryAvailable: true,
+      lastActionSummary: "verification_failed",
+      uiState: {
+        goalSummary: "Fix settings save",
+        planSummary: { stepCount: 1, activeStep: "Settings save" },
+        verification: {
+          aiClaimedDone: false,
+          diffReviewed: false,
+          appLaunched: false,
+          previewChecked: false,
+          automatedTestsPassed: false,
+          testResult: "fail",
+          acceptanceCriterionConfirmed: false,
+          manualChecks: [],
+        },
+        feasibility: {
+          runnable: false,
+          previewable: false,
+          hasTests: true,
+          diffAvailable: true,
+        },
+      },
+    });
+
+    expect(request).toMatchObject({
+      event: "retry_loop",
+      mode: "guided",
+      artifactRef: { kind: "failure" },
+      allowedActionIds: expect.arrayContaining([
+        "create_repro_steps",
+        "rollback_last_change",
+        "open_diff",
+        "run_tests",
+        "split_scope",
+      ]),
+      retryLoopAssessment: {
+        eligible: true,
+        reasonCodes: ["same_failure_repeated"],
+        failureCount: 2,
+        recoveryAvailable: true,
+      },
+    });
+    const evidenceJson = JSON.stringify(request.evidenceRefs);
+    expect(evidenceJson).not.toContain("TOKEN=secret");
+    expect(evidenceJson).not.toContain("Cannot read properties");
+
+    const oneFailure = createRetryLoopSupervisorRequest({
+      ...request,
+      failureSummary: "TypeError: Cannot read properties of undefined",
+      failureCount: 1,
+      lastFailureAt: 3000,
+      stepId: 9,
+      stepTitle: "Settings save",
+      goalSummary: "Fix settings save",
+      stepSummary: "Run the failing save test",
+      recoveryAvailable: true,
+      uiState: request.uiState,
+    });
+    expect(oneFailure.retryLoopAssessment.eligible).toBe(false);
   });
 });

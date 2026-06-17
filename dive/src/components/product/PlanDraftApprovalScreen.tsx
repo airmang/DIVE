@@ -1,5 +1,5 @@
 import { AlertTriangle, Check, ChevronDown, ChevronUp, RotateCcw, Trash2, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useT } from "../../i18n";
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
 import { criterionTexts, normalizeStepCriteria } from "../../features/planning";
@@ -16,11 +16,13 @@ import {
 import { PlanDraftDependencyMap } from "./PlanDraftDependencyMap";
 import {
   ProvocationCardHost,
+  createPlanDraftSupervisorRequest,
+  evaluateProvocationSupervisor,
   normalizePlanStep,
+  type ProvocationCard,
   type ScaffoldMode,
   useProvocationActionResolver,
 } from "../../features/provocation";
-import { generateProvocationCards } from "../../features/provocation/rules";
 
 interface PlanDraftApprovalScreenProps {
   draft: PlanGenerationResult;
@@ -219,24 +221,83 @@ export function PlanDraftApprovalScreen({
   const [expandedStepIds, setExpandedStepIds] = useState<Set<string>>(() => new Set());
   const [critique, setCritique] = useState<"unset" | "none" | "found">("unset");
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
-  const unresolved = stringArray(interview?.unresolved_questions);
+  const unresolved = useMemo(
+    () => stringArray(interview?.unresolved_questions),
+    [interview?.unresolved_questions],
+  );
   const markdown = useMemo(() => buildPlanMarkdown(draft), [draft]);
   const plan = draft.plan;
   const approveBlocked = tutorialEnabled && critique !== "none";
   const revisionOpen = revisionTarget !== null;
-  const provocationCards = useMemo(() => {
-    if (!provocation?.enabled) return [];
-    return generateProvocationCards({
-      mode: provocation.mode,
-      stage: "instruct",
-      projectId: provocation.projectId,
+  const acceptanceCriteria = useMemo(
+    () => criterionTexts(plan.acceptance_criteria),
+    [plan.acceptance_criteria],
+  );
+  const planDraftSupervisorRequest = useMemo(() => {
+    if (!provocation?.enabled || typeof provocation.sessionId !== "number") return null;
+    return createPlanDraftSupervisorRequest({
       sessionId: provocation.sessionId,
-      featureId: plan.id,
-      goalText: plan.goal,
-      acceptanceCriteria: stringArray(plan.acceptance_criteria),
-      planSteps: draft.steps.map(normalizePlanStep),
+      projectId: typeof provocation.projectId === "number" ? provocation.projectId : undefined,
+      planId: plan.id,
+      sourceUiMode: provocation.mode,
+      locale: "ko-KR",
+      goalSummary: plan.goal,
+      acceptanceCriteria,
+      unresolvedQuestions: unresolved,
+      planSteps: draft.steps.map((step) => {
+        const metadata = normalizeStepCriteria(step.acceptance_criteria, {
+          linkedCriterionIds:
+            (step as unknown as Record<string, unknown>).linkedCriterionIds ??
+            (step as unknown as Record<string, unknown>).linked_criterion_ids,
+          rationale:
+            (step as unknown as Record<string, unknown>).rationale ??
+            (step as unknown as Record<string, unknown>).decomposition_rationale,
+        });
+        return normalizePlanStep({
+          ...step,
+          linkedCriterionIds: metadata.linkedCriteria.map((criterion) => criterion.criterionId),
+        });
+      }),
     });
-  }, [draft.steps, plan.acceptance_criteria, plan.goal, plan.id, provocation]);
+  }, [
+    acceptanceCriteria,
+    draft.steps,
+    plan.goal,
+    plan.id,
+    provocation?.enabled,
+    provocation?.mode,
+    provocation?.projectId,
+    provocation?.sessionId,
+    unresolved,
+  ]);
+  const [provocationCards, setProvocationCards] = useState<ProvocationCard[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!planDraftSupervisorRequest) {
+      setProvocationCards([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setProvocationCards([]);
+    void evaluateProvocationSupervisor(planDraftSupervisorRequest)
+      .then((response) => {
+        if (cancelled) return;
+        setProvocationCards(response.status === "shown" ? [response.card] : []);
+      })
+      .catch((err) => {
+        if (import.meta.env.DEV) {
+          console.warn("plan draft supervisor evaluation failed:", err);
+        }
+        if (!cancelled) setProvocationCards([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [planDraftSupervisorRequest]);
 
   const openRevisionFeedback = (
     nextFeedback: string,
@@ -542,10 +603,7 @@ export function PlanDraftApprovalScreen({
                     {t("planning.approval.acceptance_criteria")}
                   </dt>
                   <dd className="mt-1 text-fg">
-                    {compactList(
-                      criterionTexts(plan.acceptance_criteria),
-                      t("planning.approval.none"),
-                    )}
+                    {compactList(acceptanceCriteria, t("planning.approval.none"))}
                   </dd>
                 </div>
                 <div>

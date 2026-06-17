@@ -9,6 +9,12 @@ import type {
   ProvocationPlanStep,
   ProvocationRetrySignal,
   AnySupervisorEvaluationRequest,
+  DiffReadyReviewAssessmentContract,
+  DiffReadySupervisorEvaluationRequest,
+  PlanDraftReviewAssessmentContract,
+  PlanDraftSupervisorEvaluationRequest,
+  RetryLoopReviewAssessmentContract,
+  RetryLoopSupervisorEvaluationRequest,
   ScopeExpansionAssessmentContract,
   ScopeExpansionSupervisorEvaluationRequest,
   SupervisorArtifactRef,
@@ -34,6 +40,8 @@ export function normalizePlanStep(input: {
   instruction_seed?: string | null;
   expected_files?: unknown;
   expectedFiles?: unknown;
+  linkedCriterionIds?: unknown;
+  linked_criterion_ids?: unknown;
   verification_kind?: string | null;
   verification_command?: string | null;
   verification_manual_check?: string | null;
@@ -54,6 +62,7 @@ export function normalizePlanStep(input: {
       .join(" "),
     kind: input.verification_kind ?? undefined,
     expectedFiles: stringArray(input.expected_files ?? input.expectedFiles),
+    linkedCriterionIds: stringArray(input.linked_criterion_ids ?? input.linkedCriterionIds),
     verificationCommand: input.verification_command ?? null,
     verificationManualCheck: input.verification_manual_check ?? null,
     dependencies: stringArray(input.dependencies),
@@ -181,6 +190,58 @@ function normalizeFailureKey(value: string): string {
     .replace(/0x[0-9a-f]+/g, "0x#")
     .replace(/line #/g, "line #")
     .slice(0, 240);
+}
+
+export function normalizeFailureFingerprint(value: string): string {
+  return normalizeFailureKey(value);
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function localHash(value: unknown): string {
+  const text = stableStringify(value);
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `fnv1a:${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function compactText(value: string, limit = 160): string {
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  return trimmed.length > limit ? `${trimmed.slice(0, limit)}...` : trimmed;
+}
+
+function compactArray<T>(items: T[], limit = 6): T[] {
+  return items.slice(0, limit);
+}
+
+function evidenceRef(input: {
+  id: string;
+  source: SupervisorEvidenceRefContract["source"];
+  kind: string;
+  label: string;
+  valueSummary: unknown;
+  verificationEvidence?: boolean;
+}): SupervisorEvidenceRefContract {
+  return {
+    id: input.id,
+    source: input.source,
+    kind: input.kind,
+    label: compactText(input.label, 80),
+    valueSummary: input.valueSummary,
+    verificationEvidence: input.verificationEvidence ?? false,
+  };
 }
 
 export function detectAssistantSelfReportCompletion(text: string): boolean {
@@ -388,6 +449,616 @@ export function createScopeExpansionSupervisorRequest(input: {
   };
 }
 
+function hasVerificationPlan(step: ProvocationPlanStep): boolean {
+  const kind = step.kind?.trim().toLowerCase();
+  return Boolean(
+    step.verificationCommand?.trim() ||
+    step.verificationManualCheck?.trim() ||
+    (kind && kind !== "none"),
+  );
+}
+
+function broadPlanStep(step: ProvocationPlanStep): boolean {
+  const text = step.text.toLowerCase();
+  const expectedFileCount = step.expectedFiles?.length ?? 0;
+  return (
+    expectedFileCount >= 4 ||
+    /\b(and|also|entire|all|everything)\b/.test(text) ||
+    /(전체|모두|그리고|또한|한번에|한 번에)/.test(text)
+  );
+}
+
+export function buildPlanDraftReviewAssessment(input: {
+  planSteps: ProvocationPlanStep[];
+  acceptanceCriteria: string[];
+  unresolvedQuestions?: string[];
+}): PlanDraftReviewAssessmentContract {
+  const unverifiedStepIds = compactArray(
+    input.planSteps.filter((step) => !hasVerificationPlan(step)).map((step) => step.id),
+  );
+  const unlinkedStepIds = compactArray(
+    input.planSteps
+      .filter((step) => input.acceptanceCriteria.length > 0 && !step.linkedCriterionIds?.length)
+      .map((step) => step.id),
+  );
+  const broadStepIds = compactArray(input.planSteps.filter(broadPlanStep).map((step) => step.id));
+  const unresolved = compactArray(input.unresolvedQuestions ?? []);
+  const reasonCodes: string[] = [];
+  if (unverifiedStepIds.length > 0) reasonCodes.push("missing_verification");
+  if (unlinkedStepIds.length > 0) reasonCodes.push("unlinked_criteria");
+  if (broadStepIds.length > 0) reasonCodes.push("broad_step");
+  if (unresolved.length > 0) reasonCodes.push("unresolved_question");
+
+  const evidenceRefs = [
+    "plan.goal",
+    "plan.criteria",
+    "plan.step_count",
+    ...unverifiedStepIds.map((id) => `plan.step.${id}.verification`),
+    ...unlinkedStepIds.map((id) => `plan.step.${id}.criteria`),
+    ...broadStepIds.map((id) => `plan.step.${id}.scope`),
+    ...unresolved.map((_, index) => `plan.unresolved.${index}`),
+  ];
+
+  return {
+    eligible: reasonCodes.length > 0 && input.planSteps.length > 0,
+    reasonCodes,
+    evidenceRefs: compactArray([...new Set(evidenceRefs)], 16),
+    stepCount: input.planSteps.length,
+    criteriaCount: input.acceptanceCriteria.length,
+    unverifiedStepIds,
+    unlinkedStepIds,
+  };
+}
+
+export function buildPlanDraftEvidenceRefs(input: {
+  goalSummary: string;
+  acceptanceCriteria: string[];
+  planSteps: ProvocationPlanStep[];
+  unresolvedQuestions?: string[];
+  assessment: PlanDraftReviewAssessmentContract;
+}): SupervisorEvidenceRefContract[] {
+  const refs: SupervisorEvidenceRefContract[] = [
+    evidenceRef({
+      id: "plan.goal",
+      source: "goal",
+      kind: "plan_goal",
+      label: "Plan goal",
+      valueSummary: compactText(input.goalSummary),
+    }),
+    evidenceRef({
+      id: "plan.criteria",
+      source: "plan",
+      kind: "acceptance_criteria",
+      label: "Acceptance criteria",
+      valueSummary: {
+        count: input.acceptanceCriteria.length,
+        items: compactArray(
+          input.acceptanceCriteria.map((item) => compactText(item, 80)),
+          6,
+        ),
+      },
+    }),
+    evidenceRef({
+      id: "plan.step_count",
+      source: "plan",
+      kind: "plan_step",
+      label: "Plan steps",
+      valueSummary: { count: input.planSteps.length },
+    }),
+  ];
+  const stepById = new Map(input.planSteps.map((step) => [step.id, step]));
+  for (const stepId of input.assessment.unverifiedStepIds) {
+    const step = stepById.get(stepId);
+    refs.push(
+      evidenceRef({
+        id: `plan.step.${stepId}.verification`,
+        source: "plan",
+        kind: "verification_coverage",
+        label: `Missing verification for ${stepId}`,
+        valueSummary: {
+          stepId,
+          text: compactText(step?.text ?? stepId),
+          verificationCommand: step?.verificationCommand ?? null,
+          verificationManualCheck: step?.verificationManualCheck ?? null,
+        },
+      }),
+    );
+  }
+  for (const stepId of input.assessment.unlinkedStepIds) {
+    const step = stepById.get(stepId);
+    refs.push(
+      evidenceRef({
+        id: `plan.step.${stepId}.criteria`,
+        source: "plan",
+        kind: "criterion_linkage",
+        label: `Missing criterion link for ${stepId}`,
+        valueSummary: {
+          stepId,
+          text: compactText(step?.text ?? stepId),
+          linkedCriterionIds: step?.linkedCriterionIds ?? [],
+        },
+      }),
+    );
+  }
+  for (const step of input.planSteps.filter(broadPlanStep).slice(0, 6)) {
+    refs.push(
+      evidenceRef({
+        id: `plan.step.${step.id}.scope`,
+        source: "plan",
+        kind: "broad_step",
+        label: `Broad step ${step.id}`,
+        valueSummary: {
+          stepId: step.id,
+          text: compactText(step.text),
+          expectedFileCount: step.expectedFiles?.length ?? 0,
+        },
+      }),
+    );
+  }
+  for (const [index, question] of (input.unresolvedQuestions ?? []).slice(0, 6).entries()) {
+    refs.push(
+      evidenceRef({
+        id: `plan.unresolved.${index}`,
+        source: "history",
+        kind: "unresolved_question",
+        label: `Unresolved question ${index + 1}`,
+        valueSummary: compactText(question),
+      }),
+    );
+  }
+  const allowed = new Set(input.assessment.evidenceRefs);
+  return refs.filter((ref) => allowed.has(ref.id));
+}
+
+export function createPlanDraftSupervisorRequest(input: {
+  sessionId: number;
+  projectId?: number | null;
+  planId: number;
+  artifactRef?: SupervisorArtifactRef;
+  sourceUiMode?: SupervisorSourceUiMode;
+  locale?: string;
+  goalSummary: string;
+  acceptanceCriteria: string[];
+  planSteps: ProvocationPlanStep[];
+  unresolvedQuestions?: string[];
+  uiState?: PlanDraftSupervisorEvaluationRequest["uiState"];
+}): PlanDraftSupervisorEvaluationRequest {
+  const sourceUiMode = input.sourceUiMode ?? "standard";
+  const assessment = buildPlanDraftReviewAssessment({
+    planSteps: input.planSteps,
+    acceptanceCriteria: input.acceptanceCriteria,
+    unresolvedQuestions: input.unresolvedQuestions,
+  });
+  const evidenceRefs = buildPlanDraftEvidenceRefs({
+    goalSummary: input.goalSummary,
+    acceptanceCriteria: input.acceptanceCriteria,
+    planSteps: input.planSteps,
+    unresolvedQuestions: input.unresolvedQuestions,
+    assessment,
+  });
+  const artifactRef =
+    input.artifactRef ??
+    ({
+      kind: "plan_draft",
+      id: `plan-${input.planId}:draft`,
+      label: "Plan draft",
+    } satisfies SupervisorArtifactRef);
+  const uiState =
+    input.uiState ??
+    ({
+      goalSummary: input.goalSummary,
+      planSummary: {
+        stepCount: input.planSteps.length,
+        activeStep: null,
+      },
+      verification: {
+        aiClaimedDone: false,
+        diffReviewed: false,
+        appLaunched: false,
+        previewChecked: false,
+        automatedTestsPassed: false,
+        testResult: null,
+        acceptanceCriterionConfirmed: false,
+        manualChecks: [],
+      },
+      feasibility: {
+        runnable: false,
+        previewable: false,
+        hasTests: input.planSteps.some((step) => Boolean(step.verificationCommand?.trim())),
+        diffAvailable: false,
+      },
+    } satisfies PlanDraftSupervisorEvaluationRequest["uiState"]);
+  const contextBasis = {
+    event: "plan_drafted",
+    artifactRef,
+    goalSummary: input.goalSummary,
+    planId: input.planId,
+    assessment,
+  };
+  return {
+    sessionId: input.sessionId,
+    event: "plan_drafted",
+    artifactRef,
+    sourceUiMode,
+    mode: normalizeSupervisorRenderMode(sourceUiMode),
+    locale: input.locale,
+    projectId: input.projectId ?? undefined,
+    planId: input.planId,
+    contextHash: localHash(contextBasis),
+    evidenceHash: localHash(evidenceRefs),
+    uiState,
+    allowedActionIds: [
+      "add_verification_step",
+      "link_criterion",
+      "split_scope",
+      "edit_prd",
+      "dismiss_review",
+    ],
+    evidenceRefs,
+    planDraftAssessment: assessment,
+  };
+}
+
+function pathMatchesExpected(path: string, expectedFiles: string[]): boolean {
+  const normalized = path.trim().toLowerCase();
+  return expectedFiles.some((expected) => {
+    const candidate = expected.trim().toLowerCase();
+    if (!candidate) return false;
+    if (candidate.includes("*")) {
+      const prefix = candidate.split("*")[0] ?? "";
+      return prefix.length > 0 && normalized.startsWith(prefix);
+    }
+    return (
+      normalized === candidate ||
+      normalized.endsWith(`/${candidate}`) ||
+      normalized.startsWith(`${candidate}/`)
+    );
+  });
+}
+
+function isHighRiskFile(file: ProvocationChangedFile): boolean {
+  const category = file.category ?? guessChangedFileCategory(file.path);
+  return ["auth", "config", "db", "dependency", "routing"].includes(category);
+}
+
+export function buildDiffReadyReviewAssessment(input: {
+  changedFiles: ProvocationChangedFile[];
+  expectedFiles: string[];
+  diffViewed?: boolean;
+}): DiffReadyReviewAssessmentContract {
+  const changedFiles = input.changedFiles.filter((file) => file.path.trim().length > 0);
+  const expectedFiles = input.expectedFiles.filter((path) => path.trim().length > 0);
+  const unexpectedFiles = compactArray(
+    changedFiles
+      .filter((file) => expectedFiles.length > 0 && !pathMatchesExpected(file.path, expectedFiles))
+      .map((file) => file.path),
+  );
+  const highRiskFiles = compactArray(
+    changedFiles
+      .filter(
+        (file) =>
+          isHighRiskFile(file) &&
+          (expectedFiles.length === 0 || !pathMatchesExpected(file.path, expectedFiles)),
+      )
+      .map((file) => file.path),
+  );
+  const reasonCodes: string[] = [];
+  if (unexpectedFiles.length > 0) reasonCodes.push("outside_expected_files");
+  if (highRiskFiles.length > 0) reasonCodes.push("high_risk_area");
+  const evidenceRefs = [
+    "diff.changed_files",
+    "diff.expected_files",
+    "step.scope",
+    "diff.viewed",
+    ...(unexpectedFiles.length > 0 ? ["diff.unexpected_files"] : []),
+    ...(highRiskFiles.length > 0 ? ["diff.high_risk_files"] : []),
+  ];
+
+  return {
+    eligible: changedFiles.length > 0 && reasonCodes.length > 0,
+    reasonCodes,
+    evidenceRefs,
+    changedFileCount: changedFiles.length,
+    unexpectedFiles,
+    highRiskFiles,
+    diffViewed: Boolean(input.diffViewed),
+  };
+}
+
+export function buildDiffReadyEvidenceRefs(input: {
+  goalSummary: string;
+  stepSummary: string;
+  changedFiles: ProvocationChangedFile[];
+  expectedFiles: string[];
+  assessment: DiffReadyReviewAssessmentContract;
+}): SupervisorEvidenceRefContract[] {
+  const refs = [
+    evidenceRef({
+      id: "diff.changed_files",
+      source: "diff",
+      kind: "changed_file",
+      label: "Changed files",
+      valueSummary: {
+        totalCount: input.changedFiles.length,
+        paths: compactArray(
+          input.changedFiles.map((file) => file.path),
+          8,
+        ),
+      },
+    }),
+    evidenceRef({
+      id: "diff.expected_files",
+      source: "plan",
+      kind: "expected_file",
+      label: "Expected files",
+      valueSummary: {
+        totalCount: input.expectedFiles.length,
+        paths: compactArray(input.expectedFiles, 8),
+      },
+    }),
+    evidenceRef({
+      id: "step.scope",
+      source: "plan",
+      kind: "step_scope",
+      label: "Step scope",
+      valueSummary: {
+        goal: compactText(input.goalSummary, 120),
+        step: compactText(input.stepSummary, 160),
+      },
+    }),
+    evidenceRef({
+      id: "diff.viewed",
+      source: "ui_observation",
+      kind: "diff_view",
+      label: "Diff viewed",
+      valueSummary: { viewed: input.assessment.diffViewed },
+    }),
+    evidenceRef({
+      id: "diff.unexpected_files",
+      source: "diff",
+      kind: "changed_file",
+      label: "Unexpected files",
+      valueSummary: {
+        totalCount: input.assessment.unexpectedFiles.length,
+        paths: input.assessment.unexpectedFiles,
+      },
+    }),
+    evidenceRef({
+      id: "diff.high_risk_files",
+      source: "diff",
+      kind: "changed_file",
+      label: "High-risk files",
+      valueSummary: {
+        totalCount: input.assessment.highRiskFiles.length,
+        paths: input.assessment.highRiskFiles,
+      },
+    }),
+  ];
+  const allowed = new Set(input.assessment.evidenceRefs);
+  return refs.filter((ref) => allowed.has(ref.id));
+}
+
+export function createDiffReadySupervisorRequest(input: {
+  sessionId: number;
+  projectId?: number | null;
+  planId?: number | null;
+  stepId: number | string;
+  stepTitle: string;
+  sourceUiMode?: SupervisorSourceUiMode;
+  locale?: string;
+  goalSummary: string;
+  stepSummary: string;
+  changedFiles: ProvocationChangedFile[];
+  expectedFiles: string[];
+  diffViewed?: boolean;
+  uiState: DiffReadySupervisorEvaluationRequest["uiState"];
+}): DiffReadySupervisorEvaluationRequest {
+  const sourceUiMode = input.sourceUiMode ?? "standard";
+  const assessment = buildDiffReadyReviewAssessment({
+    changedFiles: input.changedFiles,
+    expectedFiles: input.expectedFiles,
+    diffViewed: input.diffViewed,
+  });
+  const evidenceRefs = buildDiffReadyEvidenceRefs({
+    goalSummary: input.goalSummary,
+    stepSummary: input.stepSummary,
+    changedFiles: input.changedFiles,
+    expectedFiles: input.expectedFiles,
+    assessment,
+  });
+  const artifactRef = {
+    kind: "diff",
+    id: `step-${input.stepId}:diff`,
+    label: input.stepTitle || "Changed work",
+  } satisfies SupervisorArtifactRef;
+  const contextBasis = {
+    event: "diff_ready",
+    artifactRef,
+    goalSummary: input.goalSummary,
+    stepSummary: input.stepSummary,
+    assessment,
+  };
+  return {
+    sessionId: input.sessionId,
+    event: "diff_ready",
+    artifactRef,
+    sourceUiMode,
+    mode: normalizeSupervisorRenderMode(sourceUiMode),
+    locale: input.locale,
+    projectId: input.projectId ?? undefined,
+    planId: input.planId ?? undefined,
+    contextHash: localHash(contextBasis),
+    evidenceHash: localHash(evidenceRefs),
+    uiState: input.uiState,
+    allowedActionIds: [
+      "open_diff",
+      "ask_ai_for_rationale",
+      "revert_unrelated_changes",
+      "run_tests",
+      "dismiss_review",
+    ],
+    evidenceRefs,
+    diffReadyAssessment: assessment,
+  };
+}
+
+export function buildRetryLoopReviewAssessment(input: {
+  failureFingerprint: string;
+  failureCount: number;
+  lastFailureAt: number | string;
+  recoveryAvailable: boolean;
+  lastActionSummary?: string | null;
+}): RetryLoopReviewAssessmentContract {
+  const failureFingerprint = input.failureFingerprint.trim();
+  const reasonCodes: string[] = [];
+  if (failureFingerprint && input.failureCount >= 2) {
+    reasonCodes.push("same_failure_repeated");
+  }
+  if (!input.recoveryAvailable) {
+    reasonCodes.push("recovery_unavailable");
+  }
+  const evidenceRefs = [
+    "failure.fingerprint",
+    "failure.count",
+    "failure.last",
+    "recovery.state",
+    ...(input.lastActionSummary?.trim() ? ["failure.last_action"] : []),
+  ];
+
+  return {
+    eligible: failureFingerprint.length > 0 && input.failureCount >= 2,
+    reasonCodes,
+    evidenceRefs,
+    failureFingerprint,
+    failureCount: Math.max(0, input.failureCount),
+    lastFailureAt: input.lastFailureAt,
+    lastActionSummary: input.lastActionSummary?.trim() || null,
+    recoveryAvailable: input.recoveryAvailable,
+  };
+}
+
+export function buildRetryLoopEvidenceRefs(input: {
+  failureSummary: string;
+  assessment: RetryLoopReviewAssessmentContract;
+}): SupervisorEvidenceRefContract[] {
+  const refs = [
+    evidenceRef({
+      id: "failure.fingerprint",
+      source: "terminal",
+      kind: "failure_summary",
+      label: "Failure fingerprint",
+      valueSummary: {
+        fingerprint: input.assessment.failureFingerprint,
+      },
+    }),
+    evidenceRef({
+      id: "failure.count",
+      source: "verification",
+      kind: "retry_loop_assessment",
+      label: "Repeated failure count",
+      valueSummary: {
+        count: input.assessment.failureCount,
+      },
+    }),
+    evidenceRef({
+      id: "failure.last",
+      source: "verification",
+      kind: "failure_summary",
+      label: "Last failure",
+      valueSummary: {
+        occurredAt: input.assessment.lastFailureAt,
+        summaryHash: localHash(compactText(input.failureSummary, 120)),
+      },
+    }),
+    evidenceRef({
+      id: "recovery.state",
+      source: "ui_observation",
+      kind: "recovery_state",
+      label: "Recovery state",
+      valueSummary: {
+        recoveryAvailable: input.assessment.recoveryAvailable,
+      },
+    }),
+    evidenceRef({
+      id: "failure.last_action",
+      source: "history",
+      kind: "failure_summary",
+      label: "Last action summary",
+      valueSummary: compactText(input.assessment.lastActionSummary ?? "", 120),
+    }),
+  ];
+  const allowed = new Set(input.assessment.evidenceRefs);
+  return refs.filter((ref) => allowed.has(ref.id));
+}
+
+export function createRetryLoopSupervisorRequest(input: {
+  sessionId: number;
+  projectId?: number | null;
+  planId?: number | null;
+  stepId: number | string;
+  stepTitle: string;
+  sourceUiMode?: SupervisorSourceUiMode;
+  locale?: string;
+  goalSummary: string;
+  stepSummary: string;
+  failureSummary: string;
+  failureCount: number;
+  lastFailureAt: number | string;
+  recoveryAvailable: boolean;
+  lastActionSummary?: string | null;
+  uiState: RetryLoopSupervisorEvaluationRequest["uiState"];
+}): RetryLoopSupervisorEvaluationRequest {
+  const sourceUiMode = input.sourceUiMode ?? "standard";
+  const assessment = buildRetryLoopReviewAssessment({
+    failureFingerprint: normalizeFailureFingerprint(input.failureSummary),
+    failureCount: input.failureCount,
+    lastFailureAt: input.lastFailureAt,
+    recoveryAvailable: input.recoveryAvailable,
+    lastActionSummary: input.lastActionSummary,
+  });
+  const evidenceRefs = buildRetryLoopEvidenceRefs({
+    failureSummary: input.failureSummary,
+    assessment,
+  });
+  const artifactRef = {
+    kind: "failure",
+    id: `step-${input.stepId}:failure:${assessment.failureFingerprint || "unknown"}`,
+    label: input.stepTitle || "Repeated failure",
+  } satisfies SupervisorArtifactRef;
+  const contextBasis = {
+    event: "retry_loop",
+    artifactRef,
+    goalSummary: input.goalSummary,
+    stepSummary: input.stepSummary,
+    assessment,
+  };
+  const allowedActionIds: SupervisorAllowedActionId[] = [
+    "create_repro_steps",
+    ...(input.recoveryAvailable ? (["rollback_last_change"] as const) : []),
+    ...(input.uiState.feasibility.diffAvailable ? (["open_diff"] as const) : []),
+    ...(input.uiState.feasibility.hasTests ? (["run_tests"] as const) : []),
+    "split_scope",
+    "dismiss_review",
+  ];
+
+  return {
+    sessionId: input.sessionId,
+    event: "retry_loop",
+    artifactRef,
+    sourceUiMode,
+    mode: normalizeSupervisorRenderMode(sourceUiMode),
+    locale: input.locale,
+    projectId: input.projectId ?? undefined,
+    planId: input.planId ?? undefined,
+    contextHash: localHash(contextBasis),
+    evidenceHash: localHash(evidenceRefs),
+    uiState: input.uiState,
+    allowedActionIds,
+    evidenceRefs,
+    retryLoopAssessment: assessment,
+  };
+}
+
 const SUPERVISOR_DROP_REASONS: ReadonlySet<string> = new Set<SupervisorDropReason>([
   "provoke_false",
   "runtime_unavailable",
@@ -414,6 +1085,47 @@ const SCOPE_EXPANSION_ACTIONS: ReadonlySet<SupervisorAllowedActionId> = new Set(
   "edit_prd",
   "dismiss_review",
 ]);
+
+const PLAN_DRAFT_ACTIONS: ReadonlySet<SupervisorAllowedActionId> = new Set([
+  "add_verification_step",
+  "link_criterion",
+  "split_scope",
+  "edit_prd",
+  "dismiss_review",
+]);
+
+const DIFF_READY_ACTIONS: ReadonlySet<SupervisorAllowedActionId> = new Set([
+  "open_diff",
+  "ask_ai_for_rationale",
+  "revert_unrelated_changes",
+  "run_tests",
+  "dismiss_review",
+]);
+
+const RETRY_LOOP_ACTIONS: ReadonlySet<SupervisorAllowedActionId> = new Set([
+  "create_repro_steps",
+  "rollback_last_change",
+  "open_diff",
+  "run_tests",
+  "split_scope",
+  "dismiss_review",
+]);
+
+const EVENT_ACTIONS: Partial<
+  Record<AnySupervisorEvaluationRequest["event"], ReadonlySet<SupervisorAllowedActionId>>
+> = {
+  scope_expansion: SCOPE_EXPANSION_ACTIONS,
+  plan_drafted: PLAN_DRAFT_ACTIONS,
+  diff_ready: DIFF_READY_ACTIONS,
+  retry_loop: RETRY_LOOP_ACTIONS,
+};
+
+const EVENT_CARD_TYPES: Partial<Record<AnySupervisorEvaluationRequest["event"], string>> = {
+  scope_expansion: "scope_expansion",
+  plan_drafted: "plan_draft_review",
+  diff_ready: "diff_scope_review",
+  retry_loop: "retry_loop_review",
+};
 
 function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -500,18 +1212,26 @@ function normalizeCard(
     : [];
   const metadata: Record<string, unknown> = {
     ...recordValue(value.metadata),
-    supervisorEvaluationId: stringField(recordValue(value.metadata), "supervisorEvaluationId")
-      ?? evaluationId,
+    supervisorEvaluationId:
+      stringField(recordValue(value.metadata), "supervisorEvaluationId") ?? evaluationId,
   };
 
-  if (request?.event === "scope_expansion") {
-    metadata.supervisorEvent ??= "scope_expansion";
+  if (request && request.event !== "verify_entered") {
+    metadata.supervisorEvent ??= request.event;
     metadata.projectId ??= request.projectId;
     metadata.planId ??= request.planId;
     metadata.artifactRef ??= request.artifactRef;
     metadata.contextHash ??= request.contextHash;
     metadata.evidenceHash ??= request.evidenceHash;
-    metadata.scopeExpansion ??= request.scopeExpansion;
+    if (request.event === "scope_expansion") {
+      metadata.scopeExpansion ??= request.scopeExpansion;
+    } else if (request.event === "plan_drafted") {
+      metadata.planDraftAssessment ??= request.planDraftAssessment;
+    } else if (request.event === "diff_ready") {
+      metadata.diffReadyAssessment ??= request.diffReadyAssessment;
+    } else if (request.event === "retry_loop") {
+      metadata.retryLoopAssessment ??= request.retryLoopAssessment;
+    }
   }
 
   return {
@@ -531,13 +1251,14 @@ function normalizeCard(
   };
 }
 
-function normalizeScopeExpansionShownResponse(
+function normalizeExpandedShownResponse(
   raw: Record<string, unknown>,
   evaluationId: string,
-  request: ScopeExpansionSupervisorEvaluationRequest,
+  request: Exclude<AnySupervisorEvaluationRequest, { event: "verify_entered" }>,
 ): SupervisorEvaluationResponse {
   const card = normalizeCard(raw.card, evaluationId, request);
-  if (!card || card.type !== "scope_expansion") {
+  const expectedType = EVENT_CARD_TYPES[request.event];
+  if (!card || card.type !== expectedType) {
     return {
       status: "dropped",
       evaluationId,
@@ -545,8 +1266,9 @@ function normalizeScopeExpansionShownResponse(
     };
   }
 
+  const eventAllowed = EVENT_ACTIONS[request.event];
   const allowed = new Set(
-    request.allowedActionIds.filter((actionId) => SCOPE_EXPANSION_ACTIONS.has(actionId)),
+    request.allowedActionIds.filter((actionId) => eventAllowed?.has(actionId)),
   );
   const actions = card.actions.filter((action) =>
     allowed.has(action.kind as SupervisorAllowedActionId),
@@ -583,8 +1305,8 @@ export function normalizeSupervisorEvaluationResponse(
   const status = stringField(raw, "status");
 
   if (status === "shown") {
-    if (request?.event === "scope_expansion") {
-      return normalizeScopeExpansionShownResponse(raw, evaluationId, request);
+    if (request && request.event !== "verify_entered") {
+      return normalizeExpandedShownResponse(raw, evaluationId, request);
     }
     const card = normalizeCard(raw.card, evaluationId, request);
     return card

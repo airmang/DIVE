@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
 import type {
@@ -9,6 +9,12 @@ import type {
 } from "../../features/planning";
 import { useUiPreferencesStore } from "../../stores/ui-preferences";
 import { PlanDraftApprovalScreen } from "./PlanDraftApprovalScreen";
+
+const invokeMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: invokeMock,
+}));
 
 type PlanDraftStepWithMetadata = PlanGenerationResult["steps"][number] & {
   linked_criterion_ids: string[];
@@ -106,6 +112,8 @@ describe("PlanDraftApprovalScreen intent and step review surface", () => {
   beforeEach(() => {
     useLocaleStore.setState({ locale: "ko" });
     useUiPreferencesStore.setState({ tutorialEnabled: false });
+    invokeMock.mockReset();
+    delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
   });
 
   afterEach(() => cleanup());
@@ -310,6 +318,66 @@ describe("PlanDraftApprovalScreen intent and step review surface", () => {
 
     expect(screen.queryByText("작업 범위가 너무 큽니다")).toBeNull();
     expect(screen.queryByTestId("provocation-card")).toBeNull();
+  });
+
+  it("invokes plan_drafted backend evaluation and renders one returned card", async () => {
+    (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "provocation_agent_evaluate") {
+        return Promise.resolve({
+          status: "shown",
+          evaluation_id: "eval-plan",
+          card: {
+            id: "card-plan",
+            type: "plan_draft_review",
+            stage: "instruct",
+            severity: "caution",
+            title: "검토 카드",
+            prompt: "이 계획은 검증 없이 승인해도 완료 판단이 가능한가요?",
+            message: "계획을 승인하기 전에 판단과 검증 근거가 충분한지 확인하세요.",
+            evidence: [],
+            actions: [
+              { id: "add_verification_step", kind: "add_verification_step", label: "검증 추가" },
+            ],
+            primary_action_id: "add_verification_step",
+            metadata: { supervisorEvaluationId: "eval-plan" },
+            created_at: "2026-06-16T00:00:00.000Z",
+          },
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    renderScreen({
+      draft: draft({
+        steps: [
+          {
+            ...draft().steps[0],
+            step_id: "s_001",
+            verification_kind: null,
+            verification_command: null,
+            verification_manual_check: null,
+          },
+        ],
+      }),
+      provocation: { enabled: true, mode: "work", projectId: 1, sessionId: 2 },
+    });
+
+    expect(await screen.findByTestId("provocation-card")).toBeTruthy();
+    const evaluationCall = invokeMock.mock.calls.find(
+      ([cmd]) => cmd === "provocation_agent_evaluate",
+    );
+    expect(evaluationCall?.[1]).toMatchObject({
+      request: {
+        event: "plan_drafted",
+        sessionId: 2,
+        projectId: 1,
+        planId: 7,
+        allowedActionIds: expect.arrayContaining(["add_verification_step"]),
+      },
+    });
+    await waitFor(() => expect(screen.getAllByTestId("provocation-card")).toHaveLength(1));
+    expect(screen.queryByText("검증 단계가 빠졌습니다")).toBeNull();
   });
 });
 

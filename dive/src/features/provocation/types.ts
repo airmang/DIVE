@@ -19,9 +19,12 @@ export type ProvocationSeverity = "info" | "caution" | "risk";
 export type ProvocationCardType =
   | "oversized_scope"
   | "scope_expansion"
+  | "plan_draft_review"
   | "missing_acceptance_criteria"
   | "missing_verification_step"
+  | "diff_scope_review"
   | "diff_scope_drift"
+  | "retry_loop_review"
   | "ai_self_report_only"
   | "regeneration_loop";
 
@@ -104,6 +107,7 @@ export interface ProvocationPlanStep {
   text: string;
   kind?: string;
   expectedFiles?: string[];
+  linkedCriterionIds?: string[];
   verificationCommand?: string | null;
   verificationManualCheck?: string | null;
   dependencies?: string[];
@@ -214,6 +218,8 @@ export interface RuntimeCapabilityState {
 }
 
 export type SupervisorEvent = "ai_claimed_done" | "verify_entered" | "scope_expansion";
+export type ExpandedSupervisorEvent = "plan_drafted" | "diff_ready" | "retry_loop";
+export type AnySupervisorEvent = SupervisorEvent | ExpandedSupervisorEvent;
 
 export type SupervisorEvaluationStatus = "shown" | "none" | "dropped";
 
@@ -247,11 +253,16 @@ export type SupervisorAllowedActionId = Extract<
   | "link_criterion"
   | "split_scope"
   | "edit_prd"
+  | "add_verification_step"
+  | "ask_ai_for_rationale"
+  | "revert_unrelated_changes"
+  | "create_repro_steps"
+  | "rollback_last_change"
   | "dismiss_review"
 >;
 
 export interface SupervisorArtifactRef {
-  kind: "step" | "add_step_draft" | "plan_mutation";
+  kind: "step" | "add_step_draft" | "plan_mutation" | "plan_draft" | "diff" | "failure";
   id: string;
   label: string;
 }
@@ -292,6 +303,37 @@ export interface ScopeExpansionAssessmentContract {
   evidenceRefs: string[];
 }
 
+export interface PlanDraftReviewAssessmentContract {
+  eligible: boolean;
+  reasonCodes: string[];
+  evidenceRefs: string[];
+  stepCount: number;
+  criteriaCount: number;
+  unverifiedStepIds: string[];
+  unlinkedStepIds: string[];
+}
+
+export interface DiffReadyReviewAssessmentContract {
+  eligible: boolean;
+  reasonCodes: string[];
+  evidenceRefs: string[];
+  changedFileCount: number;
+  unexpectedFiles: string[];
+  highRiskFiles: string[];
+  diffViewed: boolean;
+}
+
+export interface RetryLoopReviewAssessmentContract {
+  eligible: boolean;
+  reasonCodes: string[];
+  evidenceRefs: string[];
+  failureFingerprint: string;
+  failureCount: number;
+  lastFailureAt: number | string;
+  lastActionSummary?: string | null;
+  recoveryAvailable: boolean;
+}
+
 export interface SupervisorEvidenceRefContract {
   id: string;
   source: ProvocationEvidenceSource;
@@ -316,6 +358,37 @@ export interface ScopeExpansionSupervisorEvent {
 }
 
 export type ScopeExpansionReviewEvent = ScopeExpansionSupervisorEvent;
+
+export interface ExpandedSupervisorEvaluationRequestBase {
+  sessionId: number;
+  event: ExpandedSupervisorEvent;
+  artifactRef: SupervisorArtifactRef;
+  sourceUiMode?: SupervisorSourceUiMode;
+  mode: SupervisorMode;
+  locale?: string;
+  projectId?: number;
+  planId?: number;
+  contextHash?: string;
+  evidenceHash?: string;
+  uiState: SupervisorEvaluationUiState;
+  allowedActionIds: SupervisorAllowedActionId[];
+  evidenceRefs: SupervisorEvidenceRefContract[];
+}
+
+export interface PlanDraftSupervisorEvaluationRequest extends ExpandedSupervisorEvaluationRequestBase {
+  event: "plan_drafted";
+  planDraftAssessment: PlanDraftReviewAssessmentContract;
+}
+
+export interface DiffReadySupervisorEvaluationRequest extends ExpandedSupervisorEvaluationRequestBase {
+  event: "diff_ready";
+  diffReadyAssessment: DiffReadyReviewAssessmentContract;
+}
+
+export interface RetryLoopSupervisorEvaluationRequest extends ExpandedSupervisorEvaluationRequestBase {
+  event: "retry_loop";
+  retryLoopAssessment: RetryLoopReviewAssessmentContract;
+}
 
 export type PlanAdjustmentOfferKind = "redecompose_step" | "adjust_plan";
 
@@ -372,7 +445,10 @@ export interface ScopeExpansionSupervisorEvaluationRequest {
 
 export type AnySupervisorEvaluationRequest =
   | SupervisorEvaluationRequest
-  | ScopeExpansionSupervisorEvaluationRequest;
+  | ScopeExpansionSupervisorEvaluationRequest
+  | PlanDraftSupervisorEvaluationRequest
+  | DiffReadySupervisorEvaluationRequest
+  | RetryLoopSupervisorEvaluationRequest;
 
 export type SupervisorEvaluationResponse =
   | {

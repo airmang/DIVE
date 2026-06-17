@@ -275,7 +275,11 @@ fn plan_mutation_and_objection_roundtrip() {
     assert_eq!(offer.stable_step_id, "step-001");
     assert_eq!(offer.kind, PlanAdjustmentOfferKind::RedecomposeStep);
     assert_eq!(offer.status, PlanAdjustmentOfferStatus::Offered);
-    assert!(offer.suggested_seed.as_deref().unwrap_or("").contains("계획"));
+    assert!(offer
+        .suggested_seed
+        .as_deref()
+        .unwrap_or("")
+        .contains("계획"));
     assert!(offer.created_at > 0);
     assert_eq!(offer.responded_at, None);
 

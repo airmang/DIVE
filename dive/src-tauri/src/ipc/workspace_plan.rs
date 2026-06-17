@@ -1984,10 +1984,7 @@ impl RawPrdPatchOperation {
             criterion_id,
         } = self;
         let value = match op.as_str() {
-            "set_goal"
-            | "set_intent_summary"
-            | "append_scope"
-            | "append_non_goal"
+            "set_goal" | "set_intent_summary" | "append_scope" | "append_non_goal"
             | "append_constraint" => value.or_else(|| text.clone()),
             _ => value,
         };
@@ -2212,7 +2209,9 @@ fn apply_prd_patch_to_draft(
 
         match operation.op.as_str() {
             "set_goal" => {
-                next.spec.goal = prd_operation_text(operation).unwrap_or_default().to_string();
+                next.spec.goal = prd_operation_text(operation)
+                    .unwrap_or_default()
+                    .to_string();
                 push_unique(&mut applied_field_paths, "goal".into());
             }
             "set_intent_summary" => {
