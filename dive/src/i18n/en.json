@@ -181,6 +181,11 @@
     "add_step": {
       "title": "Add step",
       "reason": "Reason for adding it",
+      "request_placeholder": "Describe the missing work in plain language...",
+      "draft_from_request": "Draft from request",
+      "prefilled_from_chat": "Draft filled from chat. Review before saving.",
+      "prefilled_from_request": "Draft filled from your request. Review before saving.",
+      "verification_placeholder": "Command or manual check",
       "criterion_link": "Criterion to link",
       "prd_delta": "PRD change",
       "scope_expansion": "Possible scope expansion",
@@ -263,12 +268,12 @@
     "gate_no_cards": "Describe your goal and draft a plan before step execution.",
     "gate_no_instruction": "Describe what the agent should do for this step.",
     "hint_no_instruction": "Tip: describe what this step should do for a sharper result — or just start chatting.",
-    "hint_plan_step_prompt": "A suggested prompt for this step is ready. Review it before sending.",
+    "hint_plan_step_prompt": "Step context is attached automatically. Use your own words; insert details only if needed.",
     "gate_not_verifying": "Checks have not started yet.",
     "action_open_settings": "Connect AI",
     "action_add_ai_cards": "Add steps with AI",
     "action_write_instruction": "Describe step",
-    "action_insert_step_prompt": "Insert prompt",
+    "action_insert_step_prompt": "Insert details",
     "action_start_verify": "Run check",
     "action_open_review": "Open review",
     "action_draft_plan": "Draft a plan"
@@ -904,8 +909,8 @@
         "add_button": "Use plan area",
         "skip_button": "Just chat",
         "reason_label": "Reason",
-        "dedicated_area_title": "Use the plan add-step area",
-        "dedicated_area_description": "The chat request will continue as a suggestion. Add the step from the plan dashboard when you are ready."
+        "dedicated_area_title": "Review in the plan area",
+        "dedicated_area_description": "DIVE filled the add-step form with this draft. Save it there only after review."
       },
       "error": {
         "routing_failed": "Routing failed: {{message}}"
@@ -939,7 +944,8 @@
     "save_point": "Save recovery point",
     "refresh": "Refresh",
     "restore_success_title": "Checkpoint restored",
-    "restore_success_description": "DIVE restored the project and saved a pre-restore backup.",
+    "restore_success_description": "Project files were restored and a pre-restore backup was saved. Chat history stays as the audit/research log.",
+    "restore_chat_marker": "Checkpoint {{checkpoint}} restored the project files. Chat history was kept as the audit/research log.",
     "restore_unavailable_title": "Restore unavailable",
     "explain_failure_prompt": "Summarize the error log for {{title}}, then propose beginner-friendly reproduction steps and the smallest check command first. Only after that, suggest a safe retry direction:\n{{reason}}",
     "verify_did_not_pass": "Verification did not pass ({{result}}).",

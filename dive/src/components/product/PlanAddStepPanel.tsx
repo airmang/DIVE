@@ -1,15 +1,19 @@
-import { FileText, Link2, Plus } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { FileText, Link2, Plus, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AcceptanceCriterion,
   AppendPlanStepInput,
   PlanAdjustmentReviewRequestDetail,
+  PlanAddStepDraftRequestDetail,
   ProjectSpec,
   ProjectSpecDelta,
   ScopeExpansionAssessment,
   StepDraftInput,
 } from "../../features/planning";
-import { PLAN_ADJUSTMENT_REVIEW_REQUEST_EVENT } from "../../features/planning";
+import {
+  PLAN_ADD_STEP_DRAFT_REQUEST_EVENT,
+  PLAN_ADJUSTMENT_REVIEW_REQUEST_EVENT,
+} from "../../features/planning";
 import {
   ProvocationCardHost,
   createScopeExpansionSupervisorRequest,
@@ -33,8 +37,20 @@ interface PlanAddStepPanelProps {
   projectSpec?: ProjectSpec | null;
   busy?: boolean;
   onAppendStep: (input: AppendPlanStepInput) => Promise<unknown>;
+  onDraftRequest?: (request: string) => Promise<PlanAddStepDraftResult>;
   onAppended?: () => void | Promise<void>;
 }
+
+type PlanAddStepDraftResult =
+  | {
+      status: "draft";
+      draft: StepDraftInput;
+      reason?: string | null;
+    }
+  | {
+      status: "none";
+      reason: string;
+    };
 
 type ScopeSupervisorState =
   | { status: "idle" }
@@ -271,14 +287,25 @@ export function PlanAddStepPanel({
   projectSpec = null,
   busy = false,
   onAppendStep,
+  onDraftRequest,
   onAppended,
 }: PlanAddStepPanelProps) {
   const t = useT();
+  const [requestText, setRequestText] = useState("");
   const [title, setTitle] = useState("");
   const [reason, setReason] = useState("");
   const [expectedFilesText, setExpectedFilesText] = useState("");
   const [verificationCheck, setVerificationCheck] = useState("");
+  const [verificationType, setVerificationType] = useState<string | null>(null);
   const [selectedCriterionIds, setSelectedCriterionIds] = useState<string[]>([]);
+  const [draftAcceptanceCriteria, setDraftAcceptanceCriteria] = useState<
+    StepDraftInput["acceptanceCriteria"]
+  >([]);
+  const [draftDependencies, setDraftDependencies] = useState<string[]>([]);
+  const [draftParallelGroup, setDraftParallelGroup] = useState<number | null>(null);
+  const [draftNotice, setDraftNotice] = useState<PlanAddStepDraftRequestDetail | null>(null);
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [drafting, setDrafting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [scopeSupervisorState, setScopeSupervisorState] = useState<ScopeSupervisorState>({
     status: "idle",
@@ -404,6 +431,58 @@ export function PlanAddStepPanel({
   const scopeSupervisorCard =
     scopeSupervisorState.status === "shown" ? scopeSupervisorState.card : null;
 
+  const applyDraftPrefill = useCallback((detail: PlanAddStepDraftRequestDetail) => {
+    const draft = detail.draft;
+    const nextReason =
+      draft.summary.trim() || draft.rationale.trim() || detail.reason?.trim() || draft.instructionSeed;
+    setTitle(draft.title);
+    setReason(nextReason);
+    setExpectedFilesText(draft.expectedFiles.join("\n"));
+    setVerificationCheck(draft.verificationCommand ?? "");
+    setVerificationType(draft.verificationType ?? null);
+    setSelectedCriterionIds(draft.linkedCriterionIds);
+    setDraftAcceptanceCriteria(draft.acceptanceCriteria);
+    setDraftDependencies(draft.dependencies);
+    setDraftParallelGroup(draft.parallelGroup);
+    setDraftNotice(detail);
+    setDraftStatus(null);
+    requestAnimationFrame(() => titleInputRef.current?.focus());
+  }, []);
+
+  const handleDraftRequest = async () => {
+    if (!onDraftRequest || drafting || busy || !requestText.trim()) return;
+    setDrafting(true);
+    setDraftStatus(null);
+    try {
+      const result = await onDraftRequest(requestText.trim());
+      if (result.status === "draft") {
+        applyDraftPrefill({
+          projectId,
+          planId,
+          draft: result.draft,
+          reason: result.reason,
+          source: "plan_request",
+        });
+        return;
+      }
+      setDraftStatus(result.reason);
+    } catch (err) {
+      setDraftStatus(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDrafting(false);
+    }
+  };
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<PlanAddStepDraftRequestDetail>).detail;
+      if (!detail || detail.projectId !== projectId || detail.planId !== planId) return;
+      applyDraftPrefill(detail);
+    };
+    window.addEventListener(PLAN_ADD_STEP_DRAFT_REQUEST_EVENT, handler);
+    return () => window.removeEventListener(PLAN_ADD_STEP_DRAFT_REQUEST_EVENT, handler);
+  }, [applyDraftPrefill, planId, projectId]);
+
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<PlanAdjustmentReviewRequestDetail>).detail;
@@ -518,19 +597,21 @@ export function PlanAddStepPanel({
     const linkedCriteria: AcceptanceCriterion[] = activeCriteria.filter((criterion) =>
       selectedCriterionIds.includes(criterion.criterionId),
     );
+    const verificationText = verificationCheck.trim();
     const draft: StepDraftInput = {
       stepId: "manual-add-step",
       title: title.trim(),
       summary: reason.trim(),
       instructionSeed: reason.trim(),
       expectedFiles,
-      acceptanceCriteria: linkedCriteria,
+      acceptanceCriteria:
+        linkedCriteria.length > 0 ? linkedCriteria : draftAcceptanceCriteria,
       linkedCriterionIds: selectedCriterionIds,
       rationale: reason.trim(),
-      verificationCommand: null,
-      verificationType: verificationCheck.trim() ? "manual" : null,
-      dependencies: [],
-      parallelGroup: null,
+      verificationCommand: verificationText || null,
+      verificationType: verificationText ? verificationType ?? "manual" : null,
+      dependencies: draftDependencies,
+      parallelGroup: draftParallelGroup,
       position: 0,
     };
     setSaving(true);
@@ -546,7 +627,14 @@ export function PlanAddStepPanel({
       setReason("");
       setExpectedFilesText("");
       setVerificationCheck("");
+      setVerificationType(null);
       setSelectedCriterionIds([]);
+      setDraftAcceptanceCriteria([]);
+      setDraftDependencies([]);
+      setDraftParallelGroup(null);
+      setDraftNotice(null);
+      setDraftStatus(null);
+      setRequestText("");
       await onAppended?.();
     } finally {
       setSaving(false);
@@ -559,6 +647,48 @@ export function PlanAddStepPanel({
         <Plus className="h-3.5 w-3.5 text-accent" aria-hidden />
         {t("prd.add_step.title")}
       </div>
+      {onDraftRequest ? (
+        <div className="mt-2 grid gap-2">
+          <textarea
+            className="min-h-[52px] resize-none rounded-md border bg-bg px-2 py-1.5 text-xs text-fg outline-none focus:border-accent"
+            value={requestText}
+            onChange={(event) => setRequestText(event.target.value)}
+            placeholder={t("prd.add_step.request_placeholder")}
+            data-testid="plan-add-step-request"
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!requestText.trim() || drafting || busy}
+            onClick={() => void handleDraftRequest()}
+            data-testid="plan-add-step-draft-request"
+          >
+            <Sparkles />
+            {drafting ? t("roadmap.dashboard.working") : t("prd.add_step.draft_from_request")}
+          </Button>
+          {draftStatus ? (
+            <p className="text-[11px] text-fg-muted" data-testid="plan-add-step-draft-status">
+              {draftStatus}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {draftNotice ? (
+        <div
+          className="mt-2 rounded-md border border-info/40 bg-info/5 px-2 py-1.5 text-xs"
+          data-testid="plan-add-step-draft-notice"
+        >
+          <p className="font-semibold text-info">
+            {draftNotice.source === "chat_route"
+              ? t("prd.add_step.prefilled_from_chat")
+              : t("prd.add_step.prefilled_from_request")}
+          </p>
+          {draftNotice.reason ? (
+            <p className="mt-1 text-fg-muted">{draftNotice.reason}</p>
+          ) : null}
+        </div>
+      ) : null}
       {planAdjustmentSuggestion ? (
         <div
           className="mt-2 rounded-md border border-info/40 bg-info/5 px-2 py-1.5 text-xs"
@@ -610,8 +740,11 @@ export function PlanAddStepPanel({
         <input
           className="h-8 rounded-md border bg-bg px-2 text-xs text-fg outline-none focus:border-accent"
           value={verificationCheck}
-          onChange={(event) => setVerificationCheck(event.target.value)}
-          placeholder="Manual check"
+          onChange={(event) => {
+            setVerificationCheck(event.target.value);
+            if (event.target.value.trim()) setVerificationType((current) => current ?? "manual");
+          }}
+          placeholder={t("prd.add_step.verification_placeholder")}
           data-testid="plan-add-step-verification-check"
         />
       </div>

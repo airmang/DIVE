@@ -2,12 +2,33 @@ import { Sidebar } from "../shell/Sidebar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { useT } from "../../i18n";
 import { PlanDashboardPanel } from "./PlanDashboardPanel";
+import { useEffect, useState } from "react";
+
+export const PROJECT_RAIL_TAB_REQUEST_EVENT = "dive:project-rail-tab-request";
+export type ProjectRailTab = "workspace" | "dashboard";
+
+export function requestProjectRailTab(tab: ProjectRailTab) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(PROJECT_RAIL_TAB_REQUEST_EVENT, { detail: { tab } }));
+}
 
 export function ProjectRail() {
   const t = useT();
+  const [activeTab, setActiveTab] = useState<ProjectRailTab>("workspace");
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const tab = (event as CustomEvent<{ tab?: ProjectRailTab }>).detail?.tab;
+      if (tab === "workspace" || tab === "dashboard") setActiveTab(tab);
+    };
+    window.addEventListener(PROJECT_RAIL_TAB_REQUEST_EVENT, handler);
+    return () => window.removeEventListener(PROJECT_RAIL_TAB_REQUEST_EVENT, handler);
+  }, []);
+
   return (
     <Tabs
-      defaultValue="workspace"
+      value={activeTab}
+      onValueChange={(value) => setActiveTab(value === "dashboard" ? "dashboard" : "workspace")}
       className="flex h-full min-h-0 flex-col border-r bg-bg-panel"
       data-testid="project-rail"
     >
@@ -17,10 +38,10 @@ export function ProjectRail() {
           <TabsTrigger value="dashboard">{t("sidebar.tab_dashboard")}</TabsTrigger>
         </TabsList>
       </div>
-      <TabsContent value="workspace" className="m-0 min-h-0 flex-1 overflow-hidden">
+      <TabsContent value="workspace" forceMount className="m-0 min-h-0 flex-1 overflow-hidden">
         <Sidebar className="h-full min-h-0 border-r-0" />
       </TabsContent>
-      <TabsContent value="dashboard" className="m-0 min-h-0 flex-1 overflow-hidden">
+      <TabsContent value="dashboard" forceMount className="m-0 min-h-0 flex-1 overflow-hidden">
         <PlanDashboardPanel />
       </TabsContent>
     </Tabs>

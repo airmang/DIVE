@@ -29,6 +29,13 @@ const OBSERVATION_KINDS: ObservationEvidenceKind[] = [
   "test_observation",
 ];
 
+function automaticGenerationKey(request: VerificationCoachGenerateRequest | null): string {
+  if (!request) return "";
+  const { evidence, guideVersion: _guideVersion, ...stableRequest } = request;
+  const { priorObservations: _priorObservations, ...stableEvidence } = evidence;
+  return JSON.stringify({ ...stableRequest, evidence: stableEvidence });
+}
+
 export function VerificationCoachPanel({
   request,
   observation,
@@ -41,7 +48,7 @@ export function VerificationCoachPanel({
   const [observationText, setObservationText] = useState("");
   const [evidenceKind, setEvidenceKind] = useState<ObservationEvidenceKind>("manual_observation");
   const [recording, setRecording] = useState(false);
-  const requestKey = useMemo(() => (request ? JSON.stringify(request) : ""), [request]);
+  const requestKey = useMemo(() => automaticGenerationKey(request), [request]);
 
   useEffect(() => {
     let cancelled = false;

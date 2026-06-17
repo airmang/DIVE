@@ -161,6 +161,7 @@ export function StepDetailSlideIn({
   const [previewOpenedStepIds, setPreviewOpenedStepIds] = useState<Set<number>>(() => new Set());
   const [appOpenedStepIds, setAppOpenedStepIds] = useState<Set<number>>(() => new Set());
   const retryLoopByStepRef = useRef<Map<number, RetryLoopFailureSnapshot>>(new Map());
+  const lastSupervisorEvaluationKeyRef = useRef("");
   const [retryLoopSnapshot, setRetryLoopSnapshot] = useState<RetryLoopFailureSnapshot | null>(null);
 
   useEffect(() => {
@@ -556,14 +557,22 @@ export function StepDetailSlideIn({
       diffReadySupervisorRequest,
       supervisorEvaluationRequest,
     ].filter((request): request is NonNullable<typeof request> => request !== null);
+    const requestKey = JSON.stringify(requests);
     if (requests.length === 0) {
-      setProvocationCards([]);
+      lastSupervisorEvaluationKeyRef.current = "";
+      setProvocationCards((current) => (current.length > 0 ? [] : current));
       return () => {
         cancelled = true;
       };
     }
+    if (requestKey === lastSupervisorEvaluationKeyRef.current) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    lastSupervisorEvaluationKeyRef.current = requestKey;
 
-    setProvocationCards([]);
+    setProvocationCards((current) => (current.length > 0 ? [] : current));
     void (async () => {
       for (const request of requests) {
         const response = await evaluateProvocationSupervisor(request);
@@ -573,12 +582,12 @@ export function StepDetailSlideIn({
           return;
         }
       }
-      setProvocationCards([]);
+      setProvocationCards((current) => (current.length > 0 ? [] : current));
     })().catch((err) => {
       if (import.meta.env.DEV) {
         console.warn("supervisor evaluation failed:", err);
       }
-      if (!cancelled) setProvocationCards([]);
+      if (!cancelled) setProvocationCards((current) => (current.length > 0 ? [] : current));
     });
 
     return () => {

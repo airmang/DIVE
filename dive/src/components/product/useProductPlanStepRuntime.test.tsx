@@ -71,9 +71,8 @@ describe("useProductPlanStepRuntime", () => {
     act(() => result.current.rememberJustOpenedPlanStepMapping(opened));
 
     expect(result.current.pendingPlanStepPrompt?.stepId).toBe(item.step.id);
-    expect(result.current.pendingPlanStepPrompt?.prompt).toContain(
-      "Step: S-010 - Reviewable step",
-    );
+    expect(result.current.pendingPlanStepPrompt?.prompt).toContain("Step ID: S-010");
+    expect(result.current.pendingPlanStepPrompt?.prompt).toContain("Title: Reviewable step");
 
     act(() => result.current.clearPendingPlanStepPrompt());
 

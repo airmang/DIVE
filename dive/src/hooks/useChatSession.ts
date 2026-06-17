@@ -633,6 +633,19 @@ export function useChatSession(
     const api = apiRef.current;
     if (!api) return;
     await api.invoke<void>("checkpoint_restore", { checkpointId });
+    const createdAt = Date.now();
+    const marker: SystemMessageData = {
+      id: `checkpoint-restore-${checkpointId}-${createdAt}`,
+      kind: "system",
+      createdAt,
+      content: translate(useLocaleStore.getState().locale, "recovery.restore_chat_marker", {
+        checkpoint: checkpointId,
+      }),
+    };
+    setState((s) => ({
+      ...s,
+      messages: mergeMessagesById(s.messages, [marker]),
+    }));
   }, []);
 
   return {

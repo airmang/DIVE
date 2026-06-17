@@ -33,6 +33,7 @@ import { usePlanRoadmap, useRoadmap } from "../../features/roadmap";
 import {
   PLAN_DRAFT_REVIEW_REQUEST_EVENT,
   createLiveProjectSpecDraft,
+  requestPlanAddStepDraft,
   usePlan,
   usePlanRouter,
   type LiveProjectSpecDraft,
@@ -65,6 +66,7 @@ import { useProductRecovery } from "./useProductRecovery";
 import { PrdAuthoringBoard, type PrdPatchFeedback } from "./PrdAuthoringBoard";
 import { FinalPrdReadView } from "./FinalPrdReadView";
 import { fallbackModels } from "../settings/providerModels";
+import { requestProjectRailTab } from "./ProjectRail";
 
 export type PrdMode = "authoring" | "read" | null;
 
@@ -468,7 +470,7 @@ export function useProductShellController() {
         : plan.status?.has_approved_plan
           ? plan.status.plan_id
           : null;
-      if (approvedPlanId === null) return true;
+      if (approvedPlanId === null || currentProjectId === null) return true;
 
       let decision: RouteDecision;
       try {
@@ -489,14 +491,23 @@ export function useProductShellController() {
       const approved = await requestPlanRouteConfirmation(decision);
       if (!approved) return true;
 
+      requestProjectRailTab("dashboard");
+      requestPlanAddStepDraft({
+        projectId: currentProjectId,
+        planId: approvedPlanId,
+        draft: decision.draft,
+        reason: decision.reason,
+        source: "chat_route",
+      });
+
       toast({
         variant: "info",
         title: t("planning.route.confirm.dedicated_area_title"),
         description: t("planning.route.confirm.dedicated_area_description"),
       });
-      return true;
+      return false;
     },
-    [plan, planRoadmap, planRouter, requestPlanRouteConfirmation, t, toast],
+    [currentProjectId, plan, planRoadmap, planRouter, requestPlanRouteConfirmation, t, toast],
   );
 
   const planInterviewObserver = usePlanInterviewLLM({
@@ -963,13 +974,42 @@ export function useProductShellController() {
   }, [cards, currentCard, openSlideIn, planRoadmap.steps, roadmapModel]);
 
   const cardStateLabel = currentCard ? t(getCardStateMeta(currentCard.state).labelKey) : null;
-  const currentVerifyLog: VerifyLogView | null = currentCard
-    ? roadmapModel.verifyLogForStep(currentCard.id)
-    : null;
-  const currentVerifyState: "idle" | "running" | "error" = currentCard
-    ? roadmapModel.verifyStateForStep(currentCard.id)
-    : "idle";
-  const currentVerifyError = currentCard ? roadmapModel.verifyErrorForStep(currentCard.id) : null;
+  const currentCardIdForDerivedState = currentCard?.id ?? null;
+  const currentChangedFiles = useMemo(
+    () =>
+      currentCardIdForDerivedState !== null
+        ? roadmapModel.changedFilesForStep(currentCardIdForDerivedState)
+        : [],
+    [currentCardIdForDerivedState, roadmapModel.changedFilesForStep],
+  );
+  const currentToolCallCount = useMemo(
+    () =>
+      currentCardIdForDerivedState !== null
+        ? roadmapModel.toolCallCountForStep(currentCardIdForDerivedState)
+        : 0,
+    [currentCardIdForDerivedState, roadmapModel.toolCallCountForStep],
+  );
+  const currentVerifyLog: VerifyLogView | null = useMemo(
+    () =>
+      currentCardIdForDerivedState !== null
+        ? roadmapModel.verifyLogForStep(currentCardIdForDerivedState)
+        : null,
+    [currentCardIdForDerivedState, roadmapModel.verifyLogForStep],
+  );
+  const currentVerifyState: "idle" | "running" | "error" = useMemo(
+    () =>
+      currentCardIdForDerivedState !== null
+        ? roadmapModel.verifyStateForStep(currentCardIdForDerivedState)
+        : "idle",
+    [currentCardIdForDerivedState, roadmapModel.verifyStateForStep],
+  );
+  const currentVerifyError = useMemo(
+    () =>
+      currentCardIdForDerivedState !== null
+        ? roadmapModel.verifyErrorForStep(currentCardIdForDerivedState)
+        : null,
+    [currentCardIdForDerivedState, roadmapModel.verifyErrorForStep],
+  );
 
   // F2 (2026-06-10 E2E): on the happy path a build step never reached the
   // verified state, so the ApprovalJudgment gate — the core supervision moment —
@@ -1748,11 +1788,11 @@ export function useProductShellController() {
     stepDetail: {
       open: dialogs.stepDetailOpen,
       step: currentStepDetailStep,
-      toolCallCount: currentCard ? roadmapModel.toolCallCountForStep(currentCard.id) : 0,
+      toolCallCount: currentToolCallCount,
       verifyLog: currentVerifyLog,
       verifyState: currentVerifyState,
       verifyError: currentVerifyError,
-      changedFiles: currentCard ? roadmapModel.changedFilesForStep(currentCard.id) : [],
+      changedFiles: currentChangedFiles,
       planContext: currentPlanStepContext,
       onOpenChange: handleStepDetailOpenChange,
       onOpenCode: () => {

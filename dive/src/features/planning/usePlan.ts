@@ -17,11 +17,21 @@ import type {
   RationaleChallengeOfferActionInput,
   RationaleChallengeOfferActionResult,
   RationaleChallengeOfferKind,
+  StepDraftInput,
 } from "./types";
 import type { PlanStepRow } from "../roadmap";
 
 export const PLAN_DRAFT_REVIEW_REQUEST_EVENT = "dive:plan-draft-review-request";
 export const PLAN_ADJUSTMENT_REVIEW_REQUEST_EVENT = "dive:plan-adjustment-review-request";
+export const PLAN_ADD_STEP_DRAFT_REQUEST_EVENT = "dive:plan-add-step-draft-request";
+
+export interface PlanAddStepDraftRequestDetail {
+  projectId: number;
+  planId: number;
+  draft: StepDraftInput;
+  reason?: string | null;
+  source: "chat_route" | "plan_request";
+}
 
 export function requestPlanDraftReview(projectId: number) {
   if (typeof window === "undefined") return;
@@ -35,6 +45,11 @@ export function requestPlanDraftReview(projectId: number) {
 export function requestPlanAdjustmentReview(detail: PlanAdjustmentReviewRequestDetail) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(PLAN_ADJUSTMENT_REVIEW_REQUEST_EVENT, { detail }));
+}
+
+export function requestPlanAddStepDraft(detail: PlanAddStepDraftRequestDetail) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(PLAN_ADD_STEP_DRAFT_REQUEST_EVENT, { detail }));
 }
 
 type TauriApi = {

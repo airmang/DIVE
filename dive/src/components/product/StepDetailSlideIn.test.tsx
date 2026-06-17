@@ -360,6 +360,7 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
     fireEvent.click(screen.getByTestId("verification-observation-record"));
     await screen.findByTestId("verification-observation-saved");
     const callsBeforeRegenerate = coachMock.mock.calls.length;
+    expect(callsBeforeRegenerate).toBe(1);
 
     fireEvent.click(screen.getByTestId("verification-coach-regenerate"));
 
