@@ -3,6 +3,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { useT } from "../../i18n";
 import { PlanDashboardPanel } from "./PlanDashboardPanel";
 import { useEffect, useState } from "react";
+import { cn } from "../../lib/utils";
 
 export const PROJECT_RAIL_TAB_REQUEST_EVENT = "dive:project-rail-tab-request";
 export type ProjectRailTab = "workspace" | "dashboard";
@@ -38,10 +39,18 @@ export function ProjectRail() {
           <TabsTrigger value="dashboard">{t("sidebar.tab_dashboard")}</TabsTrigger>
         </TabsList>
       </div>
-      <TabsContent value="workspace" forceMount className="m-0 min-h-0 flex-1 overflow-hidden">
+      <TabsContent
+        value="workspace"
+        forceMount
+        className={cn("m-0 min-h-0 flex-1 overflow-hidden", activeTab !== "workspace" && "hidden")}
+      >
         <Sidebar className="h-full min-h-0 border-r-0" />
       </TabsContent>
-      <TabsContent value="dashboard" forceMount className="m-0 min-h-0 flex-1 overflow-hidden">
+      <TabsContent
+        value="dashboard"
+        forceMount
+        className={cn("m-0 min-h-0 flex-1 overflow-hidden", activeTab !== "dashboard" && "hidden")}
+      >
         <PlanDashboardPanel />
       </TabsContent>
     </Tabs>
