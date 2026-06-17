@@ -621,4 +621,25 @@ describe("provocation rules", () => {
     expect(summarizeVerificationEvidence(context).concreteEvidence).toBe(false);
     expect(buildApprovalProvenance(context).verificationState).toBe("unverified_risk_accepted");
   });
+
+  it("criterion-linked user observation is final verification evidence", () => {
+    const context = ctx({
+      verification: {
+        aiClaimedDone: true,
+        externalTestRun: false,
+        acceptanceCriterionConfirmed: true,
+        manualChecks: ["CLI를 실행했고 저장 파일에 새 항목이 생긴 것을 확인함"],
+        observationIds: ["obs-1"],
+      },
+    });
+
+    const provenance = buildApprovalProvenance(context);
+
+    expect(deriveVerificationStatuses(context).map((item) => item.id)).toContain(
+      "manual_observation",
+    );
+    expect(provenance.verificationState).toBe("verified_with_evidence");
+    expect(provenance.evidenceSummary.manualEvidenceCount).toBe(1);
+    expect(provenance.evidenceSummary.observationIds).toEqual(["obs-1"]);
+  });
 });

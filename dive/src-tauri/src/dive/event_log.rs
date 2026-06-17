@@ -29,6 +29,10 @@ pub const PLAN_ADJUSTMENT_ACCEPTED_EVENT: &str = "plan_adjustment_accepted";
 pub const PLAN_ADJUSTMENT_DISMISSED_EVENT: &str = "plan_adjustment_dismissed";
 pub const PLAN_STEP_APPENDED_EVENT: &str = "plan_step_appended";
 pub const PLAN_STEP_CHANGED_EVENT: &str = "plan_step_changed";
+pub const VERIFICATION_COACH_REQUESTED_EVENT: &str = "verification_coach.requested";
+pub const VERIFICATION_COACH_EVALUATED_EVENT: &str = "verification_coach.evaluated";
+pub const VERIFICATION_OBSERVATION_RECORDED_EVENT: &str = "verification_observation.recorded";
+pub const VERIFICATION_OBSERVATION_CLEARED_EVENT: &str = "verification_observation.cleared";
 
 static SECRET_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -150,6 +154,12 @@ fn infer_agency_component(event_type: &str, payload: &Value) -> Option<&'static 
             }
         }
         RUNTIME_CAPABILITY_EVALUATED_EVENT => return Some("action"),
+        VERIFICATION_COACH_REQUESTED_EVENT | VERIFICATION_COACH_EVALUATED_EVENT => {
+            return Some("verify")
+        }
+        VERIFICATION_OBSERVATION_RECORDED_EVENT | VERIFICATION_OBSERVATION_CLEARED_EVENT => {
+            return Some("decision")
+        }
         PRD_PATCH_PROPOSED_EVENT
         | PRD_PATCH_APPLIED_EVENT
         | PRD_PATCH_REJECTED_EVENT
@@ -280,6 +290,14 @@ fn infer_agency_state(event_type: &str, payload: &Value) -> Option<&'static str>
                 _ => None,
             };
         }
+        VERIFICATION_COACH_EVALUATED_EVENT => {
+            return match string_field(payload, "status") {
+                Some("shown" | "unavailable" | "dropped") => Some("verification_needed"),
+                _ => None,
+            };
+        }
+        VERIFICATION_OBSERVATION_RECORDED_EVENT => return Some("verified_with_evidence"),
+        VERIFICATION_OBSERVATION_CLEARED_EVENT => return Some("verification_needed"),
         "checkpoint_create" | "checkpoint_restore" => return Some("rollback_available"),
         "verify_complete" => {
             return match string_field(payload, "test_result") {
@@ -441,6 +459,36 @@ fn infer_evidence_summary(event_type: &str, payload: &Value) -> Option<Value> {
             return Some(json!({
                 "schemaVersion": 1,
                 "verificationStarted": true,
+            }));
+        }
+        VERIFICATION_COACH_REQUESTED_EVENT => {
+            return payload.get("evidenceSummary").cloned();
+        }
+        VERIFICATION_COACH_EVALUATED_EVENT => {
+            return Some(json!({
+                "schemaVersion": 1,
+                "coachGuidance": string_field(payload, "status"),
+                "reasonCode": string_field(payload, "reasonCode"),
+                "aiGuidanceIsEvidence": false,
+            }));
+        }
+        VERIFICATION_OBSERVATION_RECORDED_EVENT => {
+            let criterion_count = payload
+                .get("criterionIds")
+                .and_then(Value::as_array)
+                .map(|items| items.len())
+                .unwrap_or(0);
+            let observation_present = string_field(payload, "observationText")
+                .is_some_and(|text| !text.trim().is_empty());
+            return Some(json!({
+                "schemaVersion": 1,
+                "concreteEvidence": criterion_count > 0 && observation_present,
+                "aiSelfReport": false,
+                "automatedTestsPassed": false,
+                "externalTestRun": false,
+                "testResult": "skipped",
+                "manualEvidenceCount": if criterion_count > 0 && observation_present { 1 } else { 0 },
+                "observationIds": payload.get("observationId").and_then(Value::as_str).map(|id| json!([id])).unwrap_or_else(|| json!([])),
             }));
         }
         "checkpoint_create" | "checkpoint_restore" => {

@@ -753,6 +753,10 @@ export function useProductShellController() {
                 automatedTestsPassed: verifyLog?.test_result === "pass",
                 testResult: verifyLog?.test_result,
                 externalTestRun: verifyLog ? verifyLog.test_result !== "skipped" : undefined,
+                acceptanceCriterionConfirmed:
+                  (decision.observationEvidence?.criterionIds.length ?? 0) > 0,
+                manualChecks: decision.observationEvidence?.manualChecks ?? [],
+                observationIds: decision.observationEvidence?.observationIds ?? [],
               },
             },
             {

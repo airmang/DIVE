@@ -36,4 +36,24 @@ describe("hasConcreteVerification", () => {
       }),
     ).toBe(false);
   });
+
+  it("criterion-linked manual observation counts as concrete evidence", () => {
+    expect(
+      hasConcreteVerification({
+        statusIds: ["manual_observation"],
+        manualObservationCount: 1,
+        acceptanceCriterionConfirmed: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("manual observation without criterion confirmation does not count", () => {
+    expect(
+      hasConcreteVerification({
+        statusIds: [],
+        manualObservationCount: 1,
+        acceptanceCriterionConfirmed: false,
+      }),
+    ).toBe(false);
+  });
 });

@@ -106,6 +106,8 @@ pub fn run() {
             ipc::export_session,
             ipc::provocation_log_event,
             ipc::provocation_agent_evaluate,
+            ipc::verification_coach_generate,
+            ipc::verification_observation_record,
             ipc::project_create,
             ipc::project_list,
             ipc::project_get,

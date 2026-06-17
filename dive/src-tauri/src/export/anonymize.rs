@@ -197,6 +197,8 @@ pub fn looks_like_user_text_key(key: &str) -> bool {
             | "raw"
             | "rawtext"
             | "raw_text"
+            | "observationtext"
+            | "observation_text"
             | "text"
     )
 }

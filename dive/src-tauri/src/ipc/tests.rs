@@ -8,12 +8,17 @@ use super::chat::{
     safest_run_mode,
 };
 use super::state::{ActiveTurnGuard, PROJECT_NOT_SELECTED_MESSAGE};
+use super::verification_coach::verification_coach_generate_impl;
 use super::{AppState, ChatHistoryMessage, ProviderKind, ProviderRuntime};
 use crate::agent::{AgentRunMode, PendingApprovalSnapshot};
 use crate::db::dao::step_session_mapping as mapping_dao;
 use crate::db::models::{
     CardState, NewCard, RuntimeCapabilityState, RuntimeCapabilityStatus, RuntimeSetupAction,
     RuntimeUnavailableReason,
+};
+use crate::dive::verification_coach::{
+    GuidanceReasonCode, VerificationCoachEvidence, VerificationCoachGenerateRequest,
+    VerificationCoachStatus, VerificationCoachStep, VerificationCriterion,
 };
 use crate::dive::CardTransition;
 use std::path::PathBuf;
@@ -435,6 +440,139 @@ fn seed_step_mapping_for_card(state: &AppState, session_id: i64, card_id: i64) -
     .unwrap()
 }
 
+#[tokio::test]
+async fn verification_coach_runtime_unavailable_logs_requested_and_evaluated_without_card() {
+    let state = AppState::dev_mock();
+    state.swap_runtime(ProviderRuntime::none()).unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let session_id = seed_session(&state, tmp.path());
+    let card_id = seed_card(&state, session_id, "CLI step", CardState::Verifying);
+
+    let response = verification_coach_generate_impl(
+        &state,
+        VerificationCoachGenerateRequest {
+            session_id,
+            project_id: Some(1),
+            card_id,
+            plan_step_id: Some(12),
+            guide_version: None,
+            source_ui_mode: "work".into(),
+            locale: Some("ko-KR".into()),
+            step: VerificationCoachStep {
+                title: "CLI step".into(),
+                summary: Some("No preview available".into()),
+                instruction: Some("Create file output".into()),
+                acceptance_criteria: vec![VerificationCriterion {
+                    criterion_id: "AC-001".into(),
+                    text: "A file is written".into(),
+                }],
+            },
+            evidence: VerificationCoachEvidence {
+                changed_files: vec!["src/main.ts".into()],
+                verification_kind: Some("manual".into()),
+                verification_command: None,
+                verification_manual_check: Some("Inspect the output file".into()),
+                test_result: Some("skipped".into()),
+                ai_claimed_done: true,
+                preview_available: false,
+                app_run_available: false,
+                diff_available: true,
+                prior_observations: Vec::new(),
+            },
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.status, VerificationCoachStatus::Unavailable);
+    assert_eq!(
+        response.drop_reason,
+        Some(GuidanceReasonCode::RuntimeUnavailable)
+    );
+    assert!(response.guide.is_none());
+
+    let db = state.db.lock().unwrap();
+    let logs = crate::db::dao::event_log::list_by_session(db.conn(), session_id).unwrap();
+    let event_types = logs
+        .iter()
+        .map(|row| row.r#type.as_str())
+        .collect::<Vec<_>>();
+    assert!(event_types.contains(&"verification_coach.requested"));
+    assert!(event_types.contains(&"verification_coach.evaluated"));
+    let evaluated = logs
+        .iter()
+        .find(|row| row.r#type == "verification_coach.evaluated")
+        .unwrap();
+    assert_eq!(
+        evaluated.payload["status"],
+        serde_json::json!("unavailable")
+    );
+    assert_eq!(
+        evaluated.payload["evidenceSummary"]["aiGuidanceIsEvidence"],
+        serde_json::json!(false)
+    );
+}
+
+#[tokio::test]
+async fn verification_coach_regeneration_increments_guide_version_in_logs() {
+    let state = AppState::dev_mock();
+    state.swap_runtime(ProviderRuntime::none()).unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let session_id = seed_session(&state, tmp.path());
+    let card_id = seed_card(&state, session_id, "CLI step", CardState::Verifying);
+    let base_request = VerificationCoachGenerateRequest {
+        session_id,
+        project_id: Some(1),
+        card_id,
+        plan_step_id: Some(12),
+        guide_version: None,
+        source_ui_mode: "work".into(),
+        locale: Some("ko-KR".into()),
+        step: VerificationCoachStep {
+            title: "CLI step".into(),
+            summary: Some("No preview available".into()),
+            instruction: Some("Create file output".into()),
+            acceptance_criteria: vec![VerificationCriterion {
+                criterion_id: "AC-001".into(),
+                text: "A file is written".into(),
+            }],
+        },
+        evidence: VerificationCoachEvidence {
+            changed_files: vec!["src/main.ts".into()],
+            verification_kind: Some("manual".into()),
+            verification_command: None,
+            verification_manual_check: Some("Inspect the output file".into()),
+            test_result: Some("skipped".into()),
+            ai_claimed_done: true,
+            preview_available: false,
+            app_run_available: false,
+            diff_available: true,
+            prior_observations: Vec::new(),
+        },
+    };
+
+    let first = verification_coach_generate_impl(&state, base_request.clone())
+        .await
+        .unwrap();
+    let mut second_request = base_request;
+    second_request.guide_version = Some(first.guide_version);
+    let second = verification_coach_generate_impl(&state, second_request)
+        .await
+        .unwrap();
+
+    assert_eq!(first.guide_version, 1);
+    assert_eq!(second.guide_version, 2);
+
+    let db = state.db.lock().unwrap();
+    let logs = crate::db::dao::event_log::list_by_session(db.conn(), session_id).unwrap();
+    let requested_versions = logs
+        .iter()
+        .filter(|row| row.r#type == "verification_coach.requested")
+        .map(|row| row.payload["guideVersion"].as_i64().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(requested_versions, vec![1, 2]);
+}
+
 #[test]
 fn provocation_events_are_exported_with_session_event_log() {
     let state = AppState::dev_mock();
@@ -617,6 +755,89 @@ fn diff_reviewed_only_approval_does_not_record_verified_evidence() {
         mapping.verification_status.as_deref(),
         Some("unverified_risk_accepted")
     );
+}
+
+#[test]
+fn manual_observation_approval_records_verified_evidence() {
+    let state = AppState::dev_mock();
+    let tmp = tempfile::tempdir().unwrap();
+    state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+    let session_id = seed_session(&state, tmp.path());
+    let card_id = seed_card(
+        &state,
+        session_id,
+        "Manual observation",
+        CardState::Verifying,
+    );
+    let mapping_id = seed_step_mapping_for_card(&state, session_id, card_id);
+    set_verify_log(&state, card_id, true, crate::dive::TestResult::Skipped);
+
+    card_transition_with_checkpoint_and_provenance_impl(
+        &state,
+        card_id,
+        CardTransition::Approve,
+        Some(true),
+        Some(crate::dive::ApprovalJudgment {
+            outcome: crate::dive::ApprovalOutcome::Approved,
+            note: None,
+            decided_at: 15,
+        }),
+        Some(serde_json::json!({
+            "statusIds": ["manual_observation"],
+            "statuses": [{
+                "id": "manual_observation",
+                "label": "직접 관찰 확인",
+                "evidenceBacked": true,
+                "tone": "success",
+                "source": "user_observation"
+            }],
+            "evidenceSummary": {
+                "concreteEvidence": true,
+                "aiSelfReport": true,
+                "automatedTestsPassed": false,
+                "externalTestRun": false,
+                "testResult": "skipped",
+                "manualEvidenceCount": 1,
+                "observationIds": ["obs-1"],
+                "evidenceLabels": ["직접 관찰 확인"]
+            },
+            "approvalOutcome": "approved",
+            "decidedAt": 15
+        })),
+    )
+    .unwrap();
+
+    let (provenance, mapping) = {
+        let db = state.db.lock().unwrap();
+        let card = crate::db::dao::card::get_by_id(db.conn(), card_id)
+            .unwrap()
+            .unwrap();
+        let provenance: serde_json::Value =
+            serde_json::from_str(card.approval_provenance.as_deref().unwrap()).unwrap();
+        let mapping = mapping_dao::get_by_id(db.conn(), mapping_id)
+            .unwrap()
+            .unwrap();
+        (provenance, mapping)
+    };
+
+    assert_eq!(provenance["verificationState"], "verified_with_evidence");
+    assert_eq!(provenance["evidenceSummary"]["concreteEvidence"], true);
+    assert_eq!(provenance["evidenceSummary"]["manualEvidenceCount"], 1);
+    assert_eq!(provenance["evidenceSummary"]["observationIds"][0], "obs-1");
+    assert!(provenance["statusIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == "manual_observation"));
+    assert_eq!(
+        mapping.verification_status.as_deref(),
+        Some("verified_with_evidence")
+    );
+    assert!(mapping
+        .verification_evidence
+        .as_deref()
+        .unwrap()
+        .contains("\"observationIds\":[\"obs-1\"]"));
 }
 
 #[test]

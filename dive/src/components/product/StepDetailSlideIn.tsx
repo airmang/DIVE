@@ -37,6 +37,9 @@ import {
   useProvocationActionResolver,
 } from "../../features/provocation";
 import type { SupervisorFeasibility } from "../../features/provocation";
+import type { VerificationCoachGenerateRequest } from "../../features/verification-coach/types";
+import type { ObservationEvidenceRecord } from "../../features/verification-coach/types";
+import { VerificationCoachPanel } from "./VerificationCoachPanel";
 
 export interface StepDetailSlideInProps {
   open: boolean;
@@ -145,6 +148,9 @@ export function StepDetailSlideIn({
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   const [diffViewedStepIds, setDiffViewedStepIds] = useState<Set<number>>(() => new Set());
   const [criterionEvidenceRef, setCriterionEvidenceRef] = useState<CriterionEvidenceRef>(null);
+  const [manualObservationByStep, setManualObservationByStep] = useState<
+    Map<number, ObservationEvidenceRecord>
+  >(() => new Map());
   const [previewOpenedStepIds, setPreviewOpenedStepIds] = useState<Set<number>>(() => new Set());
   const [appOpenedStepIds, setAppOpenedStepIds] = useState<Set<number>>(() => new Set());
 
@@ -174,6 +180,13 @@ export function StepDetailSlideIn({
   const previewOpened = step ? previewOpenedStepIds.has(step.id) : false;
   const appOpened = step ? appOpenedStepIds.has(step.id) : false;
   const criterionConfirmed = criterionEvidenceRef !== null;
+  const manualObservation = step ? (manualObservationByStep.get(step.id) ?? null) : null;
+  const manualObservationConfirmed = Boolean(
+    manualObservation &&
+      manualObservation.criterionIds.length > 0 &&
+      manualObservation.observationText.trim().length > 0,
+  );
+  const acceptanceCriterionConfirmed = criterionConfirmed || manualObservationConfirmed;
   const previewObserved = criterionEvidenceRef === "preview";
   const appLaunched = criterionEvidenceRef === "app";
   const expectedFiles = useMemo(
@@ -189,6 +202,8 @@ export function StepDetailSlideIn({
     planContext?.verificationManualCheck?.trim() ||
     planContext?.verificationKind?.trim() ||
     null;
+  const criterionText =
+    step?.acceptanceCriteria?.trim() || verificationPlanText || step?.title || "";
   const verificationFeasibility = useMemo<SupervisorFeasibility>(() => {
     const verificationKind = planContext?.verificationKind?.trim().toLowerCase() ?? "";
     const hasTestCommand = Boolean(planContext?.verificationCommand?.trim() || step?.testCommand);
@@ -247,7 +262,9 @@ export function StepDetailSlideIn({
             previewChecked: previewObserved,
             automatedTestsPassed: verifyLog?.test_result === "pass",
             testResult: verifyLog?.test_result,
-            acceptanceCriterionConfirmed: criterionConfirmed,
+            acceptanceCriterionConfirmed,
+            manualChecks: manualObservation ? [manualObservation.observationText] : [],
+            observationIds: manualObservation ? [manualObservation.observationId] : [],
             externalTestRun: verifyLog ? verifyLog.test_result !== "skipped" : undefined,
             failedButAccepted: step.approvalProvenance?.verificationState === "failed_but_accepted",
             approvedWithRisk: Boolean(step.approvalProvenance?.riskAccepted),
@@ -284,16 +301,17 @@ export function StepDetailSlideIn({
           previewChecked: previewObserved,
           automatedTestsPassed: verifyLog?.test_result === "pass",
           testResult: verifyLog?.test_result ?? "skipped",
-          acceptanceCriterionConfirmed: criterionConfirmed,
-          manualChecks: [],
+          acceptanceCriterionConfirmed,
+          manualChecks: manualObservation ? [manualObservation.observationText] : [],
         },
         feasibility: verificationFeasibility,
       },
     };
   }, [
     appLaunched,
-    criterionConfirmed,
+    acceptanceCriterionConfirmed,
     diffViewed,
+    manualObservation,
     previewObserved,
     previewOpened,
     provocation?.enabled,
@@ -301,6 +319,57 @@ export function StepDetailSlideIn({
     provocation?.sessionId,
     step,
     verificationFeasibility,
+    verifyLog?.intent_match,
+    verifyLog?.test_result,
+  ]);
+  const verificationCoachRequest = useMemo<VerificationCoachGenerateRequest | null>(() => {
+    if (!step || !isReview || typeof provocation?.sessionId !== "number") return null;
+    return {
+      sessionId: provocation.sessionId,
+      projectId: provocation.projectId ?? null,
+      cardId: step.id,
+      planStepId: step.id,
+      sourceUiMode: provocation.mode,
+      locale: "ko-KR",
+      step: {
+        title: step.title || `Step ${step.position}`,
+        summary: step.description,
+        instruction: step.assistSummary,
+        acceptanceCriteria: [
+          {
+            criterionId: `step-${step.id}-criterion-1`,
+            text: criterionText,
+          },
+        ].filter((criterion) => criterion.text.trim().length > 0),
+      },
+      evidence: {
+        changedFiles: actualChangedFiles,
+        verificationKind: planContext?.verificationKind ?? null,
+        verificationCommand: planContext?.verificationCommand ?? step.testCommand,
+        verificationManualCheck: planContext?.verificationManualCheck ?? null,
+        testResult: verifyLog?.test_result ?? "skipped",
+        aiClaimedDone: Boolean(verifyLog?.intent_match),
+        previewAvailable: verificationFeasibility.previewable,
+        appRunAvailable: verificationFeasibility.runnable,
+        diffAvailable: verificationFeasibility.diffAvailable,
+        priorObservations: manualObservation ? [manualObservation] : [],
+      },
+    };
+  }, [
+    actualChangedFiles,
+    criterionText,
+    isReview,
+    planContext?.verificationCommand,
+    planContext?.verificationKind,
+    planContext?.verificationManualCheck,
+    manualObservation,
+    provocation?.mode,
+    provocation?.projectId,
+    provocation?.sessionId,
+    step,
+    verificationFeasibility.diffAvailable,
+    verificationFeasibility.previewable,
+    verificationFeasibility.runnable,
     verifyLog?.intent_match,
     verifyLog?.test_result,
   ]);
@@ -346,7 +415,7 @@ export function StepDetailSlideIn({
         verifyLog,
         approvalProvenance: step.approvalProvenance,
         running: verifyState === "running",
-        acceptanceCriterionConfirmed: criterionConfirmed,
+        acceptanceCriterionConfirmed,
       })
     : null;
   const hasSecondaryDetails = Boolean(
@@ -407,8 +476,6 @@ export function StepDetailSlideIn({
         note: reason?.trim() || null,
       }),
   });
-  const criterionText =
-    step?.acceptanceCriteria?.trim() || verificationPlanText || step?.title || "";
   const primaryVerificationAction: VerificationFocusAction | null = step
     ? verificationFeasibility.previewable && onOpenPreview
       ? {
@@ -519,6 +586,18 @@ export function StepDetailSlideIn({
             appOpened={appOpened}
             onConfirmPreview={() => setCriterionEvidenceRef("preview")}
             onConfirmApp={() => setCriterionEvidenceRef("app")}
+          />
+
+          <VerificationCoachPanel
+            request={verificationCoachRequest}
+            observation={manualObservation}
+            onObservationRecorded={(record) => {
+              setManualObservationByStep((current) => {
+                const next = new Map(current);
+                next.set(record.cardId, record);
+                return next;
+              });
+            }}
           />
 
           <ProvocationCardHost
@@ -666,10 +745,22 @@ export function StepDetailSlideIn({
               provocationCards={provocationCards}
               verifyLog={verifyLog}
               rollbackAvailable={rollbackAvailable}
-              acceptanceCriterionConfirmed={criterionConfirmed}
+              acceptanceCriterionConfirmed={acceptanceCriterionConfirmed}
               verificationFeasibility={verificationFeasibility}
               verifyRunning={verifyState === "running"}
-              onApprove={() => onApprovalDecision({ outcome: "approved", note: null })}
+              onApprove={() =>
+                onApprovalDecision({
+                  outcome: "approved",
+                  note: null,
+                  observationEvidence: manualObservation
+                    ? {
+                        observationIds: [manualObservation.observationId],
+                        manualChecks: [manualObservation.observationText],
+                        criterionIds: manualObservation.criterionIds,
+                      }
+                    : null,
+                })
+              }
               onAcceptRisk={(reason) =>
                 onApprovalDecision({ outcome: "approved_with_concern", note: reason })
               }

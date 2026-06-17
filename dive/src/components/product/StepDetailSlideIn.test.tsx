@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
 import type { RoadmapStep } from "../../features/roadmap";
 import { evaluateProvocationSupervisor, type ProvocationCard } from "../../features/provocation";
+import {
+  generateVerificationCoachGuide,
+  recordVerificationObservation,
+} from "../../features/verification-coach/api";
 import { StepDetailSlideIn } from "./StepDetailSlideIn";
 
 vi.mock("../../features/provocation", async (importOriginal) => {
@@ -15,7 +19,14 @@ vi.mock("../../features/provocation", async (importOriginal) => {
   };
 });
 
+vi.mock("../../features/verification-coach/api", () => ({
+  generateVerificationCoachGuide: vi.fn(),
+  recordVerificationObservation: vi.fn(),
+}));
+
 const evaluateMock = vi.mocked(evaluateProvocationSupervisor);
+const coachMock = vi.mocked(generateVerificationCoachGuide);
+const observationMock = vi.mocked(recordVerificationObservation);
 
 function lastSupervisorRequest() {
   return evaluateMock.mock.calls[evaluateMock.mock.calls.length - 1]?.[0];
@@ -109,6 +120,37 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
   beforeEach(() => {
     useLocaleStore.setState({ locale: "ko" });
     evaluateMock.mockReset();
+    coachMock.mockReset();
+    observationMock.mockReset();
+    coachMock.mockResolvedValue({
+      status: "shown",
+      eventId: "coach-1",
+      guideVersion: 1,
+      guide: {
+        criterionSummary: "버튼에 저장 문구가 보인다",
+        recommendedChecks: [
+          {
+            kind: "diff",
+            label: "변경 파일 확인",
+            instruction: "src/App.tsx diff에서 버튼 문구 변경을 확인하세요.",
+            expectedObservation: "버튼 label이 저장으로 바뀌어야 합니다.",
+          },
+        ],
+        evidencePrompts: ["무엇을 확인했나요?"],
+      },
+      validation: {
+        outcome: "valid",
+        reasonCode: "ok",
+        evidenceRefs: ["criterion:step-1-criterion-1"],
+      },
+      model: "mock",
+      latencyMs: 1,
+    });
+    observationMock.mockImplementation(async (observation) => ({
+      ...observation,
+      observationId: "obs-1",
+      recordedAt: 123,
+    }));
   });
 
   afterEach(() => {
@@ -193,6 +235,133 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
     await waitFor(() => expect(evaluateMock).toHaveBeenCalledTimes(1));
     expect(screen.queryByTestId("provocation-card")).toBeNull();
     expect(screen.queryByText("확인 필요 카드")).toBeNull();
+  });
+
+  it("shows verification coach guidance near review without creating a review card", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+
+    renderStepDetail({
+      step: reviewStep({ testCommand: null }),
+      planContext: {
+        expectedFiles: ["src/App.tsx"],
+        verificationCommand: null,
+        verificationManualCheck: "파일 출력과 diff를 직접 확인한다",
+        verificationKind: "manual",
+        dependencies: [],
+        parallelGroup: null,
+        purpose: "저장 문구만 수정한다",
+      },
+    });
+
+    const coach = await screen.findByTestId("verification-coach-panel");
+    expect(coach.dataset.status).toBe("shown");
+    expect(screen.getByTestId("verification-coach-guide").textContent).toContain(
+      "버튼에 저장 문구",
+    );
+    expect(coachMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 2,
+        cardId: 1,
+        sourceUiMode: "work",
+        evidence: expect.objectContaining({
+          verificationKind: "manual",
+          previewAvailable: true,
+          diffAvailable: true,
+        }),
+      }),
+    );
+    expect(screen.queryByTestId("provocation-card")).toBeNull();
+  });
+
+  it("records criterion-linked observation evidence and enables normal approval", async () => {
+    const onApprovalDecision = vi.fn();
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+
+    renderStepDetail({ onApprovalDecision });
+
+    await screen.findByTestId("verification-coach-guide");
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(screen.getByTestId("verification-observation-text"), {
+      target: { value: "pnpm test를 실행했고 버튼 문구가 저장으로 표시되는 것을 확인함" },
+    });
+    fireEvent.click(screen.getByTestId("verification-observation-record"));
+
+    await screen.findByTestId("verification-observation-saved");
+    expect(observationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 2,
+        cardId: 1,
+        criterionIds: ["step-1-criterion-1"],
+        observationText: "pnpm test를 실행했고 버튼 문구가 저장으로 표시되는 것을 확인함",
+      }),
+    );
+    expect(
+      screen
+        .getAllByTestId("verification-status-chip")
+        .some((chip) => chip.textContent?.includes("직접 관찰")),
+    ).toBe(true);
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+
+    fireEvent.click(screen.getByTestId("decision-gate-approve"));
+    expect(onApprovalDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "approved",
+        observationEvidence: expect.objectContaining({
+          observationIds: ["obs-1"],
+          criterionIds: ["step-1-criterion-1"],
+        }),
+      }),
+    );
+  });
+
+  it("preserves recorded observation evidence after regenerating guidance", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+
+    renderStepDetail();
+
+    await screen.findByTestId("verification-coach-guide");
+    fireEvent.change(screen.getByTestId("verification-observation-text"), {
+      target: { value: "변경된 버튼 문구를 확인함" },
+    });
+    fireEvent.click(screen.getByTestId("verification-observation-record"));
+    await screen.findByTestId("verification-observation-saved");
+    const callsBeforeRegenerate = coachMock.mock.calls.length;
+
+    fireEvent.click(screen.getByTestId("verification-coach-regenerate"));
+
+    await waitFor(() => expect(coachMock.mock.calls.length).toBe(callsBeforeRegenerate + 1));
+    expect(coachMock.mock.calls[coachMock.mock.calls.length - 1]?.[0]).toEqual(
+      expect.objectContaining({
+        guideVersion: expect.any(Number),
+        evidence: expect.objectContaining({
+          priorObservations: [
+            expect.objectContaining({
+              observationId: "obs-1",
+              observationText: "변경된 버튼 문구를 확인함",
+            }),
+          ],
+        }),
+      }),
+    );
+    expect(screen.getByTestId("verification-observation-saved")).toBeTruthy();
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(
+      false,
+    );
   });
 
   it("does not fabricate preview verification evidence from the preview click alone", async () => {

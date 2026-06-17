@@ -483,6 +483,10 @@ impl ExportEngine {
                         let value = crate::dive::event_log::enrich_agency_payload(&ty, value);
                         let value = if ty.starts_with("provocation.") {
                             sanitize_provocation_event_payload(&value)
+                        } else if ty.starts_with("verification_coach.")
+                            || ty.starts_with("verification_observation.")
+                        {
+                            sanitize_verification_coach_event_payload(&value)
                         } else {
                             value
                         };
@@ -681,6 +685,10 @@ fn agency_state_from_test_result(test_result: Option<&str>) -> Option<&'static s
 }
 
 pub(crate) fn sanitize_provocation_event_payload(value: &Value) -> Value {
+    sanitize_provocation_nested(value, None)
+}
+
+pub(crate) fn sanitize_verification_coach_event_payload(value: &Value) -> Value {
     sanitize_provocation_nested(value, None)
 }
 
@@ -1081,5 +1089,71 @@ mod tests {
             json!("agent.assistant_claim")
         );
         assert_eq!(sanitized["cardId"], Value::Null);
+    }
+
+    #[test]
+    fn verification_coach_event_payload_sanitizer_redacts_raw_guidance_fields() {
+        let payload = json!({
+            "eventId": "coach-1",
+            "status": "shown",
+            "validationOutcome": "valid",
+            "reasonCode": "ok",
+            "prompt": "Student email minji@example.com with token=secret-token-123",
+            "guideSummary": {
+                "criterionSummary": "Run command",
+                "rawCode": "const apiKey = 'sk-testsecret';",
+                "terminalOutput": "TOKEN=secret\nstack trace line 1"
+            },
+            "observationText": "I ran pnpm test and saw success for student-id=2026-001"
+        });
+
+        let sanitized = sanitize_verification_coach_event_payload(&payload);
+        let encoded = sanitized.to_string();
+
+        assert_eq!(sanitized["prompt"]["reason"], json!("raw_body_key"));
+        assert_eq!(
+            sanitized["guideSummary"]["rawCode"]["reason"],
+            json!("raw_body_key")
+        );
+        assert_eq!(
+            sanitized["guideSummary"]["terminalOutput"]["reason"],
+            json!("raw_body_key")
+        );
+        assert!(!encoded.contains("sk-testsecret"));
+        assert!(!encoded.contains("secret-token-123"));
+        assert!(!encoded.contains("minji@example.com"));
+    }
+
+    #[test]
+    fn verification_observation_text_is_hashed_in_event_export_payload() {
+        let payload = json!({
+            "observationId": "obs-1",
+            "sessionId": 1,
+            "cardId": 2,
+            "planStepId": 3,
+            "guideVersion": 1,
+            "evidenceKind": "terminal_observation",
+            "criterionIds": ["AC-001"],
+            "observationText": "pnpm test를 실행했고 저장 버튼이 보이는 것을 확인함",
+            "recordedAt": 123
+        });
+        let enriched = crate::dive::event_log::enrich_agency_payload(
+            crate::dive::event_log::VERIFICATION_OBSERVATION_RECORDED_EVENT,
+            payload,
+        );
+        let sanitized = sanitize_verification_coach_event_payload(&enriched);
+        let anonymized = anonymize::anonymize_value(&sanitized, true, false, "salt");
+        let encoded = anonymized.to_string();
+
+        assert_eq!(anonymized["agencyComponent"], json!("decision"));
+        assert_eq!(anonymized["agencyState"], json!("verified_with_evidence"));
+        assert_eq!(
+            anonymized["evidenceSummary"]["manualEvidenceCount"],
+            json!(1)
+        );
+        assert!(!encoded.contains("저장 버튼"));
+        assert!(anonymized["observationText"]
+            .as_str()
+            .is_some_and(|value| value.starts_with("h:")));
     }
 }

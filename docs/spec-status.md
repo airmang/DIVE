@@ -1,6 +1,6 @@
 # DIVE Spec Status
 
-**Last updated**: 2026-06-16
+**Last updated**: 2026-06-17
 
 This file prevents agents from treating old design notes as active product
 authority. The canonical DIVE v2 source of truth lives in `.specify/` and
@@ -44,12 +44,30 @@ authority. The canonical DIVE v2 source of truth lives in `.specify/` and
 
 ## 007 Draft Scope
 
-As of 2026-06-16, `specs/007-llm-verification-coach/` is a draft with plan and
-tasks created to address manual/CLI/no-preview verification ambiguity
-discovered while testing `DIVE_TEST9`. The feature is intentionally separate
-from the in-flight 006 Sarkar provocation expansion: 006 expands grounded
-review-card moments, while 007 defines verification guidance and evidence
-capture inside the step review decision flow.
+As of 2026-06-17, `specs/007-llm-verification-coach/` is being implemented by
+Wily Stage S-023. The feature addresses manual/CLI/no-preview verification
+ambiguity discovered while testing `DIVE_TEST9`. It is intentionally separate
+from Sarkar/provocation review-card expansion: review cards remain governed by
+the SupervisorAgent specs, while 007 defines verification guidance and
+criterion-linked user-observation evidence inside the step review decision
+flow.
+
+## 007 Implementation Status
+
+As of 2026-06-17, Wily Stage S-023 has implemented the verification coach
+foundation, step-review guidance panel, criterion-linked observation capture,
+manual-observation approval provenance, guide regeneration/version correlation,
+and EventLog/export sanitization. AI guidance remains guidance only: it is
+logged/exportable but does not count as verification evidence. Normal
+evidence-backed approval requires an automated pass or criterion-linked user
+observation.
+
+S-023 validation passed `pnpm typecheck`, targeted Vitest suites, full
+`pnpm test:unit`, targeted Rust verification/provenance/export tests, and
+`cargo test export --quiet`. The DIVE_TEST9 Step 1 Tauri app smoke was not run
+because this environment did not include an automated DIVE_TEST9 review-flow
+harness or copied real-provider DB/keyring smoke fixture. Detailed validation
+results are recorded in `specs/007-llm-verification-coach/quickstart.md`.
 
 ## 005 Implementation Status
 

@@ -302,12 +302,18 @@ fn build_approval_provenance(
         Some("skipped") | None => false,
         Some(_) => true,
     };
-    let client_concrete_evidence = client_provenance
+    let manual_observation_ids = client_observation_ids(client_provenance);
+    let client_manual_evidence_count = client_provenance
         .and_then(|value| value.get("evidenceSummary"))
-        .and_then(|value| value.get("concreteEvidence"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let concrete_evidence = automated_tests_passed || client_concrete_evidence;
+        .and_then(|value| value.get("manualEvidenceCount"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let client_manual_evidence = client_status_ids
+        .iter()
+        .any(|candidate| candidate == "manual_observation")
+        && client_manual_evidence_count > 0
+        && !manual_observation_ids.is_empty();
+    let concrete_evidence = automated_tests_passed || client_manual_evidence;
 
     if verify_log
         .as_ref()
@@ -323,6 +329,12 @@ fn build_approval_provenance(
         push_status(
             &mut statuses,
             status_value("automated_tests_passed", decided_at),
+        );
+    }
+    if client_manual_evidence {
+        push_status(
+            &mut statuses,
+            status_value("manual_observation", decided_at),
         );
     }
     if !external_test_run {
@@ -413,7 +425,8 @@ fn build_approval_provenance(
             "automatedTestsPassed": automated_tests_passed,
             "externalTestRun": external_test_run,
             "testResult": test_result,
-            "manualEvidenceCount": 0,
+            "manualEvidenceCount": if client_manual_evidence { client_manual_evidence_count } else { 0 },
+            "observationIds": if client_manual_evidence { json!(manual_observation_ids) } else { json!([]) },
             "evidenceLabels": evidence_labels,
         },
         "riskAccepted": risk_accepted,
@@ -445,6 +458,23 @@ fn client_status_ids(client_provenance: Option<&Value>) -> Vec<String> {
     ids
 }
 
+fn client_observation_ids(client_provenance: Option<&Value>) -> Vec<String> {
+    client_provenance
+        .and_then(|value| value.get("evidenceSummary"))
+        .and_then(|value| value.get("observationIds"))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn push_status(statuses: &mut Vec<Value>, status: Value) {
     let Some(id) = status.get("id").and_then(Value::as_str) else {
         return;
@@ -464,6 +494,7 @@ fn status_value(id: &str, recorded_at: Option<i64>) -> Value {
         "diff_reviewed" => ("Diff 확인됨", true, "info", "diff_review"),
         "app_launched" => ("앱 실행 확인됨", true, "success", "app_launch"),
         "preview_checked" => ("수동 프리뷰 확인됨", true, "success", "preview"),
+        "manual_observation" => ("직접 관찰 확인", true, "success", "user_observation"),
         "automated_tests_passed" => ("자동 테스트 통과", true, "success", "automated_test"),
         "external_test_not_run" => ("외부 테스트 없음", false, "warn", "external_test"),
         "failed_but_accepted" => ("실패했지만 승인됨", false, "risk", "risk_approval"),

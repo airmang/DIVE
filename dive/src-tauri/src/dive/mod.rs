@@ -9,6 +9,7 @@ pub mod plan_router;
 pub mod prompt_check;
 pub mod state_machine;
 pub mod supervisor;
+pub mod verification_coach;
 pub mod verify;
 
 pub use approval::{ApprovalJudgment, ApprovalOutcome};
@@ -38,4 +39,5 @@ pub use supervisor::{
     SupervisorVerificationUiState, TestResult as SupervisorTestResult, VerificationFeasibility,
     VerificationState,
 };
+pub use verification_coach::*;
 pub use verify::{TestResult, VerifyEngine, VerifyError, VerifyLog};

@@ -12,6 +12,7 @@ import type { VerificationStatusId } from "./types";
  */
 export const ALWAYS_CONCRETE_IDS: ReadonlySet<VerificationStatusId> = new Set([
   "automated_tests_passed",
+  "manual_observation",
 ]);
 
 export interface VerificationGradeInput {
@@ -21,6 +22,8 @@ export interface VerificationGradeInput {
   manualOrPreviewObserved?: boolean;
   /** student explicitly confirmed they saw the acceptance criterion hold */
   acceptanceCriterionConfirmed?: boolean;
+  /** criterion-linked student-authored observations */
+  manualObservationCount?: number;
 }
 
 export function hasConcreteVerification(input: VerificationGradeInput): boolean {
@@ -30,5 +33,6 @@ export function hasConcreteVerification(input: VerificationGradeInput): boolean 
   for (const id of ALWAYS_CONCRETE_IDS) {
     if (ids.has(id)) return true;
   }
+  if ((input.manualObservationCount ?? 0) > 0 && input.acceptanceCriterionConfirmed) return true;
   return Boolean(input.manualOrPreviewObserved && input.acceptanceCriterionConfirmed);
 }

@@ -133,6 +133,7 @@ export interface ProvocationVerification {
   appLaunched?: boolean;
   previewChecked?: boolean;
   manualChecks?: string[];
+  observationIds?: string[];
   automatedTestsPassed?: boolean;
   testResult?: "pass" | "fail" | "skipped";
   acceptanceCriterionConfirmed?: boolean;
@@ -390,6 +391,7 @@ export type VerificationStatusId =
   | "diff_reviewed"
   | "app_launched"
   | "preview_checked"
+  | "manual_observation"
   | "automated_tests_passed"
   | "external_test_not_run"
   | "failed_but_accepted"
@@ -408,6 +410,7 @@ export type VerificationProvenanceSource =
   | "diff_review"
   | "app_launch"
   | "preview"
+  | "user_observation"
   | "automated_test"
   | "external_test"
   | "manual_check"
@@ -426,6 +429,7 @@ export interface VerificationEvidenceSummary {
   externalTestRun: boolean | null;
   testResult: "pass" | "fail" | "skipped" | null;
   manualEvidenceCount: number;
+  observationIds?: string[];
   evidenceLabels: string[];
 }
 

@@ -67,11 +67,35 @@ Expected result: no static provocation or generic warning fallback appears.
 
 ## Suggested Commands
 
-```powershell
-cd C:\Users\kokyu\Code\DIVE-2\dive
+```bash
+cd /Users/wilycastle/Code/projects/DIVE-2/dive
 pnpm typecheck
-pnpm test:unit -- StepDetailSlideIn.test.tsx DecisionGate.test.tsx verificationGrade.test.ts
+pnpm exec vitest run src/components/product/StepDetailSlideIn.test.tsx src/components/product/DecisionGate.test.tsx src/features/provocation/verificationGrade.test.ts src/features/provocation/__tests__/rules.test.ts
+pnpm test:unit
 cd src-tauri
-cargo test verification_coach
-cargo test export
+cargo test verification_coach --quiet
+cargo test manual_observation_approval_records_verified_evidence --quiet
+cargo test verification_observation_text_is_hashed_in_event_export_payload --quiet
+cargo test export --quiet
 ```
+
+## S-023 Validation Results
+
+Recorded on 2026-06-17 during Wily Stage S-023:
+
+- `pnpm typecheck`: passed.
+- Targeted Vitest for StepDetail, DecisionGate, verification grade, and
+  provocation rules: passed, 4 files / 65 tests.
+- `pnpm test:unit`: passed, 45 files / 240 tests.
+- `cargo test verification_coach --quiet`: passed, 8 tests.
+- `cargo test manual_observation_approval_records_verified_evidence --quiet`:
+  passed.
+- `cargo test verification_coach_event_payload_sanitizer_redacts_raw_guidance_fields --quiet`:
+  passed.
+- `cargo test verification_observation_text_is_hashed_in_event_export_payload --quiet`:
+  passed.
+- `cargo test export --quiet`: passed.
+- DIVE_TEST9 Step 1 Tauri app smoke: not run in this environment. No
+  automated DIVE_TEST9 review-flow harness or copied real-provider DB/keyring
+  smoke fixture was available. The no-preview review-flow behavior is covered
+  by the targeted `StepDetailSlideIn` review tests above.

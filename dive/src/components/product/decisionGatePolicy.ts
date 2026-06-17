@@ -57,12 +57,14 @@ export function deriveDecisionGatePolicy(input: DecisionGatePolicyInput): Decisi
   const observed =
     statusIds.has("app_launched") ||
     statusIds.has("preview_checked") ||
+    statusIds.has("manual_observation") ||
     agencyIds.has("verified_with_evidence");
   const hasVerifiedEvidence = hasConcreteVerification({
     statusIds: [...statusIds],
     testResult: input.verifyLog?.test_result ?? null,
     manualOrPreviewObserved: observed,
     acceptanceCriterionConfirmed: input.acceptanceCriterionConfirmed,
+    manualObservationCount: statusIds.has("manual_observation") ? 1 : 0,
   });
   const aiSelfReportOnly = Boolean(
     !hasVerifiedEvidence &&

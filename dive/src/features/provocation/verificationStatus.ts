@@ -13,6 +13,10 @@ function hasManualChecks(verification: ProvocationVerification | undefined): boo
   return Boolean(verification?.manualChecks?.some((item) => item.trim().length > 0));
 }
 
+function manualObservationCount(verification: ProvocationVerification | undefined): number {
+  return verification?.observationIds?.filter((item) => item.trim().length > 0).length ?? 0;
+}
+
 export function hasAiSelfReport(context: ProvocationContext): boolean {
   return Boolean(
     context.verification?.aiClaimedDone ||
@@ -52,6 +56,7 @@ export function hasConcreteVerificationEvidence(context: ProvocationContext): bo
       verification?.appLaunched || verification?.previewChecked || hasManualChecks(verification),
     ),
     acceptanceCriterionConfirmed: Boolean(verification?.acceptanceCriterionConfirmed),
+    manualObservationCount: manualObservationCount(verification),
   });
 }
 
@@ -65,6 +70,8 @@ function statusSource(id: VerificationStatusItem["id"]): VerificationProvenanceI
       return "app_launch";
     case "preview_checked":
       return "preview";
+    case "manual_observation":
+      return "user_observation";
     case "automated_tests_passed":
       return "automated_test";
     case "external_test_not_run":
@@ -129,6 +136,15 @@ function deriveCurrentVerificationStatuses(context: ProvocationContext): Verific
     pushUniqueStatus(statuses, {
       id: "preview_checked",
       label: "수동 프리뷰 확인됨",
+      evidenceBacked: true,
+      tone: "success",
+    });
+  }
+
+  if (manualObservationCount(verification) > 0 && verification?.acceptanceCriterionConfirmed) {
+    pushUniqueStatus(statuses, {
+      id: "manual_observation",
+      label: "직접 관찰 확인",
       evidenceBacked: true,
       tone: "success",
     });
@@ -199,6 +215,9 @@ export function summarizeVerificationEvidence(
 ): VerificationEvidenceSummary {
   const verification = context.verification;
   const currentStatuses = deriveCurrentVerificationStatuses(context);
+  const observationCount = manualObservationCount(verification);
+  const manualCheckCount =
+    verification?.manualChecks?.filter((item) => item.trim().length > 0).length ?? 0;
   const evidenceLabels = currentStatuses
     .filter((item) => item.evidenceBacked)
     .map((item) => item.label);
@@ -209,8 +228,8 @@ export function summarizeVerificationEvidence(
     externalTestRun:
       verification?.externalTestRun === undefined ? null : Boolean(verification.externalTestRun),
     testResult: verification?.testResult ?? null,
-    manualEvidenceCount:
-      verification?.manualChecks?.filter((item) => item.trim().length > 0).length ?? 0,
+    manualEvidenceCount: observationCount > 0 ? observationCount : manualCheckCount,
+    observationIds: verification?.observationIds?.filter((item) => item.trim().length > 0) ?? [],
     evidenceLabels,
   };
 }

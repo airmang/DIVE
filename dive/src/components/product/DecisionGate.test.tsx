@@ -28,6 +28,13 @@ const manualPreviewChecked: VerificationStatusItem = {
   tone: "success",
 };
 
+const manualObservation: VerificationStatusItem = {
+  id: "manual_observation",
+  label: "직접 관찰 확인",
+  evidenceBacked: true,
+  tone: "success",
+};
+
 function driftCard(overrides: Partial<ProvocationCard> = {}): ProvocationCard {
   return {
     id: "diff_scope_drift:finalApproval:1",
@@ -113,6 +120,18 @@ describe("DecisionGate policy", () => {
     });
 
     expect(policy.hasVerifiedEvidence).toBe(true);
+    expect(policy.canApproveDirectly).toBe(true);
+  });
+
+  it("allows direct approval for criterion-linked user observation evidence", () => {
+    const policy = deriveDecisionGatePolicy({
+      verificationStatuses: [manualObservation],
+      acceptanceCriterionConfirmed: true,
+      rollbackAvailable: false,
+    });
+
+    expect(policy.hasVerifiedEvidence).toBe(true);
+    expect(policy.requiresReason).toBe(false);
     expect(policy.canApproveDirectly).toBe(true);
   });
 

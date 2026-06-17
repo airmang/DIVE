@@ -15,13 +15,13 @@ implementation and testing.
 
 **Purpose**: Establish typed contracts and command seams.
 
-- [ ] T001 Add frontend verification-coach types in `dive/src/features/verification-coach/types.ts`
-- [ ] T002 Add frontend verification-coach API wrapper in `dive/src/features/verification-coach/api.ts`
-- [ ] T003 Add Rust verification-coach domain module in `dive/src-tauri/src/dive/verification_coach.rs`
-- [ ] T004 Register Rust module exports in `dive/src-tauri/src/dive/mod.rs`
-- [ ] T005 Add verification-coach IPC module in `dive/src-tauri/src/ipc/verification_coach.rs`
-- [ ] T006 Register verification-coach IPC command in `dive/src-tauri/src/ipc/mod.rs` and `dive/src-tauri/src/lib.rs`
-- [ ] T007 Add i18n copy for verification coach and observation evidence in `dive/src/i18n/en.json` and `dive/src/i18n/ko.json`
+- [X] T001 Add frontend verification-coach types in `dive/src/features/verification-coach/types.ts`
+- [X] T002 Add frontend verification-coach API wrapper in `dive/src/features/verification-coach/api.ts`
+- [X] T003 Add Rust verification-coach domain module in `dive/src-tauri/src/dive/verification_coach.rs`
+- [X] T004 Register Rust module exports in `dive/src-tauri/src/dive/mod.rs`
+- [X] T005 Add verification-coach IPC module in `dive/src-tauri/src/ipc/verification_coach.rs`
+- [X] T006 Register verification-coach IPC command in `dive/src-tauri/src/ipc/mod.rs` and `dive/src-tauri/src/lib.rs`
+- [X] T007 Add i18n copy for verification coach and observation evidence in `dive/src/i18n/en.json` and `dive/src/i18n/ko.json`
 
 ---
 
@@ -29,14 +29,14 @@ implementation and testing.
 
 **Purpose**: Core evidence and logging behavior that all stories depend on.
 
-- [ ] T008 Add verification coach context, guide, validation result, and drop reason structs in `dive/src-tauri/src/dive/verification_coach.rs`
-- [ ] T009 Add deterministic guide validation tests in `dive/src-tauri/src/dive/verification_coach.rs`
-- [ ] T010 Add EventLog payload builders or append helpers for `verification_coach.*` and `verification_observation.*` in `dive/src-tauri/src/dive/event_log.rs`
-- [ ] T011 Add export sanitizer coverage for verification-coach EventLog payloads in `dive/src-tauri/src/export/mod.rs`
-- [ ] T012 Extend concrete verification grading for criterion-linked manual observations in `dive/src/features/provocation/verificationGrade.ts`
-- [ ] T013 Add verification-grade regression tests in `dive/src/features/provocation/verificationGrade.test.ts`
-- [ ] T014 Extend approval provenance construction to include manual observation evidence in `dive/src/features/provocation/verificationStatus.ts`
-- [ ] T015 Extend backend approval provenance mapping to preserve manual evidence summaries in `dive/src-tauri/src/ipc/cards.rs`
+- [X] T008 Add verification coach context, guide, validation result, and drop reason structs in `dive/src-tauri/src/dive/verification_coach.rs`
+- [X] T009 Add deterministic guide validation tests in `dive/src-tauri/src/dive/verification_coach.rs`
+- [X] T010 Add EventLog payload builders or append helpers for `verification_coach.*` and `verification_observation.*` in `dive/src-tauri/src/dive/event_log.rs`
+- [X] T011 Add export sanitizer coverage for verification-coach EventLog payloads in `dive/src-tauri/src/export/mod.rs`
+- [X] T012 Extend concrete verification grading for criterion-linked manual observations in `dive/src/features/provocation/verificationGrade.ts`
+- [X] T013 Add verification-grade regression tests in `dive/src/features/provocation/verificationGrade.test.ts`
+- [X] T014 Extend approval provenance construction to include manual observation evidence in `dive/src/features/provocation/verificationStatus.ts`
+- [X] T015 Extend backend approval provenance mapping to preserve manual evidence summaries in `dive/src-tauri/src/ipc/cards.rs`
 
 **Checkpoint**: Evidence model is ready; user story implementation can begin.
 
@@ -52,17 +52,17 @@ shows concrete guidance instead of an empty review state.
 
 ### Tests for User Story 1
 
-- [ ] T016 [P] [US1] Add Rust tests for coach context building across CLI/manual and no-preview steps in `dive/src-tauri/src/dive/verification_coach.rs`
-- [ ] T017 [P] [US1] Add IPC tests for guidance shown/unavailable outcomes in `dive/src-tauri/src/ipc/tests.rs`
-- [ ] T018 [P] [US1] Add StepDetail guidance rendering tests in `dive/src/components/product/StepDetailSlideIn.test.tsx`
+- [X] T016 [P] [US1] Add Rust tests for coach context building across CLI/manual and no-preview steps in `dive/src-tauri/src/dive/verification_coach.rs`
+- [X] T017 [P] [US1] Add IPC tests for guidance shown/unavailable outcomes in `dive/src-tauri/src/ipc/tests.rs`
+- [X] T018 [P] [US1] Add StepDetail guidance rendering tests in `dive/src/components/product/StepDetailSlideIn.test.tsx`
 
 ### Implementation for User Story 1
 
-- [ ] T019 [US1] Implement coach prompt/context construction in `dive/src-tauri/src/dive/verification_coach.rs`
-- [ ] T020 [US1] Implement `verification_coach_generate` IPC command in `dive/src-tauri/src/ipc/verification_coach.rs`
-- [ ] T021 [US1] Add `VerificationCoachPanel` component in `dive/src/components/product/VerificationCoachPanel.tsx`
-- [ ] T022 [US1] Integrate `VerificationCoachPanel` into `dive/src/components/product/StepDetailSlideIn.tsx` near the verification focus area
-- [ ] T023 [US1] Wire guidance generation from `dive/src/components/product/useProductShellController.ts`
+- [X] T019 [US1] Implement coach prompt/context construction in `dive/src-tauri/src/dive/verification_coach.rs`
+- [X] T020 [US1] Implement `verification_coach_generate` IPC command in `dive/src-tauri/src/ipc/verification_coach.rs`
+- [X] T021 [US1] Add `VerificationCoachPanel` component in `dive/src/components/product/VerificationCoachPanel.tsx`
+- [X] T022 [US1] Integrate `VerificationCoachPanel` into `dive/src/components/product/StepDetailSlideIn.tsx` near the verification focus area
+- [X] T023 [US1] Wire guidance generation from `dive/src/components/product/useProductShellController.ts`
 
 **Checkpoint**: User Story 1 works independently.
 
@@ -79,19 +79,19 @@ risk/deferred.
 
 ### Tests for User Story 2
 
-- [ ] T024 [P] [US2] Add DecisionGate policy tests for manual observation evidence in `dive/src/components/product/DecisionGate.test.tsx`
-- [ ] T025 [P] [US2] Add StepDetail observation capture tests in `dive/src/components/product/StepDetailSlideIn.test.tsx`
-- [ ] T026 [P] [US2] Add approval provenance tests for observation evidence in `dive/src/features/provocation/__tests__/rules.test.ts`
-- [ ] T027 [P] [US2] Add Rust approval/export tests for manual evidence summary in `dive/src-tauri/src/ipc/tests.rs`
+- [X] T024 [P] [US2] Add DecisionGate policy tests for manual observation evidence in `dive/src/components/product/DecisionGate.test.tsx`
+- [X] T025 [P] [US2] Add StepDetail observation capture tests in `dive/src/components/product/StepDetailSlideIn.test.tsx`
+- [X] T026 [P] [US2] Add approval provenance tests for observation evidence in `dive/src/features/provocation/__tests__/rules.test.ts`
+- [X] T027 [P] [US2] Add Rust approval/export tests for manual evidence summary in `dive/src-tauri/src/ipc/tests.rs`
 
 ### Implementation for User Story 2
 
-- [ ] T028 [US2] Add observation state and criterion linking UI in `dive/src/components/product/VerificationCoachPanel.tsx`
-- [ ] T029 [US2] Extend `ApprovalDecision` payload in `dive/src/components/workmap/ApprovalJudgment.tsx`
-- [ ] T030 [US2] Pass observation evidence from `StepDetailSlideIn.tsx` to `useProductShellController.ts`
-- [ ] T031 [US2] Include observation evidence in frontend `buildApprovalProvenance` calls in `dive/src/components/product/useProductShellController.ts`
-- [ ] T032 [US2] Record observation EventLog entries through backend IPC in `dive/src-tauri/src/ipc/verification_coach.rs`
-- [ ] T033 [US2] Persist observation summaries into step mapping evidence via approval transition in `dive/src-tauri/src/ipc/cards.rs`
+- [X] T028 [US2] Add observation state and criterion linking UI in `dive/src/components/product/VerificationCoachPanel.tsx`
+- [X] T029 [US2] Extend `ApprovalDecision` payload in `dive/src/components/workmap/ApprovalJudgment.tsx`
+- [X] T030 [US2] Pass observation evidence from `StepDetailSlideIn.tsx` to `useProductShellController.ts`
+- [X] T031 [US2] Include observation evidence in frontend `buildApprovalProvenance` calls in `dive/src/components/product/useProductShellController.ts`
+- [X] T032 [US2] Record observation EventLog entries through backend IPC in `dive/src-tauri/src/ipc/verification_coach.rs`
+- [X] T033 [US2] Persist observation summaries into step mapping evidence via approval transition in `dive/src-tauri/src/ipc/cards.rs`
 
 **Checkpoint**: User Story 2 works independently.
 
@@ -107,14 +107,14 @@ regenerate, and confirm the observation remains attached unless cleared.
 
 ### Tests for User Story 3
 
-- [ ] T034 [P] [US3] Add regenerate guidance UI tests in `dive/src/components/product/StepDetailSlideIn.test.tsx`
-- [ ] T035 [P] [US3] Add guide version correlation tests in `dive/src-tauri/src/ipc/tests.rs`
+- [X] T034 [P] [US3] Add regenerate guidance UI tests in `dive/src/components/product/StepDetailSlideIn.test.tsx`
+- [X] T035 [P] [US3] Add guide version correlation tests in `dive/src-tauri/src/ipc/tests.rs`
 
 ### Implementation for User Story 3
 
-- [ ] T036 [US3] Add regenerate action and loading/error states in `dive/src/components/product/VerificationCoachPanel.tsx`
-- [ ] T037 [US3] Preserve observation state across guide refreshes in `dive/src/components/product/StepDetailSlideIn.tsx`
-- [ ] T038 [US3] Increment and log guide versions in `dive/src-tauri/src/ipc/verification_coach.rs`
+- [X] T036 [US3] Add regenerate action and loading/error states in `dive/src/components/product/VerificationCoachPanel.tsx`
+- [X] T037 [US3] Preserve observation state across guide refreshes in `dive/src/components/product/StepDetailSlideIn.tsx`
+- [X] T038 [US3] Increment and log guide versions in `dive/src-tauri/src/ipc/verification_coach.rs`
 
 **Checkpoint**: User Story 3 works independently.
 
@@ -129,14 +129,14 @@ coached review, export the session, and confirm records are distinguishable.
 
 ### Tests for User Story 4
 
-- [ ] T039 [P] [US4] Add export reconstruction tests in `dive/src-tauri/src/export/mod.rs`
-- [ ] T040 [P] [US4] Add frontend logging integration tests in `dive/src/components/product/StepDetailSlideIn.test.tsx`
+- [X] T039 [P] [US4] Add export reconstruction tests in `dive/src-tauri/src/export/mod.rs`
+- [X] T040 [P] [US4] Add frontend logging integration tests in `dive/src/components/product/StepDetailSlideIn.test.tsx`
 
 ### Implementation for User Story 4
 
-- [ ] T041 [US4] Finalize EventLog/export shaping for guidance and observation records in `dive/src-tauri/src/export/mod.rs`
-- [ ] T042 [US4] Add user-text hashing/redaction coverage for observation text in `dive/src-tauri/src/export/mod.rs`
-- [ ] T043 [US4] Update `docs/spec-status.md` with 007 implementation status after validation
+- [X] T041 [US4] Finalize EventLog/export shaping for guidance and observation records in `dive/src-tauri/src/export/mod.rs`
+- [X] T042 [US4] Add user-text hashing/redaction coverage for observation text in `dive/src-tauri/src/export/mod.rs`
+- [X] T043 [US4] Update `docs/spec-status.md` with 007 implementation status after validation
 
 **Checkpoint**: User Story 4 works independently.
 
@@ -144,12 +144,12 @@ coached review, export the session, and confirm records are distinguishable.
 
 ## Final Phase: Polish & Cross-Cutting Concerns
 
-- [ ] T044 [P] Run `pnpm typecheck` in `dive/`
-- [ ] T045 [P] Run targeted Vitest suites for StepDetail, DecisionGate, and verification grade in `dive/`
-- [ ] T046 [P] Run targeted Rust tests for verification coach, IPC, cards, and export in `dive/src-tauri/`
-- [ ] T047 Run `pnpm test:unit` in `dive/`
-- [ ] T048 Run Tauri app smoke for the DIVE_TEST9 Step1 review flow
-- [ ] T049 Update `specs/007-llm-verification-coach/quickstart.md` with validation results
+- [X] T044 [P] Run `pnpm typecheck` in `dive/`
+- [X] T045 [P] Run targeted Vitest suites for StepDetail, DecisionGate, and verification grade in `dive/`
+- [X] T046 [P] Run targeted Rust tests for verification coach, IPC, cards, and export in `dive/src-tauri/`
+- [X] T047 Run `pnpm test:unit` in `dive/`
+- [ ] T048 Run Tauri app smoke for the DIVE_TEST9 Step1 review flow (not run in S-023: no automated DIVE_TEST9 review-flow harness or copied real-provider DB/keyring smoke fixture was available in this environment)
+- [X] T049 Update `specs/007-llm-verification-coach/quickstart.md` with validation results
 
 ---
 

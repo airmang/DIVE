@@ -10,6 +10,11 @@ export type ApprovalOutcome =
 export interface ApprovalDecision {
   outcome: ApprovalOutcome;
   note: string | null;
+  observationEvidence?: {
+    observationIds: string[];
+    manualChecks: string[];
+    criterionIds: string[];
+  } | null;
 }
 
 export type ApprovalDecisionWithTime = ApprovalDecision & { decided_at: number };
