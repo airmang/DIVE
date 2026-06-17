@@ -329,6 +329,32 @@ export function useChatSession(
     }));
   }, []);
 
+  const expireToolApproval = useCallback((toolCallId: string, message: string) => {
+    const createdAt = Date.now();
+    const error: ErrorMessageData = {
+      id: `err-${createdAt}`,
+      kind: "error",
+      createdAt,
+      message,
+      retryable: false,
+    };
+    setState((s) => ({
+      ...s,
+      messages: [
+        ...s.messages.map((m) =>
+          m.id === toolCallId && m.kind === "tool_call" && m.status === "pending"
+            ? { ...m, status: "denied" as const, deniedReason: message }
+            : m,
+        ),
+        error,
+      ],
+      isStreaming: false,
+      error: message,
+      runStartedAt: null,
+      cancelRequested: false,
+    }));
+  }, []);
+
   const armStallTimer = useCallback(() => {
     clearStallTimer();
     stallTimerRef.current = setTimeout(() => {
@@ -530,23 +556,50 @@ export function useChatSession(
     async (toolCallId: string, modifiedArgs?: unknown, approvalMetadata?: ToolApprovalMetadata) => {
       const api = apiRef.current;
       if (!api) return;
-      await api.invoke<boolean>("tool_approve", {
-        toolCallId,
-        modifiedArgs: modifiedArgs ?? null,
-        approvalMetadata: approvalMetadata ?? null,
-      });
+      try {
+        const resolved = await api.invoke<boolean>("tool_approve", {
+          toolCallId,
+          modifiedArgs: modifiedArgs ?? null,
+          approvalMetadata: approvalMetadata ?? null,
+        });
+        if (!resolved) {
+          expireToolApproval(
+            toolCallId,
+            translate(useLocaleStore.getState().locale, "chat.tool_approval_stale_approve"),
+          );
+          await refreshPendingApprovals().catch(() => {});
+        }
+      } catch (err) {
+        appendErrorMessage(err instanceof Error ? err.message : String(err), true);
+        await refreshPendingApprovals().catch(() => {});
+      }
     },
-    [],
+    [appendErrorMessage, expireToolApproval, refreshPendingApprovals],
   );
 
-  const denyToolCall = useCallback(async (toolCallId: string, reason?: string) => {
-    const api = apiRef.current;
-    if (!api) return;
-    await api.invoke<boolean>("tool_deny", {
-      toolCallId,
-      reason: reason ?? null,
-    });
-  }, []);
+  const denyToolCall = useCallback(
+    async (toolCallId: string, reason?: string) => {
+      const api = apiRef.current;
+      if (!api) return;
+      try {
+        const resolved = await api.invoke<boolean>("tool_deny", {
+          toolCallId,
+          reason: reason ?? null,
+        });
+        if (!resolved) {
+          expireToolApproval(
+            toolCallId,
+            translate(useLocaleStore.getState().locale, "chat.tool_approval_stale_deny"),
+          );
+          await refreshPendingApprovals().catch(() => {});
+        }
+      } catch (err) {
+        appendErrorMessage(err instanceof Error ? err.message : String(err), true);
+        await refreshPendingApprovals().catch(() => {});
+      }
+    },
+    [appendErrorMessage, expireToolApproval, refreshPendingApprovals],
+  );
 
   const setCurrentCard = useCallback(
     async (cardId: number | null) => {
@@ -633,6 +686,19 @@ export function useChatSession(
     const api = apiRef.current;
     if (!api) return;
     await api.invoke<void>("checkpoint_restore", { checkpointId });
+    const createdAt = Date.now();
+    const marker: SystemMessageData = {
+      id: `checkpoint-restore-${checkpointId}-${createdAt}`,
+      kind: "system",
+      createdAt,
+      content: translate(useLocaleStore.getState().locale, "recovery.restore_chat_marker", {
+        checkpoint: checkpointId,
+      }),
+    };
+    setState((s) => ({
+      ...s,
+      messages: mergeMessagesById(s.messages, [marker]),
+    }));
   }, []);
 
   return {
@@ -653,10 +719,7 @@ export function useChatSession(
 }
 
 function runtimeUnavailableMessage(reasonCode: RuntimeUnavailableReason): string {
-  return translate(
-    useLocaleStore.getState().locale,
-    `runtime.capability.reasons.${reasonCode}`,
-  );
+  return translate(useLocaleStore.getState().locale, `runtime.capability.reasons.${reasonCode}`);
 }
 
 function normalizeRuntimeSelection(
@@ -722,10 +785,7 @@ function runtimeSystemMessage(selection: RuntimeSelection): string {
   return `${label}: ${selection.message} · ${selection.provider}/${selection.model}`;
 }
 
-export function reduceChatSessionState(
-  prev: ChatSessionState,
-  evt: AgentEvent,
-): ChatSessionState {
+export function reduceChatSessionState(prev: ChatSessionState, evt: AgentEvent): ChatSessionState {
   switch (evt.type) {
     case "user_message": {
       const m: UserMessageData = {
@@ -883,7 +943,19 @@ export function reduceChatSessionState(
         summary: evt.summary,
         full: evt.full,
       };
-      return { ...prev, messages: [...prev.messages, m] };
+      const messages = prev.messages.map((message) => {
+        if (
+          message.id !== evt.call_id ||
+          message.kind !== "tool_call" ||
+          message.status !== "pending"
+        ) {
+          return message;
+        }
+        return evt.success
+          ? { ...message, status: "approved" as const }
+          : { ...message, status: "denied" as const, deniedReason: evt.summary };
+      });
+      return { ...prev, messages: [...messages, m] };
     }
     case "error": {
       const m: ErrorMessageData = {

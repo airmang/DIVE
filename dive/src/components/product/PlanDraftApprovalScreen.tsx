@@ -1,5 +1,5 @@
 import { AlertTriangle, Check, ChevronDown, ChevronUp, RotateCcw, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../../i18n";
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
 import { criterionTexts, normalizeStepCriteria } from "../../features/planning";
@@ -221,6 +221,7 @@ export function PlanDraftApprovalScreen({
   const [expandedStepIds, setExpandedStepIds] = useState<Set<string>>(() => new Set());
   const [critique, setCritique] = useState<"unset" | "none" | "found">("unset");
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
+  const lastSupervisorEvaluationKeyRef = useRef("");
   const unresolved = useMemo(
     () => stringArray(interview?.unresolved_questions),
     [interview?.unresolved_questions],
@@ -275,11 +276,19 @@ export function PlanDraftApprovalScreen({
   useEffect(() => {
     let cancelled = false;
     if (!planDraftSupervisorRequest) {
+      lastSupervisorEvaluationKeyRef.current = "";
       setProvocationCards([]);
       return () => {
         cancelled = true;
       };
     }
+    const requestKey = JSON.stringify(planDraftSupervisorRequest);
+    if (requestKey === lastSupervisorEvaluationKeyRef.current) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    lastSupervisorEvaluationKeyRef.current = requestKey;
 
     setProvocationCards([]);
     void evaluateProvocationSupervisor(planDraftSupervisorRequest)

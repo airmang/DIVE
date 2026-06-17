@@ -3019,10 +3019,14 @@ rl.on("line", (line) => {{
             .expect("repo dir")
             .to_path_buf();
         let keyring = auth::OsKeyring::new();
-        let result = run_codex_smoke(&keyring, provider_config_id, cwd, None)
+        let model = std::env::var("DIVE_PI_SIDECAR_LIVE_MODEL").ok();
+        let result = run_codex_smoke(&keyring, provider_config_id, cwd, model)
             .await
             .expect("live pi sidecar smoke");
+        #[cfg(unix)]
         assert_eq!(result.auth_file_mode, "600");
+        #[cfg(not(unix))]
+        assert_eq!(result.auth_file_mode, "platform-default");
         assert_eq!(result.enabled_tools, ["dive_context"]);
         assert_eq!(result.tool_calls_seen, 1);
         assert_eq!(result.assistant_text, SMOKE_MARKER);

@@ -1,11 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
 import { useLocaleStore } from "../i18n";
-import {
-  reduceChatSessionState,
-  type AgentEvent,
-  type ChatSessionState,
-} from "./useChatSession";
+import { reduceChatSessionState, type AgentEvent, type ChatSessionState } from "./useChatSession";
 
 function initialState(): ChatSessionState {
   return {
@@ -156,5 +152,30 @@ describe("useChatSession runtime event reducer", () => {
     if (!message || message.kind !== "system") throw new Error("expected system message");
     expect(message.content).toContain("Provider 인증 정보가 없거나 사용할 수 없습니다.");
     expect(message.content).not.toContain("Provider credentials are missing");
+  });
+
+  it("closes a pending tool card when a failure result arrives without approval", () => {
+    const pending = reduceChatSessionState(initialState(), {
+      type: "tool_call_start",
+      id: "tool-1",
+      tool: "run_process",
+      params_preview: "command: powershell.exe",
+      risk: "danger",
+      args: { command: "powershell.exe" },
+    });
+
+    const next = reduceChatSessionState(pending, {
+      type: "tool_result",
+      call_id: "tool-1",
+      success: false,
+      summary: "invalid input: shell executable not allowed",
+      full: { error: "invalid input: shell executable not allowed" },
+    });
+
+    const call = next.messages.find((message) => message.id === "tool-1");
+    expect(call?.kind).toBe("tool_call");
+    if (!call || call.kind !== "tool_call") throw new Error("expected tool call");
+    expect(call.status).toBe("denied");
+    expect(call.deniedReason).toBe("invalid input: shell executable not allowed");
   });
 });

@@ -9,7 +9,7 @@ use tokio::net::TcpListener;
 
 use crate::auth::{self, CodexOAuth, Keyring, PkcePair};
 use crate::db::dao::provider_config as provider_dao;
-use crate::db::models::NewProviderConfig;
+use crate::db::models::{NewProviderConfig, ProviderConfigRow};
 use crate::db::Database;
 
 use super::{AppState, ProviderKind, ProviderRuntime};
@@ -94,6 +94,8 @@ fn mark_codex_connected(
     let mut config = row.config.as_object().cloned().unwrap_or_default();
     config.insert("oauth_connected".to_owned(), serde_json::json!(true));
     config.insert("account_id".to_owned(), serde_json::json!(account_id));
+    config.remove("oauth_invalidated_at");
+    config.remove("oauth_invalidated_reason");
     provider_dao::update(
         db.conn(),
         provider_config_id,
@@ -134,10 +136,14 @@ fn activate_codex_runtime(state: &AppState, provider_config_id: i64) -> Result<(
         .map_err(|e| format!("runtime: {e}"))
 }
 
-fn codex_provider_id(db: &Mutex<Database>) -> Result<Option<i64>, String> {
+fn codex_provider_row(db: &Mutex<Database>) -> Result<Option<ProviderConfigRow>, String> {
     let db = db.lock().map_err(|e| e.to_string())?;
     let rows = provider_dao::list(db.conn()).map_err(|e| e.to_string())?;
-    Ok(rows.into_iter().find(|r| r.kind == "codex").map(|r| r.id))
+    Ok(rows.into_iter().find(|r| r.kind == "codex"))
+}
+
+fn codex_provider_id(db: &Mutex<Database>) -> Result<Option<i64>, String> {
+    Ok(codex_provider_row(db)?.map(|row| row.id))
 }
 
 async fn start_impl(
@@ -299,6 +305,14 @@ async fn run_callback_server_once(app: AppHandle, state: AppState) -> Result<(),
             );
             let _ = write_http_response(&mut stream, "200 OK", &body).await;
             let _ = app.emit("codex://oauth-complete", &status);
+            if let Some(provider_config_id) = status.provider_config_id {
+                super::provider::emit_provider_changed(
+                    &app,
+                    provider_config_id,
+                    ProviderKind::Codex.as_str(),
+                    "codex_oauth_connected",
+                );
+            }
             Ok(())
         }
         Err(err) => {
@@ -399,7 +413,7 @@ fn percent_decode_form_value(input: &str) -> String {
 
 fn status_impl(db: &Mutex<Database>, keyring: &dyn Keyring) -> Result<CodexAuthStatus, String> {
     let pending_present = PENDING.lock().map_err(|e| e.to_string())?.is_some();
-    let Some(id) = codex_provider_id(db)? else {
+    let Some(row) = codex_provider_row(db)? else {
         return Ok(CodexAuthStatus {
             connected: false,
             provider_config_id: None,
@@ -407,14 +421,24 @@ fn status_impl(db: &Mutex<Database>, keyring: &dyn Keyring) -> Result<CodexAuthS
             pending: pending_present,
         });
     };
+    let id = row.id;
     let tokens_opt = auth::load_codex_tokens(keyring, id).map_err(|e| format!("keyring: {e}"))?;
-    let connected = tokens_opt.is_some();
-    let account_id = tokens_opt.as_ref().and_then(|(_, _, id_token)| {
+    let config_marked_disconnected =
+        super::provider::is_codex_config_marked_disconnected(&row.config);
+    let connected = tokens_opt.is_some() && !config_marked_disconnected;
+    let token_account_id = tokens_opt.as_ref().and_then(|(_, _, id_token)| {
         if id_token.is_empty() {
             None
         } else {
             auth::codex_oauth::decode_account_id(id_token).ok()
         }
+    });
+    let account_id = token_account_id.or_else(|| {
+        row.config
+            .get("account_id")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
     });
     Ok(CodexAuthStatus {
         connected,
@@ -424,15 +448,16 @@ fn status_impl(db: &Mutex<Database>, keyring: &dyn Keyring) -> Result<CodexAuthS
     })
 }
 
-fn logout_impl(db: &Mutex<Database>, keyring: &dyn Keyring) -> Result<(), String> {
-    if let Some(id) = codex_provider_id(db)? {
+fn logout_impl(db: &Mutex<Database>, keyring: &dyn Keyring) -> Result<Option<i64>, String> {
+    let provider_config_id = codex_provider_id(db)?;
+    if let Some(id) = provider_config_id {
         auth::delete_codex_tokens(keyring, id).map_err(|e| format!("keyring: {e}"))?;
         let db = db.lock().map_err(|e| e.to_string())?;
         provider_dao::delete(db.conn(), id).map_err(|e| e.to_string())?;
     }
     let mut guard = PENDING.lock().map_err(|e| e.to_string())?;
     *guard = None;
-    Ok(())
+    Ok(provider_config_id)
 }
 
 async fn refresh_impl(
@@ -440,7 +465,21 @@ async fn refresh_impl(
     keyring: &dyn Keyring,
     base_auth_url: Option<String>,
 ) -> Result<CodexAuthStatus, String> {
-    let id = codex_provider_id(db)?.ok_or_else(|| "codex not connected".to_string())?;
+    let row = codex_provider_row(db)?.ok_or_else(|| "codex not connected".to_string())?;
+    let id = row.id;
+    if super::provider::is_codex_config_marked_disconnected(&row.config) {
+        return Ok(CodexAuthStatus {
+            connected: false,
+            provider_config_id: Some(id),
+            account_id: row
+                .config
+                .get("account_id")
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned),
+            pending: false,
+        });
+    }
     let (_access, refresh, _id_token) = auth::load_codex_tokens(keyring, id)
         .map_err(|e| format!("keyring: {e}"))?
         .ok_or_else(|| "codex tokens missing".to_string())?;
@@ -471,11 +510,21 @@ pub async fn codex_oauth_start(
 
 #[tauri::command]
 pub async fn codex_oauth_complete(
+    app: AppHandle,
     state: State<'_, AppState>,
     code: String,
     received_state: String,
 ) -> Result<CodexAuthStatus, String> {
-    complete_and_activate_impl(&state, &code, &received_state).await
+    let status = complete_and_activate_impl(&state, &code, &received_state).await?;
+    if let Some(provider_config_id) = status.provider_config_id {
+        super::provider::emit_provider_changed(
+            &app,
+            provider_config_id,
+            ProviderKind::Codex.as_str(),
+            "codex_oauth_connected",
+        );
+    }
+    Ok(status)
 }
 
 #[tauri::command]
@@ -484,21 +533,40 @@ pub async fn codex_oauth_status(state: State<'_, AppState>) -> Result<CodexAuthS
 }
 
 #[tauri::command]
-pub async fn codex_oauth_logout(state: State<'_, AppState>) -> Result<(), String> {
-    logout_impl(state.db.as_ref(), state.keyring.as_ref())?;
+pub async fn codex_oauth_logout(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let provider_config_id = logout_impl(state.db.as_ref(), state.keyring.as_ref())?;
     if state.runtime_snapshot().kind == ProviderKind::Codex {
         state
             .swap_runtime(ProviderRuntime::none())
             .map_err(|e| format!("runtime: {e}"))?;
     }
+    if let Some(provider_config_id) = provider_config_id {
+        super::provider::emit_provider_changed(
+            &app,
+            provider_config_id,
+            ProviderKind::Codex.as_str(),
+            "codex_oauth_logout",
+        );
+    }
     Ok(())
 }
 
 #[tauri::command]
-pub async fn codex_oauth_refresh(state: State<'_, AppState>) -> Result<CodexAuthStatus, String> {
+pub async fn codex_oauth_refresh(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<CodexAuthStatus, String> {
     let status = refresh_impl(state.db.as_ref(), state.keyring.as_ref(), None).await?;
     if let Some(provider_config_id) = status.provider_config_id {
-        activate_codex_runtime(&state, provider_config_id)?;
+        if status.connected {
+            activate_codex_runtime(&state, provider_config_id)?;
+        }
+        super::provider::emit_provider_changed(
+            &app,
+            provider_config_id,
+            ProviderKind::Codex.as_str(),
+            "codex_oauth_refreshed",
+        );
     }
     Ok(status)
 }
@@ -507,6 +575,7 @@ pub async fn codex_oauth_refresh(state: State<'_, AppState>) -> Result<CodexAuth
 mod tests {
     use super::*;
     use crate::auth::InMemoryKeyring;
+    use crate::providers::MockProvider;
     use once_cell::sync::Lazy;
     use std::sync::Arc;
     use wiremock::matchers::{method, path};
@@ -571,6 +640,97 @@ mod tests {
         let check = status_impl(db.as_ref(), keyring.as_ref()).unwrap();
         assert!(check.connected);
         assert_eq!(check.account_id.as_deref(), Some("acct_codex_1"));
+    }
+
+    #[test]
+    fn mark_codex_connected_clears_stale_invalidated_marker() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.migrate().unwrap();
+        let id = provider_dao::insert(
+            db.conn(),
+            &NewProviderConfig {
+                kind: "codex".into(),
+                auth_type: "oauth".into(),
+                base_url: None,
+                config: serde_json::json!({
+                    "selected_model": "gpt-5.5",
+                    "oauth_connected": false,
+                    "oauth_invalidated_at": 12345,
+                    "oauth_invalidated_reason": "codex_auth_invalidated",
+                }),
+            },
+        )
+        .unwrap();
+        let state = AppState::new(
+            db,
+            Arc::new(MockProvider::new(Vec::new())),
+            std::env::temp_dir(),
+            "mock".into(),
+        )
+        .with_keyring(Arc::new(InMemoryKeyring::new()));
+
+        mark_codex_connected(&state, id, "acct_reconnected").unwrap();
+
+        let db = state.db.lock().unwrap();
+        let row = provider_dao::get_by_id(db.conn(), id).unwrap().unwrap();
+        assert_eq!(
+            row.config
+                .get("oauth_connected")
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            row.config
+                .get("account_id")
+                .and_then(|value| value.as_str()),
+            Some("acct_reconnected")
+        );
+        assert!(row.config.get("oauth_invalidated_at").is_none());
+        assert!(row.config.get("oauth_invalidated_reason").is_none());
+    }
+
+    #[test]
+    fn status_reports_invalidated_codex_config_as_disconnected_even_with_tokens() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.migrate().unwrap();
+        let id = provider_dao::insert(
+            db.conn(),
+            &NewProviderConfig {
+                kind: "codex".into(),
+                auth_type: "oauth".into(),
+                base_url: None,
+                config: serde_json::json!({
+                    "selected_model": "gpt-5.5",
+                    "oauth_connected": false,
+                    "oauth_invalidated_at": 12345,
+                    "account_id": "acct_invalidated_status",
+                }),
+            },
+        )
+        .unwrap();
+        let db = Arc::new(Mutex::new(db));
+        let keyring = Arc::new(InMemoryKeyring::new());
+        auth::store_codex_tokens(
+            keyring.as_ref(),
+            id,
+            &auth::CodexTokens {
+                access_token: "at".into(),
+                refresh_token: "rt".into(),
+                id_token: encode_id_token("acct_invalidated_status"),
+                account_id: "acct_invalidated_status".into(),
+                expires_in: 3600,
+            },
+        )
+        .unwrap();
+
+        let status = status_impl(db.as_ref(), keyring.as_ref()).unwrap();
+
+        assert!(!status.connected);
+        assert_eq!(status.provider_config_id, Some(id));
+        assert_eq!(
+            status.account_id.as_deref(),
+            Some("acct_invalidated_status")
+        );
     }
 
     #[test]

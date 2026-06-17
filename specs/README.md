@@ -14,6 +14,7 @@ implementation planning.
 | [`005-v2-spec-conformance-gaps`](005-v2-spec-conformance-gaps/spec.md) | Implemented conformance cleanup | Closes v2 conformance gaps for user-visible legacy runtime fallback removal, add-step scope cards through SupervisorAgent, rationale challenge offers, and truthful spec-status cleanup. |
 | [`006-sarkar-provocation-expansion`](006-sarkar-provocation-expansion/spec.md) | Implemented | Expands Sarkar-style SupervisorAgent review-card coverage to plan draft approval, diff-ready review, and retry-loop review while preserving evidence, locality, and no static fallback. |
 | [`007-llm-verification-coach`](007-llm-verification-coach/spec.md) | Active draft with plan/tasks | Defines the step-review verification coach: adaptive AI guidance for how to verify a step, criterion-linked user observation capture, and evidence-aware approval separation from AI self-report. |
+| [`008-preview-terminal-runtime-tools`](008-preview-terminal-runtime-tools/spec.md) | Active draft | Defines first-class Preview, direct Project Command, and bounded Terminal Script runtime actions so preview and shell-style verification do not collapse into the same approval path. |
 
 ## Authority Rules
 
@@ -73,6 +74,14 @@ implementation planning.
 - The 007 implementation plan and MVP task breakdown are governed by
   `specs/007-llm-verification-coach/plan.md`, `research.md`,
   `data-model.md`, `contracts/`, `quickstart.md`, and `tasks.md`.
+- Preview and terminal runtime action separation is governed by
+  `specs/008-preview-terminal-runtime-tools/spec.md`: Preview handles local
+  project inspection, Project Command remains one executable plus explicit
+  arguments, and Terminal Script is a distinct high-risk path for justified
+  shell-style verification.
+- The 008 implementation plan and design contracts are governed by
+  `specs/008-preview-terminal-runtime-tools/plan.md`, `research.md`,
+  `data-model.md`, `contracts/`, and `quickstart.md`.
 - `change_step` and `retire_step` are contract-reserved mutation concepts only.
   The shipped visible plan-mutation path from 004/005 is `add_step`; any visible
   change/retire flow needs a later spec, implementation, validation, and status

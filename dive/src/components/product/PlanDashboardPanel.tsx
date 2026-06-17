@@ -18,7 +18,12 @@ import {
   type RoadmapActionFailure,
   type PlanDashboardStep,
 } from "../../features/roadmap";
-import { requestPlanDraftReview, usePlan, type AppendPlanStepInput } from "../../features/planning";
+import {
+  requestPlanDraftReview,
+  usePlan,
+  usePlanRouter,
+  type AppendPlanStepInput,
+} from "../../features/planning";
 import { useT } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { useProjectSessionStore } from "../../stores/project-session";
@@ -301,6 +306,7 @@ function DashboardProjectItem({
 }: DashboardProjectItemProps) {
   const t = useT();
   const plan = usePlan(project.project_id);
+  const planRouter = usePlanRouter(project.project_id);
   const activeStep = project.active_steps[0] ?? null;
   const readyStep = project.next_ready_steps[0] ?? null;
   const needsPlanReview = project.plan_id !== null && project.plan_status !== "approved";
@@ -317,6 +323,21 @@ function DashboardProjectItem({
   const handleAppendStep = async (input: AppendPlanStepInput) => {
     await plan.appendStep(input);
     await onPlanMutated();
+  };
+
+  const handleDraftRequest = async (request: string) => {
+    const decision = await planRouter.route(request);
+    if (decision.action === "add_step") {
+      return {
+        status: "draft" as const,
+        draft: decision.draft,
+        reason: decision.reason,
+      };
+    }
+    return {
+      status: "none" as const,
+      reason: decision.reason,
+    };
   };
 
   return (
@@ -431,8 +452,9 @@ function DashboardProjectItem({
           planId={project.plan_id}
           projectName={project.project_name}
           projectSpec={project.project_spec ?? null}
-          busy={busyAction !== null}
+          busy={busyAction !== null || planRouter.busy}
           onAppendStep={handleAppendStep}
+          onDraftRequest={handleDraftRequest}
         />
       ) : null}
     </li>

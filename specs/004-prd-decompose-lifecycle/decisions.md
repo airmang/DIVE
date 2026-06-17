@@ -155,3 +155,18 @@
   challenge offers remain plan/decomposition review responsibilities (for
   example, plan draft review and roadmap explanation surfaces). `StepDetailSlideIn`
   should stay focused on verification evidence and review-card interaction.
+
+## DEC-013: Chat-Detected Add-Step Requests Prefill The Plan Area
+
+- **Decision**: When ordinary chat appears to request new plan work, DIVE may use
+  the LLM router to draft an `add_step` candidate, but confirming that candidate
+  must route into the dedicated plan area as an editable prefilled proposal. It
+  must not silently mutate the approved plan from chat.
+- **Rationale**: Students naturally discover missing work while chatting. Dropping
+  that context forces duplicate entry, while direct chat mutation would hide the
+  plan change from the auditable plan workflow. Prefill keeps the user's wording
+  useful without making chat the mutation surface.
+- **Implication**: The shipped mutation remains `add_step` only. The final save,
+  PRD delta, scope-expansion review card, stable step numbering, EventLog record,
+  and export path continue to run through the existing dedicated plan mutation
+  flow.

@@ -2,7 +2,11 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
-import { PLAN_ADJUSTMENT_REVIEW_REQUEST_EVENT, type ProjectSpec } from "../../features/planning";
+import {
+  PLAN_ADD_STEP_DRAFT_REQUEST_EVENT,
+  PLAN_ADJUSTMENT_REVIEW_REQUEST_EVENT,
+  type ProjectSpec,
+} from "../../features/planning";
 import {
   evaluateProvocationSupervisor,
   type ProvocationCard,
@@ -282,5 +286,70 @@ describe("PlanAddStepPanel scope-expansion supervisor cards", () => {
       "'저장 상태 분리' 단계 재분해 검토",
     );
     expect(props.onAppendStep).not.toHaveBeenCalled();
+  });
+
+  it("prefills chat-routed add-step drafts without appending until save", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+    const onAppendStep = vi.fn().mockResolvedValue(undefined);
+    renderPanel({ onAppendStep });
+
+    window.dispatchEvent(
+      new CustomEvent(PLAN_ADD_STEP_DRAFT_REQUEST_EVENT, {
+        detail: {
+          projectId: 1,
+          planId: 11,
+          source: "chat_route",
+          reason: "new implementation request",
+          draft: {
+            stepId: "step-002",
+            title: "Export mutation data",
+            summary: "Add export reconstruction for plan mutations.",
+            instructionSeed: "Implement export reconstruction for plan mutations.",
+            expectedFiles: ["src/workspace_plan/artifacts.rs"],
+            acceptanceCriteria: ["Plan mutations appear in export."],
+            linkedCriterionIds: ["AC-001"],
+            rationale: "Export is required for research reconstruction.",
+            verificationCommand: "cargo test export",
+            verificationType: "command",
+            dependencies: ["step-001"],
+            parallelGroup: 2,
+            position: 2,
+          },
+        },
+      }),
+    );
+
+    await waitFor(() =>
+      expect((screen.getByTestId("plan-add-step-title") as HTMLInputElement).value).toBe(
+        "Export mutation data",
+      ),
+    );
+    expect(screen.getByTestId("plan-add-step-draft-notice").textContent).toContain(
+      "채팅에서 감지한 초안",
+    );
+    expect(onAppendStep).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("plan-add-step-save"));
+
+    await waitFor(() => expect(onAppendStep).toHaveBeenCalledTimes(1));
+    expect(onAppendStep).toHaveBeenCalledWith({
+      planId: 11,
+      mutationReason: "Add export reconstruction for plan mutations.",
+      linkedCriterionIds: ["AC-001"],
+      prdDelta: expect.objectContaining({
+        scopeChanges: ["Export mutation data"],
+      }),
+      draft: expect.objectContaining({
+        title: "Export mutation data",
+        verificationCommand: "cargo test export",
+        verificationType: "command",
+        dependencies: ["step-001"],
+        parallelGroup: 2,
+      }),
+    });
   });
 });

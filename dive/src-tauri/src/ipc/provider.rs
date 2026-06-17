@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::auth;
 use crate::db::dao::provider_config as provider_dao;
@@ -8,6 +8,47 @@ use crate::db::models::{NewProviderConfig, ProviderConfigRow};
 use crate::providers::ModelInfo;
 
 use super::{AppState, ProviderKind, ProviderRuntime};
+
+pub(crate) const PROVIDER_CHANGED_EVENT: &str = "provider://changed";
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProviderChangedPayload {
+    pub provider_config_id: i64,
+    pub kind: String,
+    pub reason: String,
+}
+
+pub(crate) fn emit_provider_changed(
+    app: &AppHandle,
+    provider_config_id: i64,
+    kind: &str,
+    reason: &str,
+) {
+    let _ = app.emit(
+        PROVIDER_CHANGED_EVENT,
+        ProviderChangedPayload {
+            provider_config_id,
+            kind: kind.to_owned(),
+            reason: reason.to_owned(),
+        },
+    );
+}
+
+pub(crate) fn is_codex_auth_invalidated_message(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    lower.contains("token_invalidated")
+        || (lower.contains("authentication token") && lower.contains("invalidated"))
+        || (lower.contains("401") && lower.contains("invalid"))
+}
+
+pub(crate) fn is_codex_config_marked_disconnected(config: &Value) -> bool {
+    config.get("oauth_invalidated_at").is_some()
+        || config
+            .get("oauth_connected")
+            .and_then(|value| value.as_bool())
+            == Some(false)
+}
 
 fn selected_model_from_config(config: &Value) -> Option<String> {
     config
@@ -186,7 +227,7 @@ fn summaries_from_rows(
     for row in rows {
         let selected_model = Some(selected_model_for_kind(&row.kind, &row.config));
         let (is_connected, account_id) = connection_summary(&row, keyring);
-        let is_active = active_provider_id == Some(row.id);
+        let is_active = is_connected && active_provider_id == Some(row.id);
         out.push(ProviderConfigSummary {
             id: row.id,
             kind: row.kind,
@@ -239,6 +280,9 @@ fn connection_summary(
         .map(str::to_owned);
 
     if row.kind == "codex" {
+        if is_codex_config_marked_disconnected(&row.config) {
+            return (false, account_id);
+        }
         let is_connected = auth::load_codex_tokens(keyring, row.id)
             .map(|tokens| tokens.is_some())
             .unwrap_or(false);
@@ -358,15 +402,15 @@ pub async fn provider_select_impl(
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("provider not found: {provider_config_id}"))?
     };
+    let (is_connected, account_id) = connection_summary(&row, state.keyring.as_ref());
+    if !is_connected {
+        return Err(format!("provider is not connected: {provider_config_id}"));
+    }
     let runtime = runtime_for_row(&row, state.keyring.as_ref())?;
     let model = runtime.model.clone();
     state
         .swap_runtime(runtime)
         .map_err(|e| format!("runtime: {e}"))?;
-    let (is_connected, account_id) = connection_summary(&row, state.keyring.as_ref());
-    if !is_connected {
-        return Err(format!("provider is not connected: {provider_config_id}"));
-    }
     tracing::info!(
         provider_config_id = row.id,
         provider_kind = %row.kind,
@@ -406,6 +450,12 @@ fn runtime_for_row(
 ) -> Result<ProviderRuntime, String> {
     let model = selected_model_for_kind(&row.kind, &row.config);
     if row.kind == "codex" {
+        if is_codex_config_marked_disconnected(&row.config) {
+            return Err(format!(
+                "codex OAuth credentials invalidated for provider {}",
+                row.id
+            ));
+        }
         let (access_token, refresh_token, id_token) = auth::load_codex_tokens(keyring, row.id)
             .map_err(|e| format!("keyring: {e}"))?
             .ok_or_else(|| format!("codex OAuth tokens not found for provider {}", row.id))?;
@@ -569,6 +619,14 @@ mod tests {
             },
         )
         .unwrap();
+        state
+            .swap_runtime(ProviderRuntime::new(
+                Some(id),
+                ProviderKind::Codex,
+                "gpt-5.5".into(),
+                Arc::new(MockProvider::new(Vec::new())),
+            ))
+            .unwrap();
 
         let rows = provider_list_impl(&state).unwrap();
         let codex = rows.iter().find(|row| row.id == id).unwrap();
@@ -582,6 +640,207 @@ mod tests {
         let db = state.db.lock().unwrap();
         let repaired = provider_dao::read_selected_model(db.conn(), id).unwrap();
         assert_eq!(repaired.as_deref(), Some("gpt-5.5"));
+    }
+
+    #[test]
+    fn provider_list_reports_invalidated_codex_config_as_disconnected_even_with_tokens() {
+        let state = mk_state();
+        let id = {
+            let db = state.db.lock().unwrap();
+            provider_dao::insert(
+                db.conn(),
+                &NewProviderConfig {
+                    kind: "codex".into(),
+                    auth_type: "oauth".into(),
+                    base_url: None,
+                    config: json!({
+                        "selected_model": "gpt-5.5",
+                        "oauth_connected": false,
+                        "oauth_invalidated_at": 12345,
+                        "account_id": "acct_stale_codex",
+                    }),
+                },
+            )
+            .unwrap()
+        };
+        auth::store_codex_tokens(
+            state.keyring.as_ref(),
+            id,
+            &auth::CodexTokens {
+                access_token: "at".into(),
+                refresh_token: "rt".into(),
+                id_token: encode_id_token("acct_stale_codex"),
+                account_id: "acct_stale_codex".into(),
+                expires_in: 3600,
+            },
+        )
+        .unwrap();
+        state
+            .swap_runtime(ProviderRuntime::new(
+                Some(id),
+                ProviderKind::Codex,
+                "gpt-5.5".into(),
+                Arc::new(MockProvider::new(Vec::new())),
+            ))
+            .unwrap();
+
+        let rows = provider_list_impl(&state).unwrap();
+        let codex = rows.iter().find(|row| row.id == id).unwrap();
+
+        assert!(!codex.is_connected);
+        assert!(!codex.is_active);
+        assert_eq!(codex.account_id.as_deref(), Some("acct_stale_codex"));
+    }
+
+    #[test]
+    fn codex_auth_invalidated_message_detects_revoked_oauth_token() {
+        assert!(is_codex_auth_invalidated_message(
+            r#"provider error: api error (401): { "error": { "message": "Your authentication token has been invalidated. Please try signing in again.", "code": "token_invalidated" } }"#
+        ));
+        assert!(is_codex_auth_invalidated_message(
+            "provider error: api error (401): invalid credentials"
+        ));
+        assert!(!is_codex_auth_invalidated_message(
+            "provider error: api error (429): rate limit exceeded"
+        ));
+    }
+
+    #[test]
+    fn invalidating_codex_credentials_marks_provider_disconnected_and_clears_runtime() {
+        let state = mk_state();
+        let id = {
+            let db = state.db.lock().unwrap();
+            provider_dao::insert(
+                db.conn(),
+                &NewProviderConfig {
+                    kind: "codex".into(),
+                    auth_type: "oauth".into(),
+                    base_url: None,
+                    config: json!({
+                        "selected_model": "gpt-5.5",
+                        "oauth_connected": true,
+                        "account_id": "acct_invalidated",
+                    }),
+                },
+            )
+            .unwrap()
+        };
+        auth::store_codex_tokens(
+            state.keyring.as_ref(),
+            id,
+            &auth::CodexTokens {
+                access_token: "at".into(),
+                refresh_token: "rt".into(),
+                id_token: encode_id_token("acct_invalidated"),
+                account_id: "acct_invalidated".into(),
+                expires_in: 3600,
+            },
+        )
+        .unwrap();
+        state
+            .swap_runtime(ProviderRuntime::new(
+                Some(id),
+                ProviderKind::Codex,
+                "gpt-5.5".into(),
+                Arc::new(MockProvider::new(Vec::new())),
+            ))
+            .unwrap();
+
+        state.invalidate_codex_credentials(id).unwrap();
+
+        assert!(auth::load_codex_tokens(state.keyring.as_ref(), id)
+            .unwrap()
+            .is_none());
+        assert!(state.runtime_snapshot().kind.is_none());
+        let rows = provider_list_impl(&state).unwrap();
+        let codex = rows.iter().find(|row| row.id == id).unwrap();
+        assert!(!codex.is_connected);
+        assert!(!codex.is_active);
+        assert_eq!(codex.account_id.as_deref(), Some("acct_invalidated"));
+
+        let db = state.db.lock().unwrap();
+        let row = provider_dao::get_by_id(db.conn(), id).unwrap().unwrap();
+        assert_eq!(
+            row.config.get("oauth_connected").and_then(Value::as_bool),
+            Some(false)
+        );
+        assert!(row
+            .config
+            .get("oauth_invalidated_at")
+            .and_then(Value::as_i64)
+            .is_some());
+    }
+
+    #[tokio::test]
+    async fn ensure_provider_runtime_drops_stale_codex_runtime_without_tokens() {
+        let state = mk_state();
+        let id = {
+            let db = state.db.lock().unwrap();
+            provider_dao::insert(
+                db.conn(),
+                &NewProviderConfig {
+                    kind: "codex".into(),
+                    auth_type: "oauth".into(),
+                    base_url: None,
+                    config: json!({ "selected_model": "gpt-5.5" }),
+                },
+            )
+            .unwrap()
+        };
+        state
+            .swap_runtime(ProviderRuntime::new(
+                Some(id),
+                ProviderKind::Codex,
+                "gpt-5.5".into(),
+                Arc::new(MockProvider::new(Vec::new())),
+            ))
+            .unwrap();
+
+        let snap = state.ensure_provider_runtime().await.unwrap();
+
+        assert!(snap.kind.is_none());
+        assert!(state.runtime_snapshot().kind.is_none());
+    }
+
+    #[tokio::test]
+    async fn provider_select_rejects_invalidated_codex_config_without_activating_runtime() {
+        let state = mk_state();
+        let id = {
+            let db = state.db.lock().unwrap();
+            provider_dao::insert(
+                db.conn(),
+                &NewProviderConfig {
+                    kind: "codex".into(),
+                    auth_type: "oauth".into(),
+                    base_url: None,
+                    config: json!({
+                        "selected_model": "gpt-5.5",
+                        "oauth_connected": false,
+                        "oauth_invalidated_at": 12345,
+                        "account_id": "acct_invalidated_select",
+                    }),
+                },
+            )
+            .unwrap()
+        };
+        auth::store_codex_tokens(
+            state.keyring.as_ref(),
+            id,
+            &auth::CodexTokens {
+                access_token: "at".into(),
+                refresh_token: "rt".into(),
+                id_token: encode_id_token("acct_invalidated_select"),
+                account_id: "acct_invalidated_select".into(),
+                expires_in: 3600,
+            },
+        )
+        .unwrap();
+
+        let err = provider_select_impl(&state, id).await.unwrap_err();
+
+        assert!(err.contains("provider is not connected"));
+        assert_ne!(state.runtime_snapshot().config_id, Some(id));
+        assert_ne!(state.runtime_snapshot().kind, ProviderKind::Codex);
     }
 
     #[tokio::test]

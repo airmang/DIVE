@@ -42,6 +42,23 @@ export function useProductRecovery(input: {
   toast: ToastContextValue["toast"];
   t: Translate;
 }) {
+  const {
+    chat,
+    currentSessionId,
+    currentCard,
+    currentVerifyLog,
+    currentVerifyState,
+    currentVerifyError,
+    planAccepted,
+    activePlanStepIdForChat,
+    onRefreshRoadmap,
+    onVerifyCurrentStep,
+    onRetryError,
+    onOpenPlanInterview,
+    toast,
+    t,
+  } = input;
+  const { messages, listCheckpoints, createCheckpoint, restoreCheckpoint, sendUserMessage } = chat;
   const [lastManualCheckpointLabel, setLastManualCheckpointLabel] = useState<string | null>(null);
   const [checkpoints, setCheckpoints] = useState<CheckpointRowPayload[]>([]);
   const [checkpointsLoading, setCheckpointsLoading] = useState(false);
@@ -49,14 +66,14 @@ export function useProductRecovery(input: {
   const [restoringCheckpointId, setRestoringCheckpointId] = useState<number | null>(null);
 
   const refreshCheckpoints = useCallback(async () => {
-    if (input.currentSessionId === null) {
+    if (currentSessionId === null) {
       setCheckpoints((current) => (current.length === 0 ? current : []));
       setCheckpointsError((current) => (current === null ? current : null));
       return;
     }
     setCheckpointsLoading(true);
     try {
-      const rows = await input.chat.listCheckpoints();
+      const rows = await listCheckpoints();
       setCheckpoints(rows);
       setCheckpointsError(null);
     } catch (err) {
@@ -64,7 +81,7 @@ export function useProductRecovery(input: {
     } finally {
       setCheckpointsLoading(false);
     }
-  }, [input.chat, input.currentSessionId]);
+  }, [currentSessionId, listCheckpoints]);
 
   useEffect(() => {
     void refreshCheckpoints();
@@ -76,98 +93,98 @@ export function useProductRecovery(input: {
   );
 
   const handleManualCheckpoint = useCallback(() => {
-    const label = input.currentCard
-      ? input.t("checkpoint.manual_label_with_card", { title: input.currentCard.title })
-      : input.t("checkpoint.manual_label");
+    const label = currentCard
+      ? t("checkpoint.manual_label_with_card", { title: currentCard.title })
+      : t("checkpoint.manual_label");
     void (async () => {
       try {
-        const row = await input.chat.createCheckpoint(input.currentCard?.id ?? null, label);
+        const row = await createCheckpoint(currentCard?.id ?? null, label);
         const savedLabel = row?.label ?? label;
         setLastManualCheckpointLabel(savedLabel);
         void refreshCheckpoints();
-        input.toast({
+        toast({
           variant: "success",
-          title: input.t("checkpoint.manual_saved"),
+          title: t("checkpoint.manual_saved"),
           description: savedLabel,
         });
       } catch (err) {
-        input.toast({
+        toast({
           variant: "error",
-          title: input.t("toast.checkpoint_save_failed"),
+          title: t("toast.checkpoint_save_failed"),
           description: err instanceof Error ? err.message : String(err),
         });
       }
     })();
-  }, [input, refreshCheckpoints]);
+  }, [createCheckpoint, currentCard, refreshCheckpoints, t, toast]);
 
   const handleRestoreCheckpoint = useCallback(
     async (checkpointId: number) => {
       setRestoringCheckpointId(checkpointId);
       try {
-        await input.chat.restoreCheckpoint(checkpointId);
-        input.toast({
+        await restoreCheckpoint(checkpointId);
+        toast({
           variant: "success",
-          title: input.t("recovery.restore_success_title"),
-          description: input.t("recovery.restore_success_description"),
+          title: t("recovery.restore_success_title"),
+          description: t("recovery.restore_success_description"),
         });
-        await input.onRefreshRoadmap();
+        await onRefreshRoadmap();
         await refreshCheckpoints();
       } catch (err) {
-        input.toast({
+        toast({
           variant: "error",
-          title: input.t("recovery.restore_unavailable_title"),
+          title: t("recovery.restore_unavailable_title"),
           description: err instanceof Error ? err.message : String(err),
         });
       } finally {
         setRestoringCheckpointId(null);
       }
     },
-    [input, refreshCheckpoints],
+    [onRefreshRoadmap, refreshCheckpoints, restoreCheckpoint, t, toast],
   );
 
   const handleExplainRecovery = useCallback(
     (reason: string) => {
-      const stepTitle = input.currentCard?.title ?? input.t("roadmap.current_step_fallback");
-      void input.chat.sendUserMessage(
-        input.t("recovery.explain_failure_prompt", { title: stepTitle, reason }),
+      const stepTitle = currentCard?.title ?? t("roadmap.current_step_fallback");
+      void sendUserMessage(
+        t("recovery.explain_failure_prompt", { title: stepTitle, reason }),
         undefined,
-        input.planAccepted || input.activePlanStepIdForChat !== undefined,
-        input.activePlanStepIdForChat,
+        planAccepted || activePlanStepIdForChat !== undefined,
+        activePlanStepIdForChat,
       );
     },
-    [input],
+    [activePlanStepIdForChat, currentCard?.title, planAccepted, sendUserMessage, t],
   );
 
   const handleRetryRecovery = useCallback(() => {
-    if (input.currentCard && (input.currentVerifyLog || input.currentVerifyState === "error")) {
-      input.onVerifyCurrentStep();
+    if (currentCard && (currentVerifyLog || currentVerifyState === "error")) {
+      onVerifyCurrentStep();
       return;
     }
-    input.onRetryError();
-  }, [input]);
+    onRetryError();
+  }, [currentCard, currentVerifyLog, currentVerifyState, onRetryError, onVerifyCurrentStep]);
 
   const handleAdjustPlanRecovery = useCallback(
     (reason: string) => {
-      const stepTitle = input.currentCard?.title ?? input.t("roadmap.current_step_fallback");
-      input.onOpenPlanInterview(
-        input.t("planning.interview.adjust_failure_seed", { title: stepTitle, reason }),
+      const stepTitle = currentCard?.title ?? t("roadmap.current_step_fallback");
+      onOpenPlanInterview(
+        t("planning.interview.adjust_failure_seed", { title: stepTitle, reason }),
       );
     },
-    [input],
+    [currentCard?.title, onOpenPlanInterview, t],
   );
 
   const failureReason = deriveFailureReason({
-    currentVerifyError: input.currentVerifyError,
-    currentVerifyLog: input.currentVerifyLog,
-    currentCardState: input.currentCard?.state,
-    latestToolFailureSummary: latestToolFailureSummary(input.chat.messages),
-    rejectedReason: input.t("recovery.rejected_reason"),
-    verifyDidNotPassFallback: (result) => input.t("recovery.verify_did_not_pass", { result }),
+    currentVerifyError,
+    currentVerifyLog,
+    currentCardState: currentCard?.state,
+    latestToolFailureSummary: latestToolFailureSummary(messages),
+    rejectedReason: t("recovery.rejected_reason"),
+    verifyDidNotPassFallback: (result) => t("recovery.verify_did_not_pass", { result }),
   });
   const failedStepRecovery: FailedStepRecovery | null =
-    input.currentCard && failureReason
+    currentCard && failureReason
       ? {
-          stepTitle: input.currentCard.title,
+          stepTitle: currentCard.title,
           reason: compactFailureReason(failureReason),
           onExplainError: () => handleExplainRecovery(failureReason),
           onRetry: handleRetryRecovery,

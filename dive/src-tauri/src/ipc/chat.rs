@@ -680,6 +680,31 @@ pub async fn chat_send(
                 error = %crate::telemetry::redact_log_text(&message),
                 "ipc chat_send failed"
             );
+            if snap.kind == ProviderKind::Codex
+                && super::provider::is_codex_auth_invalidated_message(&message)
+            {
+                match state.invalidate_codex_credentials(provider_config_id) {
+                    Ok(()) => {
+                        tracing::warn!(
+                            provider_config_id,
+                            "Codex OAuth credentials invalidated after chat runtime error"
+                        );
+                        super::provider::emit_provider_changed(
+                            &app,
+                            provider_config_id,
+                            ProviderKind::Codex.as_str(),
+                            "codex_auth_invalidated",
+                        );
+                    }
+                    Err(invalidate_err) => {
+                        tracing::warn!(
+                            provider_config_id,
+                            error = %crate::telemetry::redact_log_text(&invalidate_err),
+                            "failed to invalidate Codex OAuth credentials after chat runtime error"
+                        );
+                    }
+                }
+            }
             if let Some(step_id) = active_step_id {
                 let _ = mark_step_blocked_after_recoverable_error(&state, step_id, &message);
             }

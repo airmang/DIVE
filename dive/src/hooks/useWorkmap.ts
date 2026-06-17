@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWorkmapStore } from "../stores/workmap";
 import type { CardState, CardTileData } from "../components/workmap/types";
 import type { ApprovalDecisionWithTime } from "../components/workmap/ApprovalJudgment";
@@ -135,6 +135,20 @@ export function useWorkmap(sessionId: number | null) {
   const [verifyRunningCardId, setVerifyRunningCardId] = useState<number | null>(null);
   const [verifyErrorByCard, setVerifyErrorByCard] = useState<Map<number, string>>(new Map());
   const generation = useRef(0);
+  const verifyLogsByCardId = useMemo(() => {
+    const next = new Map<number, VerifyLogView | null>();
+    rowsById.forEach((row, cardId) => {
+      next.set(cardId, parseVerifyLog(row));
+    });
+    return next;
+  }, [rowsById]);
+  const changedFilesByCardId = useMemo(() => {
+    const next = new Map<number, ChangedFile[]>();
+    rowsById.forEach((row, cardId) => {
+      next.set(cardId, parseChangedFiles(row));
+    });
+    return next;
+  }, [rowsById]);
 
   useEffect(() => {
     void loadTauri().then(setApi);
@@ -319,6 +333,31 @@ export function useWorkmap(sessionId: number | null) {
     [refresh, requireApi, sessionId],
   );
 
+  const verifyLogFor = useCallback(
+    (cardId: number) => verifyLogsByCardId.get(cardId) ?? null,
+    [verifyLogsByCardId],
+  );
+  const changedFilesFor = useCallback(
+    (cardId: number) => changedFilesByCardId.get(cardId) ?? [],
+    [changedFilesByCardId],
+  );
+  const toolCallCountFor = useCallback(
+    (cardId: number) => toolCallCounts.get(cardId) ?? 0,
+    [toolCallCounts],
+  );
+  const verifyStateFor = useCallback(
+    (cardId: number): "idle" | "running" | "error" => {
+      if (verifyRunningCardId === cardId) return "running";
+      if (verifyErrorByCard.has(cardId)) return "error";
+      return "idle";
+    },
+    [verifyErrorByCard, verifyRunningCardId],
+  );
+  const verifyErrorFor = useCallback(
+    (cardId: number) => verifyErrorByCard.get(cardId) ?? null,
+    [verifyErrorByCard],
+  );
+
   return {
     cards,
     currentCardId,
@@ -334,14 +373,10 @@ export function useWorkmap(sessionId: number | null) {
     verifyRemote,
     deleteCard,
     reorderCards,
-    verifyLogFor: (cardId: number) => parseVerifyLog(rowsById.get(cardId)),
-    changedFilesFor: (cardId: number) => parseChangedFiles(rowsById.get(cardId)),
-    toolCallCountFor: (cardId: number) => toolCallCounts.get(cardId) ?? 0,
-    verifyStateFor: (cardId: number): "idle" | "running" | "error" => {
-      if (verifyRunningCardId === cardId) return "running";
-      if (verifyErrorByCard.has(cardId)) return "error";
-      return "idle";
-    },
-    verifyErrorFor: (cardId: number) => verifyErrorByCard.get(cardId) ?? null,
+    verifyLogFor,
+    changedFilesFor,
+    toolCallCountFor,
+    verifyStateFor,
+    verifyErrorFor,
   };
 }

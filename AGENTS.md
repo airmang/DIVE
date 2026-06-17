@@ -87,5 +87,5 @@ Review cards must not:
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/007-llm-verification-coach/plan.md
+at specs/008-preview-terminal-runtime-tools/plan.md
 <!-- SPECKIT END -->

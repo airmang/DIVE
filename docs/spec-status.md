@@ -49,6 +49,27 @@ authority. The canonical DIVE v2 source of truth lives in `.specify/` and
 | `specs/007-llm-verification-coach/contracts/` | Canonical planning aid | Defines guidance generation, observation evidence, and EventLog/export contracts. |
 | `specs/007-llm-verification-coach/quickstart.md` | Canonical planning aid | Defines validation scenarios and commands for 007. |
 | `specs/007-llm-verification-coach/tasks.md` | Canonical planning aid | Defines dependency-ordered implementation tasks for 007, with MVP focus on guidance plus observation-backed approval. |
+| `specs/008-preview-terminal-runtime-tools/spec.md` | Active draft | Defines first-class Preview, direct Project Command, and bounded Terminal Script runtime actions for preview and verification work. |
+| `specs/008-preview-terminal-runtime-tools/plan.md` | Canonical planning aid | Defines implementation plan, architecture, and test strategy for 008. |
+| `specs/008-preview-terminal-runtime-tools/research.md` | Canonical planning aid | Records decisions for first-class Preview, direct Project Command, Terminal Script separation, preview rerouting, stale approvals, and EventLog/export reuse. |
+| `specs/008-preview-terminal-runtime-tools/data-model.md` | Canonical planning aid | Defines PreviewRequest, PreviewSession, ProjectCommandRequest, TerminalScriptRequest, RuntimeRoutingDecision, ExecutionEvidence, and StaleApprovalState. |
+| `specs/008-preview-terminal-runtime-tools/contracts/` | Canonical planning aid | Defines Preview, Project Command routing, Terminal Script, and EventLog/export contracts. |
+| `specs/008-preview-terminal-runtime-tools/quickstart.md` | Canonical planning aid | Defines validation scenarios and commands for 008. |
+| `specs/008-preview-terminal-runtime-tools/checklists/requirements.md` | Canonical planning aid | Validates 008 specification completeness before planning. |
+
+## 008 Draft Scope
+
+As of 2026-06-17, `specs/008-preview-terminal-runtime-tools/` defines the next
+runtime-tool boundary after the `index.html` preview approval issue. Preview
+inspection is separated from project command execution; ordinary tests and
+builds remain direct executable commands with explicit arguments; shell-style
+terminal scripts are reserved for a distinct high-risk path with stronger
+approval, blocking, logging, and export semantics.
+
+The 008 implementation plan and design artifacts have been generated. The MVP
+order is Preview routing and stale approval cleanup first, Project Command
+guard/reroute hardening second, and Terminal Script as a separate high-risk
+vertical slice.
 
 ## 006 Specification Status
 

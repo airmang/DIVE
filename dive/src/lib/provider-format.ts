@@ -16,6 +16,11 @@ export const MODEL_LABELS: Record<string, string> = {
   "gpt-5.3-codex": "GPT-5.3 Codex",
   "gpt-5.3-codex-spark": "GPT-5.3 Codex Spark",
   "gpt-5.2": "GPT-5.2",
+  "openai/gpt-5.4-mini": "GPT-5.4 Mini",
+  "openai/gpt-5.4": "GPT-5.4",
+  "anthropic/claude-sonnet-4.6": "Claude Sonnet 4.6",
+  "google/gemini-3-flash-preview": "Gemini 3 Flash Preview",
+  "deepseek/deepseek-v4-flash": "DeepSeek V4 Flash",
 };
 
 export function providerDisplayName(kind: string): string {

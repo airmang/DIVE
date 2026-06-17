@@ -9,7 +9,7 @@ pub fn default_model_for_kind(kind: &str) -> &'static str {
         // but default to the general-purpose tier for first-run affordability.
         "anthropic" => "claude-sonnet-4-6",
         "openai" => "gpt-5.4",
-        "openrouter" => "mistralai/ministral-3b-2512",
+        "openrouter" => "openai/gpt-5.4-mini",
         "opencode-zen" | "opencode_zen" => "big-pickle",
         "custom-openai" | "custom_openai" => "gpt-5.4",
         "codex" => "gpt-5.5",
@@ -243,10 +243,7 @@ mod tests {
     fn default_models_cover_supported_kinds() {
         assert_eq!(default_model_for_kind("anthropic"), "claude-sonnet-4-6");
         assert_eq!(default_model_for_kind("openai"), "gpt-5.4");
-        assert_eq!(
-            default_model_for_kind("openrouter"),
-            "mistralai/ministral-3b-2512"
-        );
+        assert_eq!(default_model_for_kind("openrouter"), "openai/gpt-5.4-mini");
         assert_eq!(default_model_for_kind("opencode_zen"), "big-pickle");
         assert_eq!(default_model_for_kind("opencode-zen"), "big-pickle");
         assert_eq!(default_model_for_kind("codex"), "gpt-5.5");
@@ -275,20 +272,20 @@ mod tests {
         assert_eq!(
             ids,
             vec![
-                "mistralai/ministral-3b-2512",
-                "openai/gpt-5.5",
-                "openai/gpt-5.3-codex",
-                "openai/gpt-5.4",
                 "openai/gpt-5.4-mini",
+                "openai/gpt-5.4",
+                "anthropic/claude-sonnet-4.6",
+                "google/gemini-3-flash-preview",
+                "deepseek/deepseek-v4-flash",
             ]
         );
         assert!(ids.iter().all(|id| id.contains('/')));
-        assert!(ids.iter().any(|id| id == "openai/gpt-5.3-codex"));
+        assert!(ids.iter().any(|id| id == "anthropic/claude-sonnet-4.6"));
         assert!(!ids.iter().any(|id| id == "openai/gpt-5.5-codex"));
     }
 
     #[test]
-    fn retired_gpt_55_codex_alias_normalizes_to_pi_catalog_id() {
+    fn retired_gpt_55_codex_alias_normalizes_to_supported_catalog_id() {
         assert_eq!(
             normalize_model_for_kind("codex", Some("gpt-5.5-codex")),
             "gpt-5.5"
@@ -299,7 +296,7 @@ mod tests {
         );
         assert_eq!(
             normalize_model_for_kind("openrouter", Some("openai/gpt-5.5-codex")),
-            "openai/gpt-5.5"
+            "openai/gpt-5.4-mini"
         );
     }
 

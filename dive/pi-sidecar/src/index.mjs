@@ -168,7 +168,15 @@ export async function handleRun(message) {
     const cwd = message.cwd ?? process.cwd();
     const settingsManager = SettingsManager.inMemory({
       compaction: { enabled: false },
-      retry: { enabled: false, maxRetries: 0 },
+      retry: {
+        enabled: true,
+        maxRetries: 3,
+        baseDelayMs: 1000,
+        provider: {
+          maxRetries: 3,
+          maxRetryDelayMs: 10000,
+        },
+      },
     });
 
     const customTools = makeCustomTools(requestId, message);

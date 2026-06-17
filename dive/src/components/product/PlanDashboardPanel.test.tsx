@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   refreshDashboard: vi.fn(),
   openStep: vi.fn(),
   appendStep: vi.fn(),
+  routePlan: vi.fn(),
 }));
 
 function project(): PlanDashboardProject {
@@ -97,6 +98,17 @@ vi.mock("../../features/planning", async () => {
   return {
     ...actual,
     requestPlanDraftReview: vi.fn(),
+    usePlanRouter: () => ({
+      route: mocks.routePlan,
+      busy: false,
+      routeBusy: false,
+      appendBusy: false,
+      routeStartedAt: null,
+      routeCancelRequested: false,
+      cancelRoute: vi.fn(),
+      appendStep: vi.fn(),
+      error: null,
+    }),
     usePlan: () => ({
       appendStep: mocks.appendStep,
       refresh: vi.fn(),
@@ -120,6 +132,26 @@ describe("PlanDashboardPanel add-step area", () => {
       step_id: "step-002",
       title: "Export mutation data",
       position: 2,
+    });
+    mocks.routePlan.mockReset();
+    mocks.routePlan.mockResolvedValue({
+      action: "add_step",
+      reason: "new implementation request",
+      draft: {
+        stepId: "step-002",
+        title: "Export mutation data",
+        summary: "Add export reconstruction for plan mutations.",
+        instructionSeed: "Implement export reconstruction for plan mutations.",
+        expectedFiles: ["src/workspace_plan/artifacts.rs"],
+        acceptanceCriteria: ["Plan mutations appear in export."],
+        linkedCriterionIds: ["AC-001"],
+        rationale: "Export is required for research reconstruction.",
+        verificationCommand: "cargo test export",
+        verificationType: "command",
+        dependencies: ["step-001"],
+        parallelGroup: null,
+        position: 2,
+      },
     });
   });
 
@@ -192,5 +224,35 @@ describe("PlanDashboardPanel add-step area", () => {
       "Add auth check",
     );
     expect(within(panel).queryByTestId("plan-add-step-scope-card")).toBeNull();
+  });
+
+  it("drafts an add-step candidate from a natural-language request before saving", async () => {
+    render(<PlanDashboardPanel />);
+
+    const panel = screen.getByTestId("plan-add-step-panel");
+    fireEvent.change(within(panel).getByTestId("plan-add-step-request"), {
+      target: { value: "export reconstruction도 plan에 추가해줘" },
+    });
+    fireEvent.click(within(panel).getByTestId("plan-add-step-draft-request"));
+
+    await waitFor(() => expect(mocks.routePlan).toHaveBeenCalledWith("export reconstruction도 plan에 추가해줘"));
+    expect(mocks.appendStep).not.toHaveBeenCalled();
+    expect((within(panel).getByTestId("plan-add-step-title") as HTMLInputElement).value).toBe(
+      "Export mutation data",
+    );
+
+    fireEvent.click(within(panel).getByTestId("plan-add-step-save"));
+
+    await waitFor(() => expect(mocks.appendStep).toHaveBeenCalledTimes(1));
+    expect(mocks.appendStep).toHaveBeenCalledWith(
+      expect.objectContaining({
+        planId: 7,
+        draft: expect.objectContaining({
+          title: "Export mutation data",
+          verificationCommand: "cargo test export",
+          verificationType: "command",
+        }),
+      }),
+    );
   });
 });

@@ -215,12 +215,58 @@ impl AppState {
         Ok(())
     }
 
+    pub fn invalidate_codex_credentials(&self, provider_config_id: i64) -> Result<(), String> {
+        auth::delete_codex_tokens(self.keyring.as_ref(), provider_config_id)
+            .map_err(|err| format!("keyring: {err}"))?;
+        {
+            let db = self.db.lock().map_err(|e| e.to_string())?;
+            if let Some(row) = provider_dao::get_by_id(db.conn(), provider_config_id)
+                .map_err(|e| e.to_string())?
+                .filter(|row| row.kind == "codex")
+            {
+                let mut config = row.config.as_object().cloned().unwrap_or_default();
+                config.insert("oauth_connected".to_owned(), serde_json::json!(false));
+                config.insert(
+                    "oauth_invalidated_at".to_owned(),
+                    serde_json::json!(crate::db::now_ms()),
+                );
+                provider_dao::update(
+                    db.conn(),
+                    provider_config_id,
+                    &crate::db::models::NewProviderConfig {
+                        kind: row.kind,
+                        auth_type: row.auth_type,
+                        base_url: row.base_url,
+                        config: serde_json::Value::Object(config),
+                    },
+                )
+                .map_err(|e| e.to_string())?;
+            }
+        }
+        if self.runtime_snapshot().config_id == Some(provider_config_id) {
+            self.swap_runtime(ProviderRuntime::none())
+                .map_err(|err| format!("runtime: {err}"))?;
+        }
+        Ok(())
+    }
+
     pub async fn ensure_provider_runtime(&self) -> Result<ProviderRuntime, String> {
         let current = self.runtime_snapshot();
         if !current.kind.is_none() {
-            providers::validate_model_for_kind(current.kind.as_str(), &current.model)
-                .map_err(|e| e.to_string())?;
-            return Ok(current);
+            if current.kind == ProviderKind::Codex
+                && current
+                    .config_id
+                    .and_then(|id| auth::load_codex_tokens(self.keyring.as_ref(), id).ok())
+                    .flatten()
+                    .is_none()
+            {
+                self.swap_runtime(ProviderRuntime::none())
+                    .map_err(|e| format!("runtime: {e}"))?;
+            } else {
+                providers::validate_model_for_kind(current.kind.as_str(), &current.model)
+                    .map_err(|e| e.to_string())?;
+                return Ok(current);
+            }
         }
 
         tracing::info!(
@@ -357,6 +403,9 @@ fn hydrate_provider_runtime_from_rows(
 ) -> Result<ProviderRuntime, AppStateError> {
     for row in rows.into_iter().rev() {
         if row.kind == "codex" {
+            if super::provider::is_codex_config_marked_disconnected(&row.config) {
+                continue;
+            }
             let Some((access_token, refresh_token, id_token)) =
                 auth::load_codex_tokens(keyring, row.id)?
             else {

@@ -5,7 +5,7 @@ use crate::db::dao::{card as card_dao, step_session_mapping as mapping_dao};
 use crate::db::models::{CardState, CheckpointRow, NewCard, NewStepSessionMapping};
 use crate::dive::{apply_transition, CardTransition};
 
-use super::{log_error_event, log_event, policy, AppState};
+use super::{log_error_event, log_event, policy, AppState, ProviderKind};
 
 #[tauri::command]
 pub async fn card_update_instruction(
@@ -869,6 +869,8 @@ pub async fn card_verify(
         let _ = log_error_event(&state, Some(session_id), "provider", &msg);
         return Err(msg);
     }
+    let provider_kind = snap.kind.clone();
+    let provider_config_id = snap.config_id;
     let project_root = state.project_root_required()?;
     let engine = crate::dive::VerifyEngine::new(snap.provider, state.db.clone(), snap.model)
         .with_project_root(project_root);
@@ -886,6 +888,33 @@ pub async fn card_verify(
         Ok(log) => log,
         Err(err) => {
             let message = err.to_string();
+            if provider_kind == ProviderKind::Codex
+                && super::provider::is_codex_auth_invalidated_message(&message)
+            {
+                if let Some(provider_config_id) = provider_config_id {
+                    match state.invalidate_codex_credentials(provider_config_id) {
+                        Ok(()) => {
+                            tracing::warn!(
+                                provider_config_id,
+                                "Codex OAuth credentials invalidated after verify error"
+                            );
+                            super::provider::emit_provider_changed(
+                                &app,
+                                provider_config_id,
+                                ProviderKind::Codex.as_str(),
+                                "codex_auth_invalidated",
+                            );
+                        }
+                        Err(invalidate_err) => {
+                            tracing::warn!(
+                                provider_config_id,
+                                error = %crate::telemetry::redact_log_text(&invalidate_err),
+                                "failed to invalidate Codex OAuth credentials after verify error"
+                            );
+                        }
+                    }
+                }
+            }
             let _ = log_error_event(&state, Some(session_id), "verify", &message);
             return Err(message);
         }

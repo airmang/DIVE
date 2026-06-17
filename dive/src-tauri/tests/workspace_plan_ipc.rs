@@ -1278,6 +1278,13 @@ async fn route_chat_parses_add_step_and_generates_next_step_id() {
         }
         other => panic!("expected add_step decision, got {other:?}"),
     }
+    assert_eq!(
+        workspace_plan_list_steps_impl(&state, plan_id)
+            .unwrap()
+            .len(),
+        2,
+        "routing may draft add_step but must not mutate the plan"
+    );
 }
 
 #[tokio::test]
