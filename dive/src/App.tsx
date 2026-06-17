@@ -8,6 +8,7 @@ import {
 import { resolveDemoRouteValue, type RecognizedDemoRoute } from "./lib/dev-demo";
 import { useLocale } from "./i18n";
 import { syncNativeMenuLocale } from "./lib/menu-events";
+import { useProjectSessionStore } from "./stores/project-session";
 
 type ProductRoute = "main" | "settings" | "prompt-helper" | "user-guide";
 
@@ -115,6 +116,39 @@ function App() {
   useEffect(() => {
     void syncNativeMenuLocale(locale);
   }, [locale]);
+
+  useEffect(() => {
+    const w =
+      typeof window === "undefined"
+        ? null
+        : (window as unknown as { __TAURI_INTERNALS__?: unknown });
+    if (!w?.__TAURI_INTERNALS__) return;
+
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    void import("@tauri-apps/api/event")
+      .then(({ listen }) =>
+        listen("provider://changed", () => {
+          void useProjectSessionStore
+            .getState()
+            .loadAll()
+            .catch((err) => console.warn("provider refresh failed:", err));
+        }),
+      )
+      .then((nextUnlisten) => {
+        if (cancelled) {
+          nextUnlisten();
+          return;
+        }
+        unlisten = nextUnlisten;
+      })
+      .catch((err) => console.warn("provider listener failed:", err));
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   const acknowledge = () => {
     acknowledgeRc1Migration();

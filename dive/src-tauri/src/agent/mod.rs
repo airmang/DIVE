@@ -33,7 +33,7 @@ use crate::dive::event_log as dive_event_log;
 use crate::providers::{
     ChatEvent, ChatRequest, FinishReason, LlmProvider, Message as ProviderMessage, ToolCall,
 };
-use crate::tools::{params_preview, RiskLevel, ToolContext, ToolRegistry};
+use crate::tools::{params_preview, BlockReason, RiskLevel, ToolContext, ToolError, ToolRegistry};
 
 const DEFAULT_MAX_ITERATIONS: u32 = 10;
 
@@ -345,7 +345,8 @@ impl AgentLoop {
                     continue;
                 };
 
-                if let Err(crate::tools::ToolError::Blocked(reason)) = tool.validate(&args_value) {
+                if let Err(err) = tool.validate(&args_value) {
+                    let (reason, msg) = tool_validation_block(err);
                     emit(AgentEvent::ToolCallBlocked {
                         id: tc.id.clone(),
                         reason: reason.clone(),
@@ -359,10 +360,6 @@ impl AgentLoop {
                             "pattern": reason.pattern,
                         }),
                     )?;
-                    let msg = format!(
-                        "tool call blocked by safety policy: {} (pattern: {})",
-                        reason.rule, reason.pattern
-                    );
                     messages.push(ProviderMessage::Tool {
                         content: msg,
                         tool_call_id: tc.id.clone(),
@@ -826,54 +823,28 @@ impl AgentLoop {
             });
         };
 
-        match tool.validate(&args_value) {
-            Ok(()) => {}
-            Err(crate::tools::ToolError::Blocked(reason)) => {
-                emit(AgentEvent::ToolCallBlocked {
-                    id: tc.id.clone(),
-                    reason: reason.clone(),
-                });
-                self.log_event(
-                    session_id,
-                    "tool_call_blocked",
-                    json!({
-                        "tool": tc.name,
-                        "rule": reason.rule,
-                        "pattern": reason.pattern,
-                        "runtime": "pi_sidecar",
-                    }),
-                )?;
-                let msg = format!(
-                    "tool call blocked by safety policy: {} (pattern: {})",
-                    reason.rule, reason.pattern
-                );
-                return Ok(SupervisedToolResult {
-                    content: msg.clone(),
-                    success: false,
-                    summary: msg.clone(),
-                    full: json!({ "error": msg }),
-                });
-            }
-            Err(err) => {
-                let msg = format!("{err}");
-                emit(AgentEvent::ToolResult {
-                    call_id: tc.id.clone(),
-                    success: false,
-                    summary: msg.clone(),
-                    full: json!({ "error": msg.clone() }),
-                });
-                self.log_event(
-                    session_id,
-                    "tool_error",
-                    json!({ "tool": tc.name, "error": msg.clone(), "runtime": "pi_sidecar" }),
-                )?;
-                return Ok(SupervisedToolResult {
-                    content: msg.clone(),
-                    success: false,
-                    summary: msg.clone(),
-                    full: json!({ "error": msg }),
-                });
-            }
+        if let Err(err) = tool.validate(&args_value) {
+            let (reason, msg) = tool_validation_block(err);
+            emit(AgentEvent::ToolCallBlocked {
+                id: tc.id.clone(),
+                reason: reason.clone(),
+            });
+            self.log_event(
+                session_id,
+                "tool_call_blocked",
+                json!({
+                    "tool": tc.name,
+                    "rule": reason.rule,
+                    "pattern": reason.pattern,
+                    "runtime": "pi_sidecar",
+                }),
+            )?;
+            return Ok(SupervisedToolResult {
+                content: msg.clone(),
+                success: false,
+                summary: msg.clone(),
+                full: json!({ "error": msg }),
+            });
         }
 
         let decision = self
@@ -1337,6 +1308,28 @@ fn reasoning_summary(tool_name: &str, preview: &str) -> String {
         format!("AI가 {action} `{tool_name}` 도구를 사용하려고 합니다.")
     } else {
         format!("AI가 {action} `{tool_name}` 도구를 사용하려고 합니다: {preview}")
+    }
+}
+
+fn tool_validation_block(err: ToolError) -> (BlockReason, String) {
+    match err {
+        ToolError::Blocked(reason) => {
+            let msg = format!(
+                "tool call blocked by safety policy: {} (pattern: {})",
+                reason.rule, reason.pattern
+            );
+            (reason, msg)
+        }
+        other => {
+            let msg = other.to_string();
+            (
+                BlockReason {
+                    rule: "invalid tool input".into(),
+                    pattern: msg.clone(),
+                },
+                format!("tool call blocked before approval: {msg}"),
+            )
+        }
     }
 }
 

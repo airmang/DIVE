@@ -13,11 +13,17 @@ export function fallbackModels(providerKind: string): ModelInfo[] {
   }
   if (providerKind === "openrouter") {
     return [
-      { id: "mistralai/ministral-3b-2512", display_name: "Mistral · Ministral 3B 2512" },
-      { id: "openai/gpt-5.5", display_name: "OpenAI · GPT-5.5" },
-      { id: "openai/gpt-5.3-codex", display_name: "OpenAI · GPT-5.3 Codex" },
-      { id: "openai/gpt-5.4", display_name: "OpenAI · GPT-5.4" },
-      { id: "openai/gpt-5.4-mini", display_name: "OpenAI · GPT-5.4 Mini" },
+      { id: "openai/gpt-5.4-mini", display_name: "OpenAI - GPT-5.4 Mini" },
+      { id: "openai/gpt-5.4", display_name: "OpenAI - GPT-5.4" },
+      {
+        id: "anthropic/claude-sonnet-4.6",
+        display_name: "Anthropic - Claude Sonnet 4.6",
+      },
+      {
+        id: "google/gemini-3-flash-preview",
+        display_name: "Google - Gemini 3 Flash Preview",
+      },
+      { id: "deepseek/deepseek-v4-flash", display_name: "DeepSeek - DeepSeek V4 Flash" },
     ];
   }
   if (providerKind === "opencode_zen" || providerKind === "opencode-zen") {
