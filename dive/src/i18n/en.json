@@ -447,6 +447,15 @@
     "supervised_tooltip": "DIVE runs the agent in a supervised runtime. Every action it wants to take — editing files, running commands — needs your approval first. You stay in control.",
     "pi_label": "Pi runtime",
     "selected_tooltip": "This response is running through {{runtime}}. Provider: {{provider}}, model: {{model}}. Reason: {{reason}}",
+    "actions": {
+      "preview": "Preview",
+      "project_command": "Project Command",
+      "terminal_script": "Terminal Script",
+      "rerouted_to_preview": "DIVE did not run the command. Use Preview for this local result.",
+      "stale_no_command_ran": "This request is no longer active. No command ran.",
+      "preview_unavailable": "Preview is unavailable for this target.",
+      "terminal_script_high_risk": "Terminal Script is high risk and requires one-shot approval."
+    },
     "capability": {
       "ready_label": "Supervised Pi ready",
       "ready_message": "This provider can run through DIVE's supervised Pi runtime.",
@@ -469,7 +478,9 @@
       "pending": "Awaiting approval",
       "approved": "Approved",
       "denied": "Denied",
-      "blocked": "Blocked"
+      "blocked": "Blocked",
+      "rerouted": "Rerouted",
+      "stale": "Expired"
     },
     "tool_label": "Tool:",
     "show_details": "Show details",
@@ -479,6 +490,8 @@
     "blocked_rule": "Block rule:",
     "blocked_pattern": "Pattern:",
     "blocked_explain": "This command is blocked by the safety policy (§9.2) and cannot run, with or without your approval.",
+    "rerouted_title": "Opened through Preview instead",
+    "stale_title": "No command ran",
     "why_label": "why",
     "group_summary": "{{count}} tool use(s)",
     "group_summary_pending": "{{count}} tool use(s) awaiting approval",
@@ -1012,6 +1025,19 @@
     },
     "command": {
       "title": "Command to run",
+      "executable": "Executable",
+      "args": "Arguments",
+      "timeout": "Timeout",
+      "shell_family": "Shell family",
+      "output_limit": "Output limit",
+      "risk_factors": "Risk factors",
+      "reason": "Reason",
+      "expected_effect": "Expected effect",
+      "not_provided": "Not provided",
+      "seconds": "{{count}}s",
+      "bytes": "{{count}} bytes",
+      "one_shot_title": "One-shot approval",
+      "one_shot_body": "This approval applies only to this exact script request and is never reused automatically.",
       "change_maybe": "This command might change files if the program writes to the project. DIVE will show results afterward, but it cannot promise the command is read-only.",
       "change_yes": "This action is expected to change project files.",
       "change_no": "This command is not expected to change files.",
@@ -1074,6 +1100,10 @@
         "run_process": {
           "title": "Run a project command",
           "body": "DIVE wants to run one program in the project folder. It may check, build, install, or generate files depending on the command."
+        },
+        "run_terminal_script": {
+          "title": "Run a Terminal Script",
+          "body": "DIVE wants to run shell-style verification. This is separate from Project Command, always high risk, and requires one-shot approval."
         },
         "bash": {
           "title": "Run a shell command",
@@ -1141,8 +1171,14 @@
       "diff_unavailable_description": "This item only has a path from checkpoint or previous-version data, so line-level diff is unavailable. It is no longer shown as +0/−0."
     },
     "preview": {
+      "action_label": "Open Preview",
+      "ready": "Preview ready.",
+      "opening": "Opening preview...",
+      "unavailable": "Preview unavailable.",
+      "failed": "Preview failed.",
+      "reroute_message": "This is preview work, so DIVE uses Preview instead of a shell command.",
       "url_required": "Enter a URL.",
-      "url_invalid": "Only http / https URLs are allowed.",
+      "url_invalid": "Only local http / https URLs are allowed.",
       "checking_project": "Checking the project...",
       "desktop_project_required": "Select a project in the installed app before using this.",
       "connected_existing": "Connected to the running preview.",
@@ -1156,6 +1192,11 @@
       "empty_description": "If a web project server is running, you can check it directly from one of the default addresses below."
     },
     "terminal": {
+      "project_command": "Project Command",
+      "terminal_script": "Terminal Script",
+      "script_blocked": "Terminal Script was blocked before execution.",
+      "script_unavailable": "Terminal Script execution is not enabled yet.",
+      "output_truncated": "Output was truncated.",
       "rollback_unavailable": "No recovery path",
       "repro_seed": "Use the repeated terminal error to summarize reproduction steps, the smallest verification command, and what to inspect in the last change.",
       "repro_status": "Filled the chat composer with a reproduction-step request.",

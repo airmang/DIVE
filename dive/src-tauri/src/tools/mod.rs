@@ -13,7 +13,9 @@ pub mod mkdir;
 pub mod read_file;
 pub mod registry;
 pub mod run_process;
+pub mod runtime;
 pub mod search_files;
+pub mod terminal_script;
 pub mod write_file;
 
 use async_trait::async_trait;
@@ -133,6 +135,20 @@ pub fn params_preview(tool_name: &str, args: &Value) -> String {
                 format!("command: \"{command} {argv}\"")
             }
         }
+        "preview_open" => {
+            let kind = args.get("kind").and_then(|v| v.as_str()).unwrap_or("auto");
+            let target = args.get("target").and_then(|v| v.as_str()).unwrap_or("");
+            if target.is_empty() {
+                format!("preview: \"{kind}\"")
+            } else {
+                format!("preview: \"{kind} {target}\"")
+            }
+        }
+        "run_terminal_script" => args
+            .get("script")
+            .and_then(|v| v.as_str())
+            .map(|script| format!("script: \"{}\"", truncate_utf8(script, 77, "...")))
+            .unwrap_or_else(|| "script: \"\"".to_string()),
         _ => {
             let s = args.to_string();
             truncate_utf8(&s, 77, "...")

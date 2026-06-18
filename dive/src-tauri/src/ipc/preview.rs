@@ -3,12 +3,20 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use serde_json::json;
+use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
+use uuid::Uuid;
+
+use crate::agent::AgentEvent;
+use crate::db::now_ms;
+use crate::dive::event_log as dive_event_log;
+use crate::tools::runtime::{PreviewRequestKind, PreviewRequestSource};
 
 use super::AppState;
+use super::ChatEventEnvelope;
 
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(180);
 const SERVER_READY_TIMEOUT: Duration = Duration::from_secs(75);
@@ -36,6 +44,67 @@ pub struct PreviewStartResult {
 pub struct PreviewStartOptions {
     #[serde(default)]
     pub force_install: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewOpenRequest {
+    #[serde(default)]
+    pub session_id: Option<i64>,
+    #[serde(default)]
+    pub card_id: Option<i64>,
+    pub kind: PreviewRequestKind,
+    #[serde(default)]
+    pub target: String,
+    #[serde(default = "default_preview_source")]
+    pub source: PreviewRequestSource,
+    #[serde(default)]
+    pub locale: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PreviewOpenStatus {
+    Ready,
+    Unavailable,
+    Failed,
+}
+
+impl PreviewOpenStatus {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::Unavailable => "unavailable",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewOpenResponse {
+    pub request_id: String,
+    pub status: PreviewOpenStatus,
+    pub kind: PreviewRequestKind,
+    pub preview_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub asset_file_path: Option<String>,
+    pub target_label: String,
+    pub reason_code: Option<String>,
+    pub message: String,
+    pub logs: Vec<String>,
+    pub command_summary: Option<String>,
+    pub resolved_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct StaticPreviewTarget {
+    pub target_label: String,
+    pub asset_file_path: PathBuf,
+}
+
+fn default_preview_source() -> PreviewRequestSource {
+    PreviewRequestSource::StudentAction
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +169,203 @@ pub async fn preview_start(
         }),
     )
     .await
+}
+
+#[tauri::command]
+pub async fn preview_open(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: PreviewOpenRequest,
+) -> Result<PreviewOpenResponse, String> {
+    let response = preview_open_impl(&state, request.clone()).await?;
+    record_preview_events(&state, request.session_id, &request, &response);
+    if let Some(session_id) = request.session_id {
+        emit_preview_events(&app, session_id, &request, &response);
+    }
+    Ok(response)
+}
+
+pub async fn preview_open_impl(
+    state: &AppState,
+    request: PreviewOpenRequest,
+) -> Result<PreviewOpenResponse, String> {
+    let request_id = Uuid::new_v4().to_string();
+    let requested_at = now_ms();
+    let root = match state.project_root_required() {
+        Ok(root) => root,
+        Err(message) => {
+            return Ok(unavailable_preview_response(
+                request_id,
+                request.kind,
+                target_label_for_request(&request),
+                "missing_project",
+                message,
+            ));
+        }
+    };
+
+    let target_label = target_label_for_request(&request);
+    let _requested_at = requested_at;
+
+    match request.kind {
+        PreviewRequestKind::StaticFile => {
+            match validate_static_preview_target(&root, &request.target) {
+                Ok(target) => Ok(PreviewOpenResponse {
+                    request_id,
+                    status: PreviewOpenStatus::Ready,
+                    kind: request.kind,
+                    preview_url: Some(format!("asset://project/{}", target.target_label)),
+                    asset_file_path: Some(target.asset_file_path.display().to_string()),
+                    target_label: target.target_label,
+                    reason_code: None,
+                    message: "Preview opened.".into(),
+                    logs: Vec::new(),
+                    command_summary: None,
+                    resolved_at: now_ms(),
+                }),
+                Err(reason) => Ok(unavailable_preview_response(
+                    request_id,
+                    request.kind,
+                    target_label,
+                    reason.code,
+                    reason.message,
+                )),
+            }
+        }
+        PreviewRequestKind::LocalUrl => match validate_local_preview_url(&request.target) {
+            Ok(url) => {
+                if probe_url(&url).await {
+                    Ok(PreviewOpenResponse {
+                        request_id,
+                        status: PreviewOpenStatus::Ready,
+                        kind: request.kind,
+                        preview_url: Some(url.clone()),
+                        asset_file_path: None,
+                        target_label: url,
+                        reason_code: None,
+                        message: "Preview opened.".into(),
+                        logs: Vec::new(),
+                        command_summary: None,
+                        resolved_at: now_ms(),
+                    })
+                } else {
+                    Ok(failed_preview_response(
+                        request_id,
+                        request.kind,
+                        url,
+                        "local_url_unreachable",
+                        "The local preview URL did not respond.",
+                        Vec::new(),
+                        None,
+                    ))
+                }
+            }
+            Err(reason) => Ok(unavailable_preview_response(
+                request_id,
+                request.kind,
+                target_label,
+                reason.code,
+                reason.message,
+            )),
+        },
+        PreviewRequestKind::DevServer => match preview_start_impl(
+            state,
+            PreviewStartOptions {
+                force_install: false,
+            },
+        )
+        .await
+        {
+            Ok(start) => Ok(PreviewOpenResponse {
+                request_id,
+                status: PreviewOpenStatus::Ready,
+                kind: request.kind,
+                preview_url: Some(start.url.clone()),
+                asset_file_path: None,
+                target_label: start.url.clone(),
+                reason_code: None,
+                message: if start.reused {
+                    "Connected to the running preview.".into()
+                } else {
+                    "Preview opened.".into()
+                },
+                logs: start.logs,
+                command_summary: Some(start.command.join(" ")),
+                resolved_at: now_ms(),
+            }),
+            Err(message) => Ok(failed_preview_response(
+                request_id,
+                request.kind,
+                target_label,
+                "dev_server_unavailable",
+                message,
+                Vec::new(),
+                None,
+            )),
+        },
+        PreviewRequestKind::Auto => {
+            if root.join("index.html").is_file() {
+                match validate_static_preview_target(&root, "index.html") {
+                    Ok(target) => Ok(PreviewOpenResponse {
+                        request_id,
+                        status: PreviewOpenStatus::Ready,
+                        kind: PreviewRequestKind::StaticFile,
+                        preview_url: Some(format!("asset://project/{}", target.target_label)),
+                        asset_file_path: Some(target.asset_file_path.display().to_string()),
+                        target_label: target.target_label,
+                        reason_code: None,
+                        message: "Preview opened.".into(),
+                        logs: Vec::new(),
+                        command_summary: None,
+                        resolved_at: now_ms(),
+                    }),
+                    Err(reason) => Ok(unavailable_preview_response(
+                        request_id,
+                        PreviewRequestKind::StaticFile,
+                        "index.html".into(),
+                        reason.code,
+                        reason.message,
+                    )),
+                }
+            } else {
+                match preview_start_impl(
+                    state,
+                    PreviewStartOptions {
+                        force_install: false,
+                    },
+                )
+                .await
+                {
+                    Ok(start) => Ok(PreviewOpenResponse {
+                        request_id,
+                        status: PreviewOpenStatus::Ready,
+                        kind: PreviewRequestKind::DevServer,
+                        preview_url: Some(start.url.clone()),
+                        asset_file_path: None,
+                        target_label: start.url.clone(),
+                        reason_code: None,
+                        message: if start.reused {
+                            "Connected to the running preview.".into()
+                        } else {
+                            "Preview opened.".into()
+                        },
+                        logs: start.logs,
+                        command_summary: Some(start.command.join(" ")),
+                        resolved_at: now_ms(),
+                    }),
+                    Err(message) => Ok(failed_preview_response(
+                        request_id,
+                        PreviewRequestKind::DevServer,
+                        target_label,
+                        "dev_server_unavailable",
+                        message,
+                        Vec::new(),
+                        None,
+                    )),
+                }
+            }
+        }
+    }
 }
 
 async fn preview_start_impl(
@@ -188,6 +454,256 @@ async fn preview_start_impl(
         command: info.dev_command(),
         logs,
     })
+}
+
+#[derive(Debug, Clone)]
+pub struct PreviewValidationError {
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl PreviewValidationError {
+    fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+pub fn validate_static_preview_target(
+    root: &Path,
+    target: &str,
+) -> Result<StaticPreviewTarget, PreviewValidationError> {
+    let trimmed = target.trim();
+    if trimmed.is_empty() {
+        return Err(PreviewValidationError::new(
+            "missing_target",
+            "Choose a project HTML file to preview.",
+        ));
+    }
+    let relative = Path::new(trimmed);
+    if relative.is_absolute() {
+        return Err(PreviewValidationError::new(
+            "project_escape",
+            "DIVE can preview only files inside the selected project.",
+        ));
+    }
+    let ext = relative
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if ext != "html" && ext != "htm" {
+        return Err(PreviewValidationError::new(
+            "unsupported_extension",
+            "Preview supports local .html and .htm files.",
+        ));
+    }
+
+    let canonical_root = root.canonicalize().map_err(|_| {
+        PreviewValidationError::new(
+            "missing_project",
+            "Select an existing project before opening Preview.",
+        )
+    })?;
+    let candidate = canonical_root.join(relative);
+    let canonical_candidate = candidate.canonicalize().map_err(|_| {
+        PreviewValidationError::new(
+            "missing_static_file",
+            "The requested HTML file does not exist.",
+        )
+    })?;
+    if !canonical_candidate.starts_with(&canonical_root) {
+        return Err(PreviewValidationError::new(
+            "project_escape",
+            "DIVE can preview only files inside the selected project.",
+        ));
+    }
+
+    Ok(StaticPreviewTarget {
+        target_label: trimmed.replace('\\', "/"),
+        asset_file_path: canonical_candidate,
+    })
+}
+
+pub fn validate_local_preview_url(target: &str) -> Result<String, PreviewValidationError> {
+    let trimmed = target.trim();
+    if trimmed.is_empty() {
+        return Err(PreviewValidationError::new(
+            "missing_target",
+            "Enter a local preview URL.",
+        ));
+    }
+    let url = reqwest::Url::parse(trimmed).map_err(|_| {
+        PreviewValidationError::new("unsupported_url", "Enter a valid local preview URL.")
+    })?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(PreviewValidationError::new(
+            "unsupported_url",
+            "Preview supports http and https local URLs.",
+        ));
+    }
+    let Some(host) = url.host_str() else {
+        return Err(PreviewValidationError::new(
+            "unsupported_url",
+            "Enter a valid local preview URL.",
+        ));
+    };
+    let is_loopback = host.eq_ignore_ascii_case("localhost")
+        || host == "127.0.0.1"
+        || host == "::1"
+        || host == "[::1]";
+    if !is_loopback {
+        return Err(PreviewValidationError::new(
+            "external_url",
+            "Preview is limited to local project URLs.",
+        ));
+    }
+    let mut normalized = url;
+    if normalized.host_str() == Some("localhost") {
+        normalized.set_host(Some("127.0.0.1")).map_err(|_| {
+            PreviewValidationError::new("unsupported_url", "Enter a valid local preview URL.")
+        })?;
+    }
+    Ok(normalized.to_string())
+}
+
+fn target_label_for_request(request: &PreviewOpenRequest) -> String {
+    let trimmed = request.target.trim();
+    if trimmed.is_empty() {
+        "project preview".into()
+    } else {
+        trimmed.into()
+    }
+}
+
+fn unavailable_preview_response(
+    request_id: String,
+    kind: PreviewRequestKind,
+    target_label: String,
+    reason_code: impl Into<String>,
+    message: impl Into<String>,
+) -> PreviewOpenResponse {
+    PreviewOpenResponse {
+        request_id,
+        status: PreviewOpenStatus::Unavailable,
+        kind,
+        preview_url: None,
+        asset_file_path: None,
+        target_label,
+        reason_code: Some(reason_code.into()),
+        message: message.into(),
+        logs: Vec::new(),
+        command_summary: None,
+        resolved_at: now_ms(),
+    }
+}
+
+fn failed_preview_response(
+    request_id: String,
+    kind: PreviewRequestKind,
+    target_label: String,
+    reason_code: impl Into<String>,
+    message: impl Into<String>,
+    logs: Vec<String>,
+    command_summary: Option<String>,
+) -> PreviewOpenResponse {
+    PreviewOpenResponse {
+        request_id,
+        status: PreviewOpenStatus::Failed,
+        kind,
+        preview_url: None,
+        asset_file_path: None,
+        target_label,
+        reason_code: Some(reason_code.into()),
+        message: message.into(),
+        logs,
+        command_summary,
+        resolved_at: now_ms(),
+    }
+}
+
+fn record_preview_events(
+    state: &AppState,
+    session_id: Option<i64>,
+    request: &PreviewOpenRequest,
+    response: &PreviewOpenResponse,
+) {
+    let Ok(db) = state.db.lock() else {
+        return;
+    };
+    let requested_at = now_ms();
+    let _ = dive_event_log::append_to_conn(
+        db.conn(),
+        session_id,
+        dive_event_log::PREVIEW_OPEN_REQUESTED_EVENT,
+        json!({
+            "requestId": response.request_id,
+            "sessionId": session_id,
+            "cardId": request.card_id,
+            "kind": request.kind,
+            "targetLabel": target_label_for_request(request),
+            "source": source_as_str(request.source),
+            "requestedAt": requested_at,
+        }),
+    );
+    let _ = dive_event_log::append_to_conn(
+        db.conn(),
+        session_id,
+        dive_event_log::PREVIEW_OPEN_RESULT_EVENT,
+        json!({
+            "requestId": response.request_id,
+            "status": response.status,
+            "targetLabel": response.target_label,
+            "reasonCode": response.reason_code,
+            "message": response.message,
+            "resolvedAt": response.resolved_at,
+            "logs": response.logs,
+            "commandSummary": response.command_summary,
+        }),
+    );
+}
+
+fn emit_preview_events(
+    app: &AppHandle,
+    session_id: i64,
+    request: &PreviewOpenRequest,
+    response: &PreviewOpenResponse,
+) {
+    let requested = ChatEventEnvelope {
+        session_id,
+        event: AgentEvent::PreviewOpenRequested {
+            request_id: response.request_id.clone(),
+            kind: request.kind,
+            target_label: target_label_for_request(request),
+            source: source_as_str(request.source).to_string(),
+            requested_at: now_ms(),
+        },
+    };
+    let _ = app.emit(&format!("chat://event/{session_id}"), &requested);
+    let result = ChatEventEnvelope {
+        session_id,
+        event: AgentEvent::PreviewOpenResult {
+            request_id: response.request_id.clone(),
+            status: response.status.as_str().to_string(),
+            preview_url: response.preview_url.clone(),
+            target_label: response.target_label.clone(),
+            reason_code: response.reason_code.clone(),
+            message: response.message.clone(),
+            resolved_at: response.resolved_at,
+        },
+    };
+    let _ = app.emit(&format!("chat://event/{session_id}"), &result);
+}
+
+fn source_as_str(source: PreviewRequestSource) -> &'static str {
+    match source {
+        PreviewRequestSource::StudentAction => "student_action",
+        PreviewRequestSource::AiTool => "ai_tool",
+        PreviewRequestSource::ReviewAction => "review_action",
+        PreviewRequestSource::Reroute => "reroute",
+    }
 }
 
 async fn try_reuse_preview(

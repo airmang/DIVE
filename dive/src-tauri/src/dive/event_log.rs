@@ -14,6 +14,7 @@ use crate::db::dao::event_log as event_log_dao;
 use crate::db::models::NewEventLog;
 use crate::db::DbError;
 use crate::dive::supervisor::SupervisorEvaluationLog;
+use crate::tools::guard::assess_terminal_script;
 
 pub const SUPERVISOR_EVALUATED_EVENT: &str = "provocation.supervisor_evaluated";
 pub const RUNTIME_CAPABILITY_EVALUATED_EVENT: &str = "runtime.capability_evaluated";
@@ -33,6 +34,13 @@ pub const VERIFICATION_COACH_REQUESTED_EVENT: &str = "verification_coach.request
 pub const VERIFICATION_COACH_EVALUATED_EVENT: &str = "verification_coach.evaluated";
 pub const VERIFICATION_OBSERVATION_RECORDED_EVENT: &str = "verification_observation.recorded";
 pub const VERIFICATION_OBSERVATION_CLEARED_EVENT: &str = "verification_observation.cleared";
+pub const RUNTIME_ROUTING_DECISION_EVENT: &str = "runtime.routing_decision";
+pub const PREVIEW_OPEN_REQUESTED_EVENT: &str = "preview.open_requested";
+pub const PREVIEW_OPEN_RESULT_EVENT: &str = "preview.open_result";
+pub const PROJECT_COMMAND_RESULT_EVENT: &str = "project_command.result";
+pub const TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT: &str = "terminal_script.approval_requested";
+pub const TERMINAL_SCRIPT_RESULT_EVENT: &str = "terminal_script.result";
+pub const TOOL_APPROVAL_STALE_EVENT: &str = "tool_approval.stale";
 
 static SECRET_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -79,6 +87,51 @@ pub fn append_supervisor_evaluation_to_conn(
         );
     }
     append_to_conn(conn, Some(session_id), SUPERVISOR_EVALUATED_EVENT, payload)
+}
+
+pub fn terminal_script_approval_requested_payload(
+    tool_call_id: &str,
+    session_id: i64,
+    card_id: Option<i64>,
+    args: &Value,
+) -> Value {
+    let script = args.get("script").and_then(Value::as_str).unwrap_or("");
+    let assessment = assess_terminal_script(script);
+    json!({
+        "toolCallId": tool_call_id,
+        "sessionId": session_id,
+        "cardId": card_id,
+        "shellFamily": args.get("shell_family").and_then(Value::as_str).unwrap_or("unknown"),
+        "scriptSummary": script,
+        "reason": args.get("reason").and_then(Value::as_str).unwrap_or(""),
+        "expectedEffect": args.get("expected_effect").and_then(Value::as_str).unwrap_or(""),
+        "timeoutSec": args.get("timeout_sec").and_then(Value::as_u64).unwrap_or(60),
+        "outputLimit": args.get("output_limit").and_then(Value::as_u64).unwrap_or(16 * 1024),
+        "riskFactors": assessment.risk_factors,
+        "oneShot": true,
+        "approvalReuse": false,
+        "requestedAt": crate::db::now_ms(),
+    })
+}
+
+pub fn terminal_script_result_payload(
+    tool_call_id: &str,
+    status: &str,
+    success: bool,
+    summary: &str,
+    full: Option<&Value>,
+) -> Value {
+    json!({
+        "toolCallId": tool_call_id,
+        "status": status,
+        "success": success,
+        "exitCode": full.and_then(|value| value.get("exitCode")).and_then(Value::as_i64),
+        "summary": summary,
+        "stdoutSummary": full.and_then(|value| value.get("stdout")).and_then(Value::as_str).unwrap_or(""),
+        "stderrSummary": full.and_then(|value| value.get("stderr")).and_then(Value::as_str).unwrap_or(""),
+        "truncated": full.and_then(|value| value.get("truncated")).and_then(Value::as_bool).unwrap_or(false),
+        "resolvedAt": crate::db::now_ms(),
+    })
 }
 
 pub(crate) fn enrich_agency_payload(event_type: &str, payload: Value) -> Value {
@@ -156,7 +209,13 @@ fn infer_agency_component(event_type: &str, payload: &Value) -> Option<&'static 
                 _ => Some("verify"),
             }
         }
-        RUNTIME_CAPABILITY_EVALUATED_EVENT => return Some("action"),
+        RUNTIME_CAPABILITY_EVALUATED_EVENT
+        | RUNTIME_ROUTING_DECISION_EVENT
+        | PROJECT_COMMAND_RESULT_EVENT
+        | TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT
+        | TERMINAL_SCRIPT_RESULT_EVENT
+        | TOOL_APPROVAL_STALE_EVENT => return Some("action"),
+        PREVIEW_OPEN_REQUESTED_EVENT | PREVIEW_OPEN_RESULT_EVENT => return Some("verify"),
         VERIFICATION_COACH_REQUESTED_EVENT | VERIFICATION_COACH_EVALUATED_EVENT => {
             return Some("verify")
         }
@@ -313,6 +372,39 @@ fn infer_agency_state(event_type: &str, payload: &Value) -> Option<&'static str>
                 _ => None,
             };
         }
+        RUNTIME_ROUTING_DECISION_EVENT => {
+            return match string_field(payload, "outcome") {
+                Some("blocked") => Some("verification_failed"),
+                Some("rerouted" | "stale") => Some("verification_needed"),
+                Some("unavailable") => Some("runtime_unavailable"),
+                Some("preview" | "project_command" | "terminal_script") => {
+                    Some("approval_required")
+                }
+                _ => None,
+            };
+        }
+        PREVIEW_OPEN_REQUESTED_EVENT => return Some("verification_needed"),
+        PREVIEW_OPEN_RESULT_EVENT => {
+            return match string_field(payload, "status") {
+                Some("ready") => Some("verification_needed"),
+                Some("failed" | "unavailable") => Some("runtime_unavailable"),
+                _ => None,
+            };
+        }
+        PROJECT_COMMAND_RESULT_EVENT | TERMINAL_SCRIPT_RESULT_EVENT => {
+            return match string_field(payload, "status") {
+                Some("completed" | "passed")
+                    if payload.get("success").and_then(Value::as_bool) == Some(true) =>
+                {
+                    Some("verified_with_evidence")
+                }
+                Some("blocked" | "failed") => Some("verification_failed"),
+                Some("denied" | "cancelled" | "unavailable") => Some("verification_needed"),
+                _ => None,
+            };
+        }
+        TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT => return Some("approval_required"),
+        TOOL_APPROVAL_STALE_EVENT => return Some("verification_needed"),
         VERIFICATION_COACH_EVALUATED_EVENT => {
             return match string_field(payload, "status") {
                 Some("shown" | "unavailable" | "dropped") => Some("verification_needed"),
@@ -446,6 +538,17 @@ fn infer_affected_commands(event_type: &str, payload: &Value) -> Option<Value> {
     if let Some(tool) = string_field(payload, "tool") {
         return Some(json!([{ "kind": "tool", "name": tool }]));
     }
+    if event_type == PROJECT_COMMAND_RESULT_EVENT {
+        return Some(json!([{
+            "kind": "project_command",
+            "label": payload.get("commandLabel").cloned().unwrap_or(Value::Null),
+        }]));
+    }
+    if event_type == TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT
+        || event_type == TERMINAL_SCRIPT_RESULT_EVENT
+    {
+        return Some(json!([{ "kind": "terminal_script", "redacted": true }]));
+    }
     if matches!(event_type, "verify_start" | "verify_complete") {
         return Some(json!([{ "kind": "verification", "redacted": true }]));
     }
@@ -478,6 +581,76 @@ fn infer_evidence_summary(event_type: &str, payload: &Value) -> Option<Value> {
     }
 
     match event_type {
+        RUNTIME_ROUTING_DECISION_EVENT => {
+            return Some(json!({
+                "schemaVersion": 1,
+                "runtimeRouting": true,
+                "inputKind": payload.get("inputKind").cloned().unwrap_or(Value::Null),
+                "outcome": payload.get("outcome").cloned().unwrap_or(Value::Null),
+                "reasonCode": payload.get("reasonCode").cloned().unwrap_or(Value::Null),
+                "verificationEvidence": false,
+                "commandRan": payload.get("commandRan").and_then(Value::as_bool).unwrap_or(false),
+            }));
+        }
+        PREVIEW_OPEN_REQUESTED_EVENT => {
+            return Some(json!({
+                "schemaVersion": 1,
+                "previewRequested": true,
+                "previewIsFinalVerification": false,
+            }));
+        }
+        PREVIEW_OPEN_RESULT_EVENT => {
+            return Some(json!({
+                "schemaVersion": 1,
+                "previewAvailable": string_field(payload, "status") == Some("ready"),
+                "previewIsFinalVerification": false,
+                "reasonCode": payload.get("reasonCode").cloned().unwrap_or(Value::Null),
+            }));
+        }
+        PROJECT_COMMAND_RESULT_EVENT => {
+            let success = payload
+                .get("success")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let status = string_field(payload, "status");
+            let command_ran = matches!(status, Some("completed" | "passed" | "failed"))
+                || payload.get("exitCode").and_then(Value::as_i64).is_some();
+            return Some(json!({
+                "schemaVersion": 1,
+                "concreteEvidence": success,
+                "aiSelfReport": false,
+                "automatedTestsPassed": success,
+                "externalTestRun": command_ran,
+                "commandRan": command_ran,
+                "exitCode": payload.get("exitCode").cloned().unwrap_or(Value::Null),
+            }));
+        }
+        TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT => {
+            return Some(json!({
+                "schemaVersion": 1,
+                "terminalScriptApprovalRequested": true,
+                "riskFactors": payload.get("riskFactors").cloned().unwrap_or(Value::Null),
+            }));
+        }
+        TERMINAL_SCRIPT_RESULT_EVENT => {
+            return Some(json!({
+                "schemaVersion": 1,
+                "terminalScriptResult": true,
+                "concreteEvidence": payload.get("success").and_then(Value::as_bool).unwrap_or(false),
+                "aiSelfReport": false,
+                "externalTestRun": true,
+                "truncated": payload.get("truncated").cloned().unwrap_or(Value::Null),
+                "exitCode": payload.get("exitCode").cloned().unwrap_or(Value::Null),
+            }));
+        }
+        TOOL_APPROVAL_STALE_EVENT => {
+            return Some(json!({
+                "schemaVersion": 1,
+                "staleApproval": true,
+                "commandRan": false,
+                "detectedBy": payload.get("detectedBy").cloned().unwrap_or(Value::Null),
+            }));
+        }
         "verify_complete" => {
             let test_result = string_field(payload, "test_result");
             let external_test_run = !matches!(test_result, None | Some("skipped"));
@@ -659,6 +832,27 @@ fn infer_decision(event_type: &str, payload: &Value) -> Option<Value> {
                 "reasonCode": payload.get("reason_code").cloned().unwrap_or(Value::Null),
             }));
         }
+        RUNTIME_ROUTING_DECISION_EVENT => {
+            return Some(json!({
+                "kind": "runtime_routing",
+                "outcome": payload.get("outcome").cloned().unwrap_or(Value::Null),
+                "reasonCode": payload.get("reasonCode").cloned().unwrap_or(Value::Null),
+            }));
+        }
+        PREVIEW_OPEN_REQUESTED_EVENT => return Some(json!({ "kind": "preview_requested" })),
+        PREVIEW_OPEN_RESULT_EVENT => {
+            return Some(json!({
+                "kind": "preview_result",
+                "status": payload.get("status").cloned().unwrap_or(Value::Null),
+                "reasonCode": payload.get("reasonCode").cloned().unwrap_or(Value::Null),
+            }));
+        }
+        PROJECT_COMMAND_RESULT_EVENT => return Some(json!({ "kind": "project_command_result" })),
+        TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT => {
+            return Some(json!({ "kind": "terminal_script_approval_requested" }));
+        }
+        TERMINAL_SCRIPT_RESULT_EVENT => return Some(json!({ "kind": "terminal_script_result" })),
+        TOOL_APPROVAL_STALE_EVENT => return Some(json!({ "kind": "tool_approval_stale" })),
         "checkpoint_create" => return Some(json!({ "kind": "create_checkpoint" })),
         "checkpoint_restore" => return Some(json!({ "kind": "restore_checkpoint" })),
         "tool_approve" => return Some(json!({ "kind": "approve_tool" })),
@@ -693,7 +887,10 @@ fn infer_decision(event_type: &str, payload: &Value) -> Option<Value> {
 
 fn infer_reason_present(event_type: &str, payload: &Value) -> Option<Value> {
     let relevant = event_type.starts_with("provocation.")
-        || matches!(event_type, "tool_approve" | "card_update");
+        || matches!(
+            event_type,
+            "tool_approve" | "card_update" | TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT
+        );
     if !relevant {
         return None;
     }
@@ -747,6 +944,38 @@ pub fn runtime_capability_evaluated_payload(
         "message": message.into(),
         "created_at": created_at,
     }))
+}
+
+pub fn runtime_event_payload(value: Value) -> Value {
+    redact_value(&value)
+}
+
+pub fn runtime_routing_decision_payload(
+    decision: &crate::tools::runtime::RuntimeRoutingDecision,
+) -> Value {
+    runtime_event_payload(serde_json::to_value(decision).unwrap_or(Value::Null))
+}
+
+pub fn preview_open_requested_payload(request: &crate::tools::runtime::PreviewRequest) -> Value {
+    let mut value = serde_json::to_value(request).unwrap_or(Value::Null);
+    if let Value::Object(map) = &mut value {
+        if let Some(target) = map.remove("target") {
+            map.insert("targetLabel".into(), target);
+        }
+    }
+    runtime_event_payload(value)
+}
+
+pub fn preview_open_result_payload(session: &crate::tools::runtime::PreviewSession) -> Value {
+    runtime_event_payload(serde_json::to_value(session).unwrap_or(Value::Null))
+}
+
+pub fn execution_evidence_payload(evidence: &crate::tools::runtime::ExecutionEvidence) -> Value {
+    runtime_event_payload(serde_json::to_value(evidence).unwrap_or(Value::Null))
+}
+
+pub fn stale_approval_payload(stale: &crate::tools::runtime::StaleApprovalState) -> Value {
+    runtime_event_payload(serde_json::to_value(stale).unwrap_or(Value::Null))
 }
 
 pub fn prd_patch_proposed_payload(

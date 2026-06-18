@@ -686,9 +686,14 @@ export function useProductShellController() {
       files: currentFiles,
       changeSummary: currentCard?.changeSummary ?? null,
       emptyReason: currentFiles.length > 0 ? null : "no_output",
+      previewRequestContext: {
+        sessionId: currentSessionId,
+        cardId: currentCard?.id ?? null,
+        source: "review_action",
+      },
       replaceFiles: true,
     });
-  }, [currentCard, openSlideIn, roadmapModel]);
+  }, [currentCard, currentSessionId, openSlideIn, roadmapModel]);
 
   const promptContext = useMemo(
     () => promptContextFor(currentCard, cards.length, allVerified),

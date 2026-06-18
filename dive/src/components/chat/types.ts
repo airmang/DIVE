@@ -39,14 +39,55 @@ export interface ReasoningMessageData extends BaseMessage {
   toolCallId: string;
 }
 
+export type RuntimeActionKind = "preview" | "project_command" | "terminal_script";
+
+export type RuntimeRoutingOutcome =
+  | "preview"
+  | "project_command"
+  | "terminal_script"
+  | "blocked"
+  | "rerouted"
+  | "unavailable"
+  | "stale";
+
+export interface RuntimeRoutingDecisionData {
+  decisionId: string;
+  inputKind: RuntimeActionKind | "unknown";
+  outcome: RuntimeRoutingOutcome;
+  reasonCode: string;
+  evidenceRefs?: unknown[];
+  message?: string;
+}
+
+export interface ExecutionEvidenceData {
+  evidenceId: string;
+  source: RuntimeActionKind;
+  status: "ready" | "passed" | "failed" | "blocked" | "unavailable" | "cancelled";
+  summary: string;
+  stdoutSummary?: string | null;
+  stderrSummary?: string | null;
+  exitCode?: number | null;
+  previewTarget?: string | null;
+}
+
+export interface StaleApprovalStateData {
+  toolCallId: string;
+  detectedBy: "approval_click" | "deny_click" | "result_event" | "pending_refresh" | "session_reload";
+  message: string;
+  resolvedAt: number;
+}
+
 export interface ToolCallMessageData extends BaseMessage {
   kind: "tool_call";
   toolName: string;
   /** One-line preview of tool arguments. */
   paramsPreview: string;
-  status: "pending" | "approved" | "denied" | "blocked";
+  status: "pending" | "approved" | "denied" | "blocked" | "rerouted" | "stale";
   /** Populated when the backend emitted a `ToolCallStart` with risk + args. */
   risk?: "safe" | "warn" | "danger";
+  runtimeAction?: RuntimeActionKind;
+  routingDecision?: RuntimeRoutingDecisionData;
+  executionEvidence?: ExecutionEvidenceData;
   diffPreview?: {
     path: string;
     before: string;
@@ -75,6 +116,8 @@ export interface ToolResultMessageData extends BaseMessage {
   toolName: string;
   success: boolean;
   summary: string;
+  runtimeAction?: RuntimeActionKind;
+  executionEvidence?: ExecutionEvidenceData;
   full?: unknown;
 }
 

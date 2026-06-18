@@ -19,6 +19,10 @@ use crate::db::models::{
 };
 use crate::db::now_ms;
 use crate::dive::event_log as dive_event_log;
+use crate::tools::runtime::{
+    RuntimeInputKind, RuntimeRoutingDecision, RuntimeRoutingOutcome, StaleApprovalDetectedBy,
+    StaleApprovalState,
+};
 use crate::tools::ToolContext;
 
 use super::state::ActiveTurnGuard;
@@ -857,24 +861,162 @@ pub async fn chat_cancel(state: State<'_, AppState>, session_id: i64) -> Result<
 
 #[tauri::command]
 pub async fn tool_approve(
+    app: AppHandle,
     state: State<'_, AppState>,
     tool_call_id: String,
     modified_args: Option<Value>,
     approval_metadata: Option<Value>,
+    session_id: Option<i64>,
 ) -> Result<bool, String> {
     let decision = match modified_args {
         Some(args) => PermissionDecision::approved_with_context(args, approval_metadata),
         None => PermissionDecision::approved_with_metadata(approval_metadata),
     };
-    Ok(state.pending_approvals.resolve(&tool_call_id, decision))
+    let resolved = state
+        .pending_approvals
+        .resolve_with_snapshot(&tool_call_id, decision);
+    match resolved {
+        Some((_snapshot, true)) => Ok(true),
+        Some((snapshot, false)) => {
+            record_and_emit_stale_approval(
+                &app,
+                &state,
+                snapshot.session_id,
+                &tool_call_id,
+                StaleApprovalDetectedBy::ApprovalClick,
+                "This approval request is no longer active. DIVE did not run the command.",
+            );
+            Ok(false)
+        }
+        None => {
+            if let Some(session_id) = session_id {
+                record_and_emit_stale_approval(
+                    &app,
+                    &state,
+                    session_id,
+                    &tool_call_id,
+                    StaleApprovalDetectedBy::ApprovalClick,
+                    "This approval request is no longer active. DIVE did not run the command.",
+                );
+            }
+            Ok(false)
+        }
+    }
 }
 
 #[tauri::command]
 pub async fn tool_deny(
+    app: AppHandle,
     state: State<'_, AppState>,
     tool_call_id: String,
     reason: Option<String>,
+    session_id: Option<i64>,
 ) -> Result<bool, String> {
     let decision = PermissionDecision::denied(reason.unwrap_or_else(|| "사용자가 거부함".into()));
-    Ok(state.pending_approvals.resolve(&tool_call_id, decision))
+    let resolved = state
+        .pending_approvals
+        .resolve_with_snapshot(&tool_call_id, decision);
+    match resolved {
+        Some((_snapshot, true)) => Ok(true),
+        Some((snapshot, false)) => {
+            record_and_emit_stale_approval(
+                &app,
+                &state,
+                snapshot.session_id,
+                &tool_call_id,
+                StaleApprovalDetectedBy::DenyClick,
+                "This approval request is no longer active. There is nothing left to deny.",
+            );
+            Ok(false)
+        }
+        None => {
+            if let Some(session_id) = session_id {
+                record_and_emit_stale_approval(
+                    &app,
+                    &state,
+                    session_id,
+                    &tool_call_id,
+                    StaleApprovalDetectedBy::DenyClick,
+                    "This approval request is no longer active. There is nothing left to deny.",
+                );
+            }
+            Ok(false)
+        }
+    }
+}
+
+fn record_and_emit_stale_approval(
+    app: &AppHandle,
+    state: &AppState,
+    session_id: i64,
+    tool_call_id: &str,
+    detected_by: StaleApprovalDetectedBy,
+    message: &str,
+) {
+    let stale = StaleApprovalState {
+        tool_call_id: tool_call_id.to_string(),
+        session_id,
+        detected_by,
+        message: message.to_string(),
+        resolved_at: now_ms(),
+    };
+    let _ = log_event(
+        state,
+        Some(session_id),
+        dive_event_log::TOOL_APPROVAL_STALE_EVENT,
+        dive_event_log::stale_approval_payload(&stale),
+    );
+
+    let decision = RuntimeRoutingDecision {
+        decision_id: uuid::Uuid::new_v4().to_string(),
+        session_id,
+        card_id: None,
+        input_kind: RuntimeInputKind::ProjectCommand,
+        outcome: RuntimeRoutingOutcome::Stale,
+        reason_code: "approval_no_longer_pending".into(),
+        evidence_refs: vec![serde_json::json!({
+            "toolCallId": tool_call_id,
+            "detectedBy": stale.detected_by,
+            "commandRan": false,
+        })],
+        created_at: stale.resolved_at,
+    };
+    let mut payload = dive_event_log::runtime_routing_decision_payload(&decision);
+    if let Value::Object(map) = &mut payload {
+        map.insert("toolCallId".into(), Value::String(tool_call_id.to_string()));
+        map.insert("message".into(), Value::String(message.to_string()));
+        map.insert("commandRan".into(), Value::Bool(false));
+    }
+    let _ = log_event(
+        state,
+        Some(session_id),
+        dive_event_log::RUNTIME_ROUTING_DECISION_EVENT,
+        payload,
+    );
+
+    emit_chat_event(
+        app,
+        session_id,
+        AgentEvent::ToolApprovalStale {
+            tool_call_id: stale.tool_call_id.clone(),
+            session_id,
+            detected_by: stale.detected_by,
+            message: stale.message.clone(),
+            resolved_at: stale.resolved_at,
+        },
+    );
+    emit_chat_event(
+        app,
+        session_id,
+        AgentEvent::RuntimeRoutingDecision {
+            decision_id: decision.decision_id,
+            tool_call_id: Some(tool_call_id.to_string()),
+            input_kind: decision.input_kind,
+            outcome: decision.outcome,
+            reason_code: decision.reason_code,
+            evidence_refs: decision.evidence_refs,
+            message: message.to_string(),
+            created_at: decision.created_at,
+        },
+    );
 }
