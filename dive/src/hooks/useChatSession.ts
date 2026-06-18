@@ -4,7 +4,11 @@ import type {
   AssistantMessageData,
   ChatMessage,
   ErrorMessageData,
+  ExecutionEvidenceData,
+  RuntimeActionKind,
+  RuntimeRoutingDecisionData,
   SystemMessageData,
+  StaleApprovalStateData,
   ToolApprovalMetadata,
   ToolCallMessageData,
   ToolResultMessageData,
@@ -41,6 +45,72 @@ export type AgentEvent =
       message: string;
       setupAction: RuntimeSetupAction | null;
       recordedAt: number;
+    }
+  | {
+      type: "runtime_routing_decision";
+      decisionId: string;
+      inputKind: RuntimeRoutingDecisionData["inputKind"];
+      outcome: RuntimeRoutingDecisionData["outcome"];
+      reasonCode: string;
+      evidenceRefs?: unknown[];
+      message?: string;
+      createdAt: number;
+      toolCallId?: string | null;
+    }
+  | {
+      type: "preview_open_requested";
+      requestId: string;
+      kind: "static_file" | "local_url" | "dev_server" | "auto";
+      targetLabel: string;
+      source: string;
+      requestedAt: number;
+    }
+  | {
+      type: "preview_open_result";
+      requestId: string;
+      status: "ready" | "failed" | "unavailable";
+      previewUrl?: string | null;
+      targetLabel: string;
+      reasonCode?: string | null;
+      message: string;
+      resolvedAt: number;
+    }
+  | {
+      type: "project_command_result";
+      toolCallId: string;
+      commandLabel: string;
+      executable: string;
+      args: string[];
+      timeoutSec: number;
+      reason?: string | null;
+      expectedEffect?: string | null;
+      status: ExecutionEvidenceData["status"] | "completed" | "denied";
+      success: boolean;
+      exitCode?: number | null;
+      summary: string;
+      stdoutSummary?: string | null;
+      stderrSummary?: string | null;
+      createdAt: number;
+    }
+  | {
+      type: "terminal_script_result";
+      toolCallId: string;
+      status: ExecutionEvidenceData["status"] | "completed" | "denied";
+      success: boolean;
+      exitCode?: number | null;
+      summary: string;
+      stdoutSummary?: string | null;
+      stderrSummary?: string | null;
+      truncated?: boolean;
+      resolvedAt: number;
+    }
+  | {
+      type: "tool_approval_stale";
+      toolCallId: string;
+      sessionId: number;
+      detectedBy: StaleApprovalStateData["detectedBy"];
+      message: string;
+      resolvedAt: number;
     }
   | { type: "assistant_start"; id: string; created_at: number }
   | { type: "assistant_delta"; id: string; delta: string }
@@ -171,6 +241,7 @@ export interface CheckpointRowPayload {
 type TauriApi = {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
   listen: <T>(event: string, handler: (e: { payload: T }) => void) => Promise<() => void>;
+  convertFileSrc: (path: string) => string;
 };
 
 async function loadTauri(): Promise<TauriApi | null> {
@@ -187,6 +258,7 @@ async function loadTauri(): Promise<TauriApi | null> {
   ]);
   return {
     invoke: coreMod.invoke as TauriApi["invoke"],
+    convertFileSrc: coreMod.convertFileSrc,
     listen: eventMod.listen as unknown as TauriApi["listen"],
   };
 }
@@ -221,6 +293,7 @@ function pendingToolCallToMessage(call: PendingToolCall): ToolCallMessageData {
     paramsPreview: call.paramsPreview,
     status: "pending",
     risk: call.risk,
+    runtimeAction: runtimeActionForTool(call.tool),
     diffPreview: call.diffPreview ?? null,
     args: call.args,
   };
@@ -255,6 +328,9 @@ function splitTerminalLines(text: string): string[] {
 }
 
 function appendToolResultToTerminal(evt: Extract<AgentEvent, { type: "tool_result" }>) {
+  if (isPreviewOpenPayload(evt.full)) return;
+  if (stringFromRecord(evt.full, "runtimeAction") === "project_command") return;
+  if (stringFromRecord(evt.full, "runtimeAction") === "terminal_script") return;
   const { pushTerminalLine } = useSlideInStore.getState();
   const command = stringFromRecord(evt.full, "command");
   const stdout = stringFromRecord(evt.full, "stdout");
@@ -275,6 +351,122 @@ function appendToolResultToTerminal(evt: Extract<AgentEvent, { type: "tool_resul
       pushTerminalLine({ kind: "stderr", text: line });
     }
   }
+}
+
+function appendProjectCommandResultToTerminal(
+  evt: Extract<AgentEvent, { type: "project_command_result" }>,
+) {
+  const { pushTerminalLine } = useSlideInStore.getState();
+  const commandLabel =
+    evt.commandLabel ||
+    [evt.executable, ...(Array.isArray(evt.args) ? evt.args : [])].filter(Boolean).join(" ");
+  const exitText =
+    evt.exitCode === null || evt.exitCode === undefined ? "" : ` (exit ${evt.exitCode})`;
+  pushTerminalLine({
+    kind: evt.success ? "info" : "stderr",
+    text: `$ ${commandLabel} — ${evt.summary}${exitText}`,
+  });
+  if (evt.stdoutSummary) {
+    for (const line of splitTerminalLines(evt.stdoutSummary)) {
+      pushTerminalLine({ kind: "stdout", text: line });
+    }
+  }
+  if (evt.stderrSummary) {
+    for (const line of splitTerminalLines(evt.stderrSummary)) {
+      pushTerminalLine({ kind: "stderr", text: line });
+    }
+  }
+}
+
+function appendTerminalScriptResultToTerminal(
+  evt: Extract<AgentEvent, { type: "terminal_script_result" }>,
+) {
+  const { pushTerminalLine } = useSlideInStore.getState();
+  const exitText =
+    evt.exitCode === null || evt.exitCode === undefined ? "" : ` (exit ${evt.exitCode})`;
+  const locale = useLocaleStore.getState().locale;
+  const truncationText = evt.truncated
+    ? ` · ${translate(locale, "slide_in.terminal.output_truncated")}`
+    : "";
+  pushTerminalLine({
+    kind: evt.success ? "info" : "stderr",
+    text: `[Terminal Script] ${evt.summary}${exitText}${truncationText}`,
+  });
+  if (evt.stdoutSummary) {
+    for (const line of splitTerminalLines(evt.stdoutSummary)) {
+      pushTerminalLine({ kind: "stdout", text: line });
+    }
+  }
+  if (evt.stderrSummary) {
+    for (const line of splitTerminalLines(evt.stderrSummary)) {
+      pushTerminalLine({ kind: "stderr", text: line });
+    }
+  }
+}
+
+function isPreviewOpenPayload(value: unknown): value is {
+  requestId: string;
+  status: "ready" | "failed" | "unavailable";
+  previewUrl?: string | null;
+  assetFilePath?: string | null;
+  targetLabel: string;
+  reasonCode?: string | null;
+  message: string;
+  resolvedAt?: number;
+} {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.requestId === "string" &&
+    typeof record.status === "string" &&
+    typeof record.targetLabel === "string" &&
+    typeof record.message === "string"
+  );
+}
+
+function normalizeEvidenceStatus(
+  status: ExecutionEvidenceData["status"] | "completed" | "denied",
+  success: boolean,
+): ExecutionEvidenceData["status"] {
+  if (status === "completed") return success ? "passed" : "failed";
+  if (status === "denied") return "cancelled";
+  return status;
+}
+
+function runtimeActionForTool(toolName: string): RuntimeActionKind | undefined {
+  if (toolName === "preview_open") return "preview";
+  if (toolName === "run_process") return "project_command";
+  if (toolName === "run_terminal_script") return "terminal_script";
+  return undefined;
+}
+
+function reroutedPreviewTarget(
+  evt: Extract<AgentEvent, { type: "runtime_routing_decision" }>,
+): { kind: "static_file" | "local_url"; target: string } | null {
+  if (evt.outcome !== "rerouted" || !Array.isArray(evt.evidenceRefs)) return null;
+  for (const item of evt.evidenceRefs) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    const target = record.previewTarget;
+    if (typeof target !== "string" || target.trim().length === 0) continue;
+    const kind = record.previewKind === "local_url" ? "local_url" : "static_file";
+    return { kind, target };
+  }
+  return null;
+}
+
+function appendRuntimeEvidenceToSlideIn(evidence: ExecutionEvidenceData) {
+  useSlideInStore.getState().appendRuntimeEvidence({
+    evidenceId: evidence.evidenceId,
+    source: evidence.source,
+    status: evidence.status,
+    summary: evidence.summary,
+    stdoutSummary: evidence.stdoutSummary ?? null,
+    stderrSummary: evidence.stderrSummary ?? null,
+    exitCode: evidence.exitCode ?? null,
+    previewTarget: evidence.previewTarget ?? null,
+    recordedAt: Date.now(),
+  });
 }
 
 export function useChatSession(
@@ -343,7 +535,7 @@ export function useChatSession(
       messages: [
         ...s.messages.map((m) =>
           m.id === toolCallId && m.kind === "tool_call" && m.status === "pending"
-            ? { ...m, status: "denied" as const, deniedReason: message }
+            ? { ...m, status: "stale" as const, deniedReason: message }
             : m,
         ),
         error,
@@ -408,6 +600,76 @@ export function useChatSession(
       const applyEventSideEffects = (payload: AgentEvent) => {
         if (payload.type === "tool_result") {
           appendToolResultToTerminal(payload);
+          if (isPreviewOpenPayload(payload.full)) {
+            const { setPreviewSession, open } = useSlideInStore.getState();
+            const displayUrl = payload.full.assetFilePath
+              ? api.convertFileSrc(payload.full.assetFilePath)
+              : (payload.full.previewUrl ?? null);
+            setPreviewSession({
+              requestId: payload.full.requestId,
+              status: payload.full.status,
+              previewUrl: displayUrl,
+              assetFilePath: payload.full.assetFilePath ?? null,
+              targetLabel: payload.full.targetLabel,
+              errorReason: payload.full.reasonCode ?? null,
+              updatedAt: payload.full.resolvedAt ?? Date.now(),
+            });
+            if (payload.full.status === "ready" && displayUrl) {
+              open({ tab: "preview", previewUrl: displayUrl });
+            }
+          }
+        }
+        if (payload.type === "preview_open_result") {
+          const { setPreviewSession, open } = useSlideInStore.getState();
+          setPreviewSession({
+            requestId: payload.requestId,
+            status: payload.status,
+            previewUrl: payload.previewUrl ?? null,
+            targetLabel: payload.targetLabel,
+            errorReason: payload.reasonCode ?? null,
+            updatedAt: payload.resolvedAt,
+          });
+          if (payload.status === "ready" && payload.previewUrl) {
+            open({ tab: "preview", previewUrl: payload.previewUrl });
+          }
+        }
+        if (payload.type === "runtime_routing_decision" && sessionId !== null) {
+          const reroute = reroutedPreviewTarget(payload);
+          if (reroute) {
+            void api.invoke("preview_open", {
+              request: {
+                sessionId,
+                kind: reroute.kind,
+                target: reroute.target,
+                source: "reroute",
+                locale: useLocaleStore.getState().locale,
+              },
+            });
+          }
+        }
+        if (payload.type === "project_command_result") {
+          appendProjectCommandResultToTerminal(payload);
+          appendRuntimeEvidenceToSlideIn({
+            evidenceId: `project-command-${payload.toolCallId}-${payload.createdAt}`,
+            source: "project_command",
+            status: normalizeEvidenceStatus(payload.status, payload.success),
+            summary: payload.summary,
+            stdoutSummary: payload.stdoutSummary ?? null,
+            stderrSummary: payload.stderrSummary ?? null,
+            exitCode: payload.exitCode ?? null,
+          });
+        }
+        if (payload.type === "terminal_script_result") {
+          appendTerminalScriptResultToTerminal(payload);
+          appendRuntimeEvidenceToSlideIn({
+            evidenceId: `terminal-script-${payload.toolCallId}-${payload.resolvedAt}`,
+            source: "terminal_script",
+            status: normalizeEvidenceStatus(payload.status, payload.success),
+            summary: payload.summary,
+            stdoutSummary: payload.stdoutSummary ?? null,
+            stderrSummary: payload.stderrSummary ?? null,
+            exitCode: payload.exitCode ?? null,
+          });
         }
         if (
           payload.type === "done" ||
@@ -561,6 +823,7 @@ export function useChatSession(
           toolCallId,
           modifiedArgs: modifiedArgs ?? null,
           approvalMetadata: approvalMetadata ?? null,
+          sessionId,
         });
         if (!resolved) {
           expireToolApproval(
@@ -574,7 +837,7 @@ export function useChatSession(
         await refreshPendingApprovals().catch(() => {});
       }
     },
-    [appendErrorMessage, expireToolApproval, refreshPendingApprovals],
+    [appendErrorMessage, expireToolApproval, refreshPendingApprovals, sessionId],
   );
 
   const denyToolCall = useCallback(
@@ -585,6 +848,7 @@ export function useChatSession(
         const resolved = await api.invoke<boolean>("tool_deny", {
           toolCallId,
           reason: reason ?? null,
+          sessionId,
         });
         if (!resolved) {
           expireToolApproval(
@@ -598,7 +862,7 @@ export function useChatSession(
         await refreshPendingApprovals().catch(() => {});
       }
     },
-    [appendErrorMessage, expireToolApproval, refreshPendingApprovals],
+    [appendErrorMessage, expireToolApproval, refreshPendingApprovals, sessionId],
   );
 
   const setCurrentCard = useCallback(
@@ -824,6 +1088,79 @@ export function reduceChatSessionState(prev: ChatSessionState, evt: AgentEvent):
         messages: mergeMessagesById(prev.messages, [m]),
       };
     }
+    case "runtime_routing_decision": {
+      const decision: RuntimeRoutingDecisionData = {
+        decisionId: evt.decisionId,
+        inputKind: evt.inputKind,
+        outcome: evt.outcome,
+        reasonCode: evt.reasonCode,
+        evidenceRefs: evt.evidenceRefs ?? [],
+        message: evt.message,
+      };
+      const status =
+        evt.outcome === "rerouted"
+          ? "rerouted"
+          : evt.outcome === "stale"
+            ? "stale"
+            : evt.outcome === "blocked"
+              ? "blocked"
+              : evt.outcome === "unavailable"
+                ? "denied"
+                : undefined;
+      const messages = evt.toolCallId
+        ? prev.messages.map((m) =>
+            m.id === evt.toolCallId && m.kind === "tool_call"
+              ? {
+                  ...m,
+                  status: status ?? m.status,
+                  routingDecision: decision,
+                  deniedReason: evt.message ?? m.deniedReason,
+                }
+              : m,
+          )
+        : prev.messages;
+      const m: SystemMessageData = {
+        id: `runtime-routing-${evt.decisionId}`,
+        kind: "system",
+        createdAt: evt.createdAt,
+        content:
+          evt.message ??
+          translate(useLocaleStore.getState().locale, "runtime.actions.stale_no_command_ran"),
+      };
+      return { ...prev, messages: mergeMessagesById(messages, [m]) };
+    }
+    case "preview_open_requested": {
+      const m: SystemMessageData = {
+        id: `preview-request-${evt.requestId}`,
+        kind: "system",
+        createdAt: evt.requestedAt,
+        content: `${translate(useLocaleStore.getState().locale, "runtime.actions.preview")}: ${
+          evt.targetLabel
+        }`,
+      };
+      return { ...prev, messages: mergeMessagesById(prev.messages, [m]) };
+    }
+    case "preview_open_result": {
+      const evidence: ExecutionEvidenceData = {
+        evidenceId: `preview-${evt.requestId}`,
+        source: "preview",
+        status: evt.status === "ready" ? "ready" : evt.status,
+        summary: evt.message,
+        previewTarget: evt.targetLabel,
+      };
+      const m: ToolResultMessageData = {
+        id: `preview-result-${evt.requestId}`,
+        kind: "tool_result",
+        createdAt: evt.resolvedAt,
+        toolName: "preview_open",
+        success: evt.status === "ready",
+        summary: evt.message,
+        runtimeAction: "preview",
+        executionEvidence: evidence,
+        full: evt,
+      };
+      return { ...prev, messages: mergeMessagesById(prev.messages, [m]) };
+    }
     case "assistant_start": {
       const m: AssistantMessageData = {
         id: evt.id,
@@ -891,6 +1228,7 @@ export function reduceChatSessionState(prev: ChatSessionState, evt: AgentEvent):
         paramsPreview: evt.params_preview,
         status: "pending",
         risk: evt.risk,
+        runtimeAction: runtimeActionForTool(evt.tool),
         diffPreview: evt.diff_preview ?? null,
         args: evt.args,
       };
@@ -934,6 +1272,7 @@ export function reduceChatSessionState(prev: ChatSessionState, evt: AgentEvent):
       const toolCall = prev.messages.find((m) => m.id === evt.call_id && m.kind === "tool_call") as
         | ToolCallMessageData
         | undefined;
+      const runtimeAction = runtimeActionForTool(toolCall?.toolName ?? "");
       const m: ToolResultMessageData = {
         id: `tr-${evt.call_id}`,
         kind: "tool_result",
@@ -941,6 +1280,7 @@ export function reduceChatSessionState(prev: ChatSessionState, evt: AgentEvent):
         toolName: toolCall?.toolName ?? "tool",
         success: evt.success,
         summary: evt.summary,
+        runtimeAction,
         full: evt.full,
       };
       const messages = prev.messages.map((message) => {
@@ -956,6 +1296,65 @@ export function reduceChatSessionState(prev: ChatSessionState, evt: AgentEvent):
           : { ...message, status: "denied" as const, deniedReason: evt.summary };
       });
       return { ...prev, messages: [...messages, m] };
+    }
+    case "project_command_result":
+    case "terminal_script_result": {
+      const source = evt.type === "project_command_result" ? "project_command" : "terminal_script";
+      const eventTime = evt.type === "project_command_result" ? evt.createdAt : evt.resolvedAt;
+      const evidence: ExecutionEvidenceData = {
+        evidenceId: `${source}-${evt.toolCallId}-${eventTime}`,
+        source,
+        status: normalizeEvidenceStatus(evt.status, evt.success),
+        summary: evt.summary,
+        stdoutSummary: evt.stdoutSummary ?? null,
+        stderrSummary: evt.stderrSummary ?? null,
+        exitCode: evt.exitCode ?? null,
+      };
+      const result: ToolResultMessageData = {
+        id: `tr-${evt.toolCallId}`,
+        kind: "tool_result",
+        createdAt: eventTime,
+        toolName: source === "project_command" ? "run_process" : "run_terminal_script",
+        success: evt.success,
+        summary: evt.summary,
+        runtimeAction: source,
+        executionEvidence: evidence,
+        full: evt,
+      };
+      const messages = prev.messages.map((m) =>
+        m.id === evt.toolCallId && m.kind === "tool_call"
+          ? {
+              ...m,
+              status: evt.success
+                ? ("approved" as const)
+                : m.routingDecision?.outcome === "rerouted"
+                  ? ("rerouted" as const)
+                  : ("denied" as const),
+              deniedReason: evt.success ? m.deniedReason : evt.summary,
+              executionEvidence: evidence,
+            }
+          : m,
+      );
+      return { ...prev, messages: mergeMessagesById(messages, [result]) };
+    }
+    case "tool_approval_stale": {
+      const messages = prev.messages.map((m) =>
+        m.id === evt.toolCallId && m.kind === "tool_call"
+          ? {
+              ...m,
+              status: "stale" as const,
+              deniedReason: evt.message,
+            }
+          : m,
+      );
+      const stale: ErrorMessageData = {
+        id: `stale-${evt.toolCallId}-${evt.resolvedAt}`,
+        kind: "error",
+        createdAt: evt.resolvedAt,
+        message: evt.message,
+        retryable: false,
+      };
+      return { ...prev, messages: mergeMessagesById(messages, [stale]) };
     }
     case "error": {
       const m: ErrorMessageData = {

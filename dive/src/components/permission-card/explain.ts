@@ -11,6 +11,22 @@ export interface ToolExplanation {
   actionBody: string;
   files: string[];
   command: string | null;
+  projectCommand?: {
+    executable: string;
+    args: string[];
+    timeoutSec: number | null;
+    reason: string | null;
+    expectedEffect: string | null;
+  };
+  terminalScript?: {
+    script: string;
+    shellFamily: string;
+    reason: string | null;
+    expectedEffect: string | null;
+    timeoutSec: number | null;
+    outputLimit: number | null;
+    riskFactors: string[];
+  };
   commandWillChangeFiles: "no" | "maybe" | "yes";
   riskLabel: string;
   riskBody: string;
@@ -33,13 +49,48 @@ function stringArray(args: ArgsObject, key: string): string[] {
   return value.filter((item): item is string => typeof item === "string" && item.length > 0);
 }
 
+function numberValue(args: ArgsObject, key: string): number | null {
+  const value = args[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function pathList(args: ArgsObject): string[] {
   const path = stringValue(args, "path");
   return path ? [path] : [];
 }
 
+function projectCommandDetails(args: ArgsObject): ToolExplanation["projectCommand"] {
+  const executable = stringValue(args, "command");
+  if (!executable) return undefined;
+  return {
+    executable,
+    args: stringArray(args, "args"),
+    timeoutSec: numberValue(args, "timeout_sec"),
+    reason: stringValue(args, "reason"),
+    expectedEffect: stringValue(args, "expected_effect"),
+  };
+}
+
+function terminalScriptDetails(args: ArgsObject): ToolExplanation["terminalScript"] {
+  const script = stringValue(args, "script");
+  if (!script) return undefined;
+  const suppliedRiskFactors = stringArray(args, "risk_factors");
+  const riskFactors =
+    suppliedRiskFactors.length > 0 ? suppliedRiskFactors : ["shell_script", "one_shot_high_risk"];
+  return {
+    script,
+    shellFamily: stringValue(args, "shell_family") ?? "unknown",
+    reason: stringValue(args, "reason"),
+    expectedEffect: stringValue(args, "expected_effect"),
+    timeoutSec: numberValue(args, "timeout_sec"),
+    outputLimit: numberValue(args, "output_limit"),
+    riskFactors,
+  };
+}
+
 function commandText(toolName: string, args: ArgsObject): string | null {
   if (toolName === "bash") return stringValue(args, "cmd") ?? stringValue(args, "command");
+  if (toolName === "run_terminal_script") return stringValue(args, "script");
   if (toolName !== "run_process") return null;
   const command = stringValue(args, "command");
   if (!command) return null;
@@ -156,8 +207,21 @@ export function explainTool(
         actionBody: t("permission_card.explain.tools.run_process.body"),
         files: [],
         command,
+        projectCommand: projectCommandDetails(objectArgs),
         commandWillChangeFiles: "maybe",
         choices: choices(t, ["allow_command", "deny_ask_purpose", "edit_command_first"]),
+        patchPreviewExpected: false,
+      };
+    case "run_terminal_script":
+      return {
+        ...baseRisk,
+        actionTitle: t("permission_card.explain.tools.run_terminal_script.title"),
+        actionBody: t("permission_card.explain.tools.run_terminal_script.body"),
+        files: [],
+        command,
+        terminalScript: terminalScriptDetails(objectArgs),
+        commandWillChangeFiles: "maybe",
+        choices: choices(t, ["allow_command", "deny_ask_safer_command", "edit_command_first"]),
         patchPreviewExpected: false,
       };
     case "bash":

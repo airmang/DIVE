@@ -129,6 +129,7 @@ pub fn run() {
             ipc::provider_policy_get,
             ipc::provider_policy_set,
             ipc::preview_start,
+            ipc::preview_open,
             ipc::research_settings_get,
             ipc::research_settings_set,
             ipc::checkpoint_timeline,

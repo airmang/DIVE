@@ -149,7 +149,13 @@ impl AgentRunMode {
     ) -> Option<String> {
         let mutating_tool = matches!(
             tool_name,
-            "write_file" | "edit_file" | "delete_file" | "mkdir" | "bash" | "run_process"
+            "write_file"
+                | "edit_file"
+                | "delete_file"
+                | "mkdir"
+                | "bash"
+                | "run_process"
+                | "run_terminal_script"
         );
         match self {
             Self::Interview | Self::Plan => {
@@ -362,6 +368,17 @@ impl PendingApprovals {
             Some(entry) => entry.tx.send(decision).is_ok(),
             None => false,
         }
+    }
+
+    pub fn resolve_with_snapshot(
+        &self,
+        id: &str,
+        decision: PermissionDecision,
+    ) -> Option<(PendingApprovalSnapshot, bool)> {
+        let entry = self.inner.lock().ok().and_then(|mut g| g.remove(id))?;
+        let snapshot = entry.snapshot;
+        let sent = entry.tx.send(decision).is_ok();
+        Some((snapshot, sent))
     }
 
     pub fn cancel_many(&self, ids: &[String]) -> usize {

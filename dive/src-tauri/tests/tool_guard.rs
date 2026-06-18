@@ -3,7 +3,7 @@ use std::sync::{atomic::AtomicBool, Arc, Mutex};
 use dive_lib::agent::{AgentEvent, AgentLoop, AlwaysApproveHook};
 use dive_lib::db::dao::{card, project, session};
 use dive_lib::db::models::{CardState, NewCard, NewProject, NewSession};
-use dive_lib::tools::{classify_bash_command, ToolContext, ToolRegistry};
+use dive_lib::tools::{classify_bash_command, RiskLevel, ToolContext, ToolRegistry};
 use dive_lib::{ChatEvent, FinishReason, MockProvider};
 
 #[test]
@@ -51,6 +51,74 @@ fn blocklist_lets_normal_commands_pass() {
             "pattern must pass: {cmd}"
         );
     }
+}
+
+#[test]
+fn registry_exposes_008_runtime_tools_with_separate_risk_boundaries() {
+    let registry = ToolRegistry::with_builtins();
+    let preview = registry
+        .get("preview_open")
+        .expect("preview_open registered");
+    let project_command = registry.get("run_process").expect("run_process registered");
+    let terminal_script = registry
+        .get("run_terminal_script")
+        .expect("run_terminal_script registered");
+
+    assert_eq!(preview.risk_level(), RiskLevel::Safe);
+    assert_eq!(project_command.risk_level(), RiskLevel::Danger);
+    assert_eq!(terminal_script.risk_level(), RiskLevel::Danger);
+    assert!(preview.description().contains("Do not use run_process"));
+    assert!(terminal_script.description().contains("one-shot"));
+
+    let names = registry
+        .tool_defs()
+        .into_iter()
+        .map(|tool| tool.name)
+        .collect::<Vec<_>>();
+    assert!(names.iter().any(|name| name == "preview_open"));
+    assert!(names.iter().any(|name| name == "run_process"));
+    assert!(names.iter().any(|name| name == "run_terminal_script"));
+    assert!(!names.iter().any(|name| name == "bash"));
+}
+
+#[test]
+fn terminal_script_registry_schema_requires_high_risk_one_shot_metadata() {
+    let registry = ToolRegistry::with_builtins();
+    let terminal_script = registry
+        .get("run_terminal_script")
+        .expect("run_terminal_script registered");
+    let schema = terminal_script.input_schema();
+
+    assert_eq!(terminal_script.risk_level(), RiskLevel::Danger);
+    assert!(terminal_script.description().contains("one-shot"));
+    assert_eq!(
+        schema["required"],
+        serde_json::json!(["script", "reason", "expected_effect"])
+    );
+    assert_eq!(
+        schema["properties"]["shell_family"]["enum"][0],
+        "powershell"
+    );
+    assert_eq!(schema["properties"]["timeout_sec"]["maximum"], 120);
+    assert_eq!(schema["properties"]["output_limit"]["maximum"], 32768);
+}
+
+#[test]
+fn runtime_tool_schemas_do_not_add_shell_fallback_to_project_command() {
+    let registry = ToolRegistry::with_builtins();
+    let preview_schema = registry.get("preview_open").unwrap().input_schema();
+    let command_schema = registry.get("run_process").unwrap().input_schema();
+    let script_schema = registry.get("run_terminal_script").unwrap().input_schema();
+
+    assert!(preview_schema.to_string().contains("static_file"));
+    assert!(script_schema.to_string().contains("script"));
+    assert!(
+        command_schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .is_some_and(|properties| !properties.contains_key("script")),
+        "Project Command schema must remain direct argv, not shell script"
+    );
 }
 
 #[tokio::test]

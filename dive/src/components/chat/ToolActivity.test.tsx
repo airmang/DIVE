@@ -139,4 +139,136 @@ describe("ToolActivity provocation permission gate", () => {
       "체크포인트 있음",
     );
   });
+
+  it("shows Project Command approval labels for direct argv metadata", () => {
+    useLocaleStore.setState({ locale: "en" });
+
+    render(
+      <ToolActivity
+        call={pendingCall({
+          toolName: "run_process",
+          paramsPreview: 'command: "pnpm test -- src/App.test.ts"',
+          risk: "danger",
+          diffPreview: null,
+          runtimeAction: "project_command",
+          args: {
+            command: "pnpm",
+            args: ["test", "--", "src/App.test.ts"],
+            timeout_sec: 60,
+            reason: "Run the step verification command.",
+            expected_effect: "Runs tests without changing project files.",
+          },
+        })}
+        onApprove={vi.fn()}
+        onDeny={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("project-command-details")).toBeTruthy();
+    expect(screen.getByTestId("project-command-executable").textContent).toContain("pnpm");
+    expect(screen.getByTestId("project-command-args").textContent).toContain(
+      "test -- src/App.test.ts",
+    );
+    expect(screen.getByTestId("project-command-timeout").textContent).toContain("60s");
+    expect(screen.getByTestId("project-command-reason").textContent).toContain(
+      "Run the step verification command.",
+    );
+    expect(screen.getByTestId("project-command-expected-effect").textContent).toContain(
+      "Runs tests without changing project files.",
+    );
+  });
+
+  it("renders Project Command result summaries with a distinct runtime label", () => {
+    useLocaleStore.setState({ locale: "en" });
+
+    render(
+      <ToolActivity
+        call={pendingCall({
+          status: "approved",
+          toolName: "run_process",
+          paramsPreview: 'command: "pnpm test"',
+          runtimeAction: "project_command",
+          diffPreview: null,
+          args: { command: "pnpm", args: ["test"], timeout_sec: 60 },
+        })}
+        result={{
+          id: "tr-tool-1",
+          kind: "tool_result",
+          createdAt: 2,
+          toolName: "run_process",
+          success: true,
+          summary: "exit 0 - tests passed",
+          runtimeAction: "project_command",
+          executionEvidence: {
+            evidenceId: "project-command-tool-1-2",
+            source: "project_command",
+            status: "passed",
+            summary: "exit 0 - tests passed",
+            stdoutSummary: "ok",
+            stderrSummary: "",
+            exitCode: 0,
+          },
+          full: {
+            commandLabel: "pnpm test",
+            exitCode: 0,
+            stdoutSummary: "ok",
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Project Command")).toBeTruthy();
+    expect(screen.getByText("exit 0 - tests passed")).toBeTruthy();
+  });
+
+  it("renders rerouted preview-open commands as no-run Preview guidance", () => {
+    useLocaleStore.setState({ locale: "en" });
+
+    render(
+      <ToolActivity
+        call={pendingCall({
+          status: "rerouted",
+          toolName: "run_process",
+          paramsPreview: 'command: "open index.html"',
+          runtimeAction: "project_command",
+          diffPreview: null,
+          args: { command: "open", args: ["index.html"] },
+          deniedReason: "DIVE did not run the command. Use Preview for this local result.",
+          routingDecision: {
+            decisionId: "route-1",
+            inputKind: "project_command",
+            outcome: "rerouted",
+            reasonCode: "preview_open_shell_workaround",
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Rerouted")).toBeTruthy();
+    expect(screen.getByText("Opened through Preview instead")).toBeTruthy();
+    expect(screen.getByText("DIVE did not run the command. Use Preview for this local result.")).toBeTruthy();
+  });
+
+  it("renders stale approvals as no-command-ran states", () => {
+    useLocaleStore.setState({ locale: "en" });
+
+    render(
+      <ToolActivity
+        call={pendingCall({
+          status: "stale",
+          toolName: "run_process",
+          paramsPreview: 'command: "pnpm test"',
+          runtimeAction: "project_command",
+          diffPreview: null,
+          deniedReason: "This approval request is no longer active. DIVE did not run the command.",
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Expired")).toBeTruthy();
+    expect(screen.getByText("No command ran")).toBeTruthy();
+    expect(
+      screen.getByText("This approval request is no longer active. DIVE did not run the command."),
+    ).toBeTruthy();
+  });
 });

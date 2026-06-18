@@ -1,6 +1,6 @@
 # DIVE Spec Status
 
-**Last updated**: 2026-06-17
+**Last updated**: 2026-06-18
 
 This file prevents agents from treating old design notes as active product
 authority. The canonical DIVE v2 source of truth lives in `.specify/` and
@@ -57,19 +57,35 @@ authority. The canonical DIVE v2 source of truth lives in `.specify/` and
 | `specs/008-preview-terminal-runtime-tools/quickstart.md` | Canonical planning aid | Defines validation scenarios and commands for 008. |
 | `specs/008-preview-terminal-runtime-tools/checklists/requirements.md` | Canonical planning aid | Validates 008 specification completeness before planning. |
 
-## 008 Draft Scope
+## 008 Implementation Status
 
-As of 2026-06-17, `specs/008-preview-terminal-runtime-tools/` defines the next
-runtime-tool boundary after the `index.html` preview approval issue. Preview
-inspection is separated from project command execution; ordinary tests and
-builds remain direct executable commands with explicit arguments; shell-style
-terminal scripts are reserved for a distinct high-risk path with stronger
-approval, blocking, logging, and export semantics.
+As of 2026-06-18, Wily Stage S-024 has implemented the 008 runtime-tool
+boundary through P6 automated validation. Preview inspection is separated from
+Project Command execution; ordinary tests and builds remain direct executable
+commands with explicit arguments; and shell-style verification is implemented
+as the distinct high-risk Terminal Script path with one-shot approval, blocking,
+bounded output, logging, and export semantics.
 
-The 008 implementation plan and design artifacts have been generated. The MVP
-order is Preview routing and stale approval cleanup first, Project Command
-guard/reroute hardening second, and Terminal Script as a separate high-risk
-vertical slice.
+The shipped scope includes static HTML Preview, loopback URL Preview,
+configured project preview server responses, Preview rerouting for common
+shell-open workarounds, stale approval resolution, direct Project Command
+metadata/evidence hardening, and Terminal Script guardrails. Preview
+availability remains an inspection surface only: it is not verification
+evidence unless later paired with user observation or accepted automated
+evidence under the verification specs.
+
+S-024 validation passed frontend typecheck, targeted Vitest suites, full
+frontend unit tests, targeted Rust runtime/export/guard suites, `cargo fmt
+--check`, full default `cargo test`, and dev-app manual smoke. Manual smoke
+found a static HTML blank-screen regression caused by the Tauri asset protocol
+not being enabled; S-024 fixed it by enabling the asset protocol and adding
+Preview frame CSP coverage for `asset.localhost`. Detailed validation evidence
+is recorded in `specs/008-preview-terminal-runtime-tools/quickstart.md`.
+
+Remaining release risk: repeat packaged-app/cross-OS smoke on target classroom
+images for filesystem asset protocol scope, local dev-server Preview, direct
+command approval, stale approval clicks, and Terminal Script shell-family
+availability.
 
 ## 006 Specification Status
 

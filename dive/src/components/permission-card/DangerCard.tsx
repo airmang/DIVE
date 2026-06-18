@@ -42,6 +42,14 @@ export function DangerCard({ card, onApprove, onDeny, approvalRequirement }: Per
             <McpProvenanceBadge name={card.toolName} />
           </div>
           <p className="text-xs text-danger">{t("permission_card.danger.description")}</p>
+          {explanation.terminalScript ? (
+            <p
+              className="mt-1 text-xs font-medium text-danger"
+              data-testid="terminal-script-risk-copy"
+            >
+              {t("runtime.actions.terminal_script_high_risk")}
+            </p>
+          ) : null}
         </div>
       </div>
 

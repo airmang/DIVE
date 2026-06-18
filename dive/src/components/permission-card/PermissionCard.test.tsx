@@ -50,4 +50,49 @@ describe("PermissionCard supervision presentation", () => {
     expect(screen.getByRole("button", { name: "사유 추가" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "요청 수정" })).toBeTruthy();
   });
+
+  it("renders Terminal Script full-script high-risk one-shot approval details", () => {
+    useLocaleStore.setState({ locale: "en" });
+    render(
+      <PermissionCard
+        card={permissionCard({
+          toolName: "run_terminal_script",
+          risk: "danger",
+          paramsPreview: 'script: "pnpm test; pnpm build"',
+          args: {
+            script: "pnpm test; pnpm build",
+            shell_family: "posix",
+            reason: "Need shell sequencing for two verification checks.",
+            expected_effect: "Runs tests and build without changing project files.",
+            timeout_sec: 120,
+            output_limit: 32768,
+            risk_factors: ["shell_script", "multiple_commands", "one_shot_high_risk"],
+          },
+          actionContext: undefined,
+        })}
+        onApprove={vi.fn()}
+        onDeny={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Run a Terminal Script")).toBeTruthy();
+    expect(screen.getByTestId("command-explainer-command").textContent).toContain(
+      "pnpm test; pnpm build",
+    );
+    expect(screen.getByTestId("terminal-script-shell-family").textContent).toContain("posix");
+    expect(screen.getByTestId("terminal-script-timeout").textContent).toContain("120s");
+    expect(screen.getByTestId("terminal-script-output-limit").textContent).toContain("32768 bytes");
+    expect(screen.getByTestId("terminal-script-risk-factors").textContent).toContain(
+      "multiple_commands",
+    );
+    expect(screen.getByTestId("terminal-script-reason").textContent).toContain(
+      "Need shell sequencing",
+    );
+    expect(screen.getByTestId("terminal-script-expected-effect").textContent).toContain(
+      "Runs tests and build",
+    );
+    expect(screen.getByTestId("terminal-script-one-shot").textContent).toContain(
+      "never reused automatically",
+    );
+  });
 });

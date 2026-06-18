@@ -1024,6 +1024,9 @@ fn render_messages_for_pi(messages: &[ProviderMessage]) -> String {
     let mut rendered = String::from(
         "You are running inside DIVE's supervised Pi runtime. Use only the DIVE tools provided by this session. Do not claim that you executed a tool unless a DIVE tool result was returned.\n\n",
     );
+    rendered.push_str(
+        "Runtime tool guidance: use preview_open for inspecting local HTML, loopback URLs, or configured project previews; use run_process only for one executable plus explicit arguments such as tests or builds; never use run_process, shell wrappers, or platform open commands for Preview; use run_terminal_script only for justified shell-style verification that cannot be expressed as Preview or direct run_process, and expect high-risk one-shot approval.\n\n",
+    );
     for message in messages {
         match message {
             ProviderMessage::System { content } => {
@@ -1304,6 +1307,12 @@ mod tests {
             AgentEvent::UserMessage { .. } => "user_message",
             AgentEvent::RuntimeSelected { .. } => "runtime_selected",
             AgentEvent::RuntimeCapabilityEvaluated { .. } => "runtime_capability_evaluated",
+            AgentEvent::RuntimeRoutingDecision { .. } => "runtime_routing_decision",
+            AgentEvent::PreviewOpenRequested { .. } => "preview_open_requested",
+            AgentEvent::PreviewOpenResult { .. } => "preview_open_result",
+            AgentEvent::ProjectCommandResult { .. } => "project_command_result",
+            AgentEvent::TerminalScriptResult { .. } => "terminal_script_result",
+            AgentEvent::ToolApprovalStale { .. } => "tool_approval_stale",
             AgentEvent::AssistantStart { .. } => "assistant_start",
             AgentEvent::AssistantDelta { .. } => "assistant_delta",
             AgentEvent::AssistantEnd { .. } => "assistant_end",
@@ -1857,6 +1866,287 @@ rl.on("line", (line) => {{
         assert!(events.iter().any(
             |event| matches!(event, AgentEvent::ToolCallApproved { id } if id == "valid_rustc")
         ));
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn supervised_run_process_emits_bounded_project_command_evidence() {
+        let project = tempfile::tempdir().unwrap();
+        let (db, session_id) = create_test_db(project.path());
+        let loop_ = make_loop(
+            project.path(),
+            db.clone(),
+            session_id,
+            AgentRunMode::Build,
+            run_mode_permission(
+                AgentRunMode::Build,
+                true,
+                Some(1),
+                Arc::new(AlwaysApproveHook),
+            ),
+            None,
+        );
+        let long_stdout = "x".repeat(20 * 1024);
+        let tc = tool_call(
+            "cmd_evidence",
+            "run_process",
+            json!({
+                "command": "printf",
+                "args": [long_stdout],
+                "timeout_sec": 5,
+                "reason": "Run the direct verification command.",
+                "expected_effect": "Prints bounded output without shell expansion."
+            }),
+        );
+        let mut events = Vec::new();
+        let out = loop_
+            .execute_supervised_tool_call(session_id, &tc, &mut |event| events.push(event))
+            .await
+            .unwrap();
+        assert!(out.success);
+
+        let command_event = events
+            .iter()
+            .find_map(|event| match event {
+                AgentEvent::ProjectCommandResult {
+                    tool_call_id,
+                    command_label,
+                    executable,
+                    timeout_sec,
+                    reason,
+                    expected_effect,
+                    success,
+                    exit_code,
+                    stdout_summary,
+                    ..
+                } if tool_call_id == "cmd_evidence" => Some((
+                    command_label,
+                    executable,
+                    timeout_sec,
+                    reason,
+                    expected_effect,
+                    success,
+                    exit_code,
+                    stdout_summary,
+                )),
+                _ => None,
+            })
+            .expect("project command evidence event");
+        assert!(command_event.0.starts_with("printf "));
+        assert_eq!(command_event.1, "printf");
+        assert_eq!(*command_event.2, 5);
+        assert_eq!(
+            command_event.3.as_deref(),
+            Some("Run the direct verification command.")
+        );
+        assert_eq!(
+            command_event.4.as_deref(),
+            Some("Prints bounded output without shell expansion.")
+        );
+        assert!(*command_event.5);
+        assert_eq!(*command_event.6, Some(0));
+        assert!(
+            command_event
+                .7
+                .as_deref()
+                .is_some_and(|value| value.contains("[truncated]")),
+            "stdout summary should be bounded"
+        );
+
+        let db_guard = db.lock().unwrap();
+        let rows = crate::db::dao::event_log::list_by_session(db_guard.conn(), session_id).unwrap();
+        let logged = rows
+            .iter()
+            .find(|row| row.r#type == crate::dive::event_log::PROJECT_COMMAND_RESULT_EVENT)
+            .expect("project_command.result log");
+        assert_eq!(
+            logged.payload["commandLabel"].as_str(),
+            Some(command_event.0.as_str())
+        );
+        assert_eq!(logged.payload["timeoutSec"].as_u64(), Some(5));
+        assert_eq!(
+            logged.payload["expectedEffect"].as_str(),
+            Some("Prints bounded output without shell expansion.")
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn supervised_terminal_script_logs_one_shot_approval_and_bounded_result() {
+        let project = tempfile::tempdir().unwrap();
+        let (db, session_id) = create_test_db(project.path());
+        let loop_ = make_loop(
+            project.path(),
+            db.clone(),
+            session_id,
+            AgentRunMode::Build,
+            run_mode_permission(
+                AgentRunMode::Build,
+                true,
+                Some(1),
+                Arc::new(AlwaysApproveHook),
+            ),
+            None,
+        );
+        let tc = tool_call(
+            "script_evidence",
+            "run_terminal_script",
+            json!({
+                "script": "printf '%0300d' 1; printf warn >&2",
+                "shell_family": "posix",
+                "reason": "Need shell sequencing for a bounded verification fixture.",
+                "expected_effect": "Captures stdout and stderr without editing files.",
+                "timeout_sec": 30,
+                "output_limit": 256
+            }),
+        );
+        let mut events = Vec::new();
+        let out = loop_
+            .execute_supervised_tool_call(session_id, &tc, &mut |event| events.push(event))
+            .await
+            .unwrap();
+        assert!(out.success, "terminal script failed: {}", out.summary);
+        assert_eq!(out.full["runtimeAction"], "terminal_script");
+        assert_eq!(out.full["truncated"], true);
+        assert!(events.iter().any(
+            |event| matches!(event, AgentEvent::ToolCallApproved { id } if id == "script_evidence")
+        ));
+
+        let script_event = events
+            .iter()
+            .find_map(|event| match event {
+                AgentEvent::TerminalScriptResult {
+                    tool_call_id,
+                    success,
+                    exit_code,
+                    stdout_summary,
+                    stderr_summary,
+                    truncated,
+                    ..
+                } if tool_call_id == "script_evidence" => Some((
+                    success,
+                    exit_code,
+                    stdout_summary,
+                    stderr_summary,
+                    truncated,
+                )),
+                _ => None,
+            })
+            .expect("terminal_script.result event");
+        assert!(*script_event.0);
+        assert_eq!(*script_event.1, Some(0));
+        assert!(
+            script_event
+                .2
+                .as_deref()
+                .is_some_and(|value| value.contains("[truncated]")),
+            "stdout should be bounded"
+        );
+        assert_eq!(script_event.3.as_deref(), Some("warn"));
+        assert_eq!(*script_event.4, true);
+
+        let db_guard = db.lock().unwrap();
+        let rows = crate::db::dao::event_log::list_by_session(db_guard.conn(), session_id).unwrap();
+        let approval = rows
+            .iter()
+            .find(|row| {
+                row.r#type == crate::dive::event_log::TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT
+            })
+            .expect("terminal_script.approval_requested log");
+        assert_eq!(approval.payload["oneShot"], true);
+        assert_eq!(approval.payload["approvalReuse"], false);
+        assert_eq!(approval.payload["shellFamily"].as_str(), Some("posix"));
+        assert_eq!(
+            approval.payload["reason"].as_str(),
+            Some("Need shell sequencing for a bounded verification fixture.")
+        );
+        assert_eq!(
+            approval.payload["expectedEffect"].as_str(),
+            Some("Captures stdout and stderr without editing files.")
+        );
+
+        let result = rows
+            .iter()
+            .find(|row| row.r#type == crate::dive::event_log::TERMINAL_SCRIPT_RESULT_EVENT)
+            .expect("terminal_script.result log");
+        assert_eq!(
+            result.payload["toolCallId"].as_str(),
+            Some("script_evidence")
+        );
+        assert_eq!(result.payload["truncated"], true);
+    }
+
+    #[tokio::test]
+    async fn supervised_run_process_reroutes_preview_open_before_approval() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(project.path().join("index.html"), "<h1>Preview</h1>").unwrap();
+        let (db, session_id) = create_test_db(project.path());
+        let loop_ = make_loop(
+            project.path(),
+            db.clone(),
+            session_id,
+            AgentRunMode::Build,
+            run_mode_permission(
+                AgentRunMode::Build,
+                true,
+                Some(1),
+                Arc::new(AlwaysApproveHook),
+            ),
+            None,
+        );
+        let tc = tool_call(
+            "preview_reroute",
+            "run_process",
+            json!({ "command": "open", "args": ["index.html"], "timeout_sec": 5 }),
+        );
+        let mut events = Vec::new();
+        let out = loop_
+            .execute_supervised_tool_call(session_id, &tc, &mut |event| events.push(event))
+            .await
+            .unwrap();
+
+        assert!(!out.success);
+        assert_eq!(out.full["commandRan"], false);
+        assert!(
+            !events.iter().any(
+                |event| matches!(event, AgentEvent::ToolCallApproved { id } if id == "preview_reroute")
+            ),
+            "preview-open workaround must not reach approval"
+        );
+        assert!(events.iter().any(|event| matches!(
+            event,
+            AgentEvent::RuntimeRoutingDecision {
+                tool_call_id: Some(id),
+                outcome: crate::tools::runtime::RuntimeRoutingOutcome::Rerouted,
+                reason_code,
+                ..
+            } if id == "preview_reroute" && reason_code == "preview_open_shell_workaround"
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            AgentEvent::ProjectCommandResult {
+                tool_call_id,
+                status,
+                success,
+                summary,
+                ..
+            } if tool_call_id == "preview_reroute"
+                && status == "blocked"
+                && !success
+                && summary.contains("DIVE did not run")
+        )));
+
+        let db_guard = db.lock().unwrap();
+        let rows = crate::db::dao::event_log::list_by_session(db_guard.conn(), session_id).unwrap();
+        assert!(rows.iter().any(|row| row.r#type
+            == crate::dive::event_log::RUNTIME_ROUTING_DECISION_EVENT
+            && row.payload["outcome"] == "rerouted"
+            && row.payload["commandRan"] == false));
+        assert!(rows.iter().any(|row| row.r#type
+            == crate::dive::event_log::PROJECT_COMMAND_RESULT_EVENT
+            && row.payload["summary"]
+                .as_str()
+                .is_some_and(|summary| summary.contains("DIVE did not run"))));
     }
 
     #[tokio::test]
@@ -3112,8 +3402,10 @@ rl.on("line", (line) => {{
                 "edit_file",
                 "list_dir",
                 "mkdir",
+                "preview_open",
                 "read_file",
                 "run_process",
+                "run_terminal_script",
                 "search_files",
                 "write_file"
             ]

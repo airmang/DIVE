@@ -487,6 +487,8 @@ impl ExportEngine {
                             || ty.starts_with("verification_observation.")
                         {
                             sanitize_verification_coach_event_payload(&value)
+                        } else if is_runtime_008_event_type(&ty) {
+                            sanitize_runtime_event_payload(&value)
                         } else {
                             value
                         };
@@ -690,6 +692,73 @@ pub(crate) fn sanitize_provocation_event_payload(value: &Value) -> Value {
 
 pub(crate) fn sanitize_verification_coach_event_payload(value: &Value) -> Value {
     sanitize_provocation_nested(value, None)
+}
+
+pub(crate) fn sanitize_runtime_event_payload(value: &Value) -> Value {
+    sanitize_runtime_nested(value, None)
+}
+
+fn is_runtime_008_event_type(ty: &str) -> bool {
+    matches!(
+        ty,
+        crate::dive::event_log::RUNTIME_ROUTING_DECISION_EVENT
+            | crate::dive::event_log::PREVIEW_OPEN_REQUESTED_EVENT
+            | crate::dive::event_log::PREVIEW_OPEN_RESULT_EVENT
+            | crate::dive::event_log::PROJECT_COMMAND_RESULT_EVENT
+            | crate::dive::event_log::TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT
+            | crate::dive::event_log::TERMINAL_SCRIPT_RESULT_EVENT
+            | crate::dive::event_log::TOOL_APPROVAL_STALE_EVENT
+    )
+}
+
+fn sanitize_runtime_nested(value: &Value, key: Option<&str>) -> Value {
+    if key.is_some_and(is_runtime_raw_body_key) {
+        return raw_text_summary(value, "runtime_raw_body");
+    }
+    if key.is_some_and(is_student_pii_key) {
+        return pii_summary(value);
+    }
+
+    match value {
+        Value::Object(map) => {
+            let mut out = serde_json::Map::new();
+            for (nested_key, nested) in map {
+                out.insert(
+                    nested_key.clone(),
+                    sanitize_runtime_nested(nested, Some(nested_key)),
+                );
+            }
+            Value::Object(out)
+        }
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| sanitize_runtime_nested(item, None))
+                .collect(),
+        ),
+        Value::String(text) => Value::String(redact_export_string(text)),
+        other => other.clone(),
+    }
+}
+
+fn is_runtime_raw_body_key(key: &str) -> bool {
+    let normalized = key.to_ascii_lowercase().replace(['-', '_'], "");
+    matches!(
+        normalized.as_str(),
+        "script"
+            | "scriptbody"
+            | "scripttext"
+            | "scriptpreview"
+            | "scriptsummary"
+            | "stdout"
+            | "stdoutsummary"
+            | "stderr"
+            | "stderrsummary"
+            | "terminaloutput"
+            | "terminalsummary"
+            | "rawoutput"
+            | "fulloutput"
+    )
 }
 
 fn sanitize_provocation_nested(value: &Value, key: Option<&str>) -> Value {

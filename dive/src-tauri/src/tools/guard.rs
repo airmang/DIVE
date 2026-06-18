@@ -171,6 +171,116 @@ pub fn block_as_error(reason: BlockReason) -> ToolError {
     ToolError::Blocked(reason)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalScriptAssessment {
+    pub risk_factors: Vec<String>,
+    pub block_reason: Option<BlockReason>,
+}
+
+impl TerminalScriptAssessment {
+    pub fn is_blocked(&self) -> bool {
+        self.block_reason.is_some()
+    }
+}
+
+static TERMINAL_SCRIPT_EXTRA_RULES: Lazy<Vec<(&'static str, &'static str, Regex)>> = Lazy::new(
+    || {
+        vec![
+            (
+                "project-root escape",
+                "cd/pushd/set-location outside project",
+                Regex::new(r"(?i)(^|[;&|\r\n])\s*(?:cd|pushd|set-location|sl)\s+(?:\.\.|/|~|[A-Za-z]:[\\/])").unwrap(),
+            ),
+            (
+                "project-root escape",
+                "parent directory path",
+                Regex::new(r#"(^|[=\s'"(])\.\.(?:/|\\)"#).unwrap(),
+            ),
+            (
+                "credential exposure",
+                "environment dump",
+                Regex::new(r"(?i)(^|[;&|\r\n])\s*(?:env|printenv|set)(?:\s|$)").unwrap(),
+            ),
+            (
+                "credential exposure",
+                "dotenv read",
+                Regex::new(r"(?i)\b(?:cat|type|get-content|gc)\b[^;&|\r\n]*(?:^|[/\\])?\.env(?:\b|[.\s])").unwrap(),
+            ),
+            (
+                "credential exposure",
+                "secret variable echo",
+                Regex::new(r"(?i)\b(?:echo|printf|write-host)\b[^;&|\r\n]*(?:api[_-]?key|token|secret|password|authorization|OPENAI_API_KEY|ANTHROPIC_API_KEY)").unwrap(),
+            ),
+            (
+                "destructive filesystem",
+                "remove project contents",
+                Regex::new(r"(?i)\b(?:rm|del|remove-item|ri)\b[^;&|\r\n]*(?:-[A-Za-z]*r[A-Za-z]*f?|/s\b|-recurse\b)[^;&|\r\n]*(?:\s\.($|\s)|\s\*($|\s)|\./\*)").unwrap(),
+            ),
+            (
+                "remote execution",
+                "process substitution download execution",
+                Regex::new(r"(?i)\b(?:bash|sh|zsh)\b\s+<\(\s*(?:curl|wget)\b").unwrap(),
+            ),
+            (
+                "hidden background persistence",
+                "background or scheduled process",
+                Regex::new(r"(?i)\b(?:nohup|disown|crontab|schtasks|launchctl|start-process)\b|&\s*(?:$|\r?\n)").unwrap(),
+            ),
+        ]
+    },
+);
+
+/// Evaluate a high-risk Terminal Script before approval. This intentionally
+/// builds on the existing process guard but adds stricter shell-script rules
+/// because scripts can combine commands, redirect output, and change cwd.
+pub fn assess_terminal_script(script: &str) -> TerminalScriptAssessment {
+    let mut risk_factors = vec!["shell_script".to_string(), "one_shot_high_risk".to_string()];
+    let trimmed = script.trim();
+    if trimmed.contains('\n')
+        || trimmed.contains(';')
+        || trimmed.contains("&&")
+        || trimmed.contains("||")
+    {
+        risk_factors.push("multiple_commands".to_string());
+    }
+    if trimmed.contains('|') {
+        risk_factors.push("pipeline".to_string());
+    }
+
+    if let Some(reason) = classify_bash_command(trimmed) {
+        risk_factors.push(reason.rule.clone());
+        return TerminalScriptAssessment {
+            risk_factors: dedupe_risk_factors(risk_factors),
+            block_reason: Some(reason),
+        };
+    }
+
+    for (factor, rule, re) in TERMINAL_SCRIPT_EXTRA_RULES.iter() {
+        if re.is_match(trimmed) {
+            risk_factors.push((*factor).to_string());
+            return TerminalScriptAssessment {
+                risk_factors: dedupe_risk_factors(risk_factors),
+                block_reason: Some(BlockReason::new(rule, re.as_str())),
+            };
+        }
+    }
+
+    TerminalScriptAssessment {
+        risk_factors: dedupe_risk_factors(risk_factors),
+        block_reason: None,
+    }
+}
+
+fn dedupe_risk_factors(items: Vec<String>) -> Vec<String> {
+    let mut out = Vec::new();
+    for item in items {
+        if !out.contains(&item) {
+            out.push(item);
+        }
+    }
+    out
+}
+
 /// Symlink-following rejection helper used by `FsGuard::resolve*`.
 /// Walks every component *below* `root` inside `target`; if any such component
 /// is a symlink, returns `PathDenied`. Ancestors at or above `root` are not

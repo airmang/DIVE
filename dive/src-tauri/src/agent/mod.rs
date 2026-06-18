@@ -33,9 +33,13 @@ use crate::dive::event_log as dive_event_log;
 use crate::providers::{
     ChatEvent, ChatRequest, FinishReason, LlmProvider, Message as ProviderMessage, ToolCall,
 };
+use crate::tools::runtime::{
+    classify_preview_open_command, RuntimeInputKind, RuntimeRoutingDecision, RuntimeRoutingOutcome,
+};
 use crate::tools::{params_preview, BlockReason, RiskLevel, ToolContext, ToolError, ToolRegistry};
 
 const DEFAULT_MAX_ITERATIONS: u32 = 10;
+const PROJECT_COMMAND_DEFAULT_TIMEOUT_SEC: u64 = 30;
 
 fn changed_paths_from_tool_result(tool_name: &str, full: &Value) -> Vec<String> {
     if !matches!(
@@ -360,11 +364,37 @@ impl AgentLoop {
                             "pattern": reason.pattern,
                         }),
                     )?;
+                    if tc.name == "run_process" {
+                        let evidence = self.record_project_command_result(
+                            session_id,
+                            &tc.id,
+                            &args_value,
+                            "blocked",
+                            false,
+                            &msg,
+                            None,
+                        )?;
+                        emit(evidence.to_event());
+                    }
+                    if tc.name == "run_terminal_script" {
+                        let evidence = self.record_terminal_script_result(
+                            session_id, &tc.id, "blocked", false, &msg, None,
+                        )?;
+                        emit(evidence.to_event());
+                    }
                     messages.push(ProviderMessage::Tool {
                         content: msg,
                         tool_call_id: tc.id.clone(),
                     });
                     continue;
+                }
+
+                if tc.name == "run_terminal_script" {
+                    self.record_terminal_script_approval_requested(
+                        session_id,
+                        &tc.id,
+                        &args_value,
+                    )?;
                 }
 
                 let decision = self
@@ -387,6 +417,7 @@ impl AgentLoop {
                     } => {
                         emit(AgentEvent::ToolCallApproved { id: tc.id.clone() });
                         let effective_args = modified_args.unwrap_or(args_value);
+                        let effective_args_for_event = effective_args.clone();
                         self.log_event(
                             session_id,
                             "tool_approve",
@@ -417,6 +448,13 @@ impl AgentLoop {
                             Ok(out) => out,
                             Err(e) => {
                                 let msg = format!("{e}");
+                                let full = if tc.name == "run_process" {
+                                    json!({ "runtimeAction": "project_command", "error": msg.clone() })
+                                } else if tc.name == "run_terminal_script" {
+                                    json!({ "runtimeAction": "terminal_script", "error": msg.clone() })
+                                } else {
+                                    json!({ "error": msg.clone() })
+                                };
                                 tracing::warn!(
                                     session_id,
                                     tool = %tc.name,
@@ -427,8 +465,31 @@ impl AgentLoop {
                                     call_id: tc.id.clone(),
                                     success: false,
                                     summary: msg.clone(),
-                                    full: json!({ "error": msg.clone() }),
+                                    full: full.clone(),
                                 });
+                                if tc.name == "run_process" {
+                                    let evidence = self.record_project_command_result(
+                                        session_id,
+                                        &tc.id,
+                                        &effective_args_for_event,
+                                        "failed",
+                                        false,
+                                        &msg,
+                                        Some(&full),
+                                    )?;
+                                    emit(evidence.to_event());
+                                }
+                                if tc.name == "run_terminal_script" {
+                                    let evidence = self.record_terminal_script_result(
+                                        session_id,
+                                        &tc.id,
+                                        "failed",
+                                        false,
+                                        &msg,
+                                        Some(&full),
+                                    )?;
+                                    emit(evidence.to_event());
+                                }
                                 self.log_event(
                                     session_id,
                                     "tool_error",
@@ -452,6 +513,29 @@ impl AgentLoop {
                             summary: out.summary.clone(),
                             full: out.full.clone(),
                         });
+                        if tc.name == "run_process" {
+                            let evidence = self.record_project_command_result(
+                                session_id,
+                                &tc.id,
+                                &effective_args_for_event,
+                                "completed",
+                                out.success,
+                                &out.summary,
+                                Some(&out.full),
+                            )?;
+                            emit(evidence.to_event());
+                        }
+                        if tc.name == "run_terminal_script" {
+                            let evidence = self.record_terminal_script_result(
+                                session_id,
+                                &tc.id,
+                                "completed",
+                                out.success,
+                                &out.summary,
+                                Some(&out.full),
+                            )?;
+                            emit(evidence.to_event());
+                        }
                         tracing::info!(
                             session_id,
                             tool = %tc.name,
@@ -493,6 +577,26 @@ impl AgentLoop {
                             id: tc.id.clone(),
                             reason: reason.clone(),
                         });
+                        if tc.name == "run_process" {
+                            let content = format!("user denied tool call: {reason}");
+                            let evidence = self.record_project_command_result(
+                                session_id,
+                                &tc.id,
+                                &args_value,
+                                "denied",
+                                false,
+                                &content,
+                                None,
+                            )?;
+                            emit(evidence.to_event());
+                        }
+                        if tc.name == "run_terminal_script" {
+                            let content = format!("user denied terminal script: {reason}");
+                            let evidence = self.record_terminal_script_result(
+                                session_id, &tc.id, "denied", false, &content, None,
+                            )?;
+                            emit(evidence.to_event());
+                        }
                         self.log_event(
                             session_id,
                             "tool_call_denied",
@@ -823,6 +927,85 @@ impl AgentLoop {
             });
         };
 
+        if tc.name == "run_process" {
+            if let Some(classification) =
+                classify_preview_open_command(&args_value, &self.tool_ctx.project_root)
+            {
+                let outcome = classification.outcome;
+                let summary = classification.message.clone();
+                let target = classification.target.clone();
+                let decision = self.record_runtime_routing_decision(
+                    session_id,
+                    Some(&tc.id),
+                    RuntimeInputKind::ProjectCommand,
+                    outcome,
+                    classification.reason_code,
+                    vec![json!({
+                        "tool": tc.name,
+                        "command": args_value.get("command").cloned().unwrap_or(Value::Null),
+                        "args": args_value.get("args").cloned().unwrap_or(Value::Null),
+                        "previewKind": classification.kind,
+                        "previewTarget": target.clone(),
+                        "commandRan": false,
+                    })],
+                    &summary,
+                )?;
+                emit(runtime_routing_decision_event(
+                    &decision,
+                    Some(tc.id.clone()),
+                    &summary,
+                ));
+
+                let evidence_status = match outcome {
+                    RuntimeRoutingOutcome::Rerouted => "blocked",
+                    RuntimeRoutingOutcome::Unavailable => "unavailable",
+                    _ => "blocked",
+                };
+                let full = json!({
+                    "runtimeAction": "project_command",
+                    "routingOutcome": outcome,
+                    "reasonCode": classification.reason_code,
+                    "message": summary,
+                    "previewKind": classification.kind,
+                    "previewTarget": target.clone(),
+                    "commandRan": false,
+                });
+                let evidence = self.record_project_command_result(
+                    session_id,
+                    &tc.id,
+                    &args_value,
+                    evidence_status,
+                    false,
+                    &summary,
+                    Some(&full),
+                )?;
+                emit(evidence.to_event());
+                emit(AgentEvent::ToolResult {
+                    call_id: tc.id.clone(),
+                    success: false,
+                    summary: summary.clone(),
+                    full: full.clone(),
+                });
+                self.log_event(
+                    session_id,
+                    "tool_call_blocked",
+                    json!({
+                        "tool": tc.name,
+                        "rule": classification.reason_code,
+                        "pattern": "preview-open shell workaround",
+                        "runtime": "pi_sidecar",
+                        "commandRan": false,
+                    }),
+                )?;
+                return Ok(SupervisedToolResult {
+                    content: full.to_string(),
+                    success: false,
+                    summary,
+                    full,
+                });
+            }
+        }
+
         if let Err(err) = tool.validate(&args_value) {
             let (reason, msg) = tool_validation_block(err);
             emit(AgentEvent::ToolCallBlocked {
@@ -839,12 +1022,34 @@ impl AgentLoop {
                     "runtime": "pi_sidecar",
                 }),
             )?;
+            if tc.name == "run_process" {
+                let evidence = self.record_project_command_result(
+                    session_id,
+                    &tc.id,
+                    &args_value,
+                    "blocked",
+                    false,
+                    &msg,
+                    None,
+                )?;
+                emit(evidence.to_event());
+            }
+            if tc.name == "run_terminal_script" {
+                let evidence = self.record_terminal_script_result(
+                    session_id, &tc.id, "blocked", false, &msg, None,
+                )?;
+                emit(evidence.to_event());
+            }
             return Ok(SupervisedToolResult {
                 content: msg.clone(),
                 success: false,
                 summary: msg.clone(),
                 full: json!({ "error": msg }),
             });
+        }
+
+        if tc.name == "run_terminal_script" {
+            self.record_terminal_script_approval_requested(session_id, &tc.id, &args_value)?;
         }
 
         let decision = self
@@ -867,6 +1072,7 @@ impl AgentLoop {
             } => {
                 emit(AgentEvent::ToolCallApproved { id: tc.id.clone() });
                 let effective_args = modified_args.unwrap_or(args_value);
+                let effective_args_for_event = effective_args.clone();
                 self.log_event(
                     session_id,
                     "tool_approve",
@@ -898,6 +1104,13 @@ impl AgentLoop {
                     Ok(out) => out,
                     Err(e) => {
                         let msg = format!("{e}");
+                        let full = if tc.name == "run_process" {
+                            json!({ "runtimeAction": "project_command", "error": msg.clone() })
+                        } else if tc.name == "run_terminal_script" {
+                            json!({ "runtimeAction": "terminal_script", "error": msg.clone() })
+                        } else {
+                            json!({ "error": msg.clone() })
+                        };
                         tracing::warn!(
                             session_id,
                             tool = %tc.name,
@@ -905,13 +1118,35 @@ impl AgentLoop {
                             runtime = "pi_sidecar",
                             "tool execution failed"
                         );
-                        let full = json!({ "error": msg.clone() });
                         emit(AgentEvent::ToolResult {
                             call_id: tc.id.clone(),
                             success: false,
                             summary: msg.clone(),
                             full: full.clone(),
                         });
+                        if tc.name == "run_process" {
+                            let evidence = self.record_project_command_result(
+                                session_id,
+                                &tc.id,
+                                &effective_args_for_event,
+                                "failed",
+                                false,
+                                &msg,
+                                Some(&full),
+                            )?;
+                            emit(evidence.to_event());
+                        }
+                        if tc.name == "run_terminal_script" {
+                            let evidence = self.record_terminal_script_result(
+                                session_id,
+                                &tc.id,
+                                "failed",
+                                false,
+                                &msg,
+                                Some(&full),
+                            )?;
+                            emit(evidence.to_event());
+                        }
                         self.log_event(
                             session_id,
                             "tool_error",
@@ -936,6 +1171,33 @@ impl AgentLoop {
                     summary: out.summary.clone(),
                     full: out.full.clone(),
                 });
+                if tc.name == "run_process" {
+                    let evidence = self.record_project_command_result(
+                        session_id,
+                        &tc.id,
+                        &effective_args_for_event,
+                        "completed",
+                        out.success,
+                        &out.summary,
+                        Some(&out.full),
+                    )?;
+                    emit(evidence.to_event());
+                }
+                if tc.name == "run_terminal_script" {
+                    let evidence = self.record_terminal_script_result(
+                        session_id,
+                        &tc.id,
+                        "completed",
+                        out.success,
+                        &out.summary,
+                        Some(&out.full),
+                    )?;
+                    emit(evidence.to_event());
+                }
+                if tc.name == "preview_open" {
+                    self.record_preview_open_tool_result(session_id, &out.full)?;
+                    emit_preview_open_tool_events(&out.full, emit);
+                }
                 tracing::info!(
                     session_id,
                     tool = %tc.name,
@@ -976,6 +1238,26 @@ impl AgentLoop {
                     id: tc.id.clone(),
                     reason: reason.clone(),
                 });
+                if tc.name == "run_process" {
+                    let content = format!("user denied tool call: {reason}");
+                    let evidence = self.record_project_command_result(
+                        session_id,
+                        &tc.id,
+                        &args_value,
+                        "denied",
+                        false,
+                        &content,
+                        None,
+                    )?;
+                    emit(evidence.to_event());
+                }
+                if tc.name == "run_terminal_script" {
+                    let content = format!("user denied terminal script: {reason}");
+                    let evidence = self.record_terminal_script_result(
+                        session_id, &tc.id, "denied", false, &content, None,
+                    )?;
+                    emit(evidence.to_event());
+                }
                 self.log_event(
                     session_id,
                     "tool_call_denied",
@@ -1067,6 +1349,157 @@ impl AgentLoop {
             .map_err(|_| AgentError::Internal("db mutex poisoned".into()))?;
         dive_event_log::append_to_conn(db.conn(), Some(session_id), kind, payload)?;
         Ok(())
+    }
+
+    fn record_preview_open_tool_result(
+        &self,
+        session_id: i64,
+        payload: &Value,
+    ) -> Result<(), AgentError> {
+        let request_id = payload
+            .get("requestId")
+            .and_then(Value::as_str)
+            .unwrap_or("preview-tool");
+        let target_label = payload
+            .get("targetLabel")
+            .and_then(Value::as_str)
+            .unwrap_or("project preview");
+        self.log_event(
+            session_id,
+            dive_event_log::PREVIEW_OPEN_REQUESTED_EVENT,
+            json!({
+                "requestId": request_id,
+                "sessionId": payload.get("sessionId").cloned().unwrap_or_else(|| json!(session_id)),
+                "cardId": payload.get("cardId").cloned().unwrap_or(Value::Null),
+                "kind": payload.get("kind").cloned().unwrap_or_else(|| json!("auto")),
+                "targetLabel": target_label,
+                "source": payload.get("source").cloned().unwrap_or_else(|| json!("ai_tool")),
+                "requestedAt": crate::db::now_ms(),
+            }),
+        )?;
+        self.log_event(
+            session_id,
+            dive_event_log::PREVIEW_OPEN_RESULT_EVENT,
+            json!({
+                "requestId": request_id,
+                "status": payload.get("status").cloned().unwrap_or_else(|| json!("unavailable")),
+                "targetLabel": target_label,
+                "reasonCode": payload.get("reasonCode").cloned().unwrap_or(Value::Null),
+                "message": payload.get("message").cloned().unwrap_or_else(|| json!("Preview unavailable.")),
+                "resolvedAt": payload.get("resolvedAt").cloned().unwrap_or_else(|| json!(crate::db::now_ms())),
+                "logs": payload.get("logs").cloned().unwrap_or_else(|| json!([])),
+                "commandSummary": payload.get("commandSummary").cloned().unwrap_or(Value::Null),
+            }),
+        )?;
+        Ok(())
+    }
+
+    fn record_project_command_result(
+        &self,
+        session_id: i64,
+        tool_call_id: &str,
+        args: &Value,
+        status: &str,
+        success: bool,
+        summary: &str,
+        full: Option<&Value>,
+    ) -> Result<ProjectCommandResultEvidence, AgentError> {
+        let card_id = self.current_card_id(session_id)?;
+        let evidence = ProjectCommandResultEvidence::from_tool_result(
+            session_id,
+            card_id,
+            tool_call_id,
+            args,
+            status,
+            success,
+            summary,
+            full,
+        );
+        self.log_event(
+            session_id,
+            dive_event_log::PROJECT_COMMAND_RESULT_EVENT,
+            evidence.to_payload(),
+        )?;
+        Ok(evidence)
+    }
+
+    fn record_terminal_script_approval_requested(
+        &self,
+        session_id: i64,
+        tool_call_id: &str,
+        args: &Value,
+    ) -> Result<(), AgentError> {
+        let card_id = self.current_card_id(session_id)?;
+        self.log_event(
+            session_id,
+            dive_event_log::TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT,
+            dive_event_log::terminal_script_approval_requested_payload(
+                tool_call_id,
+                session_id,
+                card_id,
+                args,
+            ),
+        )
+    }
+
+    fn record_terminal_script_result(
+        &self,
+        session_id: i64,
+        tool_call_id: &str,
+        status: &str,
+        success: bool,
+        summary: &str,
+        full: Option<&Value>,
+    ) -> Result<TerminalScriptResultEvidence, AgentError> {
+        let payload = dive_event_log::terminal_script_result_payload(
+            tool_call_id,
+            status,
+            success,
+            summary,
+            full,
+        );
+        self.log_event(
+            session_id,
+            dive_event_log::TERMINAL_SCRIPT_RESULT_EVENT,
+            payload.clone(),
+        )?;
+        Ok(TerminalScriptResultEvidence::from_payload(payload))
+    }
+
+    fn record_runtime_routing_decision(
+        &self,
+        session_id: i64,
+        tool_call_id: Option<&str>,
+        input_kind: RuntimeInputKind,
+        outcome: RuntimeRoutingOutcome,
+        reason_code: impl Into<String>,
+        evidence_refs: Vec<Value>,
+        message: &str,
+    ) -> Result<RuntimeRoutingDecision, AgentError> {
+        let decision = RuntimeRoutingDecision {
+            decision_id: Uuid::new_v4().to_string(),
+            session_id,
+            card_id: self.current_card_id(session_id)?,
+            input_kind,
+            outcome,
+            reason_code: reason_code.into(),
+            evidence_refs,
+            created_at: crate::db::now_ms(),
+        };
+        let mut payload = dive_event_log::runtime_routing_decision_payload(&decision);
+        if let Value::Object(map) = &mut payload {
+            map.insert("message".into(), Value::String(message.to_string()));
+            if let Some(tool_call_id) = tool_call_id {
+                map.insert("toolCallId".into(), Value::String(tool_call_id.to_string()));
+            }
+            map.insert("commandRan".into(), Value::Bool(false));
+        }
+        self.log_event(
+            session_id,
+            dive_event_log::RUNTIME_ROUTING_DECISION_EVENT,
+            payload,
+        )?;
+        Ok(decision)
     }
 
     fn load_history(&self, session_id: i64) -> Result<Vec<ProviderMessage>, AgentError> {
@@ -1285,6 +1718,306 @@ struct PendingToolCall {
 
 fn emit_and_forward(emit: &mut (dyn FnMut(AgentEvent) + Send), evt: AgentEvent) {
     emit(evt);
+}
+
+fn runtime_routing_decision_event(
+    decision: &RuntimeRoutingDecision,
+    tool_call_id: Option<String>,
+    message: &str,
+) -> AgentEvent {
+    AgentEvent::RuntimeRoutingDecision {
+        decision_id: decision.decision_id.clone(),
+        tool_call_id,
+        input_kind: decision.input_kind,
+        outcome: decision.outcome,
+        reason_code: decision.reason_code.clone(),
+        evidence_refs: decision.evidence_refs.clone(),
+        message: message.to_string(),
+        created_at: decision.created_at,
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ProjectCommandResultEvidence {
+    tool_call_id: String,
+    session_id: i64,
+    card_id: Option<i64>,
+    command_label: String,
+    executable: String,
+    args: Vec<String>,
+    timeout_sec: u64,
+    reason: Option<String>,
+    expected_effect: Option<String>,
+    status: String,
+    success: bool,
+    exit_code: Option<i32>,
+    summary: String,
+    stdout_summary: String,
+    stderr_summary: String,
+    created_at: i64,
+}
+
+impl ProjectCommandResultEvidence {
+    #[allow(clippy::too_many_arguments)]
+    fn from_tool_result(
+        session_id: i64,
+        card_id: Option<i64>,
+        tool_call_id: &str,
+        args_value: &Value,
+        status: &str,
+        success: bool,
+        summary: &str,
+        full: Option<&Value>,
+    ) -> Self {
+        let executable = args_value
+            .get("command")
+            .and_then(Value::as_str)
+            .unwrap_or("run_process")
+            .to_string();
+        let args = string_vec_field(args_value, "args");
+        let timeout_sec = full
+            .and_then(|value| value.get("timeout_sec"))
+            .and_then(Value::as_u64)
+            .or_else(|| args_value.get("timeout_sec").and_then(Value::as_u64))
+            .unwrap_or(PROJECT_COMMAND_DEFAULT_TIMEOUT_SEC);
+        let reason = optional_string_field(args_value, "reason");
+        let expected_effect = optional_string_field(args_value, "expected_effect");
+        let exit_code = full
+            .and_then(|value| value.get("exit_code"))
+            .and_then(Value::as_i64)
+            .and_then(|value| i32::try_from(value).ok());
+        let stdout_summary = full
+            .and_then(|value| value.get("stdout"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let stderr_summary = full
+            .and_then(|value| value.get("stderr"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let command_label = command_label(&executable, &args);
+        Self {
+            tool_call_id: tool_call_id.to_string(),
+            session_id,
+            card_id,
+            command_label,
+            executable,
+            args,
+            timeout_sec,
+            reason,
+            expected_effect,
+            status: status.to_string(),
+            success,
+            exit_code,
+            summary: summary.to_string(),
+            stdout_summary,
+            stderr_summary,
+            created_at: crate::db::now_ms(),
+        }
+    }
+
+    fn to_payload(&self) -> Value {
+        json!({
+            "toolCallId": self.tool_call_id.clone(),
+            "sessionId": self.session_id,
+            "cardId": self.card_id,
+            "commandLabel": self.command_label.clone(),
+            "executable": self.executable.clone(),
+            "args": self.args.clone(),
+            "timeoutSec": self.timeout_sec,
+            "reason": self.reason.clone(),
+            "expectedEffect": self.expected_effect.clone(),
+            "status": self.status.clone(),
+            "success": self.success,
+            "exitCode": self.exit_code,
+            "summary": self.summary.clone(),
+            "stdoutSummary": self.stdout_summary.clone(),
+            "stderrSummary": self.stderr_summary.clone(),
+            "createdAt": self.created_at,
+        })
+    }
+
+    fn to_event(&self) -> AgentEvent {
+        AgentEvent::ProjectCommandResult {
+            tool_call_id: self.tool_call_id.clone(),
+            command_label: self.command_label.clone(),
+            executable: self.executable.clone(),
+            args: self.args.clone(),
+            timeout_sec: self.timeout_sec,
+            reason: self.reason.clone(),
+            expected_effect: self.expected_effect.clone(),
+            status: self.status.clone(),
+            success: self.success,
+            exit_code: self.exit_code,
+            summary: self.summary.clone(),
+            stdout_summary: Some(self.stdout_summary.clone()),
+            stderr_summary: Some(self.stderr_summary.clone()),
+            created_at: self.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TerminalScriptResultEvidence {
+    tool_call_id: String,
+    status: String,
+    success: bool,
+    exit_code: Option<i32>,
+    summary: String,
+    stdout_summary: String,
+    stderr_summary: String,
+    truncated: bool,
+    resolved_at: i64,
+}
+
+impl TerminalScriptResultEvidence {
+    fn from_payload(payload: Value) -> Self {
+        let exit_code = payload
+            .get("exitCode")
+            .and_then(Value::as_i64)
+            .and_then(|value| i32::try_from(value).ok());
+        Self {
+            tool_call_id: payload
+                .get("toolCallId")
+                .and_then(Value::as_str)
+                .unwrap_or("terminal-script")
+                .to_string(),
+            status: payload
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("completed")
+                .to_string(),
+            success: payload
+                .get("success")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            exit_code,
+            summary: payload
+                .get("summary")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            stdout_summary: payload
+                .get("stdoutSummary")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            stderr_summary: payload
+                .get("stderrSummary")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            truncated: payload
+                .get("truncated")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            resolved_at: payload
+                .get("resolvedAt")
+                .and_then(Value::as_i64)
+                .unwrap_or_else(crate::db::now_ms),
+        }
+    }
+
+    fn to_event(&self) -> AgentEvent {
+        AgentEvent::TerminalScriptResult {
+            tool_call_id: self.tool_call_id.clone(),
+            status: self.status.clone(),
+            success: self.success,
+            exit_code: self.exit_code,
+            summary: self.summary.clone(),
+            stdout_summary: Some(self.stdout_summary.clone()),
+            stderr_summary: Some(self.stderr_summary.clone()),
+            truncated: self.truncated,
+            resolved_at: self.resolved_at,
+        }
+    }
+}
+
+fn string_vec_field(value: &Value, key: &str) -> Vec<String> {
+    value
+        .get(key)
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn optional_string_field(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn command_label(executable: &str, args: &[String]) -> String {
+    if args.is_empty() {
+        executable.to_string()
+    } else {
+        format!("{executable} {}", args.join(" "))
+    }
+}
+
+fn emit_preview_open_tool_events(payload: &Value, emit: &mut (dyn FnMut(AgentEvent) + Send)) {
+    let request_id = payload
+        .get("requestId")
+        .and_then(Value::as_str)
+        .unwrap_or("preview-tool")
+        .to_string();
+    let target_label = payload
+        .get("targetLabel")
+        .and_then(Value::as_str)
+        .unwrap_or("project preview")
+        .to_string();
+    let kind = payload
+        .get("kind")
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or(crate::tools::runtime::PreviewRequestKind::Auto);
+    emit(AgentEvent::PreviewOpenRequested {
+        request_id: request_id.clone(),
+        kind,
+        target_label: target_label.clone(),
+        source: payload
+            .get("source")
+            .and_then(Value::as_str)
+            .unwrap_or("ai_tool")
+            .to_string(),
+        requested_at: crate::db::now_ms(),
+    });
+    emit(AgentEvent::PreviewOpenResult {
+        request_id,
+        status: payload
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("unavailable")
+            .to_string(),
+        preview_url: payload
+            .get("previewUrl")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        target_label,
+        reason_code: payload
+            .get("reasonCode")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        message: payload
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("Preview unavailable.")
+            .to_string(),
+        resolved_at: payload
+            .get("resolvedAt")
+            .and_then(Value::as_i64)
+            .unwrap_or_else(crate::db::now_ms),
+    });
 }
 
 fn finish_reason_str(fr: FinishReason) -> &'static str {

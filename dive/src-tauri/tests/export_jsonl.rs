@@ -220,6 +220,235 @@ fn default_export_hashes_all_message_roles() {
 }
 
 #[test]
+fn export_distinguishes_008_runtime_events_and_redacts_outputs() {
+    let (db, sid) = seed();
+    {
+        let db_guard = db.lock().unwrap();
+        dive_event_log::append_to_conn(
+            db_guard.conn(),
+            Some(sid),
+            dive_event_log::PREVIEW_OPEN_REQUESTED_EVENT,
+            json!({
+                "requestId": "preview-1",
+                "sessionId": sid,
+                "cardId": 10,
+                "kind": "static_file",
+                "targetLabel": "index.html",
+                "source": "review_action",
+                "requestedAt": 0
+            }),
+        )
+        .unwrap();
+        dive_event_log::append_to_conn(
+            db_guard.conn(),
+            Some(sid),
+            dive_event_log::PREVIEW_OPEN_RESULT_EVENT,
+            json!({
+                "requestId": "preview-1",
+                "status": "ready",
+                "targetLabel": "index.html",
+                "reasonCode": null,
+                "message": "Preview opened.",
+                "resolvedAt": 1
+            }),
+        )
+        .unwrap();
+        dive_event_log::append_to_conn(
+            db_guard.conn(),
+            Some(sid),
+            dive_event_log::RUNTIME_ROUTING_DECISION_EVENT,
+            json!({
+                "decisionId": "route-1",
+                "sessionId": sid,
+                "cardId": 10,
+                "toolCallId": "cmd-0",
+                "inputKind": "project_command",
+                "outcome": "rerouted",
+                "reasonCode": "preview_open_shell_workaround",
+                "evidenceRefs": [{
+                    "tool": "run_process",
+                    "previewTarget": "index.html",
+                    "commandRan": false
+                }],
+                "message": "DIVE did not run the command. Use Preview.",
+                "commandRan": false,
+                "createdAt": 1
+            }),
+        )
+        .unwrap();
+        dive_event_log::append_to_conn(
+            db_guard.conn(),
+            Some(sid),
+            dive_event_log::PROJECT_COMMAND_RESULT_EVENT,
+            json!({
+                "toolCallId": "cmd-1",
+                "sessionId": sid,
+                "cardId": 10,
+                "commandLabel": "pnpm test",
+                "executable": "pnpm",
+                "args": ["test"],
+                "timeoutSec": 60,
+                "reason": "Run the step verification command.",
+                "expectedEffect": "Runs tests without changing project files.",
+                "status": "completed",
+                "success": true,
+                "exitCode": 0,
+                "summary": "exit 0",
+                "stdoutSummary": "secret_token=abc123\nok",
+                "stderrSummary": "",
+                "createdAt": 2
+            }),
+        )
+        .unwrap();
+        dive_event_log::append_to_conn(
+            db_guard.conn(),
+            Some(sid),
+            dive_event_log::TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT,
+            json!({
+                "toolCallId": "script-1",
+                "sessionId": sid,
+                "cardId": 10,
+                "shellFamily": "posix",
+                "scriptSummary": "echo $API_KEY && pnpm test",
+                "reason": "Run two checks with shell sequencing.",
+                "expectedEffect": "Runs tests without changing project files.",
+                "timeoutSec": 120,
+                "outputLimit": 32768,
+                "riskFactors": ["shell_script", "one_shot_high_risk"],
+                "oneShot": true,
+                "approvalReuse": false,
+                "requestedAt": 3
+            }),
+        )
+        .unwrap();
+        dive_event_log::append_to_conn(
+            db_guard.conn(),
+            Some(sid),
+            dive_event_log::TERMINAL_SCRIPT_RESULT_EVENT,
+            json!({
+                "toolCallId": "script-1",
+                "status": "blocked",
+                "success": false,
+                "exitCode": null,
+                "summary": "blocked before execution",
+                "stdoutSummary": "",
+                "stderrSummary": "API_KEY=secret-value",
+                "truncated": false,
+                "resolvedAt": 4
+            }),
+        )
+        .unwrap();
+        dive_event_log::append_to_conn(
+            db_guard.conn(),
+            Some(sid),
+            dive_event_log::TOOL_APPROVAL_STALE_EVENT,
+            json!({
+                "toolCallId": "cmd-2",
+                "sessionId": sid,
+                "detectedBy": "approval_click",
+                "message": "No command ran.",
+                "resolvedAt": 5
+            }),
+        )
+        .unwrap();
+    }
+
+    let engine = ExportEngine::new(db);
+    let jsonl = engine
+        .export_session_with_salt(
+            sid,
+            &ExportOptions {
+                hash_user_text: false,
+                hash_file_paths: false,
+                hash_ids: false,
+                ..ExportOptions::default()
+            },
+            "fixed-salt",
+        )
+        .unwrap();
+    let records = lines(&jsonl);
+
+    for expected in [
+        dive_event_log::PREVIEW_OPEN_REQUESTED_EVENT,
+        dive_event_log::PREVIEW_OPEN_RESULT_EVENT,
+        dive_event_log::RUNTIME_ROUTING_DECISION_EVENT,
+        dive_event_log::PROJECT_COMMAND_RESULT_EVENT,
+        dive_event_log::TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT,
+        dive_event_log::TERMINAL_SCRIPT_RESULT_EVENT,
+        dive_event_log::TOOL_APPROVAL_STALE_EVENT,
+    ] {
+        assert!(
+            records
+                .iter()
+                .any(|record| record["kind"] == "event" && record["type"] == expected),
+            "missing runtime event {expected}"
+        );
+    }
+
+    let preview = records
+        .iter()
+        .find(|record| record["type"] == dive_event_log::PREVIEW_OPEN_RESULT_EVENT)
+        .expect("preview event");
+    assert_eq!(
+        preview["payload"]["evidenceSummary"]["previewIsFinalVerification"],
+        false
+    );
+
+    let command = records
+        .iter()
+        .find(|record| record["type"] == dive_event_log::PROJECT_COMMAND_RESULT_EVENT)
+        .expect("command event");
+    assert_eq!(command["payload"]["commandLabel"], "pnpm test");
+    assert_eq!(command["payload"]["executable"], "pnpm");
+    assert_eq!(command["payload"]["args"], json!(["test"]));
+    assert_eq!(command["payload"]["timeoutSec"], 60);
+    assert_eq!(
+        command["payload"]["reason"],
+        "Run the step verification command."
+    );
+    assert_eq!(
+        command["payload"]["expectedEffect"],
+        "Runs tests without changing project files."
+    );
+    assert_eq!(command["payload"]["evidenceSummary"]["aiSelfReport"], false);
+    assert_eq!(
+        command["payload"]["evidenceSummary"]["externalTestRun"],
+        true
+    );
+    assert_eq!(command["payload"]["stdoutSummary"]["redacted"], true);
+    assert!(!jsonl.contains("secret_token=abc123"));
+    assert!(!jsonl.contains("echo $API_KEY"));
+
+    let script_approval = records
+        .iter()
+        .find(|record| record["type"] == dive_event_log::TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT)
+        .expect("terminal script approval event");
+    assert_eq!(script_approval["payload"]["oneShot"], true);
+    assert_eq!(script_approval["payload"]["approvalReuse"], false);
+    assert_eq!(
+        script_approval["payload"]["scriptSummary"]["redacted"],
+        true
+    );
+
+    let stale = records
+        .iter()
+        .find(|record| record["type"] == dive_event_log::TOOL_APPROVAL_STALE_EVENT)
+        .expect("stale event");
+    assert_eq!(stale["payload"]["evidenceSummary"]["commandRan"], false);
+
+    let routing = records
+        .iter()
+        .find(|record| record["type"] == dive_event_log::RUNTIME_ROUTING_DECISION_EVENT)
+        .expect("routing event");
+    assert_eq!(routing["payload"]["outcome"], "rerouted");
+    assert_eq!(routing["payload"]["commandRan"], false);
+    assert_eq!(
+        routing["payload"]["evidenceSummary"]["verificationEvidence"],
+        false
+    );
+}
+
+#[test]
 fn default_export_emits_retrospective_metrics_without_raw_text() {
     let (db, sid) = seed();
     let engine = ExportEngine::new(db);

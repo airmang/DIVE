@@ -13,6 +13,10 @@ struct Input {
     args: Vec<String>,
     #[serde(default)]
     timeout_sec: Option<u64>,
+    #[serde(default)]
+    reason: Option<String>,
+    #[serde(default)]
+    expected_effect: Option<String>,
 }
 
 const DEFAULT_TIMEOUT_SEC: u64 = 30;
@@ -37,7 +41,9 @@ impl Tool for RunProcess {
             "properties": {
                 "command": { "type": "string", "description": "Executable name or project-relative executable path" },
                 "args": { "type": "array", "items": { "type": "string" } },
-                "timeout_sec": { "type": "integer", "description": "Wall-clock timeout, capped at 60 seconds" }
+                "timeout_sec": { "type": "integer", "minimum": 1, "maximum": 60, "description": "Wall-clock timeout in seconds" },
+                "reason": { "type": "string", "description": "Why DIVE wants to run this direct project command" },
+                "expected_effect": { "type": "string", "description": "Expected project effect, such as running tests without editing files" }
             },
             "required": ["command"]
         })
@@ -51,10 +57,10 @@ impl Tool for RunProcess {
         let args: Input = serde_json::from_value(input.clone())
             .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
         validate_command_no_shell(&args.command)?;
+        validate_timeout(args.timeout_sec)?;
         for arg in &args.args {
             validate_no_shell(arg, "arg")?;
-            if std::path::Path::new(arg).is_absolute() || arg.split(['/', '\\']).any(|p| p == "..")
-            {
+            if has_project_escape(arg) {
                 return Err(ToolError::PathDenied(format!(
                     "path-like argument may not escape project root: {arg}"
                 )));
@@ -74,10 +80,7 @@ impl Tool for RunProcess {
         self.validate(&input)?;
         let args: Input =
             serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
-        let timeout = args
-            .timeout_sec
-            .unwrap_or(DEFAULT_TIMEOUT_SEC)
-            .min(MAX_TIMEOUT_SEC);
+        let timeout = effective_timeout(args.timeout_sec)?;
 
         let command = if args.command.contains('/') || args.command.contains('\\') {
             ctx.fs.resolve(&args.command)?
@@ -108,6 +111,10 @@ impl Tool for RunProcess {
             full: json!({
                 "command": args.command,
                 "args": args.args,
+                "runtimeAction": "project_command",
+                "timeout_sec": timeout,
+                "reason": args.reason,
+                "expected_effect": args.expected_effect,
                 "exit_code": code,
                 "stdout": truncate(&stdout, MAX_OUTPUT_BYTES),
                 "stderr": truncate(&stderr, MAX_OUTPUT_BYTES),
@@ -118,6 +125,11 @@ impl Tool for RunProcess {
 
 fn validate_command_no_shell(command: &str) -> Result<(), ToolError> {
     validate_no_shell(command, "command")?;
+    if (command.contains('/') || command.contains('\\')) && has_project_escape(command) {
+        return Err(ToolError::PathDenied(format!(
+            "executable path may not escape project root: {command}"
+        )));
+    }
     let executable = std::path::Path::new(command)
         .file_name()
         .and_then(|name| name.to_str())
@@ -133,6 +145,21 @@ fn validate_command_no_shell(command: &str) -> Result<(), ToolError> {
     Ok(())
 }
 
+fn validate_timeout(timeout_sec: Option<u64>) -> Result<(), ToolError> {
+    let _ = effective_timeout(timeout_sec)?;
+    Ok(())
+}
+
+fn effective_timeout(timeout_sec: Option<u64>) -> Result<u64, ToolError> {
+    let timeout = timeout_sec.unwrap_or(DEFAULT_TIMEOUT_SEC);
+    if timeout == 0 || timeout > MAX_TIMEOUT_SEC {
+        return Err(ToolError::InvalidInput(format!(
+            "timeout_sec must be between 1 and {MAX_TIMEOUT_SEC}"
+        )));
+    }
+    Ok(timeout)
+}
+
 fn validate_no_shell(value: &str, label: &str) -> Result<(), ToolError> {
     if value.trim().is_empty() {
         return Err(ToolError::InvalidInput(format!(
@@ -146,6 +173,24 @@ fn validate_no_shell(value: &str, label: &str) -> Result<(), ToolError> {
         )));
     }
     Ok(())
+}
+
+fn has_project_escape(value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.starts_with('/') || trimmed.starts_with('\\') || trimmed.starts_with("~/") {
+        return true;
+    }
+    let bytes = trimmed.as_bytes();
+    if bytes.len() >= 3
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/')
+        && bytes[0].is_ascii_alphabetic()
+    {
+        return true;
+    }
+    trimmed.split(['/', '\\']).any(|part| part == "..")
+        || trimmed.contains("../")
+        || trimmed.contains("..\\")
 }
 
 fn truncate(s: &str, max: usize) -> String {
@@ -178,8 +223,41 @@ mod tests {
             .validate(&json!({ "command": "echo", "args": ["../secret"] }))
             .is_err());
         assert!(RunProcess
+            .validate(&json!({ "command": "echo", "args": ["--config=../secret"] }))
+            .is_err());
+        assert!(RunProcess
+            .validate(&json!({ "command": "/bin/echo", "args": ["hello"] }))
+            .is_err());
+        assert!(RunProcess
+            .validate(&json!({ "command": "bin/tool", "args": ["src/App.test.ts"] }))
+            .is_ok());
+        assert!(RunProcess
             .validate(&json!({ "command": "echo", "args": ["hello"] }))
             .is_ok());
+    }
+
+    #[test]
+    fn run_process_schema_and_validation_keep_direct_metadata_bounded() {
+        let schema = RunProcess.input_schema();
+        assert_eq!(schema["properties"]["reason"]["type"], "string");
+        assert_eq!(schema["properties"]["expected_effect"]["type"], "string");
+        assert_eq!(schema["properties"]["timeout_sec"]["maximum"], 60);
+
+        assert!(RunProcess
+            .validate(&json!({
+                "command": "pnpm",
+                "args": ["test", "--", "src/App.test.ts"],
+                "timeout_sec": 60,
+                "reason": "Run the step verification command.",
+                "expected_effect": "Runs tests without editing files."
+            }))
+            .is_ok());
+        assert!(RunProcess
+            .validate(&json!({ "command": "pnpm", "args": ["test"], "timeout_sec": 0 }))
+            .is_err());
+        assert!(RunProcess
+            .validate(&json!({ "command": "pnpm", "args": ["test"], "timeout_sec": 61 }))
+            .is_err());
     }
 
     #[test]
@@ -213,6 +291,8 @@ mod tests {
             .await
             .unwrap();
         assert!(out.success);
+        assert_eq!(out.full["runtimeAction"].as_str(), Some("project_command"));
+        assert_eq!(out.full["timeout_sec"].as_u64(), Some(DEFAULT_TIMEOUT_SEC));
         assert_eq!(out.full["stdout"].as_str().unwrap(), "hello");
     }
 

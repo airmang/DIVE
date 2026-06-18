@@ -133,6 +133,19 @@ function toolIcon(toolName: string): LucideIcon {
   }
 }
 
+function runtimeActionLabelKey(action: ToolCallMessageData["runtimeAction"]): string | null {
+  switch (action) {
+    case "preview":
+      return "runtime.actions.preview";
+    case "project_command":
+      return "runtime.actions.project_command";
+    case "terminal_script":
+      return "runtime.actions.terminal_script";
+    default:
+      return null;
+  }
+}
+
 function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocation }: Props) {
   const t = useT();
 
@@ -238,24 +251,35 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
   const ToolIcon = toolIcon(call.toolName);
   const running = call.status === "approved" && result === undefined;
   const denied = call.status === "denied";
+  const rerouted = call.status === "rerouted";
+  const stale = call.status === "stale";
 
   let StatusIcon: LucideIcon = Loader2;
   let statusTone = "text-accent";
-  if (denied) {
+  if (denied || stale) {
     StatusIcon = Ban;
     statusTone = "text-fg-subtle";
+  } else if (rerouted) {
+    StatusIcon = Eye;
+    statusTone = "text-accent";
   } else if (result) {
     StatusIcon = result.success ? Check : X;
     statusTone = result.success ? "text-success" : "text-danger";
   }
 
-  const metaText = denied
-    ? t("tool_call.status.denied")
+  const metaText = stale
+    ? t("tool_call.status.stale")
+    : rerouted
+      ? t("tool_call.status.rerouted")
+      : denied
+        ? t("tool_call.status.denied")
     : result
       ? result.summary
       : running
         ? "…"
         : t("tool_call.status.approved");
+  const runtimeAction = result?.runtimeAction ?? call.runtimeAction;
+  const runtimeLabelKey = runtimeActionLabelKey(runtimeAction);
 
   return (
     <article
@@ -278,6 +302,11 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
           <ToolIcon className="h-3.5 w-3.5 flex-none text-fg-muted" aria-hidden />
           <span className="font-mono font-semibold text-fg">{call.toolName}</span>
           <McpProvenanceBadge name={call.toolName} />
+          {runtimeLabelKey ? (
+            <Badge variant="info" className="hidden sm:inline-flex">
+              {t(runtimeLabelKey)}
+            </Badge>
+          ) : null}
           <span className="text-fg-subtle">·</span>
           <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg-muted">
             {call.paramsPreview}
@@ -300,9 +329,15 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
           </p>
         ) : null}
 
-        {denied && call.deniedReason ? (
+        {(denied || rerouted || stale) && call.deniedReason ? (
           <div className="ml-8 mt-1 rounded-sm border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
-            <p className="font-semibold">{t("tool_call.denied_title")}</p>
+            <p className="font-semibold">
+              {stale
+                ? t("tool_call.stale_title")
+                : rerouted
+                  ? t("tool_call.rerouted_title")
+                  : t("tool_call.denied_title")}
+            </p>
             <p>{call.deniedReason}</p>
             {call.deniedReason.includes("plan-first") ? (
               <p className="mt-1 text-fg-muted">{t("tool_call.denied_plan_first")}</p>

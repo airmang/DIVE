@@ -178,4 +178,146 @@ describe("useChatSession runtime event reducer", () => {
     expect(call.status).toBe("denied");
     expect(call.deniedReason).toBe("invalid input: shell executable not allowed");
   });
+
+  it("groups Project Command result evidence with the direct argv tool call", () => {
+    const pending = reduceChatSessionState(initialState(), {
+      type: "tool_call_start",
+      id: "cmd-1",
+      tool: "run_process",
+      params_preview: 'command: "pnpm test"',
+      risk: "danger",
+      args: {
+        command: "pnpm",
+        args: ["test"],
+        timeout_sec: 60,
+        reason: "Run the step verification command.",
+        expected_effect: "Runs tests without changing project files.",
+      },
+    });
+
+    const next = reduceChatSessionState(pending, {
+      type: "project_command_result",
+      toolCallId: "cmd-1",
+      commandLabel: "pnpm test",
+      executable: "pnpm",
+      args: ["test"],
+      timeoutSec: 60,
+      reason: "Run the step verification command.",
+      expectedEffect: "Runs tests without changing project files.",
+      status: "completed",
+      success: true,
+      exitCode: 0,
+      summary: "exit 0 - tests passed",
+      stdoutSummary: "ok",
+      stderrSummary: "",
+      createdAt: 50,
+    });
+
+    const call = next.messages.find((message) => message.id === "cmd-1");
+    expect(call?.kind).toBe("tool_call");
+    if (!call || call.kind !== "tool_call") throw new Error("expected tool call");
+    expect(call.status).toBe("approved");
+    expect(call.executionEvidence).toMatchObject({
+      source: "project_command",
+      status: "passed",
+      summary: "exit 0 - tests passed",
+      stdoutSummary: "ok",
+      stderrSummary: "",
+      exitCode: 0,
+    });
+
+    const result = next.messages.find((message) => message.id === "tr-cmd-1");
+    expect(result?.kind).toBe("tool_result");
+    if (!result || result.kind !== "tool_result") throw new Error("expected tool result");
+    expect(result.runtimeAction).toBe("project_command");
+    expect(result.executionEvidence?.status).toBe("passed");
+    expect(result.full).toMatchObject({
+      commandLabel: "pnpm test",
+      executable: "pnpm",
+      timeoutSec: 60,
+    });
+  });
+
+  it("keeps preview shell workaround reroutes as no-command-ran tool states", () => {
+    const pending = reduceChatSessionState(initialState(), {
+      type: "tool_call_start",
+      id: "preview-open-1",
+      tool: "run_process",
+      params_preview: 'command: "open index.html"',
+      risk: "danger",
+      args: { command: "open", args: ["index.html"] },
+    });
+
+    const routed = reduceChatSessionState(pending, {
+      type: "runtime_routing_decision",
+      decisionId: "route-1",
+      toolCallId: "preview-open-1",
+      inputKind: "project_command",
+      outcome: "rerouted",
+      reasonCode: "preview_open_shell_workaround",
+      evidenceRefs: [{ previewTarget: "index.html", commandRan: false }],
+      message: "DIVE did not run the command. Use Preview for this local result.",
+      createdAt: 40,
+    });
+
+    const next = reduceChatSessionState(routed, {
+      type: "project_command_result",
+      toolCallId: "preview-open-1",
+      commandLabel: "open index.html",
+      executable: "open",
+      args: ["index.html"],
+      timeoutSec: 30,
+      status: "blocked",
+      success: false,
+      exitCode: null,
+      summary: "DIVE did not run the command. Use Preview for this local result.",
+      stdoutSummary: "",
+      stderrSummary: "",
+      createdAt: 41,
+    });
+
+    const call = next.messages.find((message) => message.id === "preview-open-1");
+    expect(call?.kind).toBe("tool_call");
+    if (!call || call.kind !== "tool_call") throw new Error("expected tool call");
+    expect(call.status).toBe("rerouted");
+    expect(call.routingDecision).toMatchObject({
+      outcome: "rerouted",
+      reasonCode: "preview_open_shell_workaround",
+    });
+    expect(call.deniedReason).toContain("DIVE did not run");
+    expect(call.executionEvidence).toMatchObject({
+      source: "project_command",
+      status: "blocked",
+      summary: "DIVE did not run the command. Use Preview for this local result.",
+    });
+  });
+
+  it("closes stale approvals with no-command-ran copy", () => {
+    const pending = reduceChatSessionState(initialState(), {
+      type: "tool_call_start",
+      id: "stale-1",
+      tool: "run_process",
+      params_preview: 'command: "pnpm test"',
+      risk: "danger",
+      args: { command: "pnpm", args: ["test"] },
+    });
+
+    const next = reduceChatSessionState(pending, {
+      type: "tool_approval_stale",
+      toolCallId: "stale-1",
+      sessionId: 1,
+      detectedBy: "approval_click",
+      message: "This approval request is no longer active. DIVE did not run the command.",
+      resolvedAt: 55,
+    });
+
+    const call = next.messages.find((message) => message.id === "stale-1");
+    expect(call?.kind).toBe("tool_call");
+    if (!call || call.kind !== "tool_call") throw new Error("expected tool call");
+    expect(call.status).toBe("stale");
+    expect(call.deniedReason).toContain("did not run");
+    expect(next.messages.some((message) => message.kind === "error" && message.id.startsWith("stale-"))).toBe(
+      true,
+    );
+  });
 });
