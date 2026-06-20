@@ -77,6 +77,12 @@ function setOnboardedFlag(v: boolean) {
   else window.localStorage.removeItem(ONBOARDED_KEY);
 }
 
+function clearStoredCurrentSelection() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(CURRENT_PROJECT_KEY);
+  window.localStorage.removeItem(CURRENT_SESSION_KEY);
+}
+
 function hasConnectedProvider(providers: ProviderSummary[]) {
   return providers.some((p) => p.is_connected);
 }
@@ -199,9 +205,26 @@ export const useProjectSessionStore = create<State>((set, get) => ({
         let orderedProjects = projects;
         let sessions: SessionRow[] = [];
         if (currentProjectId !== null) {
-          const selectedProject = await api.invoke<ProjectRow>("project_select", {
-            projectId: currentProjectId,
-          });
+          let selectedProject: ProjectRow;
+          try {
+            selectedProject = await api.invoke<ProjectRow>("project_select", {
+              projectId: currentProjectId,
+            });
+          } catch (err) {
+            clearStoredCurrentSelection();
+            if (!hasConnectedProvider(providers)) setOnboardedFlag(false);
+            set({
+              isTauri: true,
+              loaded: true,
+              projects,
+              providers,
+              sessions: [],
+              currentProjectId: null,
+              currentSessionId: null,
+              error: errorMessage(err),
+            });
+            return;
+          }
           orderedProjects = [
             selectedProject,
             ...projects.filter((project) => project.id !== selectedProject.id),
@@ -370,27 +393,40 @@ export const useProjectSessionStore = create<State>((set, get) => ({
           saveMock(mock);
         },
       );
-      set((s) => {
-        const projects = s.projects.filter((p) => p.id !== projectId);
-        const current =
-          s.currentProjectId === projectId ? (projects[0]?.id ?? null) : s.currentProjectId;
-        return {
+      const wasActiveProject = get().currentProjectId === projectId;
+      const projects = get().projects.filter((p) => p.id !== projectId);
+      if (!wasActiveProject) {
+        set((s) => ({
           projects,
-          currentProjectId: current,
-          sessions: current === s.currentProjectId ? s.sessions : [],
-          currentSessionId: current === s.currentProjectId ? s.currentSessionId : null,
-        };
-      });
+          currentProjectId: s.currentProjectId,
+          sessions: s.sessions,
+          currentSessionId: s.currentSessionId,
+        }));
+      } else if (projects.length === 0) {
+        clearStoredCurrentSelection();
+        set({
+          projects: [],
+          currentProjectId: null,
+          sessions: [],
+          currentSessionId: null,
+        });
+      } else {
+        clearStoredCurrentSelection();
+        set({
+          projects,
+          currentProjectId: null,
+          sessions: [],
+          currentSessionId: null,
+        });
+        await get().selectProject(projects[0].id);
+      }
       await refreshMenuRecents();
     }),
 
   selectProject: async (projectId) => {
     if (projectId === null) {
       set({ currentProjectId: null, sessions: [], currentSessionId: null });
-      if (typeof window !== "undefined") {
-        window.localStorage.removeItem(CURRENT_PROJECT_KEY);
-        window.localStorage.removeItem(CURRENT_SESSION_KEY);
-      }
+      clearStoredCurrentSelection();
       return;
     }
     await runStoreAction(set, async () => {
