@@ -339,14 +339,37 @@ fn set_verify_log(
     intent_match: bool,
     test_result: crate::dive::TestResult,
 ) {
+    let (test_command, test_exit_code) = match test_result {
+        crate::dive::TestResult::Pass => (Some("pnpm test".into()), Some(0)),
+        crate::dive::TestResult::Fail => (Some("pnpm test".into()), Some(1)),
+        crate::dive::TestResult::Skipped => (None, None),
+    };
+    set_verify_log_with_test_evidence(
+        state,
+        card_id,
+        intent_match,
+        test_result,
+        test_command,
+        test_exit_code,
+    )
+}
+
+fn set_verify_log_with_test_evidence(
+    state: &AppState,
+    card_id: i64,
+    intent_match: bool,
+    test_result: crate::dive::TestResult,
+    test_command: Option<String>,
+    test_exit_code: Option<i32>,
+) {
     let log = crate::dive::VerifyLog {
         intent_match,
         test_result,
         details: "verification details".into(),
         model: "mock-model".into(),
         ran_at: 1,
-        test_command: Some("pnpm test".into()),
-        test_exit_code: None,
+        test_command,
+        test_exit_code,
         test_stdout: None,
         test_stderr: None,
     };
@@ -1031,6 +1054,14 @@ fn passed_test_approval_records_evidence_backed_provenance() {
     assert_eq!(provenance["verificationState"], "verified_with_evidence");
     assert_eq!(provenance["riskAccepted"], false);
     assert_eq!(provenance["evidenceSummary"]["concreteEvidence"], true);
+    assert_eq!(provenance["evidenceSummary"]["automatedTestsPassed"], true);
+    assert_eq!(provenance["evidenceSummary"]["externalTestRun"], true);
+    assert_eq!(provenance["evidenceSummary"]["testCommandPresent"], true);
+    assert_eq!(provenance["evidenceSummary"]["testExitCode"], 0);
+    assert_eq!(
+        provenance["evidenceSummary"]["testEvidenceStrength"],
+        "concrete"
+    );
     assert!(provenance["statusIds"]
         .as_array()
         .unwrap()
@@ -1059,6 +1090,208 @@ fn passed_test_approval_records_evidence_backed_provenance() {
     assert!(exported.contains("\"verified_with_evidence\""));
     assert!(exported.contains("\"component\":\"decision\""));
     assert!(!exported.contains("\"approved_with_risk\""));
+}
+
+#[test]
+fn static_pass_without_test_command_records_weak_signal_not_concrete_evidence() {
+    let state = AppState::dev_mock();
+    let tmp = tempfile::tempdir().unwrap();
+    state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+    let session_id = seed_session(&state, tmp.path());
+    let card_id = seed_card(&state, session_id, "Static pass", CardState::Verifying);
+    let mapping_id = seed_step_mapping_for_card(&state, session_id, card_id);
+    set_verify_log_with_test_evidence(
+        &state,
+        card_id,
+        true,
+        crate::dive::TestResult::Pass,
+        None,
+        None,
+    );
+
+    let direct = card_transition_with_checkpoint_impl(
+        &state,
+        card_id,
+        CardTransition::Approve,
+        Some(false),
+        Some(crate::dive::ApprovalJudgment {
+            outcome: crate::dive::ApprovalOutcome::Approved,
+            note: None,
+            decided_at: 20,
+        }),
+    );
+    assert!(direct.unwrap_err().contains("verify failed"));
+
+    card_transition_with_checkpoint_impl(
+        &state,
+        card_id,
+        CardTransition::Approve,
+        Some(true),
+        Some(crate::dive::ApprovalJudgment {
+            outcome: crate::dive::ApprovalOutcome::ApprovedWithConcern,
+            note: Some("AI 정적 통과라 직접 증거는 없음".into()),
+            decided_at: 21,
+        }),
+    )
+    .unwrap();
+
+    let (provenance, mapping) = {
+        let db = state.db.lock().unwrap();
+        let card = crate::db::dao::card::get_by_id(db.conn(), card_id)
+            .unwrap()
+            .unwrap();
+        let provenance: serde_json::Value =
+            serde_json::from_str(card.approval_provenance.as_deref().unwrap()).unwrap();
+        let mapping = mapping_dao::get_by_id(db.conn(), mapping_id)
+            .unwrap()
+            .unwrap();
+        (provenance, mapping)
+    };
+
+    assert_eq!(provenance["verificationState"], "unverified_risk_accepted");
+    assert_eq!(provenance["evidenceSummary"]["concreteEvidence"], false);
+    assert_eq!(provenance["evidenceSummary"]["automatedTestsPassed"], false);
+    assert_eq!(provenance["evidenceSummary"]["externalTestRun"], false);
+    assert_eq!(provenance["evidenceSummary"]["testCommandPresent"], false);
+    assert_eq!(
+        provenance["evidenceSummary"]["testEvidenceStrength"],
+        "weak_signal"
+    );
+    assert!(provenance["statusIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == "ai_self_report_only"));
+    assert!(!provenance["statusIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == "automated_tests_passed"));
+    assert_eq!(
+        mapping.verification_status.as_deref(),
+        Some("unverified_risk_accepted")
+    );
+}
+
+#[test]
+fn pass_with_test_command_but_no_exit_code_records_weak_signal_not_concrete_evidence() {
+    let state = AppState::dev_mock();
+    let tmp = tempfile::tempdir().unwrap();
+    state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+    let session_id = seed_session(&state, tmp.path());
+    let card_id = seed_card(&state, session_id, "Pass without exit", CardState::Verifying);
+    let mapping_id = seed_step_mapping_for_card(&state, session_id, card_id);
+    set_verify_log_with_test_evidence(
+        &state,
+        card_id,
+        true,
+        crate::dive::TestResult::Pass,
+        Some("pnpm test".into()),
+        None,
+    );
+
+    card_transition_with_checkpoint_impl(
+        &state,
+        card_id,
+        CardTransition::Approve,
+        Some(true),
+        Some(crate::dive::ApprovalJudgment {
+            outcome: crate::dive::ApprovalOutcome::ApprovedWithConcern,
+            note: Some("exit code가 없어 자동 검증으로 보지 않음".into()),
+            decided_at: 22,
+        }),
+    )
+    .unwrap();
+
+    let (provenance, mapping) = {
+        let db = state.db.lock().unwrap();
+        let card = crate::db::dao::card::get_by_id(db.conn(), card_id)
+            .unwrap()
+            .unwrap();
+        let provenance: serde_json::Value =
+            serde_json::from_str(card.approval_provenance.as_deref().unwrap()).unwrap();
+        let mapping = mapping_dao::get_by_id(db.conn(), mapping_id)
+            .unwrap()
+            .unwrap();
+        (provenance, mapping)
+    };
+
+    assert_eq!(provenance["verificationState"], "unverified_risk_accepted");
+    assert_eq!(provenance["evidenceSummary"]["concreteEvidence"], false);
+    assert_eq!(provenance["evidenceSummary"]["automatedTestsPassed"], false);
+    assert_eq!(provenance["evidenceSummary"]["externalTestRun"], false);
+    assert_eq!(provenance["evidenceSummary"]["testCommandPresent"], true);
+    assert_eq!(provenance["evidenceSummary"]["testExitCode"], serde_json::Value::Null);
+    assert_eq!(
+        provenance["evidenceSummary"]["testEvidenceStrength"],
+        "weak_signal"
+    );
+    assert!(!provenance["statusIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == "automated_tests_passed"));
+    assert_eq!(
+        mapping.verification_status.as_deref(),
+        Some("unverified_risk_accepted")
+    );
+}
+
+#[test]
+fn failed_test_with_command_and_exit_code_records_concrete_failure() {
+    let state = AppState::dev_mock();
+    let tmp = tempfile::tempdir().unwrap();
+    state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+    let session_id = seed_session(&state, tmp.path());
+    let card_id = seed_card(&state, session_id, "Test fail", CardState::Verifying);
+    let mapping_id = seed_step_mapping_for_card(&state, session_id, card_id);
+    set_verify_log(&state, card_id, true, crate::dive::TestResult::Fail);
+
+    card_transition_with_checkpoint_impl(
+        &state,
+        card_id,
+        CardTransition::Approve,
+        Some(true),
+        Some(crate::dive::ApprovalJudgment {
+            outcome: crate::dive::ApprovalOutcome::ApprovedWithConcern,
+            note: Some("실패를 알고도 진행".into()),
+            decided_at: 23,
+        }),
+    )
+    .unwrap();
+
+    let (provenance, mapping) = {
+        let db = state.db.lock().unwrap();
+        let card = crate::db::dao::card::get_by_id(db.conn(), card_id)
+            .unwrap()
+            .unwrap();
+        let provenance: serde_json::Value =
+            serde_json::from_str(card.approval_provenance.as_deref().unwrap()).unwrap();
+        let mapping = mapping_dao::get_by_id(db.conn(), mapping_id)
+            .unwrap()
+            .unwrap();
+        (provenance, mapping)
+    };
+
+    assert_eq!(provenance["verificationState"], "failed_but_accepted");
+    assert_eq!(provenance["evidenceSummary"]["concreteEvidence"], false);
+    assert_eq!(provenance["evidenceSummary"]["automatedTestsPassed"], false);
+    assert_eq!(provenance["evidenceSummary"]["externalTestRun"], true);
+    assert_eq!(provenance["evidenceSummary"]["testCommandPresent"], true);
+    assert_eq!(provenance["evidenceSummary"]["testExitCode"], 1);
+    assert_eq!(
+        provenance["evidenceSummary"]["testEvidenceStrength"],
+        "concrete"
+    );
+    assert!(provenance["statusIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == "failed_but_accepted"));
+    assert_eq!(
+        mapping.verification_status.as_deref(),
+        Some("failed_but_accepted")
+    );
 }
 
 #[test]

@@ -140,6 +140,8 @@ export interface ProvocationVerification {
   observationIds?: string[];
   automatedTestsPassed?: boolean;
   testResult?: "pass" | "fail" | "skipped";
+  testCommand?: string | null;
+  testExitCode?: number | null;
   acceptanceCriterionConfirmed?: boolean;
   externalTestRun?: boolean;
   failedButAccepted?: boolean;
@@ -279,6 +281,8 @@ export interface SupervisorVerificationSnapshot {
   previewChecked: boolean;
   automatedTestsPassed: boolean;
   testResult: ProvocationVerification["testResult"] | null;
+  testCommand?: string | null;
+  testExitCode?: number | null;
   acceptanceCriterionConfirmed?: boolean;
   manualChecks: string[];
 }

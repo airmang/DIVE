@@ -111,12 +111,12 @@ fn setup_verifying_card_with_passing_log() -> (AppState, i64) {
     );
     let log = VerifyLog {
         intent_match: true,
-        test_result: TestResult::Skipped,
+        test_result: TestResult::Pass,
         details: "ok".into(),
         model: "mock".into(),
         ran_at: 1,
-        test_command: None,
-        test_exit_code: None,
+        test_command: Some("pnpm test".into()),
+        test_exit_code: Some(0),
         test_stdout: None,
         test_stderr: None,
     };

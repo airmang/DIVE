@@ -390,7 +390,12 @@ describe("provocation rules", () => {
       aiSelfReportOnlyRule(
         ctx({
           stage: "verify",
-          verification: { aiClaimedDone: true, automatedTestsPassed: true },
+          verification: {
+            aiClaimedDone: true,
+            testResult: "pass",
+            testCommand: "npm test",
+            testExitCode: 0,
+          },
         }),
       ),
     ).toBeNull();
@@ -602,7 +607,13 @@ describe("provocation rules", () => {
     expect(
       deriveVerificationStatuses(
         ctx({
-          verification: { aiClaimedDone: true, diffReviewed: true, automatedTestsPassed: true },
+          verification: {
+            aiClaimedDone: true,
+            diffReviewed: true,
+            testResult: "pass",
+            testCommand: "npm test",
+            testExitCode: 0,
+          },
         }),
       ).map((item) => item.id),
     ).toEqual(["diff_reviewed", "automated_tests_passed"]);

@@ -7,7 +7,12 @@ import type {
   VerificationProvenanceItem,
   VerificationStatusItem,
 } from "./types";
-import { hasConcreteVerification } from "./verificationGrade";
+import {
+  automatedTestEvidenceStrength,
+  hasConcreteAutomatedPass,
+  hasConcreteVerification,
+  hasExecutedTestCommand,
+} from "./verificationGrade";
 
 function hasManualChecks(verification: ProvocationVerification | undefined): boolean {
   return Boolean(verification?.manualChecks?.some((item) => item.trim().length > 0));
@@ -15,6 +20,15 @@ function hasManualChecks(verification: ProvocationVerification | undefined): boo
 
 function manualObservationCount(verification: ProvocationVerification | undefined): number {
   return verification?.observationIds?.filter((item) => item.trim().length > 0).length ?? 0;
+}
+
+function hasExecutedVerificationCommand(
+  verification: ProvocationVerification | undefined,
+): boolean {
+  return hasExecutedTestCommand({
+    testCommand: verification?.testCommand,
+    testExitCode: verification?.testExitCode,
+  });
 }
 
 export function hasAiSelfReport(context: ProvocationContext): boolean {
@@ -46,12 +60,20 @@ export function hasConcreteVerificationEvidence(context: ProvocationContext): bo
   const statusIds: VerificationStatusItem["id"][] = [];
   if (verification?.appLaunched) statusIds.push("app_launched");
   if (verification?.previewChecked) statusIds.push("preview_checked");
-  if (verification?.automatedTestsPassed || verification?.testResult === "pass") {
+  if (
+    hasConcreteAutomatedPass({
+      testResult: verification?.testResult ?? null,
+      testCommand: verification?.testCommand,
+      testExitCode: verification?.testExitCode,
+    })
+  ) {
     statusIds.push("automated_tests_passed");
   }
   return hasConcreteVerification({
     statusIds,
     testResult: verification?.testResult ?? null,
+    testCommand: verification?.testCommand,
+    testExitCode: verification?.testExitCode,
     manualOrPreviewObserved: Boolean(
       verification?.appLaunched || verification?.previewChecked || hasManualChecks(verification),
     ),
@@ -150,7 +172,13 @@ function deriveCurrentVerificationStatuses(context: ProvocationContext): Verific
     });
   }
 
-  if (verification?.automatedTestsPassed || verification?.testResult === "pass") {
+  if (
+    hasConcreteAutomatedPass({
+      testResult: verification?.testResult ?? null,
+      testCommand: verification?.testCommand,
+      testExitCode: verification?.testExitCode,
+    })
+  ) {
     pushUniqueStatus(statuses, {
       id: "automated_tests_passed",
       label: "자동 테스트 통과",
@@ -159,7 +187,15 @@ function deriveCurrentVerificationStatuses(context: ProvocationContext): Verific
     });
   }
 
-  if (verification && verification.externalTestRun === false) {
+  if (
+    verification &&
+    (verification.externalTestRun === false ||
+      automatedTestEvidenceStrength({
+        testResult: verification.testResult ?? null,
+        testCommand: verification.testCommand,
+        testExitCode: verification.testExitCode,
+      }) === "weak_signal")
+  ) {
     pushUniqueStatus(statuses, {
       id: "external_test_not_run",
       label: "외부 테스트 없음",
@@ -224,9 +260,17 @@ export function summarizeVerificationEvidence(
   return {
     concreteEvidence: hasConcreteVerificationEvidence(context),
     aiSelfReport: hasAiSelfReport(context),
-    automatedTestsPassed: Boolean(verification?.automatedTestsPassed),
+    automatedTestsPassed: hasConcreteAutomatedPass({
+      testResult: verification?.testResult ?? null,
+      testCommand: verification?.testCommand,
+      testExitCode: verification?.testExitCode,
+    }),
     externalTestRun:
-      verification?.externalTestRun === undefined ? null : Boolean(verification.externalTestRun),
+      verification?.externalTestRun === undefined
+        ? hasExecutedVerificationCommand(verification)
+          ? true
+          : null
+        : Boolean(verification.externalTestRun),
     testResult: verification?.testResult ?? null,
     manualEvidenceCount: observationCount > 0 ? observationCount : manualCheckCount,
     observationIds: verification?.observationIds?.filter((item) => item.trim().length > 0) ?? [],

@@ -126,7 +126,8 @@ async fn verify_success_writes_verify_log() {
         .unwrap();
     let saved = row.verify_log.expect("verify_log persisted");
     let parsed = VerifyLog::from_json_str(&saved).unwrap();
-    assert!(parsed.approve_eligible());
+    assert!(!parsed.approve_eligible());
+    assert!(!parsed.has_executed_test_command());
 }
 
 #[tokio::test]
@@ -151,6 +152,9 @@ async fn verify_runs_success_test_command_and_persists_output() {
     assert_eq!(log.test_exit_code, Some(0));
     assert_eq!(log.test_stdout.as_deref(), Some("ok-from-test-command"));
     assert_eq!(log.test_stderr.as_deref(), Some(""));
+    assert!(log.has_executed_test_command());
+    assert!(log.automated_pass_evidence());
+    assert!(log.approve_eligible());
 
     let db = db.lock().unwrap();
     let row = dive_lib::db::dao::card::get_by_id(db.conn(), cid)
@@ -181,6 +185,8 @@ async fn verify_runs_failing_test_command_and_records_exit_stderr() {
     assert_eq!(log.test_exit_code, Some(7));
     assert_eq!(log.test_stdout.as_deref(), Some(""));
     assert_eq!(log.test_stderr.as_deref(), Some("bad-stderr"));
+    assert!(log.has_executed_test_command());
+    assert!(log.automated_fail_evidence());
     assert!(!log.approve_eligible());
 }
 

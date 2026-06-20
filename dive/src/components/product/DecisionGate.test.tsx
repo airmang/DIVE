@@ -82,6 +82,15 @@ describe("DecisionGate policy", () => {
   it("allows ordinary evidence-backed approval without a reason even when rollback is absent", () => {
     const policy = deriveDecisionGatePolicy({
       verificationStatuses: [automatedEvidence],
+      verifyLog: {
+        intent_match: true,
+        test_result: "pass",
+        details: "ok",
+        model: "mock",
+        ran_at: 1,
+        test_command: "npm test",
+        test_exit_code: 0,
+      },
       rollbackAvailable: false,
     });
 
@@ -251,11 +260,31 @@ describe("DecisionGate policy", () => {
         details: "1 failed",
         model: "mock",
         ran_at: 1,
+        test_command: "npm test",
+        test_exit_code: 1,
       },
       rollbackAvailable: true,
     });
 
     expect(policy.reasons.map((reason) => reason.id)).toContain("failed_test");
+    expect(policy.requiresReason).toBe(true);
+  });
+
+  it("treats an AI-reported fail with no executed command as self-report, not a failed test", () => {
+    const policy = deriveDecisionGatePolicy({
+      verifyLog: {
+        intent_match: true,
+        test_result: "fail",
+        details: "model thinks it failed",
+        model: "mock",
+        ran_at: 1,
+      },
+      rollbackAvailable: true,
+    });
+
+    const reasonIds = policy.reasons.map((reason) => reason.id);
+    expect(reasonIds).not.toContain("failed_test");
+    expect(reasonIds).toContain("ai_self_report_only");
     expect(policy.requiresReason).toBe(true);
   });
 

@@ -296,11 +296,26 @@ fn build_approval_provenance(
     let test_result = verify_log
         .as_ref()
         .map(|log| test_result_str(&log.test_result));
-    let automated_tests_passed = test_result == Some("pass");
-    let failed = test_result == Some("fail");
-    let external_test_run = match test_result {
-        Some("skipped") | None => false,
-        Some(_) => true,
+    let external_test_run = verify_log
+        .as_ref()
+        .is_some_and(|log| log.has_executed_test_command());
+    let automated_tests_passed = verify_log
+        .as_ref()
+        .is_some_and(|log| log.automated_pass_evidence());
+    let failed = verify_log
+        .as_ref()
+        .is_some_and(|log| log.automated_fail_evidence());
+    let test_command_present = verify_log
+        .as_ref()
+        .and_then(|log| log.test_command.as_deref())
+        .is_some_and(|command| !command.trim().is_empty());
+    let test_exit_code = verify_log.as_ref().and_then(|log| log.test_exit_code);
+    let test_evidence_strength = if external_test_run {
+        "concrete"
+    } else if matches!(test_result, Some("pass" | "fail")) {
+        "weak_signal"
+    } else {
+        "none"
     };
     let manual_observation_ids = client_observation_ids(client_provenance);
     let client_manual_evidence_count = client_provenance
@@ -425,6 +440,9 @@ fn build_approval_provenance(
             "automatedTestsPassed": automated_tests_passed,
             "externalTestRun": external_test_run,
             "testResult": test_result,
+            "testCommandPresent": test_command_present,
+            "testExitCode": test_exit_code,
+            "testEvidenceStrength": test_evidence_strength,
             "manualEvidenceCount": if client_manual_evidence { client_manual_evidence_count } else { 0 },
             "observationIds": if client_manual_evidence { json!(manual_observation_ids) } else { json!([]) },
             "evidenceLabels": evidence_labels,
@@ -927,6 +945,11 @@ pub async fn card_verify(
             "card_id": card_id,
             "intent_match": log.intent_match,
             "test_result": log.test_result,
+            "test_command_present": log
+                .test_command
+                .as_deref()
+                .is_some_and(|command| !command.trim().is_empty()),
+            "test_exit_code": log.test_exit_code,
         }),
     )?;
     let _ = app.emit(

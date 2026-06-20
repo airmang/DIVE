@@ -232,6 +232,8 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
         details: "Tests passed.",
         model: "mock",
         ran_at: 1,
+        test_command: "npm test",
+        test_exit_code: 0,
       },
     });
 
@@ -328,9 +330,7 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
         .getAllByTestId("verification-status-chip")
         .some((chip) => chip.textContent?.includes("직접 관찰")),
     ).toBe(true);
-    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(
-      false,
-    );
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(false);
 
     fireEvent.click(screen.getByTestId("decision-gate-approve"));
     expect(onApprovalDecision).toHaveBeenCalledWith(
@@ -379,9 +379,7 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
       }),
     );
     expect(screen.getByTestId("verification-observation-saved")).toBeTruthy();
-    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(
-      false,
-    );
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("does not fabricate preview verification evidence from the preview click alone", async () => {

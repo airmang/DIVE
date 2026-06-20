@@ -61,10 +61,26 @@ impl VerifyLog {
         serde_json::to_string(self).expect("VerifyLog -> JSON")
     }
 
-    /// Spec §4.4 — final Approve is gated on `intent_match==true` AND the
-    /// test run not reporting a hard fail. Used by `card_transition::Approve`.
+    /// True when DIVE has evidence that a configured test command actually ran.
+    pub fn has_executed_test_command(&self) -> bool {
+        self.test_command
+            .as_deref()
+            .is_some_and(|command| !command.trim().is_empty())
+            && self.test_exit_code.is_some()
+    }
+
+    pub fn automated_pass_evidence(&self) -> bool {
+        self.test_result == TestResult::Pass && self.has_executed_test_command()
+    }
+
+    pub fn automated_fail_evidence(&self) -> bool {
+        self.test_result == TestResult::Fail && self.has_executed_test_command()
+    }
+
+    /// Direct Approve is allowed only from concrete automated pass evidence.
+    /// AI static pass/fail and skipped results remain weak self-report signals.
     pub fn approve_eligible(&self) -> bool {
-        self.intent_match && self.test_result != TestResult::Fail
+        self.intent_match && self.automated_pass_evidence()
     }
 }
 
@@ -330,7 +346,7 @@ fn build_system_prompt() -> String {
 연결된 변경 파일 목록을 받고, 아래 구조화된 도구(`verify_result`)로 판정을 돌려줍니다.\n\n\
 판정 기준:\n\
 - intent_match: 변경이 지시문의 핵심 의도를 충족하면 true.\n\
-- test_result: 외부 테스트 실행이 제공되지 않았으면 'skipped'. (3-2에서는 항상 skipped 또는 AI가 정적으로 확신 가능한 pass/fail)\n\
+- test_result: 외부 테스트 실행이 제공되지 않았으면 반드시 'skipped'. 정적 추론만으로 pass를 보고하지 마세요.\n\
 - details: 판정 근거를 한국어 2~4문장으로.\n\n\
 반드시 `verify_result` 도구만 호출하고, 다른 텍스트나 도구를 사용하지 마세요."
         .to_string()
@@ -395,12 +411,13 @@ mod tests {
             details: "ok".into(),
             model: "m".into(),
             ran_at: 0,
-            test_command: None,
-            test_exit_code: None,
+            test_command: Some("pnpm test".into()),
+            test_exit_code: Some(0),
             test_stdout: None,
             test_stderr: None,
         };
         assert!(ok.approve_eligible());
+        assert!(ok.automated_pass_evidence());
 
         let no_match = VerifyLog {
             intent_match: false,
@@ -414,11 +431,26 @@ mod tests {
         };
         assert!(!failed.approve_eligible());
 
+        let static_pass = VerifyLog {
+            test_command: None,
+            test_exit_code: None,
+            ..ok.clone()
+        };
+        assert!(!static_pass.approve_eligible());
+        assert!(!static_pass.automated_pass_evidence());
+
+        let command_without_exit = VerifyLog {
+            test_exit_code: None,
+            ..ok.clone()
+        };
+        assert!(!command_without_exit.approve_eligible());
+        assert!(!command_without_exit.automated_pass_evidence());
+
         let skipped_but_match = VerifyLog {
             test_result: TestResult::Skipped,
             ..ok
         };
-        assert!(skipped_but_match.approve_eligible());
+        assert!(!skipped_but_match.approve_eligible());
     }
 
     #[test]

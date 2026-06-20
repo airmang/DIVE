@@ -5,7 +5,11 @@ import type {
   SupervisorFeasibility,
   VerificationStatusItem,
 } from "../../features/provocation";
-import { hasConcreteVerification } from "../../features/provocation/verificationGrade";
+import {
+  automatedTestEvidenceStrength,
+  hasConcreteAutomatedFail,
+  hasConcreteVerification,
+} from "../../features/provocation/verificationGrade";
 
 export type DecisionGateRiskReasonId =
   | "unverified"
@@ -62,18 +66,30 @@ export function deriveDecisionGatePolicy(input: DecisionGatePolicyInput): Decisi
   const hasVerifiedEvidence = hasConcreteVerification({
     statusIds: [...statusIds],
     testResult: input.verifyLog?.test_result ?? null,
+    testCommand: input.verifyLog?.test_command ?? null,
+    testExitCode: input.verifyLog?.test_exit_code ?? null,
     manualOrPreviewObserved: observed,
     acceptanceCriterionConfirmed: input.acceptanceCriterionConfirmed,
     manualObservationCount: statusIds.has("manual_observation") ? 1 : 0,
+  });
+  const testSignalStrength = automatedTestEvidenceStrength({
+    testResult: input.verifyLog?.test_result ?? null,
+    testCommand: input.verifyLog?.test_command ?? null,
+    testExitCode: input.verifyLog?.test_exit_code ?? null,
   });
   const aiSelfReportOnly = Boolean(
     !hasVerifiedEvidence &&
     (statusIds.has("ai_self_report_only") ||
       agencyIds.has("ai_self_report_only") ||
-      (input.verifyLog?.intent_match === true && input.verifyLog.test_result === "skipped")),
+      (input.verifyLog?.intent_match === true &&
+        (input.verifyLog.test_result === "skipped" || testSignalStrength === "weak_signal"))),
   );
   const failedTest = Boolean(
-    input.verifyLog?.test_result === "fail" ||
+    hasConcreteAutomatedFail({
+      testResult: input.verifyLog?.test_result ?? null,
+      testCommand: input.verifyLog?.test_command ?? null,
+      testExitCode: input.verifyLog?.test_exit_code ?? null,
+    }) ||
     statusIds.has("failed_but_accepted") ||
     agencyIds.has("verification_failed"),
   );

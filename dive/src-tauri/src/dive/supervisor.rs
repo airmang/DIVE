@@ -439,18 +439,36 @@ pub struct SupervisorVerificationUiState {
     pub automated_tests_passed: bool,
     pub test_result: Option<TestResult>,
     #[serde(default)]
+    pub test_command: Option<String>,
+    #[serde(default)]
+    pub test_exit_code: Option<i32>,
+    #[serde(default)]
     pub acceptance_criterion_confirmed: bool,
     #[serde(default)]
     pub manual_checks: Vec<String>,
 }
 
 impl SupervisorVerificationUiState {
+    pub fn has_executed_test_command(&self) -> bool {
+        self.test_command
+            .as_deref()
+            .is_some_and(|command| !command.trim().is_empty())
+            && self.test_exit_code.is_some()
+    }
+
+    pub fn effective_executed_test_result(&self) -> Option<TestResult> {
+        if !self.has_executed_test_command() {
+            return None;
+        }
+        self.test_result
+            .or(self.automated_tests_passed.then_some(TestResult::Pass))
+    }
+
     pub fn has_concrete_evidence(&self) -> bool {
-        if self.test_result == Some(TestResult::Fail) {
+        if self.effective_executed_test_result() == Some(TestResult::Fail) {
             return false;
         }
-        self.automated_tests_passed
-            || self.test_result == Some(TestResult::Pass)
+        self.effective_executed_test_result() == Some(TestResult::Pass)
             || ((self.app_launched || self.preview_checked) && self.acceptance_criterion_confirmed)
             || self
                 .manual_checks
@@ -662,11 +680,13 @@ pub fn build_p1_evidence_refs(verification: &SupervisorVerificationUiState) -> V
         evidence.verification_evidence = verification.acceptance_criterion_confirmed;
         evidence_refs.push(evidence);
     }
-    let effective_test_result = verification.test_result.or(verification
-        .automated_tests_passed
-        .then_some(TestResult::Pass));
-    if let Some(result) = effective_test_result {
-        evidence_refs.push(EvidenceRef::test_result(result));
+    if let Some(result) = verification.test_result {
+        let mut evidence = EvidenceRef::test_result(result);
+        evidence.verification_evidence =
+            verification.effective_executed_test_result() == Some(TestResult::Pass);
+        evidence_refs.push(evidence);
+    } else if verification.automated_tests_passed && verification.has_executed_test_command() {
+        evidence_refs.push(EvidenceRef::test_result(TestResult::Pass));
     }
     let manual_count = verification
         .manual_checks
@@ -708,10 +728,7 @@ pub fn build_supervisor_context_from_ui(
     let verification_state = VerificationState {
         ai_self_report: input.verification.ai_claimed_done,
         concrete_evidence: input.verification.has_concrete_evidence(),
-        test_result: input.verification.test_result.or(input
-            .verification
-            .automated_tests_passed
-            .then_some(TestResult::Pass)),
+        test_result: input.verification.effective_executed_test_result(),
     };
     let allowed_action_ids = allowed_actions_for_p1(&input.feasibility);
     let context = SupervisorContext::new(
@@ -2790,6 +2807,8 @@ mod tests {
                 preview_checked: false,
                 automated_tests_passed: false,
                 test_result: Some(TestResult::Skipped),
+                test_command: None,
+                test_exit_code: None,
                 acceptance_criterion_confirmed: false,
                 manual_checks: vec![],
             },
@@ -2856,6 +2875,8 @@ mod tests {
             preview_checked: false,
             automated_tests_passed: false,
             test_result: Some(TestResult::Skipped),
+            test_command: None,
+            test_exit_code: None,
             acceptance_criterion_confirmed: false,
             manual_checks: vec![],
         };
@@ -2874,12 +2895,24 @@ mod tests {
 
         let mut failed_test = base.clone();
         failed_test.test_result = Some(TestResult::Fail);
+        failed_test.test_command = Some("pnpm test".to_string());
+        failed_test.test_exit_code = Some(1);
         failed_test.acceptance_criterion_confirmed = true;
         failed_test.preview_checked = true;
         assert!(!failed_test.has_concrete_evidence());
 
+        let mut static_pass = base.clone();
+        static_pass.test_result = Some(TestResult::Pass);
+        assert!(!static_pass.has_concrete_evidence());
+        let static_pass_refs = build_p1_evidence_refs(&static_pass);
+        assert!(static_pass_refs.iter().any(|evidence| {
+            evidence.id == "verify.test_result" && !evidence.verification_evidence
+        }));
+
         let mut passed_test = base;
         passed_test.test_result = Some(TestResult::Pass);
+        passed_test.test_command = Some("pnpm test".to_string());
+        passed_test.test_exit_code = Some(0);
         assert!(passed_test.has_concrete_evidence());
     }
 

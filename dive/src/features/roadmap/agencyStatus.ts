@@ -1,7 +1,11 @@
 import type { ChangedFile } from "../../components/slide-in/types";
 import type { VerifyLogView } from "../../components/workmap/types";
 import type { ApprovalProvenance, VerificationStatusId } from "../provocation";
-import { hasConcreteVerification } from "../provocation/verificationGrade";
+import {
+  automatedTestEvidenceStrength,
+  hasConcreteAutomatedFail,
+  hasConcreteVerification,
+} from "../provocation/verificationGrade";
 import type {
   AgencyStateId,
   AgencyStateItem,
@@ -181,13 +185,27 @@ export function deriveAgencyStateView(input: DeriveAgencyStateInput): AgencyStat
     addState(states, "diff_review_needed");
   }
 
-  if (testResult === "fail" || verificationState === "failed_but_accepted") {
+  const testSignalStrength = automatedTestEvidenceStrength({
+    testResult,
+    testCommand: input.verifyLog?.test_command ?? null,
+    testExitCode: input.verifyLog?.test_exit_code ?? null,
+  });
+
+  if (
+    hasConcreteAutomatedFail({
+      testResult,
+      testCommand: input.verifyLog?.test_command ?? null,
+      testExitCode: input.verifyLog?.test_exit_code ?? null,
+    }) ||
+    verificationState === "failed_but_accepted"
+  ) {
     addState(states, "verification_failed");
   }
 
   if (
     ids.includes("ai_self_report_only") ||
-    (input.verifyLog?.intent_match === true && testResult === "skipped")
+    (input.verifyLog?.intent_match === true &&
+      (testResult === "skipped" || testSignalStrength === "weak_signal"))
   ) {
     addState(states, "ai_self_report_only");
   }
@@ -212,6 +230,8 @@ export function deriveAgencyStateView(input: DeriveAgencyStateInput): AgencyStat
   const verified = hasConcreteVerification({
     statusIds: ids as VerificationStatusId[],
     testResult,
+    testCommand: input.verifyLog?.test_command ?? null,
+    testExitCode: input.verifyLog?.test_exit_code ?? null,
     manualOrPreviewObserved: ids.includes("app_launched") || ids.includes("preview_checked"),
     acceptanceCriterionConfirmed: input.acceptanceCriterionConfirmed ?? false,
   });
@@ -226,6 +246,7 @@ export function deriveAgencyStateView(input: DeriveAgencyStateInput): AgencyStat
     verificationState !== "verification_deferred" &&
     ((reachedVerificationSurface && !input.verifyLog) ||
       testResult === "skipped" ||
+      testSignalStrength === "weak_signal" ||
       ids.includes("external_test_not_run") ||
       verificationState === "unverified_risk_accepted")
   ) {

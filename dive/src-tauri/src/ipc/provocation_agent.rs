@@ -497,6 +497,8 @@ mod tests {
                     preview_checked: false,
                     automated_tests_passed: false,
                     test_result: None,
+                    test_command: None,
+                    test_exit_code: None,
                     acceptance_criterion_confirmed: false,
                     manual_checks: vec![],
                 },
@@ -564,6 +566,8 @@ mod tests {
                     preview_checked: false,
                     automated_tests_passed: false,
                     test_result: None,
+                    test_command: None,
+                    test_exit_code: None,
                     acceptance_criterion_confirmed: false,
                     manual_checks: vec![],
                 },
@@ -634,6 +638,8 @@ mod tests {
                     preview_checked: false,
                     automated_tests_passed: false,
                     test_result: None,
+                    test_command: None,
+                    test_exit_code: None,
                     acceptance_criterion_confirmed: false,
                     manual_checks: vec![],
                 },
@@ -705,6 +711,8 @@ mod tests {
                     preview_checked: false,
                     automated_tests_passed: false,
                     test_result: Some(TestResult::Fail),
+                    test_command: Some("pnpm test".to_string()),
+                    test_exit_code: Some(1),
                     acceptance_criterion_confirmed: false,
                     manual_checks: vec![],
                 },
@@ -826,6 +834,8 @@ mod tests {
             preview_checked: false,
             automated_tests_passed: false,
             test_result: Some(TestResult::Skipped),
+            test_command: None,
+            test_exit_code: None,
             acceptance_criterion_confirmed: false,
             manual_checks: vec![],
         }
@@ -857,6 +867,8 @@ mod tests {
         let mut verification = self_report_only_verification();
         verification.automated_tests_passed = true;
         verification.test_result = Some(TestResult::Pass);
+        verification.test_command = Some("pnpm test".to_string());
+        verification.test_exit_code = Some(0);
         let mut dedup = SupervisorDedupState::new();
         let response = evaluate_with_output(
             request_with_verification(verification),

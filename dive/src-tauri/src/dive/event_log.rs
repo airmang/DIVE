@@ -194,6 +194,32 @@ fn string_field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
+fn test_result_field(value: &Value) -> Option<&str> {
+    string_field(value, "test_result").or_else(|| string_field(value, "testResult"))
+}
+
+fn test_command_present(value: &Value) -> bool {
+    value
+        .get("test_command_present")
+        .or_else(|| value.get("testCommandPresent"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || string_field(value, "test_command")
+            .or_else(|| string_field(value, "testCommand"))
+            .is_some_and(|command| !command.trim().is_empty())
+}
+
+fn test_exit_code_present(value: &Value) -> bool {
+    value
+        .get("test_exit_code")
+        .or_else(|| value.get("testExitCode"))
+        .is_some_and(|exit_code| !exit_code.is_null())
+}
+
+fn has_executed_test_command(value: &Value) -> bool {
+    test_command_present(value) && test_exit_code_present(value)
+}
+
 fn nested_string_field<'a>(value: &'a Value, parent: &str, key: &str) -> Option<&'a str> {
     value.get(parent)?.get(key)?.as_str()
 }
@@ -415,10 +441,14 @@ fn infer_agency_state(event_type: &str, payload: &Value) -> Option<&'static str>
         VERIFICATION_OBSERVATION_CLEARED_EVENT => return Some("verification_needed"),
         "checkpoint_create" | "checkpoint_restore" => return Some("rollback_available"),
         "verify_complete" => {
-            return match string_field(payload, "test_result") {
-                Some("pass") => Some("verified_with_evidence"),
-                Some("fail") => Some("verification_failed"),
-                Some("skipped") => Some("ai_self_report_only"),
+            let test_result = test_result_field(payload);
+            let executed_test = has_executed_test_command(payload);
+            return match (test_result, executed_test) {
+                (Some("pass"), true) => Some("verified_with_evidence"),
+                (Some("fail"), true) => Some("verification_failed"),
+                _ if payload.get("intent_match").and_then(Value::as_bool).unwrap_or(false) => {
+                    Some("ai_self_report_only")
+                }
                 _ => Some("verification_needed"),
             };
         }
@@ -652,15 +682,26 @@ fn infer_evidence_summary(event_type: &str, payload: &Value) -> Option<Value> {
             }));
         }
         "verify_complete" => {
-            let test_result = string_field(payload, "test_result");
-            let external_test_run = !matches!(test_result, None | Some("skipped"));
+            let test_result = test_result_field(payload);
+            let external_test_run = has_executed_test_command(payload);
+            let automated_tests_passed = test_result == Some("pass") && external_test_run;
+            let test_evidence_strength = if external_test_run {
+                "concrete"
+            } else if matches!(test_result, Some("pass" | "fail")) {
+                "weak_signal"
+            } else {
+                "none"
+            };
             return Some(json!({
                 "schemaVersion": 1,
-                "concreteEvidence": test_result == Some("pass"),
+                "concreteEvidence": automated_tests_passed,
                 "aiSelfReport": payload.get("intent_match").and_then(Value::as_bool).unwrap_or(false),
-                "automatedTestsPassed": test_result == Some("pass"),
+                "automatedTestsPassed": automated_tests_passed,
                 "externalTestRun": external_test_run,
                 "testResult": test_result,
+                "testCommandPresent": test_command_present(payload),
+                "testExitCode": payload.get("test_exit_code").or_else(|| payload.get("testExitCode")).cloned().unwrap_or(Value::Null),
+                "testEvidenceStrength": test_evidence_strength,
             }));
         }
         "verify_start" => {
@@ -1501,6 +1542,86 @@ mod tests {
         assert_eq!(enriched["evidenceSummary"]["aiSelfReport"], true);
         assert_eq!(enriched["evidenceSummary"]["concreteEvidence"], false);
         assert_eq!(enriched["evidenceSummary"]["externalTestRun"], false);
+    }
+
+    #[test]
+    fn agency_enrichment_requires_executed_command_for_automated_pass_evidence() {
+        let static_pass = enrich_agency_payload(
+            "verify_complete",
+            json!({
+                "card_id": 7,
+                "intent_match": true,
+                "test_result": "pass"
+            }),
+        );
+
+        assert_eq!(static_pass["agencyState"], "ai_self_report_only");
+        assert_eq!(static_pass["evidenceSummary"]["concreteEvidence"], false);
+        assert_eq!(static_pass["evidenceSummary"]["automatedTestsPassed"], false);
+        assert_eq!(static_pass["evidenceSummary"]["externalTestRun"], false);
+        assert_eq!(
+            static_pass["evidenceSummary"]["testEvidenceStrength"],
+            "weak_signal"
+        );
+
+        let command_without_exit = enrich_agency_payload(
+            "verify_complete",
+            json!({
+                "card_id": 8,
+                "intent_match": true,
+                "test_result": "pass",
+                "test_command_present": true
+            }),
+        );
+
+        assert_eq!(command_without_exit["agencyState"], "ai_self_report_only");
+        assert_eq!(
+            command_without_exit["evidenceSummary"]["concreteEvidence"],
+            false
+        );
+        assert_eq!(
+            command_without_exit["evidenceSummary"]["testEvidenceStrength"],
+            "weak_signal"
+        );
+
+        let executed_pass = enrich_agency_payload(
+            "verify_complete",
+            json!({
+                "card_id": 9,
+                "intent_match": true,
+                "test_result": "pass",
+                "test_command_present": true,
+                "test_exit_code": 0
+            }),
+        );
+
+        assert_eq!(executed_pass["agencyState"], "verified_with_evidence");
+        assert_eq!(executed_pass["evidenceSummary"]["concreteEvidence"], true);
+        assert_eq!(executed_pass["evidenceSummary"]["automatedTestsPassed"], true);
+        assert_eq!(executed_pass["evidenceSummary"]["externalTestRun"], true);
+        assert_eq!(
+            executed_pass["evidenceSummary"]["testEvidenceStrength"],
+            "concrete"
+        );
+
+        let executed_fail = enrich_agency_payload(
+            "verify_complete",
+            json!({
+                "card_id": 10,
+                "intent_match": true,
+                "test_result": "fail",
+                "test_command_present": true,
+                "test_exit_code": 1
+            }),
+        );
+
+        assert_eq!(executed_fail["agencyState"], "verification_failed");
+        assert_eq!(executed_fail["evidenceSummary"]["concreteEvidence"], false);
+        assert_eq!(executed_fail["evidenceSummary"]["externalTestRun"], true);
+        assert_eq!(
+            executed_fail["evidenceSummary"]["testEvidenceStrength"],
+            "concrete"
+        );
     }
 
     #[test]

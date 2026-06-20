@@ -53,6 +53,8 @@ describe("deriveAgencyStateView", () => {
         details: "test failed",
         model: "mock",
         ran_at: 1,
+        test_command: "npm test",
+        test_exit_code: 1,
       },
     });
 

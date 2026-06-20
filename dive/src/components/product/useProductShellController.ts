@@ -57,6 +57,10 @@ import {
   normalizeChangedFile,
   normalizePlanStep,
 } from "../../features/provocation";
+import {
+  hasConcreteAutomatedPass,
+  hasExecutedTestCommand,
+} from "../../features/provocation/verificationGrade";
 import { useProductShellDialogs } from "./useProductShellDialogs";
 import { PlanDraftRecoveryScreen } from "./PlanDraftRecoveryScreen";
 import { SocraticInterviewPanel } from "./SocraticInterviewPanel";
@@ -89,7 +93,7 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
   return [
     "[PRD_PLAN_GENERATION]",
     "Use the saved PRD below as the source of truth and return compact JSON only.",
-    "Return shape: {\"intent_summary\":\"...\",\"unresolved_questions\":[],\"plan_input\":{\"goal\":\"...\",\"intent_summary\":\"...\",\"scope\":[],\"non_goals\":[],\"constraints\":[],\"acceptance_criteria\":[],\"steps\":[]}}.",
+    'Return shape: {"intent_summary":"...","unresolved_questions":[],"plan_input":{"goal":"...","intent_summary":"...","scope":[],"non_goals":[],"constraints":[],"acceptance_criteria":[],"steps":[]}}.',
     "Generate 2-6 steps and never exceed 8.",
     "Each step must be small enough for one supervised DIVE turn.",
     "Each step must include: step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, linked_criterion_ids, rationale, verification_command, verification_type, dependencies, parallel_group.",
@@ -249,10 +253,7 @@ export function restorePrdDraftIfCurrent(input: {
   ) {
     return currentDraft;
   }
-  if (
-    currentDraft.projectId !== requestedProjectId ||
-    currentDraft.draftId !== requestedDraftId
-  ) {
+  if (currentDraft.projectId !== requestedProjectId || currentDraft.draftId !== requestedDraftId) {
     return currentDraft;
   }
   if (currentDraft.updatedAt !== requestedDraftUpdatedAt) {
@@ -655,10 +656,10 @@ export function useProductShellController() {
   }, [currentCard, currentPlanRoadmapStep, roadmapModel.steps]);
   const hasExistingPlan = Boolean(
     plan.status?.has_plan ||
-      plan.status?.has_approved_plan ||
-      planRoadmap.hasPlan ||
-      planRoadmap.status?.has_plan ||
-      planRoadmap.status?.has_approved_plan,
+    plan.status?.has_approved_plan ||
+    planRoadmap.hasPlan ||
+    planRoadmap.status?.has_plan ||
+    planRoadmap.status?.has_approved_plan,
   );
   const prdReferenceMode = shouldUsePrdReferenceSurface({
     prdMode,
@@ -751,6 +752,15 @@ export function useProductShellController() {
       const isApprove = decision.outcome !== "revision_requested";
       const action = isApprove ? "approve" : "request_changes";
       const verifyLog = roadmapModel.verifyLogForStep(currentCard.id);
+      const executedTestCommand = hasExecutedTestCommand({
+        testCommand: verifyLog?.test_command ?? null,
+        testExitCode: verifyLog?.test_exit_code ?? null,
+      });
+      const automatedTestsPassed = hasConcreteAutomatedPass({
+        testResult: verifyLog?.test_result ?? null,
+        testCommand: verifyLog?.test_command ?? null,
+        testExitCode: verifyLog?.test_exit_code ?? null,
+      });
       const changedFilesForCurrentStep = roadmapModel.changedFilesForStep(currentCard.id);
       const approvalProvenance = isApprove
         ? buildApprovalProvenance(
@@ -766,9 +776,11 @@ export function useProductShellController() {
               ),
               verification: {
                 aiClaimedDone: Boolean(verifyLog?.intent_match),
-                automatedTestsPassed: verifyLog?.test_result === "pass",
+                automatedTestsPassed,
                 testResult: verifyLog?.test_result,
-                externalTestRun: verifyLog ? verifyLog.test_result !== "skipped" : undefined,
+                testCommand: verifyLog?.test_command ?? null,
+                testExitCode: verifyLog?.test_exit_code ?? null,
+                externalTestRun: verifyLog ? executedTestCommand : undefined,
                 acceptanceCriterionConfirmed:
                   (decision.observationEvidence?.criterionIds.length ?? 0) > 0,
                 manualChecks: decision.observationEvidence?.manualChecks ?? [],
@@ -1733,10 +1745,19 @@ export function useProductShellController() {
         verification: currentCard
           ? {
               aiClaimedDone: Boolean(currentVerifyLog?.intent_match),
-              automatedTestsPassed: currentVerifyLog?.test_result === "pass",
+              automatedTestsPassed: hasConcreteAutomatedPass({
+                testResult: currentVerifyLog?.test_result ?? null,
+                testCommand: currentVerifyLog?.test_command ?? null,
+                testExitCode: currentVerifyLog?.test_exit_code ?? null,
+              }),
               testResult: currentVerifyLog?.test_result,
+              testCommand: currentVerifyLog?.test_command ?? null,
+              testExitCode: currentVerifyLog?.test_exit_code ?? null,
               externalTestRun: currentVerifyLog
-                ? currentVerifyLog.test_result !== "skipped"
+                ? hasExecutedTestCommand({
+                    testCommand: currentVerifyLog.test_command ?? null,
+                    testExitCode: currentVerifyLog.test_exit_code ?? null,
+                  })
                 : undefined,
               approvalProvenance: currentCard.approvalProvenance,
               approvedWithRisk: Boolean(currentCard.approvalProvenance?.riskAccepted),

@@ -32,6 +32,10 @@ import {
   useProvocationActionResolver,
 } from "../../features/provocation";
 import type { SupervisorFeasibility } from "../../features/provocation";
+import {
+  hasConcreteAutomatedPass,
+  hasExecutedTestCommand,
+} from "../../features/provocation/verificationGrade";
 import type { VerificationCoachGenerateRequest } from "../../features/verification-coach/types";
 import type { ObservationEvidenceRecord } from "../../features/verification-coach/types";
 import { VerificationCoachPanel } from "./VerificationCoachPanel";
@@ -245,12 +249,22 @@ export function StepDetailSlideIn({
   const manualObservation = step ? (manualObservationByStep.get(step.id) ?? null) : null;
   const manualObservationConfirmed = Boolean(
     manualObservation &&
-      manualObservation.criterionIds.length > 0 &&
-      manualObservation.observationText.trim().length > 0,
+    manualObservation.criterionIds.length > 0 &&
+    manualObservation.observationText.trim().length > 0,
   );
   const acceptanceCriterionConfirmed = criterionConfirmed || manualObservationConfirmed;
   const previewObserved = criterionEvidenceRef === "preview";
   const appLaunched = criterionEvidenceRef === "app";
+  const executedTestCommand = hasExecutedTestCommand({
+    testCommand: verifyLog?.test_command ?? null,
+    testExitCode: verifyLog?.test_exit_code ?? null,
+  });
+  const automatedTestsPassed = hasConcreteAutomatedPass({
+    testResult: verifyLog?.test_result ?? null,
+    testCommand: verifyLog?.test_command ?? null,
+    testExitCode: verifyLog?.test_exit_code ?? null,
+  });
+  const externalTestRun = verifyLog ? executedTestCommand : undefined;
   const expectedFiles = useMemo(
     () => uniqueStrings(planContext?.expectedFiles ?? []),
     [planContext?.expectedFiles],
@@ -322,12 +336,14 @@ export function StepDetailSlideIn({
             diffReviewed: diffViewed,
             appLaunched,
             previewChecked: previewObserved,
-            automatedTestsPassed: verifyLog?.test_result === "pass",
+            automatedTestsPassed,
             testResult: verifyLog?.test_result,
+            testCommand: verifyLog?.test_command ?? null,
+            testExitCode: verifyLog?.test_exit_code ?? null,
             acceptanceCriterionConfirmed,
             manualChecks: manualObservation ? [manualObservation.observationText] : [],
             observationIds: manualObservation ? [manualObservation.observationId] : [],
-            externalTestRun: verifyLog ? verifyLog.test_result !== "skipped" : undefined,
+            externalTestRun,
             failedButAccepted: step.approvalProvenance?.verificationState === "failed_but_accepted",
             approvedWithRisk: Boolean(step.approvalProvenance?.riskAccepted),
             approvalProvenance: step.approvalProvenance,
@@ -349,8 +365,10 @@ export function StepDetailSlideIn({
         diffReviewed: diffViewed,
         appLaunched,
         previewChecked: previewObserved,
-        automatedTestsPassed: verifyLog?.test_result === "pass",
+        automatedTestsPassed,
         testResult: verifyLog?.test_result ?? "skipped",
+        testCommand: verifyLog?.test_command ?? null,
+        testExitCode: verifyLog?.test_exit_code ?? null,
         acceptanceCriterionConfirmed,
         manualChecks: manualObservation ? [manualObservation.observationText] : [],
       },
@@ -363,8 +381,12 @@ export function StepDetailSlideIn({
     manualObservation,
     previewObserved,
     step,
+    automatedTestsPassed,
+    externalTestRun,
     verificationFeasibility,
     verifyLog?.intent_match,
+    verifyLog?.test_command,
+    verifyLog?.test_exit_code,
     verifyLog?.test_result,
   ]);
   const supervisorEvaluationRequest = useMemo<SupervisorEvaluationRequest | null>(() => {

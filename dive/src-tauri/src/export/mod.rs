@@ -619,11 +619,40 @@ fn card_agency_emit(card: &CardEmit) -> Option<Value> {
         .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
     {
         let test_result = verify_log.get("test_result").and_then(Value::as_str);
+        let test_command_present = verify_log
+            .get("test_command")
+            .and_then(Value::as_str)
+            .is_some_and(|command| !command.trim().is_empty());
+        let test_exit_code_present = verify_log
+            .get("test_exit_code")
+            .is_some_and(|exit_code| !exit_code.is_null());
+        let external_test_run = test_command_present && test_exit_code_present;
+        let automated_tests_passed = test_result == Some("pass") && external_test_run;
         return Some(json!({
             "component": "verify",
-            "state": agency_state_from_test_result(test_result),
+            "state": agency_state_from_test_result(
+                test_result,
+                verify_log.get("intent_match").and_then(Value::as_bool).unwrap_or(false),
+                external_test_run,
+            ),
             "testResult": test_result,
             "aiSelfReport": verify_log.get("intent_match").and_then(Value::as_bool).unwrap_or(false),
+            "evidenceSummary": {
+                "concreteEvidence": automated_tests_passed,
+                "aiSelfReport": verify_log.get("intent_match").and_then(Value::as_bool).unwrap_or(false),
+                "automatedTestsPassed": automated_tests_passed,
+                "externalTestRun": external_test_run,
+                "testResult": test_result,
+                "testCommandPresent": test_command_present,
+                "testExitCode": verify_log.get("test_exit_code").cloned().unwrap_or(Value::Null),
+                "testEvidenceStrength": if external_test_run {
+                    "concrete"
+                } else if matches!(test_result, Some("pass" | "fail")) {
+                    "weak_signal"
+                } else {
+                    "none"
+                },
+            },
         }));
     }
 
@@ -677,11 +706,15 @@ fn agency_state_from_verification_state(state: &str) -> Option<&'static str> {
     }
 }
 
-fn agency_state_from_test_result(test_result: Option<&str>) -> Option<&'static str> {
-    match test_result {
-        Some("pass") => Some("verified_with_evidence"),
-        Some("fail") => Some("verification_failed"),
-        Some("skipped") => Some("ai_self_report_only"),
+fn agency_state_from_test_result(
+    test_result: Option<&str>,
+    ai_self_report: bool,
+    external_test_run: bool,
+) -> Option<&'static str> {
+    match (test_result, external_test_run) {
+        (Some("pass"), true) => Some("verified_with_evidence"),
+        (Some("fail"), true) => Some("verification_failed"),
+        _ if ai_self_report => Some("ai_self_report_only"),
         _ => Some("verification_needed"),
     }
 }
