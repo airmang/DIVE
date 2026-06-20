@@ -1290,6 +1290,8 @@ mod tests {
             title: "Harden Pi runtime".into(),
             instruction_seed: Some("Exercise runtime abort handling".into()),
             acceptance_criteria: Some("[\"runtime aborts are retryable\"]".into()),
+            linked_criterion_ids: Vec::new(),
+            decomposition_rationale: None,
             expected_files: Some("[\"src/pi_sidecar.rs\"]".into()),
         }
     }

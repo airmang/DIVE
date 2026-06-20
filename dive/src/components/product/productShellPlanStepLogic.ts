@@ -3,6 +3,69 @@ import type { CardTileData } from "../workmap/types";
 
 export type SessionStepMap = Record<number, number>;
 
+interface ExecutionCriteriaContext {
+  criteria: string[];
+  linkedCriterionIds: string[];
+  rationale: string | null;
+}
+
+function valueObject(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function compactStrings(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
+}
+
+function criterionText(value: unknown): string | null {
+  if (typeof value === "string") {
+    const text = value.trim();
+    return text || null;
+  }
+  const object = valueObject(value);
+  const text = typeof object?.text === "string" ? object.text.trim() : "";
+  return text || null;
+}
+
+function criteriaSource(value: unknown): unknown {
+  const object = valueObject(value);
+  if (!object) return value;
+  for (const key of ["criteria", "acceptanceCriteria", "acceptance_criteria"]) {
+    const candidate = object[key];
+    if (Array.isArray(candidate)) return candidate;
+  }
+  return [];
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function executionCriteriaContext(value: unknown): ExecutionCriteriaContext {
+  const object = valueObject(value);
+  const source = criteriaSource(value);
+  return {
+    criteria: Array.isArray(source)
+      ? source.map(criterionText).filter((item): item is string => Boolean(item))
+      : [],
+    linkedCriterionIds: [
+      ...compactStrings(object?.linkedCriterionIds),
+      ...compactStrings(object?.linked_criterion_ids),
+    ],
+    rationale:
+      optionalString(object?.rationale) ??
+      optionalString(object?.decompositionRationale) ??
+      optionalString(object?.decomposition_rationale),
+  };
+}
+
 export function buildPlanStepExecutionPrompt(item: PlanRoadmapStep): string {
   const lines = [
     "다음 계획 Step만 실행해 주세요.",
@@ -23,11 +86,23 @@ export function buildPlanStepExecutionPrompt(item: PlanRoadmapStep): string {
   if (expectedFiles.length > 0) {
     lines.push("", "Expected files:", ...expectedFiles.map((file) => `- ${file}`));
   }
-  const acceptanceCriteria = Array.isArray(item.step.acceptance_criteria)
-    ? item.step.acceptance_criteria.filter((value): value is string => typeof value === "string")
-    : [];
-  if (acceptanceCriteria.length > 0) {
-    lines.push("", "Acceptance criteria:", ...acceptanceCriteria.map((item) => `- ${item}`));
+  const acceptanceCriteria = executionCriteriaContext(item.step.acceptance_criteria);
+  if (acceptanceCriteria.criteria.length > 0) {
+    lines.push(
+      "",
+      "Acceptance criteria:",
+      ...acceptanceCriteria.criteria.map((item) => `- ${item}`),
+    );
+  }
+  if (acceptanceCriteria.linkedCriterionIds.length > 0) {
+    lines.push(
+      "",
+      "Linked PRD criteria:",
+      ...acceptanceCriteria.linkedCriterionIds.map((criterionId) => `- ${criterionId}`),
+    );
+  }
+  if (acceptanceCriteria.rationale) {
+    lines.push("", "Rationale:", acceptanceCriteria.rationale);
   }
   const verificationDetails = [
     item.step.verification_kind?.trim() ? `Kind: ${item.step.verification_kind.trim()}` : null,

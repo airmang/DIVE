@@ -794,16 +794,43 @@ fn load_active_step_context(
     let plan = plan_dao::get_by_id(db.conn(), step.plan_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("plan {} not found", step.plan_id))?;
+    let step_criteria = step_criteria_execution_context(step.acceptance_criteria.as_ref());
     Ok(Some(LoadedStepContext {
         context: StepContext {
             step_id: step.id,
             title: step.title,
             instruction_seed: step.instruction_seed,
-            acceptance_criteria: join_json_strings(step.acceptance_criteria.as_ref(), "\n"),
+            acceptance_criteria: join_strings(&step_criteria.criteria, "\n"),
+            linked_criterion_ids: step_criteria.linked_criterion_ids,
+            decomposition_rationale: step_criteria.rationale,
             expected_files: join_json_strings(step.expected_files.as_ref(), ", "),
         },
         plan_approved: plan.status == "approved",
     }))
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct StepCriteriaExecutionContext {
+    criteria: Vec<String>,
+    linked_criterion_ids: Vec<String>,
+    rationale: Option<String>,
+}
+
+fn step_criteria_execution_context(value: Option<&Value>) -> StepCriteriaExecutionContext {
+    let Some(value) = value else {
+        return StepCriteriaExecutionContext::default();
+    };
+    let criteria = json_criteria_texts(value);
+    let mut linked_criterion_ids = Vec::new();
+    collect_explicit_linked_criterion_ids(value, &mut linked_criterion_ids);
+    if linked_criterion_ids.is_empty() && value.as_object().is_some() {
+        collect_criterion_ids(value, &mut linked_criterion_ids);
+    }
+    StepCriteriaExecutionContext {
+        criteria,
+        linked_criterion_ids,
+        rationale: json_rationale(value),
+    }
 }
 
 fn join_json_strings(value: Option<&Value>, separator: &str) -> Option<String> {
@@ -816,6 +843,107 @@ fn join_json_strings(value: Option<&Value>, separator: &str) -> Option<String> {
         None
     } else {
         Some(items.join(separator))
+    }
+}
+
+fn join_strings(items: &[String], separator: &str) -> Option<String> {
+    if items.is_empty() {
+        None
+    } else {
+        Some(items.join(separator))
+    }
+}
+
+fn json_criteria_texts(value: &Value) -> Vec<String> {
+    match value {
+        Value::Array(items) => items.iter().filter_map(json_criterion_text).collect(),
+        Value::Object(map) => map
+            .get("criteria")
+            .or_else(|| map.get("acceptanceCriteria"))
+            .or_else(|| map.get("acceptance_criteria"))
+            .and_then(Value::as_array)
+            .map(|items| items.iter().filter_map(json_criterion_text).collect())
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+fn json_criterion_text(value: &Value) -> Option<String> {
+    if let Some(text) = value.as_str() {
+        let text = text.trim();
+        return (!text.is_empty()).then(|| text.to_owned());
+    }
+    let text = value.get("text").and_then(Value::as_str)?.trim();
+    (!text.is_empty()).then(|| text.to_owned())
+}
+
+fn collect_explicit_linked_criterion_ids(value: &Value, out: &mut Vec<String>) {
+    let Some(map) = value.as_object() else {
+        return;
+    };
+    for key in ["linkedCriterionIds", "linked_criterion_ids"] {
+        if let Some(ids) = map.get(key).and_then(Value::as_array) {
+            for id in ids.iter().filter_map(Value::as_str) {
+                push_unique(out, id);
+            }
+        }
+    }
+}
+
+fn collect_criterion_ids(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                collect_criterion_ids(item, out);
+            }
+        }
+        Value::Object(map) => {
+            if let Some(id) = map
+                .get("criterionId")
+                .or_else(|| map.get("criterion_id"))
+                .and_then(Value::as_str)
+            {
+                push_unique(out, id);
+            }
+            if let Some(items) = map
+                .get("criteria")
+                .or_else(|| map.get("acceptanceCriteria"))
+                .or_else(|| map.get("acceptance_criteria"))
+                .and_then(Value::as_array)
+            {
+                for item in items {
+                    collect_criterion_ids(item, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn json_rationale(value: &Value) -> Option<String> {
+    if let Some(rationale) = value
+        .get("rationale")
+        .or_else(|| value.get("decompositionRationale"))
+        .or_else(|| value.get("decomposition_rationale"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|rationale| !rationale.is_empty())
+    {
+        return Some(rationale.to_owned());
+    }
+    value.as_array()?.iter().find_map(|item| {
+        item.get("rationale")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|rationale| !rationale.is_empty())
+            .map(ToOwned::to_owned)
+    })
+}
+
+fn push_unique(out: &mut Vec<String>, value: &str) {
+    let value = value.trim();
+    if !value.is_empty() && !out.iter().any(|existing| existing == value) {
+        out.push(value.to_owned());
     }
 }
 
@@ -1019,4 +1147,67 @@ fn record_and_emit_stale_approval(
             created_at: decision.created_at,
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn step_criteria_execution_context_reads_object_payload() {
+        let payload = json!({
+            "criteria": [
+                {"criterionId": "AC-001", "text": "Save shows a toast"},
+                {"criterionId": "AC-002", "text": "Save button disables while pending"}
+            ],
+            "linkedCriterionIds": ["AC-001", "AC-002"],
+            "rationale": "The execution step verifies the PRD save path first."
+        });
+
+        let context = step_criteria_execution_context(Some(&payload));
+
+        assert_eq!(
+            join_strings(&context.criteria, "\n"),
+            Some("Save shows a toast\nSave button disables while pending".into())
+        );
+        assert_eq!(context.linked_criterion_ids, vec!["AC-001", "AC-002"]);
+        assert_eq!(
+            context.rationale.as_deref(),
+            Some("The execution step verifies the PRD save path first.")
+        );
+
+        let step_context = StepContext {
+            step_id: 1,
+            title: "Implement save flow".into(),
+            instruction_seed: None,
+            acceptance_criteria: join_strings(&context.criteria, "\n"),
+            linked_criterion_ids: context.linked_criterion_ids,
+            decomposition_rationale: context.rationale,
+            expected_files: None,
+        };
+        assert_eq!(
+            step_context.acceptance_criteria.as_deref(),
+            Some("Save shows a toast\nSave button disables while pending")
+        );
+        assert_eq!(step_context.linked_criterion_ids, vec!["AC-001", "AC-002"]);
+        assert_eq!(
+            step_context.decomposition_rationale.as_deref(),
+            Some("The execution step verifies the PRD save path first.")
+        );
+    }
+
+    #[test]
+    fn step_criteria_execution_context_keeps_flat_array_compatibility() {
+        let payload = json!(["legacy criterion", null, "second criterion"]);
+
+        let context = step_criteria_execution_context(Some(&payload));
+
+        assert_eq!(
+            context.criteria,
+            vec!["legacy criterion", "second criterion"]
+        );
+        assert!(context.linked_criterion_ids.is_empty());
+        assert_eq!(context.rationale, None);
+    }
 }

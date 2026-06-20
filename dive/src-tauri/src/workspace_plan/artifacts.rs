@@ -12,7 +12,7 @@ use crate::db::models::{
 use crate::db::DbError;
 use crate::dive::event_log::{
     PLAN_ADJUSTMENT_ACCEPTED_EVENT, PLAN_ADJUSTMENT_DISMISSED_EVENT, PLAN_ADJUSTMENT_OFFERED_EVENT,
-    RUNTIME_CAPABILITY_EVALUATED_EVENT, SUPERVISOR_EVALUATED_EVENT,
+    PLAN_GENERATED_EVENT, RUNTIME_CAPABILITY_EVALUATED_EVENT, SUPERVISOR_EVALUATED_EVENT,
 };
 
 const ARTIFACT_SCHEMA_VERSION: i32 = 1;
@@ -230,6 +230,10 @@ fn event_log_export_contracts() -> Vec<EventLogExportContract> {
         EventLogExportContract {
             event_type: SUPERVISOR_EVALUATED_EVENT.to_string(),
             purpose: "supervisor evaluations, no-card outcomes, and dropped outcomes for scope-expansion, plan-drafted, diff-ready, retry-loop, and verification review cards".to_string(),
+        },
+        EventLogExportContract {
+            event_type: PLAN_GENERATED_EVENT.to_string(),
+            purpose: "PRD-backed plan generation with criterion coverage summary".to_string(),
         },
         EventLogExportContract {
             event_type: PLAN_ADJUSTMENT_OFFERED_EVENT.to_string(),

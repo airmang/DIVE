@@ -552,6 +552,8 @@ async fn product_path_build_step_creates_code_output_and_records_changed_files()
             title: "Create browser todo app".into(),
             instruction_seed: Some("Write a single-file todo app in index.html.".into()),
             acceptance_criteria: Some("index.html exists and includes todo UI.".into()),
+            linked_criterion_ids: Vec::new(),
+            decomposition_rationale: None,
             expected_files: Some(r#"["index.html"]"#.into()),
         }))
         .max_iterations(5)

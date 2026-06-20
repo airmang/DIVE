@@ -353,7 +353,11 @@ export function PlanAddStepPanel({
     [activeCriteria, expectedFiles, prdDelta, reason, scopeExpansion, selectedCriterionIds, title],
   );
   const scopeSupervisorRequest = useMemo(() => {
-    if (!hasReviewableDraft || !scopeExpansion.expanded || typeof supervisorSessionId !== "number") {
+    if (
+      !hasReviewableDraft ||
+      !scopeExpansion.expanded ||
+      typeof supervisorSessionId !== "number"
+    ) {
       return null;
     }
     const artifactRef = {
@@ -430,11 +434,18 @@ export function PlanAddStepPanel({
   };
   const scopeSupervisorCard =
     scopeSupervisorState.status === "shown" ? scopeSupervisorState.card : null;
+  const scopeReviewUnavailableReason =
+    hasReviewableDraft && scopeExpansion.expanded && typeof supervisorSessionId !== "number"
+      ? "no_active_session"
+      : null;
 
   const applyDraftPrefill = useCallback((detail: PlanAddStepDraftRequestDetail) => {
     const draft = detail.draft;
     const nextReason =
-      draft.summary.trim() || draft.rationale.trim() || detail.reason?.trim() || draft.instructionSeed;
+      draft.summary.trim() ||
+      draft.rationale.trim() ||
+      detail.reason?.trim() ||
+      draft.instructionSeed;
     setTitle(draft.title);
     setReason(nextReason);
     setExpectedFilesText(draft.expectedFiles.join("\n"));
@@ -604,12 +615,11 @@ export function PlanAddStepPanel({
       summary: reason.trim(),
       instructionSeed: reason.trim(),
       expectedFiles,
-      acceptanceCriteria:
-        linkedCriteria.length > 0 ? linkedCriteria : draftAcceptanceCriteria,
+      acceptanceCriteria: linkedCriteria.length > 0 ? linkedCriteria : draftAcceptanceCriteria,
       linkedCriterionIds: selectedCriterionIds,
       rationale: reason.trim(),
       verificationCommand: verificationText || null,
-      verificationType: verificationText ? verificationType ?? "manual" : null,
+      verificationType: verificationText ? (verificationType ?? "manual") : null,
       dependencies: draftDependencies,
       parallelGroup: draftParallelGroup,
       position: 0,
@@ -684,9 +694,7 @@ export function PlanAddStepPanel({
               ? t("prd.add_step.prefilled_from_chat")
               : t("prd.add_step.prefilled_from_request")}
           </p>
-          {draftNotice.reason ? (
-            <p className="mt-1 text-fg-muted">{draftNotice.reason}</p>
-          ) : null}
+          {draftNotice.reason ? <p className="mt-1 text-fg-muted">{draftNotice.reason}</p> : null}
         </div>
       ) : null}
       {planAdjustmentSuggestion ? (
@@ -810,6 +818,17 @@ export function PlanAddStepPanel({
             mode={provocationMode}
             onAction={handleScopeCardAction}
           />
+        </div>
+      ) : null}
+
+      {scopeReviewUnavailableReason ? (
+        <div
+          className="mt-2 rounded-md border border-info/40 bg-info/5 px-2 py-1.5 text-[11px] text-fg-muted"
+          data-testid="plan-add-step-scope-review-unavailable"
+          data-reason={scopeReviewUnavailableReason}
+        >
+          범위 검토 사용 불가: 활성 세션이 없어 SupervisorAgent 평가를 실행할 수 없습니다. 저장은
+          계속 가능합니다.
         </div>
       ) : null}
 

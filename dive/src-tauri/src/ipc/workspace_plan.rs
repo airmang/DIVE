@@ -1294,6 +1294,46 @@ fn append_step_criteria_payload(
     Ok(payload)
 }
 
+fn plan_generated_criterion_coverage(
+    project_prd: &ProjectSpec,
+    step_links: &[(String, Vec<String>)],
+) -> Value {
+    let linked_ids = step_links
+        .iter()
+        .flat_map(|(_, ids)| ids.iter().cloned())
+        .collect::<HashSet<_>>();
+    let active_criterion_ids = project_prd
+        .acceptance_criteria
+        .iter()
+        .filter(|criterion| criterion.status == AcceptanceCriterionStatus::Active)
+        .map(|criterion| criterion.criterion_id.clone())
+        .collect::<Vec<_>>();
+    let covered_criterion_ids = active_criterion_ids
+        .iter()
+        .filter(|criterion_id| linked_ids.contains(*criterion_id))
+        .cloned()
+        .collect::<Vec<_>>();
+    let uncovered_criterion_ids = active_criterion_ids
+        .iter()
+        .filter(|criterion_id| !linked_ids.contains(*criterion_id))
+        .cloned()
+        .collect::<Vec<_>>();
+    json!({
+        "total_criterion_count": active_criterion_ids.len(),
+        "covered_criterion_ids": covered_criterion_ids,
+        "uncovered_criterion_ids": uncovered_criterion_ids,
+        "step_links": step_links
+            .iter()
+            .map(|(stable_step_id, linked_criterion_ids)| {
+                json!({
+                    "stable_step_id": stable_step_id,
+                    "linked_criterion_ids": linked_criterion_ids,
+                })
+            })
+            .collect::<Vec<_>>(),
+    })
+}
+
 #[derive(Debug, Clone)]
 struct AppendPrdUpdate {
     project_spec_id: String,
@@ -2631,8 +2671,14 @@ pub fn workspace_plan_generate_draft_impl(
     )
     .map_err(|e| e.to_string())?;
 
+    let step_count = plan_input.steps.len();
+    let mut step_criterion_links: Vec<(String, Vec<String>)> = Vec::new();
     for step in plan_input.steps {
         let acceptance_criteria = step_criteria_payload(&step, &project_prd)?;
+        step_criterion_links.push((
+            step.step_id.clone(),
+            json_linked_criterion_ids(Some(&acceptance_criteria)),
+        ));
         step_dao::insert(
             &tx,
             &NewStep {
@@ -2654,6 +2700,22 @@ pub fn workspace_plan_generate_draft_impl(
         .map_err(|e| e.to_string())?;
     }
     step_dao::validate_dependencies(&tx, plan_id).map_err(|e| e.to_string())?;
+    let criterion_coverage = plan_generated_criterion_coverage(&project_prd, &step_criterion_links);
+    dive_event_log::append_to_conn(
+        &tx,
+        None,
+        dive_event_log::PLAN_GENERATED_EVENT,
+        dive_event_log::plan_generated_payload(
+            interview.project_id,
+            plan_id,
+            project_prd.project_spec_id.clone(),
+            project_prd.current_version,
+            step_count,
+            criterion_coverage,
+            "interview",
+        ),
+    )
+    .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
 
     let plan = plan_dao::get_by_id(conn, plan_id)

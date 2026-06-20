@@ -878,7 +878,7 @@ fn generate_draft_accepts_legacy_criteria_with_step_links_and_rationale() {
     }))
     .unwrap();
 
-    let (_plan, steps) =
+    let (plan, steps) =
         workspace_plan_generate_draft_impl(&state, submitted.id, input, false).unwrap();
     let criteria = steps[0].acceptance_criteria.as_ref().unwrap();
 
@@ -891,6 +891,34 @@ fn generate_draft_accepts_legacy_criteria_with_step_links_and_rationale() {
     assert_eq!(
         criteria["criteria"][0]["text"],
         "A saved PRD unlocks plan generation"
+    );
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    let generated = events
+        .iter()
+        .find(|event| event.r#type == "plan_generated")
+        .expect("draft generation should log plan_generated");
+    assert_eq!(generated.session_id, None);
+    assert_eq!(generated.payload["project_id"], json!(project_id));
+    assert_eq!(generated.payload["plan_id"], json!(plan.id));
+    assert_eq!(
+        generated.payload["project_spec_id"],
+        json!(format!("prd-{project_id}"))
+    );
+    assert_eq!(generated.payload["project_spec_version"], json!(1));
+    assert_eq!(generated.payload["step_count"], json!(1));
+    assert_eq!(generated.payload["source"], json!("interview"));
+    assert_eq!(
+        generated.payload["criterion_coverage"]["covered_criterion_ids"],
+        json!(["AC-001"])
+    );
+    assert_eq!(
+        generated.payload["criterion_coverage"]["step_links"][0]["stable_step_id"],
+        json!("step-001")
+    );
+    assert_eq!(
+        generated.payload["criterion_coverage"]["step_links"][0]["linked_criterion_ids"],
+        json!(["AC-001"])
     );
 }
 

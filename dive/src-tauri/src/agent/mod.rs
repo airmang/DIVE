@@ -60,6 +60,8 @@ pub struct StepContext {
     pub title: String,
     pub instruction_seed: Option<String>,
     pub acceptance_criteria: Option<String>,
+    pub linked_criterion_ids: Vec<String>,
+    pub decomposition_rationale: Option<String>,
     pub expected_files: Option<String>,
 }
 
@@ -1631,6 +1633,15 @@ impl AgentLoop {
             }
             if let Some(criteria) = &ctx.acceptance_criteria {
                 prompt_parts.push(format!("수용 기준: {}", criteria));
+            }
+            if !ctx.linked_criterion_ids.is_empty() {
+                prompt_parts.push(format!(
+                    "연결된 PRD 기준: {}",
+                    ctx.linked_criterion_ids.join(", ")
+                ));
+            }
+            if let Some(rationale) = &ctx.decomposition_rationale {
+                prompt_parts.push(format!("분해 근거: {}", rationale));
             }
             if let Some(files) = &ctx.expected_files {
                 prompt_parts.push(format!("예상 변경 파일: {}", files));

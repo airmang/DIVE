@@ -350,6 +350,10 @@ async fn agent_loop_injects_active_step_context_into_system_prompt() {
             title: "Export artifacts".into(),
             instruction_seed: Some("Write plan files".into()),
             acceptance_criteria: Some("plan.json exists".into()),
+            linked_criterion_ids: vec!["AC-001".into()],
+            decomposition_rationale: Some(
+                "The export step preserves PRD reconstruction evidence.".into(),
+            ),
             expected_files: Some(".dive/plan.json".into()),
         }))
         .build()
@@ -377,6 +381,8 @@ async fn agent_loop_injects_active_step_context_into_system_prompt() {
     assert!(system_content.contains("Export artifacts"));
     assert!(system_content.contains("Write plan files"));
     assert!(system_content.contains("plan.json exists"));
+    assert!(system_content.contains("연결된 PRD 기준: AC-001"));
+    assert!(system_content.contains("The export step preserves PRD reconstruction evidence."));
     assert!(system_content.contains(".dive/plan.json"));
     assert!(system_content.contains("단계 종료 규칙"));
     assert!(system_content.contains("동일한 도구 호출을 반복하지 마세요"));

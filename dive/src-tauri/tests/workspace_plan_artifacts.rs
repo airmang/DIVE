@@ -335,6 +335,12 @@ fn approving_plan_exports_prd_lifecycle_foundation() {
         artifact["planAdjustmentOffers"][0]["kind"],
         "redecompose_step"
     );
+    let event_contracts = artifact["eventLogExportContracts"]
+        .as_array()
+        .expect("eventLogExportContracts should export reconstruction contracts");
+    assert!(event_contracts
+        .iter()
+        .any(|contract| contract["eventType"] == "plan_generated"));
     assert_eq!(
         artifact["steps"][0]["linkedCriterionIds"],
         serde_json::json!(["AC-001"])

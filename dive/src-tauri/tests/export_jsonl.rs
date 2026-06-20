@@ -946,6 +946,67 @@ fn export_preserves_005_eventlog_contracts_without_raw_sensitive_text() {
 }
 
 #[test]
+fn export_preserves_plan_generated_lifecycle_event_for_reconstruction() {
+    let (db, sid) = seed();
+    {
+        let db_guard = db.lock().unwrap();
+        event_log::insert(
+            db_guard.conn(),
+            &NewEventLog {
+                session_id: Some(sid),
+                r#type: dive_event_log::PLAN_GENERATED_EVENT.into(),
+                payload: dive_event_log::plan_generated_payload(
+                    1,
+                    2,
+                    "prd-1",
+                    3,
+                    2,
+                    json!({
+                        "total_criterion_count": 2,
+                        "covered_criterion_ids": ["AC-001"],
+                        "uncovered_criterion_ids": ["AC-002"],
+                        "step_links": [{
+                            "stable_step_id": "step-001",
+                            "linked_criterion_ids": ["AC-001"]
+                        }]
+                    }),
+                    "interview",
+                ),
+            },
+        )
+        .unwrap();
+    }
+
+    let out = ExportEngine::new(db)
+        .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+        .unwrap();
+    let records = lines(&out);
+    let generated = records
+        .iter()
+        .find(|record| record["kind"] == "event" && record["type"] == "plan_generated")
+        .expect("plan_generated event should export");
+
+    assert_eq!(generated["payload"]["project_id"], json!(1));
+    assert_eq!(generated["payload"]["plan_id"], json!(2));
+    assert_eq!(generated["payload"]["project_spec_id"], json!("prd-1"));
+    assert_eq!(generated["payload"]["project_spec_version"], json!(3));
+    assert_eq!(generated["payload"]["step_count"], json!(2));
+    assert_eq!(generated["payload"]["source"], json!("interview"));
+    assert_eq!(
+        generated["payload"]["evidenceSummary"]["planGenerated"],
+        json!(true)
+    );
+    assert_eq!(
+        generated["payload"]["criterion_coverage"]["covered_criterion_ids"],
+        json!(["AC-001"])
+    );
+    assert_eq!(
+        generated["payload"]["criterion_coverage"]["uncovered_criterion_ids"],
+        json!(["AC-002"])
+    );
+}
+
+#[test]
 fn salt_differs_across_runs() {
     let (db, sid) = seed();
     let engine = ExportEngine::new(db);

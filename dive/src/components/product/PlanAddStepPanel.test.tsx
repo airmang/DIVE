@@ -139,9 +139,7 @@ describe("PlanAddStepPanel scope-expansion supervisor cards", () => {
     expect(card.closest('[data-testid="plan-add-step-panel"]')).toBeTruthy();
     expect(card.dataset.cardType).toBe("scope_expansion");
     expect(screen.getByTestId("provocation-focal-question").textContent).toContain("기존 PRD");
-    expect(
-      screen.queryByText("이 추가 단계가 현재 PRD 범위와 기준 안에 들어오나요?"),
-    ).toBeNull();
+    expect(screen.queryByText("이 추가 단계가 현재 PRD 범위와 기준 안에 들어오나요?")).toBeNull();
 
     await waitFor(() => expect(evaluateMock).toHaveBeenCalled());
     const request = lastSupervisorRequest();
@@ -222,6 +220,33 @@ describe("PlanAddStepPanel scope-expansion supervisor cards", () => {
     });
     await waitFor(() => expect(screen.queryByTestId("plan-add-step-scope-card")).toBeNull());
     expect(screen.queryByText("이 추가 단계가 현재 PRD 범위와 기준 안에 들어오나요?")).toBeNull();
+  });
+
+  it("surfaces scope-review unavailable when expanded scope has no active session", async () => {
+    useProjectSessionStore.setState({ currentProjectId: 1, currentSessionId: null });
+    const onAppendStep = vi.fn().mockResolvedValue(undefined);
+
+    renderPanel({ onAppendStep });
+
+    fireEvent.change(screen.getByTestId("plan-add-step-title"), {
+      target: { value: "Analytics dashboard" },
+    });
+    fireEvent.change(screen.getByTestId("plan-add-step-reason"), {
+      target: { value: "학생이 사용량을 볼 수 있게 한다." },
+    });
+
+    const unavailable = await screen.findByTestId("plan-add-step-scope-review-unavailable");
+    expect(unavailable.dataset.reason).toBe("no_active_session");
+    expect(unavailable.textContent).toContain("범위 검토 사용 불가");
+    expect(unavailable.textContent).toContain("저장은 계속 가능합니다");
+    await wait(700);
+    expect(evaluateMock).not.toHaveBeenCalled();
+
+    const save = screen.getByTestId("plan-add-step-save") as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+
+    await waitFor(() => expect(onAppendStep).toHaveBeenCalledTimes(1));
   });
 
   it("routes scope-card actions to local affordances without silently appending a step", async () => {

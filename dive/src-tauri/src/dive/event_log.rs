@@ -24,6 +24,7 @@ pub const PRD_PATCH_REJECTED_EVENT: &str = "prd_patch_rejected";
 pub const PRD_AUTHORED_EVENT: &str = "prd_authored";
 pub const PRD_EDITED_EVENT: &str = "prd_edited";
 pub const PRD_VERSION_CREATED_EVENT: &str = "prd_version_created";
+pub const PLAN_GENERATED_EVENT: &str = "plan_generated";
 pub const PLAN_STEP_RATIONALE_CHALLENGED_EVENT: &str = "plan_step_rationale_challenged";
 pub const PLAN_ADJUSTMENT_OFFERED_EVENT: &str = "plan_adjustment_offered";
 pub const PLAN_ADJUSTMENT_ACCEPTED_EVENT: &str = "plan_adjustment_accepted";
@@ -446,7 +447,11 @@ fn infer_agency_state(event_type: &str, payload: &Value) -> Option<&'static str>
             return match (test_result, executed_test) {
                 (Some("pass"), true) => Some("verified_with_evidence"),
                 (Some("fail"), true) => Some("verification_failed"),
-                _ if payload.get("intent_match").and_then(Value::as_bool).unwrap_or(false) => {
+                _ if payload
+                    .get("intent_match")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false) =>
+                {
                     Some("ai_self_report_only")
                 }
                 _ => Some("verification_needed"),
@@ -770,6 +775,7 @@ fn infer_evidence_summary(event_type: &str, payload: &Value) -> Option<Value> {
         _ if event_type.starts_with("plan_") => {
             return Some(json!({
                 "schemaVersion": 1,
+                "planGenerated": event_type == PLAN_GENERATED_EVENT,
                 "planApproved": event_type == "plan_approved",
                 "planStepOpened": event_type == "plan_step_opened",
                 "planStepBlocked": event_type == "plan_step_open_failed",
@@ -1205,6 +1211,27 @@ pub fn plan_adjustment_response_payload(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn plan_generated_payload(
+    project_id: i64,
+    plan_id: i64,
+    project_spec_id: impl Into<String>,
+    project_spec_version: i64,
+    step_count: usize,
+    criterion_coverage: Value,
+    source: impl Into<String>,
+) -> Value {
+    redact_value(&json!({
+        "project_id": project_id,
+        "plan_id": plan_id,
+        "project_spec_id": project_spec_id.into(),
+        "project_spec_version": project_spec_version,
+        "step_count": step_count,
+        "criterion_coverage": criterion_coverage,
+        "source": source.into(),
+    }))
+}
+
 pub fn plan_step_appended_payload(
     mutation_id: impl Into<String>,
     project_spec_id: impl Into<String>,
@@ -1384,6 +1411,31 @@ mod tests {
 
     #[test]
     fn plan_mutation_payload_builders_carry_export_reconstruction_fields() {
+        let generated = plan_generated_payload(
+            1,
+            2,
+            "prd-1",
+            3,
+            2,
+            json!({
+                "total_criterion_count": 2,
+                "covered_criterion_ids": ["AC-001"],
+                "uncovered_criterion_ids": ["AC-002"],
+                "step_links": [{"stable_step_id": "step-001", "linked_criterion_ids": ["AC-001"]}]
+            }),
+            "interview",
+        );
+        assert_eq!(generated["project_id"], 1);
+        assert_eq!(generated["plan_id"], 2);
+        assert_eq!(generated["project_spec_id"], "prd-1");
+        assert_eq!(generated["project_spec_version"], 3);
+        assert_eq!(generated["step_count"], 2);
+        assert_eq!(
+            generated["criterion_coverage"]["covered_criterion_ids"][0],
+            "AC-001"
+        );
+        assert_eq!(generated["source"], "interview");
+
         let appended = plan_step_appended_payload(
             "mut-1",
             "prd-1",
@@ -1557,7 +1609,10 @@ mod tests {
 
         assert_eq!(static_pass["agencyState"], "ai_self_report_only");
         assert_eq!(static_pass["evidenceSummary"]["concreteEvidence"], false);
-        assert_eq!(static_pass["evidenceSummary"]["automatedTestsPassed"], false);
+        assert_eq!(
+            static_pass["evidenceSummary"]["automatedTestsPassed"],
+            false
+        );
         assert_eq!(static_pass["evidenceSummary"]["externalTestRun"], false);
         assert_eq!(
             static_pass["evidenceSummary"]["testEvidenceStrength"],
@@ -1597,7 +1652,10 @@ mod tests {
 
         assert_eq!(executed_pass["agencyState"], "verified_with_evidence");
         assert_eq!(executed_pass["evidenceSummary"]["concreteEvidence"], true);
-        assert_eq!(executed_pass["evidenceSummary"]["automatedTestsPassed"], true);
+        assert_eq!(
+            executed_pass["evidenceSummary"]["automatedTestsPassed"],
+            true
+        );
         assert_eq!(executed_pass["evidenceSummary"]["externalTestRun"], true);
         assert_eq!(
             executed_pass["evidenceSummary"]["testEvidenceStrength"],

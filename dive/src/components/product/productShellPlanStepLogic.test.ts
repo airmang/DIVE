@@ -76,6 +76,29 @@ describe("product shell plan-step logic", () => {
     expect(prompt).toContain("범위를 넓히지 말고");
   });
 
+  it("preserves object-shaped criteria metadata in the execution prompt", () => {
+    const prompt = buildPlanStepExecutionPrompt(
+      roadmapStep({
+        step: {
+          ...roadmapStep().step,
+          acceptance_criteria: {
+            criteria: [
+              { criterionId: "AC-001", text: "저장 성공 후 toast가 보인다" },
+              { criterionId: "AC-002", text: "저장 중 버튼이 비활성화된다" },
+            ],
+            linkedCriterionIds: ["AC-001", "AC-002"],
+            rationale: "저장 흐름을 먼저 구현해야 두 PRD 기준을 검증할 수 있다.",
+          },
+        },
+      }),
+    );
+
+    expect(prompt).toContain("- 저장 성공 후 toast가 보인다");
+    expect(prompt).toContain("- 저장 중 버튼이 비활성화된다");
+    expect(prompt).toContain("Linked PRD criteria:\n- AC-001\n- AC-002");
+    expect(prompt).toContain("Rationale:\n저장 흐름을 먼저 구현해야 두 PRD 기준을 검증할 수 있다.");
+  });
+
   it("uses a summary when the instruction seed is blank", () => {
     expect(
       buildPlanStepExecutionPrompt(
