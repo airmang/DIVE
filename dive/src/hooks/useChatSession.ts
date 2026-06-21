@@ -70,6 +70,7 @@ export type AgentEvent =
       requestId: string;
       status: "ready" | "failed" | "unavailable";
       previewUrl?: string | null;
+      assetFilePath?: string | null;
       targetLabel: string;
       reasonCode?: string | null;
       message: string;
@@ -621,16 +622,20 @@ export function useChatSession(
         }
         if (payload.type === "preview_open_result") {
           const { setPreviewSession, open } = useSlideInStore.getState();
+          const displayUrl = payload.assetFilePath
+            ? api.convertFileSrc(payload.assetFilePath)
+            : (payload.previewUrl ?? null);
           setPreviewSession({
             requestId: payload.requestId,
             status: payload.status,
-            previewUrl: payload.previewUrl ?? null,
+            previewUrl: displayUrl,
+            assetFilePath: payload.assetFilePath ?? null,
             targetLabel: payload.targetLabel,
             errorReason: payload.reasonCode ?? null,
             updatedAt: payload.resolvedAt,
           });
-          if (payload.status === "ready" && payload.previewUrl) {
-            open({ tab: "preview", previewUrl: payload.previewUrl });
+          if (payload.status === "ready" && displayUrl) {
+            open({ tab: "preview", previewUrl: displayUrl });
           }
         }
         if (payload.type === "runtime_routing_decision" && sessionId !== null) {

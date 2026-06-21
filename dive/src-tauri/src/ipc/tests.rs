@@ -1179,7 +1179,12 @@ fn pass_with_test_command_but_no_exit_code_records_weak_signal_not_concrete_evid
     let tmp = tempfile::tempdir().unwrap();
     state.swap_project_root(tmp.path().to_path_buf()).unwrap();
     let session_id = seed_session(&state, tmp.path());
-    let card_id = seed_card(&state, session_id, "Pass without exit", CardState::Verifying);
+    let card_id = seed_card(
+        &state,
+        session_id,
+        "Pass without exit",
+        CardState::Verifying,
+    );
     let mapping_id = seed_step_mapping_for_card(&state, session_id, card_id);
     set_verify_log_with_test_evidence(
         &state,
@@ -1221,7 +1226,10 @@ fn pass_with_test_command_but_no_exit_code_records_weak_signal_not_concrete_evid
     assert_eq!(provenance["evidenceSummary"]["automatedTestsPassed"], false);
     assert_eq!(provenance["evidenceSummary"]["externalTestRun"], false);
     assert_eq!(provenance["evidenceSummary"]["testCommandPresent"], true);
-    assert_eq!(provenance["evidenceSummary"]["testExitCode"], serde_json::Value::Null);
+    assert_eq!(
+        provenance["evidenceSummary"]["testExitCode"],
+        serde_json::Value::Null
+    );
     assert_eq!(
         provenance["evidenceSummary"]["testEvidenceStrength"],
         "weak_signal"

@@ -684,17 +684,22 @@ fn emit_preview_events(
     let _ = app.emit(&format!("chat://event/{session_id}"), &requested);
     let result = ChatEventEnvelope {
         session_id,
-        event: AgentEvent::PreviewOpenResult {
-            request_id: response.request_id.clone(),
-            status: response.status.as_str().to_string(),
-            preview_url: response.preview_url.clone(),
-            target_label: response.target_label.clone(),
-            reason_code: response.reason_code.clone(),
-            message: response.message.clone(),
-            resolved_at: response.resolved_at,
-        },
+        event: preview_open_result_event(response),
     };
     let _ = app.emit(&format!("chat://event/{session_id}"), &result);
+}
+
+fn preview_open_result_event(response: &PreviewOpenResponse) -> AgentEvent {
+    AgentEvent::PreviewOpenResult {
+        request_id: response.request_id.clone(),
+        status: response.status.as_str().to_string(),
+        preview_url: response.preview_url.clone(),
+        asset_file_path: response.asset_file_path.clone(),
+        target_label: response.target_label.clone(),
+        reason_code: response.reason_code.clone(),
+        message: response.message.clone(),
+        resolved_at: response.resolved_at,
+    }
 }
 
 fn source_as_str(source: PreviewRequestSource) -> &'static str {
@@ -973,5 +978,28 @@ mod tests {
         .unwrap();
         let err = detect_package_info(tmp.path()).unwrap_err();
         assert!(err.contains("dev 또는 start"));
+    }
+
+    #[test]
+    fn preview_open_result_event_carries_asset_file_path_from_response() {
+        let response = PreviewOpenResponse {
+            request_id: "preview-1".into(),
+            status: PreviewOpenStatus::Ready,
+            kind: PreviewRequestKind::StaticFile,
+            preview_url: Some("asset://project/index.html".into()),
+            asset_file_path: Some("/project/index.html".into()),
+            target_label: "index.html".into(),
+            reason_code: None,
+            message: "Preview opened.".into(),
+            logs: Vec::new(),
+            command_summary: None,
+            resolved_at: 123,
+        };
+
+        let value = serde_json::to_value(preview_open_result_event(&response)).unwrap();
+
+        assert_eq!(value["type"], "preview_open_result");
+        assert_eq!(value["previewUrl"], "asset://project/index.html");
+        assert_eq!(value["assetFilePath"], "/project/index.html");
     }
 }

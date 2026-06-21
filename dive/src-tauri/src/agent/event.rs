@@ -61,6 +61,8 @@ pub enum AgentEvent {
         status: String,
         #[serde(rename = "previewUrl", skip_serializing_if = "Option::is_none")]
         preview_url: Option<String>,
+        #[serde(rename = "assetFilePath", skip_serializing_if = "Option::is_none")]
+        asset_file_path: Option<String>,
         #[serde(rename = "targetLabel")]
         target_label: String,
         #[serde(rename = "reasonCode", skip_serializing_if = "Option::is_none")]
@@ -173,6 +175,31 @@ pub enum AgentEvent {
     Done {
         reason: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AgentEvent;
+
+    #[test]
+    fn serializes_preview_open_result_asset_file_path_as_camel_case() {
+        let value = serde_json::to_value(AgentEvent::PreviewOpenResult {
+            request_id: "preview-1".into(),
+            status: "ready".into(),
+            preview_url: Some("asset://project/index.html".into()),
+            asset_file_path: Some("/project/index.html".into()),
+            target_label: "index.html".into(),
+            reason_code: None,
+            message: "Preview opened.".into(),
+            resolved_at: 123,
+        })
+        .unwrap();
+
+        assert_eq!(value["type"], "preview_open_result");
+        assert_eq!(value["previewUrl"], "asset://project/index.html");
+        assert_eq!(value["assetFilePath"], "/project/index.html");
+        assert!(value.get("asset_file_path").is_none());
+    }
 }
 
 /// Diff payload surfaced on `ToolCallStart` for edit_file / write_file so the

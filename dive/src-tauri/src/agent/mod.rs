@@ -2014,6 +2014,7 @@ fn emit_preview_open_tool_events(payload: &Value, emit: &mut (dyn FnMut(AgentEve
             .get("previewUrl")
             .and_then(Value::as_str)
             .map(str::to_string),
+        asset_file_path: optional_string_field(payload, "assetFilePath"),
         target_label,
         reason_code: payload
             .get("reasonCode")

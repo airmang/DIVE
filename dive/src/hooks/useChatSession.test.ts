@@ -1,7 +1,31 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from "vitest";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../i18n";
-import { reduceChatSessionState, type AgentEvent, type ChatSessionState } from "./useChatSession";
+import { useSlideInStore } from "../stores/slideIn";
+
+const tauriMocks = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  listen: vi.fn(),
+  convertFileSrc: vi.fn((path: string) => `converted:${path}`),
+  listeners: new Map<string, (event: { payload: unknown }) => void>(),
+}));
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: tauriMocks.invoke,
+  convertFileSrc: tauriMocks.convertFileSrc,
+}));
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: tauriMocks.listen,
+}));
+
+import {
+  reduceChatSessionState,
+  useChatSession,
+  type AgentEvent,
+  type ChatSessionState,
+} from "./useChatSession";
 
 function initialState(): ChatSessionState {
   return {
@@ -47,6 +71,45 @@ function runtimeCapability(
 describe("useChatSession runtime event reducer", () => {
   beforeEach(() => {
     useLocaleStore.setState({ locale: "en" });
+    useSlideInStore.setState({
+      isOpen: false,
+      activeTab: "code",
+      changedFiles: [],
+      changeSummary: null,
+      emptyReason: null,
+      selectedFilePath: null,
+      previewUrl: null,
+      previewSession: null,
+      previewRequestContext: null,
+      runtimeEvidence: [],
+      terminalLines: [],
+    });
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {},
+    });
+    tauriMocks.listeners.clear();
+    tauriMocks.convertFileSrc.mockClear();
+    tauriMocks.invoke.mockReset();
+    tauriMocks.invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "message_list") return [];
+      if (cmd === "pending_tool_calls") return [];
+      throw new Error(`unexpected invoke: ${cmd}`);
+    });
+    tauriMocks.listen.mockReset();
+    tauriMocks.listen.mockImplementation(
+      async (event: string, handler: (event: { payload: unknown }) => void) => {
+        tauriMocks.listeners.set(event, handler);
+        return () => {
+          tauriMocks.listeners.delete(event);
+        };
+      },
+    );
+  });
+
+  afterEach(() => {
+    cleanup();
+    delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
   });
 
   it("records pi_sidecar as the supervised ready runtime", () => {
@@ -316,8 +379,50 @@ describe("useChatSession runtime event reducer", () => {
     if (!call || call.kind !== "tool_call") throw new Error("expected tool call");
     expect(call.status).toBe("stale");
     expect(call.deniedReason).toContain("did not run");
-    expect(next.messages.some((message) => message.kind === "error" && message.id.startsWith("stale-"))).toBe(
-      true,
+    expect(
+      next.messages.some((message) => message.kind === "error" && message.id.startsWith("stale-")),
+    ).toBe(true);
+  });
+
+  it("converts static HTML asset paths from preview_open_result session events", async () => {
+    const { result } = renderHook(() => useChatSession(42));
+
+    await waitFor(() => expect(result.current.loadingHistory).toBe(false));
+    const handler = tauriMocks.listeners.get("chat://event/42");
+    if (!handler) throw new Error("expected chat event listener");
+
+    act(() => {
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "preview_open_result",
+            requestId: "preview-1",
+            status: "ready",
+            previewUrl: "asset://project/index.html",
+            assetFilePath: "/project/index.html",
+            targetLabel: "index.html",
+            reasonCode: null,
+            message: "Preview opened.",
+            resolvedAt: 123,
+          } satisfies Extract<AgentEvent, { type: "preview_open_result" }>,
+        },
+      });
+    });
+
+    await waitFor(() =>
+      expect(useSlideInStore.getState().previewSession?.previewUrl).toBe(
+        "converted:/project/index.html",
+      ),
     );
+    expect(tauriMocks.convertFileSrc).toHaveBeenCalledWith("/project/index.html");
+    expect(useSlideInStore.getState().previewSession).toMatchObject({
+      assetFilePath: "/project/index.html",
+      targetLabel: "index.html",
+      status: "ready",
+    });
+    expect(useSlideInStore.getState().previewUrl).toBe("converted:/project/index.html");
+    expect(useSlideInStore.getState().previewUrl).not.toBe("asset://project/index.html");
+    expect(useSlideInStore.getState().activeTab).toBe("preview");
   });
 });
