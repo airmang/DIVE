@@ -12,7 +12,7 @@
 
 ## 현재 버전
 
-**1.0.0-rc.2** — production AppState, disk DB, provider runtime, roadmap persistence, Settings, native menu, and productization checks are active.
+**1.0.0-rc.3** — production AppState, disk DB, provider runtime, roadmap persistence, Settings, native menu, productization checks, hidden Pi sidecar launch, and verification revision-request handling are active.
 
 > ⚠️ `v1.0.0-rc.1`은 회수(Yanked)되었습니다. 해당 빌드는 production AppState가 demo mock으로 와이어드되어 실제 데이터 저장/실 LLM 호출이 동작하지 않습니다. **v1.0.0-rc.2 이상**만 사용하세요.
 
@@ -142,6 +142,7 @@ cargo clippy --features dev-mock --all-targets -- -D warnings
 
 | 버전        | 범위                                                                                |
 | ----------- | ----------------------------------------------------------------------------------- |
+| v1.0.0-rc.3 | Production wiring · disk DB · provider runtime · roadmap persistence · hidden Pi sidecar launch · verification revision-request fix |
 | v1.0.0-rc.2 | Production wiring · disk DB · provider runtime · roadmap persistence · release gate |
 | Phase 8     | Product UX Refactor — beginner-friendly desktop coding agent surface                |
 | v1.0        | Product UX polish · accessibility · release hardening                               |

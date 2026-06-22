@@ -345,6 +345,28 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
     );
   });
 
+  it("sends a note when requesting changes from verification review", async () => {
+    const onApprovalDecision = vi.fn();
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+
+    renderStepDetail({ onApprovalDecision });
+
+    await screen.findByTestId("decision-gate");
+    fireEvent.click(screen.getByTestId("decision-gate-request-changes"));
+
+    expect(onApprovalDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "revision_requested",
+        note: expect.any(String),
+      }),
+    );
+    expect(onApprovalDecision.mock.calls[0]?.[0].note.trim().length).toBeGreaterThan(0);
+  });
+
   it("preserves recorded observation evidence after regenerating guidance", async () => {
     evaluateMock.mockResolvedValue({
       status: "none",

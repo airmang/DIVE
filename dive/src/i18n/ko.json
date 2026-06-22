@@ -661,6 +661,7 @@
       "decision_reason_placeholder": "예: 테스트 실패 원인을 확인했고 이 변경은 다음 단계에서 다룰 수 있음",
       "decision_approve": "승인",
       "decision_request_changes": "수정 요청",
+      "decision_request_changes_note": "검증 검토에서 수정 요청을 보냈습니다.",
       "decision_verify_first": "검증 먼저",
       "decision_revert": "되돌리기",
       "decision_stop": "중단",

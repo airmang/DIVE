@@ -1111,7 +1111,10 @@ export function StepDetailSlideIn({
                 onApprovalDecision({ outcome: "verification_deferred", note: null })
               }
               onRequestChanges={() =>
-                onApprovalDecision({ outcome: "revision_requested", note: null })
+                onApprovalDecision({
+                  outcome: "revision_requested",
+                  note: t("roadmap.step_detail.decision_request_changes_note"),
+                })
               }
               onVerifyFirst={onVerifyFirst}
               onRevert={onOpenRecovery}

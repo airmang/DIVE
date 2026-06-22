@@ -40,6 +40,20 @@ All notable changes to DIVE are documented here. Format: [Keep a Changelog](http
 - Release gate red lights cleared for `verify:production-wire`, `verify:version-sync`, and `format:check`.
 - Phase 10 Gate A rerun is green: frontend typecheck/lint/build/format/production-wire/v4 plus Rust fmt/check/test/clippy and the corrected release mock guard path.
 
+## [1.0.0-rc.3] — 2026-06-22
+
+### Fixed
+
+- Windows AI calls no longer open a visible terminal window for the Pi sidecar process.
+- Verification review "Request changes" now sends the required revision note instead of failing with `note required when outcome is not 'approved'`.
+
+### Verification
+
+- `pnpm typecheck`
+- `pnpm vitest run src/components/product/StepDetailSlideIn.test.tsx`
+- `cargo check --lib --quiet`
+- `cargo test --features dev-mock --test card_state_machine revision_requested_requires_note_and_rejects_card --quiet`
+
 ### External blockers before publish
 
 - Full Windows physical-machine / CI `tauri-driver` + NSIS installed-app smoke.
@@ -183,7 +197,8 @@ v0.1 — 워크맵 + 채팅 + 권한 카드 + D 게이트. 메인 시나리오 A
 
 ---
 
-[Unreleased]: https://github.com/airmang/DIVE-2/compare/v1.0.0-rc.2...HEAD
+[Unreleased]: https://github.com/airmang/DIVE-2/compare/v1.0.0-rc.3...HEAD
+[1.0.0-rc.3]: https://github.com/airmang/DIVE-2/compare/v1.0.0-rc.2...v1.0.0-rc.3
 [1.0.0-rc.2]: https://github.com/airmang/DIVE-2/compare/v1.0.0-rc.1...v1.0.0-rc.2
 [Yanked 1.0.0-rc.1]: https://github.com/airmang/DIVE-2/releases/tag/v1.0.0-rc.1
 [1.0.0-rc.1]: https://github.com/airmang/DIVE-2/releases/tag/v1.0.0-rc.1

@@ -661,6 +661,7 @@
       "decision_reason_placeholder": "Example: I checked the failure and can handle it in the next step",
       "decision_approve": "Approve",
       "decision_request_changes": "Request changes",
+      "decision_request_changes_note": "Request changes from the verification review.",
       "decision_verify_first": "Verify first",
       "decision_revert": "Revert",
       "decision_stop": "Stop",

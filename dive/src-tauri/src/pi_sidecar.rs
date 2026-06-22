@@ -28,7 +28,7 @@ pub mod parity;
 
 #[cfg(test)]
 use command::set_test_sidecar_script_path;
-use command::{bundled_sidecar_path, resolve_sidecar_command};
+use command::{bundled_sidecar_path, resolve_sidecar_command, SidecarCommand};
 use credential::{
     decode_jwt_exp_ms, default_expiry_ms, file_mode_string, now_epoch_ms,
     prepare_runtime_credential, write_codex_auth_file, TempAuthDir,
@@ -65,6 +65,17 @@ const SIDECAR_CANCELLED: &str = "pi sidecar turn cancelled";
 /// tool calls stay well under this; exceeding it fails the turn (retryable) instead of
 /// letting the buffer grow unbounded under a misbehaving sidecar.
 const MAX_BUFFERED_SIDECAR_EVENTS: usize = 256;
+
+fn new_sidecar_process(sidecar_cmd: &SidecarCommand) -> Command {
+    let mut command = Command::new(&sidecar_cmd.program);
+    command.args(&sidecar_cmd.prefix_args);
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PiSidecarSmokeResult {
@@ -190,8 +201,7 @@ pub async fn run_codex_smoke(
     let request_id = uuid::Uuid::new_v4().to_string();
     let sidecar_cmd = resolve_sidecar_command(bundled_sidecar_path())?;
 
-    let mut child = Command::new(&sidecar_cmd.program)
-        .args(&sidecar_cmd.prefix_args)
+    let mut child = new_sidecar_process(&sidecar_cmd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -364,8 +374,7 @@ pub async fn run_supervisor_turn(
     let cwd = cwd.display().to_string();
     let tools: Vec<ToolDef> = Vec::new();
 
-    let mut child = Command::new(&sidecar_cmd.program)
-        .args(&sidecar_cmd.prefix_args)
+    let mut child = new_sidecar_process(&sidecar_cmd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -653,8 +662,7 @@ async fn run_supervised_turn_inner(
         write_runtime_state(path, &runtime_state)?;
     }
 
-    let mut child = Command::new(&sidecar_cmd.program)
-        .args(&sidecar_cmd.prefix_args)
+    let mut child = new_sidecar_process(&sidecar_cmd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
