@@ -801,14 +801,29 @@ export function useProductShellController() {
       // intent unmet, instead of being blocked by the backend approve-eligibility
       // gate. Blind approval isn't prevented here; it's recorded as the
       // over-trust anti-metric (research design). Hence approveForce on approve.
-      void roadmapModel
-        .transitionStep(currentCard.id, action, {
+      void (async () => {
+        if (currentCard.state === "rejected") {
+          if (!isApprove) {
+            if (decision.note) {
+              pushChatComposerSeed(decision.note);
+              requestChatFocus();
+            }
+            dialogs.setStepDetailOpen(false);
+            return "handled_rejected_revision" as const;
+          }
+          await roadmapModel.transitionStep(currentCard.id, "reopen");
+          await chat.transitionCardRemote(currentCard.id, "request_verify");
+        }
+        await roadmapModel.transitionStep(currentCard.id, action, {
           judgment,
           approveForce: isApprove,
           approvalProvenance,
-        })
-        .then(async () => {
+        });
+        return "transitioned" as const;
+      })()
+        .then(async (result) => {
           await planRoadmap.refresh();
+          if (result === "handled_rejected_revision") return;
           if (decision.outcome === "revision_requested" && decision.note) {
             pushChatComposerSeed(decision.note);
             requestChatFocus();
@@ -818,6 +833,7 @@ export function useProductShellController() {
         .catch(showWorkmapError);
     },
     [
+      chat,
       currentCard,
       currentProjectId,
       currentSessionId,

@@ -50,7 +50,7 @@ describe("PreviewTab", () => {
       requestId: "preview-1",
       status: "ready",
       kind: "static_file",
-      previewUrl: "asset://project/index.html",
+      previewUrl: "http://127.0.0.1:49152/index.html",
       assetFilePath: "/project/index.html",
       targetLabel: "index.html",
       reasonCode: null,
@@ -74,6 +74,10 @@ describe("PreviewTab", () => {
       },
     });
     await screen.findByTestId("preview-iframe");
+    expect(screen.getByTestId("preview-iframe").getAttribute("src")).toBe(
+      "http://127.0.0.1:49152/index.html",
+    );
+    expect(convertFileSrcMock).not.toHaveBeenCalled();
     expect(screen.queryByText(/approval/i)).toBeNull();
     expect(screen.queryByText(/shell command/i)).toBeNull();
     expect(useSlideInStore.getState().previewSession?.status).toBe("ready");

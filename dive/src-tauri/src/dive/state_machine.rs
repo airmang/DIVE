@@ -33,6 +33,7 @@ pub fn apply(current: CardState, transition: CardTransition) -> Result<CardState
         (Instructed, RequestVerify) => Verifying,
         (Verifying, Approve) => Verified,
         (Verifying, Reject) => Rejected,
+        (Rejected, Reject) => Rejected,
         (Rejected, ReopenFromReject) => Instructed,
         (Verified, Extend) => Extended,
         _ => {
@@ -79,6 +80,11 @@ mod tests {
     #[test]
     fn rejected_reopens_to_instructed() {
         assert_eq!(apply(Rejected, ReopenFromReject).unwrap(), Instructed);
+    }
+
+    #[test]
+    fn rejected_reject_is_idempotent() {
+        assert_eq!(apply(Rejected, Reject).unwrap(), Rejected);
     }
 
     #[test]

@@ -17,7 +17,7 @@ use crate::tools::ToolRegistry;
 #[cfg(any(test, feature = "dev-mock"))]
 use crate::providers::MockProvider;
 
-use super::preview::PreviewProcess;
+use super::preview::{PreviewProcess, StaticPreviewServer};
 use crate::db::models::RuntimeCapabilityState;
 
 use super::{ProviderKind, ProviderRuntime};
@@ -105,6 +105,7 @@ pub struct AppState {
     pub pending_approvals: PendingApprovals,
     pub project_root: Arc<RwLock<PathBuf>>,
     pub(crate) preview_process: Arc<Mutex<Option<PreviewProcess>>>,
+    pub(crate) static_preview_server: Arc<Mutex<Option<StaticPreviewServer>>>,
     pub cancels: Arc<Mutex<HashMap<i64, Arc<AtomicBool>>>>,
     pub route_cancels: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     pub keyring: Arc<dyn Keyring>,
@@ -137,6 +138,7 @@ impl AppState {
             pending_approvals: pending,
             project_root: Arc::new(RwLock::new(project_root)),
             preview_process: Arc::new(Mutex::new(None)),
+            static_preview_server: Arc::new(Mutex::new(None)),
             cancels: Arc::new(Mutex::new(HashMap::new())),
             route_cancels: Arc::new(Mutex::new(HashMap::new())),
             keyring: Arc::new(OsKeyring::new()),
@@ -191,6 +193,7 @@ impl AppState {
             pending_approvals: pending,
             project_root: Arc::new(RwLock::new(project_root)),
             preview_process: Arc::new(Mutex::new(None)),
+            static_preview_server: Arc::new(Mutex::new(None)),
             cancels: Arc::new(Mutex::new(HashMap::new())),
             route_cancels: Arc::new(Mutex::new(HashMap::new())),
             keyring,
@@ -323,6 +326,16 @@ impl AppState {
     }
 
     pub fn swap_project_root(&self, next: PathBuf) -> Result<(), String> {
+        if let Ok(mut preview) = self.preview_process.lock() {
+            if let Some(mut process) = preview.take() {
+                let _ = process.child.start_kill();
+            }
+        }
+        if let Ok(mut server) = self.static_preview_server.lock() {
+            if let Some(server) = server.take() {
+                server.abort();
+            }
+        }
         let mut root = self.project_root.write().map_err(|e| e.to_string())?;
         *root = next;
         Ok(())

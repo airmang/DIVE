@@ -1,13 +1,15 @@
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::{AppHandle, Emitter, State};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 use crate::agent::AgentEvent;
@@ -28,6 +30,19 @@ pub(crate) struct PreviewProcess {
     pub root: PathBuf,
     pub url: String,
     pub child: Child,
+}
+
+#[derive(Debug)]
+pub(crate) struct StaticPreviewServer {
+    pub root: PathBuf,
+    pub base_url: String,
+    pub handle: JoinHandle<()>,
+}
+
+impl StaticPreviewServer {
+    pub(crate) fn abort(self) {
+        self.handle.abort();
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -210,19 +225,26 @@ pub async fn preview_open_impl(
     match request.kind {
         PreviewRequestKind::StaticFile => {
             match validate_static_preview_target(&root, &request.target) {
-                Ok(target) => Ok(PreviewOpenResponse {
-                    request_id,
-                    status: PreviewOpenStatus::Ready,
-                    kind: request.kind,
-                    preview_url: Some(format!("asset://project/{}", target.target_label)),
-                    asset_file_path: Some(target.asset_file_path.display().to_string()),
-                    target_label: target.target_label,
-                    reason_code: None,
-                    message: "Preview opened.".into(),
-                    logs: Vec::new(),
-                    command_summary: None,
-                    resolved_at: now_ms(),
-                }),
+                Ok(target) => {
+                    let base_url = static_preview_base_url(state, &root).await?;
+                    Ok(PreviewOpenResponse {
+                        request_id,
+                        status: PreviewOpenStatus::Ready,
+                        kind: request.kind,
+                        preview_url: Some(format!(
+                            "{}/{}",
+                            base_url.trim_end_matches('/'),
+                            url_path_for_target(&target.target_label)
+                        )),
+                        asset_file_path: Some(target.asset_file_path.display().to_string()),
+                        target_label: target.target_label,
+                        reason_code: None,
+                        message: "Preview opened.".into(),
+                        logs: Vec::new(),
+                        command_summary: Some("Static project preview server".into()),
+                        resolved_at: now_ms(),
+                    })
+                }
                 Err(reason) => Ok(unavailable_preview_response(
                     request_id,
                     request.kind,
@@ -306,19 +328,26 @@ pub async fn preview_open_impl(
         PreviewRequestKind::Auto => {
             if root.join("index.html").is_file() {
                 match validate_static_preview_target(&root, "index.html") {
-                    Ok(target) => Ok(PreviewOpenResponse {
-                        request_id,
-                        status: PreviewOpenStatus::Ready,
-                        kind: PreviewRequestKind::StaticFile,
-                        preview_url: Some(format!("asset://project/{}", target.target_label)),
-                        asset_file_path: Some(target.asset_file_path.display().to_string()),
-                        target_label: target.target_label,
-                        reason_code: None,
-                        message: "Preview opened.".into(),
-                        logs: Vec::new(),
-                        command_summary: None,
-                        resolved_at: now_ms(),
-                    }),
+                    Ok(target) => {
+                        let base_url = static_preview_base_url(state, &root).await?;
+                        Ok(PreviewOpenResponse {
+                            request_id,
+                            status: PreviewOpenStatus::Ready,
+                            kind: PreviewRequestKind::StaticFile,
+                            preview_url: Some(format!(
+                                "{}/{}",
+                                base_url.trim_end_matches('/'),
+                                url_path_for_target(&target.target_label)
+                            )),
+                            asset_file_path: Some(target.asset_file_path.display().to_string()),
+                            target_label: target.target_label,
+                            reason_code: None,
+                            message: "Preview opened.".into(),
+                            logs: Vec::new(),
+                            command_summary: Some("Static project preview server".into()),
+                            resolved_at: now_ms(),
+                        })
+                    }
                     Err(reason) => Ok(unavailable_preview_response(
                         request_id,
                         PreviewRequestKind::StaticFile,
@@ -365,6 +394,245 @@ pub async fn preview_open_impl(
                 }
             }
         }
+    }
+}
+
+async fn static_preview_base_url(state: &AppState, root: &Path) -> Result<String, String> {
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|e| format!("resolve preview root: {e}"))?;
+    if let Some(url) = {
+        let guard = state
+            .static_preview_server
+            .lock()
+            .map_err(|e| e.to_string())?;
+        guard
+            .as_ref()
+            .filter(|server| server.root == canonical_root && !server.handle.is_finished())
+            .map(|server| server.base_url.clone())
+    } {
+        return Ok(url);
+    }
+
+    if let Some(server) = state
+        .static_preview_server
+        .lock()
+        .map_err(|e| e.to_string())?
+        .take()
+    {
+        server.abort();
+    }
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| format!("start static preview server: {e}"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("read static preview address: {e}"))?
+        .port();
+    let base_url = format!("http://127.0.0.1:{port}");
+    let server_root = canonical_root.clone();
+    let handle = tokio::spawn(async move {
+        run_static_preview_server(listener, server_root).await;
+    });
+    let mut guard = state
+        .static_preview_server
+        .lock()
+        .map_err(|e| e.to_string())?;
+    *guard = Some(StaticPreviewServer {
+        root: canonical_root,
+        base_url: base_url.clone(),
+        handle,
+    });
+    Ok(base_url)
+}
+
+async fn run_static_preview_server(listener: TcpListener, root: PathBuf) {
+    loop {
+        let Ok((stream, _)) = listener.accept().await else {
+            break;
+        };
+        let root = root.clone();
+        tokio::spawn(async move {
+            let _ = serve_static_preview_request(stream, root).await;
+        });
+    }
+}
+
+async fn serve_static_preview_request(mut stream: TcpStream, root: PathBuf) -> std::io::Result<()> {
+    let mut buffer = vec![0_u8; 8192];
+    let read = stream.read(&mut buffer).await?;
+    if read == 0 {
+        return Ok(());
+    }
+    let request = String::from_utf8_lossy(&buffer[..read]);
+    let mut parts = request
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .split_whitespace();
+    let method = parts.next().unwrap_or_default();
+    let raw_path = parts.next().unwrap_or("/");
+    if method != "GET" && method != "HEAD" {
+        return write_static_response(
+            &mut stream,
+            405,
+            "text/plain; charset=utf-8",
+            b"method not allowed",
+            method == "HEAD",
+        )
+        .await;
+    }
+    let Some(path) = resolve_static_request_path(&root, raw_path) else {
+        return write_static_response(
+            &mut stream,
+            404,
+            "text/plain; charset=utf-8",
+            b"not found",
+            method == "HEAD",
+        )
+        .await;
+    };
+    match tokio::fs::read(&path).await {
+        Ok(body) => {
+            let content_type = content_type_for_path(&path);
+            write_static_response(&mut stream, 200, content_type, &body, method == "HEAD").await
+        }
+        Err(_) => {
+            write_static_response(
+                &mut stream,
+                404,
+                "text/plain; charset=utf-8",
+                b"not found",
+                method == "HEAD",
+            )
+            .await
+        }
+    }
+}
+
+async fn write_static_response(
+    stream: &mut TcpStream,
+    status: u16,
+    content_type: &str,
+    body: &[u8],
+    head_only: bool,
+) -> std::io::Result<()> {
+    let reason = match status {
+        200 => "OK",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        _ => "Error",
+    };
+    let header = format!(
+        "HTTP/1.1 {status} {reason}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\ncache-control: no-store\r\nx-content-type-options: nosniff\r\nconnection: close\r\n\r\n",
+        body.len()
+    );
+    stream.write_all(header.as_bytes()).await?;
+    if !head_only {
+        stream.write_all(body).await?;
+    }
+    Ok(())
+}
+
+fn resolve_static_request_path(root: &Path, raw_path: &str) -> Option<PathBuf> {
+    let path = raw_path.split(['?', '#']).next().unwrap_or("/");
+    let decoded = percent_decode_path(path)?;
+    let trimmed = decoded.trim_start_matches('/');
+    let relative = if trimmed.is_empty() {
+        PathBuf::from("index.html")
+    } else {
+        PathBuf::from(trimmed)
+    };
+    if relative.components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
+        return None;
+    }
+    let candidate = root.join(relative);
+    let canonical = candidate.canonicalize().ok()?;
+    if canonical.is_file() && canonical.starts_with(root) {
+        Some(canonical)
+    } else {
+        None
+    }
+}
+
+fn percent_decode_path(input: &str) -> Option<String> {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let hi = bytes.get(index + 1).copied().and_then(hex_value)?;
+            let lo = bytes.get(index + 2).copied().and_then(hex_value)?;
+            out.push((hi << 4) | lo);
+            index += 3;
+        } else {
+            out.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn url_path_for_target(target: &str) -> String {
+    target
+        .replace('\\', "/")
+        .split('/')
+        .map(percent_encode_segment)
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn percent_encode_segment(segment: &str) -> String {
+    let mut out = String::new();
+    for byte in segment.bytes() {
+        let allowed = byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~');
+        if allowed {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+fn content_type_for_path(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "html" | "htm" => "text/html; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "js" | "mjs" => "text/javascript; charset=utf-8",
+        "json" => "application/json; charset=utf-8",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "ico" => "image/x-icon",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "ttf" => "font/ttf",
+        "wasm" => "application/wasm",
+        _ => "application/octet-stream",
     }
 }
 

@@ -720,6 +720,9 @@ pub(super) fn card_transition_with_checkpoint_and_provenance_impl(
             serde_json::json!({ "stage": next_stage, "card_id": card_id }),
         )?;
     }
+    if previous_state == next {
+        return Ok((next, None));
+    }
 
     let Some(label) = auto_checkpoint_label(transition, &card_title) else {
         return Ok((next, None));

@@ -603,9 +603,9 @@ export function useChatSession(
           appendToolResultToTerminal(payload);
           if (isPreviewOpenPayload(payload.full)) {
             const { setPreviewSession, open } = useSlideInStore.getState();
-            const displayUrl = payload.full.assetFilePath
-              ? api.convertFileSrc(payload.full.assetFilePath)
-              : (payload.full.previewUrl ?? null);
+            const displayUrl =
+              payload.full.previewUrl ??
+              (payload.full.assetFilePath ? api.convertFileSrc(payload.full.assetFilePath) : null);
             setPreviewSession({
               requestId: payload.full.requestId,
               status: payload.full.status,
@@ -622,9 +622,9 @@ export function useChatSession(
         }
         if (payload.type === "preview_open_result") {
           const { setPreviewSession, open } = useSlideInStore.getState();
-          const displayUrl = payload.assetFilePath
-            ? api.convertFileSrc(payload.assetFilePath)
-            : (payload.previewUrl ?? null);
+          const displayUrl =
+            payload.previewUrl ??
+            (payload.assetFilePath ? api.convertFileSrc(payload.assetFilePath) : null);
           setPreviewSession({
             requestId: payload.requestId,
             status: payload.status,

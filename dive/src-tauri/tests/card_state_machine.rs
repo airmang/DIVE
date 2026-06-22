@@ -231,6 +231,40 @@ fn revision_requested_requires_note_and_rejects_card() {
     assert_eq!(next, CardState::Rejected);
 }
 
+#[test]
+fn duplicate_revision_request_from_rejected_is_idempotent() {
+    let (state, card_id) = setup_verifying_card_with_passing_log();
+    let first = ApprovalJudgment {
+        outcome: ApprovalOutcome::RevisionRequested,
+        note: Some("needs changes".into()),
+        decided_at: 1,
+    };
+    let next = card_transition_no_checkpoint_impl(
+        &state,
+        card_id,
+        CardTransition::Reject,
+        None,
+        Some(first),
+    )
+    .unwrap();
+    assert_eq!(next, CardState::Rejected);
+
+    let duplicate = ApprovalJudgment {
+        outcome: ApprovalOutcome::RevisionRequested,
+        note: Some("still needs changes".into()),
+        decided_at: 2,
+    };
+    let next = card_transition_no_checkpoint_impl(
+        &state,
+        card_id,
+        CardTransition::Reject,
+        None,
+        Some(duplicate),
+    )
+    .unwrap();
+    assert_eq!(next, CardState::Rejected);
+}
+
 #[tokio::test]
 async fn agent_loop_starts_without_legacy_instruction_gate() {
     let (db, _db_file, root, sid) = fresh_env();

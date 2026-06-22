@@ -119,6 +119,35 @@ async fn opens_reachable_loopback_url_without_project_command() {
 }
 
 #[tokio::test]
+async fn opens_static_html_through_project_scoped_http_server() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        tmp.path().join("index.html"),
+        r#"<link rel="stylesheet" href="style.css"><h1>DIVE</h1>"#,
+    )
+    .unwrap();
+    std::fs::write(tmp.path().join("style.css"), "body { background: black; }").unwrap();
+    let state = AppState::dev_mock();
+    state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+
+    let result = preview_open_impl(
+        &state,
+        request(PreviewRequestKind::StaticFile, "index.html"),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(result.status, PreviewOpenStatus::Ready);
+    let preview_url = result.preview_url.as_deref().unwrap();
+    assert!(preview_url.starts_with("http://127.0.0.1:"));
+    assert!(preview_url.ends_with("/index.html"));
+
+    let css_url = preview_url.replace("index.html", "style.css");
+    let css = reqwest::get(css_url).await.unwrap().text().await.unwrap();
+    assert!(css.contains("background: black"));
+}
+
+#[tokio::test]
 async fn reports_unreachable_loopback_url_as_preview_failure() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!(

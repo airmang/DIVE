@@ -384,7 +384,7 @@ describe("useChatSession runtime event reducer", () => {
     ).toBe(true);
   });
 
-  it("converts static HTML asset paths from preview_open_result session events", async () => {
+  it("uses static preview URLs before falling back to asset conversion", async () => {
     const { result } = renderHook(() => useChatSession(42));
 
     await waitFor(() => expect(result.current.loadingHistory).toBe(false));
@@ -399,7 +399,7 @@ describe("useChatSession runtime event reducer", () => {
             type: "preview_open_result",
             requestId: "preview-1",
             status: "ready",
-            previewUrl: "asset://project/index.html",
+            previewUrl: "http://127.0.0.1:49152/index.html",
             assetFilePath: "/project/index.html",
             targetLabel: "index.html",
             reasonCode: null,
@@ -412,16 +412,16 @@ describe("useChatSession runtime event reducer", () => {
 
     await waitFor(() =>
       expect(useSlideInStore.getState().previewSession?.previewUrl).toBe(
-        "converted:/project/index.html",
+        "http://127.0.0.1:49152/index.html",
       ),
     );
-    expect(tauriMocks.convertFileSrc).toHaveBeenCalledWith("/project/index.html");
+    expect(tauriMocks.convertFileSrc).not.toHaveBeenCalled();
     expect(useSlideInStore.getState().previewSession).toMatchObject({
       assetFilePath: "/project/index.html",
       targetLabel: "index.html",
       status: "ready",
     });
-    expect(useSlideInStore.getState().previewUrl).toBe("converted:/project/index.html");
+    expect(useSlideInStore.getState().previewUrl).toBe("http://127.0.0.1:49152/index.html");
     expect(useSlideInStore.getState().previewUrl).not.toBe("asset://project/index.html");
     expect(useSlideInStore.getState().activeTab).toBe("preview");
   });
