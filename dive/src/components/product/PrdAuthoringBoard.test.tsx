@@ -256,11 +256,11 @@ describe("PrdAuthoringBoard", () => {
     const rail = screen.getByTestId("prd-interview-rail");
 
     fireEvent.change(within(rail).getByTestId("prd-interview-input"), {
-      target: { value: "학생 제출물을 빨리 확인하고 싶어요." },
+      target: { value: "사용자 제출물을 빨리 확인하고 싶어요." },
     });
     fireEvent.click(within(rail).getByTestId("prd-interview-send"));
 
-    expect(await screen.findByText("학생 제출물을 빨리 확인하고 싶어요.")).toBeTruthy();
+    expect(await screen.findByText("사용자 제출물을 빨리 확인하고 싶어요.")).toBeTruthy();
     expect(
       await screen.findByText("좋아요. 먼저 누가 이걸 쓰는지 조금 더 좁혀볼게요."),
     ).toBeTruthy();
@@ -268,7 +268,7 @@ describe("PrdAuthoringBoard", () => {
     cleanup();
     renderBoard({ draft });
 
-    expect(screen.getByText("학생 제출물을 빨리 확인하고 싶어요.")).toBeTruthy();
+    expect(screen.getByText("사용자 제출물을 빨리 확인하고 싶어요.")).toBeTruthy();
     expect(screen.getByText("좋아요. 먼저 누가 이걸 쓰는지 조금 더 좁혀볼게요.")).toBeTruthy();
   });
 

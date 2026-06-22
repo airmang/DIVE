@@ -235,7 +235,9 @@ describe("PlanDashboardPanel add-step area", () => {
     });
     fireEvent.click(within(panel).getByTestId("plan-add-step-draft-request"));
 
-    await waitFor(() => expect(mocks.routePlan).toHaveBeenCalledWith("export reconstruction도 plan에 추가해줘"));
+    await waitFor(() =>
+      expect(mocks.routePlan).toHaveBeenCalledWith("export reconstruction도 plan에 추가해줘"),
+    );
     expect(mocks.appendStep).not.toHaveBeenCalled();
     expect((within(panel).getByTestId("plan-add-step-title") as HTMLInputElement).value).toBe(
       "Export mutation data",

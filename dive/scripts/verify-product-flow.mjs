@@ -254,8 +254,8 @@ check(
   "opening a roadmap step seeds the build prompt with plan context",
   includesAll(planStepRuntime, [
     "buildPlanStepExecutionPrompt",
-    "pendingAutoRunPlanStepBySession",
-    "input.chat.sendUserMessage",
+    "pendingPlanStepPrompt",
+    "pendingPromptPlanStepBySession",
   ]) &&
     includesAll(planStepLogic, [
       "buildPlanStepExecutionPrompt",
@@ -347,7 +347,7 @@ check(
     includesAll(previewTab, [
       'data-testid="preview-url-input"',
       'data-testid="preview-iframe"',
-      "isSafeUrl",
+      "isLoopbackUrl",
     ]),
 );
 

@@ -72,7 +72,12 @@ export interface ExecutionEvidenceData {
 
 export interface StaleApprovalStateData {
   toolCallId: string;
-  detectedBy: "approval_click" | "deny_click" | "result_event" | "pending_refresh" | "session_reload";
+  detectedBy:
+    | "approval_click"
+    | "deny_click"
+    | "result_event"
+    | "pending_refresh"
+    | "session_reload";
   message: string;
   resolvedAt: number;
 }

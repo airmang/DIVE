@@ -273,11 +273,11 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
       ? t("tool_call.status.rerouted")
       : denied
         ? t("tool_call.status.denied")
-    : result
-      ? result.summary
-      : running
-        ? "…"
-        : t("tool_call.status.approved");
+        : result
+          ? result.summary
+          : running
+            ? "…"
+            : t("tool_call.status.approved");
   const runtimeAction = result?.runtimeAction ?? call.runtimeAction;
   const runtimeLabelKey = runtimeActionLabelKey(runtimeAction);
 

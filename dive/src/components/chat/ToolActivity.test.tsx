@@ -246,7 +246,9 @@ describe("ToolActivity provocation permission gate", () => {
 
     expect(screen.getByText("Rerouted")).toBeTruthy();
     expect(screen.getByText("Opened through Preview instead")).toBeTruthy();
-    expect(screen.getByText("DIVE did not run the command. Use Preview for this local result.")).toBeTruthy();
+    expect(
+      screen.getByText("DIVE did not run the command. Use Preview for this local result."),
+    ).toBeTruthy();
   });
 
   it("renders stale approvals as no-command-ran states", () => {

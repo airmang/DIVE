@@ -202,7 +202,12 @@ export function PreviewTab() {
             if (e.key === "Enter") void loadUrl();
           }}
         />
-        <Button size="sm" variant="outline" onClick={() => void loadUrl()} data-testid="preview-load">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void loadUrl()}
+          data-testid="preview-load"
+        >
           {t("slide_in.preview.open")}
         </Button>
         <Button

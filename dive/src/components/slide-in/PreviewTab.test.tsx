@@ -101,9 +101,7 @@ describe("PreviewTab", () => {
     fireEvent.click(screen.getByTestId("preview-load"));
 
     await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(1));
-    expect(screen.getByTestId("preview-iframe").getAttribute("src")).toBe(
-      "http://127.0.0.1:5173/",
-    );
+    expect(screen.getByTestId("preview-iframe").getAttribute("src")).toBe("http://127.0.0.1:5173/");
 
     fireEvent.change(screen.getByTestId("preview-url-input"), {
       target: { value: "https://example.com" },

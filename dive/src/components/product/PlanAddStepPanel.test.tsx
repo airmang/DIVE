@@ -131,7 +131,7 @@ describe("PlanAddStepPanel scope-expansion supervisor cards", () => {
       target: { value: "Analytics dashboard" },
     });
     fireEvent.change(screen.getByTestId("plan-add-step-reason"), {
-      target: { value: "학생이 사용량을 볼 수 있게 한다." },
+      target: { value: "사용자가 사용량을 볼 수 있게 한다." },
     });
 
     const wrapper = await screen.findByTestId("plan-add-step-scope-card", {}, { timeout: 2000 });
@@ -179,7 +179,7 @@ describe("PlanAddStepPanel scope-expansion supervisor cards", () => {
     expect(evaluateMock).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByTestId("plan-add-step-reason"), {
-      target: { value: "학생이 사용량을 볼 수 있게 한다." },
+      target: { value: "사용자가 사용량을 볼 수 있게 한다." },
     });
     await wait(600);
     expect(evaluateMock).not.toHaveBeenCalled();
@@ -202,7 +202,7 @@ describe("PlanAddStepPanel scope-expansion supervisor cards", () => {
       target: { value: "Analytics dashboard" },
     });
     fireEvent.change(screen.getByTestId("plan-add-step-reason"), {
-      target: { value: "학생이 사용량을 볼 수 있게 한다." },
+      target: { value: "사용자가 사용량을 볼 수 있게 한다." },
     });
 
     await waitFor(() => expect(evaluateMock).toHaveBeenCalled());
@@ -232,7 +232,7 @@ describe("PlanAddStepPanel scope-expansion supervisor cards", () => {
       target: { value: "Analytics dashboard" },
     });
     fireEvent.change(screen.getByTestId("plan-add-step-reason"), {
-      target: { value: "학생이 사용량을 볼 수 있게 한다." },
+      target: { value: "사용자가 사용량을 볼 수 있게 한다." },
     });
 
     const unavailable = await screen.findByTestId("plan-add-step-scope-review-unavailable");
@@ -263,7 +263,7 @@ describe("PlanAddStepPanel scope-expansion supervisor cards", () => {
       target: { value: "Analytics dashboard" },
     });
     fireEvent.change(screen.getByTestId("plan-add-step-reason"), {
-      target: { value: "학생이 사용량을 볼 수 있게 한다." },
+      target: { value: "사용자가 사용량을 볼 수 있게 한다." },
     });
 
     await screen.findByTestId("provocation-card", {}, { timeout: 2000 });
