@@ -42,18 +42,18 @@ done
 artifact_paths() {
   local dir name
   for dir in "${artifact_dirs[@]}"; do
+    [[ -d "$dir" ]] || continue
     for name in "${artifact_names[@]}"; do
-      printf '%s/%s\n' "$dir" "$name"
+      find "$dir" -maxdepth 1 -type f -name "$name" -print
     done
-  done
+  done | sort -u
 }
 
 scan_artifacts() {
   local found=1
   local artifact matches
   while IFS= read -r artifact; do
-    [[ -f "$artifact" ]] || continue
-    matches="$(strings "$artifact" | rg -n -o "$pattern" || true)"
+    matches="$(strings "$artifact" | grep -E -n "$pattern" || true)"
     if [[ -n "$matches" ]]; then
       printf '%s\n' "$matches" | sed "s#^#$artifact:#" | head -20
       found=0
