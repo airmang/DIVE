@@ -142,6 +142,7 @@ function prdConversationContext(turns: PrdConversationTurn[]): PrdInterviewConve
     .map((turn) => ({ role: turn.role, text: turn.text.trim() }));
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function isPrdCompletionIntent(text: string): boolean {
   const normalized = text
     .trim()

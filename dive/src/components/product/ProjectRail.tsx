@@ -8,6 +8,7 @@ import { cn } from "../../lib/utils";
 export const PROJECT_RAIL_TAB_REQUEST_EVENT = "dive:project-rail-tab-request";
 export type ProjectRailTab = "workspace" | "dashboard";
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function requestProjectRailTab(tab: ProjectRailTab) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(PROJECT_RAIL_TAB_REQUEST_EVENT, { detail: { tab } }));

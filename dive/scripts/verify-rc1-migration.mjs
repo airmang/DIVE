@@ -43,14 +43,19 @@ async function main() {
   );
   const page = await context.newPage();
 
-  console.log("1. rc.1 keys trigger one-time migration dialog");
+  console.log("1. rc.1 keys migrate silently on first load");
   await page.goto(BASE);
-  await page.waitForSelector('[data-testid="rc1-migration-dialog"]', { timeout: 3000 });
-  check("migration dialog rendered", true);
-  const removedCount = await page.textContent('[data-testid="rc1-removed-count"]');
-  check("removed key count visible", removedCount?.includes("4개") === true, removedCount ?? "");
+  await page.waitForSelector('[data-testid="main-shell"]', { timeout: 3000 });
+  check(
+    "migration dialog does not render",
+    (await page.$('[data-testid="rc1-migration-dialog"]')) === null,
+  );
+  check(
+    "migration fallback does not render",
+    (await page.$('[data-testid="rc1-migration-fallback"]')) === null,
+  );
 
-  console.log("\n2. rc.1 demo keys removed and locale/theme preserved before acknowledgement");
+  console.log("\n2. rc.1 demo keys removed, locale/theme preserved, flag set immediately");
   const storageAfterLoad = await page.evaluate((removed) => {
     const removedValues = Object.fromEntries(
       removed.map((key) => [key, window.localStorage.getItem(key)]),
@@ -70,25 +75,20 @@ async function main() {
   check("locale preserved", storageAfterLoad.locale === "ko", String(storageAfterLoad.locale));
   check("theme preserved", storageAfterLoad.theme === "light", String(storageAfterLoad.theme));
   check(
-    "migration flag not set before confirm",
-    storageAfterLoad.migrated !== "true",
+    "migration flag set during silent migration",
+    storageAfterLoad.migrated === "true",
     String(storageAfterLoad.migrated),
   );
 
-  console.log("\n3. Confirm stores flag and prevents re-display");
-  await page.click('[data-testid="rc1-migration-confirm"]');
-  await page.waitForSelector('[data-testid="rc1-migration-dialog"]', {
-    state: "detached",
-    timeout: 1500,
-  });
-  const flag = await page.evaluate(() => window.localStorage.getItem("dive:rc1_migrated"));
-  check("confirm stores rc1 migration flag", flag === "true", String(flag));
+  console.log("\n3. Reload keeps silent migration complete");
   await page.reload();
   await page.waitForSelector('[data-testid="main-shell"]', { timeout: 3000 });
   check(
-    "dialog does not re-open after reload",
+    "dialog does not open after reload",
     (await page.$('[data-testid="rc1-migration-dialog"]')) === null,
   );
+  const flag = await page.evaluate(() => window.localStorage.getItem("dive:rc1_migrated"));
+  check("rc1 migration flag remains set", flag === "true", String(flag));
 
   console.log(`\nPASS ${pass} / FAIL ${fail}`);
   await context.close();

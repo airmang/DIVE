@@ -4,6 +4,7 @@ import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
 import type { RoadmapStep } from "../../features/roadmap";
+import { PLAN_ADJUSTMENT_REVIEW_REQUEST_EVENT } from "../../features/planning";
 import { evaluateProvocationSupervisor, type ProvocationCard } from "../../features/provocation";
 import {
   generateVerificationCoachGuide,
@@ -472,12 +473,31 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
     ).toBe("open_diff");
     expect(screen.queryByText("미리보기 열기")).toBeNull();
   });
-  it("keeps PRD decomposition rationale out of the step review panel", async () => {
+  it("makes PRD decomposition rationale challenge reachable from the step review panel", async () => {
     evaluateMock.mockResolvedValue({
       status: "none",
       evaluationId: "eval-criteria",
       dropReason: "provoke_false",
     });
+    const onChallenge = vi.fn().mockResolvedValue({
+      objectionId: "obj-001",
+      suggestionStatus: "offered",
+      offerId: "offer-001",
+      offerKind: "adjust_plan",
+      message: "현재 계획 영역에서 이 단계를 다시 조정해볼 수 있어요.",
+      suggestedSeed: "저장 기준을 검증하는 순서로 계획을 조정한다.",
+    });
+    const onAcceptOffer = vi.fn().mockResolvedValue({
+      objectionId: "obj-001",
+      offerId: "offer-001",
+      suggestionStatus: "accepted",
+    });
+    const onDismissOffer = vi.fn();
+    const planAdjustmentEvents: CustomEvent[] = [];
+    const handler = (event: Event) => {
+      planAdjustmentEvents.push(event as CustomEvent);
+    };
+    window.addEventListener(PLAN_ADJUSTMENT_REVIEW_REQUEST_EVENT, handler);
 
     renderStepDetail({
       step: reviewStep({
@@ -489,13 +509,61 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
         ],
         decompositionRationale: "저장 완료 기준을 검증하려면 버튼 상태를 먼저 분리해야 한다.",
       }),
+      rationaleChallenge: {
+        projectId: 1,
+        planId: 10,
+        stepDbId: 20,
+        onChallenge,
+        onAcceptOffer,
+        onDismissOffer,
+      },
     });
 
     await waitFor(() => expect(findSupervisorRequest("verify_entered")).toBeTruthy());
-    expect(screen.queryByTestId("step-detail-linked-criteria")).toBeNull();
-    expect(screen.queryByTestId("step-detail-rationale")).toBeNull();
-    expect(screen.queryByTestId("step-rationale-challenge-toggle")).toBeNull();
+    expect(screen.getByTestId("step-detail-linked-criteria").textContent).toContain("AC-001");
+    expect(screen.getByTestId("step-detail-rationale").textContent).toContain(
+      "저장 완료 기준을 검증하려면",
+    );
     expect(screen.getByTestId("step-detail-verification-focus")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("step-rationale-challenge-toggle"));
+    fireEvent.change(screen.getByTestId("step-rationale-challenge-input"), {
+      target: { value: "이 단계를 먼저 해야 하는 이유가 불분명해요." },
+    });
+    fireEvent.click(screen.getByTestId("step-rationale-challenge-submit"));
+
+    await waitFor(() =>
+      expect(onChallenge).toHaveBeenCalledWith({
+        planId: 10,
+        stepDbId: 20,
+        text: "이 단계를 먼저 해야 하는 이유가 불분명해요.",
+        linkedCriterionIds: ["AC-001"],
+      }),
+    );
+    expect((await screen.findByTestId("step-rationale-challenge-offer")).textContent).toContain(
+      "현재 계획 영역",
+    );
+
+    fireEvent.click(screen.getByTestId("step-rationale-offer-accept"));
+    await waitFor(() =>
+      expect(onAcceptOffer).toHaveBeenCalledWith({
+        planId: 10,
+        stepDbId: 20,
+        objectionId: "obj-001",
+        offerId: "offer-001",
+      }),
+    );
+    expect(planAdjustmentEvents).toHaveLength(1);
+    expect(planAdjustmentEvents[0].detail).toMatchObject({
+      projectId: 1,
+      planId: 10,
+      stepDbId: 20,
+      objectionId: "obj-001",
+      offerId: "offer-001",
+      offerKind: "adjust_plan",
+    });
+
+    window.removeEventListener(PLAN_ADJUSTMENT_REVIEW_REQUEST_EVENT, handler);
   });
 
   it("places a diff_ready card near changed-work review and opens the diff", async () => {

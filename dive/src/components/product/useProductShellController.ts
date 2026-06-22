@@ -997,35 +997,35 @@ export function useProductShellController() {
       currentCardIdForDerivedState !== null
         ? roadmapModel.changedFilesForStep(currentCardIdForDerivedState)
         : [],
-    [currentCardIdForDerivedState, roadmapModel.changedFilesForStep],
+    [currentCardIdForDerivedState, roadmapModel],
   );
   const currentToolCallCount = useMemo(
     () =>
       currentCardIdForDerivedState !== null
         ? roadmapModel.toolCallCountForStep(currentCardIdForDerivedState)
         : 0,
-    [currentCardIdForDerivedState, roadmapModel.toolCallCountForStep],
+    [currentCardIdForDerivedState, roadmapModel],
   );
   const currentVerifyLog: VerifyLogView | null = useMemo(
     () =>
       currentCardIdForDerivedState !== null
         ? roadmapModel.verifyLogForStep(currentCardIdForDerivedState)
         : null,
-    [currentCardIdForDerivedState, roadmapModel.verifyLogForStep],
+    [currentCardIdForDerivedState, roadmapModel],
   );
   const currentVerifyState: "idle" | "running" | "error" = useMemo(
     () =>
       currentCardIdForDerivedState !== null
         ? roadmapModel.verifyStateForStep(currentCardIdForDerivedState)
         : "idle",
-    [currentCardIdForDerivedState, roadmapModel.verifyStateForStep],
+    [currentCardIdForDerivedState, roadmapModel],
   );
   const currentVerifyError = useMemo(
     () =>
       currentCardIdForDerivedState !== null
         ? roadmapModel.verifyErrorForStep(currentCardIdForDerivedState)
         : null,
-    [currentCardIdForDerivedState, roadmapModel.verifyErrorForStep],
+    [currentCardIdForDerivedState, roadmapModel],
   );
 
   // F2 (2026-06-10 E2E): on the happy path a build step never reached the
@@ -1332,6 +1332,8 @@ export function useProductShellController() {
     openSettingsRoute,
     requestChatFocus,
     startPlanGenerationFromPrd,
+    t,
+    toast,
   ]);
 
   const {
@@ -1841,6 +1843,17 @@ export function useProductShellController() {
         projectId: currentProjectId,
         sessionId: currentSessionId,
       },
+      rationaleChallenge:
+        currentProjectId !== null && currentPlanRoadmapStep
+          ? {
+              projectId: currentProjectId,
+              planId: currentPlanRoadmapStep.step.plan_id,
+              stepDbId: currentPlanRoadmapStep.step.id,
+              onChallenge: plan.challengeStepRationale,
+              onAcceptOffer: plan.acceptRationaleChallengeOffer,
+              onDismissOffer: plan.dismissRationaleChallengeOffer,
+            }
+          : undefined,
       onApprovalDecision: handleApprovalDecision,
       onGoToChat: handleGoToChatFromStepDetail,
     },

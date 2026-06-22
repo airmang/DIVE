@@ -16,6 +16,10 @@ function read(rel) {
   return fs.readFileSync(path.join(repo, rel), "utf8");
 }
 
+function exists(rel) {
+  return fs.existsSync(path.join(repo, rel));
+}
+
 function readFirst(...rels) {
   const found = rels.find((rel) => fs.existsSync(path.join(repo, rel)));
   if (!found) {
@@ -157,40 +161,68 @@ const releaseGateDocs = read("docs/release-gate-2026-05.md");
 const packagingWindowsDocs = read("docs/packaging-windows.md");
 const nextDocs = read("docs/internal/DIVE_NEXT.md");
 const phase10PlanDocs = read("docs/internal/DIVE_NEXT_PHASE10_PLAN.md");
-const roadmap = read(".wily/roadmap.yaml");
-const wilyStatus = read(".wily/status.md");
-const releaseSyncRequest = read(
+const wilyReleasePrepFiles = [
+  ".wily/roadmap.yaml",
+  ".wily/status.md",
+  ".wily/phases/p10-09-external-release-blockers/approval-packet.md",
+  ".wily/phases/p10-09-external-release-blockers/release-sync-approval-request.md",
+  ".wily/phases/p10-09-external-release-blockers/release-prep-commit-manifest.md",
+  ".wily/phases/p10-09-external-release-blockers/release-owner-approval-template.md",
+  ".wily/phases/p10-09-external-release-blockers/external-evidence-request.md",
+  ".wily/phases/p10-09-external-release-blockers/verification.md",
+  ".wily/phases/p10-09-external-release-blockers/handoff.md",
+  ".wily/phases/p10-09-external-release-blockers/completion-audit.md",
+  ".wily/phases/p10-09-external-release-blockers/phase.md",
+  ".wily/phases/p10-09-external-release-blockers/result.md",
+];
+// Clean-checkout release gates must not depend on local Wily operator state.
+// When these files are present, keep checking their historical release-prep
+// consistency; when absent, the registered gate remains self-contained by
+// validating only tracked repository docs, workflows, and version metadata.
+const wilyChecksEnabled = wilyReleasePrepFiles.every(exists);
+if (!wilyChecksEnabled) {
+  note(
+    "optional Wily release-prep files absent",
+    "skipping .wily consistency checks for clean-checkout release gate",
+  );
+}
+const readWily = (rel) => (wilyChecksEnabled ? read(rel) : "");
+const roadmap = readWily(".wily/roadmap.yaml");
+const wilyStatus = readWily(".wily/status.md");
+const releaseSyncRequest = readWily(
   ".wily/phases/p10-09-external-release-blockers/release-sync-approval-request.md",
 );
-const externalEvidenceRequest = read(
+const externalEvidenceRequest = readWily(
   ".wily/phases/p10-09-external-release-blockers/external-evidence-request.md",
 );
-const approvalPacket = read(".wily/phases/p10-09-external-release-blockers/approval-packet.md");
-const releasePrepManifest = read(
+const approvalPacket = readWily(".wily/phases/p10-09-external-release-blockers/approval-packet.md");
+const releasePrepManifest = readWily(
   ".wily/phases/p10-09-external-release-blockers/release-prep-commit-manifest.md",
 );
-const releaseOwnerTemplate = read(
+const releaseOwnerTemplate = readWily(
   ".wily/phases/p10-09-external-release-blockers/release-owner-approval-template.md",
 );
-const p1009Handoff = read(".wily/phases/p10-09-external-release-blockers/handoff.md");
-const p1009Verification = read(".wily/phases/p10-09-external-release-blockers/verification.md");
-const p1009Phase = read(".wily/phases/p10-09-external-release-blockers/phase.md");
-const p1009Result = read(".wily/phases/p10-09-external-release-blockers/result.md");
-const p1009CompletionAudit = read(
+const p1009Handoff = readWily(".wily/phases/p10-09-external-release-blockers/handoff.md");
+const p1009Verification = readWily(".wily/phases/p10-09-external-release-blockers/verification.md");
+const p1009Phase = readWily(".wily/phases/p10-09-external-release-blockers/phase.md");
+const p1009Result = readWily(".wily/phases/p10-09-external-release-blockers/result.md");
+const p1009CompletionAudit = readWily(
   ".wily/phases/p10-09-external-release-blockers/completion-audit.md",
 );
-const p1009PrettierDocs = [
-  "../.wily/phases/p10-09-external-release-blockers/approval-packet.md",
-  "../.wily/phases/p10-09-external-release-blockers/release-sync-approval-request.md",
-  "../.wily/phases/p10-09-external-release-blockers/release-prep-commit-manifest.md",
-  "../.wily/phases/p10-09-external-release-blockers/release-owner-approval-template.md",
-  "../.wily/phases/p10-09-external-release-blockers/external-evidence-request.md",
-  "../.wily/phases/p10-09-external-release-blockers/verification.md",
-  "../.wily/phases/p10-09-external-release-blockers/handoff.md",
-  "../.wily/phases/p10-09-external-release-blockers/completion-audit.md",
-  "../.wily/phases/p10-09-external-release-blockers/phase.md",
-  "../.wily/phases/p10-09-external-release-blockers/result.md",
-];
+const p1009PrettierDocs = wilyChecksEnabled
+  ? [
+      "../.wily/phases/p10-09-external-release-blockers/approval-packet.md",
+      "../.wily/phases/p10-09-external-release-blockers/release-sync-approval-request.md",
+      "../.wily/phases/p10-09-external-release-blockers/release-prep-commit-manifest.md",
+      "../.wily/phases/p10-09-external-release-blockers/release-owner-approval-template.md",
+      "../.wily/phases/p10-09-external-release-blockers/external-evidence-request.md",
+      "../.wily/phases/p10-09-external-release-blockers/verification.md",
+      "../.wily/phases/p10-09-external-release-blockers/handoff.md",
+      "../.wily/phases/p10-09-external-release-blockers/completion-audit.md",
+      "../.wily/phases/p10-09-external-release-blockers/phase.md",
+      "../.wily/phases/p10-09-external-release-blockers/result.md",
+    ]
+  : [];
 check(
   "release docs require committed current release prep",
   releaseGateDocs.includes("commit and push") &&
@@ -244,223 +276,230 @@ check(
     ) &&
     phase10PlanDocs.includes("GitHub Release 권한 + 승인된 commit/push"),
 );
-check(
-  "release owner approval template covers external closure evidence",
-  [
-    "## 1. Release Prep Sync Approval",
-    "## 2. Windows Smoke Evidence",
-    "### x64",
-    "### ARM64",
-    "## 3. Release Gate Evidence",
-    "## 4. Release Workflow Evidence",
-    "## 5. rc.1 Yank / Absence Decision",
-    "## 6. Final Ship / Defer Decision",
-    "현재 release prep 변경을 main에 commit/push하고 P10-09 GitHub release-gate 증거 수집을 진행해도 된다.",
-    "`release-gate.yml` numeric run id (`databaseId`)",
-    "`release.yml` numeric run id (`databaseId`)",
-    "Approved release-gate numeric run id input",
-    "git ls-remote origin refs/heads/<approved-branch>",
-    "DIVE-release-evidence",
-    "release-gate-run.json",
-    "Remote SHA confirmation immediately before `release.yml` dispatch",
-    "same commit SHA",
-    "approved `release-gate.yml` run",
-    "Staging safety summary",
-    "do not use `git add .`",
-    "no `qa-sandbox/` paths",
-    "no `.wily/sessions/**` paths",
-    "2026-05-15 00:05 KST",
-    "Latest recorded tracked diffstat: 56 files changed, 2964 insertions, 606 deletions",
-    "--ref <approved-branch>",
-    "Secret hygiene summary",
-    "found no provider key",
-  ].every((needle) => releaseOwnerTemplate.includes(needle)),
-);
-check(
-  "Wily status points to release approval packet",
-  wilyStatus.includes("approval-packet.md") &&
-    wilyStatus.includes("release-sync-approval-request.md") &&
-    wilyStatus.includes("release-prep-commit-manifest.md") &&
-    wilyStatus.includes("release-owner-approval-template.md") &&
-    ['status: "blocked"', "release-gate-run.json", "Windows x64/ARM64", "GitHub Release"].every(
-      (needle) => roadmap.includes(needle),
-    ) &&
-    ((roadmap.includes('id: "P10-09"') &&
-      roadmap.includes("pre-push verification passing on 2026-05-15 00:14 KST") &&
-      roadmap.includes("PASS 53 / FAIL 0 / WARN 3") &&
-      roadmap.includes(
-        "approval-packet.md and release-owner-approval-template.md summarize the exact approval sentence",
-      ) &&
-      roadmap.includes("2026-05-15 00:05 KST dry-run showing 172 stage-candidate paths") &&
-      roadmap.includes("tracked diffstat 56 files changed / 2964 insertions / 606 deletions") &&
-      roadmap.includes(
-        "release-owner/user approval is still required before commit/push or GitHub Actions dispatch",
-      ) &&
-      roadmap.includes("2026-05-15 00:00 KST read-only GitHub refresh found no releases") &&
-      roadmap.includes("local HEAD still differs from origin/main")) ||
-      (roadmap.includes('schema: "stage-first"') &&
-        roadmap.includes('id: "S04"') &&
-        roadmap.includes("legacy_phases:") &&
-        roadmap.includes('"P10-09"') &&
-        roadmap.includes(
-          "Commit/push approval is separate from GitHub Actions dispatch or release publish approval.",
-        ) &&
-        roadmap.includes("final release-owner ship/defer decision"))),
-);
-check(
-  "release sync approval request covers commit and push approval",
-  [
-    "## Current State",
-    "## Approval Requested",
-    "## Required Pre-Push Verification",
-    "## Post-Approval Execution Order",
-    "## Required Push Confirmation",
-    "## Approval Record",
-    "git rev-parse HEAD",
-    "git ls-remote origin refs/heads/<approved-branch>",
-    "git diff --cached --name-only | rg '^(qa-sandbox/|\\.wily/sessions/)'",
-    "Dispatch `release-gate.yml` only after the remote SHA match is recorded",
-    "Dispatch `release.yml` only after the approved numeric `release-gate.yml`",
-    "Re-run the remote SHA confirmation immediately before dispatching",
-    "approved branch must still point to the same commit SHA",
-    "Include `--ref <approved-branch>` in both workflow dispatch commands",
-    "2026-05-15 00:00 KST",
-    "2026-05-15 00:05 KST",
-    "release-gate-run.json",
-    "Latest recorded tracked diffstat: 56 files changed, 2964 insertions, 606",
-    "release-gate.yml",
-    "release.yml",
-    ...p1009PrettierDocs,
-  ].every((needle) => releaseSyncRequest.includes(needle)) &&
+if (wilyChecksEnabled) {
+  check(
+    "release owner approval template covers external closure evidence",
     [
-      "staging summary confirming the explicit manifest staging list was used",
-      "Do not use `git add .`",
-      "dry-run check",
-      "--ref <approved-branch>",
-      "Repeat the same remote SHA confirmation immediately before dispatching",
-      "same commit SHA as",
-      "GitHub Actions `databaseId`",
-      "gh workflow run release.yml --repo airmang/DIVE-2",
-      "-f tag=v1.0.0-rc.2",
-      '-f release_owner="<owner-name>"',
-      '-f release_gate_run_id="<approved-numeric-release-gate-run-id>"',
-      "no `qa-sandbox/` paths",
-      "`.wily/sessions/**` paths",
-      "2026-05-15 00:05 KST",
-      "56 files changed, 2964 insertions, and 606 deletions",
-      "2026-05-15 00:00 KST",
-      "release-gate-run.json",
-      "Secret scans found no provider key",
-      ...p1009PrettierDocs,
-    ].every((needle) => externalEvidenceRequest.includes(needle)) &&
-    [
+      "## 1. Release Prep Sync Approval",
+      "## 2. Windows Smoke Evidence",
+      "### x64",
+      "### ARM64",
+      "## 3. Release Gate Evidence",
+      "## 4. Release Workflow Evidence",
+      "## 5. rc.1 Yank / Absence Decision",
+      "## 6. Final Ship / Defer Decision",
       "현재 release prep 변경을 main에 commit/push하고 P10-09 GitHub release-gate 증거 수집을 진행해도 된다.",
-      "2026-05-14 22:09 KST read-only remote refresh",
-      "2026-05-14 22:38 KST release prep manifest refresh",
-      "no `qa-sandbox/` or `.wily/sessions/**` paths",
-      "no paths are staged",
-      "--ref <approved-branch>",
-      "Repeat the same remote SHA confirmation immediately before dispatching",
-      "same commit SHA as",
-      "GitHub Actions `databaseId`",
-      "gh workflow run release.yml --repo airmang/DIVE-2",
-      "-f tag=v1.0.0-rc.2",
-      '-f release_owner="<owner-name>"',
-      '-f release_gate_run_id="<approved-numeric-release-gate-run-id>"',
-      "2026-05-14 22:35 KST local evidence search",
-      "2026-05-15 00:00 KST completion audit refresh",
-      "2026-05-15 00:05 KST staging safety refresh",
-      "56 files changed with 2964 insertions and 606 deletions",
-      "release-owner approval template evidence fields remained blank",
-      "release-gate-run.json",
-      "Do not treat local preflight, version sync, or documentation readiness as",
-    ].every((needle) => p1009Handoff.includes(needle)) &&
-    [
-      "2026-05-14 22:09 KST read-only remote refresh",
-      "2026-05-14 22:38 KST release prep manifest refresh passed",
-      "local HEAD `afe56d1bead61a56617cfa127ce71ee89fbb6deb` still differs from `origin/main`",
-      "no `qa-sandbox/` or `.wily/sessions/**` paths",
-      "no paths are staged",
-      "2026-05-14 22:35 KST local evidence search passed as a negative audit",
-      "2026-05-15 00:00 KST completion audit refresh passed as a negative audit",
-      "2026-05-15 00:05 KST staging safety refresh passed",
-      "tracked diffstat 56 files changed with 2964 insertions and 606 deletions",
-      "release-gate-run.json",
-      "matches the GitHub Actions `databaseId`",
-      "release-owner approval template evidence fields remained blank",
-    ].every((needle) => p1009Verification.includes(needle)) &&
-    [
-      "현재 release prep 변경을 main에 commit/push하고 P10-09 GitHub release-gate 증거 수집을 진행해도 된다.",
-      "Windows x64 installed-app smoke evidence",
-      "Windows ARM64 installed-app smoke evidence",
-      "release-owner-approved ARM64 hardware/access blocker",
-      "release-owner/user 승인 전에는 commit/push 또는 workflow dispatch를 하지 않는다",
-    ].every((needle) => p1009Phase.includes(needle)) &&
-    [
-      "2026-05-14 22:19 KST completion audit refresh",
-      "2026-05-14 22:38 KST explicit staging dry-run",
-      "2026-05-14 22:35 KST local evidence search found no Windows smoke JSON",
-      "2026-05-15 00:00 KST completion audit refresh",
-      "2026-05-15 00:05 KST explicit staging dry-run",
-      "release-gate-run.json",
-      "56 files changed, 2964 insertions, and 606 deletions",
-      "matches the GitHub Actions `databaseId`",
-      "현재 release prep 변경을 main에 commit/push하고 P10-09 GitHub release-gate 증거 수집을 진행해도 된다.",
-      "Do not run `$wily-complete P10-09` until those external evidence items are present",
-    ].every((needle) => p1009Result.includes(needle)) &&
-    [
-      "2026-05-14 22:35 KST local evidence search found no `release-smoke*.json`",
+      "`release-gate.yml` numeric run id (`databaseId`)",
+      "`release.yml` numeric run id (`databaseId`)",
+      "Approved release-gate numeric run id input",
+      "git ls-remote origin refs/heads/<approved-branch>",
       "DIVE-release-evidence",
-      "release-gate-evidence-list.txt",
       "release-gate-run.json",
-      "2026-05-15 00:00 KST completion audit refresh",
-      "2026-05-15 00:05 KST explicit staging dry-run refresh",
-      "release-owner approval template fields",
-      "final ship/defer decision remain blank",
-    ].every((needle) => p1009CompletionAudit.includes(needle)) &&
-    [
-      "현재 release prep 변경을 main에 commit/push하고 P10-09 GitHub release-gate 증거 수집을 진행해도 된다.",
-      "Do not use `git add .`",
-      "Do not dispatch `release-gate.yml` until the pushed branch SHA matches the",
-      "Do not dispatch `release.yml` until the approved numeric `release-gate.yml`",
+      "Remote SHA confirmation immediately before `release.yml` dispatch",
+      "same commit SHA",
+      "approved `release-gate.yml` run",
+      "Staging safety summary",
+      "do not use `git add .`",
+      "no `qa-sandbox/` paths",
+      "no `.wily/sessions/**` paths",
+      "2026-05-15 00:05 KST",
+      "Latest recorded tracked diffstat: 56 files changed, 2964 insertions, 606 deletions",
       "--ref <approved-branch>",
-      "Windows x64 installed-app smoke evidence",
-      "Windows ARM64 installed-app smoke evidence",
-      "Final release-owner ship/defer decision",
-      "Latest remote refresh: no GitHub releases",
-      "Explicit staging dry-run found 172 stage-candidate paths",
-      "Tracked diffstat snapshot: 56 files changed, 2964 insertions, 606 deletions",
-      "git diff --stat | tail -1",
-      "Secret hygiene scan found no provider key, private-key block, GitHub token, or",
-    ].every((needle) => approvalPacket.includes(needle)),
-);
-check(
-  "release prep commit manifest covers include and exclude scope",
-  [
-    "## Commit Scope Recommendation",
-    "### Include",
-    "### Review Before Include",
-    "### Exclude",
-    "## Staging Commands After Approval",
-    ".github/workflows/release-gate.yml",
-    ".gitignore",
-    "dive/scripts/verify-version-sync.mjs",
-    ".wily/phases/**",
-    ".wily/sessions/**",
-    "qa-sandbox/",
-    "Provider keys, OAuth tokens, cookies, or raw secret files",
-    "Do not use `git add .`",
-    "Run the `git add --dry-run` count and exclusion checks serially",
-    ".git/index.lock",
-    "git diff --cached --name-only | rg '^(qa-sandbox/|\\.wily/sessions/)'",
-    "Tracked diffstat",
-    "Untracked classification",
-    "Dry-run output contained",
-    "## Proposed Commit Message",
-    "Prepare Phase 10 release gate evidence",
-    ...p1009PrettierDocs,
-  ].every((needle) => releasePrepManifest.includes(needle)),
-);
+      "Secret hygiene summary",
+      "found no provider key",
+    ].every((needle) => releaseOwnerTemplate.includes(needle)),
+  );
+  check(
+    "Wily status points to release approval packet",
+    wilyStatus.includes("approval-packet.md") &&
+      wilyStatus.includes("release-sync-approval-request.md") &&
+      wilyStatus.includes("release-prep-commit-manifest.md") &&
+      wilyStatus.includes("release-owner-approval-template.md") &&
+      ['status: "blocked"', "release-gate-run.json", "Windows x64/ARM64", "GitHub Release"].every(
+        (needle) => roadmap.includes(needle),
+      ) &&
+      ((roadmap.includes('id: "P10-09"') &&
+        roadmap.includes("pre-push verification passing on 2026-05-15 00:14 KST") &&
+        roadmap.includes("PASS 53 / FAIL 0 / WARN 3") &&
+        roadmap.includes(
+          "approval-packet.md and release-owner-approval-template.md summarize the exact approval sentence",
+        ) &&
+        roadmap.includes("2026-05-15 00:05 KST dry-run showing 172 stage-candidate paths") &&
+        roadmap.includes("tracked diffstat 56 files changed / 2964 insertions / 606 deletions") &&
+        roadmap.includes(
+          "release-owner/user approval is still required before commit/push or GitHub Actions dispatch",
+        ) &&
+        roadmap.includes("2026-05-15 00:00 KST read-only GitHub refresh found no releases") &&
+        roadmap.includes("local HEAD still differs from origin/main")) ||
+        (roadmap.includes('schema: "stage-first"') &&
+          roadmap.includes('id: "S04"') &&
+          roadmap.includes("legacy_phases:") &&
+          roadmap.includes('"P10-09"') &&
+          roadmap.includes(
+            "Commit/push approval is separate from GitHub Actions dispatch or release publish approval.",
+          ) &&
+          roadmap.includes("final release-owner ship/defer decision"))),
+  );
+  check(
+    "release sync approval request covers commit and push approval",
+    [
+      "## Current State",
+      "## Approval Requested",
+      "## Required Pre-Push Verification",
+      "## Post-Approval Execution Order",
+      "## Required Push Confirmation",
+      "## Approval Record",
+      "git rev-parse HEAD",
+      "git ls-remote origin refs/heads/<approved-branch>",
+      "git diff --cached --name-only | rg '^(qa-sandbox/|\\.wily/sessions/)'",
+      "Dispatch `release-gate.yml` only after the remote SHA match is recorded",
+      "Dispatch `release.yml` only after the approved numeric `release-gate.yml`",
+      "Re-run the remote SHA confirmation immediately before dispatching",
+      "approved branch must still point to the same commit SHA",
+      "Include `--ref <approved-branch>` in both workflow dispatch commands",
+      "2026-05-15 00:00 KST",
+      "2026-05-15 00:05 KST",
+      "release-gate-run.json",
+      "Latest recorded tracked diffstat: 56 files changed, 2964 insertions, 606",
+      "release-gate.yml",
+      "release.yml",
+      ...p1009PrettierDocs,
+    ].every((needle) => releaseSyncRequest.includes(needle)) &&
+      [
+        "staging summary confirming the explicit manifest staging list was used",
+        "Do not use `git add .`",
+        "dry-run check",
+        "--ref <approved-branch>",
+        "Repeat the same remote SHA confirmation immediately before dispatching",
+        "same commit SHA as",
+        "GitHub Actions `databaseId`",
+        "gh workflow run release.yml --repo airmang/DIVE-2",
+        "-f tag=v1.0.0-rc.2",
+        '-f release_owner="<owner-name>"',
+        '-f release_gate_run_id="<approved-numeric-release-gate-run-id>"',
+        "no `qa-sandbox/` paths",
+        "`.wily/sessions/**` paths",
+        "2026-05-15 00:05 KST",
+        "56 files changed, 2964 insertions, and 606 deletions",
+        "2026-05-15 00:00 KST",
+        "release-gate-run.json",
+        "Secret scans found no provider key",
+        ...p1009PrettierDocs,
+      ].every((needle) => externalEvidenceRequest.includes(needle)) &&
+      [
+        "현재 release prep 변경을 main에 commit/push하고 P10-09 GitHub release-gate 증거 수집을 진행해도 된다.",
+        "2026-05-14 22:09 KST read-only remote refresh",
+        "2026-05-14 22:38 KST release prep manifest refresh",
+        "no `qa-sandbox/` or `.wily/sessions/**` paths",
+        "no paths are staged",
+        "--ref <approved-branch>",
+        "Repeat the same remote SHA confirmation immediately before dispatching",
+        "same commit SHA as",
+        "GitHub Actions `databaseId`",
+        "gh workflow run release.yml --repo airmang/DIVE-2",
+        "-f tag=v1.0.0-rc.2",
+        '-f release_owner="<owner-name>"',
+        '-f release_gate_run_id="<approved-numeric-release-gate-run-id>"',
+        "2026-05-14 22:35 KST local evidence search",
+        "2026-05-15 00:00 KST completion audit refresh",
+        "2026-05-15 00:05 KST staging safety refresh",
+        "56 files changed with 2964 insertions and 606 deletions",
+        "release-owner approval template evidence fields remained blank",
+        "release-gate-run.json",
+        "Do not treat local preflight, version sync, or documentation readiness as",
+      ].every((needle) => p1009Handoff.includes(needle)) &&
+      [
+        "2026-05-14 22:09 KST read-only remote refresh",
+        "2026-05-14 22:38 KST release prep manifest refresh passed",
+        "local HEAD `afe56d1bead61a56617cfa127ce71ee89fbb6deb` still differs from `origin/main`",
+        "no `qa-sandbox/` or `.wily/sessions/**` paths",
+        "no paths are staged",
+        "2026-05-14 22:35 KST local evidence search passed as a negative audit",
+        "2026-05-15 00:00 KST completion audit refresh passed as a negative audit",
+        "2026-05-15 00:05 KST staging safety refresh passed",
+        "tracked diffstat 56 files changed with 2964 insertions and 606 deletions",
+        "release-gate-run.json",
+        "matches the GitHub Actions `databaseId`",
+        "release-owner approval template evidence fields remained blank",
+      ].every((needle) => p1009Verification.includes(needle)) &&
+      [
+        "현재 release prep 변경을 main에 commit/push하고 P10-09 GitHub release-gate 증거 수집을 진행해도 된다.",
+        "Windows x64 installed-app smoke evidence",
+        "Windows ARM64 installed-app smoke evidence",
+        "release-owner-approved ARM64 hardware/access blocker",
+        "release-owner/user 승인 전에는 commit/push 또는 workflow dispatch를 하지 않는다",
+      ].every((needle) => p1009Phase.includes(needle)) &&
+      [
+        "2026-05-14 22:19 KST completion audit refresh",
+        "2026-05-14 22:38 KST explicit staging dry-run",
+        "2026-05-14 22:35 KST local evidence search found no Windows smoke JSON",
+        "2026-05-15 00:00 KST completion audit refresh",
+        "2026-05-15 00:05 KST explicit staging dry-run",
+        "release-gate-run.json",
+        "56 files changed, 2964 insertions, and 606 deletions",
+        "matches the GitHub Actions `databaseId`",
+        "현재 release prep 변경을 main에 commit/push하고 P10-09 GitHub release-gate 증거 수집을 진행해도 된다.",
+        "Do not run `$wily-complete P10-09` until those external evidence items are present",
+      ].every((needle) => p1009Result.includes(needle)) &&
+      [
+        "2026-05-14 22:35 KST local evidence search found no `release-smoke*.json`",
+        "DIVE-release-evidence",
+        "release-gate-evidence-list.txt",
+        "release-gate-run.json",
+        "2026-05-15 00:00 KST completion audit refresh",
+        "2026-05-15 00:05 KST explicit staging dry-run refresh",
+        "release-owner approval template fields",
+        "final ship/defer decision remain blank",
+      ].every((needle) => p1009CompletionAudit.includes(needle)) &&
+      [
+        "현재 release prep 변경을 main에 commit/push하고 P10-09 GitHub release-gate 증거 수집을 진행해도 된다.",
+        "Do not use `git add .`",
+        "Do not dispatch `release-gate.yml` until the pushed branch SHA matches the",
+        "Do not dispatch `release.yml` until the approved numeric `release-gate.yml`",
+        "--ref <approved-branch>",
+        "Windows x64 installed-app smoke evidence",
+        "Windows ARM64 installed-app smoke evidence",
+        "Final release-owner ship/defer decision",
+        "Latest remote refresh: no GitHub releases",
+        "Explicit staging dry-run found 172 stage-candidate paths",
+        "Tracked diffstat snapshot: 56 files changed, 2964 insertions, 606 deletions",
+        "git diff --stat | tail -1",
+        "Secret hygiene scan found no provider key, private-key block, GitHub token, or",
+      ].every((needle) => approvalPacket.includes(needle)),
+  );
+  check(
+    "release prep commit manifest covers include and exclude scope",
+    [
+      "## Commit Scope Recommendation",
+      "### Include",
+      "### Review Before Include",
+      "### Exclude",
+      "## Staging Commands After Approval",
+      ".github/workflows/release-gate.yml",
+      ".gitignore",
+      "dive/scripts/verify-version-sync.mjs",
+      ".wily/phases/**",
+      ".wily/sessions/**",
+      "qa-sandbox/",
+      "Provider keys, OAuth tokens, cookies, or raw secret files",
+      "Do not use `git add .`",
+      "Run the `git add --dry-run` count and exclusion checks serially",
+      ".git/index.lock",
+      "git diff --cached --name-only | rg '^(qa-sandbox/|\\.wily/sessions/)'",
+      "Tracked diffstat",
+      "Untracked classification",
+      "Dry-run output contained",
+      "## Proposed Commit Message",
+      "Prepare Phase 10 release gate evidence",
+      ...p1009PrettierDocs,
+    ].every((needle) => releasePrepManifest.includes(needle)),
+  );
+} else {
+  note(
+    "Wily release-prep document consistency",
+    "skipped optional local .wily checks; tracked release docs/workflows remain mandatory",
+  );
+}
 check(
   "release-gate workflow manual dispatch only",
   releaseGateWorkflow.includes("workflow_dispatch:") && !/^\s+push:\s*$/m.test(releaseGateWorkflow),

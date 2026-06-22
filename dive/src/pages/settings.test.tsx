@@ -99,4 +99,24 @@ describe("SettingsPage review-card preferences", () => {
     fireEvent.click(card.getByTestId("provider-disconnect"));
     expect(confirmSpy).toHaveBeenCalledWith("Disconnect openrouter?");
   });
+
+  it("does not offer unsupported opencode zen setup as a connectable GA provider", () => {
+    render(<SettingsPage />);
+
+    const opencodeCard = screen
+      .getAllByTestId("provider-card")
+      .find((card) => card.dataset.providerKind === "opencode_zen");
+    expect(opencodeCard).toBeTruthy();
+    const card = within(opencodeCard as HTMLElement);
+    const connectButton = card.getByTestId("provider-connect-btn") as HTMLButtonElement;
+
+    expect(connectButton.disabled).toBe(true);
+    expect(connectButton.textContent).toContain("준비 중");
+    expect(card.getByTestId("provider-warning").textContent).toContain(
+      "확인된 Pi 런타임 지원이 없습니다",
+    );
+
+    fireEvent.click(connectButton);
+    expect(screen.queryByTestId("provider-key-input")).toBeNull();
+  });
 });

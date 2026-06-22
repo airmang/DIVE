@@ -15,6 +15,12 @@ import type { ApprovalDecision } from "../workmap/ApprovalJudgment";
 import type { VerifyLogView } from "../workmap/types";
 import { useT } from "../../i18n";
 import { useChatComposerStore } from "../../stores/chatComposer";
+import {
+  requestPlanAdjustmentReview,
+  type ChallengeStepRationaleInput,
+  type ChallengeStepRationaleResult,
+  type RationaleChallengeOfferActionInput,
+} from "../../features/planning";
 import { DecisionGate } from "./DecisionGate";
 import {
   ProvocationCardHost,
@@ -70,6 +76,14 @@ export interface StepDetailSlideInProps {
     mode: ScaffoldMode;
     projectId?: number | null;
     sessionId?: number | null;
+  };
+  rationaleChallenge?: {
+    projectId: number;
+    planId: number;
+    stepDbId: number;
+    onChallenge: (input: ChallengeStepRationaleInput) => Promise<ChallengeStepRationaleResult>;
+    onAcceptOffer: (input: RationaleChallengeOfferActionInput) => Promise<unknown>;
+    onDismissOffer: (input: RationaleChallengeOfferActionInput) => Promise<unknown>;
   };
 }
 
@@ -152,6 +166,7 @@ export function StepDetailSlideIn({
   onGoToChat,
   rollbackAvailable,
   provocation,
+  rationaleChallenge,
 }: StepDetailSlideInProps) {
   const t = useT();
   const pushComposerSeed = useChatComposerStore((s) => s.pushSeed);
@@ -167,6 +182,12 @@ export function StepDetailSlideIn({
   const retryLoopByStepRef = useRef<Map<number, RetryLoopFailureSnapshot>>(new Map());
   const lastSupervisorEvaluationKeyRef = useRef("");
   const [retryLoopSnapshot, setRetryLoopSnapshot] = useState<RetryLoopFailureSnapshot | null>(null);
+  const [rationaleChallengeOpen, setRationaleChallengeOpen] = useState(false);
+  const [rationaleChallengeText, setRationaleChallengeText] = useState("");
+  const [rationaleChallengeBusy, setRationaleChallengeBusy] = useState(false);
+  const [rationaleChallengeError, setRationaleChallengeError] = useState<string | null>(null);
+  const [rationaleChallengeResult, setRationaleChallengeResult] =
+    useState<ChallengeStepRationaleResult | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -185,6 +206,11 @@ export function StepDetailSlideIn({
 
   useEffect(() => {
     setCriterionEvidenceRef(null);
+    setRationaleChallengeOpen(false);
+    setRationaleChallengeText("");
+    setRationaleChallengeBusy(false);
+    setRationaleChallengeError(null);
+    setRationaleChallengeResult(null);
   }, [step?.id]);
 
   useEffect(() => {
@@ -247,6 +273,8 @@ export function StepDetailSlideIn({
   const appOpened = step ? appOpenedStepIds.has(step.id) : false;
   const criterionConfirmed = criterionEvidenceRef !== null;
   const manualObservation = step ? (manualObservationByStep.get(step.id) ?? null) : null;
+  const linkedCriteria = step?.linkedCriteria ?? [];
+  const decompositionRationale = step?.decompositionRationale?.trim() ?? "";
   const manualObservationConfirmed = Boolean(
     manualObservation &&
     manualObservation.criterionIds.length > 0 &&
@@ -382,7 +410,6 @@ export function StepDetailSlideIn({
     previewObserved,
     step,
     automatedTestsPassed,
-    externalTestRun,
     verificationFeasibility,
     verifyLog?.intent_match,
     verifyLog?.test_command,
@@ -728,6 +755,89 @@ export function StepDetailSlideIn({
                 onClick: onGoToChat,
               }
     : null;
+  const handleSubmitRationaleChallenge = async () => {
+    const text = rationaleChallengeText.trim();
+    if (!rationaleChallenge || text.length === 0) return;
+    setRationaleChallengeBusy(true);
+    setRationaleChallengeError(null);
+    try {
+      const result = await rationaleChallenge.onChallenge({
+        planId: rationaleChallenge.planId,
+        stepDbId: rationaleChallenge.stepDbId,
+        text,
+        linkedCriterionIds: linkedCriteria.map((criterion) => criterion.criterionId),
+      });
+      setRationaleChallengeResult(result);
+      setRationaleChallengeText("");
+      setRationaleChallengeOpen(false);
+    } catch (err) {
+      setRationaleChallengeError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRationaleChallengeBusy(false);
+    }
+  };
+
+  const rationaleOfferInput = (): RationaleChallengeOfferActionInput | null => {
+    if (
+      !rationaleChallenge ||
+      !rationaleChallengeResult?.objectionId ||
+      !rationaleChallengeResult.offerId
+    ) {
+      return null;
+    }
+    return {
+      planId: rationaleChallenge.planId,
+      stepDbId: rationaleChallenge.stepDbId,
+      objectionId: rationaleChallengeResult.objectionId,
+      offerId: rationaleChallengeResult.offerId,
+    };
+  };
+
+  const handleAcceptRationaleOffer = async () => {
+    const input = rationaleOfferInput();
+    if (!input || !rationaleChallenge || !rationaleChallengeResult) return;
+    setRationaleChallengeBusy(true);
+    setRationaleChallengeError(null);
+    try {
+      await rationaleChallenge.onAcceptOffer(input);
+      requestPlanAdjustmentReview({
+        projectId: rationaleChallenge.projectId,
+        planId: rationaleChallenge.planId,
+        stepDbId: rationaleChallenge.stepDbId,
+        objectionId: rationaleChallengeResult.objectionId,
+        offerId: rationaleChallengeResult.offerId,
+        offerKind: rationaleChallengeResult.offerKind,
+        message: rationaleChallengeResult.message || t("prd.decomposition.offer_message"),
+        suggestedSeed: rationaleChallengeResult.suggestedSeed ?? null,
+      });
+      setRationaleChallengeResult({
+        ...rationaleChallengeResult,
+        suggestionStatus: "accepted",
+      });
+    } catch (err) {
+      setRationaleChallengeError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRationaleChallengeBusy(false);
+    }
+  };
+
+  const handleDismissRationaleOffer = async () => {
+    const input = rationaleOfferInput();
+    if (!input || !rationaleChallenge || !rationaleChallengeResult) return;
+    setRationaleChallengeBusy(true);
+    setRationaleChallengeError(null);
+    try {
+      await rationaleChallenge.onDismissOffer(input);
+      setRationaleChallengeResult({
+        ...rationaleChallengeResult,
+        suggestionStatus: "dismissed",
+      });
+    } catch (err) {
+      setRationaleChallengeError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRationaleChallengeBusy(false);
+    }
+  };
 
   return (
     <aside
@@ -802,6 +912,24 @@ export function StepDetailSlideIn({
             onConfirmPreview={() => setCriterionEvidenceRef("preview")}
             onConfirmApp={() => setCriterionEvidenceRef("app")}
           />
+
+          {linkedCriteria.length > 0 || decompositionRationale ? (
+            <RationaleChallengePanel
+              linkedCriteria={linkedCriteria}
+              rationale={decompositionRationale}
+              challengeAvailable={Boolean(rationaleChallenge)}
+              open={rationaleChallengeOpen}
+              text={rationaleChallengeText}
+              busy={rationaleChallengeBusy}
+              error={rationaleChallengeError}
+              result={rationaleChallengeResult}
+              onToggle={() => setRationaleChallengeOpen((current) => !current)}
+              onTextChange={setRationaleChallengeText}
+              onSubmit={handleSubmitRationaleChallenge}
+              onAcceptOffer={handleAcceptRationaleOffer}
+              onDismissOffer={handleDismissRationaleOffer}
+            />
+          ) : null}
 
           <VerificationCoachPanel
             request={verificationCoachRequest}
@@ -1311,6 +1439,151 @@ function BundleList({
 function compactBundleItems(items: string[]): string {
   if (items.length <= 4) return items.join(", ");
   return `${items.slice(0, 4).join(", ")} +${items.length - 4}`;
+}
+
+interface RationaleChallengePanelProps {
+  linkedCriteria: NonNullable<RoadmapStep["linkedCriteria"]>;
+  rationale: string;
+  challengeAvailable: boolean;
+  open: boolean;
+  text: string;
+  busy: boolean;
+  error: string | null;
+  result: ChallengeStepRationaleResult | null;
+  onToggle: () => void;
+  onTextChange: (text: string) => void;
+  onSubmit: () => void;
+  onAcceptOffer: () => void;
+  onDismissOffer: () => void;
+}
+
+function RationaleChallengePanel({
+  linkedCriteria,
+  rationale,
+  challengeAvailable,
+  open,
+  text,
+  busy,
+  error,
+  result,
+  onToggle,
+  onTextChange,
+  onSubmit,
+  onAcceptOffer,
+  onDismissOffer,
+}: RationaleChallengePanelProps) {
+  const t = useT();
+  const hasOfferedAdjustment = result?.suggestionStatus === "offered";
+  return (
+    <section
+      className="mt-3 rounded-md border border-border bg-bg-panel2/60 px-3 py-2 text-xs"
+      data-testid="step-detail-rationale"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-semibold text-fg">{t("prd.decomposition.rationale")}</p>
+          {rationale ? <p className="mt-1 whitespace-pre-wrap text-fg-muted">{rationale}</p> : null}
+        </div>
+        {challengeAvailable ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onToggle}
+            disabled={busy}
+            data-testid="step-rationale-challenge-toggle"
+          >
+            {t("prd.decomposition.challenge")}
+          </Button>
+        ) : null}
+      </div>
+      {linkedCriteria.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-1.5" data-testid="step-detail-linked-criteria">
+          {linkedCriteria.map((criterion) => (
+            <span
+              key={criterion.criterionId}
+              className="inline-flex max-w-full items-center gap-1 rounded-sm border border-border bg-bg px-1.5 py-0.5 text-fg"
+            >
+              <span className="shrink-0 font-semibold text-accent">{criterion.criterionId}</span>
+              <span className="truncate">{criterion.text}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {open ? (
+        <div className="mt-2">
+          <textarea
+            className="min-h-20 w-full resize-none rounded-md border bg-bg px-2 py-1.5 text-xs text-fg placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            value={text}
+            onChange={(event) => onTextChange(event.target.value)}
+            placeholder={t("prd.decomposition.challenge")}
+            disabled={busy}
+            data-testid="step-rationale-challenge-input"
+          />
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onSubmit}
+              disabled={busy || text.trim().length === 0}
+              data-testid="step-rationale-challenge-submit"
+            >
+              {t("prd.decomposition.challenge")}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onToggle}
+              disabled={busy}
+              data-testid="step-rationale-challenge-cancel"
+            >
+              {t("common.cancel")}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {result ? (
+        <p className="mt-2 text-info" data-testid="step-rationale-challenge-status">
+          {t("prd.decomposition.objection_logged")}
+        </p>
+      ) : null}
+      {hasOfferedAdjustment ? (
+        <div
+          className="mt-2 rounded-md border border-info/40 bg-info/5 px-2 py-1.5"
+          data-testid="step-rationale-challenge-offer"
+        >
+          <p className="font-semibold text-info">{t("prd.decomposition.offer_title")}</p>
+          <p className="mt-1 text-fg-muted">
+            {result?.message || t("prd.decomposition.offer_message")}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onAcceptOffer}
+              disabled={busy}
+              data-testid="step-rationale-offer-accept"
+            >
+              {t("prd.decomposition.offer_accept")}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onDismissOffer}
+              disabled={busy}
+              data-testid="step-rationale-offer-dismiss"
+            >
+              {t("prd.decomposition.offer_dismiss")}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {error ? (
+        <p className="mt-2 text-danger" data-testid="step-rationale-challenge-error">
+          {error}
+        </p>
+      ) : null}
+    </section>
+  );
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

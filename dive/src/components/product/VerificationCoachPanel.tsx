@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCcw, Sparkles } from "lucide-react";
 import { Button } from "../ui/button";
 import { useT } from "../../i18n";
@@ -48,11 +48,14 @@ export function VerificationCoachPanel({
   const [observationText, setObservationText] = useState("");
   const [evidenceKind, setEvidenceKind] = useState<ObservationEvidenceKind>("manual_observation");
   const [recording, setRecording] = useState(false);
+  const requestRef = useRef<VerificationCoachGenerateRequest | null>(null);
+  requestRef.current = request;
   const requestKey = useMemo(() => automaticGenerationKey(request), [request]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!request) {
+    const currentRequest = requestRef.current;
+    if (!currentRequest) {
       setResponse(null);
       setLoading(false);
       return () => {
@@ -62,8 +65,8 @@ export function VerificationCoachPanel({
 
     setLoading(true);
     void generateVerificationCoachGuide({
-      ...request,
-      guideVersion: (request.guideVersion ?? 0) + nonce,
+      ...currentRequest,
+      guideVersion: (currentRequest.guideVersion ?? 0) + nonce,
     })
       .then((next) => {
         if (!cancelled) setResponse(next);
@@ -73,7 +76,7 @@ export function VerificationCoachPanel({
           setResponse({
             status: "unavailable",
             eventId: `coach-error-${Date.now()}`,
-            guideVersion: (request.guideVersion ?? 0) + nonce + 1,
+            guideVersion: (currentRequest.guideVersion ?? 0) + nonce + 1,
             dropReason: "runtime_unavailable",
             message: "Verification guidance is unavailable.",
           });
@@ -229,9 +232,7 @@ function GuideView({ guide }: { guide: VerificationGuide }) {
             <div className="font-semibold text-fg">{check.label}</div>
             <p className="mt-1 whitespace-pre-wrap text-fg-muted">{check.instruction}</p>
             <p className="mt-1 text-[11px] text-fg">
-              <span className="font-medium">
-                {t("roadmap.step_detail.coach_check_expected")}:{" "}
-              </span>
+              <span className="font-medium">{t("roadmap.step_detail.coach_check_expected")}: </span>
               {check.expectedObservation}
             </p>
           </li>

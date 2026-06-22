@@ -69,9 +69,9 @@ const PROVIDER_KINDS: Array<{
     kind: "opencode_zen",
     label: "opencode zen",
     hintKey: "onboarding.provider_opencode_zen_hint",
-    ga: true,
+    ga: false,
     warning: {
-      textKey: "onboarding.opencode_warning",
+      textKey: "runtime.capability.reasons.provider_not_pi_capable",
       href: "https://opencode.ai/docs/zen/",
       linkLabelKey: "onboarding.details",
     },

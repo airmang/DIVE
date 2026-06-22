@@ -32,7 +32,13 @@ const PROVIDER_LINKS: Record<string, string> = {
   opencode_zen: "https://opencode.ai/docs/zen/",
 };
 
-const PROVIDER_CHOICES: Array<{ kind: string; label: string; hintKey: string }> = [
+const PROVIDER_CHOICES: Array<{
+  kind: string;
+  label: string;
+  hintKey: string;
+  available?: boolean;
+  unavailableKey?: string;
+}> = [
   { kind: "anthropic", label: "Anthropic", hintKey: "onboarding.provider_anthropic_hint" },
   { kind: "openai", label: "OpenAI", hintKey: "onboarding.provider_openai_hint" },
   { kind: "openrouter", label: "OpenRouter", hintKey: "onboarding.provider_openrouter_hint" },
@@ -40,6 +46,8 @@ const PROVIDER_CHOICES: Array<{ kind: string; label: string; hintKey: string }> 
     kind: "opencode_zen",
     label: "opencode zen",
     hintKey: "onboarding.provider_opencode_zen_hint",
+    available: false,
+    unavailableKey: "runtime.capability.reasons.provider_not_pi_capable",
   },
   { kind: "codex", label: "Codex", hintKey: "onboarding.provider_codex_hint" },
 ];
@@ -58,6 +66,8 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [codexOpen, setCodexOpen] = useState(false);
+  const selectedProvider = PROVIDER_CHOICES.find((provider) => provider.kind === kind);
+  const providerUnavailable = selectedProvider?.available === false;
   const isCodex = kind === "codex";
 
   const handleCodexConnected = (connected: boolean) => {
@@ -79,6 +89,12 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
   };
 
   const handleConnect = async () => {
+    if (providerUnavailable) {
+      setError(
+        t(selectedProvider?.unavailableKey ?? "runtime.capability.reasons.runtime_unavailable"),
+      );
+      return;
+    }
     if (!apiKey.trim()) {
       setError(t("onboarding.api_key_required"));
       return;
@@ -117,21 +133,30 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
                 <button
                   key={p.kind}
                   type="button"
-                  onClick={() => setKind(p.kind)}
+                  disabled={p.available === false}
+                  onClick={() => {
+                    if (p.available === false) return;
+                    setKind(p.kind);
+                  }}
                   data-testid={`onb-kind-${p.kind}`}
                   data-selected={kind === p.kind}
+                  data-unavailable={p.available === false ? "true" : "false"}
                   className={
                     kind === p.kind
                       ? "rounded-md border-2 border-accent bg-accent-subtle px-3 py-2 text-left"
-                      : "rounded-md border px-3 py-2 text-left hover:bg-bg-panel2"
+                      : p.available === false
+                        ? "cursor-not-allowed rounded-md border px-3 py-2 text-left opacity-60"
+                        : "rounded-md border px-3 py-2 text-left hover:bg-bg-panel2"
                   }
                 >
                   <div className="text-sm font-medium text-fg">{p.label}</div>
-                  <div className="text-[10px] text-fg-muted">{t(p.hintKey)}</div>
+                  <div className="text-[10px] text-fg-muted">
+                    {p.available === false && p.unavailableKey ? t(p.unavailableKey) : t(p.hintKey)}
+                  </div>
                 </button>
               ))}
             </div>
-            {PROVIDER_LINKS[kind] ? (
+            {PROVIDER_LINKS[kind] && !providerUnavailable ? (
               <a
                 href={PROVIDER_LINKS[kind]}
                 target="_blank"
@@ -144,7 +169,7 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
             ) : null}
             {kind === "opencode_zen" ? (
               <p className="text-[10px] text-warn" data-testid="onb-opencode-warning">
-                {t("onboarding.opencode_warning")} (
+                {t("runtime.capability.reasons.provider_not_pi_capable")} (
                 <a
                   href="https://opencode.ai/docs/zen/"
                   target="_blank"
@@ -196,7 +221,11 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
             {t("onboarding.skip")}
           </Button>
           {isCodex ? null : (
-            <Button onClick={handleConnect} data-testid="onb-connect" disabled={submitting}>
+            <Button
+              onClick={handleConnect}
+              data-testid="onb-connect"
+              disabled={submitting || providerUnavailable}
+            >
               {submitting ? t("onboarding.connecting") : t("onboarding.connect")}
             </Button>
           )}
