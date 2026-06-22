@@ -3,9 +3,10 @@ import { forwardRef, type KeyboardEvent } from "react";
 import { useT } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { agencyToneClass, type PlanRoadmapStep } from "../../features/roadmap";
-import { planStatusMeta } from "./plan-status-meta";
+import { isPlanStepComplete, planStatusMeta } from "./plan-status-meta";
 import { PlanStepActions } from "./PlanStepActions";
 import { PlanStepNode } from "./PlanStepNode";
+import { RationaleChallengePanel } from "../product/RationaleChallengePanel";
 import type { PlanActionHandlers, PlanLineToken } from "./types";
 
 interface PlanStepProps {
@@ -56,6 +57,11 @@ export const PlanStep = forwardRef<HTMLDivElement, PlanStepProps>(function PlanS
   const meta = planStatusMeta(item.status);
   const dependencies = stringArray(item.step.dependencies);
   const summary = item.step.summary?.trim() ?? "";
+  const hasCriteriaOrRationale =
+    Boolean(item.linkedCriteria?.length) || Boolean(item.decompositionRationale);
+  const rationaleChallenge = actions?.rationaleChallenge;
+  const showRationaleChallenge =
+    hasCriteriaOrRationale && Boolean(rationaleChallenge) && !isPlanStepComplete(item.status);
 
   const run = async (focus = true, openDetail = false) => {
     if (!actions) return;
@@ -209,7 +215,21 @@ export const PlanStep = forwardRef<HTMLDivElement, PlanStepProps>(function PlanS
             {summary ? <p className="mt-1 line-clamp-2 text-xs text-fg">{summary}</p> : null}
           </>
         )}
-        {item.linkedCriteria?.length || item.decompositionRationale ? (
+        {showRationaleChallenge && rationaleChallenge ? (
+          <RationaleChallengePanel
+            className="mt-2"
+            linkedCriteria={item.linkedCriteria ?? []}
+            rationale={item.decompositionRationale ?? ""}
+            challenge={{
+              projectId: rationaleChallenge.projectId,
+              planId: item.step.plan_id,
+              stepDbId: item.step.id,
+              onChallenge: rationaleChallenge.onChallenge,
+              onAcceptOffer: rationaleChallenge.onAcceptOffer,
+              onDismissOffer: rationaleChallenge.onDismissOffer,
+            }}
+          />
+        ) : hasCriteriaOrRationale ? (
           <div
             className="mt-2 space-y-1 rounded-sm border border-border/70 bg-bg/60 px-2 py-1.5 text-[11px]"
             data-testid="plan-step-criteria"

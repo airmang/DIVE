@@ -182,6 +182,7 @@ export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
               onOpenSession={handleOpenSession}
               onCreatePlan={shell.roadmap.onCreatePlan}
               onReviewPlan={handleReviewPlan}
+              rationaleChallenge={shell.planStepRationaleChallenge}
             />
           </Suspense>
         </div>

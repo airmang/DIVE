@@ -1829,6 +1829,15 @@ export function useProductShellController() {
       onCreatePlan: handleCreatePlanFromRail,
     },
     planRoadmap,
+    planStepRationaleChallenge:
+      currentProjectId !== null
+        ? {
+            projectId: currentProjectId,
+            onChallenge: plan.challengeStepRationale,
+            onAcceptOffer: plan.acceptRationaleChallengeOffer,
+            onDismissOffer: plan.dismissRationaleChallengeOffer,
+          }
+        : undefined,
     stepDetail: {
       open: dialogs.stepDetailOpen,
       step: currentStepDetailStep,
@@ -1859,17 +1868,6 @@ export function useProductShellController() {
         projectId: currentProjectId,
         sessionId: currentSessionId,
       },
-      rationaleChallenge:
-        currentProjectId !== null && currentPlanRoadmapStep
-          ? {
-              projectId: currentProjectId,
-              planId: currentPlanRoadmapStep.step.plan_id,
-              stepDbId: currentPlanRoadmapStep.step.id,
-              onChallenge: plan.challengeStepRationale,
-              onAcceptOffer: plan.acceptRationaleChallengeOffer,
-              onDismissOffer: plan.dismissRationaleChallengeOffer,
-            }
-          : undefined,
       onApprovalDecision: handleApprovalDecision,
       onGoToChat: handleGoToChatFromStepDetail,
     },
