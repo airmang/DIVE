@@ -106,6 +106,7 @@ pub(super) fn mark_active_step_blocked_by_pi_runtime_error(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use super::super::credential::file_mode_string;
     use super::super::{DEFAULT_MODEL, PROVIDER_ID};
     use super::*;

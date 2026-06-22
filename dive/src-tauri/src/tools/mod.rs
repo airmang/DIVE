@@ -176,6 +176,7 @@ pub(crate) fn truncate_utf8(s: &str, max_bytes: usize, suffix: &str) -> String {
 
 #[cfg(test)]
 mod integration_tests {
+    #[cfg(unix)]
     use super::{
         edit_file::EditFile, mkdir::Mkdir, run_process::RunProcess, search_files::SearchFiles,
         Tool, ToolContext,

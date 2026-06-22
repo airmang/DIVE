@@ -1,5 +1,7 @@
 use dive_lib::tools::terminal_script::RunTerminalScript;
-use dive_lib::tools::{Tool, ToolContext, ToolError};
+#[cfg(unix)]
+use dive_lib::tools::ToolContext;
+use dive_lib::tools::{Tool, ToolError};
 use serde_json::{json, Value};
 
 fn script_input(script: &str) -> Value {

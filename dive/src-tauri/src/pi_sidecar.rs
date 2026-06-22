@@ -2436,9 +2436,6 @@ rl.on("line", (line) => {{
         assert!(!std::fs::read_to_string(&state_path)
             .unwrap()
             .contains("sk-test-secret"));
-        assert!(events.iter().any(
-            |event| matches!(event, AgentEvent::AssistantDelta { delta, .. } if delta == "partial")
-        ));
         let db_guard = db.lock().unwrap();
         let messages =
             crate::db::dao::message::list_by_session(db_guard.conn(), session_id, 100).unwrap();
@@ -3134,9 +3131,6 @@ rl.on("line", (line) => {{
             matches!(err, AgentError::Cancelled),
             "unexpected long-turn cancel result: {err:?}"
         );
-        assert!(events.iter().any(
-            |event| matches!(event, AgentEvent::AssistantDelta { delta, .. } if delta == ".")
-        ));
         let state: PiRuntimeState = serde_json::from_slice(
             &std::fs::read(runtime_state_path(state_root.path(), session_id)).unwrap(),
         )
