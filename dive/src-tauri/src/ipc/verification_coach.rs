@@ -32,9 +32,9 @@ pub(crate) async fn verification_coach_generate_impl(
 ) -> Result<VerificationCoachGenerateResponse, String> {
     let event_id = Uuid::new_v4().to_string();
     let guide_version = next_guide_version(&request);
-    log_requested(&state, &request, &event_id, guide_version)?;
+    log_requested(state, &request, &event_id, guide_version)?;
 
-    let output = generate_from_runtime(&state, &request).await;
+    let output = generate_from_runtime(state, &request).await;
     let mut response = match output {
         CoachRuntimeOutput::Guide {
             raw,
@@ -78,7 +78,7 @@ pub(crate) async fn verification_coach_generate_impl(
         }
     };
     response.event_id = event_id;
-    log_evaluated(&state, &request, &response)?;
+    log_evaluated(state, &request, &response)?;
     Ok(response)
 }
 

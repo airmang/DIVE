@@ -38,6 +38,37 @@ fn blocklist_classifies_all_documented_patterns() {
 }
 
 #[test]
+fn terminal_script_assessment_blocks_absolute_paths_and_root_escape_patterns() {
+    let cases = [
+        "cat /etc/hosts",
+        "printf ok > /tmp/dive-output.txt",
+        "ls ~/Downloads",
+        "printf ok > $HOME/dive-output.txt",
+        "type C:\\Users\\student\\secret.txt",
+        "Get-Content \\\\server\\share\\secret.txt",
+        "cat ../outside.txt",
+    ];
+
+    for script in cases {
+        let assessment = dive_lib::tools::guard::assess_terminal_script(script);
+        assert!(
+            assessment
+                .risk_factors
+                .iter()
+                .any(|factor| factor == "project-root escape"),
+            "script must carry project-root escape risk factor: {script}"
+        );
+        let reason = assessment
+            .block_reason
+            .unwrap_or_else(|| panic!("script must be blocked: {script}"));
+        assert!(
+            reason.rule.contains("path") || reason.rule.contains("parent directory"),
+            "{script}: {reason:?}"
+        );
+    }
+}
+
+#[test]
 fn blocklist_lets_normal_commands_pass() {
     for cmd in [
         "pnpm install",

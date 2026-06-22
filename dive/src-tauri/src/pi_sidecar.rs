@@ -2045,7 +2045,7 @@ rl.on("line", (line) => {{
             "stdout should be bounded"
         );
         assert_eq!(script_event.3.as_deref(), Some("warn"));
-        assert_eq!(*script_event.4, true);
+        assert!(*script_event.4);
 
         let db_guard = db.lock().unwrap();
         let rows = crate::db::dao::event_log::list_by_session(db_guard.conn(), session_id).unwrap();

@@ -449,6 +449,330 @@ fn export_distinguishes_008_runtime_events_and_redacts_outputs() {
 }
 
 #[test]
+fn mixed_product_session_export_is_reconstructable_across_runtime_review_and_approval() {
+    let (db, sid) = seed();
+    let card_id = {
+        let db_guard = db.lock().unwrap();
+        db_guard
+            .conn()
+            .query_row(
+                "SELECT id FROM Card WHERE session_id = ? ORDER BY id LIMIT 1",
+                params![sid],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap()
+    };
+    {
+        let db_guard = db.lock().unwrap();
+        let conn = db_guard.conn();
+        dive_event_log::append_to_conn(
+            conn,
+            Some(sid),
+            dive_event_log::PREVIEW_OPEN_REQUESTED_EVENT,
+            json!({
+                "requestId": "mixed-preview-1",
+                "sessionId": sid,
+                "cardId": card_id,
+                "kind": "static_file",
+                "targetLabel": "index.html",
+                "source": "review_action",
+                "requestedAt": 10
+            }),
+        )
+        .unwrap();
+        dive_event_log::append_to_conn(
+            conn,
+            Some(sid),
+            dive_event_log::PREVIEW_OPEN_RESULT_EVENT,
+            json!({
+                "requestId": "mixed-preview-1",
+                "sessionId": sid,
+                "cardId": card_id,
+                "status": "ready",
+                "targetLabel": "index.html",
+                "reasonCode": null,
+                "message": "Preview opened.",
+                "resolvedAt": 11
+            }),
+        )
+        .unwrap();
+        dive_event_log::append_to_conn(
+            conn,
+            Some(sid),
+            dive_event_log::PROJECT_COMMAND_RESULT_EVENT,
+            json!({
+                "toolCallId": "mixed-command-1",
+                "sessionId": sid,
+                "cardId": card_id,
+                "commandLabel": "pnpm test",
+                "executable": "pnpm",
+                "args": ["test"],
+                "timeoutSec": 60,
+                "reason": "Run the automated verification command.",
+                "expectedEffect": "Runs the test suite without editing files.",
+                "status": "completed",
+                "success": true,
+                "exitCode": 0,
+                "summary": "tests passed",
+                "stdoutSummary": "ok secret_token=do-not-export",
+                "stderrSummary": "",
+                "createdAt": 12
+            }),
+        )
+        .unwrap();
+        dive_event_log::append_to_conn(
+            conn,
+            Some(sid),
+            dive_event_log::TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT,
+            dive_event_log::terminal_script_approval_requested_payload(
+                "mixed-script-1",
+                sid,
+                Some(card_id),
+                &json!({
+                    "script": "printf done && pnpm test",
+                    "shell_family": "posix",
+                    "reason": "The check needs shell sequencing.",
+                    "expected_effect": "Runs bounded verification commands.",
+                    "timeout_sec": 60,
+                    "output_limit": 4096
+                }),
+            ),
+        )
+        .unwrap();
+        dive_event_log::append_to_conn(
+            conn,
+            Some(sid),
+            dive_event_log::TERMINAL_SCRIPT_RESULT_EVENT,
+            dive_event_log::terminal_script_result_payload(
+                "mixed-script-1",
+                "completed",
+                true,
+                "terminal script completed",
+                Some(&json!({
+                    "exitCode": 0,
+                    "stdout": "done token=do-not-export",
+                    "stderr": "",
+                    "truncated": false
+                })),
+            ),
+        )
+        .unwrap();
+        event_log::insert(
+            conn,
+            &NewEventLog {
+                session_id: Some(sid),
+                r#type: "provocation.card_shown".into(),
+                payload: json!({
+                    "schemaVersion": 1,
+                    "eventId": "mixed-review-card-1",
+                    "timestamp": "2026-06-21T00:00:00.000Z",
+                    "sessionId": sid,
+                    "taskId": card_id,
+                    "cardId": "provocation:mixed-card",
+                    "cardType": "ai_self_report_only",
+                    "stage": "verify",
+                    "severity": "caution",
+                    "mode": "work",
+                    "evidence": [{
+                        "label": "AI 완료 주장",
+                        "source": "agent",
+                        "value": {"kind": "claim", "text": "student@example.com says done"}
+                    }],
+                    "selectedAction": Value::Null,
+                    "reasonRequired": false,
+                    "reasonPresent": false,
+                    "reason": Value::Null,
+                    "verificationStatus": {
+                        "schemaVersion": 1,
+                        "verificationState": "unverified",
+                        "statusIds": ["ai_self_report_only"],
+                        "evidenceSummary": {
+                            "concreteEvidence": false,
+                            "aiSelfReport": true,
+                            "manualEvidenceCount": 0
+                        },
+                        "riskAccepted": false
+                    },
+                    "riskAccepted": false
+                }),
+            },
+        )
+        .unwrap();
+        dive_event_log::append_to_conn(
+            conn,
+            Some(sid),
+            dive_event_log::VERIFICATION_OBSERVATION_RECORDED_EVENT,
+            json!({
+                "observationId": "mixed-observation-1",
+                "sessionId": sid,
+                "cardId": card_id,
+                "criterionIds": ["AC-001"],
+                "evidenceKind": "preview_observation",
+                "observationText": "I saw the login form work for student@example.com",
+                "recordedAt": 13
+            }),
+        )
+        .unwrap();
+        dive_event_log::append_to_conn(
+            conn,
+            Some(sid),
+            "card_update",
+            json!({
+                "action": "transition",
+                "transition": "approved",
+                "card_id": card_id,
+                "approval_provenance": {
+                    "schemaVersion": 1,
+                    "approvalOutcome": "approved",
+                    "verificationState": "verified_with_evidence",
+                    "riskAccepted": false,
+                    "evidenceSummary": {
+                        "concreteEvidence": true,
+                        "aiSelfReport": false,
+                        "automatedTestsPassed": true,
+                        "manualEvidenceCount": 1,
+                        "observationIds": ["mixed-observation-1"]
+                    }
+                },
+                "createdAt": 14
+            }),
+        )
+        .unwrap();
+    }
+
+    let jsonl = ExportEngine::new(db)
+        .export_session_with_salt(
+            sid,
+            &ExportOptions {
+                hash_user_text: true,
+                hash_file_paths: false,
+                hash_ids: false,
+                ..ExportOptions::default()
+            },
+            "fixed-salt",
+        )
+        .unwrap();
+    let records = lines(&jsonl);
+
+    for expected in [
+        dive_event_log::PREVIEW_OPEN_RESULT_EVENT,
+        dive_event_log::PROJECT_COMMAND_RESULT_EVENT,
+        dive_event_log::TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT,
+        dive_event_log::TERMINAL_SCRIPT_RESULT_EVENT,
+        "provocation.card_shown",
+        dive_event_log::VERIFICATION_OBSERVATION_RECORDED_EVENT,
+        "card_update",
+    ] {
+        assert!(
+            records
+                .iter()
+                .any(|record| record["kind"] == "event" && record["type"] == expected),
+            "missing mixed-session event {expected}: {jsonl}"
+        );
+    }
+
+    let preview = records
+        .iter()
+        .find(|record| record["type"] == dive_event_log::PREVIEW_OPEN_RESULT_EVENT)
+        .expect("preview result");
+    assert_eq!(preview["payload"]["cardId"], card_id);
+    assert_eq!(preview["payload"]["decision"]["kind"], "preview_result");
+    assert_eq!(
+        preview["payload"]["evidenceSummary"]["previewAvailable"],
+        true
+    );
+    assert_eq!(
+        preview["payload"]["evidenceSummary"]["previewIsFinalVerification"],
+        false
+    );
+
+    let command = records
+        .iter()
+        .find(|record| record["type"] == dive_event_log::PROJECT_COMMAND_RESULT_EVENT)
+        .expect("project command result");
+    assert_eq!(command["payload"]["cardId"], card_id);
+    assert_eq!(
+        command["payload"]["decision"]["kind"],
+        "project_command_result"
+    );
+    assert_eq!(command["payload"]["evidenceSummary"]["commandRan"], true);
+    assert_eq!(
+        command["payload"]["evidenceSummary"]["automatedTestsPassed"],
+        true
+    );
+
+    let script = records
+        .iter()
+        .find(|record| record["type"] == dive_event_log::TERMINAL_SCRIPT_RESULT_EVENT)
+        .expect("terminal script result");
+    assert_eq!(
+        script["payload"]["decision"]["kind"],
+        "terminal_script_result"
+    );
+    assert_eq!(
+        script["payload"]["evidenceSummary"]["terminalScriptResult"],
+        true
+    );
+    assert_eq!(
+        script["payload"]["evidenceSummary"]["externalTestRun"],
+        true
+    );
+
+    let card = records
+        .iter()
+        .find(|record| record["type"] == "provocation.card_shown")
+        .expect("review card event");
+    assert_eq!(card["payload"]["cardType"], "ai_self_report_only");
+    assert_eq!(
+        card["payload"]["verificationStatus"]["evidenceSummary"]["aiSelfReport"],
+        true
+    );
+
+    let observation = records
+        .iter()
+        .find(|record| record["type"] == dive_event_log::VERIFICATION_OBSERVATION_RECORDED_EVENT)
+        .expect("manual observation event");
+    assert_eq!(
+        observation["payload"]["evidenceSummary"]["manualEvidenceCount"],
+        1
+    );
+    assert_eq!(
+        observation["payload"]["evidenceSummary"]["concreteEvidence"],
+        true
+    );
+    assert!(observation["payload"]["observationText"]
+        .as_str()
+        .is_some_and(|value| value.starts_with("h:")));
+
+    let approval = records
+        .iter()
+        .find(|record| record["type"] == "card_update")
+        .expect("final approval event");
+    assert_eq!(approval["payload"]["decision"]["kind"], "card_transition");
+    assert_eq!(
+        approval["payload"]["decision"]["approvalOutcome"],
+        "approved"
+    );
+    assert_eq!(
+        approval["payload"]["evidenceSummary"]["concreteEvidence"],
+        true
+    );
+    assert_eq!(
+        approval["payload"]["evidenceSummary"]["observationIds"],
+        json!(["mixed-observation-1"])
+    );
+
+    for raw in [
+        "secret_token=do-not-export",
+        "token=do-not-export",
+        "student@example.com",
+        "I saw the login form work",
+    ] {
+        assert!(!jsonl.contains(raw), "mixed export leaked {raw}: {jsonl}");
+    }
+}
+
+#[test]
 fn default_export_emits_retrospective_metrics_without_raw_text() {
     let (db, sid) = seed();
     let engine = ExportEngine::new(db);

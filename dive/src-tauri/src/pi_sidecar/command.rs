@@ -27,9 +27,24 @@ pub(super) fn default_sidecar_script_path() -> Result<PathBuf, String> {
 }
 
 /// How to launch the sidecar process: a program plus any leading args.
+#[derive(Debug)]
 pub(super) struct SidecarCommand {
     pub(super) program: String,
     pub(super) prefix_args: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SidecarResolutionMode {
+    Development,
+    Packaged,
+}
+
+fn default_resolution_mode() -> SidecarResolutionMode {
+    if cfg!(debug_assertions) {
+        SidecarResolutionMode::Development
+    } else {
+        SidecarResolutionMode::Packaged
+    }
 }
 
 /// Candidate path of the compiled sidecar binary shipped next to the app
@@ -47,9 +62,18 @@ pub(super) fn bundled_sidecar_path() -> Option<PathBuf> {
 }
 
 /// Resolve how to spawn the sidecar. The packaged app ships a compiled
-/// standalone binary (`externalBin`) and runs it directly; development (and any
-/// build without the bundled binary present) falls back to `node <script>`.
+/// standalone binary (`externalBin`) and runs it directly. Development may
+/// explicitly fall back to `node <script>`, but packaged/production mode fails
+/// if the bundled binary is absent so packaging defects are not hidden until
+/// classroom machines lack Node.
 pub(super) fn resolve_sidecar_command(bundled: Option<PathBuf>) -> Result<SidecarCommand, String> {
+    resolve_sidecar_command_for_mode(bundled, default_resolution_mode())
+}
+
+fn resolve_sidecar_command_for_mode(
+    bundled: Option<PathBuf>,
+    mode: SidecarResolutionMode,
+) -> Result<SidecarCommand, String> {
     if let Some(bin) = bundled {
         if bin.exists() {
             return Ok(SidecarCommand {
@@ -57,6 +81,17 @@ pub(super) fn resolve_sidecar_command(bundled: Option<PathBuf>) -> Result<Sideca
                 prefix_args: Vec::new(),
             });
         }
+        if mode == SidecarResolutionMode::Packaged {
+            return Err(format!(
+                "bundled Pi sidecar missing: {}; packaged mode cannot fall back to node source script",
+                bin.display()
+            ));
+        }
+    } else if mode == SidecarResolutionMode::Packaged {
+        return Err(
+            "bundled Pi sidecar path unavailable; packaged mode cannot fall back to node source script"
+                .to_string(),
+        );
     }
     let script_path = default_sidecar_script_path()?;
     Ok(SidecarCommand {
@@ -94,7 +129,8 @@ mod tests {
 
     #[test]
     fn dev_resolution_falls_back_to_node_with_a_script() {
-        let cmd = resolve_sidecar_command(None).expect("dev resolution");
+        let cmd = resolve_sidecar_command_for_mode(None, SidecarResolutionMode::Development)
+            .expect("dev resolution");
         assert_eq!(cmd.program, "node");
         assert_eq!(cmd.prefix_args.len(), 1);
         assert!(cmd.prefix_args[0].ends_with(".mjs"));
@@ -106,8 +142,33 @@ mod tests {
         let present = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("src")
             .join("pi_sidecar.rs");
-        let cmd = resolve_sidecar_command(Some(present.clone())).expect("release resolution");
+        let cmd = resolve_sidecar_command_for_mode(
+            Some(present.clone()),
+            SidecarResolutionMode::Packaged,
+        )
+        .expect("release resolution");
         assert_eq!(cmd.program, present.display().to_string());
         assert!(cmd.prefix_args.is_empty());
+    }
+
+    #[test]
+    fn packaged_resolution_fails_when_bundled_binary_is_missing_even_if_source_script_exists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let script = tmp.path().join("main.mjs");
+        std::fs::write(&script, "console.log('dev only');").unwrap();
+        let _guard = set_test_sidecar_script_path(script);
+        let missing_bundled = tmp.path().join("dive-pi-sidecar");
+
+        let err = resolve_sidecar_command_for_mode(
+            Some(missing_bundled),
+            SidecarResolutionMode::Packaged,
+        )
+        .expect_err("packaged mode must not fall back to node source script");
+
+        assert!(err.contains("bundled Pi sidecar missing"), "{err}");
+        assert!(
+            err.contains("cannot fall back to node source script"),
+            "{err}"
+        );
     }
 }

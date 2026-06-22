@@ -1396,6 +1396,7 @@ impl AgentLoop {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn record_project_command_result(
         &self,
         session_id: i64,
@@ -1468,6 +1469,7 @@ impl AgentLoop {
         Ok(TerminalScriptResultEvidence::from_payload(payload))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn record_runtime_routing_decision(
         &self,
         session_id: i64,

@@ -325,11 +325,11 @@ fn response_tool_ids(id: &str) -> (String, String) {
 fn sanitize_response_id(raw: &str, fallback: &str) -> String {
     let mut out = raw
         .chars()
-        .filter_map(|ch| {
+        .map(|ch| {
             if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
-                Some(ch)
+                ch
             } else {
-                Some('_')
+                '_'
             }
         })
         .collect::<String>();

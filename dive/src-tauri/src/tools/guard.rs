@@ -197,6 +197,34 @@ static TERMINAL_SCRIPT_EXTRA_RULES: Lazy<Vec<(&'static str, &'static str, Regex)
                 Regex::new(r#"(^|[=\s'"(])\.\.(?:/|\\)"#).unwrap(),
             ),
             (
+                "project-root escape",
+                "absolute POSIX path",
+                Regex::new(
+                    r#"(^|[\s=:'"(<>{}\[\],;|&])/(?:$|[\s;&|<>()'"`]|[^\s;&|<>()'"`/][^\s;&|<>()'"`]*)"#,
+                )
+                .unwrap(),
+            ),
+            (
+                "project-root escape",
+                "absolute Windows drive path",
+                Regex::new(r#"(?i)(^|[\s=:'"(<>{}\[\],;|&])[A-Za-z]:[\\/][^\s;&|<>()'"`]*"#).unwrap(),
+            ),
+            (
+                "project-root escape",
+                "absolute Windows UNC path",
+                Regex::new(r#"(?i)(^|[\s=:'"(<>{}\[\],;|&])\\\\[A-Za-z0-9_.-]+\\[^\s;&|<>()'"`]*"#).unwrap(),
+            ),
+            (
+                "project-root escape",
+                "home directory path",
+                Regex::new(r#"(^|[\s=:'"(<>{}\[\],;|&])~(?:[/\\]|\s|$)"#).unwrap(),
+            ),
+            (
+                "project-root escape",
+                "home environment path",
+                Regex::new(r#"(?i)(^|[\s=:'"(<>{}\[\],;|&])(?:\$HOME|\$\{HOME\}|%USERPROFILE%|%HOMEPATH%|%APPDATA%)(?:[/\\]|\s|$)"#).unwrap(),
+            ),
+            (
                 "credential exposure",
                 "environment dump",
                 Regex::new(r"(?i)(^|[;&|\r\n])\s*(?:env|printenv|set)(?:\s|$)").unwrap(),

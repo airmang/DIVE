@@ -25,6 +25,13 @@ fn blocks_terminal_script_unsafe_patterns_before_approval() {
         ("credential exposure", "cat .env"),
         ("privilege escalation", "sudo pnpm install"),
         ("project-root escape", "cd .. && pnpm test"),
+        ("absolute path read", "cat /etc/hosts"),
+        ("absolute path write", "printf ok > /tmp/dive-output.txt"),
+        ("home path read", "ls ~/Downloads"),
+        (
+            "windows absolute path read",
+            "type C:\\Users\\student\\secret.txt",
+        ),
         ("background persistence", "nohup pnpm dev &"),
     ];
 
