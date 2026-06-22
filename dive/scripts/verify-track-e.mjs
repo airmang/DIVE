@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-import { execSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -16,6 +15,40 @@ function checkFile(path, name) {
   } else {
     console.log(`[OK] ${name} present`);
   }
+}
+
+function sourceFilesUnder(path, extensions) {
+  const root = repoPath(path);
+  if (!existsSync(root)) return [];
+  if (statSync(root).isFile()) {
+    return extensions.some((extension) => root.endsWith(extension)) ? [root] : [];
+  }
+  const files = [];
+  for (const entry of readdirSync(root)) {
+    const child = join(root, entry);
+    const stats = statSync(child);
+    if (stats.isDirectory()) {
+      files.push(...sourceFilesUnder(relative(repoRoot, child), extensions));
+    } else if (extensions.some((extension) => child.endsWith(extension))) {
+      files.push(child);
+    }
+  }
+  return files;
+}
+
+function sourceMatches(paths, extensions, pattern) {
+  const matches = [];
+  for (const path of paths) {
+    for (const file of sourceFilesUnder(path, extensions)) {
+      const rel = relative(repoRoot, file).replaceAll("\\", "/");
+      readFileSync(file, "utf8")
+        .split(/\r?\n/)
+        .forEach((line, index) => {
+          if (pattern.test(line)) matches.push(`${rel}:${index + 1}:${line}`);
+        });
+    }
+  }
+  return matches;
 }
 
 checkFile("dive/src/stores/ui-preferences.ts", "ui-preferences store");
@@ -51,11 +84,7 @@ if (
   console.log("[OK] Product shell controller handles help tutorial menu event");
 }
 
-const grepOutput = execSync("grep -RIn --include='*.tsx' '<LearningHint' dive/src || true", {
-  cwd: repoRoot,
-  encoding: "utf8",
-});
-const hintCount = grepOutput.split("\n").filter((line) => line.trim()).length;
+const hintCount = sourceMatches(["dive/src"], [".tsx"], /<LearningHint/).length;
 if (hintCount < 10) {
   console.error(`[FAIL] LearningHint used only ${hintCount} times (expected >=10)`);
   failed++;
@@ -63,13 +92,21 @@ if (hintCount < 10) {
   console.log(`[OK] LearningHint used ${hintCount} times`);
 }
 
-const forbiddenGrep = execSync(
-  "grep -RIn --include='*.tsx' --include='*.ts' -E '학생|선생님|교사' " +
-    "dive/src/components dive/src/hooks dive/src/stores dive/src/lib dive/src/pages/settings.tsx || true",
-  { cwd: repoRoot, encoding: "utf8" },
+const forbiddenTerminology = sourceMatches(
+  [
+    "dive/src/components",
+    "dive/src/hooks",
+    "dive/src/stores",
+    "dive/src/lib",
+    "dive/src/pages/settings.tsx",
+  ],
+  [".tsx", ".ts"],
+  /\uD559\uC0DD|\uC120\uC0DD\uB2D8|\uAD50\uC0AC/,
 );
-if (forbiddenGrep.trim()) {
-  console.error("[FAIL] Student/teacher terminology still present:\n" + forbiddenGrep);
+if (forbiddenTerminology.length > 0) {
+  console.error(
+    "[FAIL] Student/teacher terminology still present:\n" + forbiddenTerminology.join("\n"),
+  );
   failed++;
 } else {
   console.log("[OK] No student/teacher terminology in product code");
@@ -95,4 +132,4 @@ if (failed > 0) {
   console.error(`\n${failed} check(s) failed`);
   process.exit(1);
 }
-console.log("\n[OK] Track E 검증 통과");
+console.log("\n[OK] Track E verification passed");

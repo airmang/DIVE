@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -10,6 +10,20 @@ let failed = 0;
 
 function read(path) {
   return readFileSync(resolve(repoRoot, path), "utf8");
+}
+
+function sourceFilesUnder(root) {
+  const files = [];
+  for (const entry of readdirSync(root)) {
+    const child = join(root, entry);
+    const stats = statSync(child);
+    if (stats.isDirectory()) {
+      files.push(...sourceFilesUnder(child));
+    } else if (child.endsWith(".tsx") || child.endsWith(".ts")) {
+      files.push(child);
+    }
+  }
+  return files;
 }
 
 const app = read("dive/src/App.tsx");
@@ -27,13 +41,17 @@ if (!/import\.meta\.env\.DEV/.test(app)) {
   console.log("[OK] App.tsx uses import.meta.env.DEV");
 }
 
-const productImportsDemoRoutes = execSync(
-  "grep -RIn \"demo-routes\" src --include='*.tsx' --include='*.ts' || true",
-  { cwd: resolve(repoRoot, "dive"), encoding: "utf8" },
-)
-  .split("\n")
-  .filter(Boolean)
-  .filter((line) => !line.includes("src/components/demo/"));
+const productImportsDemoRoutes = sourceFilesUnder(resolve(repoRoot, "dive/src"))
+  .flatMap((file) => {
+    const rel = relative(resolve(repoRoot, "dive"), file).replaceAll("\\", "/");
+    return readFileSync(file, "utf8")
+      .split(/\r?\n/)
+      .map((line, index) => ({ line, text: `${rel}:${index + 1}:${line}` }));
+  })
+  .filter(
+    ({ line, text }) => line.includes("demo-routes") && !text.includes("src/components/demo/"),
+  )
+  .map(({ text }) => text);
 if (productImportsDemoRoutes.length > 0) {
   console.error("[FAIL] Product-side code imports demo-routes:");
   for (const line of productImportsDemoRoutes) console.error(`  ${line}`);
