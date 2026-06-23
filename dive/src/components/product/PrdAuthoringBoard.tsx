@@ -578,11 +578,17 @@ export function PrdAuthoringBoard({
                 .map((code) =>
                   code === "missing_goal"
                     ? t("prd.authoring.validation_goal_required")
-                    : code === "missing_intent_summary"
-                      ? t("prd.authoring.validation_intent_required")
-                      : code === "missing_scope"
-                        ? t("prd.authoring.validation_scope_required")
-                        : t("prd.authoring.validation_criterion_required"),
+                    : code === "vague_goal"
+                      ? t("prd.authoring.validation_goal_vague")
+                      : code === "missing_intent_summary"
+                        ? t("prd.authoring.validation_intent_required")
+                        : code === "missing_scope"
+                          ? t("prd.authoring.validation_scope_required")
+                          : code === "missing_non_goals"
+                            ? t("prd.authoring.validation_non_goals_required")
+                            : code === "insufficient_acceptance_criteria"
+                              ? t("prd.authoring.validation_criteria_insufficient")
+                              : t("prd.authoring.validation_criterion_required"),
                 )
                 .join(" / ")}
         </div>

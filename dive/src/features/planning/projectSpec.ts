@@ -12,8 +12,11 @@ export const ACCEPTANCE_CRITERION_ID_PREFIX = "AC";
 export type MinimalProjectSpecReasonCode = "missing_goal" | "missing_acceptance_criterion";
 export type ConfirmableProjectSpecReasonCode =
   | MinimalProjectSpecReasonCode
+  | "vague_goal"
   | "missing_intent_summary"
-  | "missing_scope";
+  | "missing_scope"
+  | "missing_non_goals"
+  | "insufficient_acceptance_criteria";
 
 export interface MinimalProjectSpecValidation {
   valid: boolean;
@@ -322,11 +325,81 @@ export function validateMinimalProjectSpec(
   };
 }
 
+// A confirmable PRD must be concrete, not merely non-empty. These thresholds are
+// deliberately modest backstops; the interview prompt is the primary driver of
+// specificity. They exist so a one-line vague answer cannot be confirmed.
+const MIN_GOAL_LENGTH = 10;
+const MIN_INTENT_LENGTH = 8;
+const MIN_LIST_ITEM_LENGTH = 4;
+const MIN_CRITERION_LENGTH = 6;
+const MIN_ACCEPTANCE_CRITERIA = 2;
+const VAGUE_GOAL_TERMS = [
+  "대충",
+  "적당히",
+  "알아서",
+  "아무거나",
+  "뭔가",
+  "그냥 만들",
+  "그냥 해",
+  "something",
+  "whatever",
+  "anything",
+];
+
+function isSubstantiveText(value: string | null | undefined, min: number): boolean {
+  return typeof value === "string" && value.trim().length >= min;
+}
+
+function isVagueGoal(goal: string): boolean {
+  const trimmed = goal.trim();
+  if (trimmed.length < MIN_GOAL_LENGTH) return true;
+  // Short goals dominated by filler words ("대충 만들어줘", "just do something").
+  const lower = trimmed.toLowerCase();
+  return trimmed.length < 24 && VAGUE_GOAL_TERMS.some((term) => lower.includes(term.toLowerCase()));
+}
+
+function substantiveListCount(values: string[]): number {
+  return values.filter((value) => value.trim().length >= MIN_LIST_ITEM_LENGTH).length;
+}
+
+function substantiveActiveCriteriaCount(criteria: AcceptanceCriterion[]): number {
+  return criteria.filter(
+    (criterion) =>
+      criterion.status === "active" && criterion.text.trim().length >= MIN_CRITERION_LENGTH,
+  ).length;
+}
+
 export function validateConfirmableProjectSpec(
-  spec: Pick<ProjectSpecDraft, "goal" | "intentSummary" | "scope" | "acceptanceCriteria">,
+  spec: Pick<
+    ProjectSpecDraft,
+    "goal" | "intentSummary" | "scope" | "nonGoals" | "acceptanceCriteria"
+  >,
 ): ConfirmableProjectSpecValidation {
-  const minimal = validateMinimalProjectSpec(spec);
-  const reasonCodes: ConfirmableProjectSpecReasonCode[] = [...minimal.reasonCodes];
+  const reasonCodes: ConfirmableProjectSpecReasonCode[] = [];
+
+  const goal = spec.goal.trim();
+  if (!goal) {
+    reasonCodes.push("missing_goal");
+  } else if (isVagueGoal(goal)) {
+    reasonCodes.push("vague_goal");
+  }
+
+  if (!isSubstantiveText(spec.intentSummary, MIN_INTENT_LENGTH)) {
+    reasonCodes.push("missing_intent_summary");
+  }
+
+  if (substantiveListCount(spec.scope) < 1) {
+    reasonCodes.push("missing_scope");
+  }
+
+  if (substantiveListCount(spec.nonGoals) < 1) {
+    reasonCodes.push("missing_non_goals");
+  }
+
+  if (substantiveActiveCriteriaCount(spec.acceptanceCriteria) < MIN_ACCEPTANCE_CRITERIA) {
+    reasonCodes.push("insufficient_acceptance_criteria");
+  }
+
   return {
     valid: reasonCodes.length === 0,
     reasonCodes,

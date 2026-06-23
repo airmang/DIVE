@@ -62,14 +62,15 @@ describe("PrdAuthoringBoard", () => {
     await waitFor(() => expect(screen.getByTestId("chat-runtime-selector")).toBeTruthy());
   });
 
-  it("requires a goal and at least one acceptance criterion before confirming the PRD", () => {
-    const props = renderBoard();
+  it("does not confirm a bare goal plus one criterion", () => {
+    renderBoard();
 
     const primary = screen.getByTestId("prd-save-create-plan");
     const headerConfirm = screen.getByTestId("prd-confirm-header");
     expect(primary).toHaveProperty("disabled", true);
     expect(headerConfirm).toHaveProperty("disabled", true);
 
+    // A bare goal and a single criterion is no longer concrete enough to confirm.
     fireEvent.change(screen.getByTestId("prd-goal-input"), {
       target: { value: "Build a PRD-first planning flow" },
     });
@@ -77,6 +78,26 @@ describe("PrdAuthoringBoard", () => {
       target: { value: "Saved PRD opens the final read view" },
     });
 
+    expect(primary).toHaveProperty("disabled", true);
+    expect(headerConfirm).toHaveProperty("disabled", true);
+  });
+
+  it("confirms once the PRD is concrete and fully specified", () => {
+    const props = renderBoard({
+      draft: createLiveProjectSpecDraft(42, {
+        goal: "Build a PRD-first planning flow for students",
+        intentSummary: "Students see and confirm the PRD before any plan is made",
+        scope: ["Single PRD authoring board with a live draft"],
+        nonGoals: ["No automatic plan generation without confirmation"],
+        acceptanceCriteria: [
+          "Saved PRD opens the final read view",
+          "Confirm stays disabled until every required field is filled",
+        ],
+      }),
+    });
+
+    const primary = screen.getByTestId("prd-save-create-plan");
+    const headerConfirm = screen.getByTestId("prd-confirm-header");
     expect(primary).toHaveProperty("disabled", false);
     expect(headerConfirm).toHaveProperty("disabled", false);
 
@@ -155,8 +176,14 @@ describe("PrdAuthoringBoard", () => {
     const onSavePrdAndCreatePlan = vi.fn();
     renderBoard({
       draft: createLiveProjectSpecDraft(42, {
-        goal: "Build a personal schedule app",
-        acceptanceCriteria: ["Schedules and tasks appear in separate lists"],
+        goal: "Build a personal schedule app for commuters",
+        intentSummary: "Commuters add tasks and see today's schedule at a glance",
+        scope: ["Single-page schedule with add and list"],
+        nonGoals: ["No calendar sync or accounts"],
+        acceptanceCriteria: [
+          "Schedules and tasks appear in separate lists",
+          "Adding a task shows it in today's list",
+        ],
       }),
       onSubmitAnswer,
       onSavePrdAndCreatePlan,
