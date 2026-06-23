@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { RefreshCcw, Sparkles } from "lucide-react";
+import { RefreshCcw } from "lucide-react";
 import { Button } from "../ui/button";
 import { useT } from "../../i18n";
 import {
@@ -119,20 +119,11 @@ export function VerificationCoachPanel({
 
   return (
     <section
-      className="mt-3 rounded-md border border-info/40 bg-info/5 px-3 py-3"
+      className="text-xs"
       data-testid="verification-coach-panel"
       data-status={response?.status ?? (loading ? "loading" : "idle")}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-info">
-            <Sparkles className="h-3.5 w-3.5" aria-hidden />
-            {t("roadmap.step_detail.coach_title")}
-          </div>
-          <p className="mt-1 text-[11px] leading-snug text-fg-muted">
-            {t("roadmap.step_detail.coach_role")}
-          </p>
-        </div>
+      <div className="flex justify-end">
         <Button
           type="button"
           variant="outline"

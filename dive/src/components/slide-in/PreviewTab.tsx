@@ -70,8 +70,7 @@ export function PreviewTab() {
 
   const applyPreviewResponse = (api: TauriApi, result: PreviewOpenResponse) => {
     const displayUrl =
-      result.previewUrl ??
-      (result.assetFilePath ? api.convertFileSrc(result.assetFilePath) : null);
+      result.previewUrl ?? (result.assetFilePath ? api.convertFileSrc(result.assetFilePath) : null);
     setPreviewSession({
       requestId: result.requestId,
       status: result.status,

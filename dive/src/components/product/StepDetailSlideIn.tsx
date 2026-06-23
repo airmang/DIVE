@@ -1,5 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, CheckCircle2, Circle, Clock3, ExternalLink, FileCode, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  ChevronDown,
+  Circle,
+  Clock3,
+  ExternalLink,
+  FileCode,
+  X,
+} from "lucide-react";
 import { Button } from "../ui/button";
 import { LearningHint } from "../ui/learning-hint";
 import { cn } from "../../lib/utils";
@@ -39,6 +48,10 @@ import {
 import type { VerificationCoachGenerateRequest } from "../../features/verification-coach/types";
 import type { ObservationEvidenceRecord } from "../../features/verification-coach/types";
 import { VerificationCoachPanel } from "./VerificationCoachPanel";
+import {
+  VerificationReviewStepper,
+  type VerificationReviewStage,
+} from "./VerificationReviewStepper";
 
 export interface StepDetailSlideInProps {
   open: boolean;
@@ -80,6 +93,13 @@ const STATUS_CLASS: Record<RoadmapStepStatus, string> = {
   done: "border-success/60 bg-success/10 text-success",
   shipped: "border-success/70 bg-success/15 text-success",
 };
+
+const REVIEW_SIDEBAR_WIDTH_STORAGE_KEY = "dive.review-sidebar.width";
+const REVIEW_SIDEBAR_DEFAULT_WIDTH = 520;
+const REVIEW_SIDEBAR_MIN_WIDTH = 380;
+const REVIEW_SIDEBAR_MAX_WIDTH = 900;
+const REVIEW_SIDEBAR_VIEWPORT_RATIO = 0.8;
+const REVIEW_SIDEBAR_KEYBOARD_STEP = 16;
 
 type CriterionEvidenceRef = "preview" | "app" | null;
 type VerificationFocusActionKind =
@@ -128,10 +148,120 @@ function highRiskFilesFromCards(cards: ProvocationCard[]): string[] {
 }
 
 function statusIcon(status: RoadmapStepStatus) {
-  if (status === "shipped" || status === "done") return <CheckCircle2 aria-hidden />;
-  if (status === "review") return <Clock3 aria-hidden />;
-  if (status === "in_progress") return <AlertCircle aria-hidden />;
-  return <Circle aria-hidden />;
+  const cls = "h-3 w-3 shrink-0";
+  if (status === "shipped" || status === "done")
+    return <CheckCircle2 className={cls} aria-hidden />;
+  if (status === "review") return <Clock3 className={cls} aria-hidden />;
+  if (status === "in_progress") return <AlertCircle className={cls} aria-hidden />;
+  return <Circle className={cls} aria-hidden />;
+}
+
+function reviewSidebarMaxWidth(): number {
+  if (typeof window === "undefined") return REVIEW_SIDEBAR_MAX_WIDTH;
+  return Math.min(
+    REVIEW_SIDEBAR_MAX_WIDTH,
+    Math.floor(window.innerWidth * REVIEW_SIDEBAR_VIEWPORT_RATIO),
+  );
+}
+
+function clampReviewSidebarWidth(width: number, maxWidth = reviewSidebarMaxWidth()): number {
+  if (!Number.isFinite(width)) return REVIEW_SIDEBAR_DEFAULT_WIDTH;
+  return Math.min(maxWidth, Math.max(REVIEW_SIDEBAR_MIN_WIDTH, Math.round(width)));
+}
+
+function readStoredReviewSidebarWidth(): number | null {
+  if (typeof window === "undefined") return null;
+  const stored = window.localStorage.getItem(REVIEW_SIDEBAR_WIDTH_STORAGE_KEY);
+  if (!stored) return null;
+  const parsed = Number.parseInt(stored, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function persistReviewSidebarWidth(width: number) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(REVIEW_SIDEBAR_WIDTH_STORAGE_KEY, String(width));
+}
+
+function useReviewSidebarWidth(open: boolean, panelRef: RefObject<HTMLDivElement | null>) {
+  const [maxWidth, setMaxWidth] = useState(() => reviewSidebarMaxWidth());
+  const [width, setWidth] = useState(() =>
+    clampReviewSidebarWidth(REVIEW_SIDEBAR_DEFAULT_WIDTH, reviewSidebarMaxWidth()),
+  );
+
+  const applyWidth = (nextWidth: number) => {
+    const nextMaxWidth = reviewSidebarMaxWidth();
+    const clamped = clampReviewSidebarWidth(nextWidth, nextMaxWidth);
+    setMaxWidth(nextMaxWidth);
+    setWidth(clamped);
+    persistReviewSidebarWidth(clamped);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const nextMaxWidth = reviewSidebarMaxWidth();
+    const stored = readStoredReviewSidebarWidth();
+    setMaxWidth(nextMaxWidth);
+    setWidth(clampReviewSidebarWidth(stored ?? REVIEW_SIDEBAR_DEFAULT_WIDTH, nextMaxWidth));
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleResize = () => {
+      const nextMaxWidth = reviewSidebarMaxWidth();
+      setMaxWidth(nextMaxWidth);
+      setWidth((current) => {
+        const clamped = clampReviewSidebarWidth(current, nextMaxWidth);
+        if (clamped !== current) persistReviewSidebarWidth(clamped);
+        return clamped;
+      });
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [open]);
+
+  const widthFromClientX = (clientX: number): number => {
+    const panelRight = panelRef.current?.getBoundingClientRect().right ?? 0;
+    const rightEdge = panelRight > 0 ? panelRight : window.innerWidth;
+    return rightEdge - clientX;
+  };
+
+  const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    applyWidth(widthFromClientX(event.clientX));
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      moveEvent.preventDefault();
+      applyWidth(widthFromClientX(moveEvent.clientX));
+    };
+    const handleMouseUp = () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  };
+
+  const resetWidth = () => applyWidth(REVIEW_SIDEBAR_DEFAULT_WIDTH);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      applyWidth(width - REVIEW_SIDEBAR_KEYBOARD_STEP);
+      return;
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      applyWidth(width + REVIEW_SIDEBAR_KEYBOARD_STEP);
+    }
+  };
+
+  return {
+    width,
+    maxWidth,
+    handleMouseDown,
+    handleKeyDown,
+    resetWidth,
+  };
 }
 
 export function StepDetailSlideIn({
@@ -156,6 +286,7 @@ export function StepDetailSlideIn({
   const t = useT();
   const pushComposerSeed = useChatComposerStore((s) => s.pushSeed);
   const panelRef = useRef<HTMLDivElement>(null);
+  const sidebarWidth = useReviewSidebarWidth(open, panelRef);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   const [diffViewedStepIds, setDiffViewedStepIds] = useState<Set<number>>(() => new Set());
   const [criterionEvidenceRef, setCriterionEvidenceRef] = useState<CriterionEvidenceRef>(null);
@@ -634,10 +765,8 @@ export function StepDetailSlideIn({
     : null;
   const hasSecondaryDetails = Boolean(
     step &&
-    (expectedFiles.length > 0 ||
-      actualChangedFiles.length > 0 ||
-      verificationStatuses.length > 0 ||
-      isReview ||
+    (toolCallCount > 0 ||
+      changedFiles.length > 0 ||
       step.description ||
       step.acceptanceCriteria ||
       step.assistSummary ||
@@ -727,14 +856,161 @@ export function StepDetailSlideIn({
                 onClick: onGoToChat,
               }
     : null;
+
+  const reviewStages: VerificationReviewStage[] = [];
+  if (step) {
+    reviewStages.push({
+      id: "code",
+      marker: "1",
+      title: t("roadmap.step_detail.stepper_stage_code_title"),
+      summary: diffViewed
+        ? t("roadmap.step_detail.stepper_stage_code_summary_done")
+        : t("roadmap.step_detail.stepper_stage_code_summary_pending"),
+      content: (
+        <div className="space-y-3">
+          {hasChangedFiles ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleOpenCode}
+              aria-label={t("roadmap.step_detail.verify_action_open_diff")}
+              data-testid="step-detail-open-code"
+            >
+              <FileCode />
+              {t("roadmap.step_detail.verify_action_open_diff")}
+            </Button>
+          ) : null}
+
+          <p className="text-[11px] text-fg-muted" data-testid="step-detail-code-summary">
+            {t("roadmap.step_detail.stepper_code_files", { count: changedFiles.length })}
+          </p>
+          {unexpectedHighRiskFiles.length > 0 ? (
+            <p
+              className="text-[11px] font-medium text-danger"
+              data-testid="step-detail-code-high-risk"
+            >
+              {t("roadmap.step_detail.stepper_code_high_risk", {
+                count: unexpectedHighRiskFiles.length,
+              })}
+            </p>
+          ) : null}
+        </div>
+      ),
+    });
+
+    reviewStages.push({
+      id: "observe",
+      marker: "2",
+      title: t("roadmap.step_detail.stepper_stage_observe_title"),
+      summary: manualObservationConfirmed
+        ? t("roadmap.step_detail.stepper_stage_observe_summary_done")
+        : t("roadmap.step_detail.stepper_stage_observe_summary_pending"),
+      content: (
+        <div className="space-y-3">
+          <VerificationCoachPanel
+            request={verificationCoachRequest}
+            observation={manualObservation}
+            onObservationRecorded={(record) => {
+              setManualObservationByStep((current) => {
+                const next = new Map(current);
+                next.set(record.cardId, record);
+                return next;
+              });
+            }}
+          />
+          <CriterionConfirmPanel
+            hasAcceptanceCriteria={Boolean(step.acceptanceCriteria)}
+            criterionEvidenceRef={criterionEvidenceRef}
+            previewOpened={previewOpened}
+            appOpened={appOpened}
+            onConfirmPreview={() => setCriterionEvidenceRef("preview")}
+            onConfirmApp={() => setCriterionEvidenceRef("app")}
+          />
+        </div>
+      ),
+    });
+
+    if (provocationCards.length > 0) {
+      reviewStages.push({
+        id: "review-card",
+        marker: "3",
+        title: t("roadmap.step_detail.stepper_stage_review_title"),
+        summary: t("roadmap.step_detail.stepper_stage_review_summary", {
+          count: provocationCards.length,
+        }),
+        content: (
+          <ProvocationCardHost
+            className="space-y-2"
+            cards={provocationCards}
+            context={provocationContext ?? undefined}
+            mode={provocation?.mode ?? "standard"}
+            onAction={handleProvocationAction}
+          />
+        ),
+      });
+    }
+
+    if (isReview) {
+      reviewStages.push({
+        id: "decision",
+        marker: "4",
+        title: t("roadmap.step_detail.stepper_stage_decision_title"),
+        summary: acceptanceCriterionConfirmed
+          ? t("roadmap.step_detail.stepper_stage_decision_summary_ready")
+          : t("roadmap.step_detail.stepper_stage_decision_summary_needs_observation"),
+        content: (
+          <DecisionGate
+            verificationStatuses={verificationStatuses}
+            agencyState={agencyState}
+            provocationCards={provocationCards}
+            verifyLog={verifyLog}
+            rollbackAvailable={rollbackAvailable}
+            acceptanceCriterionConfirmed={acceptanceCriterionConfirmed}
+            verificationFeasibility={verificationFeasibility}
+            verifyRunning={verifyState === "running"}
+            onApprove={() =>
+              onApprovalDecision({
+                outcome: "approved",
+                note: null,
+                observationEvidence: manualObservation
+                  ? {
+                      observationIds: [manualObservation.observationId],
+                      manualChecks: [manualObservation.observationText],
+                      criterionIds: manualObservation.criterionIds,
+                    }
+                  : null,
+              })
+            }
+            onAcceptRisk={(reason) =>
+              onApprovalDecision({ outcome: "approved_with_concern", note: reason })
+            }
+            onDeferVerification={() =>
+              onApprovalDecision({ outcome: "verification_deferred", note: null })
+            }
+            onRequestChanges={() =>
+              onApprovalDecision({
+                outcome: "revision_requested",
+                note: t("roadmap.step_detail.decision_request_changes_note"),
+              })
+            }
+            onVerifyFirst={onVerifyFirst}
+            onRevert={onOpenRecovery}
+            onStop={(note) => onApprovalDecision({ outcome: "revision_requested", note })}
+          />
+        ),
+      });
+    }
+  }
+
   return (
     <aside
       ref={panelRef}
       className={cn(
-        "fixed right-0 top-0 z-50 flex h-full w-[520px] flex-col border-l bg-bg shadow-xl",
+        "fixed right-0 top-0 z-50 flex h-full flex-col border-l bg-bg shadow-xl",
         "transition-transform duration-slide ease-out motion-reduce:duration-0",
         open ? "translate-x-0" : "translate-x-full pointer-events-none",
       )}
+      style={{ width: `${sidebarWidth.width}px` }}
       role="dialog"
       aria-modal="false"
       aria-labelledby="step-detail-title"
@@ -743,6 +1019,19 @@ export function StepDetailSlideIn({
       data-step-id={step?.id ?? ""}
       data-status={status ?? ""}
     >
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-valuemin={REVIEW_SIDEBAR_MIN_WIDTH}
+        aria-valuemax={sidebarWidth.maxWidth}
+        aria-valuenow={sidebarWidth.width}
+        tabIndex={open ? 0 : -1}
+        className="absolute left-0 top-0 z-10 h-full w-2 -translate-x-1 cursor-col-resize touch-none border-l border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+        onMouseDown={sidebarWidth.handleMouseDown}
+        onDoubleClick={sidebarWidth.resetWidth}
+        onKeyDown={sidebarWidth.handleKeyDown}
+        data-testid="step-detail-resize-handle"
+      />
       <header className="flex items-start justify-between gap-3 border-b px-4 py-3">
         <div className="min-w-0">
           <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-fg-muted">
@@ -764,7 +1053,7 @@ export function StepDetailSlideIn({
               )}
               data-testid="step-detail-status"
             >
-              <span className="h-3 w-3">{statusIcon(status)}</span>
+              {statusIcon(status)}
               {t(`roadmap.status_v2.${status}`)}
             </span>
           ) : null}
@@ -793,59 +1082,36 @@ export function StepDetailSlideIn({
             action={primaryVerificationAction}
             verificationStatuses={verificationStatuses}
             agencyItems={agencyState?.items ?? []}
-            hasAcceptanceCriteria={Boolean(step.acceptanceCriteria)}
-            criterionEvidenceRef={criterionEvidenceRef}
-            previewOpened={previewOpened}
-            appOpened={appOpened}
-            onConfirmPreview={() => setCriterionEvidenceRef("preview")}
-            onConfirmApp={() => setCriterionEvidenceRef("app")}
           />
 
-          <VerificationCoachPanel
-            request={verificationCoachRequest}
-            observation={manualObservation}
-            onObservationRecorded={(record) => {
-              setManualObservationByStep((current) => {
-                const next = new Map(current);
-                next.set(record.cardId, record);
-                return next;
-              });
-            }}
-          />
-
-          <ProvocationCardHost
-            className="mt-3"
-            cards={provocationCards}
-            context={provocationContext ?? undefined}
-            mode={provocation?.mode ?? "standard"}
-            onAction={handleProvocationAction}
+          <VerificationReviewStepper
+            ariaLabel={t("roadmap.step_detail.stepper_aria")}
+            progressLabel={(current, total) =>
+              t("roadmap.step_detail.stepper_progress", { current, total })
+            }
+            previousLabel={t("roadmap.step_detail.stepper_previous")}
+            nextLabel={t("roadmap.step_detail.stepper_next")}
+            revisitLabel={t("roadmap.step_detail.stepper_revisit")}
+            openStageLabel={t("roadmap.step_detail.stepper_open_stage")}
+            stages={reviewStages}
           />
 
           {hasSecondaryDetails ? (
             <details
-              className="mt-3 rounded-md border border-border bg-bg-panel2/60 px-3 py-2 text-xs"
+              className="group mt-3 rounded-md border border-border bg-bg-panel2 px-3 py-2"
               data-testid="step-detail-secondary-details"
             >
               <summary
-                className="cursor-pointer select-none font-semibold text-fg-muted hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-semibold text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg [&::-webkit-details-marker]:hidden"
                 aria-label={t("roadmap.step_detail.secondary_details_aria")}
               >
                 {t("roadmap.step_detail.secondary_details_toggle")}
+                <ChevronDown
+                  className="h-4 w-4 shrink-0 text-fg-muted transition-transform group-open:rotate-180"
+                  aria-hidden
+                />
               </summary>
-              <div className="mt-3">
-                {hasChangedFiles && primaryVerificationAction?.kind !== "open_diff" ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleOpenCode}
-                    aria-label={t("roadmap.step_detail.verify_action_open_diff")}
-                    data-testid="step-detail-open-code"
-                  >
-                    <FileCode />
-                    {t("roadmap.step_detail.verify_action_open_diff")}
-                  </Button>
-                ) : null}
-
+              <div className="pb-1 pt-2">
                 {expectedFiles.length > 0 ||
                 actualChangedFiles.length > 0 ||
                 verificationStatuses.length > 0 ||
@@ -951,46 +1217,7 @@ export function StepDetailSlideIn({
             </details>
           ) : null}
 
-          {isReview ? (
-            <DecisionGate
-              verificationStatuses={verificationStatuses}
-              agencyState={agencyState}
-              provocationCards={provocationCards}
-              verifyLog={verifyLog}
-              rollbackAvailable={rollbackAvailable}
-              acceptanceCriterionConfirmed={acceptanceCriterionConfirmed}
-              verificationFeasibility={verificationFeasibility}
-              verifyRunning={verifyState === "running"}
-              onApprove={() =>
-                onApprovalDecision({
-                  outcome: "approved",
-                  note: null,
-                  observationEvidence: manualObservation
-                    ? {
-                        observationIds: [manualObservation.observationId],
-                        manualChecks: [manualObservation.observationText],
-                        criterionIds: manualObservation.criterionIds,
-                      }
-                    : null,
-                })
-              }
-              onAcceptRisk={(reason) =>
-                onApprovalDecision({ outcome: "approved_with_concern", note: reason })
-              }
-              onDeferVerification={() =>
-                onApprovalDecision({ outcome: "verification_deferred", note: null })
-              }
-              onRequestChanges={() =>
-                onApprovalDecision({
-                  outcome: "revision_requested",
-                  note: t("roadmap.step_detail.decision_request_changes_note"),
-                })
-              }
-              onVerifyFirst={onVerifyFirst}
-              onRevert={onOpenRecovery}
-              onStop={(note) => onApprovalDecision({ outcome: "revision_requested", note })}
-            />
-          ) : (
+          {!isReview ? (
             <div className="mt-3 flex flex-wrap gap-2">
               <Button
                 variant="outline"
@@ -1003,7 +1230,7 @@ export function StepDetailSlideIn({
                 {t("roadmap.step_detail.go_to_chat")}
               </Button>
             </div>
-          )}
+          ) : null}
           <LearningHint className="mt-2 text-[11px]">
             {t("roadmap.step_detail.go_to_chat_hint")}
           </LearningHint>
@@ -1069,38 +1296,28 @@ function VerificationFocusPanel({
   action,
   verificationStatuses,
   agencyItems,
-  hasAcceptanceCriteria,
-  criterionEvidenceRef,
-  previewOpened,
-  appOpened,
-  onConfirmPreview,
-  onConfirmApp,
 }: {
   criterionText: string;
   verificationPlanText: string | null;
   action: VerificationFocusAction | null;
   verificationStatuses: VerificationStatusItem[];
   agencyItems: AgencyStateItem[];
-  hasAcceptanceCriteria: boolean;
-  criterionEvidenceRef: CriterionEvidenceRef;
-  previewOpened: boolean;
-  appOpened: boolean;
-  onConfirmPreview: () => void;
-  onConfirmApp: () => void;
 }) {
   const t = useT();
+  const verificationStatusIds = new Set<string>(verificationStatuses.map((item) => item.id));
+  const dedupedAgencyItems = agencyItems.filter((item) => !verificationStatusIds.has(item.id));
   return (
     <section
-      className="mt-3 rounded-md border border-border bg-bg-panel2 px-3 py-3"
+      className="mt-4 border-b border-border/70 pb-4"
       data-testid="step-detail-verification-focus"
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-fg-muted">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-accent">
             {t("roadmap.step_detail.verify_focus_title")}
           </div>
           <p
-            className="mt-1 text-sm font-semibold leading-snug text-fg"
+            className="mt-2 text-lg font-semibold leading-snug text-fg"
             data-testid="step-detail-criterion-focal"
           >
             {criterionText}
@@ -1119,6 +1336,7 @@ function VerificationFocusPanel({
             type="button"
             variant="primary"
             size="sm"
+            className="min-h-10 px-3 text-sm"
             disabled={action.disabled}
             onClick={action.onClick}
             aria-label={action.ariaLabel}
@@ -1131,63 +1349,85 @@ function VerificationFocusPanel({
         ) : null}
       </div>
 
-      {verificationStatuses.length > 0 || agencyItems.length > 0 ? (
-        <div className="mt-3 flex flex-wrap gap-1.5" data-testid="step-detail-evidence-chips">
+      {verificationStatuses.length > 0 || dedupedAgencyItems.length > 0 ? (
+        <div
+          className="mt-3 flex flex-wrap gap-1.5 text-fg-muted"
+          data-testid="step-detail-evidence-chips"
+        >
           {verificationStatuses.map((item) => (
             <VerificationStatusChip key={item.id} item={item} />
           ))}
-          {agencyItems.map((item) => (
+          {dedupedAgencyItems.map((item) => (
             <AgencyStateChip key={item.id} item={item} />
           ))}
         </div>
       ) : null}
-
-      {hasAcceptanceCriteria ? (
-        <div
-          className="mt-3 border-t border-border/70 pt-3 text-xs text-fg"
-          data-testid="step-detail-criterion-confirm"
-        >
-          <p className="font-medium">{t("roadmap.step_detail.criterion_confirm_label")}</p>
-          <p className="mt-0.5 text-[11px] text-fg-muted">
-            {t("roadmap.step_detail.criterion_confirm_hint")}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            <Button
-              type="button"
-              variant={criterionEvidenceRef === "preview" ? "primary" : "outline"}
-              size="sm"
-              disabled={!previewOpened}
-              onClick={onConfirmPreview}
-              aria-label={t("roadmap.step_detail.criterion_confirm_preview")}
-              data-testid="step-detail-confirm-preview"
-            >
-              {t("roadmap.step_detail.criterion_confirm_preview")}
-            </Button>
-            <Button
-              type="button"
-              variant={criterionEvidenceRef === "app" ? "primary" : "outline"}
-              size="sm"
-              disabled={!appOpened}
-              onClick={onConfirmApp}
-              aria-label={t("roadmap.step_detail.criterion_confirm_app")}
-              data-testid="step-detail-confirm-app"
-            >
-              {t("roadmap.step_detail.criterion_confirm_app")}
-            </Button>
-          </div>
-          {criterionEvidenceRef ? (
-            <p
-              className="mt-2 text-[11px] font-medium text-success"
-              data-testid="step-detail-criterion-evidence-ref"
-            >
-              {criterionEvidenceRef === "preview"
-                ? t("roadmap.step_detail.criterion_confirm_preview_selected")
-                : t("roadmap.step_detail.criterion_confirm_app_selected")}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
     </section>
+  );
+}
+
+function CriterionConfirmPanel({
+  hasAcceptanceCriteria,
+  criterionEvidenceRef,
+  previewOpened,
+  appOpened,
+  onConfirmPreview,
+  onConfirmApp,
+}: {
+  hasAcceptanceCriteria: boolean;
+  criterionEvidenceRef: CriterionEvidenceRef;
+  previewOpened: boolean;
+  appOpened: boolean;
+  onConfirmPreview: () => void;
+  onConfirmApp: () => void;
+}) {
+  const t = useT();
+  if (!hasAcceptanceCriteria) return null;
+
+  return (
+    <div
+      className="border-t border-border/70 pt-3 text-xs text-fg"
+      data-testid="step-detail-criterion-confirm"
+    >
+      <p className="font-medium">{t("roadmap.step_detail.criterion_confirm_label")}</p>
+      <p className="mt-0.5 text-[11px] text-fg-muted">
+        {t("roadmap.step_detail.criterion_confirm_hint")}
+      </p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <Button
+          type="button"
+          variant={criterionEvidenceRef === "preview" ? "primary" : "outline"}
+          size="sm"
+          disabled={!previewOpened}
+          onClick={onConfirmPreview}
+          aria-label={t("roadmap.step_detail.criterion_confirm_preview")}
+          data-testid="step-detail-confirm-preview"
+        >
+          {t("roadmap.step_detail.criterion_confirm_preview")}
+        </Button>
+        <Button
+          type="button"
+          variant={criterionEvidenceRef === "app" ? "primary" : "outline"}
+          size="sm"
+          disabled={!appOpened}
+          onClick={onConfirmApp}
+          aria-label={t("roadmap.step_detail.criterion_confirm_app")}
+          data-testid="step-detail-confirm-app"
+        >
+          {t("roadmap.step_detail.criterion_confirm_app")}
+        </Button>
+      </div>
+      {criterionEvidenceRef ? (
+        <p
+          className="mt-2 text-[11px] font-medium text-success"
+          data-testid="step-detail-criterion-evidence-ref"
+        >
+          {criterionEvidenceRef === "preview"
+            ? t("roadmap.step_detail.criterion_confirm_preview_selected")
+            : t("roadmap.step_detail.criterion_confirm_app_selected")}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

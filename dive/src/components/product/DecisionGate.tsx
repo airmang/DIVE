@@ -100,7 +100,7 @@ export function DecisionGate({
 
   return (
     <section
-      className="mt-3 rounded-md border border-l-4 border-border border-l-accent bg-bg-panel2 px-3 py-3"
+      className="mt-1 text-xs"
       data-testid="decision-gate"
       data-card-family="decision-gate"
       data-reason-required={policy.requiresReason ? "true" : "false"}
@@ -174,22 +174,7 @@ export function DecisionGate({
         </details>
       ) : null}
 
-      {policy.requiresReason ? (
-        <label className="mt-3 block text-[11px] font-medium text-fg">
-          {t("roadmap.step_detail.decision_reason_label")}
-          <textarea
-            value={riskReason}
-            onChange={(event) => setRiskReason(event.target.value)}
-            rows={2}
-            aria-label={t("roadmap.step_detail.decision_reason_textarea_aria")}
-            className="mt-1 w-full resize-none rounded-md border bg-bg px-2 py-1.5 text-xs text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            placeholder={t("roadmap.step_detail.decision_reason_placeholder")}
-            data-testid="decision-gate-risk-reason"
-          />
-        </label>
-      ) : null}
-
-      <div className="mt-3 flex flex-wrap gap-1.5">
+      <div className="mt-3 flex flex-wrap gap-1.5" data-testid="decision-gate-primary-actions">
         <Button
           type="button"
           size="sm"
@@ -201,35 +186,6 @@ export function DecisionGate({
           <CheckCircle2 />
           {t("roadmap.step_detail.decision_approve")}
         </Button>
-        {policy.canDeferVerification ? (
-          <Button
-            type="button"
-            variant="primary"
-            size="sm"
-            aria-label={t("roadmap.step_detail.decision_defer_verification")}
-            onClick={submitDeferredVerification}
-            data-testid="decision-gate-defer-verification"
-            data-decision-outcome="verification_deferred"
-          >
-            <Clock3 />
-            {t("roadmap.step_detail.decision_defer_verification")}
-          </Button>
-        ) : null}
-        {policy.requiresReason ? (
-          <Button
-            type="button"
-            variant="danger"
-            size="sm"
-            disabled={!riskReasonOk}
-            aria-label={t("roadmap.step_detail.decision_accept_risk")}
-            onClick={submitRiskApproval}
-            data-testid="decision-gate-risk-approve"
-            data-decision-outcome="continue_with_risk"
-          >
-            <ShieldAlert />
-            {t("roadmap.step_detail.decision_accept_risk")}
-          </Button>
-        ) : null}
         <Button
           type="button"
           variant="outline"
@@ -241,41 +197,95 @@ export function DecisionGate({
           <AlertTriangle />
           {t("roadmap.step_detail.decision_request_changes")}
         </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={verifyRunning}
-          aria-label={t("roadmap.step_detail.decision_verify_first")}
-          onClick={onVerifyFirst}
-          data-testid="decision-gate-verify-first"
-        >
-          <Clock3 />
-          {t("roadmap.step_detail.decision_verify_first")}
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          aria-label={t("roadmap.step_detail.decision_revert")}
-          onClick={onRevert}
-          data-testid="decision-gate-revert"
-        >
-          <RotateCcw />
-          {t("roadmap.step_detail.decision_revert")}
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          aria-label={t("roadmap.step_detail.decision_stop")}
-          onClick={() => onStop(t("roadmap.step_detail.decision_stop_note"))}
-          data-testid="decision-gate-stop"
-        >
-          <StopCircle />
-          {t("roadmap.step_detail.decision_stop")}
-        </Button>
       </div>
+
+      <details className="mt-2 text-[11px]" data-testid="decision-gate-more">
+        <summary className="cursor-pointer select-none font-medium text-fg-muted hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg">
+          {t("roadmap.step_detail.decision_more")}
+        </summary>
+        <div className="mt-2 space-y-3">
+          {policy.requiresReason ? (
+            <label className="block text-[11px] font-medium text-fg">
+              {t("roadmap.step_detail.decision_reason_label")}
+              <textarea
+                value={riskReason}
+                onChange={(event) => setRiskReason(event.target.value)}
+                rows={2}
+                aria-label={t("roadmap.step_detail.decision_reason_textarea_aria")}
+                className="mt-1 w-full resize-none rounded-md border bg-bg px-2 py-1.5 text-xs text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                placeholder={t("roadmap.step_detail.decision_reason_placeholder")}
+                data-testid="decision-gate-risk-reason"
+              />
+            </label>
+          ) : null}
+
+          <div className="flex flex-wrap gap-1.5" data-testid="decision-gate-more-actions">
+            {policy.canDeferVerification ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label={t("roadmap.step_detail.decision_defer_verification")}
+                onClick={submitDeferredVerification}
+                data-testid="decision-gate-defer-verification"
+                data-decision-outcome="verification_deferred"
+              >
+                <Clock3 />
+                {t("roadmap.step_detail.decision_defer_verification")}
+              </Button>
+            ) : null}
+            {policy.requiresReason ? (
+              <Button
+                type="button"
+                variant="danger"
+                size="sm"
+                disabled={!riskReasonOk}
+                aria-label={t("roadmap.step_detail.decision_accept_risk")}
+                onClick={submitRiskApproval}
+                data-testid="decision-gate-risk-approve"
+                data-decision-outcome="continue_with_risk"
+              >
+                <ShieldAlert />
+                {t("roadmap.step_detail.decision_accept_risk")}
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={verifyRunning}
+              aria-label={t("roadmap.step_detail.decision_verify_first")}
+              onClick={onVerifyFirst}
+              data-testid="decision-gate-verify-first"
+            >
+              <Clock3 />
+              {t("roadmap.step_detail.decision_verify_first")}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label={t("roadmap.step_detail.decision_revert")}
+              onClick={onRevert}
+              data-testid="decision-gate-revert"
+            >
+              <RotateCcw />
+              {t("roadmap.step_detail.decision_revert")}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label={t("roadmap.step_detail.decision_stop")}
+              onClick={() => onStop(t("roadmap.step_detail.decision_stop_note"))}
+              data-testid="decision-gate-stop"
+            >
+              <StopCircle />
+              {t("roadmap.step_detail.decision_stop")}
+            </Button>
+          </div>
+        </div>
+      </details>
 
       {!policy.canApproveDirectly ? (
         <p className="mt-2 text-[10px] text-fg-muted" data-testid="decision-gate-approve-note">

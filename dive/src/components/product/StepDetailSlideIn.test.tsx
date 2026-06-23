@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
+import enResources from "../../i18n/en.json";
+import koResources from "../../i18n/ko.json";
 import type { RoadmapStep } from "../../features/roadmap";
 import { evaluateProvocationSupervisor, type ProvocationCard } from "../../features/provocation";
 import {
@@ -124,8 +126,42 @@ function renderStepDetail(overrides: Partial<ComponentProps<typeof StepDetailSli
   return render(stepDetailElement(overrides));
 }
 
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+}
+
+function openStepperStage(stageId: string) {
+  fireEvent.click(screen.getByTestId(`verification-stepper-stage-button-${stageId}`));
+}
+
+async function openReviewCardStage() {
+  await waitFor(() =>
+    expect(screen.getByTestId("verification-stepper-stage-button-review-card")).toBeTruthy(),
+  );
+  openStepperStage("review-card");
+  return screen.findByTestId("provocation-card");
+}
+
+function openDecisionStage() {
+  openStepperStage("decision");
+  return screen.getByTestId("decision-gate");
+}
+
+function flattenResourceKeys(value: unknown, prefix = ""): string[] {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return [prefix];
+  return Object.entries(value as Record<string, unknown>).flatMap(([key, child]) =>
+    flattenResourceKeys(child, prefix ? `${prefix}.${key}` : key),
+  );
+}
+
 describe("StepDetailSlideIn supervisor-backed review cards", () => {
   beforeEach(() => {
+    setViewportWidth(1024);
+    window.localStorage.clear();
     useLocaleStore.setState({ locale: "ko" });
     evaluateMock.mockReset();
     coachMock.mockReset();
@@ -184,7 +220,7 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
 
     renderStepDetail({ onOpenCode });
 
-    const card = await screen.findByTestId("provocation-card");
+    const card = await openReviewCardStage();
     expect(card.closest('[data-testid="step-detail-panel"]')).toBeTruthy();
     expect(card.dataset.cardType).toBe("ai_self_report_only");
     expect(card.textContent).toContain("확인 필요 카드");
@@ -193,17 +229,22 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
 
     const focusPanel = screen.getByTestId("step-detail-verification-focus");
     const details = screen.getByTestId("step-detail-secondary-details") as HTMLDetailsElement;
-    const gate = screen.getByTestId("decision-gate");
     expect(
       Boolean(focusPanel.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING),
     ).toBe(true);
     expect(Boolean(card.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
       true,
     );
-    expect(Boolean(details.compareDocumentPosition(gate) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
+    expect(details.open).toBe(false);
+
+    fireEvent.click(screen.getByTestId("provocation-primary-action"));
+    expect(onOpenCode).toHaveBeenCalledTimes(1);
+
+    openDecisionStage();
+    const gate = screen.getByTestId("decision-gate");
+    expect(Boolean(gate.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
       true,
     );
-    expect(details.open).toBe(false);
 
     expect(evaluateMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -213,9 +254,6 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
         artifactRef: expect.objectContaining({ kind: "step", id: "1" }),
       }),
     );
-
-    fireEvent.click(screen.getByTestId("provocation-primary-action"));
-    expect(onOpenCode).toHaveBeenCalledTimes(1);
   });
 
   it("does not show ai_self_report_only when concrete verification evidence exists", async () => {
@@ -242,6 +280,24 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
       true,
     );
     expect(screen.queryByTestId("provocation-card")).toBeNull();
+  });
+
+  it("dedupes AI self-report chips when verification and agency sources both emit it", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+
+    renderStepDetail();
+
+    const chips = screen.getByTestId("step-detail-evidence-chips");
+    expect(within(chips).getAllByText("AI 자가보고만 있음")).toHaveLength(1);
+    expect(
+      chips.querySelectorAll(
+        '[data-status-id="ai_self_report_only"], [data-agency-state="ai_self_report_only"]',
+      ),
+    ).toHaveLength(1);
   });
 
   it("does not synthesize a fallback card when supervisor evaluation is unavailable", async () => {
@@ -278,6 +334,7 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
       },
     });
 
+    openStepperStage("observe");
     const coach = await screen.findByTestId("verification-coach-panel");
     expect(coach.dataset.status).toBe("shown");
     expect(screen.getByTestId("verification-coach-guide").textContent).toContain(
@@ -308,8 +365,10 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
 
     renderStepDetail({ onApprovalDecision });
 
-    await screen.findByTestId("verification-coach-guide");
+    openDecisionStage();
     expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
+    openStepperStage("observe");
+    await screen.findByTestId("verification-coach-guide");
 
     fireEvent.change(screen.getByTestId("verification-observation-text"), {
       target: { value: "pnpm test를 실행했고 버튼 문구가 저장으로 표시되는 것을 확인함" },
@@ -330,6 +389,7 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
         .getAllByTestId("verification-status-chip")
         .some((chip) => chip.textContent?.includes("직접 관찰")),
     ).toBe(true);
+    openDecisionStage();
     expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(false);
 
     fireEvent.click(screen.getByTestId("decision-gate-approve"));
@@ -354,7 +414,11 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
 
     renderStepDetail({ onApprovalDecision });
 
-    await screen.findByTestId("decision-gate");
+    openDecisionStage();
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByTestId("decision-gate-request-changes") as HTMLButtonElement).disabled,
+    ).toBe(false);
     fireEvent.click(screen.getByTestId("decision-gate-request-changes"));
 
     expect(onApprovalDecision).toHaveBeenCalledWith(
@@ -375,6 +439,7 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
 
     renderStepDetail();
 
+    openStepperStage("observe");
     await screen.findByTestId("verification-coach-guide");
     fireEvent.change(screen.getByTestId("verification-observation-text"), {
       target: { value: "변경된 버튼 문구를 확인함" },
@@ -401,6 +466,7 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
       }),
     );
     expect(screen.getByTestId("verification-observation-saved")).toBeTruthy();
+    openDecisionStage();
     expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(false);
   });
 
@@ -437,7 +503,7 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
       },
     });
 
-    await screen.findByTestId("provocation-card");
+    await openReviewCardStage();
     fireEvent.click(screen.getByTestId("provocation-primary-action"));
 
     expect(onOpenPreview).toHaveBeenCalledTimes(1);
@@ -445,6 +511,8 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
     expect(lastSupervisorRequest()?.uiState.verification.previewChecked).toBe(false);
     expect(lastSupervisorRequest()?.uiState.verification.acceptanceCriterionConfirmed).toBe(false);
 
+    openStepperStage("observe");
+    expect(screen.getByTestId("step-detail-criterion-confirm")).toBeTruthy();
     fireEvent.click(screen.getByTestId("step-detail-confirm-preview"));
 
     await waitFor(() =>
@@ -541,7 +609,7 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
       ],
     });
 
-    const card = await screen.findByTestId("provocation-card");
+    const card = await openReviewCardStage();
     expect(card.dataset.cardType).toBe("diff_scope_review");
     expect(findSupervisorRequest("diff_ready")).toMatchObject({
       event: "diff_ready",
@@ -630,7 +698,7 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
       }),
     );
 
-    const card = await screen.findByTestId("provocation-card");
+    const card = await openReviewCardStage();
     expect(card.dataset.cardType).toBe("retry_loop_review");
     expect(findSupervisorRequest("retry_loop")).toMatchObject({
       event: "retry_loop",
@@ -644,5 +712,95 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
 
     fireEvent.click(screen.getByTestId("provocation-primary-action"));
     expect(onOpenRecovery).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses sequential stepper navigation, revisit, and skips review-card stage without cards", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+
+    renderStepDetail();
+
+    await waitFor(() => expect(findSupervisorRequest("verify_entered")).toBeTruthy());
+    expect(screen.getByTestId("verification-stepper-stage-code").dataset.stageState).toBe(
+      "current",
+    );
+    expect(screen.queryByTestId("verification-stepper-stage-review-card")).toBeNull();
+    expect(screen.getByTestId("verification-stepper-stage-decision")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("verification-stepper-next"));
+    expect(screen.getByTestId("verification-stepper-stage-code").dataset.stageState).toBe(
+      "completed",
+    );
+    expect(screen.getByTestId("verification-stepper-stage-observe").dataset.stageState).toBe(
+      "current",
+    );
+    expect(screen.getByTestId("verification-stepper-revisit-code")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("verification-stepper-revisit-code"));
+    expect(screen.getByTestId("verification-stepper-stage-code").dataset.stageState).toBe(
+      "current",
+    );
+
+    openDecisionStage();
+    expect(screen.getByTestId("verification-stepper-stage-decision").dataset.stageState).toBe(
+      "current",
+    );
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("clamps, resets, persists, restores, and supports keyboard resizing", async () => {
+    setViewportWidth(1000);
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+    window.localStorage.setItem("dive.review-sidebar.width", "720");
+    renderStepDetail();
+
+    const panel = screen.getByTestId("step-detail-panel");
+    const handle = screen.getByTestId("step-detail-resize-handle");
+    await waitFor(() => expect(panel.style.width).toBe("720px"));
+    expect(handle.getAttribute("role")).toBe("separator");
+    expect(handle.getAttribute("aria-orientation")).toBe("vertical");
+    expect(handle.getAttribute("aria-valuemin")).toBe("380");
+    expect(handle.getAttribute("aria-valuemax")).toBe("800");
+    expect(handle.getAttribute("aria-valuenow")).toBe("720");
+
+    fireEvent.keyDown(handle, { key: "ArrowRight" });
+    expect(panel.style.width).toBe("736px");
+    expect(window.localStorage.getItem("dive.review-sidebar.width")).toBe("736");
+
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(panel.style.width).toBe("720px");
+    expect(window.localStorage.getItem("dive.review-sidebar.width")).toBe("720");
+
+    fireEvent.mouseDown(handle, { button: 0, clientX: 100 });
+    fireEvent.mouseMove(window, { clientX: 100 });
+    expect(panel.style.width).toBe("800px");
+    expect(window.localStorage.getItem("dive.review-sidebar.width")).toBe("800");
+
+    fireEvent.mouseMove(window, { clientX: 900 });
+    expect(panel.style.width).toBe("380px");
+    expect(window.localStorage.getItem("dive.review-sidebar.width")).toBe("380");
+    fireEvent.mouseUp(window);
+
+    fireEvent.doubleClick(handle);
+    expect(panel.style.width).toBe("520px");
+    expect(window.localStorage.getItem("dive.review-sidebar.width")).toBe("520");
+  });
+
+  it("keeps en/ko i18n key parity and removes old progressive/Sarkar copy", () => {
+    const koKeys = flattenResourceKeys(koResources).sort();
+    const enKeys = flattenResourceKeys(enResources).sort();
+
+    expect(enKeys).toEqual(koKeys);
+    expect(koKeys.some((key) => key.includes("progressive_"))).toBe(false);
+    expect(enKeys.some((key) => key.includes("progressive_"))).toBe(false);
+    expect(JSON.stringify(koResources)).not.toContain("Sarkar");
+    expect(JSON.stringify(enResources)).not.toContain("Sarkar");
   });
 });

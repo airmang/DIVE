@@ -3,10 +3,9 @@ import { forwardRef, type KeyboardEvent } from "react";
 import { useT } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { agencyToneClass, type PlanRoadmapStep } from "../../features/roadmap";
-import { isPlanStepComplete, planStatusMeta } from "./plan-status-meta";
+import { planStatusMeta } from "./plan-status-meta";
 import { PlanStepActions } from "./PlanStepActions";
 import { PlanStepNode } from "./PlanStepNode";
-import { RationaleChallengePanel } from "../product/RationaleChallengePanel";
 import type { PlanActionHandlers, PlanLineToken } from "./types";
 
 interface PlanStepProps {
@@ -57,11 +56,6 @@ export const PlanStep = forwardRef<HTMLDivElement, PlanStepProps>(function PlanS
   const meta = planStatusMeta(item.status);
   const dependencies = stringArray(item.step.dependencies);
   const summary = item.step.summary?.trim() ?? "";
-  const hasCriteriaOrRationale =
-    Boolean(item.linkedCriteria?.length) || Boolean(item.decompositionRationale);
-  const rationaleChallenge = actions?.rationaleChallenge;
-  const showRationaleChallenge =
-    hasCriteriaOrRationale && Boolean(rationaleChallenge) && !isPlanStepComplete(item.status);
 
   const run = async (focus = true, openDetail = false) => {
     if (!actions) return;
@@ -215,43 +209,24 @@ export const PlanStep = forwardRef<HTMLDivElement, PlanStepProps>(function PlanS
             {summary ? <p className="mt-1 line-clamp-2 text-xs text-fg">{summary}</p> : null}
           </>
         )}
-        {showRationaleChallenge && rationaleChallenge ? (
-          <RationaleChallengePanel
-            className="mt-2"
-            linkedCriteria={item.linkedCriteria ?? []}
-            rationale={item.decompositionRationale ?? ""}
-            challenge={{
-              projectId: rationaleChallenge.projectId,
-              planId: item.step.plan_id,
-              stepDbId: item.step.id,
-              onChallenge: rationaleChallenge.onChallenge,
-              onAcceptOffer: rationaleChallenge.onAcceptOffer,
-              onDismissOffer: rationaleChallenge.onDismissOffer,
-            }}
-          />
-        ) : hasCriteriaOrRationale ? (
+        {item.linkedCriteria?.length ? (
           <div
-            className="mt-2 space-y-1 rounded-sm border border-border/70 bg-bg/60 px-2 py-1.5 text-[11px]"
+            className="mt-2 rounded-sm border border-border/70 bg-bg/60 px-2 py-1.5 text-[11px]"
             data-testid="plan-step-criteria"
           >
-            {item.linkedCriteria?.length ? (
-              <div className="flex flex-wrap gap-1">
-                {item.linkedCriteria.map((criterion) => (
-                  <span
-                    key={criterion.criterionId}
-                    className="inline-flex max-w-full items-center gap-1 rounded-sm border border-border bg-bg-panel px-1.5 py-0.5 text-fg"
-                  >
-                    <span className="shrink-0 font-semibold text-accent">
-                      {criterion.criterionId}
-                    </span>
-                    <span className="truncate">{criterion.text}</span>
+            <div className="flex flex-wrap gap-1">
+              {item.linkedCriteria.map((criterion) => (
+                <span
+                  key={criterion.criterionId}
+                  className="inline-flex max-w-full items-center gap-1 rounded-sm border border-border bg-bg-panel px-1.5 py-0.5 text-fg"
+                >
+                  <span className="shrink-0 font-semibold text-accent">
+                    {criterion.criterionId}
                   </span>
-                ))}
-              </div>
-            ) : null}
-            {item.decompositionRationale ? (
-              <p className="line-clamp-2 text-fg-muted">{item.decompositionRationale}</p>
-            ) : null}
+                  <span className="truncate">{criterion.text}</span>
+                </span>
+              ))}
+            </div>
           </div>
         ) : null}
         {item.blockedDependencies.length > 0 || dependencies.length > 0 ? (

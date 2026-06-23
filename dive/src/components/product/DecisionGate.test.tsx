@@ -314,15 +314,18 @@ describe("DecisionGate policy", () => {
     expect(policy.requiresReason).toBe(true);
   });
 
-  it("renders the immediate final-decision actions for risk states", () => {
+  it("renders approve and request-changes as prominent actions, with secondary actions under more", () => {
     renderGate({
       verificationStatuses: [aiSelfReportOnly],
       rollbackAvailable: false,
     });
 
     expect(screen.getByTestId("decision-gate-approve")).toBeTruthy();
-    expect(screen.getByTestId("decision-gate-risk-approve")).toBeTruthy();
     expect(screen.getByTestId("decision-gate-request-changes")).toBeTruthy();
+    const more = screen.getByTestId("decision-gate-more") as HTMLDetailsElement;
+    expect(more.open).toBe(false);
+    expect(more.textContent).toContain("더보기");
+    expect(screen.getByTestId("decision-gate-risk-approve").closest("details")).toBe(more);
     expect(screen.getByTestId("decision-gate-verify-first")).toBeTruthy();
     expect(screen.getByTestId("decision-gate-revert")).toBeTruthy();
     expect(screen.getByTestId("decision-gate-stop")).toBeTruthy();
