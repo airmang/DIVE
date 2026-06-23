@@ -44,7 +44,13 @@ pub enum GuidanceValidationOutcome {
 #[serde(rename_all = "snake_case")]
 pub enum GuidanceReasonCode {
     Ok,
+    ProviderNotConfigured,
+    MissingCredentials,
+    MissingProjectRoot,
+    ProviderNotSupported,
     RuntimeUnavailable,
+    SidecarUnavailable,
+    SidecarError,
     Timeout,
     MalformedOutput,
     GenericGuidance,

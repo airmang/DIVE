@@ -150,6 +150,12 @@ export type AgentEvent =
       summary: string;
       full: unknown;
     }
+  | {
+      type: "agent_progress";
+      kind: "heartbeat" | "reasoning" | "tool_running";
+      message: string;
+      created_at: number;
+    }
   | { type: "error"; message: string; retryable: boolean }
   | { type: "done"; reason: string };
 
@@ -1360,6 +1366,14 @@ export function reduceChatSessionState(prev: ChatSessionState, evt: AgentEvent):
         retryable: false,
       };
       return { ...prev, messages: mergeMessagesById(messages, [stale]) };
+    }
+    case "agent_progress": {
+      return {
+        ...prev,
+        isStreaming: true,
+        runStartedAt: prev.runStartedAt ?? evt.created_at,
+        cancelRequested: false,
+      };
     }
     case "error": {
       const m: ErrorMessageData = {

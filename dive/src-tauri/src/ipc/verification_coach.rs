@@ -2,6 +2,7 @@ use serde_json::json;
 use tauri::State;
 use uuid::Uuid;
 
+use crate::db::dao::provider_config as provider_dao;
 use crate::dive::event_log::{
     append_to_conn, VERIFICATION_COACH_EVALUATED_EVENT, VERIFICATION_COACH_REQUESTED_EVENT,
     VERIFICATION_OBSERVATION_RECORDED_EVENT,
@@ -16,7 +17,7 @@ use crate::pi_sidecar::{
     run_supervisor_turn, supervisor_turn_timeout, PiSidecarSupervisorErrorKind,
 };
 
-use super::AppState;
+use super::{AppState, ProviderKind};
 
 #[tauri::command]
 pub async fn verification_coach_generate(
@@ -136,19 +137,70 @@ async fn generate_from_runtime(
 ) -> CoachRuntimeOutput {
     let snap = match state.ensure_provider_runtime().await {
         Ok(snap) if !snap.kind.is_none() => snap,
-        _ => return CoachRuntimeOutput::Unavailable(GuidanceReasonCode::RuntimeUnavailable),
+        Ok(_) => {
+            let reason = missing_runtime_reason(state);
+            tracing::warn!(
+                reason = ?reason,
+                "verification coach runtime unavailable: provider runtime missing"
+            );
+            return CoachRuntimeOutput::Unavailable(reason);
+        }
+        Err(err) => {
+            tracing::warn!(
+                error = %crate::telemetry::redact_log_text(&err),
+                "verification coach provider runtime hydrate failed"
+            );
+            return CoachRuntimeOutput::Unavailable(GuidanceReasonCode::RuntimeUnavailable);
+        }
     };
     let descriptor = match crate::pi_sidecar::parity::pi_provider_descriptor(snap.kind.clone()) {
         Some(descriptor) => descriptor,
-        None => return CoachRuntimeOutput::Unavailable(GuidanceReasonCode::RuntimeUnavailable),
+        None => {
+            tracing::warn!(
+                provider_kind = %snap.kind.as_str(),
+                "verification coach runtime unavailable: provider has no Pi supervisor mapping"
+            );
+            return CoachRuntimeOutput::Unavailable(GuidanceReasonCode::ProviderNotSupported);
+        }
     };
     let provider_config_id = match snap.config_id {
         Some(id) => id,
-        None => return CoachRuntimeOutput::Unavailable(GuidanceReasonCode::RuntimeUnavailable),
+        None => {
+            tracing::warn!(
+                provider_kind = %snap.kind.as_str(),
+                "verification coach runtime unavailable: provider config id missing"
+            );
+            return CoachRuntimeOutput::Unavailable(GuidanceReasonCode::MissingCredentials);
+        }
     };
     let cwd = match state.project_root_required() {
         Ok(cwd) => cwd,
-        Err(_) => return CoachRuntimeOutput::Unavailable(GuidanceReasonCode::RuntimeUnavailable),
+        Err(err) => {
+            tracing::warn!(
+                error = %crate::telemetry::redact_log_text(&err),
+                "verification coach runtime unavailable: project root missing"
+            );
+            return CoachRuntimeOutput::Unavailable(GuidanceReasonCode::MissingProjectRoot);
+        }
+    };
+
+    match super::chat::runtime_credentials_available(state, &descriptor, provider_config_id) {
+        Ok(true) => {}
+        Ok(false) => {
+            tracing::warn!(
+                provider_config_id,
+                provider = snap.kind.as_str(),
+                "verification coach runtime unavailable: provider credentials are missing"
+            );
+            return CoachRuntimeOutput::Unavailable(GuidanceReasonCode::MissingCredentials);
+        }
+        Err(err) => {
+            tracing::warn!(
+                error = %crate::telemetry::redact_log_text(&err),
+                "verification coach runtime unavailable: provider credential check failed"
+            );
+            return CoachRuntimeOutput::Unavailable(GuidanceReasonCode::RuntimeUnavailable);
+        }
     };
 
     match run_supervisor_turn(
@@ -167,15 +219,49 @@ async fn generate_from_runtime(
             model: Some(result.model),
             latency_ms: Some(result.latency_ms),
         },
-        Err(err) => match err.kind {
-            PiSidecarSupervisorErrorKind::Timeout => {
-                CoachRuntimeOutput::Unavailable(GuidanceReasonCode::Timeout)
+        Err(err) => {
+            tracing::warn!(
+                error_kind = ?err.kind,
+                latency_ms = err.latency_ms,
+                message = %crate::telemetry::redact_log_text(&err.message),
+                "verification coach Pi supervisor turn failed"
+            );
+            match err.kind {
+                PiSidecarSupervisorErrorKind::CredentialUnavailable => {
+                    CoachRuntimeOutput::Unavailable(GuidanceReasonCode::MissingCredentials)
+                }
+                PiSidecarSupervisorErrorKind::SidecarUnavailable => {
+                    CoachRuntimeOutput::Unavailable(GuidanceReasonCode::SidecarUnavailable)
+                }
+                PiSidecarSupervisorErrorKind::Timeout => {
+                    CoachRuntimeOutput::Unavailable(GuidanceReasonCode::Timeout)
+                }
+                PiSidecarSupervisorErrorKind::SidecarError => {
+                    CoachRuntimeOutput::Unavailable(GuidanceReasonCode::SidecarError)
+                }
+                PiSidecarSupervisorErrorKind::RuntimeUnavailable => {
+                    CoachRuntimeOutput::Unavailable(GuidanceReasonCode::RuntimeUnavailable)
+                }
             }
-            PiSidecarSupervisorErrorKind::RuntimeUnavailable
-            | PiSidecarSupervisorErrorKind::SidecarError => {
-                CoachRuntimeOutput::Unavailable(GuidanceReasonCode::RuntimeUnavailable)
-            }
-        },
+        }
+    }
+}
+
+fn missing_runtime_reason(state: &AppState) -> GuidanceReasonCode {
+    let latest_config = state
+        .db
+        .lock()
+        .ok()
+        .and_then(|db| provider_dao::list(db.conn()).ok())
+        .and_then(|rows| rows.into_iter().last());
+    let Some(row) = latest_config else {
+        return GuidanceReasonCode::ProviderNotConfigured;
+    };
+    let kind = ProviderKind::parse(&row.kind);
+    if crate::pi_sidecar::parity::pi_provider_descriptor(kind).is_some() {
+        GuidanceReasonCode::MissingCredentials
+    } else {
+        GuidanceReasonCode::ProviderNotSupported
     }
 }
 

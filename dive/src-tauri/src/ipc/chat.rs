@@ -370,7 +370,7 @@ fn missing_provider_runtime_capability(
     }
 }
 
-fn runtime_credentials_available(
+pub(super) fn runtime_credentials_available(
     state: &AppState,
     descriptor: &crate::pi_sidecar::parity::PiProviderDescriptor,
     provider_config_id: i64,

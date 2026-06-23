@@ -463,8 +463,44 @@ fn seed_step_mapping_for_card(state: &AppState, session_id: i64, card_id: i64) -
     .unwrap()
 }
 
+fn sample_verification_coach_request(
+    session_id: i64,
+    card_id: i64,
+) -> VerificationCoachGenerateRequest {
+    VerificationCoachGenerateRequest {
+        session_id,
+        project_id: Some(1),
+        card_id,
+        plan_step_id: Some(12),
+        guide_version: None,
+        source_ui_mode: "work".into(),
+        locale: Some("ko-KR".into()),
+        step: VerificationCoachStep {
+            title: "CLI step".into(),
+            summary: Some("No preview available".into()),
+            instruction: Some("Create file output".into()),
+            acceptance_criteria: vec![VerificationCriterion {
+                criterion_id: "AC-001".into(),
+                text: "A file is written".into(),
+            }],
+        },
+        evidence: VerificationCoachEvidence {
+            changed_files: vec!["src/main.ts".into()],
+            verification_kind: Some("manual".into()),
+            verification_command: None,
+            verification_manual_check: Some("Inspect the output file".into()),
+            test_result: Some("skipped".into()),
+            ai_claimed_done: true,
+            preview_available: false,
+            app_run_available: false,
+            diff_available: true,
+            prior_observations: Vec::new(),
+        },
+    }
+}
+
 #[tokio::test]
-async fn verification_coach_runtime_unavailable_logs_requested_and_evaluated_without_card() {
+async fn verification_coach_provider_not_configured_logs_requested_and_evaluated_without_card() {
     let state = AppState::dev_mock();
     state.swap_runtime(ProviderRuntime::none()).unwrap();
     let tmp = tempfile::tempdir().unwrap();
@@ -473,36 +509,7 @@ async fn verification_coach_runtime_unavailable_logs_requested_and_evaluated_wit
 
     let response = verification_coach_generate_impl(
         &state,
-        VerificationCoachGenerateRequest {
-            session_id,
-            project_id: Some(1),
-            card_id,
-            plan_step_id: Some(12),
-            guide_version: None,
-            source_ui_mode: "work".into(),
-            locale: Some("ko-KR".into()),
-            step: VerificationCoachStep {
-                title: "CLI step".into(),
-                summary: Some("No preview available".into()),
-                instruction: Some("Create file output".into()),
-                acceptance_criteria: vec![VerificationCriterion {
-                    criterion_id: "AC-001".into(),
-                    text: "A file is written".into(),
-                }],
-            },
-            evidence: VerificationCoachEvidence {
-                changed_files: vec!["src/main.ts".into()],
-                verification_kind: Some("manual".into()),
-                verification_command: None,
-                verification_manual_check: Some("Inspect the output file".into()),
-                test_result: Some("skipped".into()),
-                ai_claimed_done: true,
-                preview_available: false,
-                app_run_available: false,
-                diff_available: true,
-                prior_observations: Vec::new(),
-            },
-        },
+        sample_verification_coach_request(session_id, card_id),
     )
     .await
     .unwrap();
@@ -510,7 +517,7 @@ async fn verification_coach_runtime_unavailable_logs_requested_and_evaluated_wit
     assert_eq!(response.status, VerificationCoachStatus::Unavailable);
     assert_eq!(
         response.drop_reason,
-        Some(GuidanceReasonCode::RuntimeUnavailable)
+        Some(GuidanceReasonCode::ProviderNotConfigured)
     );
     assert!(response.guide.is_none());
 
@@ -534,6 +541,74 @@ async fn verification_coach_runtime_unavailable_logs_requested_and_evaluated_wit
         evaluated.payload["evidenceSummary"]["aiGuidanceIsEvidence"],
         serde_json::json!(false)
     );
+}
+
+#[tokio::test]
+async fn verification_coach_missing_credentials_returns_specific_reason() {
+    let state = AppState::dev_mock();
+    state
+        .swap_runtime(ProviderRuntime::new(
+            Some(99),
+            ProviderKind::OpenAi,
+            crate::providers::default_model_for_kind("openai").to_string(),
+            Arc::new(crate::providers::MockProvider::new(Vec::new())),
+        ))
+        .unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let session_id = seed_session(&state, tmp.path());
+    let card_id = seed_card(&state, session_id, "CLI step", CardState::Verifying);
+
+    let response = verification_coach_generate_impl(
+        &state,
+        sample_verification_coach_request(session_id, card_id),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.status, VerificationCoachStatus::Unavailable);
+    assert_eq!(
+        response.drop_reason,
+        Some(GuidanceReasonCode::MissingCredentials)
+    );
+    assert!(response.guide.is_none());
+}
+
+#[tokio::test]
+async fn verification_coach_stale_provider_row_without_secret_returns_missing_credentials() {
+    let state = AppState::dev_mock();
+    state.swap_runtime(ProviderRuntime::none()).unwrap();
+    {
+        let db = state.db.lock().unwrap();
+        crate::db::dao::provider_config::insert(
+            db.conn(),
+            &crate::db::models::NewProviderConfig {
+                kind: "openai".into(),
+                auth_type: "api_key".into(),
+                base_url: None,
+                config: serde_json::json!({
+                    "selected_model": crate::providers::default_model_for_kind("openai")
+                }),
+            },
+        )
+        .unwrap();
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let session_id = seed_session(&state, tmp.path());
+    let card_id = seed_card(&state, session_id, "CLI step", CardState::Verifying);
+
+    let response = verification_coach_generate_impl(
+        &state,
+        sample_verification_coach_request(session_id, card_id),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.status, VerificationCoachStatus::Unavailable);
+    assert_eq!(
+        response.drop_reason,
+        Some(GuidanceReasonCode::MissingCredentials)
+    );
+    assert!(response.guide.is_none());
 }
 
 #[tokio::test]

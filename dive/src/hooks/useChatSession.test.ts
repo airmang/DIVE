@@ -108,6 +108,7 @@ describe("useChatSession runtime event reducer", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     cleanup();
     delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
   });
@@ -424,5 +425,56 @@ describe("useChatSession runtime event reducer", () => {
     expect(useSlideInStore.getState().previewUrl).toBe("http://127.0.0.1:49152/index.html");
     expect(useSlideInStore.getState().previewUrl).not.toBe("asset://project/index.html");
     expect(useSlideInStore.getState().activeTab).toBe("preview");
+  });
+
+  it("uses Pi progress events as liveness without adding chat messages", async () => {
+    const { result } = renderHook(() => useChatSession(42));
+
+    await waitFor(() => expect(result.current.loadingHistory).toBe(false));
+    const handler = tauriMocks.listeners.get("chat://event/42");
+    if (!handler) throw new Error("expected chat event listener");
+
+    vi.useFakeTimers();
+
+    act(() => {
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "assistant_start",
+            id: "assistant-1",
+            created_at: 100,
+          } satisfies Extract<AgentEvent, { type: "assistant_start" }>,
+        },
+      });
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(44_000);
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "agent_progress",
+            kind: "heartbeat",
+            message: "Pi runtime heartbeat received.",
+            created_at: 101,
+          } satisfies Extract<AgentEvent, { type: "agent_progress" }>,
+        },
+      });
+    });
+
+    expect(result.current.messages.filter((message) => message.kind === "error")).toHaveLength(0);
+    expect(result.current.messages).toHaveLength(1);
+
+    act(() => {
+      vi.advanceTimersByTime(44_000);
+    });
+    expect(result.current.messages.filter((message) => message.kind === "error")).toHaveLength(0);
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(result.current.messages.some((message) => message.kind === "error")).toBe(true);
   });
 });

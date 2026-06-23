@@ -195,7 +195,9 @@ async fn supervisor_output_from_runtime(
     {
         Ok(result) => result.into(),
         Err(err) => match err.kind {
-            PiSidecarSupervisorErrorKind::RuntimeUnavailable => {
+            PiSidecarSupervisorErrorKind::RuntimeUnavailable
+            | PiSidecarSupervisorErrorKind::CredentialUnavailable
+            | PiSidecarSupervisorErrorKind::SidecarUnavailable => {
                 StageCSupervisorOutput::RuntimeUnavailable
             }
             PiSidecarSupervisorErrorKind::Timeout => StageCSupervisorOutput::Timeout,

@@ -7,6 +7,7 @@ import {
   recordVerificationObservation,
 } from "../../features/verification-coach/api";
 import type {
+  GuidanceReasonCode,
   ObservationEvidenceKind,
   ObservationEvidenceRecord,
   VerificationCoachGenerateRequest,
@@ -28,6 +29,23 @@ const OBSERVATION_KINDS: ObservationEvidenceKind[] = [
   "app_run_observation",
   "test_observation",
 ];
+
+const COACH_UNAVAILABLE_REASON_KEYS: Record<GuidanceReasonCode, string> = {
+  ok: "roadmap.step_detail.coach_unavailable",
+  provider_not_configured: "roadmap.step_detail.coach_unavailable_reason.provider_not_configured",
+  missing_credentials: "roadmap.step_detail.coach_unavailable_reason.missing_credentials",
+  missing_project_root: "roadmap.step_detail.coach_unavailable_reason.missing_project_root",
+  provider_not_supported: "roadmap.step_detail.coach_unavailable_reason.provider_not_supported",
+  runtime_unavailable: "roadmap.step_detail.coach_unavailable_reason.runtime_unavailable",
+  sidecar_unavailable: "roadmap.step_detail.coach_unavailable_reason.sidecar_unavailable",
+  sidecar_error: "roadmap.step_detail.coach_unavailable_reason.sidecar_error",
+  timeout: "roadmap.step_detail.coach_unavailable_reason.timeout",
+  malformed_output: "roadmap.step_detail.coach_unavailable_reason.malformed_output",
+  generic_guidance: "roadmap.step_detail.coach_unavailable_reason.generic_guidance",
+  unsupported_evidence: "roadmap.step_detail.coach_unavailable_reason.unsupported_evidence",
+  unsafe_action: "roadmap.step_detail.coach_unavailable_reason.unsafe_action",
+  missing_criterion: "roadmap.step_detail.coach_unavailable_reason.missing_criterion",
+};
 
 function automaticGenerationKey(request: VerificationCoachGenerateRequest | null): string {
   if (!request) return "";
@@ -93,6 +111,10 @@ export function VerificationCoachPanel({
 
   if (!request) return null;
   const guide = response?.status === "shown" ? response.guide : null;
+  const unavailableReason = response?.dropReason ?? response?.validation?.reasonCode ?? null;
+  const unavailableMessage = unavailableReason
+    ? t(COACH_UNAVAILABLE_REASON_KEYS[unavailableReason] ?? "roadmap.step_detail.coach_unavailable")
+    : (response?.message ?? t("roadmap.step_detail.coach_unavailable"));
   const criterionIds = request.step.acceptanceCriteria
     .map((criterion) => criterion.criterionId.trim())
     .filter(Boolean);
@@ -146,7 +168,7 @@ export function VerificationCoachPanel({
         <GuideView guide={guide} />
       ) : (
         <p className="mt-3 text-xs text-fg-muted" data-testid="verification-coach-unavailable">
-          {response?.message ?? t("roadmap.step_detail.coach_unavailable")}
+          {unavailableMessage}
         </p>
       )}
 

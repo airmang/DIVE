@@ -14,7 +14,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::time::{timeout, Duration, Instant};
 
-use crate::agent::{AgentError, AgentEvent, AgentLoop};
+use crate::agent::{event::AgentProgressKind, AgentError, AgentEvent, AgentLoop};
 use crate::auth::{self, Keyring};
 use crate::providers::{FinishReason, Message as ProviderMessage, ToolCall, ToolDef};
 
@@ -61,6 +61,7 @@ pub const SUPERVISOR_TURN_TIMEOUT: Duration =
     Duration::from_millis(SUPERVISOR_TURN_TIMEOUT_DEFAULT_MS);
 const SIDECAR_HEARTBEAT_STALL_TIMEOUT: Duration = Duration::from_secs(20);
 const SIDECAR_CANCELLED: &str = "pi sidecar turn cancelled";
+const PROGRESS_EVENT_MIN_INTERVAL: Duration = Duration::from_secs(5);
 /// Cap on sidecar events buffered while a DIVE tool is executing. Legitimate parallel
 /// tool calls stay well under this; exceeding it fails the turn (retryable) instead of
 /// letting the buffer grow unbounded under a misbehaving sidecar.
@@ -112,6 +113,8 @@ pub struct PiSidecarSupervisorTurnResult {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PiSidecarSupervisorErrorKind {
     RuntimeUnavailable,
+    CredentialUnavailable,
+    SidecarUnavailable,
     Timeout,
     SidecarError,
 }
@@ -124,9 +127,17 @@ pub struct PiSidecarSupervisorError {
 }
 
 impl PiSidecarSupervisorError {
-    fn runtime_unavailable(message: impl Into<String>, started: Instant) -> Self {
+    fn credential_unavailable(message: impl Into<String>, started: Instant) -> Self {
         Self {
-            kind: PiSidecarSupervisorErrorKind::RuntimeUnavailable,
+            kind: PiSidecarSupervisorErrorKind::CredentialUnavailable,
+            message: message.into(),
+            latency_ms: duration_ms(started.elapsed()),
+        }
+    }
+
+    fn sidecar_unavailable(message: impl Into<String>, started: Instant) -> Self {
+        Self {
+            kind: PiSidecarSupervisorErrorKind::SidecarUnavailable,
             message: message.into(),
             latency_ms: duration_ms(started.elapsed()),
         }
@@ -366,11 +377,11 @@ pub async fn run_supervisor_turn(
 ) -> Result<PiSidecarSupervisorTurnResult, PiSidecarSupervisorError> {
     let started = Instant::now();
     let credential = prepare_runtime_credential(keyring, descriptor, provider_config_id)
-        .map_err(|err| PiSidecarSupervisorError::runtime_unavailable(err, started))?;
+        .map_err(|err| PiSidecarSupervisorError::credential_unavailable(err, started))?;
     let auth_file_mode = credential.auth_file_mode().to_string();
     let request_id = uuid::Uuid::new_v4().to_string();
     let sidecar_cmd = resolve_sidecar_command(bundled_sidecar_path())
-        .map_err(|err| PiSidecarSupervisorError::runtime_unavailable(err, started))?;
+        .map_err(|err| PiSidecarSupervisorError::sidecar_unavailable(err, started))?;
     let cwd = cwd.display().to_string();
     let tools: Vec<ToolDef> = Vec::new();
 
@@ -381,20 +392,20 @@ pub async fn run_supervisor_turn(
         .kill_on_drop(true)
         .spawn()
         .map_err(|err| {
-            PiSidecarSupervisorError::runtime_unavailable(
+            PiSidecarSupervisorError::sidecar_unavailable(
                 format!("spawn pi sidecar: {err}"),
                 started,
             )
         })?;
 
     let mut stdin = child.stdin.take().ok_or_else(|| {
-        PiSidecarSupervisorError::runtime_unavailable("pi sidecar stdin unavailable", started)
+        PiSidecarSupervisorError::sidecar_unavailable("pi sidecar stdin unavailable", started)
     })?;
     let stdout = child.stdout.take().ok_or_else(|| {
-        PiSidecarSupervisorError::runtime_unavailable("pi sidecar stdout unavailable", started)
+        PiSidecarSupervisorError::sidecar_unavailable("pi sidecar stdout unavailable", started)
     })?;
     let stderr = child.stderr.take().ok_or_else(|| {
-        PiSidecarSupervisorError::runtime_unavailable("pi sidecar stderr unavailable", started)
+        PiSidecarSupervisorError::sidecar_unavailable("pi sidecar stderr unavailable", started)
     })?;
 
     let stderr_task = tokio::spawn(async move {
@@ -717,6 +728,7 @@ async fn run_supervised_turn_inner(
     let mut tool_calls = Vec::new();
     let mut pending_tool_call_ids = Vec::new();
     let timing = sidecar_timing();
+    let mut last_progress_event_at: Option<Instant> = None;
     // The turn budget measures the model/sidecar's own wall-clock time. It is
     // advanced past any time spent awaiting a human approval (see the tool loop
     // below), so deliberating on an approval card never expires the turn.
@@ -767,6 +779,11 @@ async fn run_supervised_turn_inner(
                     };
                     pending_tool_call_ids.push(tc.id.clone());
                     tool_calls.push(tc.clone());
+                    emit_progress(
+                        emit,
+                        AgentProgressKind::ToolRunning,
+                        "Pi runtime requested a DIVE tool.",
+                    );
                     let execute = agent_loop.execute_supervised_tool_call(session_id, &tc, emit);
                     tokio::pin!(execute);
                     // Time spent here (incl. waiting on the human approval card)
@@ -832,6 +849,12 @@ async fn run_supervised_turn_inner(
                     if let SidecarEvent::ReasoningDelta { delta } = &event {
                         reasoning_text.push_str(delta);
                     }
+                    emit_progress_throttled(
+                        &mut last_progress_event_at,
+                        emit,
+                        AgentProgressKind::Reasoning,
+                        "Pi runtime is reasoning.",
+                    );
                     if let Some(agent_event) = map_sidecar_delta_event(&event, &assistant_id) {
                         emit(agent_event);
                     }
@@ -839,7 +862,14 @@ async fn run_supervised_turn_inner(
                 SidecarEvent::ToolCallEnd { .. } => {
                     // DIVE owns the authoritative tool result event from Rust.
                 }
-                SidecarEvent::Heartbeat { .. } => {}
+                SidecarEvent::Heartbeat { .. } => {
+                    emit_progress_throttled(
+                        &mut last_progress_event_at,
+                        emit,
+                        AgentProgressKind::Heartbeat,
+                        "Pi runtime heartbeat received.",
+                    );
+                }
                 SidecarEvent::TurnSucceeded {
                     assistant_text: text,
                 } => {
@@ -1026,6 +1056,35 @@ fn sorted_tool_names(tools: &[ToolDef]) -> Vec<String> {
 
 fn duration_ms(duration: Duration) -> u64 {
     duration.as_millis().min(u128::from(u64::MAX)) as u64
+}
+
+fn emit_progress_throttled(
+    last_progress_event_at: &mut Option<Instant>,
+    emit: &mut (dyn FnMut(AgentEvent) + Send),
+    kind: AgentProgressKind,
+    message: &'static str,
+) {
+    let now = Instant::now();
+    if last_progress_event_at
+        .map(|last| now.duration_since(last) < PROGRESS_EVENT_MIN_INTERVAL)
+        .unwrap_or(false)
+    {
+        return;
+    }
+    *last_progress_event_at = Some(now);
+    emit_progress(emit, kind, message);
+}
+
+fn emit_progress(
+    emit: &mut (dyn FnMut(AgentEvent) + Send),
+    kind: AgentProgressKind,
+    message: &'static str,
+) {
+    emit(AgentEvent::AgentProgress {
+        kind,
+        message: message.to_string(),
+        created_at: crate::db::now_ms(),
+    });
 }
 
 fn render_messages_for_pi(messages: &[ProviderMessage]) -> String {
@@ -1332,6 +1391,7 @@ mod tests {
             AgentEvent::ToolCallDenied { .. } => "tool_call_denied",
             AgentEvent::ToolCallBlocked { .. } => "tool_call_blocked",
             AgentEvent::ToolResult { .. } => "tool_result",
+            AgentEvent::AgentProgress { .. } => "agent_progress",
             AgentEvent::Error { .. } => "error",
             AgentEvent::Done { .. } => "done",
         }
@@ -2647,7 +2707,9 @@ rl.on("line", (line) => {{
             vec![
                 "user_message",
                 "assistant_start",
+                "agent_progress",
                 "assistant_delta",
+                "agent_progress",
                 "reasoning",
                 "tool_call_start",
                 "tool_call_approved",
@@ -2962,6 +3024,13 @@ rl.on("line", (line) => {{
             matches!(err, AgentError::Internal(ref message) if message.contains("turn timed out")),
             "unexpected turn timeout result: {err:?}"
         );
+        assert!(events.iter().any(|event| matches!(
+            event,
+            AgentEvent::AgentProgress {
+                kind: AgentProgressKind::Heartbeat,
+                ..
+            }
+        )));
         let state: PiRuntimeState = serde_json::from_slice(
             &std::fs::read(runtime_state_path(state_root.path(), session_id)).unwrap(),
         )

@@ -7,6 +7,14 @@ use crate::tools::runtime::{
 };
 use crate::tools::{BlockReason, RiskLevel};
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentProgressKind {
+    Heartbeat,
+    Reasoning,
+    ToolRunning,
+}
+
 /// UI-facing event emitted by the Agent Loop. Spec §8.1 defines the sequence;
 /// `AgentEvent` flattens the Rust enum so the frontend adapter is
 /// a straight JSON `type`-tag dispatch matching `ChatMessage` kinds.
@@ -167,6 +175,11 @@ pub enum AgentEvent {
         success: bool,
         summary: String,
         full: Value,
+    },
+    AgentProgress {
+        kind: AgentProgressKind,
+        message: String,
+        created_at: i64,
     },
     Error {
         message: String,

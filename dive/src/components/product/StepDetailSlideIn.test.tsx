@@ -355,6 +355,28 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
     expect(screen.queryByTestId("provocation-card")).toBeNull();
   });
 
+  it("explains why verification coach guidance is unavailable", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+    coachMock.mockResolvedValue({
+      status: "unavailable",
+      eventId: "coach-missing-credentials",
+      guideVersion: 1,
+      dropReason: "missing_credentials",
+    });
+
+    renderStepDetail();
+
+    openStepperStage("observe");
+    expect((await screen.findByTestId("verification-coach-unavailable")).textContent).toContain(
+      "인증 정보",
+    );
+    expect(screen.queryByTestId("verification-coach-guide")).toBeNull();
+  });
+
   it("records criterion-linked observation evidence and enables normal approval", async () => {
     const onApprovalDecision = vi.fn();
     evaluateMock.mockResolvedValue({

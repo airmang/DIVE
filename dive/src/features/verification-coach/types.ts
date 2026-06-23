@@ -21,7 +21,13 @@ export type ObservationEvidenceKind =
 
 export type GuidanceReasonCode =
   | "ok"
+  | "provider_not_configured"
+  | "missing_credentials"
+  | "missing_project_root"
+  | "provider_not_supported"
   | "runtime_unavailable"
+  | "sidecar_unavailable"
+  | "sidecar_error"
   | "timeout"
   | "malformed_output"
   | "generic_guidance"
