@@ -1424,6 +1424,7 @@ pub fn build_supervisor_prompt(
             "{action} ",
             "Never suggest continue_with_risk, verification_deferred, dismiss, or mark_irrelevant. ",
             "Ask one criterion-linked Korean question within 140 characters. ",
+            "The question field MUST be phrased as an interrogative and end with '?'. ",
             "Example: {{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"{concern}\",\"severity\":\"caution\",",
             "\"question\":\"…\",\"evidenceRefIds\":[\"agent.assistant_claim\"],\"suggestedActionIds\":[\"open_diff\"]}}\n\n",
             "SupervisorContext JSON:\n",
@@ -3051,6 +3052,9 @@ mod tests {
         assert!(prompt.contains("provoke"));
         assert!(prompt.contains(P1_CONCERN));
         assert!(prompt.contains("Do not invent other keys"));
+        // The question field must be interrogative and end with '?' so the
+        // deterministic is_question check accepts it (avoids NotQuestion drops).
+        assert!(prompt.contains("end with '?'"));
         assert!(!prompt.contains("\"enabledTools\""));
         assert!(!prompt.contains("dive_context"));
         assert!(!prompt.contains("AGENTS.md"));
