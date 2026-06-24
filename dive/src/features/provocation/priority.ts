@@ -14,6 +14,7 @@ const TYPE_PRIORITY: Record<ProvocationCardType, number> = {
   missing_verification_step: 300,
   scope_expansion: 250,
   plan_draft_review: 240,
+  prd_intent_check: 235,
   missing_acceptance_criteria: 200,
   oversized_scope: 100,
 };

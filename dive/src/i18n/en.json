@@ -141,6 +141,14 @@
       "validation_non_goals_required": "List at least one thing that is out of scope (a non-goal).",
       "validation_criteria_insufficient": "Add at least two concrete, checkable done criteria.",
       "validation_ready": "Ready to confirm the PRD.",
+      "intent_check": {
+        "title": "Did the AI capture what you meant?",
+        "prompt": "This PRD is the AI's summary of your conversation. Does it match what you actually wanted? Is anything missing or off?",
+        "message": "Confirming isn't accepting the AI's summary — it's checking it against your own intent.",
+        "guided": "Tell apart the AI's summary from what you actually intended.",
+        "refine": "Refine it",
+        "evidence_goal": "Goal"
+      },
       "turn_failed_title": "PRD interview turn failed",
       "turn_failed_retryable_description": "The AI provider is temporarily unstable. Send the same thought again and DIVE will continue shaping the PRD.",
       "save_success_title": "PRD saved",
