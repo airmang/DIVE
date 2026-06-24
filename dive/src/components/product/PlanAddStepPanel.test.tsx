@@ -249,7 +249,7 @@ describe("PlanAddStepPanel scope-expansion supervisor cards", () => {
     await waitFor(() => expect(onAppendStep).toHaveBeenCalledTimes(1));
   });
 
-  it("routes scope-card actions to local affordances without silently appending a step", async () => {
+  it("shows the scope-expansion card as a pure provocation without revise buttons or appending a step", async () => {
     const onAppendStep = vi.fn().mockResolvedValue(undefined);
     evaluateMock.mockResolvedValue({
       status: "shown",
@@ -267,18 +267,15 @@ describe("PlanAddStepPanel scope-expansion supervisor cards", () => {
     });
 
     await screen.findByTestId("provocation-card", {}, { timeout: 2000 });
-    fireEvent.click(screen.getByTestId("provocation-primary-action"));
-    expect(screen.getByTestId("plan-add-step-action-route").dataset.route).toBe("link_criterion");
-    expect(document.activeElement).toBe(screen.getByTestId("plan-add-step-criterion-AC-001"));
 
-    const actions = screen.getAllByTestId("provocation-action");
-    fireEvent.click(actions.find((button) => button.textContent?.includes("범위"))!);
-    expect(screen.getByTestId("plan-add-step-action-route").dataset.route).toBe("split_scope");
-    expect(document.activeElement).toBe(screen.getByTestId("plan-add-step-reason"));
-
-    fireEvent.click(actions.find((button) => button.textContent?.includes("PRD"))!);
-    expect(screen.getByTestId("plan-add-step-action-route").dataset.route).toBe("edit_prd");
-    expect(document.activeElement).toBe(screen.getByTestId("plan-add-step-title"));
+    // Pure provocation: the "revise the scope/PRD" nudges only seed a prompt or
+    // focus a field, so they are not shown as buttons — the card prompts the
+    // user to think and they drive the follow-up.
+    expect(screen.queryByTestId("provocation-primary-action")).toBeNull();
+    expect(screen.queryByText("기준 연결")).toBeNull();
+    expect(screen.queryByText("범위 나누기")).toBeNull();
+    expect(screen.queryByText("PRD 수정")).toBeNull();
+    // Showing the card never silently appends a step.
     expect(onAppendStep).not.toHaveBeenCalled();
   });
 

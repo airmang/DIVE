@@ -18,7 +18,7 @@ function reviewCard(overrides: Partial<ProvocationCardData> = {}): ProvocationCa
     prompt: "이 계획이 틀렸는지 무엇으로 확인할 건가요?",
     message: "이 계획에는 만드는 단계는 있지만, 틀렸음을 확인하는 단계가 없습니다.",
     evidence: [{ source: "plan", label: "검증/실행/테스트 단계", value: "없음" }],
-    actions: [{ id: "add", label: "검증 단계 추가", kind: "add_verification_step" }],
+    actions: [{ id: "diff", label: "변경 보기", kind: "open_diff" }],
     modeCopy: {
       guided:
         "AI가 만든 뒤 무엇을 실행하거나 비교해야 하는지 계획에 있어야 승인 판단이 쉬워집니다.",
@@ -57,7 +57,7 @@ describe("ProvocationCard scaffold modes", () => {
     );
     expect(screen.getByTestId("provocation-evidence").textContent).toContain("없음");
     expect(screen.getByText(/승인 판단이 쉬워집니다/)).toBeTruthy();
-    expect(screen.getByText("검증 단계 추가")).toBeTruthy();
+    expect(screen.getByText("변경 보기")).toBeTruthy();
   });
 
   it("renders Work without secondary message or Guided explanation", () => {
@@ -70,7 +70,7 @@ describe("ProvocationCard scaffold modes", () => {
     expect(screen.queryByTestId("provocation-prompt")).toBeNull();
     expect(screen.queryByText(/승인 판단이 쉬워집니다/)).toBeNull();
     expect(screen.getByTestId("provocation-evidence").textContent).toContain("없음");
-    expect(screen.getByText("검증 단계 추가")).toBeTruthy();
+    expect(screen.getByText("변경 보기")).toBeTruthy();
   });
 
   it("normalizes Expert migration input to Work while keeping evidence and actions", () => {
@@ -84,7 +84,7 @@ describe("ProvocationCard scaffold modes", () => {
     expect(screen.queryByTestId("provocation-prompt")).toBeNull();
     expect(screen.queryByText(/승인 판단이 쉬워집니다/)).toBeNull();
     expect(screen.getByTestId("provocation-evidence").textContent).toContain("없음");
-    expect(screen.getByText("검증 단계 추가")).toBeTruthy();
+    expect(screen.getByText("변경 보기")).toBeTruthy();
   });
 
   it("accepts canonical Work mode directly", () => {
@@ -152,6 +152,47 @@ describe("ProvocationCard scaffold modes", () => {
     expect(screen.queryByText("미리보기 열기")).toBeNull();
     expect(screen.queryByText("앱 실행")).toBeNull();
     expect(screen.queryByText("테스트 실행")).toBeNull();
+  });
+
+  it("hides revise/nudge actions but keeps artifact-opening helpers (pure provocation)", () => {
+    render(
+      <ProvocationCard
+        card={reviewCard({
+          actions: [
+            { id: "split", label: "단계 더 나누기", kind: "split_scope" },
+            { id: "editprd", label: "PRD 수정", kind: "edit_prd" },
+            { id: "diff", label: "변경 보기", kind: "open_diff" },
+          ],
+          primaryActionId: "diff",
+        })}
+        mode="work"
+      />,
+    );
+
+    // "Revise the plan/PRD" nudges only seed a prompt or focus a field, so we do
+    // not show them as buttons — the card just provokes, the user drives follow-up.
+    expect(screen.queryByText("단계 더 나누기")).toBeNull();
+    expect(screen.queryByText("PRD 수정")).toBeNull();
+    // Helpers that actually open the artifact remain.
+    expect(screen.getByText("변경 보기")).toBeTruthy();
+  });
+
+  it("renders no action buttons when a review card only suggests revise/nudge actions", () => {
+    render(
+      <ProvocationCard
+        card={reviewCard({
+          actions: [
+            { id: "split", label: "단계 더 나누기", kind: "split_scope" },
+            { id: "addverify", label: "검증 단계 추가", kind: "add_verification_step" },
+          ],
+        })}
+        mode="work"
+      />,
+    );
+
+    expect(screen.getByTestId("provocation-focal-question")).toBeTruthy();
+    expect(screen.queryByTestId("provocation-actions")).toBeNull();
+    expect(screen.queryByTestId("provocation-primary-action")).toBeNull();
   });
 
   it("renders one dominant focal question with capped evidence and capped non-risk actions", () => {

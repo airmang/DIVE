@@ -22,10 +22,25 @@ const EVIDENCE_LIMIT = 3;
 const ACTION_LIMIT = 3;
 const REVIEW_CARD_TONE = "border-warn/50 bg-warn/10";
 const REVIEW_ICON_TONE = "text-warn";
+// The review card is a provocation: it surfaces a criterion-linked question so
+// the user pauses and decides what to do. We only render actions that actually
+// open the artifact to look at (diff/preview/run) or a recovery path. The
+// "revise the request/plan" and "ask the AI to do X" nudges are intentionally
+// NOT shown as buttons — they only seed a prompt or focus a field, which reads
+// as a broken affordance, and the user can drive that follow-up themselves (the
+// dedicated screens still expose request-changes / edit-PRD controls).
 const HIDDEN_ACTION_KINDS: ReadonlySet<ProvocationAction["kind"]> = new Set([
   "continue_with_risk",
   "dismiss",
   "mark_irrelevant",
+  "add_acceptance_criteria",
+  "link_criterion",
+  "split_scope",
+  "edit_prd",
+  "add_verification_step",
+  "ask_ai_for_rationale",
+  "create_repro_steps",
+  "retry_with_ai",
 ]);
 
 export function ProvocationCard({
@@ -286,7 +301,7 @@ export function ProvocationCard({
             </div>
           ) : null}
 
-          {!pendingReasonAction ? (
+          {!pendingReasonAction && visibleActions.length > 0 ? (
             <div
               className="mt-3 flex flex-wrap gap-1.5"
               data-testid="provocation-actions"
