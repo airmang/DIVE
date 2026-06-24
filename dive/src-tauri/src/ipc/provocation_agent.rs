@@ -121,32 +121,87 @@ enum StageCSupervisorOutput {
     LateAfterFinalization,
 }
 
+const SUPERVISOR_EVALUATION_ATTEMPTS_DEFAULT: usize = 3;
+
+/// How many times to (re)run a supervisor turn before giving up. A single LLM
+/// turn must satisfy several strict validators (schema, concern, question form,
+/// evidence, length, timeout); each recoverable miss is independent, so a couple
+/// of retries lift the realized show-rate from ~80-90% to ~95-99%.
+fn supervisor_evaluation_attempts() -> usize {
+    std::env::var("DIVE_SUPERVISOR_EVALUATION_ATTEMPTS")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<usize>().ok())
+        .map(|n| n.clamp(1, 5))
+        .unwrap_or(SUPERVISOR_EVALUATION_ATTEMPTS_DEFAULT)
+}
+
+/// A drop is recoverable when re-running the LLM could plausibly succeed: the
+/// model produced malformed/off-contract output or the turn hit a transient
+/// infra error. Provider-unavailable, a genuine provoke=false decision, dedup,
+/// and deterministic input errors are NOT retried.
+fn is_recoverable_supervisor_drop(reason: SupervisorDropReason) -> bool {
+    use SupervisorDropReason::*;
+    matches!(
+        reason,
+        ParseError
+            | SchemaVersionUnsupported
+            | MissingEvidence
+            | UnknownEvidenceRef
+            | NotQuestion
+            | UnknownAction
+            | DisallowedConcern
+            | ContentTooLong
+            | AmbiguousDecision
+            | Timeout
+            | SidecarError
+    )
+}
+
+fn should_retry_supervisor(response: &ProvocationAgentEvaluateResponse) -> bool {
+    response.status == ProvocationAgentEvaluateStatus::Dropped
+        && response
+            .drop_reason
+            .is_some_and(is_recoverable_supervisor_drop)
+}
+
 #[tauri::command]
 pub async fn provocation_agent_evaluate(
     state: State<'_, AppState>,
     request: ProvocationAgentEvaluateRequest,
 ) -> Result<ProvocationAgentEvaluateResponse, String> {
-    let output = supervisor_output_from_runtime(&state, &request).await;
-    let evaluated = {
-        let mut sessions = SESSION_DEDUP
-            .lock()
-            .map_err(|_| "supervisor dedup state unavailable".to_string())?;
-        let dedup = sessions
-            .entry(request.session_id)
-            .or_insert_with(SupervisorDedupState::new);
-        evaluate_with_output_and_log(request, output, dedup)
-    };
-    if let Some(log) = &evaluated.log {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        append_supervisor_evaluation_to_conn(
-            db.conn(),
-            evaluated.session_id,
-            &evaluated.response.evaluation_id,
-            log,
-        )
-        .map_err(|e| e.to_string())?;
+    let attempts = supervisor_evaluation_attempts();
+    let mut evaluated: Option<EvaluatedSupervisorAttempt> = None;
+    for attempt in 0..attempts {
+        let output = supervisor_output_from_runtime(&state, &request).await;
+        let current = {
+            let mut sessions = SESSION_DEDUP
+                .lock()
+                .map_err(|_| "supervisor dedup state unavailable".to_string())?;
+            let dedup = sessions
+                .entry(request.session_id)
+                .or_insert_with(SupervisorDedupState::new);
+            evaluate_with_output_and_log(request.clone(), output, dedup)
+        };
+        // Persist every attempt so retries are visible in the evaluation log.
+        if let Some(log) = &current.log {
+            let db = state.db.lock().map_err(|e| e.to_string())?;
+            append_supervisor_evaluation_to_conn(
+                db.conn(),
+                current.session_id,
+                &current.response.evaluation_id,
+                log,
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        let retry = attempt + 1 < attempts && should_retry_supervisor(&current.response);
+        evaluated = Some(current);
+        if !retry {
+            break;
+        }
     }
-    Ok(evaluated.response)
+    Ok(evaluated
+        .expect("supervisor evaluation runs at least once")
+        .response)
 }
 
 async fn supervisor_output_from_runtime(
@@ -444,6 +499,70 @@ mod tests {
     use crate::dive::{
         ProvocationCardStage, ProvocationCardType, SupervisorTestResult as TestResult,
     };
+
+    #[test]
+    fn recoverable_drops_are_retryable_and_terminal_ones_are_not() {
+        use SupervisorDropReason::*;
+        for reason in [
+            ParseError,
+            SchemaVersionUnsupported,
+            MissingEvidence,
+            UnknownEvidenceRef,
+            NotQuestion,
+            UnknownAction,
+            DisallowedConcern,
+            ContentTooLong,
+            AmbiguousDecision,
+            Timeout,
+            SidecarError,
+        ] {
+            assert!(
+                is_recoverable_supervisor_drop(reason),
+                "{reason:?} should retry"
+            );
+        }
+        for reason in [
+            ProvokeFalse,
+            RuntimeUnavailable,
+            Duplicate,
+            Cooldown,
+            ContextTooLarge,
+            InvalidMode,
+        ] {
+            assert!(
+                !is_recoverable_supervisor_drop(reason),
+                "{reason:?} must not retry"
+            );
+        }
+    }
+
+    #[test]
+    fn should_retry_only_on_recoverable_dropped_status() {
+        let mk = |status, drop_reason| ProvocationAgentEvaluateResponse {
+            status,
+            evaluation_id: "e".into(),
+            card: None,
+            drop_reason,
+        };
+        // Shown / NoCard never retry.
+        assert!(!should_retry_supervisor(&mk(
+            ProvocationAgentEvaluateStatus::Shown,
+            None
+        )));
+        assert!(!should_retry_supervisor(&mk(
+            ProvocationAgentEvaluateStatus::NoCard,
+            Some(SupervisorDropReason::ProvokeFalse)
+        )));
+        // Dropped retries only when the reason is recoverable.
+        assert!(should_retry_supervisor(&mk(
+            ProvocationAgentEvaluateStatus::Dropped,
+            Some(SupervisorDropReason::ParseError)
+        )));
+        assert!(!should_retry_supervisor(&mk(
+            ProvocationAgentEvaluateStatus::Dropped,
+            Some(SupervisorDropReason::RuntimeUnavailable)
+        )));
+    }
 
     fn request_with_verification(
         verification: SupervisorVerificationUiState,
