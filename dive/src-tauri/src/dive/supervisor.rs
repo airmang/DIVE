@@ -1406,6 +1406,7 @@ pub fn build_supervisor_prompt(
     if context_json.len() > SUPERVISOR_PROMPT_MAX_BYTES {
         return Err(SupervisorDropReason::ContextTooLarge);
     }
+    let concern = expected_concern_for_event(context.event);
     Ok(format!(
         concat!(
             "You are DIVE's dedicated SupervisorAgent for a novice coding workflow.\n",
@@ -1414,15 +1415,24 @@ pub fn build_supervisor_prompt(
             "main-agent session.\n",
             "DIVE has already built deterministic evidence for this review event. ",
             "Return exactly one JSON object matching SupervisorDecision schemaVersion=1. ",
+            "Output only the raw JSON object: no markdown, no code fences, and no text before or after it. ",
+            "The object MUST contain exactly these keys: schemaVersion (number 1), provoke (boolean), ",
+            "concern (string), severity (string), question (string), evidenceRefIds (string array), ",
+            "suggestedActionIds (string array). Do not invent other keys such as passed, confidence, ",
+            "rationale, criterionKey, or score. Set provoke=true, concern=\"{concern}\", and severity=\"caution\". ",
             "Use only evidenceRefIds and suggestedActionIds present in the context. ",
-            "{} ",
+            "{action} ",
             "Never suggest continue_with_risk, verification_deferred, dismiss, or mark_irrelevant. ",
-            "Ask one criterion-linked Korean question within 140 characters.\n\n",
+            "Ask one criterion-linked Korean question within 140 characters. ",
+            "The question field MUST be phrased as an interrogative and end with '?'. ",
+            "Example: {{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"{concern}\",\"severity\":\"caution\",",
+            "\"question\":\"…\",\"evidenceRefIds\":[\"agent.assistant_claim\"],\"suggestedActionIds\":[\"open_diff\"]}}\n\n",
             "SupervisorContext JSON:\n",
-            "{}"
+            "{context_json}"
         ),
-        prompt_action_instruction(context.event),
-        context_json
+        concern = concern,
+        action = prompt_action_instruction(context.event),
+        context_json = context_json,
     ))
 }
 
@@ -1712,7 +1722,20 @@ pub struct SupervisorDecision {
 }
 
 pub fn parse_supervisor_decision(raw: &str) -> Result<SupervisorDecision, SupervisorDropReason> {
-    serde_json::from_str::<SupervisorDecision>(raw).map_err(|_| SupervisorDropReason::ParseError)
+    // Defense-in-depth: if the model wraps its object in a markdown ```json
+    // fence or a short prose preamble, slice from the first `{` to the last `}`
+    // before deserializing. The primary reliability fix is build_supervisor_prompt
+    // spelling out the exact key set; this just keeps an otherwise-valid object
+    // from being lost to incidental wrapping. Malformed output still fails to parse.
+    let json = extract_json_object(raw).unwrap_or(raw);
+    serde_json::from_str::<SupervisorDecision>(json).map_err(|_| SupervisorDropReason::ParseError)
+}
+
+/// Return the substring spanning the outermost JSON object (`{` … `}`), if any.
+fn extract_json_object(raw: &str) -> Option<&str> {
+    let start = raw.find('{')?;
+    let end = raw.rfind('}')?;
+    (start <= end).then(|| &raw[start..=end])
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -3022,7 +3045,16 @@ mod tests {
         let prompt = build_supervisor_prompt(&context).unwrap();
 
         assert!(prompt.contains("Return exactly one JSON object"));
+        assert!(prompt.contains("no code fences"));
         assert!(prompt.contains("\"schemaVersion\":1"));
+        // The exact decision schema must be spelled out so the model emits the
+        // contract keys (provoke/concern/severity) and not an invented shape.
+        assert!(prompt.contains("provoke"));
+        assert!(prompt.contains(P1_CONCERN));
+        assert!(prompt.contains("Do not invent other keys"));
+        // The question field must be interrogative and end with '?' so the
+        // deterministic is_question check accepts it (avoids NotQuestion drops).
+        assert!(prompt.contains("end with '?'"));
         assert!(!prompt.contains("\"enabledTools\""));
         assert!(!prompt.contains("dive_context"));
         assert!(!prompt.contains("AGENTS.md"));
@@ -3603,6 +3635,75 @@ mod tests {
         let context = sample_context_with_event(SupervisorEvent::VerifyEntered);
         let mut dedup = SupervisorDedupState::new();
         let result = validate_supervisor_decision_json(&context, "{not json", &mut dedup);
+        assert_eq!(
+            result.validation_outcome,
+            SupervisorValidationOutcome::Error
+        );
+        assert_eq!(result.drop_reason, Some(SupervisorDropReason::ParseError));
+    }
+
+    #[test]
+    fn supervisor_parse_accepts_markdown_fenced_json_object() {
+        // Real LLM output (both gpt and claude) wraps the decision JSON in a
+        // ```json code fence. A valid decision must still be parsed and shown.
+        let context = sample_context_with_event(SupervisorEvent::VerifyEntered);
+        let decision = build_stage_c_supervisor_decision(&context);
+        let body = serde_json::to_string(&decision).unwrap();
+        let fenced = format!("```json\n{body}\n```");
+
+        let mut dedup = SupervisorDedupState::new();
+        let result = validate_supervisor_decision_json(&context, &fenced, &mut dedup);
+        assert_eq!(
+            result.validation_outcome,
+            SupervisorValidationOutcome::Shown,
+            "fenced-but-valid supervisor JSON must parse, not drop as parse_error"
+        );
+    }
+
+    #[test]
+    fn supervisor_parse_accepts_json_with_surrounding_prose() {
+        // Some models prepend a short explanation before the JSON object.
+        let context = sample_context_with_event(SupervisorEvent::VerifyEntered);
+        let decision = build_stage_c_supervisor_decision(&context);
+        let body = serde_json::to_string(&decision).unwrap();
+        let with_prose = format!("Here is the decision:\n{body}\nLet me know if you need more.");
+
+        let mut dedup = SupervisorDedupState::new();
+        let result = validate_supervisor_decision_json(&context, &with_prose, &mut dedup);
+        assert_eq!(
+            result.validation_outcome,
+            SupervisorValidationOutcome::Shown,
+            "valid supervisor JSON wrapped in prose must parse, not drop as parse_error"
+        );
+    }
+
+    #[test]
+    fn supervisor_parse_still_errors_on_truly_malformed_json() {
+        // Guard: extraction must not paper over genuinely malformed output.
+        let context = sample_context_with_event(SupervisorEvent::VerifyEntered);
+        let mut dedup = SupervisorDedupState::new();
+        let result = validate_supervisor_decision_json(
+            &context,
+            "```json\nnot json at all\n```",
+            &mut dedup,
+        );
+        assert_eq!(
+            result.validation_outcome,
+            SupervisorValidationOutcome::Error
+        );
+        assert_eq!(result.drop_reason, Some(SupervisorDropReason::ParseError));
+    }
+
+    #[test]
+    fn supervisor_parse_rejects_invented_evaluation_schema() {
+        // Observed live failure: the model returned a plausible but wrong shape
+        // (passed/confidence/rationale/criterionKey) instead of the contract's
+        // provoke/concern/severity. That must surface as parse_error — the
+        // prompt, not lenient parsing, is responsible for the correct schema.
+        let context = sample_context_with_event(SupervisorEvent::VerifyEntered);
+        let invented = r#"{"schemaVersion":1,"passed":false,"confidence":0.41,"rationale":"no evidence","criterionKey":"artifact_correctness","question":"실제로 있나요?","evidenceRefIds":["agent.assistant_claim"],"suggestedActionIds":["open_diff"]}"#;
+        let mut dedup = SupervisorDedupState::new();
+        let result = validate_supervisor_decision_json(&context, invented, &mut dedup);
         assert_eq!(
             result.validation_outcome,
             SupervisorValidationOutcome::Error

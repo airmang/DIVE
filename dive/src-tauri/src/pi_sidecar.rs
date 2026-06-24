@@ -54,7 +54,7 @@ const DEFAULT_MODEL: &str = "gpt-5.4-mini";
 const SMOKE_MARKER: &str = "DIVE_PI_SIDECAR_TOOL_OK";
 const SMOKE_PROMPT: &str = "Use the dive_context tool exactly once with request \"phase2-smoke\". After the tool result, reply exactly DIVE_PI_SIDECAR_TOOL_OK and nothing else.";
 const PI_TURN_TIMEOUT: Duration = Duration::from_secs(120);
-const SUPERVISOR_TURN_TIMEOUT_DEFAULT_MS: u64 = 8_000;
+const SUPERVISOR_TURN_TIMEOUT_DEFAULT_MS: u64 = 12_000;
 const SUPERVISOR_TURN_TIMEOUT_MIN_MS: u64 = 1_200;
 const SUPERVISOR_TURN_TIMEOUT_MAX_MS: u64 = 15_000;
 pub const SUPERVISOR_TURN_TIMEOUT: Duration =
@@ -1454,7 +1454,7 @@ function ready(message) {
         let _serial = fake_sidecar_test_lock();
         set_supervisor_timeout_env(None);
 
-        assert_eq!(supervisor_turn_timeout(), Duration::from_secs(8));
+        assert_eq!(supervisor_turn_timeout(), Duration::from_secs(12));
     }
 
     #[test]
