@@ -15,6 +15,7 @@ implementation planning.
 | [`006-sarkar-provocation-expansion`](006-sarkar-provocation-expansion/spec.md) | Implemented | Expands Sarkar-style SupervisorAgent review-card coverage to plan draft approval, diff-ready review, and retry-loop review while preserving evidence, locality, and no static fallback. |
 | [`007-llm-verification-coach`](007-llm-verification-coach/spec.md) | Active draft with plan/tasks | Defines the step-review verification coach: adaptive AI guidance for how to verify a step, criterion-linked user observation capture, and evidence-aware approval separation from AI self-report. |
 | [`008-preview-terminal-runtime-tools`](008-preview-terminal-runtime-tools/spec.md) | Active draft | Defines first-class Preview, direct Project Command, and bounded Terminal Script runtime actions so preview and shell-style verification do not collapse into the same approval path. |
+| [`009-e2e-quality-hardening`](009-e2e-quality-hardening/spec.md) | Active draft | Journey-driven finishing-stage quality program. 50 real-user E2E journeys gap-analyzed (127 gaps, 12 themes) to close where DIVE falls short — top P0s: i18n localization debt, hollow verification-evidence gate, and an in-app preview that can't exercise the behavior under test. Backlog in `docs/qa/e2e-gap-backlog.md`; tracked as wily Stages S-026/027/028+. |
 
 ## Authority Rules
 
