@@ -609,6 +609,45 @@ export function regenerationLoopRule(context: ProvocationContext): ProvocationCa
   });
 }
 
+// A non-blocking reflective card shown when a PRD becomes confirmable. It does
+// not gate confirmation (the field validator already blocks vague PRDs); it
+// prompts the supervisor to compare the AI's summary against their real intent.
+// Built directly (not part of the step-centric rule sweep) so the PRD board
+// shows exactly this one card.
+export function buildPrdIntentCheckCard(
+  context: ProvocationContext,
+  copy: {
+    title: string;
+    prompt: string;
+    message: string;
+    guided: string;
+    refineLabel: string;
+    evidenceLabel: string;
+  },
+): ProvocationCard {
+  return card({
+    context,
+    type: "prd_intent_check",
+    severity: "info",
+    title: copy.title,
+    prompt: copy.prompt,
+    message: copy.message,
+    guided: copy.guided,
+    evidence: context.goalText
+      ? [
+          {
+            source: "goal",
+            label: copy.evidenceLabel,
+            value: context.goalText,
+            verificationEvidence: false,
+          },
+        ]
+      : [],
+    actions: [action("refine", copy.refineLabel, "edit_prd")],
+    primaryActionId: "refine",
+  });
+}
+
 export const PROVOCATION_RULES = [
   diffScopeDriftRule,
   aiSelfReportOnlyRule,
@@ -643,6 +682,7 @@ function cardEligibleForStage(card: ProvocationCard, context: ProvocationContext
     case "plan_draft_review":
     case "diff_scope_review":
     case "retry_loop_review":
+    case "prd_intent_check":
       return false;
     case "missing_acceptance_criteria":
       return context.stage === "decompose" || context.stage === "instruct";

@@ -93,15 +93,50 @@ describe("project spec helpers", () => {
     });
   });
 
-  it("allows a minimal goal and criterion PRD to be confirmed", () => {
+  it("does not confirm a vague PRD with only a goal and one criterion", () => {
     const draft = createLiveProjectSpecDraft(42, {
       goal: "Build a focused todo app",
       acceptanceCriteria: ["Can add a task"],
     });
 
     expect(validateConfirmableProjectSpec(draft.spec)).toEqual({
+      valid: false,
+      reasonCodes: [
+        "missing_intent_summary",
+        "missing_scope",
+        "missing_non_goals",
+        "insufficient_acceptance_criteria",
+      ],
+    });
+  });
+
+  it("confirms a fully specified, concrete PRD", () => {
+    const draft = createLiveProjectSpecDraft(42, {
+      goal: "Build a focused todo app for students",
+      intentSummary: "Students track daily tasks and see what is still left",
+      scope: ["Single-page todo list with add and complete"],
+      nonGoals: ["No accounts or login"],
+      acceptanceCriteria: ["Can add a task", "Completed tasks show a checkmark"],
+    });
+
+    expect(validateConfirmableProjectSpec(draft.spec)).toEqual({
       valid: true,
       reasonCodes: [],
+    });
+  });
+
+  it("flags a vague goal that hides behind filler words", () => {
+    const draft = createLiveProjectSpecDraft(42, {
+      goal: "just do something",
+      intentSummary: "Students track daily tasks and see what is still left",
+      scope: ["Single-page todo list with add and complete"],
+      nonGoals: ["No accounts or login"],
+      acceptanceCriteria: ["Can add a task", "Completed tasks show a checkmark"],
+    });
+
+    expect(validateConfirmableProjectSpec(draft.spec)).toEqual({
+      valid: false,
+      reasonCodes: ["vague_goal"],
     });
   });
 

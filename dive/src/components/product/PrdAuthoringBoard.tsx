@@ -10,6 +10,12 @@ import {
   type PrdInterviewConversationTurn,
 } from "../../features/planning";
 import { useT } from "../../i18n";
+import {
+  ProvocationCardHost,
+  type ProvocationAction,
+  type ProvocationContext,
+} from "../../features/provocation";
+import { buildPrdIntentCheckCard } from "../../features/provocation/rules";
 import { Button } from "../ui/button";
 import { RuntimeModelSelector } from "../chat/RuntimeModelSelector";
 import { cn } from "../../lib/utils";
@@ -184,6 +190,7 @@ export function PrdAuthoringBoard({
   const [answer, setAnswer] = useState("");
   const [submittingAnswer, setSubmittingAnswer] = useState(false);
   const submittingAnswerRef = useRef(false);
+  const interviewInputRef = useRef<HTMLTextAreaElement>(null);
   const [conversationStorageKey, setConversationStorageKey] = useState(() =>
     conversationStorageKeyForDraft(draft),
   );
@@ -223,6 +230,34 @@ export function PrdAuthoringBoard({
   const confirmPrd = () => {
     if (!canConfirmPrd) return;
     onSavePrdAndCreatePlan(localDraft);
+  };
+
+  // Non-blocking reflective provocation: once the PRD is confirmable, prompt the
+  // supervisor to compare the AI's summary against their real intent before
+  // confirming. The field gate already blocks vague PRDs; this is the nudge on top.
+  const intentCheckCard = useMemo(() => {
+    if (!validation.valid) return null;
+    const context: ProvocationContext = {
+      mode: "standard",
+      stage: "decompose",
+      projectId: localDraft.projectId,
+      featureId: localDraft.projectId,
+      goalText: localDraft.spec.goal,
+    };
+    return buildPrdIntentCheckCard(context, {
+      title: t("prd.authoring.intent_check.title"),
+      prompt: t("prd.authoring.intent_check.prompt"),
+      message: t("prd.authoring.intent_check.message"),
+      guided: t("prd.authoring.intent_check.guided"),
+      refineLabel: t("prd.authoring.intent_check.refine"),
+      evidenceLabel: t("prd.authoring.intent_check.evidence_goal"),
+    });
+  }, [validation.valid, localDraft.projectId, localDraft.spec.goal, t]);
+
+  const handleIntentCheckAction = (action: ProvocationAction) => {
+    if (action.id === "refine") {
+      interviewInputRef.current?.focus();
+    }
   };
 
   const updateDraft = (next: LiveProjectSpecDraft, changedFields: string[]) => {
@@ -415,6 +450,7 @@ export function PrdAuthoringBoard({
           </div>
           <div className="border-t p-3">
             <textarea
+              ref={interviewInputRef}
               value={answer}
               onChange={(event) => setAnswer(event.target.value)}
               disabled={isAnswerBusy}
@@ -567,6 +603,17 @@ export function PrdAuthoringBoard({
         </main>
       </div>
 
+      {intentCheckCard ? (
+        <div data-testid="prd-intent-check" className="border-t bg-bg-panel px-6 pt-3">
+          <ProvocationCardHost
+            cards={[intentCheckCard]}
+            context={{ stage: "decompose", projectId: localDraft.projectId }}
+            mode="standard"
+            onAction={handleIntentCheckAction}
+          />
+        </div>
+      ) : null}
+
       <footer
         className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t bg-bg-panel px-6 py-3"
         data-testid="prd-bottom-action-bar"
@@ -578,11 +625,17 @@ export function PrdAuthoringBoard({
                 .map((code) =>
                   code === "missing_goal"
                     ? t("prd.authoring.validation_goal_required")
-                    : code === "missing_intent_summary"
-                      ? t("prd.authoring.validation_intent_required")
-                      : code === "missing_scope"
-                        ? t("prd.authoring.validation_scope_required")
-                        : t("prd.authoring.validation_criterion_required"),
+                    : code === "vague_goal"
+                      ? t("prd.authoring.validation_goal_vague")
+                      : code === "missing_intent_summary"
+                        ? t("prd.authoring.validation_intent_required")
+                        : code === "missing_scope"
+                          ? t("prd.authoring.validation_scope_required")
+                          : code === "missing_non_goals"
+                            ? t("prd.authoring.validation_non_goals_required")
+                            : code === "insufficient_acceptance_criteria"
+                              ? t("prd.authoring.validation_criteria_insufficient")
+                              : t("prd.authoring.validation_criterion_required"),
                 )
                 .join(" / ")}
         </div>

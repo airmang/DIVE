@@ -1448,9 +1448,15 @@ fn prompt_action_instruction(event: SupervisorEvent) -> &'static str {
 
 pub fn build_stage_c_supervisor_decision(context: &SupervisorContext) -> SupervisorDecision {
     let artifact_label = bounded_artifact_label(&context.artifact_ref.label);
-    let question = format!(
-        "AI는 '{artifact_label}' 완료를 보고했지만, 직접 확인한 증거가 아직 없습니다. 변경 내용이나 실행 결과로 목표와 맞는지 볼 수 있나요?"
-    );
+    let question = if locale_is_english(&context.locale) {
+        format!(
+            "The AI reported '{artifact_label}' as done, but there is no evidence you've checked yourself yet. Can you confirm it matches the goal from the changes or the run result?"
+        )
+    } else {
+        format!(
+            "AI는 '{artifact_label}' 완료를 보고했지만, 직접 확인한 증거가 아직 없습니다. 변경 내용이나 실행 결과로 목표와 맞는지 볼 수 있나요?"
+        )
+    };
     SupervisorDecision {
         schema_version: SUPERVISOR_SCHEMA_VERSION,
         provoke: true,
@@ -1463,7 +1469,11 @@ pub fn build_stage_c_supervisor_decision(context: &SupervisorContext) -> Supervi
             .iter()
             .map(|action| action.as_str().to_string())
             .collect(),
-        supervision_habit: Some("AI의 말과 직접 본 증거를 구분합니다.".to_string()),
+        supervision_habit: Some(if locale_is_english(&context.locale) {
+            "Tell apart what the AI says from evidence you've seen yourself.".to_string()
+        } else {
+            "AI의 말과 직접 본 증거를 구분합니다.".to_string()
+        }),
         log_rationale: Some("Stage C supervisor evaluation shell decision".to_string()),
     }
 }
@@ -2261,9 +2271,9 @@ pub fn map_decision_to_card_at(
         card_type: card_type_for_event(context.event),
         stage: card_stage_for_event(context.event),
         severity: ProvocationSeverity::Caution,
-        title: card_title_for_event(context.event).to_string(),
+        title: card_title_for_event(context.event, &context.locale).to_string(),
         prompt: Some(decision.question.clone()),
-        message: card_message_for_event(context.event).to_string(),
+        message: card_message_for_event(context.event, &context.locale).to_string(),
         evidence,
         actions,
         primary_action_id,
@@ -2340,30 +2350,70 @@ fn card_stage_for_event(event: SupervisorEvent) -> ProvocationCardStage {
     }
 }
 
-fn card_title_for_event(event: SupervisorEvent) -> &'static str {
+fn locale_is_english(locale: &str) -> bool {
+    locale.trim().to_ascii_lowercase().starts_with("en")
+}
+
+fn card_title_for_event(event: SupervisorEvent, locale: &str) -> &'static str {
+    let en = locale_is_english(locale);
     match event {
-        SupervisorEvent::ScopeExpansion => "검토 카드",
-        SupervisorEvent::PlanDrafted => "검토 카드",
-        SupervisorEvent::DiffReady => "확인 필요 카드",
-        SupervisorEvent::RetryLoop => "확인 필요 카드",
-        SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => "확인 필요 카드",
+        SupervisorEvent::ScopeExpansion | SupervisorEvent::PlanDrafted => {
+            if en {
+                "Review card"
+            } else {
+                "검토 카드"
+            }
+        }
+        SupervisorEvent::DiffReady
+        | SupervisorEvent::RetryLoop
+        | SupervisorEvent::AiClaimedDone
+        | SupervisorEvent::VerifyEntered => {
+            if en {
+                "Needs verification"
+            } else {
+                "확인 필요 카드"
+            }
+        }
     }
 }
 
-fn card_message_for_event(event: SupervisorEvent) -> &'static str {
+fn card_message_for_event(event: SupervisorEvent, locale: &str) -> &'static str {
+    let en = locale_is_english(locale);
     match event {
         SupervisorEvent::ScopeExpansion => {
-            "추가하려는 단계가 PRD 범위를 넓히는지 근거와 함께 확인하세요."
+            if en {
+                "Check, with evidence, whether the step you're adding widens the PRD scope."
+            } else {
+                "추가하려는 단계가 PRD 범위를 넓히는지 근거와 함께 확인하세요."
+            }
         }
         SupervisorEvent::PlanDrafted => {
-            "계획을 승인하기 전에 판단과 검증 근거가 충분한지 확인하세요."
+            if en {
+                "Before approving the plan, check that your judgment and verification evidence are enough."
+            } else {
+                "계획을 승인하기 전에 판단과 검증 근거가 충분한지 확인하세요."
+            }
         }
-        SupervisorEvent::DiffReady => "변경된 파일이 현재 목표와 계획 범위 안에 있는지 확인하세요.",
+        SupervisorEvent::DiffReady => {
+            if en {
+                "Check whether the changed files stay within the current goal and plan scope."
+            } else {
+                "변경된 파일이 현재 목표와 계획 범위 안에 있는지 확인하세요."
+            }
+        }
         SupervisorEvent::RetryLoop => {
-            "같은 실패가 반복되고 있으니 재시도 전에 재현·복구·범위를 확인하세요."
+            if en {
+                "The same failure keeps repeating — before retrying, check reproduction, recovery, and scope."
+            } else {
+                "같은 실패가 반복되고 있으니 재시도 전에 재현·복구·범위를 확인하세요."
+            }
         }
         SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => {
-            "확인 가능한 증거를 먼저 살펴보세요."
+            if en {
+                "Look at verifiable evidence first."
+            } else {
+                "확인 가능한 증거를 먼저 살펴보세요."
+            }
         }
     }
 }
@@ -3361,6 +3411,15 @@ mod tests {
         assert_eq!(card.severity, ProvocationSeverity::Caution);
         assert_eq!(card.title, "확인 필요 카드");
         assert_ne!(card.title, "도발카드");
+        // Regression: English locale yields English supervisor card strings.
+        assert_eq!(
+            card_title_for_event(SupervisorEvent::VerifyEntered, "en-US"),
+            "Needs verification"
+        );
+        assert_eq!(
+            card_message_for_event(SupervisorEvent::AiClaimedDone, "en"),
+            "Look at verifiable evidence first."
+        );
         assert_eq!(card.evidence.len(), 2);
         assert_eq!(card.actions.len(), 1);
         assert_eq!(card.primary_action_id.as_deref(), Some("open_diff"));

@@ -258,6 +258,7 @@ const CARD_AGENCY_COMPONENT: Record<ProvocationCard["type"], AgencyComponent> = 
   retry_loop_review: "rollback",
   ai_self_report_only: "verify",
   regeneration_loop: "rollback",
+  prd_intent_check: "intent",
 };
 
 const CARD_AGENCY_STATE: Record<ProvocationCard["type"], AgencyState> = {
@@ -271,6 +272,7 @@ const CARD_AGENCY_STATE: Record<ProvocationCard["type"], AgencyState> = {
   retry_loop_review: "verification_failed",
   ai_self_report_only: "ai_self_report_only",
   regeneration_loop: "verification_failed",
+  prd_intent_check: "intent_needed",
 };
 
 const ACTION_AGENCY_COMPONENT: Partial<Record<ProvocationActionKind, AgencyComponent>> = {

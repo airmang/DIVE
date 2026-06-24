@@ -26,7 +26,8 @@ export type ProvocationCardType =
   | "diff_scope_drift"
   | "retry_loop_review"
   | "ai_self_report_only"
-  | "regeneration_loop";
+  | "regeneration_loop"
+  | "prd_intent_check";
 
 export type ProvocationEvidenceSource =
   | "goal"

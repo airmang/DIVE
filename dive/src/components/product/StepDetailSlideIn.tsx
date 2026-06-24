@@ -22,7 +22,7 @@ import {
 import type { ChangedFile } from "../slide-in/types";
 import type { ApprovalDecision } from "../workmap/ApprovalJudgment";
 import type { VerifyLogView } from "../workmap/types";
-import { useT } from "../../i18n";
+import { useLocaleStore, useT } from "../../i18n";
 import { useChatComposerStore } from "../../stores/chatComposer";
 import { DecisionGate } from "./DecisionGate";
 import {
@@ -492,7 +492,9 @@ export function StepDetailSlideIn({
         activeStep: step.title,
       },
       verification: {
-        aiClaimedDone: Boolean(verifyLog?.intent_match),
+        // Entering review with changes is itself an implicit "AI claimed done"
+        // signal — do not depend on the model emitting a completion keyword/intent_match.
+        aiClaimedDone: Boolean(verifyLog?.intent_match) || (isReview && changedFiles.length > 0),
         diffReviewed: diffViewed,
         appLaunched,
         previewChecked: previewObserved,
@@ -512,6 +514,8 @@ export function StepDetailSlideIn({
     manualObservation,
     previewObserved,
     step,
+    isReview,
+    changedFiles,
     automatedTestsPassed,
     verificationFeasibility,
     verifyLog?.intent_match,
@@ -538,7 +542,7 @@ export function StepDetailSlideIn({
         label: step.title || `Step ${step.position}`,
       },
       sourceUiMode: provocation.mode,
-      locale: "ko-KR",
+      locale: useLocaleStore.getState().locale,
       uiState: supervisorUiState,
     };
   }, [
@@ -577,7 +581,7 @@ export function StepDetailSlideIn({
       stepId: step.id,
       stepTitle: step.title || `Step ${step.position}`,
       sourceUiMode: provocation.mode,
-      locale: "ko-KR",
+      locale: useLocaleStore.getState().locale,
       goalSummary,
       stepSummary,
       changedFiles: changedFiles.map((file) => normalizeChangedFile({ path: file.path })),
@@ -627,7 +631,7 @@ export function StepDetailSlideIn({
       stepId: step.id,
       stepTitle: step.title || `Step ${step.position}`,
       sourceUiMode: provocation.mode,
-      locale: "ko-KR",
+      locale: useLocaleStore.getState().locale,
       goalSummary,
       stepSummary,
       failureSummary: retryLoopSnapshot.failureSummary,
@@ -657,7 +661,7 @@ export function StepDetailSlideIn({
       cardId: step.id,
       planStepId: step.id,
       sourceUiMode: provocation.mode,
-      locale: "ko-KR",
+      locale: useLocaleStore.getState().locale,
       step: {
         title: step.title || `Step ${step.position}`,
         summary: step.description,
