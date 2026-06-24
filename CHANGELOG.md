@@ -40,6 +40,23 @@ All notable changes to DIVE are documented here. Format: [Keep a Changelog](http
 - Release gate red lights cleared for `verify:production-wire`, `verify:version-sync`, and `format:check`.
 - Phase 10 Gate A rerun is green: frontend typecheck/lint/build/format/production-wire/v4 plus Rust fmt/check/test/clippy and the corrected release mock guard path.
 
+## [1.0.0-rc.4] — 2026-06-24
+
+First MVP build of the Sarkar "AI as provocateur" supervision layer working end to end.
+
+### Fixed
+
+- **P1 verify card never rendered.** The SupervisorAgent prompt named the decision schema by name but never listed the required keys, so every model returned a wrong-shaped JSON (`passed`/`confidence`/`rationale` instead of `provoke`/`concern`/`severity`) and the backend dropped it as `parse_error` — 100% of the time, across gpt-5.4-mini and claude-sonnet-4.6. The prompt now spells out the exact key set, injects the per-event concern, and includes a worked example; `parse_supervisor_decision` also tolerates a fenced/prose-wrapped object. The shared prompt is used by all six review-card event families, so this repairs the whole supervisor card surface, not just the verify card (#24).
+- **Supervisor questions occasionally dropped as `not_question`.** The prompt now requires the question to end with `?`, which the deterministic `is_question` check accepts unambiguously (#24).
+
+### Added
+
+- **Bounded retry on recoverable supervisor drops** (`provocation_agent_evaluate`, up to 3 attempts, env `DIVE_SUPERVISOR_EVALUATION_ATTEMPTS`) plus a supervisor turn timeout raised 8s → 12s, lifting the realized card show-rate from ~80–90% to ~95–99%. Retries only fire on recoverable drops (malformed/off-contract output or transient infra), never on provider-unavailable, a genuine `provoke=false`, or dedup (#24).
+
+### Changed
+
+- **Review cards are now pure provocations.** Only action buttons that actually open the artifact (diff/preview/run) or a recovery path are shown. The "revise the request/plan" and "ask the AI to do X" nudges (`split_scope`, `edit_prd`, `link_criterion`, `add_verification_step`, …) are no longer rendered as buttons — they only seeded a prompt or focused a field, which read as a broken affordance. Those capabilities remain available via each screen's dedicated controls (#25).
+
 ## [1.0.0-rc.3] — 2026-06-22
 
 ### Fixed
@@ -197,7 +214,8 @@ v0.1 — 워크맵 + 채팅 + 권한 카드 + D 게이트. 메인 시나리오 A
 
 ---
 
-[Unreleased]: https://github.com/airmang/DIVE-2/compare/v1.0.0-rc.3...HEAD
+[Unreleased]: https://github.com/airmang/DIVE-2/compare/v1.0.0-rc.4...HEAD
+[1.0.0-rc.4]: https://github.com/airmang/DIVE-2/compare/v1.0.0-rc.3...v1.0.0-rc.4
 [1.0.0-rc.3]: https://github.com/airmang/DIVE-2/compare/v1.0.0-rc.2...v1.0.0-rc.3
 [1.0.0-rc.2]: https://github.com/airmang/DIVE-2/compare/v1.0.0-rc.1...v1.0.0-rc.2
 [Yanked 1.0.0-rc.1]: https://github.com/airmang/DIVE-2/releases/tag/v1.0.0-rc.1

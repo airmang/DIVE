@@ -1,7 +1,7 @@
 {
   "name": "dive",
   "private": true,
-  "version": "1.0.0-rc.3",
+  "version": "1.0.0-rc.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -37,7 +37,7 @@
     "release:smoke": "node scripts/release-gate-smoke.mjs",
     "release:smoke:preflight": "node scripts/release-gate-smoke.mjs --preflight",
     "verify:rc1-migration": "node scripts/verify-rc1-migration.mjs",
-    "verify:version-sync": "node scripts/verify-version-sync.mjs 1.0.0-rc.3",
+    "verify:version-sync": "node scripts/verify-version-sync.mjs 1.0.0-rc.4",
     "verify:a11y": "node scripts/verify-a11y.mjs",
     "verify:audit-fixes": "node scripts/verify-audit-fixes.mjs",
     "verify:quality-iteration": "node scripts/verify-quality-iteration.mjs",
