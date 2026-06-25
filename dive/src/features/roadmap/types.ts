@@ -32,7 +32,8 @@ export type AgencyTone = "info" | "success" | "warn" | "risk";
 export interface AgencyStateItem {
   id: AgencyStateId;
   component: AgencyComponent;
-  label: string;
+  /** i18n key (e.g. "agency_status.running"); resolve with `t()` at render. */
+  labelKey: string;
   tone: AgencyTone;
   evidenceBacked: boolean;
   priority: number;

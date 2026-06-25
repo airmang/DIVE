@@ -555,6 +555,20 @@
       "summary": "단계 완료"
     }
   },
+  "agency_status": {
+    "intent_needed": "의도/완료 기준 필요",
+    "plan_review_needed": "계획 검토 필요",
+    "approval_required": "승인 필요",
+    "running": "실행 중",
+    "diff_review_needed": "변경 확인 필요",
+    "verification_needed": "검증 필요",
+    "verified_with_evidence": "검증 증거 있음",
+    "ai_self_report_only": "AI 자가보고만 있음",
+    "verification_failed": "검증 실패",
+    "verification_deferred": "검증 유예됨",
+    "rollback_available": "되돌리기 가능",
+    "approved_with_risk": "위험 감수 승인"
+  },
   "roadmap": {
     "title": "로드맵",
     "refresh": "로드맵 새로고침",

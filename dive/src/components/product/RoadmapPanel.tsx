@@ -314,6 +314,7 @@ function CriterionTrace({ step, className }: { step: RoadmapStep; className?: st
 }
 
 function AgencyPill({ item, className }: { item: AgencyStateItem; className?: string }) {
+  const t = useT();
   return (
     <span
       className={cn(
@@ -325,7 +326,7 @@ function AgencyPill({ item, className }: { item: AgencyStateItem; className?: st
       data-agency-state={item.id}
       data-agency-component={item.component}
     >
-      {item.label}
+      {t(item.labelKey)}
     </span>
   );
 }

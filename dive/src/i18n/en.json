@@ -555,6 +555,20 @@
       "summary": "Step complete"
     }
   },
+  "agency_status": {
+    "intent_needed": "Goal & criteria needed",
+    "plan_review_needed": "Plan review needed",
+    "approval_required": "Approval needed",
+    "running": "Running",
+    "diff_review_needed": "Diff review needed",
+    "verification_needed": "Verification needed",
+    "verified_with_evidence": "Verified with evidence",
+    "ai_self_report_only": "AI self-report only",
+    "verification_failed": "Verification failed",
+    "verification_deferred": "Verification deferred",
+    "rollback_available": "Rollback available",
+    "approved_with_risk": "Approved with risk"
+  },
   "roadmap": {
     "title": "Roadmap",
     "refresh": "Refresh roadmap",

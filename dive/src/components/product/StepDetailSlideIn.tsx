@@ -1272,6 +1272,7 @@ function VerificationStatusChip({ item }: { item: VerificationStatusItem }) {
 }
 
 function AgencyStateChip({ item }: { item: AgencyStateItem }) {
+  const t = useT();
   return (
     <span
       className={cn(
@@ -1283,7 +1284,7 @@ function AgencyStateChip({ item }: { item: AgencyStateItem }) {
       data-agency-component={item.component}
       data-evidence-backed={item.evidenceBacked ? "true" : "false"}
     >
-      {item.label}
+      {t(item.labelKey)}
     </span>
   );
 }
