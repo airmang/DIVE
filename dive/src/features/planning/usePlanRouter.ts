@@ -62,6 +62,16 @@ export type RouteDecision =
       target: StepRefPayload;
       replacement: StepDraftInput;
       reason: string;
+    }
+  // S-033: the router proposed an add that the backend matched against an
+  // existing active step (server-side `find_duplicate_step`, not a model verb).
+  // Surfaced as a typed outcome carrying the matched step + the rejected draft;
+  // until P8 wires the confirm UI it falls through to a normal chat send.
+  | {
+      action: "duplicate";
+      existing: StepRefPayload;
+      draft: StepDraftInput;
+      reason: string;
     };
 
 export function usePlanRouter(projectId: number | null) {

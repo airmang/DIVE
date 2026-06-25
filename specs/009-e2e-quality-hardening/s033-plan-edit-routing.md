@@ -34,9 +34,9 @@ not previously persisted to a doc)
 | P3 | Activate retire_step — remove-step apply IPC + `plan_step_retired` event/export | done (PR #37) |
 | P4 | Supersede-step apply IPC + `plan_step_changed` activation | done (PR #38) |
 | P5 | Multi-step fan-out — `workspace_plan_append_steps` batch IPC + DAG topo-sort | done (PR #39) |
-| **P6** | **Router prompt emission of clarify/remove/supersede** — teach `build_system_prompt` the three verbs (output formats, selection criteria, `target_step_id` guardrail) so the model actually emits them in production. Still propose-only; UI deferred to P8. | **active** |
-| P7 | Duplicate-add handling beyond the existing `find_duplicate_step` add-path guard (explicit duplicate outcome if warranted) | planned |
-| P8 | `multi_step` router emission + plan-diff consumer UI — confirm modal surfacing clarify/remove/supersede/multi_step proposals and triggering the apply IPCs | planned |
+| P6 | Router prompt emission of clarify/remove/supersede — `build_system_prompt` teaches the three verbs (output formats, selection criteria, `target_step_id` guardrail). Still propose-only; UI deferred to P8. | done (PR #40) |
+| **P7** | **First-class Duplicate outcome** — route_chat's AddStep arm now returns a typed `RouteDecision::Duplicate { existing, draft, reason }` (server-side `find_duplicate_step`, **not** a model verb) instead of silently downgrading to chat. Backend-first; UI deferred to P8. | **active** |
+| P8 | `multi_step` router emission (parser + `PlanRouterDecision`/wire foundation + prompt) + plan-diff consumer UI — confirm modal surfacing clarify/remove/supersede/duplicate/multi_step proposals and triggering the apply IPCs | planned |
 
 ### Notes
 
@@ -51,6 +51,14 @@ not previously persisted to a doc)
 - The router context exposes acceptance criteria as plain strings (no ids), so
   `clarify.suggested_criterion_ids` is best-effort (`[]` when unidentifiable);
   the criterion-linked *question* is the user-facing guarantee.
+- P7 `Duplicate` is detected **server-side** in route_chat's AddStep arm via
+  `find_duplicate_step` (normalized title/instruction/summary equality) — it is
+  **not** a router verb; the LLM never self-reports duplicates and the prompt
+  stays unchanged. The apply IPCs (`append_step`/`append_steps`) keep their own
+  hard-`Err` duplicate guard as defense-in-depth. Two consumers narrow on
+  `add_step` and read `decision.reason` in the fall-through (`handleBeforeChatSend`
+  in `useProductShellController.ts`, `handleDraftRequest` in
+  `PlanDashboardPanel.tsx`); P8 must surface the duplicate proposal in both.
 
 ## Validation loop
 

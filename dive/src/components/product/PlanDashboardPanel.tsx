@@ -334,6 +334,9 @@ function DashboardProjectItem({
         reason: decision.reason,
       };
     }
+    // Non-add_step outcomes (chat / skip / clarify / remove_step /
+    // supersede_step / duplicate) carry a reason but no draft here; P8 will
+    // surface duplicate/remove/supersede proposals in this dashboard path too.
     return {
       status: "none" as const,
       reason: decision.reason,
