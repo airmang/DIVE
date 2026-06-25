@@ -415,6 +415,13 @@ mod tests {
             prompt.contains("target_step_id MUST be one of the step ids"),
             "system prompt must constrain target_step_id to listed step ids"
         );
+        // P7: duplicate detection is server-side plan truth (find_duplicate_step),
+        // never a model verb — the prompt must not invite the router to
+        // self-report duplicates.
+        assert!(
+            !prompt.contains("ROUTE duplicate"),
+            "duplicate is backend-detected; the router must not emit a duplicate verb"
+        );
     }
 
     #[test]

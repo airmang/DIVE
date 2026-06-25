@@ -279,6 +279,17 @@ pub enum RouteDecision {
         replacement: Box<StepDraftInput>,
         reason: String,
     },
+    /// S-033: the router proposed an add that `find_duplicate_step` matched
+    /// against an existing active step. Detected server-side (NOT a model verb —
+    /// duplicates are plan truth, never self-reported by the LLM); surfaced as a
+    /// typed outcome carrying the matched step + the rejected draft so the P8 UI
+    /// can show the collision instead of silently dropping it to chat.
+    /// Non-mutating.
+    Duplicate {
+        existing: StepRefPayload,
+        draft: Box<StepDraftInput>,
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -3002,11 +3013,22 @@ async fn workspace_plan_route_chat_inner(
             let db = state.db.lock().map_err(|e| e.to_string())?;
             let draft = step_draft_input_from_router(db.conn(), plan_id, *draft)?;
             if let Some(existing) = find_duplicate_step(db.conn(), plan_id, &draft)? {
-                return Ok(RouteDecision::Chat {
-                    reason: format!(
-                        "already covered by {}: {}",
-                        existing.step_id, existing.title
-                    ),
+                // Server-side duplicate detection is plan truth; surface it as a
+                // typed Duplicate outcome (not a silent chat downgrade) so the
+                // P8 UI can show what collided. `reason` is computed before
+                // moving `existing`'s fields into the payload. Still propose-only.
+                let reason = format!(
+                    "already covered by {}: {}",
+                    existing.step_id, existing.title
+                );
+                return Ok(RouteDecision::Duplicate {
+                    existing: StepRefPayload {
+                        step_id: existing.step_id,
+                        db_id: existing.id,
+                        title: existing.title,
+                    },
+                    draft: Box::new(draft),
+                    reason,
                 });
             }
             Ok(RouteDecision::AddStep {

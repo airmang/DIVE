@@ -488,6 +488,9 @@ export function useProductShellController() {
         return true;
       }
 
+      // Only add_step opens the confirm modal today. clarify / remove_step /
+      // supersede_step / duplicate intentionally fall through to a normal chat
+      // send until P8 wires the plan-diff confirm UI that surfaces them.
       if (decision.action !== "add_step") return true;
       const approved = await requestPlanRouteConfirmation(decision);
       if (!approved) return true;

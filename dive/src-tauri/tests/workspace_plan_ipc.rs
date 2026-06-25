@@ -1330,7 +1330,10 @@ async fn route_chat_parses_add_step_and_generates_next_step_id() {
 }
 
 #[tokio::test]
-async fn route_chat_downgrades_duplicate_step_to_chat() {
+async fn route_chat_routes_duplicate_into_duplicate_outcome() {
+    // S-033 P7: a router add that collides with an existing active step now
+    // surfaces a typed Duplicate outcome (carrying the matched step ref + the
+    // rejected draft) instead of a silent Chat downgrade. Still propose-only.
     let tmp = tempfile::tempdir().unwrap();
     let (state, _provider) = mk_state_with_scripts(
         &tmp,
@@ -1351,16 +1354,53 @@ async fn route_chat_downgrades_duplicate_step_to_chat() {
             .unwrap();
 
     match decision {
-        RouteDecision::Chat { reason } => {
+        RouteDecision::Duplicate {
+            existing,
+            draft,
+            reason,
+        } => {
+            assert_eq!(existing.step_id, "step-001");
             assert!(reason.contains("already covered by step-001"));
+            // The rejected draft is carried so the P8 UI can show what collided.
+            assert_eq!(draft.title, "Step step-001");
         }
-        other => panic!("expected duplicate route to become chat, got {other:?}"),
+        other => panic!("expected duplicate outcome, got {other:?}"),
     }
+    // Propose-only: the colliding add never mutates the plan.
     assert_eq!(
         workspace_plan_list_steps_impl(&state, plan_id)
             .unwrap()
             .len(),
         1
+    );
+}
+
+#[test]
+fn route_decision_duplicate_serializes_with_snake_case_action_and_camel_payload() {
+    // Locks the TS contract: action string + camelCase StepRefPayload. The wire
+    // enum is Serialize-only (serde(tag = "action", rename_all = "snake_case")),
+    // so this asserts the serialized shape, not a round-trip.
+    let value = serde_json::to_value(RouteDecision::Duplicate {
+        existing: dive_lib::ipc::workspace_plan::StepRefPayload {
+            step_id: "step-001".into(),
+            db_id: 7,
+            title: "Existing step".into(),
+        },
+        draft: Box::new(append_step_draft(Vec::new())),
+        reason: "already covered by step-001: Existing step".into(),
+    })
+    .unwrap();
+
+    assert_eq!(value["action"], "duplicate");
+    assert_eq!(value["existing"]["stepId"], "step-001");
+    assert_eq!(value["existing"]["dbId"], 7);
+    assert_eq!(value["existing"]["title"], "Existing step");
+    // camelCase StepDraftInput carried through (locks the TS draft contract).
+    assert_eq!(value["draft"]["stepId"], "ignored-by-append");
+    assert_eq!(value["draft"]["title"], "Add authentication");
+    assert_eq!(
+        value["reason"],
+        "already covered by step-001: Existing step"
     );
 }
 
