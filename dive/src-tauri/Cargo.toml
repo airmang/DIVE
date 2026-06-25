@@ -1,6 +1,6 @@
 [package]
 name = "dive"
-version = "1.0.0-rc.4"
+version = "1.0.0-rc.5"
 description = "DIVE — AI 코딩 교육용 데스크톱 앱"
 authors = ["CoreeLab"]
 edition = "2021"
