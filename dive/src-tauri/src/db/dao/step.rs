@@ -24,6 +24,9 @@ fn map_row(row: &rusqlite::Row<'_>) -> Result<StepRow, DbError> {
         position: row.get(13)?,
         created_at: row.get(14)?,
         updated_at: row.get(15)?,
+        status: row.get(16)?,
+        superseded_by_step_id: row.get(17)?,
+        suppression_reason: row.get(18)?,
     })
 }
 
@@ -48,7 +51,7 @@ pub fn insert(conn: &Connection, row: &NewStep) -> Result<i64, DbError> {
 pub fn get_by_id(conn: &Connection, id: i64) -> Result<Option<StepRow>, DbError> {
     Ok(conn
         .query_row(
-            "SELECT id, plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at FROM Step WHERE id = ?",
+            "SELECT id, plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at, status, superseded_by_step_id, suppression_reason FROM Step WHERE id = ?",
             [id],
             query_map_row,
         )
@@ -62,7 +65,7 @@ pub fn get_by_plan_and_step_id(
 ) -> Result<Option<StepRow>, DbError> {
     Ok(conn
         .query_row(
-            "SELECT id, plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at FROM Step WHERE plan_id = ? AND step_id = ?",
+            "SELECT id, plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at, status, superseded_by_step_id, suppression_reason FROM Step WHERE plan_id = ? AND step_id = ?",
             params![plan_id, step_id],
             query_map_row,
         )
@@ -71,12 +74,42 @@ pub fn get_by_plan_and_step_id(
 
 pub fn list_by_plan(conn: &Connection, plan_id: i64) -> Result<Vec<StepRow>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT id, plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at FROM Step WHERE plan_id = ? ORDER BY position, id",
+        "SELECT id, plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at, status, superseded_by_step_id, suppression_reason FROM Step WHERE plan_id = ? ORDER BY position, id",
     )?;
     let rows = stmt
         .query_map([plan_id], query_map_row)?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
+}
+
+/// S-033: the active plan view — excludes steps soft-removed or superseded by a
+/// plan mutation. Use this wherever the user-facing/executable plan is read;
+/// `list_by_plan` still returns history (and reserves removed step_ids).
+pub fn list_active_by_plan(conn: &Connection, plan_id: i64) -> Result<Vec<StepRow>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at, status, superseded_by_step_id, suppression_reason FROM Step WHERE plan_id = ? AND status = 'active' ORDER BY position, id",
+    )?;
+    let rows = stmt
+        .query_map([plan_id], query_map_row)?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+/// S-033: transition a step's plan-mutation lifecycle status. `removed` keeps
+/// the row in history; `superseded` additionally records the replacement's
+/// stable step_id. Does not touch other step fields.
+pub fn set_status(
+    conn: &Connection,
+    id: i64,
+    status: &str,
+    superseded_by_step_id: Option<&str>,
+    suppression_reason: Option<&str>,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE Step SET status = ?, superseded_by_step_id = ?, suppression_reason = ?, updated_at = ? WHERE id = ?",
+        params![status, superseded_by_step_id, suppression_reason, now_ms(), id],
+    )?;
+    Ok(())
 }
 
 pub fn update(conn: &Connection, id: i64, row: &NewStep) -> Result<(), DbError> {
@@ -314,6 +347,67 @@ mod tests {
         insert(db.conn(), &s1).unwrap();
         insert(db.conn(), &s2).unwrap();
         assert!(validate_dependencies(db.conn(), plan_id).is_ok());
+    }
+
+    #[test]
+    fn insert_defaults_step_status_to_active() {
+        let (db, _tmp) = fresh_db();
+        let pid = seed_project(db.conn());
+        let plan_id = seed_plan(db.conn(), pid);
+        let id = insert(db.conn(), &new_step(plan_id, "step-001", 1)).unwrap();
+        let row = get_by_id(db.conn(), id).unwrap().unwrap();
+        assert_eq!(row.status, "active");
+        assert!(row.superseded_by_step_id.is_none());
+        assert!(row.suppression_reason.is_none());
+    }
+
+    #[test]
+    fn list_active_excludes_removed_and_superseded_but_history_retains_them() {
+        let (db, _tmp) = fresh_db();
+        let pid = seed_project(db.conn());
+        let plan_id = seed_plan(db.conn(), pid);
+        let keep = insert(db.conn(), &new_step(plan_id, "step-001", 1)).unwrap();
+        let removed = insert(db.conn(), &new_step(plan_id, "step-002", 2)).unwrap();
+        let superseded = insert(db.conn(), &new_step(plan_id, "step-003", 3)).unwrap();
+
+        set_status(db.conn(), removed, "removed", None, Some("obsolete")).unwrap();
+        set_status(db.conn(), superseded, "superseded", Some("step-004"), None).unwrap();
+
+        let active = list_active_by_plan(db.conn(), plan_id).unwrap();
+        assert_eq!(
+            active
+                .iter()
+                .map(|s| s.step_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["step-001"],
+        );
+        assert_eq!(active[0].id, keep);
+
+        // History still has all three (so removed step_ids stay reserved).
+        assert_eq!(list_by_plan(db.conn(), plan_id).unwrap().len(), 3);
+        let superseded_row = get_by_id(db.conn(), superseded).unwrap().unwrap();
+        assert_eq!(superseded_row.status, "superseded");
+        assert_eq!(
+            superseded_row.superseded_by_step_id.as_deref(),
+            Some("step-004")
+        );
+    }
+
+    #[test]
+    fn step_row_deserializes_missing_lifecycle_fields_as_active() {
+        // An older StepRow payload predating S-033 must round-trip to an active step.
+        let value = json!({
+            "id": 1, "plan_id": 1, "step_id": "step-001", "title": "t",
+            "summary": null, "instruction_seed": null,
+            "expected_files": null, "acceptance_criteria": null,
+            "verification_kind": null, "verification_command": null,
+            "verification_manual_check": null, "dependencies": null,
+            "parallel_group": null, "position": 1, "created_at": 0, "updated_at": 0
+        });
+        let row: StepRow = serde_json::from_value(value).unwrap();
+        assert_eq!(row.status, "active");
+        assert!(row.superseded_by_step_id.is_none());
+        assert!(row.suppression_reason.is_none());
     }
 
     #[test]

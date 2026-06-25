@@ -782,6 +782,10 @@ pub struct NewStep {
     pub position: i64,
 }
 
+fn default_step_status() -> String {
+    "active".to_string()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StepRow {
     pub id: i64,
@@ -800,6 +804,14 @@ pub struct StepRow {
     pub position: i64,
     pub created_at: i64,
     pub updated_at: i64,
+    // S-033 plan-mutation lifecycle: 'active' | 'removed' | 'superseded'. Old
+    // payloads predating these columns deserialize to an active step.
+    #[serde(default = "default_step_status")]
+    pub status: String,
+    #[serde(default)]
+    pub superseded_by_step_id: Option<String>,
+    #[serde(default)]
+    pub suppression_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
