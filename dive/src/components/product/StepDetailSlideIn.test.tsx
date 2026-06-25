@@ -392,6 +392,13 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
     openStepperStage("observe");
     await screen.findByTestId("verification-coach-guide");
 
+    // S-029: typing alone is not evidence — the observation only counts once the
+    // user actually opens the preview (the action that backs what they observed).
+    expect(
+      (screen.getByTestId("verification-observation-record") as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByTestId("step-detail-primary-verification-action"));
+
     fireEvent.change(screen.getByTestId("verification-observation-text"), {
       target: { value: "pnpm test를 실행했고 버튼 문구가 저장으로 표시되는 것을 확인함" },
     });
@@ -424,6 +431,90 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
         }),
       }),
     );
+  });
+
+  it("requires every linked criterion to be observed before approval (S-029)", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+    const step = reviewStep({
+      linkedCriteria: [
+        { criterionId: "c1", text: "대소문자 무시 검색" },
+        { criterionId: "c2", text: "부분 일치 검색" },
+      ],
+    });
+
+    renderStepDetail({ step });
+
+    // Observing via the preview is the action that backs each observation.
+    fireEvent.click(screen.getByTestId("step-detail-primary-verification-action"));
+    openStepperStage("observe");
+    await screen.findByTestId("verification-coach-guide");
+
+    // Record an observation for the first criterion only (selector defaults to it).
+    fireEvent.change(screen.getByTestId("verification-observation-text"), {
+      target: { value: "대문자 Pasta로 검색해도 결과가 나오는 것을 확인함" },
+    });
+    fireEvent.click(screen.getByTestId("verification-observation-record"));
+    await screen.findByTestId("verification-observation-saved");
+    expect(observationMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ criterionIds: ["c1"] }),
+    );
+
+    // One of two criteria observed — the gate stays blocked with an N/M reason.
+    openDecisionStage();
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("decision-gate-reasons").textContent).toContain("1/2");
+
+    // Observe the second criterion.
+    openStepperStage("observe");
+    await screen.findByTestId("verification-coach-guide");
+    fireEvent.change(screen.getByTestId("verification-observation-criterion"), {
+      target: { value: "c2" },
+    });
+    fireEvent.change(screen.getByTestId("verification-observation-text"), {
+      target: { value: "Pas로 검색하면 Pasta Bake가 부분 일치로 나오는 것을 확인함" },
+    });
+    fireEvent.click(screen.getByTestId("verification-observation-record"));
+    await waitFor(() =>
+      expect(observationMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ criterionIds: ["c2"] }),
+      ),
+    );
+
+    // Both criteria now observed — approval is unblocked.
+    openDecisionStage();
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("splits an enumerated single-string criterion into per-AC gates (S-029)", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+    const step = reviewStep({
+      acceptanceCriteria: "AC-1 대소문자 무시 검색\nAC-2 부분 일치 검색\nAC-3 빈 쿼리는 전체 표시",
+      linkedCriteria: undefined,
+    });
+
+    renderStepDetail({ step });
+
+    fireEvent.click(screen.getByTestId("step-detail-primary-verification-action"));
+    openStepperStage("observe");
+    await screen.findByTestId("verification-coach-guide");
+    fireEvent.change(screen.getByTestId("verification-observation-text"), {
+      target: { value: "대문자 Pasta로 검색해도 결과가 나오는 것을 확인함" },
+    });
+    fireEvent.click(screen.getByTestId("verification-observation-record"));
+    await screen.findByTestId("verification-observation-saved");
+
+    // A 3-AC goal stored as one summary string must still gate on all three.
+    openDecisionStage();
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("decision-gate-reasons").textContent).toContain("1/3");
   });
 
   it("sends a note when requesting changes from verification review", async () => {
@@ -463,6 +554,8 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
 
     openStepperStage("observe");
     await screen.findByTestId("verification-coach-guide");
+    // S-029: open the preview first so the observation is action-backed.
+    fireEvent.click(screen.getByTestId("step-detail-primary-verification-action"));
     fireEvent.change(screen.getByTestId("verification-observation-text"), {
       target: { value: "변경된 버튼 문구를 확인함" },
     });

@@ -26,24 +26,24 @@ Severity reflects impact on a credible E2E experience. P0 = independently breaks
 
 ### P0
 
-1. **i18n localization debt** — Korean leaks at English locale across trust-critical supervised UI. → Stage **S-026**. (themes/gaps: i18n cluster, DEF-01)
-2. **Verification evidence is hollow** — opening a diff or typing free text can clear the decision gate without real per-criterion observation; defeats the anti-rubber-stamp promise (002/003 FR-030~033: click ≠ evidence). → Stage **S-028** (depends on S-027).
-3. **In-app preview can't exercise the behavior under test** — sandbox suppresses modals/forms, fixed-width iframe hides responsive behavior, CSP blocks fetch. The preview is where "observe" must happen, so this gates theme 2. → Stage **S-027**.
+1. **i18n localization debt** — Korean leaks at English locale across trust-critical supervised UI. → Stage **S-030** (done). (themes/gaps: i18n cluster, DEF-01)
+2. **Verification evidence is hollow** — opening a diff or typing free text can clear the decision gate without real per-criterion observation; defeats the anti-rubber-stamp promise (002/003 FR-030~033: click ≠ evidence). → Stage **S-029**. Gate-logic hardening (per-criterion coverage, substantive observation, require open/click/test) lands independently; full live "observe" of preview-only criteria soft-depends on S-031.
+3. **In-app preview can't exercise the behavior under test** — sandbox suppresses modals/forms, fixed-width iframe hides responsive behavior, CSP blocks fetch. The preview is where "observe" must happen, so this gates theme 2. → Stage **S-031**.
 
 ### P1 (next specs/Stages)
 
-4. **Recovery anchors** — file-only restore; no pre-edit / pre-pivot / pre-DIVE checkpoints; chat/plan state can desync from reverted files.
-5. **Plan-edit routing** — add-only; no clarify / remove / genuine multi-step; multi-step asks get crammed into one step or dropped to chat.
-6. **Beginner approval-card legibility** — no plain-language change summary, no read gate, weak secret/scope warnings (automation-bias risk).
-7. **PRD / Socratic interview friction & weak criterion scaffolding.**
-8. **Verification stepper false-completion & detection robustness** (shares the supervisor.rs locale fix).
-9. **Production scope-drift / high-risk-file gate appears to be dead code.**
+4. **Recovery anchors** — file-only restore; no pre-edit / pre-pivot / pre-DIVE checkpoints; chat/plan state can desync from reverted files. → Stage **S-032**.
+5. **Plan-edit routing** — add-only; no clarify / remove / genuine multi-step; multi-step asks get crammed into one step or dropped to chat. → Stage **S-033**.
+6. **Beginner approval-card legibility** — no plain-language change summary, no read gate, weak secret/scope warnings (automation-bias risk). → Stage **S-034**.
+7. **PRD / Socratic interview friction & weak criterion scaffolding.** → Stage **S-035**.
+8. **Verification stepper false-completion & detection robustness** (shares the supervisor.rs locale fix). → Stage **S-036**.
+9. **Production scope-drift / high-risk-file gate appears to be dead code.** → Stage **S-037**.
 
 ### P2 (polish)
 
-10. Static-vs-server preview discoverability & onboarding.
-11. Refactor/rename safety (behavior-preserving guidance, multi-replace, quieter search).
-12. Coach degradation & criterion-specific fallback guidance.
+10. Static-vs-server preview discoverability & onboarding. → Stage **S-038**.
+11. Refactor/rename safety (behavior-preserving guidance, multi-replace, quieter search). → Stage **S-039**.
+12. Coach degradation & criterion-specific fallback guidance. → Stage **S-040**.
 
 ## Non-Goals / Preserve (regression guards — do NOT "fix")
 
@@ -56,5 +56,7 @@ The 12 highest-signal journeys in `e2e-gap-backlog.md` ("Recommended live-run su
 
 ## Tracking
 
-- wily project `dive-2`: S-026 (i18n), S-027 (preview), S-028 (evidence gate) created; remaining themes become S-029+ as they are picked up.
+- wily project `dive-2`. The 12 themes map to Stages **S-029 – S-040** (canonical batch registered 2026-06-25). Earlier provisional keys S-026/S-027/S-028 were cancelled as duplicates and superseded by S-030/S-031/S-029 respectively.
+  - Theme 1 i18n → **S-030** (done). Theme 2 evidence gate → **S-029**. Theme 3 preview → **S-031**.
+  - Themes 4–9 (P1) → **S-032 – S-037**. Themes 10–12 (P2) → **S-038 – S-040**.
 - Implementation follows the loop: spec/plan a theme → implement → local CI gates → rebuild → live re-run the relevant journeys → verify.
