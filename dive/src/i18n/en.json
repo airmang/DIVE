@@ -557,6 +557,29 @@
       "summary": "Step complete"
     }
   },
+  "provocation_action": {
+    "seed_add_criteria": "Make the acceptance criteria concrete with 2–3 items — include what the user should see to know it's done.",
+    "seed_add_verification": "Make this step's verification method concrete — pick one of run, preview, or test.",
+    "seed_split_scope": "Reduce the current request to just the first single feature and rewrite it.",
+    "seed_ask_rationale": "Explain how this change connects to the goal.",
+    "seed_create_repro": "From the repeated error, lay out the reproduction steps, the smallest check command, and what to inspect in the last change.",
+    "seed_retry": "First check the recovery point, reproduction steps, and scope reduction, then fix it again while avoiding the same failure.",
+    "status_add_criteria": "Prepared a request to strengthen the acceptance criteria.",
+    "status_link_criterion": "Moved to where the PRD criteria are linked.",
+    "status_edit_prd": "PRD edits are handled in the dedicated plan area.",
+    "status_add_verification": "Prepared a request to add a verification step.",
+    "status_split_scope": "Prepared a scope-reduction request.",
+    "status_diff_unavailable": "There is no diff available to open.",
+    "status_preview_unavailable": "There is no preview to open.",
+    "status_app_unavailable": "There is no app target to run.",
+    "status_tests_unavailable": "There are no tests to run.",
+    "status_tests_started": "Started the test-check flow.",
+    "status_ask_rationale": "Prepared a request for the AI's rationale.",
+    "status_create_repro": "Prepared a request to lay out reproduction steps.",
+    "status_retry": "Prepared a recovery-first retry request.",
+    "status_continue_risk_blocked": "Approval decisions happen in the verification-approval area.",
+    "more_to_review": "{{count}} more to review"
+  },
   "approval_judgment": {
     "prompt_default": "Did you verify the result yourself?",
     "confirmed": "Confirmed",
