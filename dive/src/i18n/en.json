@@ -1270,7 +1270,14 @@
       "auto_connect": "Check result",
       "iframe_title": "Preview",
       "empty_title": "Choose a local URL to view the result.",
-      "empty_description": "If a web project server is running, you can check it directly from one of the default addresses below."
+      "empty_description": "If a web project server is running, you can check it directly from one of the default addresses below.",
+      "reason": {
+        "missing_project": "Select a web project that has a package.json.",
+        "missing_target": "No preview target was provided.",
+        "missing_static_file": "That file was not found in the project.",
+        "local_url_unreachable": "The local preview URL did not respond.",
+        "dev_server_unavailable": "The dev server is not running, so the preview could not load."
+      }
     },
     "terminal": {
       "project_command": "Project Command",
