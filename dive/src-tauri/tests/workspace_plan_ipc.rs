@@ -13,25 +13,26 @@ use dive_lib::db::dao::{
 use dive_lib::db::models::{
     AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus, NewInterview,
     NewLiveProjectSpecDraft, NewPlan, NewProject, NewStep, ObjectionSuggestionStatus,
-    PlanMutationType, ProjectSpecDelta, ProjectSpecDraft, ProjectSpecStatus,
+    PlanMutationType, ProjectSpecDelta, ProjectSpecDraft, ProjectSpecStatus, StepRow,
 };
 use dive_lib::ipc::workspace_plan::{
     roadmap_step_open_impl, roadmap_step_update_state_impl, workspace_plan_activity_impl,
     workspace_plan_append_step_impl, workspace_plan_append_step_with_options_impl,
-    workspace_plan_approve_impl, workspace_plan_challenge_step_rationale_impl,
-    workspace_plan_current_draft_impl, workspace_plan_dashboard_impl,
-    workspace_plan_discard_plan_impl, workspace_plan_generate_draft_impl,
-    workspace_plan_list_steps_impl, workspace_plan_remove_step_impl,
-    workspace_plan_respond_to_plan_adjustment_offer_impl, workspace_plan_route_cancel_impl,
-    workspace_plan_route_chat_impl, workspace_plan_save_interview_answer_impl,
-    workspace_plan_start_interview_impl, workspace_plan_status_impl,
-    workspace_plan_step_mappings_impl, workspace_plan_submit_interview_impl,
-    workspace_plan_supersede_step_impl, workspace_prd_draft_get_impl,
-    workspace_prd_draft_save_impl, workspace_prd_get_impl, workspace_prd_interview_turn_impl,
-    workspace_prd_save_impl, workspace_prd_status_impl, AcceptanceCriterionInput,
-    AppendStepOptions, PlanAdjustmentOfferResponse, PlanAdjustmentOfferResponseInput,
-    PlanDraftInput, PrdDraftSaveInput, PrdInterviewConversationTurnInput, PrdInterviewTurnInput,
-    PrdSaveInput, RouteDecision, StepDraftInput, StepRationaleChallengeInput, StepStateUpdateInput,
+    workspace_plan_append_steps_impl, workspace_plan_approve_impl,
+    workspace_plan_challenge_step_rationale_impl, workspace_plan_current_draft_impl,
+    workspace_plan_dashboard_impl, workspace_plan_discard_plan_impl,
+    workspace_plan_generate_draft_impl, workspace_plan_list_steps_impl,
+    workspace_plan_remove_step_impl, workspace_plan_respond_to_plan_adjustment_offer_impl,
+    workspace_plan_route_cancel_impl, workspace_plan_route_chat_impl,
+    workspace_plan_save_interview_answer_impl, workspace_plan_start_interview_impl,
+    workspace_plan_status_impl, workspace_plan_step_mappings_impl,
+    workspace_plan_submit_interview_impl, workspace_plan_supersede_step_impl,
+    workspace_prd_draft_get_impl, workspace_prd_draft_save_impl, workspace_prd_get_impl,
+    workspace_prd_interview_turn_impl, workspace_prd_save_impl, workspace_prd_status_impl,
+    AcceptanceCriterionInput, AppendStepOptions, MultiStepDraftInput, PlanAdjustmentOfferResponse,
+    PlanAdjustmentOfferResponseInput, PlanDraftInput, PrdDraftSaveInput,
+    PrdInterviewConversationTurnInput, PrdInterviewTurnInput, PrdSaveInput, RouteDecision,
+    StepDraftInput, StepRationaleChallengeInput, StepStateUpdateInput,
 };
 use dive_lib::{
     AppState, ChatEvent, ChatRequest, Database, FinishReason, LlmProvider, Message, ModelInfo,
@@ -351,6 +352,18 @@ fn append_step_draft(dependencies: Vec<String>) -> StepDraftInput {
         parallel_group: Some(1),
         position: 99,
         step_id: "ignored-by-append".into(),
+    }
+}
+
+fn multi_draft(title: &str, depends_on_draft: Vec<usize>) -> MultiStepDraftInput {
+    let mut draft = append_step_draft(vec![]);
+    draft.title = title.into();
+    draft.summary = format!("{title} summary");
+    draft.instruction_seed = format!("Implement {title}");
+    draft.expected_files = vec![format!("src/{title}.ts")];
+    MultiStepDraftInput {
+        draft,
+        depends_on_draft,
     }
 }
 
@@ -1641,6 +1654,111 @@ async fn supersede_step_rejects_inactive_target_without_partial_insert() {
     assert!(err.contains("not active"), "unexpected error: {err}");
 
     // The failed supersede inserted no replacement (active plan is empty).
+    assert!(workspace_plan_list_steps_impl(&state, plan_id)
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+async fn append_steps_fans_out_in_dependency_order_and_rewrites_sibling_deps() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+
+    // Page A (root) <- Nav (depends on A) <- Link (depends on Nav).
+    let rows = workspace_plan_append_steps_impl(
+        &state,
+        plan_id,
+        vec![
+            multi_draft("PageA", vec![]),
+            multi_draft("Nav", vec![0]),
+            multi_draft("Link", vec![1]),
+        ],
+        AppendStepOptions::default(),
+    )
+    .unwrap();
+
+    assert_eq!(rows.len(), 3);
+    assert_eq!(
+        workspace_plan_list_steps_impl(&state, plan_id)
+            .unwrap()
+            .len(),
+        3
+    );
+
+    // Inserted in DAG order; sibling indices were rewritten to real step_ids.
+    let deps = |row: &StepRow| -> Vec<String> {
+        serde_json::from_value(row.dependencies.clone().unwrap_or(serde_json::json!([]))).unwrap()
+    };
+    assert!(deps(&rows[1]).contains(&rows[0].step_id)); // Nav depends on PageA
+    assert!(deps(&rows[2]).contains(&rows[1].step_id)); // Link depends on Nav
+}
+
+#[tokio::test]
+async fn append_steps_rejects_dependency_cycle_with_no_partial_insert() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+
+    let err = workspace_plan_append_steps_impl(
+        &state,
+        plan_id,
+        vec![multi_draft("A", vec![1]), multi_draft("B", vec![0])],
+        AppendStepOptions::default(),
+    )
+    .unwrap_err();
+    assert!(err.contains("cycle"), "unexpected error: {err}");
+    assert!(workspace_plan_list_steps_impl(&state, plan_id)
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+async fn append_steps_rejects_envelope_overflow_up_front() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    for n in 1..=7 {
+        insert_step(&state, plan_id, &format!("step-{n:03}"), &[]);
+    }
+
+    // 7 existing + 2 new = 9 > MAX (8): rejected before any insert.
+    let err = workspace_plan_append_steps_impl(
+        &state,
+        plan_id,
+        vec![multi_draft("X", vec![]), multi_draft("Y", vec![])],
+        AppendStepOptions::default(),
+    )
+    .unwrap_err();
+    assert!(err.contains("envelope"), "unexpected error: {err}");
+    assert_eq!(
+        workspace_plan_list_steps_impl(&state, plan_id)
+            .unwrap()
+            .len(),
+        7
+    );
+}
+
+#[tokio::test]
+async fn append_steps_rejects_intra_batch_duplicate() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+
+    // Two drafts that normalize to the same step: the second collides once the
+    // first is visible inside the batch transaction.
+    let err = workspace_plan_append_steps_impl(
+        &state,
+        plan_id,
+        vec![multi_draft("Same", vec![]), multi_draft("Same", vec![])],
+        AppendStepOptions::default(),
+    )
+    .unwrap_err();
+    assert!(err.contains("already exists"), "unexpected error: {err}");
     assert!(workspace_plan_list_steps_impl(&state, plan_id)
         .unwrap()
         .is_empty());
