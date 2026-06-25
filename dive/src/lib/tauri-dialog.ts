@@ -5,6 +5,8 @@
  * - User cancellation also returns null.
  */
 
+import { translate, useLocaleStore } from "../i18n";
+
 export interface FolderPickerOptions {
   title?: string;
   defaultPath?: string;
@@ -21,7 +23,7 @@ export async function pickFolder(opts: FolderPickerOptions = {}): Promise<string
   const picked = await open({
     directory: true,
     multiple: false,
-    title: opts.title ?? "프로젝트 폴더 선택",
+    title: opts.title ?? translate(useLocaleStore.getState().locale, "new_project.pick_title"),
     defaultPath: opts.defaultPath,
   });
 
