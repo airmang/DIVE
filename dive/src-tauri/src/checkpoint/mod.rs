@@ -100,6 +100,40 @@ impl CheckpointEngine {
         let repo = self.open_repo()?;
         let message = label.unwrap_or_else(|| default_label(kind));
         let commit = self.commit_snapshot(&repo, message)?;
+        self.persist_checkpoint(session_id, card_id, kind, label, commit)
+    }
+
+    /// S-032 pre-edit anchor: like [`create_checkpoint`], but commits **only**
+    /// when the working tree differs from the latest checkpoint. Returns
+    /// `Ok(None)` when nothing changed, so snapshotting before every approved
+    /// write (including read-only/no-op tool runs) does not spawn redundant
+    /// restore points. The first write of a clean tree is already covered by
+    /// the surrounding card-transition checkpoint.
+    pub fn create_checkpoint_if_changed(
+        &self,
+        session_id: i64,
+        card_id: Option<i64>,
+        kind: &str,
+        label: Option<&str>,
+    ) -> Result<Option<CheckpointRow>, CheckpointError> {
+        validate_kind(kind)?;
+        let repo = self.open_repo()?;
+        let message = label.unwrap_or_else(|| default_label(kind));
+        let Some(commit) = self.commit_snapshot_opt(&repo, message, true)? else {
+            return Ok(None);
+        };
+        self.persist_checkpoint(session_id, card_id, kind, label, commit)
+            .map(Some)
+    }
+
+    fn persist_checkpoint(
+        &self,
+        session_id: i64,
+        card_id: Option<i64>,
+        kind: &str,
+        label: Option<&str>,
+        commit: CheckpointCommit,
+    ) -> Result<CheckpointRow, CheckpointError> {
         let db = self
             .db
             .lock()
@@ -191,6 +225,19 @@ impl CheckpointEngine {
         repo: &Repository,
         message: &str,
     ) -> Result<CheckpointCommit, CheckpointError> {
+        self.commit_snapshot_opt(repo, message, false)
+            .map(|c| c.expect("forced snapshot always commits"))
+    }
+
+    /// Snapshot the working tree into the sidecar repo. When `skip_if_unchanged`
+    /// is set and the tree is identical to the current HEAD, returns `Ok(None)`
+    /// without creating an (empty) commit.
+    fn commit_snapshot_opt(
+        &self,
+        repo: &Repository,
+        message: &str,
+        skip_if_unchanged: bool,
+    ) -> Result<Option<CheckpointCommit>, CheckpointError> {
         repo.set_workdir(&self.project_root, false)?;
         let mut index = repo.index()?;
         index.clear()?;
@@ -200,21 +247,29 @@ impl CheckpointEngine {
             Some(&mut path_filter),
         )?;
         let tree_oid = index.write_tree_to(repo)?;
-        let tree = repo.find_tree(tree_oid)?;
-        let sig = Signature::now(COMMITTER_NAME, COMMITTER_EMAIL)?;
 
         let parent = repo.head().ok().and_then(|h| h.peel_to_commit().ok());
+        if skip_if_unchanged {
+            if let Some(parent) = parent.as_ref() {
+                if parent.tree_id() == tree_oid {
+                    return Ok(None);
+                }
+            }
+        }
+
+        let tree = repo.find_tree(tree_oid)?;
+        let sig = Signature::now(COMMITTER_NAME, COMMITTER_EMAIL)?;
         let parent_oid = parent.as_ref().map(|p| p.id());
         let parents: Vec<&git2::Commit> = parent.as_ref().map(|p| vec![p]).unwrap_or_default();
 
         let commit_oid =
             repo.commit(Some("HEAD"), &sig, &sig, message, &tree, parents.as_slice())?;
         let (changed_files, stats) = checkpoint_metadata(repo, parent_oid, commit_oid)?;
-        Ok(CheckpointCommit {
+        Ok(Some(CheckpointCommit {
             sha: commit_oid.to_string(),
             changed_files,
             stats,
-        })
+        }))
     }
 }
 
@@ -316,16 +371,19 @@ fn path_filter(path: &Path, _matched_spec: &[u8]) -> i32 {
 
 fn validate_kind(kind: &str) -> Result<(), CheckpointError> {
     match kind {
-        "auto" | "manual" | "auto-pre-restore" => Ok(()),
+        "auto" | "manual" | "auto-pre-restore" | "auto-pre-edit" => Ok(()),
         other => Err(CheckpointError::InvalidKind(other.to_string())),
     }
 }
 
 fn default_label(kind: &str) -> &'static str {
+    // Used only for the internal git commit message. Auto kinds store a
+    // locale-neutral (NULL) DB label and are localized by kind in the UI.
     match kind {
         "init" => "init",
         "auto" => "자동 체크포인트",
         "auto-pre-restore" => "복원 직전",
+        "auto-pre-edit" => "편집 직전",
         "manual" => "수동 체크포인트",
         _ => "체크포인트",
     }
@@ -428,6 +486,50 @@ mod tests {
                 .any(|c| c.kind == "auto-pre-restore" && c.label.is_none()),
             "restore must auto-create a locale-neutral backup checkpoint, got {list:?}",
         );
+    }
+
+    #[test]
+    fn create_if_changed_skips_when_tree_matches_head() {
+        let (engine, tmp, sid) = engine_with_tempdir();
+        engine.init().unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "v1").unwrap();
+        engine
+            .create_checkpoint(sid, None, "manual", Some("v1"))
+            .unwrap();
+
+        // No file changes since the last checkpoint → pre-edit anchor is a no-op.
+        let skipped = engine
+            .create_checkpoint_if_changed(sid, None, "auto-pre-edit", None)
+            .unwrap();
+        assert!(
+            skipped.is_none(),
+            "unchanged tree must not create an anchor"
+        );
+        assert_eq!(engine.list_checkpoints(sid).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn create_if_changed_commits_when_tree_is_dirty() {
+        let (engine, tmp, sid) = engine_with_tempdir();
+        engine.init().unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "v1").unwrap();
+        engine
+            .create_checkpoint(sid, None, "manual", Some("v1"))
+            .unwrap();
+
+        // Uncommitted edit since the last checkpoint → pre-edit anchor captures it.
+        std::fs::write(tmp.path().join("a.txt"), "v2-dirty").unwrap();
+        let row = engine
+            .create_checkpoint_if_changed(sid, None, "auto-pre-edit", None)
+            .unwrap()
+            .expect("dirty tree must create an anchor");
+        assert_eq!(row.kind, "auto-pre-edit");
+        assert!(
+            row.label.is_none(),
+            "anchor stays locale-neutral (NULL label)"
+        );
+        assert_eq!(row.changed_files, vec!["a.txt"]);
+        assert_eq!(engine.list_checkpoints(sid).unwrap().len(), 2);
     }
 
     #[test]

@@ -1094,7 +1094,8 @@
     "restore_unavailable_title": "복원할 수 없음",
     "explain_failure_prompt": "{{title}} 실패 에러 로그를 요약하고, 초심자가 따라 할 수 있는 재현 단계와 가장 작은 확인 명령을 먼저 제안하세요. 그 다음에만 안전한 재시도 방향을 제안하세요:\n{{reason}}",
     "verify_did_not_pass": "검증을 통과하지 못했습니다({{result}}).",
-    "rejected_reason": "이 단계는 수정이 필요한 상태로 표시되었습니다."
+    "rejected_reason": "이 단계는 수정이 필요한 상태로 표시되었습니다.",
+    "pre_edit_anchor_marker": "마지막 편집 직전"
   },
   "card": {
     "state_decomposed": "계획됨",
@@ -1366,6 +1367,7 @@
       "kind_init": "초기",
       "kind_manual": "수동",
       "kind_pre_restore": "복원 직전",
+      "kind_pre_edit": "편집 직전",
       "kind_other": "{{kind}}",
       "restore": "복원"
     }

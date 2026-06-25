@@ -48,6 +48,8 @@ function localizedCheckpointKind(kind: string, t: ReturnType<typeof useT>): stri
       return t("slide_in.checkpoint.kind_manual");
     case "auto-pre-restore":
       return t("slide_in.checkpoint.kind_pre_restore");
+    case "auto-pre-edit":
+      return t("slide_in.checkpoint.kind_pre_edit");
     default:
       return t("slide_in.checkpoint.kind_other", { kind });
   }
@@ -89,6 +91,12 @@ export function RecoveryPanel({
   const latest = sorted[0] ?? null;
   const visible = sorted.slice(0, 3);
   const undoAvailable = sessionAvailable && sorted.length > 0;
+  // S-032: the most recent pre-edit anchor is the "before your last edit"
+  // restore point — mark it so a user recovering from a failure can identify it.
+  const latestPreEditAnchorId = useMemo(
+    () => sorted.find((item) => item.kind === "auto-pre-edit")?.id ?? null,
+    [sorted],
+  );
 
   const confirmTarget = sorted.find((item) => item.id === confirmRestoreId) ?? null;
 
@@ -260,6 +268,11 @@ export function RecoveryPanel({
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate font-medium text-fg">{checkpointTitle(item, t)}</p>
+                    {item.id === latestPreEditAnchorId ? (
+                      <Badge variant="warn" className="mt-1" data-testid="pre-edit-anchor-marker">
+                        {t("recovery.pre_edit_anchor_marker")}
+                      </Badge>
+                    ) : null}
                     <p className="mt-0.5 text-fg-muted">{formatTime(item.createdAt, locale)}</p>
                     <p className="mt-0.5 truncate text-fg-subtle">
                       {changedFilesCopy(item.changedFiles, t)}

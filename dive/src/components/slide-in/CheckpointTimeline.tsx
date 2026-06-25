@@ -55,6 +55,8 @@ function dotClassFor(kind: string, active: boolean): string {
       return `${base} bg-success border-success`;
     case "manual":
       return `${base} bg-accent border-accent`;
+    case "auto-pre-edit":
+      return `${base} bg-warn border-warn`;
     default:
       return `${base} bg-bg-panel2 border-fg-muted`;
   }
@@ -76,6 +78,8 @@ function checkpointKindLabel(kind: string, t: T): string {
       return t("slide_in.checkpoint.kind_manual");
     case "auto-pre-restore":
       return t("slide_in.checkpoint.kind_pre_restore");
+    case "auto-pre-edit":
+      return t("slide_in.checkpoint.kind_pre_edit");
     default:
       return t("slide_in.checkpoint.kind_other", { kind });
   }
@@ -91,6 +95,8 @@ function checkpointKindGlyph(kind: string): string {
       return "M";
     case "auto-pre-restore":
       return "R";
+    case "auto-pre-edit":
+      return "E";
     default:
       return "C";
   }
