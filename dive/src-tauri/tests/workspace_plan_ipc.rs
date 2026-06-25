@@ -26,12 +26,12 @@ use dive_lib::ipc::workspace_plan::{
     workspace_plan_route_chat_impl, workspace_plan_save_interview_answer_impl,
     workspace_plan_start_interview_impl, workspace_plan_status_impl,
     workspace_plan_step_mappings_impl, workspace_plan_submit_interview_impl,
-    workspace_prd_draft_get_impl, workspace_prd_draft_save_impl, workspace_prd_get_impl,
-    workspace_prd_interview_turn_impl, workspace_prd_save_impl, workspace_prd_status_impl,
-    AcceptanceCriterionInput, AppendStepOptions, PlanAdjustmentOfferResponse,
-    PlanAdjustmentOfferResponseInput, PlanDraftInput, PrdDraftSaveInput,
-    PrdInterviewConversationTurnInput, PrdInterviewTurnInput, PrdSaveInput, RouteDecision,
-    StepDraftInput, StepRationaleChallengeInput, StepStateUpdateInput,
+    workspace_plan_supersede_step_impl, workspace_prd_draft_get_impl,
+    workspace_prd_draft_save_impl, workspace_prd_get_impl, workspace_prd_interview_turn_impl,
+    workspace_prd_save_impl, workspace_prd_status_impl, AcceptanceCriterionInput,
+    AppendStepOptions, PlanAdjustmentOfferResponse, PlanAdjustmentOfferResponseInput,
+    PlanDraftInput, PrdDraftSaveInput, PrdInterviewConversationTurnInput, PrdInterviewTurnInput,
+    PrdSaveInput, RouteDecision, StepDraftInput, StepRationaleChallengeInput, StepStateUpdateInput,
 };
 use dive_lib::{
     AppState, ChatEvent, ChatRequest, Database, FinishReason, LlmProvider, Message, ModelInfo,
@@ -1571,6 +1571,79 @@ async fn remove_step_rejects_unapproved_plan_and_already_removed_step() {
     workspace_plan_remove_step_impl(&state, plan_id, s1, None).unwrap();
     let err = workspace_plan_remove_step_impl(&state, plan_id, s1, None).unwrap_err();
     assert!(err.contains("not active"), "unexpected error: {err}");
+}
+
+#[tokio::test]
+async fn supersede_step_replaces_target_atomically_and_links_replacement() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    let s1 = insert_step(&state, plan_id, "step-001", &[]);
+
+    let new_row = workspace_plan_supersede_step_impl(
+        &state,
+        plan_id,
+        s1,
+        append_step_draft(vec![]),
+        AppendStepOptions {
+            mutation_reason: Some("rework the auth step".into()),
+            linked_criterion_ids: Vec::new(),
+            prd_delta: None,
+        },
+    )
+    .unwrap();
+
+    // The active plan now shows only the replacement.
+    let active = workspace_plan_list_steps_impl(&state, plan_id).unwrap();
+    assert_eq!(
+        active
+            .iter()
+            .map(|s| s.step_id.as_str())
+            .collect::<Vec<_>>(),
+        vec![new_row.step_id.as_str()],
+    );
+
+    // The target is superseded and points at the replacement.
+    let target = step::get_by_id(state.db.lock().unwrap().conn(), s1)
+        .unwrap()
+        .unwrap();
+    assert_eq!(target.status, "superseded");
+    assert_eq!(
+        target.superseded_by_step_id.as_deref(),
+        Some(new_row.step_id.as_str())
+    );
+
+    // Both the append and the change events are logged for export.
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    assert!(events.iter().any(|e| e.r#type == "plan_step_appended"));
+    assert!(events.iter().any(|e| e.r#type == "plan_step_changed"));
+}
+
+#[tokio::test]
+async fn supersede_step_rejects_inactive_target_without_partial_insert() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    let s1 = insert_step(&state, plan_id, "step-001", &[]);
+
+    // Remove the step so it is inactive; a later supersede must fail cleanly.
+    workspace_plan_remove_step_impl(&state, plan_id, s1, None).unwrap();
+    let err = workspace_plan_supersede_step_impl(
+        &state,
+        plan_id,
+        s1,
+        append_step_draft(vec![]),
+        AppendStepOptions::default(),
+    )
+    .unwrap_err();
+    assert!(err.contains("not active"), "unexpected error: {err}");
+
+    // The failed supersede inserted no replacement (active plan is empty).
+    assert!(workspace_plan_list_steps_impl(&state, plan_id)
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test]

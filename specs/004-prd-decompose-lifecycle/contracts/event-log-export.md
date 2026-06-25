@@ -116,6 +116,11 @@ Required additional payload fields:
 
 ### `plan_step_changed`
 
+Emitted for an in-place step change and for the retired side of a `supersede`
+(S-033): the superseded step records `changed_fields` of
+`["status", "superseded_by_step_id"]` and carries `superseded_by_step_id`
+naming the replacement, which is itself emitted as a paired `plan_step_appended`.
+
 Required payload fields:
 
 - `mutation_id`

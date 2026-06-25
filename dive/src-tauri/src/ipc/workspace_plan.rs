@@ -583,6 +583,29 @@ pub async fn workspace_plan_remove_step(
 }
 
 #[tauri::command]
+pub async fn workspace_plan_supersede_step(
+    state: State<'_, AppState>,
+    plan_id: i64,
+    target_step_db_id: i64,
+    replacement: StepDraftInput,
+    mutation_reason: Option<String>,
+    linked_criterion_ids: Option<Vec<String>>,
+    prd_delta: Option<ProjectSpecDelta>,
+) -> Result<StepRow, String> {
+    workspace_plan_supersede_step_impl(
+        &state,
+        plan_id,
+        target_step_db_id,
+        replacement,
+        AppendStepOptions {
+            mutation_reason,
+            linked_criterion_ids: linked_criterion_ids.unwrap_or_default(),
+            prd_delta,
+        },
+    )
+}
+
+#[tauri::command]
 pub async fn workspace_plan_challenge_step_rationale(
     state: State<'_, AppState>,
     input: StepRationaleChallengeInput,
@@ -3114,15 +3137,41 @@ pub fn workspace_plan_append_step_with_options_impl(
             existing.step_id, existing.title
         ));
     }
-    let latest_prd = prd_dao::latest_version(&tx, plan.project_id).map_err(|e| e.to_string())?;
+    let row = append_step_within_tx(
+        &tx,
+        &plan,
+        &draft,
+        mutation_reason.as_deref(),
+        options.prd_delta.as_ref(),
+    )?;
+    tx.commit().map_err(|e| e.to_string())?;
+    let project_root = state.project_root_required()?;
+    workspace_plan_service::artifacts::export_plan_artifacts(conn, plan_id, &project_root)
+        .map_err(|e| e.to_string())?;
+    Ok(row)
+}
+
+/// S-033: insert one step draft within an open transaction — assigns the next
+/// stable step_id/position, records the `add_step` PlanMutation, and logs
+/// `plan_step_appended`. Shared by the single-append IPC and the supersede /
+/// multi-step paths. The caller owns pre-checks (envelope, duplicate,
+/// dependency existence) and the surrounding commit + export.
+fn append_step_within_tx(
+    tx: &rusqlite::Transaction<'_>,
+    plan: &PlanRow,
+    draft: &StepDraftInput,
+    mutation_reason: Option<&str>,
+    prd_delta: Option<&ProjectSpecDelta>,
+) -> Result<StepRow, String> {
+    let latest_prd = prd_dao::latest_version(tx, plan.project_id).map_err(|e| e.to_string())?;
     let scope_expansion = latest_prd
         .as_ref()
         .map(|row| {
             assess_scope_expansion_for_append(
                 &row.snapshot,
-                &draft,
+                draft,
                 &draft.linked_criterion_ids,
-                options.prd_delta.as_ref(),
+                prd_delta,
             )
         })
         .unwrap_or_else(|| ScopeExpansionAssessment {
@@ -3130,13 +3179,13 @@ pub fn workspace_plan_append_step_with_options_impl(
             reason_codes: Vec::new(),
             evidence_refs: Vec::new(),
         });
-    let step_id = step_dao::next_step_id(&tx, plan_id).map_err(|e| e.to_string())?;
-    let position = step_dao::next_position(&tx, plan_id).map_err(|e| e.to_string())?;
-    let acceptance_criteria = append_step_criteria_payload(&draft, latest_prd.as_ref())?;
+    let step_id = step_dao::next_step_id(tx, plan.id).map_err(|e| e.to_string())?;
+    let position = step_dao::next_position(tx, plan.id).map_err(|e| e.to_string())?;
+    let acceptance_criteria = append_step_criteria_payload(draft, latest_prd.as_ref())?;
     let inserted_id = step_dao::insert(
-        &tx,
+        tx,
         &NewStep {
-            plan_id,
+            plan_id: plan.id,
             step_id,
             title: draft.title.clone(),
             summary: Some(draft.summary.clone()),
@@ -3152,19 +3201,15 @@ pub fn workspace_plan_append_step_with_options_impl(
         },
     )
     .map_err(|e| e.to_string())?;
-    step_dao::validate_dependencies(&tx, plan_id).map_err(|e| e.to_string())?;
-    let row = step_dao::get_by_id(&tx, inserted_id)
+    step_dao::validate_dependencies(tx, plan.id).map_err(|e| e.to_string())?;
+    let row = step_dao::get_by_id(tx, inserted_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "step not found after insert".to_string())?;
-    let prd_update = persist_prd_delta_for_plan_mutation(
-        &tx,
-        plan.project_id,
-        latest_prd.as_ref(),
-        options.prd_delta.as_ref(),
-    )?;
+    let prd_update =
+        persist_prd_delta_for_plan_mutation(tx, plan.project_id, latest_prd.as_ref(), prd_delta)?;
     let mutation_id = format!("mut-{}-{}", row.step_id, now_ms());
     plan_mutation_dao::insert_mutation(
-        &tx,
+        tx,
         &NewPlanMutation {
             mutation_id: mutation_id.clone(),
             project_id: plan.project_id,
@@ -3172,7 +3217,7 @@ pub fn workspace_plan_append_step_with_options_impl(
             r#type: PlanMutationType::AddStep,
             step_db_id: Some(row.id),
             stable_step_id: Some(row.step_id.clone()),
-            reason: mutation_reason.clone(),
+            reason: mutation_reason.map(str::to_string),
             criterion_ids: draft.linked_criterion_ids.clone(),
             prd_delta: prd_update.delta.clone(),
             scope_expansion: scope_expansion.clone(),
@@ -3197,11 +3242,7 @@ pub fn workspace_plan_append_step_with_options_impl(
         map.insert("message".into(), json!("Step appended to plan"));
         map.insert("reason".into(), json!(mutation_reason));
     }
-    dive_event_log::append_to_conn(&tx, None, dive_event_log::PLAN_STEP_APPENDED_EVENT, payload)
-        .map_err(|e| e.to_string())?;
-    tx.commit().map_err(|e| e.to_string())?;
-    let project_root = state.project_root_required()?;
-    workspace_plan_service::artifacts::export_plan_artifacts(conn, plan_id, &project_root)
+    dive_event_log::append_to_conn(tx, None, dive_event_log::PLAN_STEP_APPENDED_EVENT, payload)
         .map_err(|e| e.to_string())?;
     Ok(row)
 }
@@ -3294,6 +3335,130 @@ pub fn workspace_plan_remove_step_impl(
     workspace_plan_service::artifacts::export_plan_artifacts(conn, plan_id, &project_root)
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// S-033: replace an active step with a new draft, atomically. Inserts the
+/// replacement (`add_step` mutation + `plan_step_appended`), marks the target
+/// `superseded` pointing at the replacement, and records the target's
+/// `change_step` mutation + `plan_step_changed` event — all in one transaction
+/// so a crash can never orphan a half-applied supersede.
+pub fn workspace_plan_supersede_step_impl(
+    state: &AppState,
+    plan_id: i64,
+    target_step_db_id: i64,
+    mut replacement: StepDraftInput,
+    options: AppendStepOptions,
+) -> Result<StepRow, String> {
+    let option_linked_criterion_ids = compact_linked_criterion_ids(&options.linked_criterion_ids);
+    if !option_linked_criterion_ids.is_empty() {
+        replacement.linked_criterion_ids = option_linked_criterion_ids;
+    } else {
+        replacement.linked_criterion_ids =
+            compact_linked_criterion_ids(&replacement.linked_criterion_ids);
+    }
+    let mutation_reason = options
+        .mutation_reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    validate_append_draft(&replacement)?;
+    sanitize_step_verification(&mut replacement);
+
+    let mut db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn_mut();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let plan = plan_dao::get_by_id(&tx, plan_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("plan {plan_id} not found"))?;
+    if plan.status != "approved" {
+        return Err("plan must be approved before superseding steps".into());
+    }
+    let target = step_dao::get_by_id(&tx, target_step_db_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("step {target_step_db_id} not found"))?;
+    if target.plan_id != plan_id {
+        return Err(format!(
+            "step {target_step_db_id} does not belong to plan {plan_id}"
+        ));
+    }
+    if target.status != "active" {
+        return Err(format!("step {} is not active", target.step_id));
+    }
+    validate_draft_dependencies(&tx, plan_id, &replacement.dependencies)?;
+
+    // Insert the replacement first so we know its stable step_id for the link.
+    let new_row = append_step_within_tx(
+        &tx,
+        &plan,
+        &replacement,
+        mutation_reason.as_deref(),
+        options.prd_delta.as_ref(),
+    )?;
+
+    // Retire the target, pointing it at the replacement.
+    step_dao::set_status(
+        &tx,
+        target.id,
+        "superseded",
+        Some(&new_row.step_id),
+        mutation_reason.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
+
+    // Record the target's change_step mutation + plan_step_changed event.
+    let latest_prd = prd_dao::latest_version(&tx, plan.project_id).map_err(|e| e.to_string())?;
+    let target_update =
+        persist_prd_delta_for_plan_mutation(&tx, plan.project_id, latest_prd.as_ref(), None)?;
+    let change_mutation_id = format!("mut-{}-{}", target.step_id, now_ms());
+    plan_mutation_dao::insert_mutation(
+        &tx,
+        &NewPlanMutation {
+            mutation_id: change_mutation_id.clone(),
+            project_id: plan.project_id,
+            plan_id: plan.id,
+            r#type: PlanMutationType::ChangeStep,
+            step_db_id: Some(target.id),
+            stable_step_id: Some(target.step_id.clone()),
+            reason: mutation_reason.clone(),
+            criterion_ids: Vec::new(),
+            prd_delta: target_update.delta.clone(),
+            scope_expansion: ScopeExpansionAssessment {
+                expanded: false,
+                reason_codes: Vec::new(),
+                evidence_refs: Vec::new(),
+            },
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    let mut payload = dive_event_log::plan_step_changed_payload(
+        change_mutation_id,
+        plan.project_id,
+        plan.id,
+        target.id,
+        target.step_id.clone(),
+        vec!["status".into(), "superseded_by_step_id".into()],
+        Vec::new(),
+        target_update.from_version,
+        target_update.to_version,
+    );
+    if let Value::Object(map) = &mut payload {
+        map.insert(
+            "superseded_by_step_id".into(),
+            json!(new_row.step_id.clone()),
+        );
+        map.insert("step_title".into(), json!(target.title.clone()));
+        map.insert("message".into(), json!("Step superseded by replacement"));
+        map.insert("reason".into(), json!(mutation_reason));
+    }
+    dive_event_log::append_to_conn(&tx, None, dive_event_log::PLAN_STEP_CHANGED_EVENT, payload)
+        .map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+    let project_root = state.project_root_required()?;
+    workspace_plan_service::artifacts::export_plan_artifacts(conn, plan_id, &project_root)
+        .map_err(|e| e.to_string())?;
+    Ok(new_row)
 }
 
 /// S-033: reject retiring a step that an active step still depends on, so a
