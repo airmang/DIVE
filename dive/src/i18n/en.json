@@ -557,6 +557,14 @@
       "summary": "Step complete"
     }
   },
+  "plan_add_step": {
+    "route_link_criterion": "Select the PRD criterion to link. If there is none, edit the PRD first.",
+    "route_split_scope": "Split the title and reason into smaller steps, then save.",
+    "route_edit_prd": "PRD edits are reviewed and applied in the dedicated PRD area.",
+    "route_dismiss_review": "Review card dismissed. You can still save.",
+    "replan_review_title": "Re-decomposition suggestion",
+    "scope_review_unavailable": "Scope review unavailable: there is no active session, so the SupervisorAgent evaluation can't run. You can still save."
+  },
   "provocation_action": {
     "seed_add_criteria": "Make the acceptance criteria concrete with 2–3 items — include what the user should see to know it's done.",
     "seed_add_verification": "Make this step's verification method concrete — pick one of run, preview, or test.",
