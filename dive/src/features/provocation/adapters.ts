@@ -25,6 +25,7 @@ import type {
   SupervisorMode,
   SupervisorSourceUiMode,
 } from "./types";
+import { useLocaleStore } from "../../i18n";
 
 export function stringArray(value: unknown): string[] {
   return Array.isArray(value)
@@ -1344,6 +1345,14 @@ export async function evaluateProvocationSupervisor(
       dropReason: "runtime_unavailable",
     };
   }
-  const response = await api.invoke<unknown>("provocation_agent_evaluate", { request });
+  // Thread the active UI locale so the backend supervisor (LLM question +
+  // locale-aware card titles/messages) responds in the user's language.
+  const requestWithLocale = {
+    ...request,
+    locale: request.locale ?? useLocaleStore.getState().locale,
+  };
+  const response = await api.invoke<unknown>("provocation_agent_evaluate", {
+    request: requestWithLocale,
+  });
   return normalizeSupervisorEvaluationResponse(response, request);
 }

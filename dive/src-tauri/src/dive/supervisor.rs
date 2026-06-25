@@ -1423,7 +1423,7 @@ pub fn build_supervisor_prompt(
             "Use only evidenceRefIds and suggestedActionIds present in the context. ",
             "{action} ",
             "Never suggest continue_with_risk, verification_deferred, dismiss, or mark_irrelevant. ",
-            "Ask one criterion-linked Korean question within 140 characters. ",
+            "{question_instruction} ",
             "The question field MUST be phrased as an interrogative and end with '?'. ",
             "Example: {{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"{concern}\",\"severity\":\"caution\",",
             "\"question\":\"…\",\"evidenceRefIds\":[\"agent.assistant_claim\"],\"suggestedActionIds\":[\"open_diff\"]}}\n\n",
@@ -1432,6 +1432,11 @@ pub fn build_supervisor_prompt(
         ),
         concern = concern,
         action = prompt_action_instruction(context.event),
+        question_instruction = if locale_is_english(&context.locale) {
+            "Ask one criterion-linked question, written in English, within 140 characters."
+        } else {
+            "Ask one criterion-linked question, written in Korean, within 140 characters."
+        },
         context_json = context_json,
     ))
 }
