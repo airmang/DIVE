@@ -148,6 +148,52 @@ async fn opens_static_html_through_project_scoped_http_server() {
 }
 
 #[tokio::test]
+async fn static_server_serves_non_index_pages_and_json_data() {
+    // S-031: the loopback preview server must serve arbitrary non-index project
+    // pages and nested data files so the previewed page can navigate and fetch
+    // real data same-origin (the parent webview CSP does not constrain the
+    // iframe's own loopback origin).
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(tmp.path().join("index.html"), "<h1>home</h1>").unwrap();
+    std::fs::write(tmp.path().join("about.html"), "<h1>about page</h1>").unwrap();
+    std::fs::create_dir_all(tmp.path().join("data")).unwrap();
+    std::fs::write(
+        tmp.path().join("data/products.json"),
+        r#"[{"name":"Pasta Bake"}]"#,
+    )
+    .unwrap();
+    let state = AppState::dev_mock();
+    state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+
+    let result = preview_open_impl(
+        &state,
+        request(PreviewRequestKind::StaticFile, "index.html"),
+    )
+    .await
+    .unwrap();
+    let preview_url = result.preview_url.as_deref().unwrap();
+    let base = preview_url.trim_end_matches("/index.html");
+
+    // A non-index page renders.
+    let about = reqwest::get(format!("{base}/about.html")).await.unwrap();
+    assert_eq!(about.status(), 200);
+    assert!(about.text().await.unwrap().contains("about page"));
+
+    // A nested data file serves with a JSON content-type (so in-iframe fetch works).
+    let json = reqwest::get(format!("{base}/data/products.json"))
+        .await
+        .unwrap();
+    assert_eq!(json.status(), 200);
+    assert_eq!(
+        json.headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("application/json; charset=utf-8"),
+    );
+    assert!(json.text().await.unwrap().contains("Pasta Bake"));
+}
+
+#[tokio::test]
 async fn reports_unreachable_loopback_url_as_preview_failure() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!(
