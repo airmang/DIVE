@@ -155,6 +155,9 @@ CREATE TABLE IF NOT EXISTS Step (
     position INTEGER NOT NULL,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','removed','superseded')),
+    superseded_by_step_id TEXT,
+    suppression_reason TEXT,
     UNIQUE(plan_id, step_id)
 )";
 

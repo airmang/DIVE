@@ -17,9 +17,10 @@ const MIGRATIONS: &[(i64, MigrationFn)] = &[
     (10, migration_v10),
     (11, migration_v11),
     (12, migration_v12),
+    (13, migration_v13),
 ];
 
-pub const LATEST_SCHEMA_VERSION: i64 = 12;
+pub const LATEST_SCHEMA_VERSION: i64 = 13;
 
 pub fn migrate(conn: &mut Connection) -> Result<(), DbError> {
     migrate_with_migrations(conn, MIGRATIONS)
@@ -282,6 +283,32 @@ fn migration_v12(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// S-033 — add the plan-mutation lifecycle columns to Step so steps can be
+/// soft-removed / superseded instead of hard-deleted. Additive, guarded
+/// ADD COLUMN (mirrors migration_v6); existing rows backfill to status='active'.
+fn migration_v13(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    for (column, definition) in [
+        (
+            "status",
+            "TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','removed','superseded'))",
+        ),
+        ("superseded_by_step_id", "TEXT"),
+        ("suppression_reason", "TEXT"),
+    ] {
+        let exists: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('Step') WHERE name = ?",
+            [column],
+            |row| row.get(0),
+        )?;
+        if exists == 0 {
+            tx.execute_batch(&format!(
+                "ALTER TABLE Step ADD COLUMN {column} {definition}"
+            ))?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use rusqlite::Transaction;
@@ -425,6 +452,92 @@ mod tests {
                 [session_id],
             )
             .unwrap();
+    }
+
+    #[test]
+    fn migration_v13_adds_step_lifecycle_columns_and_backfills_active() {
+        use crate::db::dao::plan as plan_dao;
+        use crate::db::models::NewPlan;
+
+        // Reproduce a pre-S-033 Step table (no lifecycle columns), seed a step,
+        // then prove v13 adds the columns and backfills status='active'.
+        let (mut db, _tmp) = fresh_db();
+        let (project_id, _session_id) = seed_project_session(db.conn());
+        let plan_id = plan_dao::insert(
+            db.conn(),
+            &NewPlan {
+                project_id,
+                interview_id: None,
+                goal: "g".into(),
+                intent_summary: None,
+                scope: None,
+                non_goals: None,
+                constraints: None,
+                acceptance_criteria: None,
+                status: "draft".into(),
+            },
+        )
+        .unwrap();
+        db.conn()
+            .execute_batch(
+                "DROP TABLE Step;
+                 CREATE TABLE Step (
+                    id INTEGER PRIMARY KEY,
+                    plan_id INTEGER NOT NULL REFERENCES Plan(id) ON DELETE CASCADE,
+                    step_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    summary TEXT,
+                    instruction_seed TEXT,
+                    expected_files TEXT DEFAULT '[]',
+                    acceptance_criteria TEXT DEFAULT '[]',
+                    verification_kind TEXT,
+                    verification_command TEXT,
+                    verification_manual_check TEXT,
+                    dependencies TEXT DEFAULT '[]',
+                    parallel_group TEXT,
+                    position INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    UNIQUE(plan_id, step_id)
+                 );",
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO Step(plan_id, step_id, title, position, created_at, updated_at) VALUES (?, 'step-001', 'Old step', 1, 0, 0)",
+                [plan_id],
+            )
+            .unwrap();
+        let has_status_before: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('Step') WHERE name = 'status'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_status_before, 0);
+
+        let tx = db.conn_mut().transaction().unwrap();
+        super::migration_v13(&tx).unwrap();
+        tx.commit().unwrap();
+
+        let (status, superseded, suppression): (String, Option<String>, Option<String>) = db
+            .conn()
+            .query_row(
+                "SELECT status, superseded_by_step_id, suppression_reason FROM Step WHERE step_id = 'step-001'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(status, "active");
+        assert!(superseded.is_none());
+        assert!(suppression.is_none());
+
+        // Idempotent: re-running the guarded ADD COLUMNs is a no-op.
+        let tx = db.conn_mut().transaction().unwrap();
+        super::migration_v13(&tx).unwrap();
+        tx.commit().unwrap();
     }
 
     #[test]
