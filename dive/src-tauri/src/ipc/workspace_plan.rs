@@ -290,6 +290,14 @@ pub enum RouteDecision {
         draft: Box<StepDraftInput>,
         reason: String,
     },
+    /// S-033: a reviewable multi-step fan-out proposal. Each draft carries its
+    /// `depends_on_draft` sibling indices; the P8b apply path
+    /// (`workspace_plan_append_steps`) topo-sorts and allocates step_ids, so the
+    /// `step_id`/`position` here are placeholders. Non-mutating (propose-only).
+    MultiStep {
+        drafts: Vec<MultiStepDraftInput>,
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -3077,6 +3085,19 @@ async fn workspace_plan_route_chat_inner(
                 reason,
             })
         }
+        PlanRouterDecision::MultiStep { steps, reason } => {
+            // Propose-only: build the batch with placeholder ids and sibling-index
+            // deps. No DB, no mutation — `workspace_plan_append_steps` owns topo
+            // ordering + id allocation when the P8b UI confirms the proposal.
+            let drafts = steps
+                .into_iter()
+                .map(|(draft, depends_on_draft)| MultiStepDraftInput {
+                    draft: router_draft_to_input_unallocated(draft),
+                    depends_on_draft,
+                })
+                .collect();
+            Ok(RouteDecision::MultiStep { drafts, reason })
+        }
     }
 }
 
@@ -4417,12 +4438,13 @@ fn build_router_context(
     }
 }
 
-fn step_draft_input_from_router(
-    conn: &rusqlite::Connection,
-    plan_id: i64,
-    draft: RouterStepDraft,
-) -> Result<StepDraftInput, String> {
-    Ok(StepDraftInput {
+/// S-033: map a router draft into a `StepDraftInput` WITHOUT allocating a
+/// `step_id`/`position`. Used by the multi_step route arm, where the batch apply
+/// IPC (`workspace_plan_append_steps`) owns id allocation in topo order — eager
+/// per-draft allocation here would hand every sibling the same id. Shared with
+/// `step_draft_input_from_router` so the field mapping has one source of truth.
+fn router_draft_to_input_unallocated(draft: RouterStepDraft) -> StepDraftInput {
+    StepDraftInput {
         title: draft.title,
         summary: draft.summary,
         instruction_seed: draft.instruction_seed,
@@ -4438,9 +4460,20 @@ fn step_draft_input_from_router(
         verification_type: draft.verification_type,
         dependencies: draft.dependencies,
         parallel_group: draft.parallel_group,
-        position: step_dao::next_position(conn, plan_id).map_err(|e| e.to_string())?,
-        step_id: step_dao::next_step_id(conn, plan_id).map_err(|e| e.to_string())?,
-    })
+        position: 0,
+        step_id: String::new(),
+    }
+}
+
+fn step_draft_input_from_router(
+    conn: &rusqlite::Connection,
+    plan_id: i64,
+    draft: RouterStepDraft,
+) -> Result<StepDraftInput, String> {
+    let mut input = router_draft_to_input_unallocated(draft);
+    input.position = step_dao::next_position(conn, plan_id).map_err(|e| e.to_string())?;
+    input.step_id = step_dao::next_step_id(conn, plan_id).map_err(|e| e.to_string())?;
+    Ok(input)
 }
 
 fn find_duplicate_step(
