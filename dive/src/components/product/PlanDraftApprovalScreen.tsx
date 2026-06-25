@@ -344,24 +344,16 @@ export function PlanDraftApprovalScreen({
 
   const handleProvocationAction = useProvocationActionResolver({
     onAddAcceptanceCriteria: () => {
-      openRevisionFeedback(
-        "완료 기준을 계획에 추가해 주세요. 예: 사용자가 무엇을 보면 끝났다고 판단할 수 있는지 2~3개로 적어 주세요.",
-      );
+      openRevisionFeedback(t("planning.approval.revision_add_criteria"));
     },
     onAddVerificationStep: () => {
-      openRevisionFeedback(
-        "검증 단계가 필요합니다. 실행/프리뷰/테스트 중 무엇으로 확인할지 계획에 추가해 주세요.",
-      );
+      openRevisionFeedback(t("planning.approval.revision_add_verification"));
     },
     onSplitScope: () => {
-      openRevisionFeedback(
-        "범위를 더 작게 나눠 주세요. 첫 번째 기능 하나만 승인 가능한 계획으로 다시 작성해 주세요.",
-      );
+      openRevisionFeedback(t("planning.approval.revision_split_scope"));
     },
     onContinueWithRisk: () => {
-      openRevisionFeedback(
-        "남은 위험을 알고 진행하려면, 변경 요청란에 왜 그대로 진행해도 되는지 짧게 남겨 주세요.",
-      );
+      openRevisionFeedback(t("planning.approval.revision_continue_risk"));
     },
   });
   const selectedStepReviewAction =
@@ -428,7 +420,7 @@ export function PlanDraftApprovalScreen({
             className="flex flex-wrap items-center gap-2 rounded-md border border-info/40 bg-info/5 p-3 text-sm"
             data-testid="plan-critique-rep"
           >
-            <span className="text-fg">이 계획에 빠진 단계가 있나요?</span>
+            <span className="text-fg">{t("planning.approval.critique_question")}</span>
             <div className="flex gap-2">
               <Button
                 variant={critique === "none" ? "primary" : "ghost"}
@@ -436,7 +428,7 @@ export function PlanDraftApprovalScreen({
                 data-testid="plan-critique-none"
                 onClick={() => setCritique("none")}
               >
-                없음 — 승인 가능
+                {t("planning.approval.critique_none")}
               </Button>
               <Button
                 variant={critique === "found" ? "danger" : "ghost"}
@@ -444,12 +436,12 @@ export function PlanDraftApprovalScreen({
                 data-testid="plan-critique-found"
                 onClick={() => setCritique("found")}
               >
-                있음 — 변경 요청
+                {t("planning.approval.critique_found")}
               </Button>
             </div>
             {critique === "found" ? (
               <span className="w-full text-[11px] text-fg-muted">
-                오른쪽 "변경 요청"란에 빠진 단계를 적어 수정을 요청하세요.
+                {t("planning.approval.critique_found_hint")}
               </span>
             ) : null}
           </div>
