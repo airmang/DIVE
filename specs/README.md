@@ -10,7 +10,7 @@ implementation planning.
 | [`001-dive-v2-foundation`](001-dive-v2-foundation/spec.md) | Active foundation | Defines DIVE v2 scope, non-goals, runtime direction, evidence rules, and repo strategy. |
 | [`002-provocation-supervisor-agent`](002-provocation-supervisor-agent/spec.md) | Active draft | Defines the dedicated Pi SupervisorAgent that evaluates project evidence and produces review-card decisions. |
 | [`003-supervision-card-ux`](003-supervision-card-ux/spec.md) | Active presentation spec | Defines supervision card presentation and information architecture (focal criterion, review-vs-permission distinction, density reduction); presentation only, no flow-logic change. Current status is clarified in its decision log and `docs/spec-status.md`. |
-| [`004-prd-decompose-lifecycle`](004-prd-decompose-lifecycle/spec.md) | Implemented with reserved follow-up scope | Elevates onboarding/interview into a dedicated PRD Authoring Board with validated turn-by-turn PRD patches and a concise completed PRD read view; criterion-linked, challengeable decomposition; mid-flow `add_step` in a dedicated area; PRD as a living, versioned artifact. `change_step` and `retire_step` remain future/contract-reserved until a visible path is separately specified and implemented. |
+| [`004-prd-decompose-lifecycle`](004-prd-decompose-lifecycle/spec.md) | Implemented | Elevates onboarding/interview into a dedicated PRD Authoring Board with validated turn-by-turn PRD patches and a concise completed PRD read view; criterion-linked, challengeable decomposition; mid-flow `add_step` in a dedicated area; PRD as a living, versioned artifact. The follow-up `change_step` (supersede / `plan_step_changed`) and `retire_step` (remove / `plan_step_retired`) mutations shipped under S-033 (009 theme 5). |
 | [`005-v2-spec-conformance-gaps`](005-v2-spec-conformance-gaps/spec.md) | Implemented conformance cleanup | Closes v2 conformance gaps for user-visible legacy runtime fallback removal, add-step scope cards through SupervisorAgent, rationale challenge offers, and truthful spec-status cleanup. |
 | [`006-sarkar-provocation-expansion`](006-sarkar-provocation-expansion/spec.md) | Implemented | Expands Sarkar-style SupervisorAgent review-card coverage to plan draft approval, diff-ready review, and retry-loop review while preserving evidence, locality, and no static fallback. |
 | [`007-llm-verification-coach`](007-llm-verification-coach/spec.md) | Active draft with plan/tasks | Defines the step-review verification coach: adaptive AI guidance for how to verify a step, criterion-linked user observation capture, and evidence-aware approval separation from AI self-report. |
@@ -83,10 +83,11 @@ implementation planning.
 - The 008 implementation plan and design contracts are governed by
   `specs/008-preview-terminal-runtime-tools/plan.md`, `research.md`,
   `data-model.md`, `contracts/`, and `quickstart.md`.
-- `change_step` and `retire_step` are contract-reserved mutation concepts only.
-  The shipped visible plan-mutation path from 004/005 is `add_step`; any visible
-  change/retire flow needs a later spec, implementation, validation, and status
-  update.
+- `add_step`, `retire_step`, and `change_step` are all shipped, tested
+  plan-mutation apply IPCs. `add_step` shipped under 004/005; the remove path
+  (`retire_step` / `workspace_plan_remove_step` / `plan_step_retired`) and the
+  supersede path (`change_step` / `workspace_plan_supersede_step` /
+  `plan_step_changed`) shipped under S-033 (009 theme 5).
 
 ## Adding Or Changing Specs
 
