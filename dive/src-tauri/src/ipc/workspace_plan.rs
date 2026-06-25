@@ -573,6 +573,16 @@ pub async fn workspace_plan_append_step(
 }
 
 #[tauri::command]
+pub async fn workspace_plan_remove_step(
+    state: State<'_, AppState>,
+    plan_id: i64,
+    step_db_id: i64,
+    mutation_reason: Option<String>,
+) -> Result<(), String> {
+    workspace_plan_remove_step_impl(&state, plan_id, step_db_id, mutation_reason)
+}
+
+#[tauri::command]
 pub async fn workspace_plan_challenge_step_rationale(
     state: State<'_, AppState>,
     input: StepRationaleChallengeInput,
@@ -658,7 +668,7 @@ pub fn workspace_plan_status_impl(
         });
     };
 
-    let steps = step_dao::list_by_plan(db.conn(), plan.id).map_err(|e| e.to_string())?;
+    let steps = step_dao::list_active_by_plan(db.conn(), plan.id).map_err(|e| e.to_string())?;
     let mappings = mappings_for_steps(db.conn(), &steps)?;
     let progress = derive_plan_progress(&steps, &mappings);
 
@@ -2750,7 +2760,7 @@ pub fn workspace_plan_generate_draft_impl(
     let plan = plan_dao::get_by_id(conn, plan_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "plan not found after draft generation".to_string())?;
-    let steps = step_dao::list_by_plan(conn, plan_id).map_err(|e| e.to_string())?;
+    let steps = step_dao::list_active_by_plan(conn, plan_id).map_err(|e| e.to_string())?;
     Ok((plan, steps))
 }
 
@@ -2766,7 +2776,7 @@ pub fn workspace_plan_current_draft_impl(
     if plan.status != "draft" {
         return Ok(None);
     }
-    let steps = step_dao::list_by_plan(db.conn(), plan.id).map_err(|e| e.to_string())?;
+    let steps = step_dao::list_active_by_plan(db.conn(), plan.id).map_err(|e| e.to_string())?;
     Ok(Some((plan, steps)))
 }
 
@@ -2833,7 +2843,7 @@ pub fn workspace_plan_list_steps_impl(
     plan_id: i64,
 ) -> Result<Vec<StepRow>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    step_dao::list_by_plan(db.conn(), plan_id).map_err(|e| e.to_string())
+    step_dao::list_active_by_plan(db.conn(), plan_id).map_err(|e| e.to_string())
 }
 
 pub fn workspace_plan_step_mappings_impl(
@@ -2841,7 +2851,7 @@ pub fn workspace_plan_step_mappings_impl(
     plan_id: i64,
 ) -> Result<Vec<StepSessionMappingRow>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let steps = step_dao::list_by_plan(db.conn(), plan_id).map_err(|e| e.to_string())?;
+    let steps = step_dao::list_active_by_plan(db.conn(), plan_id).map_err(|e| e.to_string())?;
     mappings_for_steps(db.conn(), &steps)
 }
 
@@ -2904,7 +2914,7 @@ async fn workspace_plan_route_chat_inner(
         let plan = plan_dao::get_by_id(db.conn(), plan_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("plan {plan_id} not found"))?;
-        let steps = step_dao::list_by_plan(db.conn(), plan_id).map_err(|e| e.to_string())?;
+        let steps = step_dao::list_active_by_plan(db.conn(), plan_id).map_err(|e| e.to_string())?;
         let mappings = mappings_for_steps(db.conn(), &steps)?;
         build_router_context(&plan, &steps, &mappings)
     };
@@ -3088,7 +3098,7 @@ pub fn workspace_plan_append_step_with_options_impl(
     if plan.status != "approved" {
         return Err("plan must be approved before appending steps".into());
     }
-    let existing_count = step_dao::list_by_plan(&tx, plan_id)
+    let existing_count = step_dao::list_active_by_plan(&tx, plan_id)
         .map_err(|e| e.to_string())?
         .len();
     if existing_count >= MAX_PLAN_STEPS {
@@ -3194,6 +3204,128 @@ pub fn workspace_plan_append_step_with_options_impl(
     workspace_plan_service::artifacts::export_plan_artifacts(conn, plan_id, &project_root)
         .map_err(|e| e.to_string())?;
     Ok(row)
+}
+
+/// S-033: retire (soft-remove) a plan step. Records a `RetireStep` plan
+/// mutation and a `plan_step_retired` event, then re-exports artifacts — all in
+/// one transaction. Rejects when the plan is unapproved, the step is missing /
+/// not active, or an active step still depends on the target.
+pub fn workspace_plan_remove_step_impl(
+    state: &AppState,
+    plan_id: i64,
+    step_db_id: i64,
+    mutation_reason: Option<String>,
+) -> Result<(), String> {
+    let mutation_reason = mutation_reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let mut db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn_mut();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let plan = plan_dao::get_by_id(&tx, plan_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("plan {plan_id} not found"))?;
+    if plan.status != "approved" {
+        return Err("plan must be approved before removing steps".into());
+    }
+    let step = step_dao::get_by_id(&tx, step_db_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("step {step_db_id} not found"))?;
+    if step.plan_id != plan_id {
+        return Err(format!(
+            "step {step_db_id} does not belong to plan {plan_id}"
+        ));
+    }
+    if step.status != "active" {
+        return Err(format!("step {} is not active", step.step_id));
+    }
+    validate_no_active_dependents(&tx, plan_id, &step.step_id)?;
+
+    let latest_prd = prd_dao::latest_version(&tx, plan.project_id).map_err(|e| e.to_string())?;
+    let prd_update =
+        persist_prd_delta_for_plan_mutation(&tx, plan.project_id, latest_prd.as_ref(), None)?;
+
+    step_dao::set_status(&tx, step.id, "removed", None, mutation_reason.as_deref())
+        .map_err(|e| e.to_string())?;
+
+    let mutation_id = format!("mut-{}-{}", step.step_id, now_ms());
+    plan_mutation_dao::insert_mutation(
+        &tx,
+        &NewPlanMutation {
+            mutation_id: mutation_id.clone(),
+            project_id: plan.project_id,
+            plan_id: plan.id,
+            r#type: PlanMutationType::RetireStep,
+            step_db_id: Some(step.id),
+            stable_step_id: Some(step.step_id.clone()),
+            reason: mutation_reason.clone(),
+            criterion_ids: Vec::new(),
+            prd_delta: prd_update.delta.clone(),
+            scope_expansion: ScopeExpansionAssessment {
+                expanded: false,
+                reason_codes: Vec::new(),
+                evidence_refs: Vec::new(),
+            },
+        },
+    )
+    .map_err(|e| e.to_string())?;
+
+    let mut payload = dive_event_log::plan_step_retired_payload(
+        mutation_id,
+        plan.project_id,
+        plan.id,
+        step.id,
+        step.step_id.clone(),
+        Vec::new(),
+        prd_update.from_version,
+        prd_update.to_version,
+    );
+    if let Value::Object(map) = &mut payload {
+        map.insert("step_title".into(), json!(step.title.clone()));
+        map.insert("message".into(), json!("Step retired from plan"));
+        map.insert("reason".into(), json!(mutation_reason));
+    }
+    dive_event_log::append_to_conn(&tx, None, dive_event_log::PLAN_STEP_RETIRED_EVENT, payload)
+        .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    let project_root = state.project_root_required()?;
+    workspace_plan_service::artifacts::export_plan_artifacts(conn, plan_id, &project_root)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// S-033: reject retiring a step that an active step still depends on, so a
+/// remove can never leave the active plan with a dangling dependency.
+fn validate_no_active_dependents(
+    conn: &rusqlite::Connection,
+    plan_id: i64,
+    target_step_id: &str,
+) -> Result<(), String> {
+    let steps = step_dao::list_active_by_plan(conn, plan_id).map_err(|e| e.to_string())?;
+    for step in steps {
+        if step.step_id == target_step_id {
+            continue;
+        }
+        let depends = step
+            .dependencies
+            .as_ref()
+            .and_then(|deps| deps.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|dep| dep.as_str())
+                    .any(|dep| dep == target_step_id)
+            })
+            .unwrap_or(false);
+        if depends {
+            return Err(format!(
+                "cannot remove {target_step_id}: step {} depends on it",
+                step.step_id
+            ));
+        }
+    }
+    Ok(())
 }
 
 const RATIONALE_OFFER_KIND: &str = "redecompose_step";
@@ -3377,7 +3509,7 @@ pub fn roadmap_step_open_impl(
         return Ok(existing);
     }
 
-    let steps = step_dao::list_by_plan(conn, step.plan_id).map_err(|e| e.to_string())?;
+    let steps = step_dao::list_active_by_plan(conn, step.plan_id).map_err(|e| e.to_string())?;
     let mappings = mappings_for_steps(conn, &steps)?;
     let done_ids = done_step_ids(&steps, &mappings);
     let blocked_dependencies = blocked_dependency_ids(&step, &done_ids);
@@ -3562,7 +3694,7 @@ fn dashboard_row_for_project(
         });
     };
 
-    let steps = step_dao::list_by_plan(conn, plan.id).map_err(|e| e.to_string())?;
+    let steps = step_dao::list_active_by_plan(conn, plan.id).map_err(|e| e.to_string())?;
     let mappings = mappings_for_steps(conn, &steps)?;
     let progress = derive_plan_progress(&steps, &mappings);
     let last_activity = latest_plan_activity(conn, plan.id)?;
@@ -3985,7 +4117,7 @@ fn find_duplicate_step(
     let draft_instruction = normalize_step_text(&draft.instruction_seed);
     let draft_summary = normalize_step_text(&draft.summary);
 
-    for step in step_dao::list_by_plan(conn, plan_id).map_err(|e| e.to_string())? {
+    for step in step_dao::list_active_by_plan(conn, plan_id).map_err(|e| e.to_string())? {
         let title_matches =
             !draft_title.is_empty() && draft_title == normalize_step_text(&step.title);
         let instruction_matches = step
@@ -4032,7 +4164,7 @@ fn validate_draft_dependencies(
     plan_id: i64,
     dependencies: &[String],
 ) -> Result<(), String> {
-    let existing = step_dao::list_by_plan(conn, plan_id)
+    let existing = step_dao::list_active_by_plan(conn, plan_id)
         .map_err(|e| e.to_string())?
         .into_iter()
         .map(|step| step.step_id)

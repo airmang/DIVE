@@ -128,6 +128,23 @@ Required payload fields:
 - `from_project_spec_version`
 - `to_project_spec_version`
 
+### `plan_step_retired`
+
+Emitted when a plan step is retired (soft-removed) via the `retire_step`
+mutation (S-033). The step row is retained for history; only the active plan
+view excludes it.
+
+Required payload fields:
+
+- `mutation_id`
+- `project_id`
+- `plan_id`
+- `step_id`
+- `stable_step_id`
+- `criterion_ids_retired`
+- `from_project_spec_version`
+- `to_project_spec_version`
+
 ## Export Expectations
 
 An anonymized session export must be able to reconstruct:
@@ -138,7 +155,7 @@ An anonymized session export must be able to reconstruct:
 - Acceptance criteria with stable IDs and active/retired state.
 - Each step's linked criterion IDs and rationale.
 - Objections to step rationale and whether suggestions were offered.
-- Mid-flow step additions and resulting PRD deltas.
+- Mid-flow step additions, retirements, and resulting PRD deltas.
 - Scope-expansion review-card evaluation/exposure/action outcomes through the
   specs/002 event path.
 

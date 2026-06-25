@@ -21,16 +21,17 @@ use dive_lib::ipc::workspace_plan::{
     workspace_plan_approve_impl, workspace_plan_challenge_step_rationale_impl,
     workspace_plan_current_draft_impl, workspace_plan_dashboard_impl,
     workspace_plan_discard_plan_impl, workspace_plan_generate_draft_impl,
-    workspace_plan_list_steps_impl, workspace_plan_respond_to_plan_adjustment_offer_impl,
-    workspace_plan_route_cancel_impl, workspace_plan_route_chat_impl,
-    workspace_plan_save_interview_answer_impl, workspace_plan_start_interview_impl,
-    workspace_plan_status_impl, workspace_plan_step_mappings_impl,
-    workspace_plan_submit_interview_impl, workspace_prd_draft_get_impl,
-    workspace_prd_draft_save_impl, workspace_prd_get_impl, workspace_prd_interview_turn_impl,
-    workspace_prd_save_impl, workspace_prd_status_impl, AcceptanceCriterionInput,
-    AppendStepOptions, PlanAdjustmentOfferResponse, PlanAdjustmentOfferResponseInput,
-    PlanDraftInput, PrdDraftSaveInput, PrdInterviewConversationTurnInput, PrdInterviewTurnInput,
-    PrdSaveInput, RouteDecision, StepDraftInput, StepRationaleChallengeInput, StepStateUpdateInput,
+    workspace_plan_list_steps_impl, workspace_plan_remove_step_impl,
+    workspace_plan_respond_to_plan_adjustment_offer_impl, workspace_plan_route_cancel_impl,
+    workspace_plan_route_chat_impl, workspace_plan_save_interview_answer_impl,
+    workspace_plan_start_interview_impl, workspace_plan_status_impl,
+    workspace_plan_step_mappings_impl, workspace_plan_submit_interview_impl,
+    workspace_prd_draft_get_impl, workspace_prd_draft_save_impl, workspace_prd_get_impl,
+    workspace_prd_interview_turn_impl, workspace_prd_save_impl, workspace_prd_status_impl,
+    AcceptanceCriterionInput, AppendStepOptions, PlanAdjustmentOfferResponse,
+    PlanAdjustmentOfferResponseInput, PlanDraftInput, PrdDraftSaveInput,
+    PrdInterviewConversationTurnInput, PrdInterviewTurnInput, PrdSaveInput, RouteDecision,
+    StepDraftInput, StepRationaleChallengeInput, StepStateUpdateInput,
 };
 use dive_lib::{
     AppState, ChatEvent, ChatRequest, Database, FinishReason, LlmProvider, Message, ModelInfo,
@@ -1492,6 +1493,84 @@ async fn route_chat_parses_clarify() {
         }
         other => panic!("expected clarify decision, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn remove_step_soft_hides_from_active_plan_but_retains_history_and_logs_event() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    let s1 = insert_step(&state, plan_id, "step-001", &[]);
+    insert_step(&state, plan_id, "step-002", &[]);
+
+    workspace_plan_remove_step_impl(&state, plan_id, s1, Some("obsolete after pivot".into()))
+        .unwrap();
+
+    // Active plan view excludes the removed step.
+    let active = workspace_plan_list_steps_impl(&state, plan_id).unwrap();
+    assert_eq!(
+        active
+            .iter()
+            .map(|s| s.step_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["step-002"],
+    );
+
+    // History retains the row as 'removed' (so removed step_ids stay reserved).
+    let removed = step::get_by_id(state.db.lock().unwrap().conn(), s1)
+        .unwrap()
+        .unwrap();
+    assert_eq!(removed.status, "removed");
+
+    // The retire event is logged for export.
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    assert!(
+        events.iter().any(|e| e.r#type == "plan_step_retired"),
+        "expected a plan_step_retired event"
+    );
+}
+
+#[tokio::test]
+async fn remove_step_with_active_dependent_is_rejected() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    let s1 = insert_step(&state, plan_id, "step-001", &[]);
+    insert_step(&state, plan_id, "step-002", &["step-001"]);
+
+    let err = workspace_plan_remove_step_impl(&state, plan_id, s1, None).unwrap_err();
+    assert!(err.contains("depends on it"), "unexpected error: {err}");
+
+    // The plan is untouched — both steps stay active.
+    assert_eq!(
+        workspace_plan_list_steps_impl(&state, plan_id)
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[tokio::test]
+async fn remove_step_rejects_unapproved_plan_and_already_removed_step() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+
+    // An unapproved (draft) plan rejects removal. (One plan per project, so use
+    // distinct projects for the two scenarios.)
+    let draft_project = seed_project_named(&state, "Draft Project", "/tmp/draft-project");
+    let draft_plan = seed_plan(&state, draft_project, "draft");
+    let ds = insert_step(&state, draft_plan, "step-001", &[]);
+    assert!(workspace_plan_remove_step_impl(&state, draft_plan, ds, None).is_err());
+
+    // On an approved plan, removing the same step twice rejects the second.
+    let approved_project = seed_project_named(&state, "Approved Project", "/tmp/approved-project");
+    let plan_id = seed_plan(&state, approved_project, "approved");
+    let s1 = insert_step(&state, plan_id, "step-001", &[]);
+    workspace_plan_remove_step_impl(&state, plan_id, s1, None).unwrap();
+    let err = workspace_plan_remove_step_impl(&state, plan_id, s1, None).unwrap_err();
+    assert!(err.contains("not active"), "unexpected error: {err}");
 }
 
 #[tokio::test]
