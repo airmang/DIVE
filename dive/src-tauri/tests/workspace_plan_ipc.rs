@@ -1405,6 +1405,82 @@ fn route_decision_duplicate_serializes_with_snake_case_action_and_camel_payload(
 }
 
 #[tokio::test]
+async fn route_chat_parses_multi_step_into_multi_step_without_mutating() {
+    // S-033 P8a: a genuinely multi-part ask fans into a RouteDecision::MultiStep
+    // carrying placeholder-id drafts + sibling-index deps. Propose-only: the apply
+    // IPC (append_steps) owns topo ordering + id allocation when the P8b UI runs.
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta("ROUTE multi_step {\"reason\":\"scaffold then wire\",\"steps\":[{\"title\":\"Skeleton\",\"summary\":\"Create module.\",\"instruction_seed\":\"Add module.\",\"expected_files\":[\"src/a.ts\"],\"acceptance_criteria\":[\"compiles\"],\"verification_type\":\"command\",\"verification_command\":\"pnpm build\",\"dependencies\":[],\"parallel_group\":null,\"depends_on\":[]},{\"title\":\"Wire\",\"summary\":\"Wire it.\",\"instruction_seed\":\"Wire module.\",\"expected_files\":[\"src/b.ts\"],\"acceptance_criteria\":[\"works\"],\"verification_type\":\"command\",\"verification_command\":\"\",\"dependencies\":[\"step-001\"],\"parallel_group\":null,\"depends_on\":[0]},{\"title\":\"Test\",\"summary\":\"Cover it.\",\"instruction_seed\":\"Add tests.\",\"expected_files\":[\"src/c.ts\"],\"acceptance_criteria\":[\"green\"],\"verification_type\":\"command\",\"verification_command\":\"pnpm test\",\"dependencies\":[],\"parallel_group\":null,\"depends_on\":[0]}]}".into()),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    insert_step(&state, plan_id, "step-001", &[]);
+
+    let decision = workspace_plan_route_chat_impl(
+        &state,
+        project_id,
+        "auth 골격 만들고 로그인 붙이고 테스트까지 추가해줘".into(),
+        None,
+    )
+    .await
+    .unwrap();
+
+    match decision {
+        RouteDecision::MultiStep { drafts, reason } => {
+            assert_eq!(reason, "scaffold then wire");
+            assert_eq!(drafts.len(), 3);
+            // Sibling-index deps preserved; the apply IPC rewrites them later.
+            assert_eq!(drafts[0].depends_on_draft, Vec::<usize>::new());
+            assert_eq!(drafts[1].depends_on_draft, vec![0]);
+            assert_eq!(drafts[2].depends_on_draft, vec![0]);
+            assert_eq!(drafts[1].draft.title, "Wire");
+            // No pre-allocation: step_id/position are placeholders (append_steps
+            // owns allocation), and an empty verification_command is normalized.
+            assert_eq!(drafts[1].draft.step_id, "");
+            assert_eq!(drafts[1].draft.position, 0);
+            assert_eq!(drafts[1].draft.verification_command, None);
+            assert_eq!(drafts[1].draft.dependencies, vec!["step-001"]);
+        }
+        other => panic!("expected multi_step decision, got {other:?}"),
+    }
+    // Propose-only: the fan-out never mutates the plan.
+    assert_eq!(
+        workspace_plan_list_steps_impl(&state, plan_id)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn route_decision_multi_step_serializes_with_snake_case_action_and_camel_payload() {
+    // Locks the TS contract for the appendSteps wire: action="multi_step" and
+    // camelCase MultiStepDraftInput (dependsOnDraft + draft.stepId). Serialize-only.
+    let value = serde_json::to_value(RouteDecision::MultiStep {
+        drafts: vec![
+            multi_draft("Skeleton", Vec::new()),
+            multi_draft("Wire", vec![0]),
+        ],
+        reason: "scaffold then wire".into(),
+    })
+    .unwrap();
+
+    assert_eq!(value["action"], "multi_step");
+    assert_eq!(value["reason"], "scaffold then wire");
+    // Sibling-index dep serializes as a number array under the camelCase key.
+    assert_eq!(value["drafts"][1]["dependsOnDraft"][0], 0);
+    assert_eq!(value["drafts"][1]["draft"]["title"], "Wire");
+    assert_eq!(value["drafts"][0]["draft"]["stepId"], "ignored-by-append");
+}
+
+#[tokio::test]
 async fn route_chat_parses_remove_into_remove_step_without_mutating() {
     let tmp = tempfile::tempdir().unwrap();
     let (state, _provider) = mk_state_with_scripts(

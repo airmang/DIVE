@@ -72,6 +72,14 @@ export type RouteDecision =
       existing: StepRefPayload;
       draft: StepDraftInput;
       reason: string;
+    }
+  // S-033: a multi-step fan-out proposal. Each draft carries dependsOnDraft
+  // sibling indices; the P8b UI confirms it and calls appendSteps (which
+  // topo-sorts + allocates step_ids). Until then it falls through to chat.
+  | {
+      action: "multi_step";
+      drafts: MultiStepDraftInput[];
+      reason: string;
     };
 
 export function usePlanRouter(projectId: number | null) {

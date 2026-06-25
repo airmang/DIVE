@@ -62,6 +62,14 @@ pub enum PlanRouterDecision {
         replacement: Box<RouterStepDraft>,
         reason: String,
     },
+    /// S-033: a genuinely multi-part ask fanned into N dependency-ordered steps.
+    /// Each entry pairs a draft with its `depends_on` sibling indices (0-based,
+    /// into this batch). In-range / non-self deps are validated at parse; cycle
+    /// and envelope checks are deferred to the apply IPC.
+    MultiStep {
+        steps: Vec<(RouterStepDraft, Vec<usize>)>,
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -174,7 +182,8 @@ async fn wait_for_route_cancel(cancel: Arc<AtomicBool>) {
 fn build_system_prompt() -> String {
     "You are DIVE's plan router. Decide how the user's new chat message relates \
      to the already-approved plan: add a step, clarify an ambiguous add, remove \
-     a step, replace (supersede) a step, or stay normal chat.\n\
+     a step, replace (supersede) a step, fan a multi-part ask into several \
+     dependency-ordered steps (multi_step), or stay normal chat.\n\
      Return exactly one line. No Markdown. No explanation outside the line.\n\
      Use ROUTE chat for questions, status checks, discussion, or anything that \
      does not change the plan. If the user asks to run, continue, inspect, \
@@ -190,6 +199,10 @@ fn build_system_prompt() -> String {
      Use ROUTE supersede when the user asks to replace, redo, or rework an \
      existing listed step with materially different work (not merely re-run it); \
      provide the full replacement step.\n\
+     Use ROUTE multi_step ONLY for a genuinely multi-part ask that should fan \
+     into several new steps — never cram multiple tasks into one add_step, and \
+     never use it for a single step. Each step lists depends_on: the 0-based \
+     positions of EARLIER steps in this same batch it depends on.\n\
      For remove and supersede, target_step_id MUST be one of the step ids in the \
      Steps list — never invent an id. If no listed step matches, use ROUTE chat.\n\
      New or replacement steps must fit DIVE's execution envelope: one supervised \
@@ -210,6 +223,14 @@ fn build_system_prompt() -> String {
      acceptance_criteria=[\"observable result\"] \
      verification_type=\"command|manual\" verification_command=\"command or empty\" \
      dependencies=[\"step-001\"] parallel_group=null reason=\"short reason\"\n\
+     ROUTE multi_step {\"reason\":\"short reason\",\"steps\":[{\"title\":\"...\",\
+     \"summary\":\"...\",\"instruction_seed\":\"...\",\"expected_files\":[\"path\"],\
+     \"acceptance_criteria\":[\"observable result\"],\"verification_type\":\
+     \"command|manual\",\"verification_command\":\"command or empty\",\
+     \"dependencies\":[\"step-001\"],\"parallel_group\":null,\"depends_on\":[0]}]}\n\
+     The multi_step payload is one JSON object on the SAME single line (no \
+     Markdown, no newline inside it). depends_on lists 0-based indices of earlier \
+     steps in this batch; dependencies still lists only EXISTING plan step ids.\n\
      Existing step ids are the only allowed dependency values. Use null for \
      parallel_group unless a numeric existing group is clearly appropriate. \
      For clarify, set suggested_criterion_ids to the acceptance-criterion ids the \
@@ -255,8 +276,9 @@ fn parse_route_decision(text: &str) -> Result<PlanRouterDecision, String> {
         .map(str::trim)
         .find(|line| line.starts_with("ROUTE "))
         .ok_or_else(|| "router response did not contain a ROUTE line".to_string())?;
-    let route_re = Regex::new(r"^ROUTE\s+(add_step|chat|clarify|remove|supersede)\b(?P<rest>.*)$")
-        .map_err(|e| e.to_string())?;
+    let route_re =
+        Regex::new(r"^ROUTE\s+(add_step|chat|clarify|remove|supersede|multi_step)\b(?P<rest>.*)$")
+            .map_err(|e| e.to_string())?;
     let caps = route_re
         .captures(line)
         .ok_or_else(|| "router response used an invalid ROUTE format".to_string())?;
@@ -289,8 +311,98 @@ fn parse_route_decision(text: &str) -> Result<PlanRouterDecision, String> {
             replacement: Box::new(parse_router_step_draft(rest)?),
             reason: field_string(rest, "reason")?.unwrap_or_else(|| "replace step".into()),
         }),
+        "multi_step" => parse_multi_step(rest),
         _ => Err(format!("unsupported route action: {action}")),
     }
+}
+
+/// S-033: deserialization target for the `ROUTE multi_step {JSON}` payload. The
+/// flat `field_string`/`field_array` helpers can only read the first occurrence
+/// of a key (and `field_array` cannot hold a nested array), so a per-step batch
+/// is carried as one single-line JSON object parsed in one shot instead. Keys
+/// mirror the flat grammar (snake_case); `depends_on` references sibling steps
+/// by 0-based position within this batch.
+#[derive(serde::Deserialize)]
+struct MultiStepRest {
+    #[serde(default)]
+    reason: Option<String>,
+    steps: Vec<RouterMultiStepItem>,
+}
+
+#[derive(serde::Deserialize)]
+struct RouterMultiStepItem {
+    title: String,
+    summary: String,
+    instruction_seed: String,
+    #[serde(default)]
+    expected_files: Vec<String>,
+    #[serde(default)]
+    acceptance_criteria: Vec<String>,
+    #[serde(default)]
+    verification_command: Option<String>,
+    #[serde(default)]
+    verification_type: Option<String>,
+    #[serde(default)]
+    dependencies: Vec<String>,
+    #[serde(default)]
+    parallel_group: Option<i64>,
+    #[serde(default)]
+    depends_on: Vec<usize>,
+}
+
+impl RouterMultiStepItem {
+    /// Convert into a `RouterStepDraft` (matching `parse_router_step_draft`
+    /// semantics — empty verification fields normalize to `None`) plus the
+    /// step's sibling-index dependencies.
+    fn into_draft_and_deps(self) -> (RouterStepDraft, Vec<usize>) {
+        let draft = RouterStepDraft {
+            title: self.title,
+            summary: self.summary,
+            instruction_seed: self.instruction_seed,
+            expected_files: self.expected_files,
+            acceptance_criteria: self.acceptance_criteria,
+            verification_command: empty_to_none(self.verification_command),
+            verification_type: empty_to_none(self.verification_type),
+            dependencies: self.dependencies,
+            parallel_group: self.parallel_group,
+        };
+        (draft, self.depends_on)
+    }
+}
+
+/// S-033: parse a `multi_step` batch. Validates non-empty steps and that every
+/// `depends_on` index is in-range and not self-referential — an early,
+/// router-level guard mirroring the apply IPC. Cycle detection and the
+/// MAX_PLAN_STEPS envelope are intentionally NOT checked here; they are owned by
+/// `workspace_plan_append_steps` at apply time, so a cyclic/oversized batch
+/// still parses as a valid (propose-only) MultiStep and is rejected on apply.
+fn parse_multi_step(rest: &str) -> Result<PlanRouterDecision, String> {
+    let parsed = serde_json::from_str::<MultiStepRest>(rest.trim())
+        .map_err(|e| format!("router response malformed multi_step: {e}"))?;
+    if parsed.steps.is_empty() {
+        return Err("router response multi_step had no steps".into());
+    }
+    let count = parsed.steps.len();
+    let mut steps = Vec::with_capacity(count);
+    for (idx, item) in parsed.steps.into_iter().enumerate() {
+        for &dep in &item.depends_on {
+            if dep >= count {
+                return Err(format!(
+                    "multi_step step {idx} depends_on out-of-range index {dep}"
+                ));
+            }
+            if dep == idx {
+                return Err(format!("multi_step step {idx} depends on itself"));
+            }
+        }
+        steps.push(item.into_draft_and_deps());
+    }
+    Ok(PlanRouterDecision::MultiStep {
+        steps,
+        reason: parsed
+            .reason
+            .unwrap_or_else(|| "multi-step plan work".into()),
+    })
 }
 
 fn parse_router_step_draft(rest: &str) -> Result<RouterStepDraft, String> {
@@ -402,6 +514,8 @@ mod tests {
             "ROUTE clarify question=",
             "ROUTE remove target_step_id=",
             "ROUTE supersede target_step_id=",
+            // P8a: lock the multi_step JSON-tail grammar (verb + opening brace).
+            "ROUTE multi_step {",
         ] {
             assert!(
                 prompt.contains(needle),
@@ -501,5 +615,75 @@ mod tests {
             }
             other => panic!("expected supersede, got {other:?}"),
         }
+    }
+
+    const MULTI_STEP_3: &str = "ROUTE multi_step {\"reason\":\"scaffold then wire\",\"steps\":[{\"title\":\"Skeleton\",\"summary\":\"Create module.\",\"instruction_seed\":\"Add module.\",\"expected_files\":[\"src/a.ts\"],\"acceptance_criteria\":[\"compiles\"],\"verification_type\":\"command\",\"verification_command\":\"pnpm build\",\"dependencies\":[],\"parallel_group\":null,\"depends_on\":[]},{\"title\":\"Wire\",\"summary\":\"Wire it.\",\"instruction_seed\":\"Wire module.\",\"expected_files\":[\"src/b.ts\"],\"acceptance_criteria\":[\"works\"],\"verification_type\":\"command\",\"verification_command\":\"\",\"dependencies\":[\"step-001\"],\"parallel_group\":null,\"depends_on\":[0]},{\"title\":\"Test\",\"summary\":\"Cover it.\",\"instruction_seed\":\"Add tests.\",\"expected_files\":[\"src/c.ts\"],\"acceptance_criteria\":[\"green\"],\"verification_type\":\"command\",\"verification_command\":\"pnpm test\",\"dependencies\":[],\"parallel_group\":null,\"depends_on\":[0]}]}";
+
+    #[test]
+    fn parse_multi_step_route_parses_json_batch() {
+        let parsed = parse_route_decision(MULTI_STEP_3).unwrap();
+        match parsed {
+            PlanRouterDecision::MultiStep { steps, reason } => {
+                assert_eq!(reason, "scaffold then wire");
+                assert_eq!(steps.len(), 3);
+                assert_eq!(steps[0].0.title, "Skeleton");
+                assert_eq!(steps[0].1, Vec::<usize>::new());
+                // Sibling-index deps preserved verbatim (apply IPC rewrites them).
+                assert_eq!(steps[1].1, vec![0]);
+                assert_eq!(steps[2].1, vec![0]);
+                // empty_to_none parity: an empty verification_command becomes None.
+                assert_eq!(steps[1].0.verification_command, None);
+                assert_eq!(steps[1].0.dependencies, vec!["step-001"]);
+            }
+            other => panic!("expected multi_step, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_multi_step_rejects_empty_steps() {
+        let err = parse_route_decision("ROUTE multi_step {\"reason\":\"x\",\"steps\":[]}")
+            .expect_err("empty steps must be rejected");
+        assert!(err.contains("no steps"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn parse_multi_step_rejects_out_of_range_and_self_dep() {
+        let out_of_range = "ROUTE multi_step {\"steps\":[{\"title\":\"A\",\"summary\":\"s\",\"instruction_seed\":\"i\",\"depends_on\":[5]}]}";
+        assert!(parse_route_decision(out_of_range)
+            .expect_err("out-of-range dep must be rejected")
+            .contains("out-of-range"));
+        let self_dep = "ROUTE multi_step {\"steps\":[{\"title\":\"A\",\"summary\":\"s\",\"instruction_seed\":\"i\",\"depends_on\":[0]}]}";
+        assert!(parse_route_decision(self_dep)
+            .expect_err("self dep must be rejected")
+            .contains("itself"));
+    }
+
+    #[test]
+    fn parse_multi_step_accepts_cycle_at_route_time() {
+        // Cycle detection is OWNED by the apply IPC (topo_sort_drafts), not the
+        // router. A 2-step cycle must still PARSE as a valid propose-only
+        // MultiStep; locking this prevents a future maintainer from wrongly
+        // adding cycle rejection here and diverging from the P5 apply contract.
+        let cycle = "ROUTE multi_step {\"steps\":[{\"title\":\"A\",\"summary\":\"s\",\"instruction_seed\":\"i\",\"depends_on\":[1]},{\"title\":\"B\",\"summary\":\"s\",\"instruction_seed\":\"i\",\"depends_on\":[0]}]}";
+        match parse_route_decision(cycle).unwrap() {
+            PlanRouterDecision::MultiStep { steps, .. } => {
+                assert_eq!(steps.len(), 2);
+                assert_eq!(steps[0].1, vec![1]);
+                assert_eq!(steps[1].1, vec![0]);
+            }
+            other => panic!("expected multi_step, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_multi_step_malformed_json_errors() {
+        // A malformed JSON tail must error (route_chat then fails closed to Skip)
+        // rather than panic.
+        let err = parse_route_decision("ROUTE multi_step {\"steps\":[{\"title\":")
+            .expect_err("malformed json must error");
+        assert!(
+            err.contains("malformed multi_step"),
+            "unexpected error: {err}"
+        );
     }
 }

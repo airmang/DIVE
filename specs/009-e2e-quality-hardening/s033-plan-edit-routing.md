@@ -35,8 +35,9 @@ not previously persisted to a doc)
 | P4 | Supersede-step apply IPC + `plan_step_changed` activation | done (PR #38) |
 | P5 | Multi-step fan-out — `workspace_plan_append_steps` batch IPC + DAG topo-sort | done (PR #39) |
 | P6 | Router prompt emission of clarify/remove/supersede — `build_system_prompt` teaches the three verbs (output formats, selection criteria, `target_step_id` guardrail). Still propose-only; UI deferred to P8. | done (PR #40) |
-| **P7** | **First-class Duplicate outcome** — route_chat's AddStep arm now returns a typed `RouteDecision::Duplicate { existing, draft, reason }` (server-side `find_duplicate_step`, **not** a model verb) instead of silently downgrading to chat. Backend-first; UI deferred to P8. | **active** |
-| P8 | `multi_step` router emission (parser + `PlanRouterDecision`/wire foundation + prompt) + plan-diff consumer UI — confirm modal surfacing clarify/remove/supersede/duplicate/multi_step proposals and triggering the apply IPCs | planned |
+| P7 | First-class Duplicate outcome — route_chat's AddStep arm returns a typed `RouteDecision::Duplicate { existing, draft, reason }` (server-side `find_duplicate_step`, **not** a model verb) instead of silently downgrading to chat. Backend-first; UI deferred to P8b. | done (PR #41) |
+| **P8a** | **`multi_step` router outcome** — `ROUTE multi_step {JSON}` grammar (one single-line JSON object parsed by serde; flat `field_*` helpers can't hold a per-step batch), `PlanRouterDecision::MultiStep` + wire `RouteDecision::MultiStep { drafts, reason }`, route→wire mapping building `Vec<MultiStepDraftInput>` with placeholder ids (apply IPC owns allocation), prompt emission. Backend-first, propose-only; UI deferred to P8b. | **active** |
+| P8b | Plan-diff consumer UI — confirm modal surfacing clarify/remove/supersede/duplicate/multi_step proposals and triggering the apply IPCs (`appendStep`/`appendSteps`/remove/supersede); includes the `StepDraftInput.rationale` Option↔string TS fix before rendering `draft.rationale`. | planned |
 
 ### Notes
 
@@ -58,7 +59,17 @@ not previously persisted to a doc)
   hard-`Err` duplicate guard as defense-in-depth. Two consumers narrow on
   `add_step` and read `decision.reason` in the fall-through (`handleBeforeChatSend`
   in `useProductShellController.ts`, `handleDraftRequest` in
-  `PlanDashboardPanel.tsx`); P8 must surface the duplicate proposal in both.
+  `PlanDashboardPanel.tsx`); P8b must surface the duplicate proposal in both.
+- P8a `multi_step` uses a **JSON-rest** grammar (`ROUTE multi_step {JSON}`, one
+  single-line object parsed by `serde_json`) because the flat `field_string`/
+  `field_array` helpers each read only the first occurrence of a key and
+  `field_array`'s `\[[^\]]*\]` regex can't hold a nested array — so a repeated
+  per-step batch is structurally impossible in the flat grammar. Router-level
+  validation covers empty-steps / out-of-range / self-dep only; **cycle and
+  `MAX_PLAN_STEPS` checks are intentionally deferred** to `append_steps` at apply
+  time (a cyclic/oversized batch still parses as a valid propose-only proposal).
+  The route→wire mapping builds drafts with placeholder `step_id`/`position` via
+  `router_draft_to_input_unallocated` so the apply IPC owns id allocation.
 
 ## Validation loop
 
