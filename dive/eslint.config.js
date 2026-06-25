@@ -59,6 +59,7 @@ export default tseslint.config(
       "src/components/plan/**/*.{ts,tsx}",
       "src/components/slide-in/**/*.{ts,tsx}",
       "src/components/chat/**/*.{ts,tsx}",
+      "src/components/permission-card/**/*.{ts,tsx}",
       "src/stores/project-session.ts",
     ],
     ignores: [
