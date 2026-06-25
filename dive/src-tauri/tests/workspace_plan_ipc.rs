@@ -1351,6 +1351,150 @@ async fn route_chat_downgrades_duplicate_step_to_chat() {
 }
 
 #[tokio::test]
+async fn route_chat_parses_remove_into_remove_step_without_mutating() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(
+                "ROUTE remove target_step_id=\"step-001\" reason=\"obsolete after pivot\"".into(),
+            ),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    insert_step(&state, plan_id, "step-001", &[]);
+
+    let decision = workspace_plan_route_chat_impl(&state, project_id, "1단계 빼줘".into(), None)
+        .await
+        .unwrap();
+
+    match decision {
+        RouteDecision::RemoveStep { target, reason } => {
+            assert_eq!(target.step_id, "step-001");
+            assert_eq!(reason, "obsolete after pivot");
+        }
+        other => panic!("expected remove_step decision, got {other:?}"),
+    }
+    // Routing only proposes — the step stays active until the user confirms.
+    let steps = workspace_plan_list_steps_impl(&state, plan_id).unwrap();
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].status, "active");
+}
+
+#[tokio::test]
+async fn route_chat_remove_unknown_target_degrades_to_skip() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(
+                "ROUTE remove target_step_id=\"step-999\" reason=\"drop it\"".into(),
+            ),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    insert_step(&state, plan_id, "step-001", &[]);
+
+    let decision = workspace_plan_route_chat_impl(&state, project_id, "9단계 빼줘".into(), None)
+        .await
+        .unwrap();
+
+    match decision {
+        RouteDecision::Skip { reason } => {
+            assert!(
+                reason.contains("step-999"),
+                "unexpected skip reason: {reason}"
+            );
+        }
+        other => panic!("expected skip for unknown target, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn route_chat_parses_supersede_into_supersede_step() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta("ROUTE supersede target_step_id=\"step-001\" title=\"Rework auth\" summary=\"Replace the auth step.\" instruction_seed=\"Redo authentication.\" expected_files=[\"src/auth.ts\"] acceptance_criteria=[\"Users can sign in.\"] verification_type=\"command\" verification_command=\"pnpm test\" dependencies=[] parallel_group=null reason=\"replace step\"".into()),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    insert_step(&state, plan_id, "step-001", &[]);
+
+    let decision =
+        workspace_plan_route_chat_impl(&state, project_id, "1단계 갈아끼워줘".into(), None)
+            .await
+            .unwrap();
+
+    match decision {
+        RouteDecision::SupersedeStep {
+            target,
+            replacement,
+            reason,
+        } => {
+            assert_eq!(target.step_id, "step-001");
+            assert_eq!(reason, "replace step");
+            assert_eq!(replacement.title, "Rework auth");
+        }
+        other => panic!("expected supersede_step decision, got {other:?}"),
+    }
+    assert_eq!(
+        workspace_plan_list_steps_impl(&state, plan_id)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn route_chat_parses_clarify() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta("ROUTE clarify question=\"Which page needs the nav?\" candidate_intent=\"add nav\" suggested_criterion_ids=[\"ac-1\"] reason=\"ambiguous target\"".into()),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    insert_step(&state, plan_id, "step-001", &[]);
+
+    let decision = workspace_plan_route_chat_impl(&state, project_id, "네비 추가해줘".into(), None)
+        .await
+        .unwrap();
+
+    match decision {
+        RouteDecision::Clarify {
+            question,
+            candidate_intent,
+            suggested_criterion_ids,
+            ..
+        } => {
+            assert_eq!(question, "Which page needs the nav?");
+            assert_eq!(candidate_intent, "add nav");
+            assert_eq!(suggested_criterion_ids, vec!["ac-1".to_string()]);
+        }
+        other => panic!("expected clarify decision, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn route_chat_fails_open_when_router_provider_returns_api_error() {
     let tmp = tempfile::tempdir().unwrap();
     let state = mk_state_with_provider(&tmp, Arc::new(FailingRouteProvider));

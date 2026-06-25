@@ -225,6 +225,16 @@ pub struct AppendStepOptions {
     pub prd_delta: Option<ProjectSpecDelta>,
 }
 
+/// S-033: a stable reference to an existing plan step, resolved at the IPC
+/// layer so the frontend can render/confirm a remove or supersede proposal.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StepRefPayload {
+    pub step_id: String,
+    pub db_id: i64,
+    pub title: String,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum RouteDecision {
@@ -236,6 +246,25 @@ pub enum RouteDecision {
         reason: String,
     },
     Skip {
+        reason: String,
+    },
+    /// S-033: ask one criterion-linked question before drafting. Non-mutating;
+    /// the answer feeds a subsequent draft.
+    Clarify {
+        question: String,
+        candidate_intent: String,
+        suggested_criterion_ids: Vec<String>,
+        reason: String,
+    },
+    /// S-033: a reviewable proposal to retire an existing active step.
+    RemoveStep {
+        target: StepRefPayload,
+        reason: String,
+    },
+    /// S-033: a reviewable proposal to replace an existing active step.
+    SupersedeStep {
+        target: StepRefPayload,
+        replacement: Box<StepDraftInput>,
         reason: String,
     },
 }
@@ -2919,7 +2948,72 @@ async fn workspace_plan_route_chat_inner(
                 reason,
             })
         }
+        PlanRouterDecision::Clarify {
+            question,
+            candidate_intent,
+            suggested_criterion_ids,
+            reason,
+        } => Ok(RouteDecision::Clarify {
+            question,
+            candidate_intent,
+            suggested_criterion_ids,
+            reason,
+        }),
+        PlanRouterDecision::Remove {
+            target_step_id,
+            reason,
+        } => {
+            let db = state.db.lock().map_err(|e| e.to_string())?;
+            match resolve_active_step_ref(db.conn(), plan_id, &target_step_id)? {
+                Some(target) => Ok(RouteDecision::RemoveStep { target, reason }),
+                None => Ok(RouteDecision::Skip {
+                    reason: format!("router referenced unknown active step {target_step_id}"),
+                }),
+            }
+        }
+        PlanRouterDecision::Supersede {
+            target_step_id,
+            replacement,
+            reason,
+        } => {
+            let db = state.db.lock().map_err(|e| e.to_string())?;
+            let Some(target) = resolve_active_step_ref(db.conn(), plan_id, &target_step_id)? else {
+                return Ok(RouteDecision::Skip {
+                    reason: format!("router referenced unknown active step {target_step_id}"),
+                });
+            };
+            let replacement = step_draft_input_from_router(db.conn(), plan_id, *replacement)?;
+            Ok(RouteDecision::SupersedeStep {
+                target,
+                replacement: Box::new(replacement),
+                reason,
+            })
+        }
     }
+}
+
+/// S-033: resolve a router-emitted `target_step_id` to a stable step reference,
+/// but only when it names an existing **active** step in the plan. Returns
+/// `None` for unknown or already-removed/superseded steps so the router can
+/// never fabricate a mutation against a non-existent target.
+fn resolve_active_step_ref(
+    conn: &rusqlite::Connection,
+    plan_id: i64,
+    step_id: &str,
+) -> Result<Option<StepRefPayload>, String> {
+    let Some(row) =
+        step_dao::get_by_plan_and_step_id(conn, plan_id, step_id).map_err(|e| e.to_string())?
+    else {
+        return Ok(None);
+    };
+    if row.status != "active" {
+        return Ok(None);
+    }
+    Ok(Some(StepRefPayload {
+        step_id: row.step_id,
+        db_id: row.id,
+        title: row.title,
+    }))
 }
 
 fn register_route_cancel(
