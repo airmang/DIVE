@@ -16,6 +16,7 @@ import {
   agencyToneClass,
   deriveAgencyStateView,
   type AgencyStateItem,
+  type RoadmapLinkedCriterion,
   type RoadmapStep,
   type RoadmapStepStatus,
 } from "../../features/roadmap";
@@ -128,6 +129,41 @@ interface RetryLoopFailureSnapshot {
 
 function uniqueStrings(items: string[]): string[] {
   return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
+}
+
+/**
+ * Minimum length for a manual observation to count as substantive evidence
+ * (S-029). A bare keystroke or empty string is not an observation.
+ */
+const MIN_OBSERVATION_LENGTH = 8;
+
+function isSubstantiveObservation(text: string | null | undefined): boolean {
+  return typeof text === "string" && text.trim().length >= MIN_OBSERVATION_LENGTH;
+}
+
+/**
+ * Split a single acceptance-criteria string into the distinct criteria it
+ * enumerates (S-029): a multi-AC goal stored as one summary string (e.g.
+ * "AC-1 …\nAC-2 …\nAC-3 …") must still gate on EACH criterion, not collapse to
+ * one. Falls back to a single criterion for plain one-line text. Used only when
+ * the step has no structured `linkedCriteria`.
+ */
+function splitAcceptanceCriteria(text: string): string[] {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return [];
+  let parts = trimmed
+    .split(/\r?\n|[;•]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length <= 1) {
+    const markerParts = trimmed
+      .split(/(?=\bAC[\s-]?\d+\b)/i)
+      .map((part) => part.replace(/^[,\s]+/, "").trim())
+      .filter(Boolean);
+    if (markerParts.length > 1) parts = markerParts;
+  }
+  const unique = [...new Set(parts)];
+  return unique.length > 0 ? unique : [trimmed];
 }
 
 function metadataStringArray(value: unknown): string[] {
@@ -291,8 +327,8 @@ export function StepDetailSlideIn({
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   const [diffViewedStepIds, setDiffViewedStepIds] = useState<Set<number>>(() => new Set());
   const [criterionEvidenceRef, setCriterionEvidenceRef] = useState<CriterionEvidenceRef>(null);
-  const [manualObservationByStep, setManualObservationByStep] = useState<
-    Map<number, ObservationEvidenceRecord>
+  const [manualObservationsByStep, setManualObservationsByStep] = useState<
+    Map<number, ObservationEvidenceRecord[]>
   >(() => new Map());
   const [previewOpenedStepIds, setPreviewOpenedStepIds] = useState<Set<number>>(() => new Set());
   const [appOpenedStepIds, setAppOpenedStepIds] = useState<Set<number>>(() => new Set());
@@ -377,14 +413,18 @@ export function StepDetailSlideIn({
   const diffViewed = step ? diffViewedStepIds.has(step.id) : false;
   const previewOpened = step ? previewOpenedStepIds.has(step.id) : false;
   const appOpened = step ? appOpenedStepIds.has(step.id) : false;
-  const criterionConfirmed = criterionEvidenceRef !== null;
-  const manualObservation = step ? (manualObservationByStep.get(step.id) ?? null) : null;
-  const manualObservationConfirmed = Boolean(
-    manualObservation &&
-    manualObservation.criterionIds.length > 0 &&
-    manualObservation.observationText.trim().length > 0,
+  const stepObservations = useMemo(
+    () => (step ? (manualObservationsByStep.get(step.id) ?? []) : []),
+    [manualObservationsByStep, step],
   );
-  const acceptanceCriterionConfirmed = criterionConfirmed || manualObservationConfirmed;
+  const recordedObservations = useMemo(
+    () => stepObservations.filter((obs) => isSubstantiveObservation(obs.observationText)),
+    [stepObservations],
+  );
+  const latestObservation =
+    stepObservations.length > 0 ? stepObservations[stepObservations.length - 1] : null;
+  // Kept for the coach "saved" indicator and the supervisor priorObservations.
+  const manualObservation = latestObservation;
   const previewObserved = criterionEvidenceRef === "preview";
   const appLaunched = criterionEvidenceRef === "app";
   const executedTestCommand = hasExecutedTestCommand({
@@ -429,6 +469,56 @@ export function StepDetailSlideIn({
     planContext?.verificationKind,
     step?.testCommand,
   ]);
+  // S-029 (009 theme 2): the decision gate clears only when EVERY gating
+  // acceptance criterion carries an action-backed observation. A criterion is
+  // covered when a substantive observation references it AND the corresponding
+  // open/click/test action actually happened (or no concrete check is feasible).
+  // This closes two loopholes: free text alone, and one observation clearing all
+  // linked criteria collectively (specs 002/003 FR-030~033: click != evidence).
+  const gatingCriteria = useMemo<RoadmapLinkedCriterion[]>(() => {
+    const linked = (step?.linkedCriteria ?? []).filter(
+      (criterion) => criterion.criterionId.trim().length > 0 && criterion.text.trim().length > 0,
+    );
+    if (linked.length > 0) return linked;
+    if (step && criterionText.trim().length > 0) {
+      return splitAcceptanceCriteria(criterionText).map((text, index) => ({
+        criterionId: `step-${step.id}-criterion-${index + 1}`,
+        text,
+      }));
+    }
+    return [];
+  }, [criterionText, step]);
+  const concreteVerificationFeasible =
+    verificationFeasibility.runnable ||
+    verificationFeasibility.previewable ||
+    verificationFeasibility.hasTests;
+  const observationActionBacked =
+    !concreteVerificationFeasible ||
+    (verificationFeasibility.previewable && previewOpened) ||
+    (verificationFeasibility.runnable && appOpened) ||
+    (verificationFeasibility.hasTests && executedTestCommand);
+  const observedCriterionIds = useMemo(() => {
+    const covered = new Set<string>();
+    if (observationActionBacked) {
+      for (const observation of recordedObservations) {
+        for (const criterionId of observation.criterionIds) covered.add(criterionId);
+      }
+    }
+    // The focal preview/app confirm (CriterionConfirmPanel) already requires the
+    // user to have opened the preview/app, so it counts for the focal criterion.
+    if (criterionEvidenceRef !== null && gatingCriteria.length > 0) {
+      covered.add(gatingCriteria[0].criterionId);
+    }
+    return covered;
+  }, [criterionEvidenceRef, gatingCriteria, observationActionBacked, recordedObservations]);
+  const gatingCriterionIds = useMemo(
+    () => gatingCriteria.map((criterion) => criterion.criterionId),
+    [gatingCriteria],
+  );
+  const observedCriterionIdList = useMemo(() => [...observedCriterionIds], [observedCriterionIds]);
+  const acceptanceCriterionConfirmed =
+    gatingCriteria.length > 0 &&
+    gatingCriteria.every((criterion) => observedCriterionIds.has(criterion.criterionId));
   const provocationContext: ProvocationContext | null =
     step && provocation?.enabled
       ? {
@@ -473,8 +563,8 @@ export function StepDetailSlideIn({
             testCommand: verifyLog?.test_command ?? null,
             testExitCode: verifyLog?.test_exit_code ?? null,
             acceptanceCriterionConfirmed,
-            manualChecks: manualObservation ? [manualObservation.observationText] : [],
-            observationIds: manualObservation ? [manualObservation.observationId] : [],
+            manualChecks: recordedObservations.map((observation) => observation.observationText),
+            observationIds: recordedObservations.map((observation) => observation.observationId),
             externalTestRun,
             failedButAccepted: step.approvalProvenance?.verificationState === "failed_but_accepted",
             approvedWithRisk: Boolean(step.approvalProvenance?.riskAccepted),
@@ -667,12 +757,10 @@ export function StepDetailSlideIn({
         title: step.title || `Step ${step.position}`,
         summary: step.description,
         instruction: step.assistSummary,
-        acceptanceCriteria: [
-          {
-            criterionId: `step-${step.id}-criterion-1`,
-            text: criterionText,
-          },
-        ].filter((criterion) => criterion.text.trim().length > 0),
+        acceptanceCriteria: gatingCriteria.map((criterion) => ({
+          criterionId: criterion.criterionId,
+          text: criterion.text,
+        })),
       },
       evidence: {
         changedFiles: actualChangedFiles,
@@ -684,17 +772,17 @@ export function StepDetailSlideIn({
         previewAvailable: verificationFeasibility.previewable,
         appRunAvailable: verificationFeasibility.runnable,
         diffAvailable: verificationFeasibility.diffAvailable,
-        priorObservations: manualObservation ? [manualObservation] : [],
+        priorObservations: stepObservations,
       },
     };
   }, [
     actualChangedFiles,
-    criterionText,
+    gatingCriteria,
+    stepObservations,
     isReview,
     planContext?.verificationCommand,
     planContext?.verificationKind,
     planContext?.verificationManualCheck,
-    manualObservation,
     provocation?.mode,
     provocation?.projectId,
     provocation?.sessionId,
@@ -907,7 +995,7 @@ export function StepDetailSlideIn({
       id: "observe",
       marker: "2",
       title: t("roadmap.step_detail.stepper_stage_observe_title"),
-      summary: manualObservationConfirmed
+      summary: acceptanceCriterionConfirmed
         ? t("roadmap.step_detail.stepper_stage_observe_summary_done")
         : t("roadmap.step_detail.stepper_stage_observe_summary_pending"),
       content: (
@@ -915,10 +1003,20 @@ export function StepDetailSlideIn({
           <VerificationCoachPanel
             request={verificationCoachRequest}
             observation={manualObservation}
+            observationActionBacked={observationActionBacked}
             onObservationRecorded={(record) => {
-              setManualObservationByStep((current) => {
+              setManualObservationsByStep((current) => {
                 const next = new Map(current);
-                next.set(record.cardId, record);
+                const existing = next.get(record.cardId) ?? [];
+                // Replace any prior observation that covered the same criterion,
+                // then append — so each criterion keeps its latest observation.
+                const retained = existing.filter(
+                  (observation) =>
+                    !observation.criterionIds.some((criterionId) =>
+                      record.criterionIds.includes(criterionId),
+                    ),
+                );
+                next.set(record.cardId, [...retained, record]);
                 return next;
               });
             }}
@@ -972,18 +1070,29 @@ export function StepDetailSlideIn({
             rollbackAvailable={rollbackAvailable}
             acceptanceCriterionConfirmed={acceptanceCriterionConfirmed}
             verificationFeasibility={verificationFeasibility}
+            gatingCriterionIds={gatingCriterionIds}
+            observedCriterionIds={observedCriterionIdList}
             verifyRunning={verifyState === "running"}
             onApprove={() =>
               onApprovalDecision({
                 outcome: "approved",
                 note: null,
-                observationEvidence: manualObservation
-                  ? {
-                      observationIds: [manualObservation.observationId],
-                      manualChecks: [manualObservation.observationText],
-                      criterionIds: manualObservation.criterionIds,
-                    }
-                  : null,
+                observationEvidence:
+                  recordedObservations.length > 0
+                    ? {
+                        observationIds: recordedObservations.map(
+                          (observation) => observation.observationId,
+                        ),
+                        manualChecks: recordedObservations.map(
+                          (observation) => observation.observationText,
+                        ),
+                        criterionIds: [
+                          ...new Set(
+                            recordedObservations.flatMap((observation) => observation.criterionIds),
+                          ),
+                        ],
+                      }
+                    : null,
               })
             }
             onAcceptRisk={(reason) =>

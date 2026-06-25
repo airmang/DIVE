@@ -692,6 +692,8 @@
       "coach_record_observation": "관찰 증거로 기록",
       "coach_observation_saved": "완료 기준에 연결된 관찰 증거가 기록되었습니다.",
       "coach_observation_needs_criterion": "완료 기준과 관찰 내용을 함께 남겨야 승인 증거가 됩니다.",
+      "coach_observation_needs_action": "먼저 프리뷰를 열거나 앱·검사를 직접 실행하세요 — 타이핑만으로는 증거가 아닙니다.",
+      "coach_criterion_select": "이 관찰이 확인하는 수용 기준",
       "coach_check_expected": "확인할 결과",
       "coach_prompt_title": "관찰 기록에 포함할 것",
       "coach_kind": {
@@ -766,6 +768,7 @@
       "decision_details_aria": "승인 판단 근거 펼치기",
       "decision_reason_title": "이유가 필요한 상태",
       "decision_reason_unverified": "검증 증거 없음 — 실행·테스트·완료 기준 확인이 아직 없습니다",
+      "decision_reason_criteria_unobserved": "모든 수용 기준에 대한 관찰 확인이 아직 끝나지 않았습니다",
       "decision_reason_ai_self_report_only": "AI 자가보고만 있음",
       "decision_reason_failed_test": "테스트 실패 이후 승인",
       "decision_reason_high_risk_files": "예상 밖 고위험 파일 변경",

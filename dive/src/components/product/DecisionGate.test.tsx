@@ -144,6 +144,84 @@ describe("DecisionGate policy", () => {
     expect(policy.canApproveDirectly).toBe(true);
   });
 
+  it("surfaces N of M criteria as a blocking reason when not all are observed", () => {
+    const policy = deriveDecisionGatePolicy({
+      verificationStatuses: [manualPreviewChecked],
+      gatingCriterionIds: ["c1", "c2", "c3"],
+      observedCriterionIds: ["c1"],
+      acceptanceCriterionConfirmed: false,
+      rollbackAvailable: true,
+    });
+
+    expect(policy.canApproveDirectly).toBe(false);
+    expect(policy.reasons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "criteria_unobserved", evidence: "1/3" }),
+      ]),
+    );
+    // The specific per-criterion reason replaces the generic "unverified" one.
+    expect(policy.reasons).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "unverified" })]),
+    );
+  });
+
+  it("clears the criteria-unobserved reason once every gating criterion is observed", () => {
+    const policy = deriveDecisionGatePolicy({
+      verificationStatuses: [manualObservation],
+      gatingCriterionIds: ["c1", "c2"],
+      observedCriterionIds: ["c1", "c2"],
+      acceptanceCriterionConfirmed: true,
+      rollbackAvailable: false,
+    });
+
+    expect(policy.canApproveDirectly).toBe(true);
+    expect(policy.reasons).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "criteria_unobserved" })]),
+    );
+  });
+
+  it("does not let a manual_observation status bypass incomplete per-criterion coverage", () => {
+    const policy = deriveDecisionGatePolicy({
+      verificationStatuses: [manualObservation],
+      gatingCriterionIds: ["c1", "c2"],
+      observedCriterionIds: ["c1"],
+      acceptanceCriterionConfirmed: false,
+      rollbackAvailable: true,
+    });
+
+    expect(policy.hasVerifiedEvidence).toBe(false);
+    expect(policy.canApproveDirectly).toBe(false);
+    expect(policy.reasons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "criteria_unobserved", evidence: "1/2" }),
+      ]),
+    );
+  });
+
+  it("still clears via an executed automated test even when criteria are unobserved", () => {
+    const policy = deriveDecisionGatePolicy({
+      verificationStatuses: [automatedEvidence],
+      verifyLog: {
+        intent_match: true,
+        test_result: "pass",
+        details: "ok",
+        model: "mock",
+        ran_at: 1,
+        test_command: "npm test",
+        test_exit_code: 0,
+      },
+      gatingCriterionIds: ["c1", "c2"],
+      observedCriterionIds: [],
+      rollbackAvailable: false,
+    });
+
+    expect(policy.hasVerifiedEvidence).toBe(true);
+    expect(policy.canApproveDirectly).toBe(true);
+    expect(policy.reasons).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "criteria_unobserved" })]),
+    );
+  });
+
   it("does not keep the AI self-report-only reason after criterion-linked preview evidence", () => {
     const policy = deriveDecisionGatePolicy({
       verificationStatuses: [aiSelfReportOnly, manualPreviewChecked],

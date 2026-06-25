@@ -18,8 +18,20 @@ import type {
 interface VerificationCoachPanelProps {
   request: VerificationCoachGenerateRequest | null;
   observation: ObservationEvidenceRecord | null;
+  /**
+   * True when an actual open/click/test action backs this observation
+   * (S-029). When false, a typed observation is not yet evidence and recording
+   * is held back so typing alone cannot satisfy the decision gate.
+   */
+  observationActionBacked: boolean;
   onObservationRecorded: (record: ObservationEvidenceRecord) => void;
 }
+
+/**
+ * Minimum length for an observation to count as substantive (mirrors the
+ * decision-gate guard in StepDetailSlideIn; kept local to avoid a UI↔UI cycle).
+ */
+const MIN_OBSERVATION_LENGTH = 8;
 
 const OBSERVATION_KINDS: ObservationEvidenceKind[] = [
   "manual_observation",
@@ -57,6 +69,7 @@ function automaticGenerationKey(request: VerificationCoachGenerateRequest | null
 export function VerificationCoachPanel({
   request,
   observation,
+  observationActionBacked,
   onObservationRecorded,
 }: VerificationCoachPanelProps) {
   const t = useT();
@@ -65,6 +78,7 @@ export function VerificationCoachPanel({
   const [nonce, setNonce] = useState(0);
   const [observationText, setObservationText] = useState("");
   const [evidenceKind, setEvidenceKind] = useState<ObservationEvidenceKind>("manual_observation");
+  const [selectedCriterionId, setSelectedCriterionId] = useState("");
   const [recording, setRecording] = useState(false);
   const requestRef = useRef<VerificationCoachGenerateRequest | null>(null);
   requestRef.current = request;
@@ -115,10 +129,29 @@ export function VerificationCoachPanel({
   const unavailableMessage = unavailableReason
     ? t(COACH_UNAVAILABLE_REASON_KEYS[unavailableReason] ?? "roadmap.step_detail.coach_unavailable")
     : (response?.message ?? t("roadmap.step_detail.coach_unavailable"));
-  const criterionIds = request.step.acceptanceCriteria
-    .map((criterion) => criterion.criterionId.trim())
-    .filter(Boolean);
-  const canRecord = criterionIds.length > 0 && observationText.trim().length > 0 && !recording;
+  const criteria = request.step.acceptanceCriteria.filter(
+    (criterion) => criterion.criterionId.trim().length > 0,
+  );
+  // Each observation binds to ONE criterion (S-029): one observation must not
+  // clear every linked criterion collectively. Default to the first criterion.
+  const activeCriterionId =
+    selectedCriterionId && criteria.some((c) => c.criterionId === selectedCriterionId)
+      ? selectedCriterionId
+      : (criteria[0]?.criterionId ?? "");
+  const recordCriterionIds = activeCriterionId ? [activeCriterionId] : [];
+  const observationSubstantive = observationText.trim().length >= MIN_OBSERVATION_LENGTH;
+  const canRecord =
+    recordCriterionIds.length > 0 &&
+    observationSubstantive &&
+    observationActionBacked &&
+    !recording;
+  const savedForCriterion =
+    (observation?.criterionIds.includes(activeCriterionId) ?? false) ||
+    request.evidence.priorObservations.some(
+      (prior) =>
+        prior.criterionIds.includes(activeCriterionId) &&
+        prior.observationText.trim().length >= MIN_OBSERVATION_LENGTH,
+    );
 
   const handleRecordObservation = () => {
     if (!canRecord) return;
@@ -129,7 +162,7 @@ export function VerificationCoachPanel({
       planStepId: request.planStepId,
       guideVersion: response?.guideVersion ?? request.guideVersion ?? null,
       evidenceKind,
-      criterionIds,
+      criterionIds: recordCriterionIds,
       observationText: observationText.trim(),
     })
       .then((record) => {
@@ -176,6 +209,28 @@ export function VerificationCoachPanel({
         className="mt-3 rounded-sm border border-border/80 bg-bg/70 px-2 py-2 text-xs"
         data-testid="verification-observation-form"
       >
+        {criteria.length > 1 ? (
+          <label className="mb-2 block font-medium text-fg">
+            {t("roadmap.step_detail.coach_criterion_select")}
+            <select
+              className="mt-1 w-full rounded-md border bg-bg px-2 py-1.5 text-xs"
+              value={activeCriterionId}
+              onChange={(event) => {
+                setSelectedCriterionId(event.target.value);
+                // Force a fresh observation per criterion — identical text must
+                // not silently back a second criterion (S-029).
+                setObservationText("");
+              }}
+              data-testid="verification-observation-criterion"
+            >
+              {criteria.map((criterion) => (
+                <option key={criterion.criterionId} value={criterion.criterionId}>
+                  {criterion.text}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <label className="block font-medium text-fg">
           {t("roadmap.step_detail.coach_observation_label")}
           <textarea
@@ -211,12 +266,19 @@ export function VerificationCoachPanel({
           >
             {t("roadmap.step_detail.coach_record_observation")}
           </Button>
-          {observation ? (
+          {savedForCriterion ? (
             <span
               className="text-[11px] font-medium text-success"
               data-testid="verification-observation-saved"
             >
               {t("roadmap.step_detail.coach_observation_saved")}
+            </span>
+          ) : !observationActionBacked ? (
+            <span
+              className="text-[11px] text-warn"
+              data-testid="verification-observation-needs-action"
+            >
+              {t("roadmap.step_detail.coach_observation_needs_action")}
             </span>
           ) : (
             <span className="text-[11px] text-fg-muted">
