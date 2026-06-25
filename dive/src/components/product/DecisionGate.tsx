@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { useT } from "../../i18n";
+import { VERIFICATION_STATUS_LABEL_KEY } from "../../features/provocation";
 import {
   deriveDecisionGatePolicy,
   type DecisionGatePolicyInput,
@@ -77,7 +78,7 @@ export function DecisionGate({
   const riskReasonOk = riskReason.trim().length > 0;
   const evidenceLabels = verificationStatuses
     .filter((item) => item.evidenceBacked)
-    .map((item) => item.label);
+    .map((item) => t(VERIFICATION_STATUS_LABEL_KEY[item.id]));
   const summary = policy.hasVerifiedEvidence
     ? t("roadmap.step_detail.decision_summary_verified")
     : policy.canDeferVerification

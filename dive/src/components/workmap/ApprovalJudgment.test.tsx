@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApprovalJudgment } from "./ApprovalJudgment";
+import { useLocaleStore } from "../../i18n";
 
 describe("ApprovalJudgment", () => {
+  beforeEach(() => useLocaleStore.setState({ locale: "ko" }));
   afterEach(() => cleanup());
 
   it("labels the concern note textarea and submits the typed reason", () => {

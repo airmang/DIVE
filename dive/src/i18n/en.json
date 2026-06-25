@@ -408,6 +408,8 @@
   },
   "chat": {
     "empty_no_project_title": "Choose a project folder",
+    "reasoning_card_title": "AI intent",
+    "session_default_title": "New session {{date}}",
     "empty_no_project_description": "Pick the local folder where DIVE will plan, create a roadmap, and run step-by-step coding work.",
     "empty_no_session_title": "Start a work session",
     "empty_no_session_description": "After your AI connection is ready, describe a goal so DIVE can draft a plan and roadmap.",
@@ -554,6 +556,73 @@
       "label": "Done",
       "summary": "Step complete"
     }
+  },
+  "plan_add_step": {
+    "route_link_criterion": "Select the PRD criterion to link. If there is none, edit the PRD first.",
+    "route_split_scope": "Split the title and reason into smaller steps, then save.",
+    "route_edit_prd": "PRD edits are reviewed and applied in the dedicated PRD area.",
+    "route_dismiss_review": "Review card dismissed. You can still save.",
+    "replan_review_title": "Re-decomposition suggestion",
+    "scope_review_unavailable": "Scope review unavailable: there is no active session, so the SupervisorAgent evaluation can't run. You can still save."
+  },
+  "provocation_action": {
+    "seed_add_criteria": "Make the acceptance criteria concrete with 2–3 items — include what the user should see to know it's done.",
+    "seed_add_verification": "Make this step's verification method concrete — pick one of run, preview, or test.",
+    "seed_split_scope": "Reduce the current request to just the first single feature and rewrite it.",
+    "seed_ask_rationale": "Explain how this change connects to the goal.",
+    "seed_create_repro": "From the repeated error, lay out the reproduction steps, the smallest check command, and what to inspect in the last change.",
+    "seed_retry": "First check the recovery point, reproduction steps, and scope reduction, then fix it again while avoiding the same failure.",
+    "status_add_criteria": "Prepared a request to strengthen the acceptance criteria.",
+    "status_link_criterion": "Moved to where the PRD criteria are linked.",
+    "status_edit_prd": "PRD edits are handled in the dedicated plan area.",
+    "status_add_verification": "Prepared a request to add a verification step.",
+    "status_split_scope": "Prepared a scope-reduction request.",
+    "status_diff_unavailable": "There is no diff available to open.",
+    "status_preview_unavailable": "There is no preview to open.",
+    "status_app_unavailable": "There is no app target to run.",
+    "status_tests_unavailable": "There are no tests to run.",
+    "status_tests_started": "Started the test-check flow.",
+    "status_ask_rationale": "Prepared a request for the AI's rationale.",
+    "status_create_repro": "Prepared a request to lay out reproduction steps.",
+    "status_retry": "Prepared a recovery-first retry request.",
+    "status_continue_risk_blocked": "Approval decisions happen in the verification-approval area.",
+    "more_to_review": "{{count}} more to review"
+  },
+  "approval_judgment": {
+    "prompt_default": "Did you verify the result yourself?",
+    "confirmed": "Confirmed",
+    "concern": "Has concern",
+    "approve": "Approve",
+    "concern_reason_label": "Concern reason (one line)",
+    "concern_reason_placeholder": "What's the concern? (one line)",
+    "approve_anyway": "Approve anyway",
+    "request_revision": "Request revision"
+  },
+  "agency_status": {
+    "intent_needed": "Goal & criteria needed",
+    "plan_review_needed": "Plan review needed",
+    "approval_required": "Approval needed",
+    "running": "Running",
+    "diff_review_needed": "Diff review needed",
+    "verification_needed": "Verification needed",
+    "verified_with_evidence": "Verified with evidence",
+    "ai_self_report_only": "AI self-report only",
+    "verification_failed": "Verification failed",
+    "verification_deferred": "Verification deferred",
+    "rollback_available": "Rollback available",
+    "approved_with_risk": "Approved with risk"
+  },
+  "verification_status": {
+    "ai_self_report_only": "AI self-report only",
+    "diff_reviewed": "Diff reviewed",
+    "app_launched": "App run verified",
+    "preview_checked": "Preview checked",
+    "manual_observation": "Observed directly",
+    "automated_tests_passed": "Automated tests passed",
+    "external_test_not_run": "No external test",
+    "failed_but_accepted": "Failed but accepted",
+    "approved_with_risk": "Approved with risk",
+    "verification_deferred": "Verification deferred"
   },
   "roadmap": {
     "title": "Roadmap",
@@ -920,6 +989,14 @@
       "request_plan_changes": "Request plan changes",
       "request_step_changes": "Request this step",
       "request_changes_placeholder": "Describe what should change in this draft...",
+      "revision_add_criteria": "Please add acceptance criteria to the plan — e.g. write 2–3 observable things the user should see when it's done.",
+      "revision_add_verification": "A verification step is needed. Add to the plan how you'll check it — run, preview, or test.",
+      "revision_split_scope": "Please split the scope smaller. Rewrite the plan so only the first single feature is up for approval.",
+      "revision_continue_risk": "To proceed knowing the remaining risk, leave a short note in the request-changes box on why it's okay to continue as-is.",
+      "critique_question": "Is this plan missing any steps?",
+      "critique_none": "None — ready to approve",
+      "critique_found": "Yes — request changes",
+      "critique_found_hint": "Write the missing steps in the \"Request changes\" box on the right to request a revision.",
       "show_raw_draft": "Show raw draft",
       "hide_raw_draft": "Hide raw draft",
       "show_step_details": "Show details",
@@ -1236,7 +1313,14 @@
       "auto_connect": "Check result",
       "iframe_title": "Preview",
       "empty_title": "Choose a local URL to view the result.",
-      "empty_description": "If a web project server is running, you can check it directly from one of the default addresses below."
+      "empty_description": "If a web project server is running, you can check it directly from one of the default addresses below.",
+      "reason": {
+        "missing_project": "Select a web project that has a package.json.",
+        "missing_target": "No preview target was provided.",
+        "missing_static_file": "That file was not found in the project.",
+        "local_url_unreachable": "The local preview URL did not respond.",
+        "dev_server_unavailable": "The dev server is not running, so the preview could not load."
+      }
     },
     "terminal": {
       "project_command": "Project Command",

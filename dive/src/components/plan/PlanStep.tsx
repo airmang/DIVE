@@ -165,7 +165,7 @@ export const PlanStep = forwardRef<HTMLDivElement, PlanStepProps>(function PlanS
               data-testid="plan-step-agency-state"
               data-agency-state={item.agency.primary.id}
             >
-              {item.agency.primary.label}
+              {t(item.agency.primary.labelKey)}
             </span>
           ) : null}
           <span className="flex-1" />

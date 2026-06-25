@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "../../lib/utils";
+import { useT } from "../../i18n";
 import { logProvocationEvent } from "./logging";
 import {
   selectPrimaryProvocationCard,
@@ -29,6 +30,7 @@ export function ProvocationCardHost({
   className,
   onAction,
 }: ProvocationCardHostProps) {
+  const t = useT();
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
   const shownRef = useRef<Set<string>>(new Set());
   const visibleCards = useMemo(
@@ -102,7 +104,7 @@ export function ProvocationCardHost({
       />
       {visibleCards.length > 1 ? (
         <p className="text-[11px] text-fg-muted" data-testid="provocation-secondary-count">
-          추가 확인 필요 {visibleCards.length - 1}개
+          {t("provocation_action.more_to_review", { count: visibleCards.length - 1 })}
         </p>
       ) : null}
     </div>

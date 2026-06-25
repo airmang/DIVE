@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { deriveAgencyStateView } from "./agencyStatus";
+import { AGENCY_STATE_META, deriveAgencyStateView } from "./agencyStatus";
+import { SUPPORTED_LOCALES, translate } from "../../i18n";
 import type { ApprovalProvenance } from "../provocation";
 
 function provenance(overrides: Partial<ApprovalProvenance> = {}): ApprovalProvenance {
@@ -158,5 +159,18 @@ describe("deriveAgencyStateView", () => {
     });
 
     expect(view.items.map((item) => item.id)).toContain("diff_review_needed");
+  });
+});
+
+describe("agency status i18n labels (S-026)", () => {
+  it("resolves every agency labelKey to a non-empty string in all locales (no raw-key leak)", () => {
+    for (const meta of Object.values(AGENCY_STATE_META)) {
+      for (const locale of SUPPORTED_LOCALES) {
+        const resolved = translate(locale, meta.labelKey);
+        // translate() returns the raw key on a catalog miss — guard against that.
+        expect(resolved, `${meta.labelKey} @ ${locale}`).not.toBe(meta.labelKey);
+        expect(resolved.trim().length, `${meta.labelKey} @ ${locale}`).toBeGreaterThan(0);
+      }
+    }
   });
 });

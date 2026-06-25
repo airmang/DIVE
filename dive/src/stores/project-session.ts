@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { hasRecognizedDemoRoute } from "../lib/dev-demo";
 import { refreshMenuRecents } from "../lib/menu-events";
+import { translate, useLocaleStore } from "../i18n";
 
 export interface ProjectRow {
   id: number;
@@ -118,7 +119,8 @@ function nowMs() {
 function defaultSessionTitle() {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `새 세션 ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return translate(useLocaleStore.getState().locale, "chat.session_default_title", { date });
 }
 
 function preferredSessionId(sessions: SessionRow[], storedSessionId: number): number | null {

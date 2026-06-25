@@ -61,11 +61,12 @@ type ScopeSupervisorState =
 type ScopeActionRoute = "link_criterion" | "split_scope" | "edit_prd" | "dismiss_review";
 const SCOPE_SUPERVISOR_DEBOUNCE_MS = 650;
 
+// i18n keys; resolved with t() at the render site.
 const SCOPE_ACTION_ROUTE_COPY: Record<ScopeActionRoute, string> = {
-  link_criterion: "연결할 PRD 기준을 선택하세요. 기준이 없다면 PRD를 먼저 수정하세요.",
-  split_scope: "제목과 이유를 더 작은 단계로 나눈 뒤 저장하세요.",
-  edit_prd: "PRD 수정은 전용 PRD 영역에서 검토 후 반영하세요.",
-  dismiss_review: "검토 카드를 닫았습니다. 저장은 계속 가능합니다.",
+  link_criterion: "plan_add_step.route_link_criterion",
+  split_scope: "plan_add_step.route_split_scope",
+  edit_prd: "plan_add_step.route_edit_prd",
+  dismiss_review: "plan_add_step.route_dismiss_review",
 };
 
 function compactUnique(values: string[]): string[] {
@@ -704,7 +705,7 @@ export function PlanAddStepPanel({
         >
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="font-semibold text-info">재분해 제안 검토</p>
+              <p className="font-semibold text-info">{t("plan_add_step.replan_review_title")}</p>
               <p className="mt-1 text-fg-muted">
                 {planAdjustmentSuggestion.suggestedSeed || planAdjustmentSuggestion.message}
               </p>
@@ -716,7 +717,7 @@ export function PlanAddStepPanel({
               onClick={() => setPlanAdjustmentSuggestion(null)}
               data-testid="plan-adjustment-review-dismiss"
             >
-              닫기
+              {t("common.close")}
             </Button>
           </div>
         </div>
@@ -827,8 +828,7 @@ export function PlanAddStepPanel({
           data-testid="plan-add-step-scope-review-unavailable"
           data-reason={scopeReviewUnavailableReason}
         >
-          범위 검토 사용 불가: 활성 세션이 없어 SupervisorAgent 평가를 실행할 수 없습니다. 저장은
-          계속 가능합니다.
+          {t("plan_add_step.scope_review_unavailable")}
         </div>
       ) : null}
 
@@ -838,7 +838,7 @@ export function PlanAddStepPanel({
           data-testid="plan-add-step-action-route"
           data-route={actionRoute}
         >
-          {SCOPE_ACTION_ROUTE_COPY[actionRoute]}
+          {t(SCOPE_ACTION_ROUTE_COPY[actionRoute])}
         </div>
       ) : null}
 

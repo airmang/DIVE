@@ -51,6 +51,28 @@ function isLoopbackUrl(raw: string): boolean {
   }
 }
 
+const KNOWN_PREVIEW_REASONS = new Set([
+  "missing_project",
+  "missing_target",
+  "missing_static_file",
+  "local_url_unreachable",
+  "dev_server_unavailable",
+]);
+
+/**
+ * Localized message for a known backend preview reason code (so the UI shows a
+ * translated sentence instead of a raw code / Korean backend string). Returns
+ * null for unknown codes so callers fall back to the raw message — no regression.
+ */
+function previewReasonText(
+  reasonCode: string | null | undefined,
+  t: (key: string) => string,
+): string | null {
+  return reasonCode && KNOWN_PREVIEW_REASONS.has(reasonCode)
+    ? t(`slide_in.preview.reason.${reasonCode}`)
+    : null;
+}
+
 export function PreviewTab() {
   const t = useT();
   const previewUrl = useSlideInStore((s) => s.previewUrl);
@@ -87,7 +109,7 @@ export function PreviewTab() {
       setStatus(`${result.message} (${result.targetLabel})`);
       setError(null);
     } else {
-      setError(result.message);
+      setError(previewReasonText(result.reasonCode, t) ?? result.message);
       setStatus(null);
     }
     if (result.commandSummary) {
@@ -257,7 +279,9 @@ export function PreviewTab() {
               <p className="text-sm font-semibold text-fg">{t("slide_in.preview.empty_title")}</p>
               <p className="mt-2 text-sm text-fg-muted">
                 {previewSession?.status === "unavailable" || previewSession?.status === "failed"
-                  ? previewSession.errorReason || t(`slide_in.preview.${previewSession.status}`)
+                  ? previewReasonText(previewSession.errorReason, t) ||
+                    previewSession.errorReason ||
+                    t(`slide_in.preview.${previewSession.status}`)
                   : t("slide_in.preview.empty_description")}
               </p>
               <div className="mt-4 flex flex-wrap justify-center gap-2">

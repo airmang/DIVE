@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import type { ProvocationAction, ProvocationCard, SupervisorFeasibility } from "./types";
+import { useT } from "../../i18n";
 
 type Seed = (text: string) => void;
 
@@ -49,6 +50,7 @@ export function useProvocationActionResolver({
   onStatus,
   feasibility,
 }: ProvocationActionResolverOptions) {
+  const t = useT();
   const feasible = feasibility ?? {
     runnable: true,
     previewable: true,
@@ -60,69 +62,55 @@ export function useProvocationActionResolver({
       switch (action.kind) {
         case "add_acceptance_criteria":
           if (onAddAcceptanceCriteria) onAddAcceptanceCriteria();
-          else
-            seedAndGo(
-              pushComposerSeed,
-              onGoToChat,
-              "완료 기준을 2~3개로 구체화해줘. 사용자가 무엇을 보면 끝났다고 판단할 수 있는지 포함해줘.",
-            );
-          onStatus?.("완료 기준 보강 요청을 준비했습니다.");
+          else seedAndGo(pushComposerSeed, onGoToChat, t("provocation_action.seed_add_criteria"));
+          onStatus?.(t("provocation_action.status_add_criteria"));
           return;
         case "link_criterion":
           if (onAddAcceptanceCriteria) onAddAcceptanceCriteria();
-          onStatus?.("PRD 기준 연결 위치로 이동했습니다.");
+          onStatus?.(t("provocation_action.status_link_criterion"));
           return;
         case "edit_prd":
-          onStatus?.("PRD 수정은 전용 계획 영역에서 확인합니다.");
+          onStatus?.(t("provocation_action.status_edit_prd"));
           return;
         case "add_verification_step":
           if (onAddVerificationStep) onAddVerificationStep();
           else
-            seedAndGo(
-              pushComposerSeed,
-              onGoToChat,
-              "이 단계의 검증 방법을 실행/프리뷰/테스트 중 하나로 구체화해줘.",
-            );
-          onStatus?.("검증 단계 보강 요청을 준비했습니다.");
+            seedAndGo(pushComposerSeed, onGoToChat, t("provocation_action.seed_add_verification"));
+          onStatus?.(t("provocation_action.status_add_verification"));
           return;
         case "split_scope":
           if (onSplitScope) onSplitScope();
-          else
-            seedAndGo(
-              pushComposerSeed,
-              onGoToChat,
-              "현재 요청을 첫 번째 기능 하나로 줄여서 다시 요청할 문장을 만들어줘.",
-            );
-          onStatus?.("범위 축소 요청을 준비했습니다.");
+          else seedAndGo(pushComposerSeed, onGoToChat, t("provocation_action.seed_split_scope"));
+          onStatus?.(t("provocation_action.status_split_scope"));
           return;
         case "open_diff":
           if (!feasible.diffAvailable) {
-            onStatus?.("변경 diff를 열 수 있는 상태가 아닙니다.");
+            onStatus?.(t("provocation_action.status_diff_unavailable"));
             return;
           }
           onOpenDiff?.();
           return;
         case "open_preview":
           if (!feasible.previewable || !onOpenPreview) {
-            onStatus?.("열 수 있는 미리보기가 없습니다.");
+            onStatus?.(t("provocation_action.status_preview_unavailable"));
             return;
           }
           onOpenPreview?.();
           return;
         case "run_app":
           if (!feasible.runnable || !onRunApp) {
-            onStatus?.("실행할 수 있는 앱 대상이 없습니다.");
+            onStatus?.(t("provocation_action.status_app_unavailable"));
             return;
           }
           onRunApp();
           return;
         case "run_tests":
           if (!feasible.hasTests || !onRunTests) {
-            onStatus?.("실행할 테스트가 없습니다.");
+            onStatus?.(t("provocation_action.status_tests_unavailable"));
             return;
           }
           if (onRunTests) onRunTests();
-          onStatus?.("테스트 확인 흐름을 시작했습니다.");
+          onStatus?.(t("provocation_action.status_tests_started"));
           return;
         case "rollback_last_change":
         case "revert_unrelated_changes":
@@ -130,37 +118,22 @@ export function useProvocationActionResolver({
           return;
         case "ask_ai_for_rationale":
           if (onAskAiForRationale) onAskAiForRationale();
-          else
-            seedAndGo(
-              pushComposerSeed,
-              onGoToChat,
-              "이 변경이 목표와 어떻게 연결되는지 근거를 설명해줘.",
-            );
-          onStatus?.("AI 근거 요청을 준비했습니다.");
+          else seedAndGo(pushComposerSeed, onGoToChat, t("provocation_action.seed_ask_rationale"));
+          onStatus?.(t("provocation_action.status_ask_rationale"));
           return;
         case "create_repro_steps":
           if (onCreateReproSteps) onCreateReproSteps();
-          else
-            seedAndGo(
-              pushComposerSeed,
-              onGoToChat,
-              "반복되는 오류를 기준으로 재현 단계, 가장 작은 확인 명령, 마지막 변경에서 볼 부분을 정리해줘.",
-            );
-          onStatus?.("재현 단계 정리 요청을 준비했습니다.");
+          else seedAndGo(pushComposerSeed, onGoToChat, t("provocation_action.seed_create_repro"));
+          onStatus?.(t("provocation_action.status_create_repro"));
           return;
         case "retry_with_ai":
           if (onRetryWithAi) onRetryWithAi();
-          else
-            seedAndGo(
-              pushComposerSeed,
-              onGoToChat,
-              "복구 지점, 재현 단계, 범위 축소 여부를 먼저 확인한 뒤 같은 실패를 피해서 다시 고쳐줘.",
-            );
-          onStatus?.("recovery-first 재시도 요청을 준비했습니다.");
+          else seedAndGo(pushComposerSeed, onGoToChat, t("provocation_action.seed_retry"));
+          onStatus?.(t("provocation_action.status_retry"));
           return;
         case "continue_with_risk":
           if (isSupervisorBackedCard(card)) {
-            onStatus?.("승인 판단은 검증 승인 영역에서 진행합니다.");
+            onStatus?.(t("provocation_action.status_continue_risk_blocked"));
             return;
           }
           onContinueWithRisk?.(reason, card);
@@ -172,6 +145,7 @@ export function useProvocationActionResolver({
       }
     },
     [
+      t,
       onAddAcceptanceCriteria,
       onAddVerificationStep,
       onAskAiForRationale,
