@@ -1306,6 +1306,37 @@ fn default_scope_evidence_label(id: &str) -> &'static str {
     }
 }
 
+/// Localize a provocation-card evidence chip label at card-build time.
+///
+/// Matches on the exact known Korean *chrome* strings produced by the
+/// EvidenceRef constructors and `default_scope_evidence_label`, mapping each to
+/// English. Anything else — caller-provided PRD criterion text, filenames, the
+/// already-English `test_result` label — passes through unchanged, so this can
+/// never overwrite real data with a generic label.
+fn localized_evidence_label(fallback: &str, locale_english: bool) -> String {
+    if !locale_english {
+        return fallback.to_string();
+    }
+    let english = match fallback {
+        "AI 완료 주장" => "AI completion claim",
+        "Diff 확인" => "Diff reviewed",
+        "프리뷰 확인" => "Preview observed",
+        "앱 실행 확인" => "App launch verified",
+        "수동 확인" => "Manual check",
+        "범위 확장 평가" => "Scope expansion assessment",
+        "연결된 PRD 기준" => "Linked PRD criteria",
+        "예상 파일" => "Expected files",
+        "추가 단계 제목" => "Added step title",
+        "추가 단계 이유" => "Added step reason",
+        "PRD 기준" => "PRD criteria",
+        "PRD 범위 변경" => "PRD scope changes",
+        "PRD 범위" => "PRD scope",
+        "범위 확장 근거" => "Scope expansion evidence",
+        _ => return fallback.to_string(),
+    };
+    english.to_string()
+}
+
 fn bounded_scope_label(value: &str) -> String {
     let trimmed = value.trim();
     let mut label = trimmed.chars().take(80).collect::<String>();
@@ -2254,6 +2285,7 @@ pub fn map_decision_to_card_at(
     created_at: &str,
 ) -> ProvocationCard {
     let evidence_by_id = context.evidence_by_id();
+    let evidence_locale_english = locale_is_english(&context.locale);
     let evidence = decision
         .evidence_ref_ids
         .iter()
@@ -2261,7 +2293,7 @@ pub fn map_decision_to_card_at(
         .take(CARD_EVIDENCE_CAP)
         .map(|evidence| ProvocationEvidence {
             ref_id: evidence.id.clone(),
-            label: evidence.label.clone(),
+            label: localized_evidence_label(&evidence.label, evidence_locale_english),
             source: evidence.source,
             kind: evidence.kind,
             verification_evidence: evidence.verification_evidence,
@@ -3059,6 +3091,39 @@ mod tests {
         assert_eq!(
             result.card.as_ref().map(|card| card.title.as_str()),
             Some("확인 필요 카드")
+        );
+    }
+
+    #[test]
+    fn localized_evidence_label_maps_known_chrome_and_passes_data_through() {
+        // Korean locale leaves every label untouched.
+        assert_eq!(
+            localized_evidence_label("AI 완료 주장", false),
+            "AI 완료 주장"
+        );
+        // English locale maps the known chrome strings (fixed + default-scope).
+        assert_eq!(
+            localized_evidence_label("AI 완료 주장", true),
+            "AI completion claim"
+        );
+        assert_eq!(
+            localized_evidence_label("앱 실행 확인", true),
+            "App launch verified"
+        );
+        assert_eq!(localized_evidence_label("PRD 기준", true), "PRD criteria");
+        assert_eq!(
+            localized_evidence_label("범위 확장 근거", true),
+            "Scope expansion evidence"
+        );
+        // Caller-provided data (criterion text, filenames) must pass through even
+        // in English so we never overwrite real evidence with a generic label.
+        assert_eq!(
+            localized_evidence_label("User sees Saved on the button", true),
+            "User sees Saved on the button"
+        );
+        assert_eq!(
+            localized_evidence_label("src/Button.tsx", true),
+            "src/Button.tsx"
         );
     }
 
