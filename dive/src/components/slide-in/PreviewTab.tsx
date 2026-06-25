@@ -1,11 +1,31 @@
 import { useEffect, useState } from "react";
-import { FileCode, LoaderCircle, Play } from "lucide-react";
+import { FileCode, LoaderCircle, Monitor, Play, RotateCcw, Smartphone, Tablet } from "lucide-react";
 import { useSlideInStore } from "../../stores/slideIn";
 import { Button } from "../ui/button";
 import { useT } from "../../i18n";
 
 const PREVIEW_CANDIDATES = ["http://127.0.0.1:5173", "http://localhost:5173"];
 const STATIC_PREVIEW_CANDIDATES = ["index.html"];
+
+/**
+ * Responsive preview widths (S-031): selecting a preset constrains the iframe
+ * render width so responsive breakpoints become observable in-app. `desktop`
+ * uses the full panel width.
+ */
+type PreviewViewport = "mobile" | "tablet" | "desktop";
+const VIEWPORT_WIDTH: Record<PreviewViewport, number | null> = {
+  mobile: 375,
+  tablet: 768,
+  desktop: null,
+};
+const PREVIEW_VIEWPORTS: PreviewViewport[] = ["mobile", "tablet", "desktop"];
+
+function viewportIcon(viewport: PreviewViewport) {
+  const cls = "h-3.5 w-3.5";
+  if (viewport === "mobile") return <Smartphone className={cls} aria-hidden />;
+  if (viewport === "tablet") return <Tablet className={cls} aria-hidden />;
+  return <Monitor className={cls} aria-hidden />;
+}
 
 type TauriApi = {
   invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
@@ -85,6 +105,10 @@ export function PreviewTab() {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [viewport, setViewport] = useState<PreviewViewport>("desktop");
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const [staticPath, setStaticPath] = useState("");
+  const viewportWidth = VIEWPORT_WIDTH[viewport];
 
   useEffect(() => {
     setInput(previewUrl ?? "");
@@ -245,6 +269,47 @@ export function PreviewTab() {
           {t("slide_in.preview.auto_connect")}
         </Button>
       </header>
+      {previewUrl ? (
+        <div
+          className="flex flex-wrap items-center gap-2 border-b bg-bg-panel2 px-2 py-1.5 text-xs"
+          data-testid="preview-toolbar"
+        >
+          <span className="text-fg-muted">{t("slide_in.preview.viewport_label")}</span>
+          <div
+            className="flex gap-1"
+            role="group"
+            aria-label={t("slide_in.preview.viewport_label")}
+          >
+            {PREVIEW_VIEWPORTS.map((vp) => (
+              <Button
+                key={vp}
+                size="sm"
+                variant={viewport === vp ? "primary" : "outline"}
+                onClick={() => setViewport(vp)}
+                aria-pressed={viewport === vp}
+                data-testid={`preview-viewport-${vp}`}
+              >
+                {viewportIcon(vp)}
+                {t(`slide_in.preview.viewport_${vp}`)}
+              </Button>
+            ))}
+          </div>
+          <span className="font-mono text-fg-muted" data-testid="preview-viewport-readout">
+            {viewportWidth ? `${viewportWidth}px` : t("slide_in.preview.viewport_full")}
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto"
+            onClick={() => setReloadNonce((current) => current + 1)}
+            aria-label={t("slide_in.preview.reload_aria")}
+            data-testid="preview-reload"
+          >
+            <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+            {t("slide_in.preview.reload")}
+          </Button>
+        </div>
+      ) : null}
       {error ? (
         <p
           className="border-b border-danger/40 bg-danger/10 px-3 py-1 text-xs text-danger"
@@ -261,15 +326,23 @@ export function PreviewTab() {
           {status}
         </p>
       ) : null}
-      <div className="flex-1 overflow-hidden bg-bg-panel2">
+      <div className="flex-1 overflow-auto bg-bg-panel2">
         {previewUrl ? (
-          <iframe
-            src={previewUrl}
-            title={t("slide_in.preview.iframe_title")}
-            sandbox="allow-scripts allow-same-origin"
-            className="h-full w-full border-0 bg-bg"
-            data-testid="preview-iframe"
-          />
+          <div
+            className="mx-auto h-full"
+            style={viewportWidth ? { width: viewportWidth } : undefined}
+            data-testid="preview-viewport-frame"
+            data-viewport={viewport}
+          >
+            <iframe
+              key={`${previewUrl}:${reloadNonce}`}
+              src={previewUrl}
+              title={t("slide_in.preview.iframe_title")}
+              sandbox="allow-scripts allow-same-origin allow-modals allow-forms"
+              className="h-full w-full border-0 bg-bg"
+              data-testid="preview-iframe"
+            />
+          </div>
         ) : (
           <div
             className="flex h-full items-center justify-center p-6 text-center"
@@ -309,6 +382,33 @@ export function PreviewTab() {
                   </Button>
                 ))}
               </div>
+              <form
+                className="mt-3 flex items-center gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const trimmed = staticPath.trim();
+                  if (trimmed) void loadStaticCandidate(trimmed);
+                }}
+              >
+                <input
+                  type="text"
+                  value={staticPath}
+                  onChange={(e) => setStaticPath(e.target.value)}
+                  placeholder={t("slide_in.preview.static_path_placeholder")}
+                  aria-label={t("slide_in.preview.static_path_aria")}
+                  data-testid="preview-static-path-input"
+                  className="flex-1 rounded-md border bg-bg px-3 py-1.5 text-xs text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  variant="outline"
+                  disabled={staticPath.trim().length === 0}
+                  data-testid="preview-static-path-open"
+                >
+                  {t("slide_in.preview.static_path_open")}
+                </Button>
+              </form>
             </div>
           </div>
         )}

@@ -28,9 +28,12 @@ export function SlideInPanel() {
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        close();
-      }
+      if (e.key !== "Escape") return;
+      // Don't steal Escape from the preview iframe — the user may be testing
+      // close-on-Esc inside the previewed page (S-031). Only close the panel
+      // when focus is outside the preview content.
+      if (document.activeElement instanceof HTMLIFrameElement) return;
+      close();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);

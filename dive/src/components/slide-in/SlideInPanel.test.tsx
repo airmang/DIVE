@@ -60,6 +60,22 @@ describe("SlideInPanel i18n", () => {
 
     expect(screen.getByText("No checkpoints yet.")).toBeTruthy();
   });
+
+  it("keeps Escape from closing the panel while the preview iframe is focused (S-031)", () => {
+    useSlideInStore.setState({ previewUrl: "http://127.0.0.1:5173/" });
+    render(<SlideInPanel />);
+    const iframe = screen.getByTestId("preview-iframe");
+
+    // Focus inside the preview content — Escape must not steal close-on-Esc.
+    iframe.focus();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(useSlideInStore.getState().isOpen).toBe(true);
+
+    // Focus outside the preview — Escape closes the panel as usual.
+    iframe.blur();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(useSlideInStore.getState().isOpen).toBe(false);
+  });
 });
 
 describe("CheckpointTimeline accessibility", () => {
