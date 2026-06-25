@@ -1,12 +1,14 @@
 import { memo } from "react";
 import { BrainCircuit } from "lucide-react";
 import type { ReasoningMessageData } from "./types";
+import { useT } from "../../i18n";
 
 interface Props {
   message: ReasoningMessageData;
 }
 
 function ReasoningCardImpl({ message }: Props) {
+  const t = useT();
   return (
     <article
       className="max-w-[80%] self-start rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-fg"
@@ -17,7 +19,7 @@ function ReasoningCardImpl({ message }: Props) {
     >
       <div className="mb-1 flex items-center gap-1.5 font-semibold text-accent">
         <BrainCircuit className="size-3.5" />
-        <span>AI 의도</span>
+        <span>{t("chat.reasoning_card_title")}</span>
       </div>
       <p className="whitespace-pre-wrap break-words text-fg-muted">{message.text}</p>
     </article>

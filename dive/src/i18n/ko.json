@@ -408,6 +408,8 @@
   },
   "chat": {
     "empty_no_project_title": "프로젝트 폴더를 선택하세요",
+    "reasoning_card_title": "AI 의도",
+    "session_default_title": "새 세션 {{date}}",
     "empty_no_project_description": "DIVE가 계획을 세우고 로드맵을 만들며 단계별 코딩을 실행할 로컬 폴더를 선택하세요.",
     "empty_no_session_title": "작업 세션을 시작하세요",
     "empty_no_session_description": "AI 연결이 준비되면 목표를 설명하고 계획과 로드맵을 만들 수 있습니다.",
@@ -554,6 +556,16 @@
       "label": "완료",
       "summary": "단계 완료"
     }
+  },
+  "approval_judgment": {
+    "prompt_default": "결과를 직접 확인했나요?",
+    "confirmed": "확인함",
+    "concern": "우려 있음",
+    "approve": "승인",
+    "concern_reason_label": "우려 사유 (한 줄)",
+    "concern_reason_placeholder": "무엇이 우려되나요? (한 줄)",
+    "approve_anyway": "그래도 승인",
+    "request_revision": "수정 요청"
   },
   "agency_status": {
     "intent_needed": "의도/완료 기준 필요",

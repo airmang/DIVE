@@ -408,6 +408,8 @@
   },
   "chat": {
     "empty_no_project_title": "Choose a project folder",
+    "reasoning_card_title": "AI intent",
+    "session_default_title": "New session {{date}}",
     "empty_no_project_description": "Pick the local folder where DIVE will plan, create a roadmap, and run step-by-step coding work.",
     "empty_no_session_title": "Start a work session",
     "empty_no_session_description": "After your AI connection is ready, describe a goal so DIVE can draft a plan and roadmap.",
@@ -554,6 +556,16 @@
       "label": "Done",
       "summary": "Step complete"
     }
+  },
+  "approval_judgment": {
+    "prompt_default": "Did you verify the result yourself?",
+    "confirmed": "Confirmed",
+    "concern": "Has concern",
+    "approve": "Approve",
+    "concern_reason_label": "Concern reason (one line)",
+    "concern_reason_placeholder": "What's the concern? (one line)",
+    "approve_anyway": "Approve anyway",
+    "request_revision": "Request revision"
   },
   "agency_status": {
     "intent_needed": "Goal & criteria needed",
