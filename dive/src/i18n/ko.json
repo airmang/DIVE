@@ -1074,6 +1074,8 @@
     "rollback_unavailable_body": "체크포인트가 없어 지금은 마지막 변경을 되돌릴 수 없습니다.",
     "last_change": "마지막 변경",
     "checkpoint_title": "{{kind}} 체크포인트 {{id}}",
+    "checkpoint_count": "복원 지점 {{count}}개",
+    "checkpoint_count_showing_latest": "최근 {{count}}개를 표시합니다.",
     "file_details_unavailable": "파일 세부 정보 없음",
     "changed_files_more": "{{files}} 외 {{count}}개",
     "no_checkpoints": "아직 체크포인트가 없습니다. 위험한 작업 전에는 복구 지점을 저장하세요.",
@@ -1081,6 +1083,7 @@
     "unavailable": "지금은 복구 기능을 사용할 수 없습니다:",
     "restore_confirm_title": "이 체크포인트로 되돌릴까요?",
     "restore_confirm_body": "DIVE가 백엔드에 {{checkpoint}} 복원을 요청합니다. 체크포인트 시스템은 먼저 복원 전 백업을 만들지만, 프로젝트 파일은 변경됩니다.",
+    "restore_files_only_note": "복원은 프로젝트 파일만 되돌립니다. 채팅·플랜·로드맵은 지금 상태 그대로 유지되어, 되돌려진 파일과 더 이상 일치하지 않을 수 있습니다.",
     "restoring": "복원 중...",
     "restore_checkpoint": "체크포인트 복원",
     "save_point": "복구 지점 저장",
@@ -1362,6 +1365,7 @@
       "kind_auto": "자동",
       "kind_init": "초기",
       "kind_manual": "수동",
+      "kind_pre_restore": "복원 직전",
       "kind_other": "{{kind}}",
       "restore": "복원"
     }

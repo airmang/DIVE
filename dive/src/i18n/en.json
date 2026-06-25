@@ -1074,6 +1074,8 @@
     "rollback_unavailable_body": "There is no checkpoint, so DIVE cannot undo the last change right now.",
     "last_change": "Last change",
     "checkpoint_title": "{{kind}} checkpoint {{id}}",
+    "checkpoint_count": "{{count}} restore points",
+    "checkpoint_count_showing_latest": "Showing the latest {{count}}.",
     "file_details_unavailable": "File details unavailable",
     "changed_files_more": "{{files}} and {{count}} more",
     "no_checkpoints": "No checkpoints found yet. Save a recovery point before risky work.",
@@ -1081,6 +1083,7 @@
     "unavailable": "Recovery is unavailable right now:",
     "restore_confirm_title": "Restore this checkpoint?",
     "restore_confirm_body": "DIVE will ask the backend to restore {{checkpoint}}. The checkpoint system creates a pre-restore backup first, but files in your project will change.",
+    "restore_files_only_note": "Restore reverts project files only. Your chat, plan, and roadmap stay as they are now and may no longer match the reverted files.",
     "restoring": "Restoring...",
     "restore_checkpoint": "Restore checkpoint",
     "save_point": "Save recovery point",
@@ -1362,6 +1365,7 @@
       "kind_auto": "automatic",
       "kind_init": "initial",
       "kind_manual": "manual",
+      "kind_pre_restore": "pre-restore",
       "kind_other": "{{kind}}",
       "restore": "Restore"
     }

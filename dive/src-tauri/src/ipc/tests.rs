@@ -1494,40 +1494,42 @@ fn card_transitions_create_dive_stage_auto_checkpoints() {
         .init()
         .unwrap();
 
+    // S-032: auto-checkpoint labels are now the locale-neutral card title (the
+    // Korean transition prefixes were removed to avoid English-locale leakage).
     let cases = [
         (
             "enter.txt",
             CardState::Decomposed,
             CardTransition::EnterInstruct,
-            "[I 진입] enter",
+            "enter",
             None,
         ),
         (
             "request.txt",
             CardState::Instructed,
             CardTransition::RequestVerify,
-            "[V 요청] request",
+            "request",
             None,
         ),
         (
             "reject.txt",
             CardState::Verifying,
             CardTransition::Reject,
-            "[V 거부] reject",
+            "reject",
             None,
         ),
         (
             "approve.txt",
             CardState::Verifying,
             CardTransition::Approve,
-            "[V 통과] approve",
+            "approve",
             Some(true),
         ),
         (
             "extend.txt",
             CardState::Verified,
             CardTransition::Extend,
-            "[E 진입] extend",
+            "extend",
             None,
         ),
     ];

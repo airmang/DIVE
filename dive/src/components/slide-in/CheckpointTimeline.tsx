@@ -74,6 +74,8 @@ function checkpointKindLabel(kind: string, t: T): string {
       return t("slide_in.checkpoint.kind_auto");
     case "manual":
       return t("slide_in.checkpoint.kind_manual");
+    case "auto-pre-restore":
+      return t("slide_in.checkpoint.kind_pre_restore");
     default:
       return t("slide_in.checkpoint.kind_other", { kind });
   }
@@ -87,6 +89,8 @@ function checkpointKindGlyph(kind: string): string {
       return "A";
     case "manual":
       return "M";
+    case "auto-pre-restore":
+      return "R";
     default:
       return "C";
   }
@@ -209,7 +213,7 @@ export function CheckpointTimeline({
                 role="tooltip"
               >
                 <div className="font-medium text-fg">
-                  {item.label ?? `[${item.kind}] ${item.git_sha.slice(0, 7)}`}
+                  {item.label ?? `${kindLabel} · ${item.git_sha.slice(0, 7)}`}
                 </div>
                 <div className="text-fg-muted">
                   {formatTime(item.created_at)} · {kindLabel}
