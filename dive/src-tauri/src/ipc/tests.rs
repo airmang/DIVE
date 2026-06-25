@@ -545,7 +545,10 @@ async fn verification_coach_provider_not_configured_logs_requested_and_evaluated
 
 #[tokio::test]
 async fn verification_coach_missing_credentials_returns_specific_reason() {
-    let state = AppState::dev_mock();
+    // Use a host-independent in-memory keyring so credential resolution is
+    // deterministic on CI (a headless OS keyring errors instead of reporting
+    // "no secret", which would mask MissingCredentials as RuntimeUnavailable).
+    let state = AppState::dev_mock().with_keyring(Arc::new(crate::auth::InMemoryKeyring::new()));
     state
         .swap_runtime(ProviderRuntime::new(
             Some(99),
@@ -575,7 +578,10 @@ async fn verification_coach_missing_credentials_returns_specific_reason() {
 
 #[tokio::test]
 async fn verification_coach_stale_provider_row_without_secret_returns_missing_credentials() {
-    let state = AppState::dev_mock();
+    // Host-independent keyring: on a headless CI runner the OS keyring errors
+    // rather than returning "no secret", which previously surfaced as
+    // RuntimeUnavailable instead of the expected MissingCredentials.
+    let state = AppState::dev_mock().with_keyring(Arc::new(crate::auth::InMemoryKeyring::new()));
     state.swap_runtime(ProviderRuntime::none()).unwrap();
     {
         let db = state.db.lock().unwrap();
