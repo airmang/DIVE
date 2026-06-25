@@ -37,6 +37,7 @@ import {
   type ProvocationContext,
   type ScaffoldMode,
   type SupervisorEvaluationRequest,
+  VERIFICATION_STATUS_LABEL_KEY,
   type VerificationStatusItem,
   useProvocationActionResolver,
 } from "../../features/provocation";
@@ -1256,6 +1257,7 @@ const VERIFY_STATUS_CLASS: Record<VerificationStatusItem["tone"], string> = {
 };
 
 function VerificationStatusChip({ item }: { item: VerificationStatusItem }) {
+  const t = useT();
   return (
     <span
       className={cn(
@@ -1266,7 +1268,7 @@ function VerificationStatusChip({ item }: { item: VerificationStatusItem }) {
       data-status-id={item.id}
       data-evidence-backed={item.evidenceBacked ? "true" : "false"}
     >
-      {item.label}
+      {t(VERIFICATION_STATUS_LABEL_KEY[item.id])}
     </span>
   );
 }

@@ -569,6 +569,18 @@
     "rollback_available": "되돌리기 가능",
     "approved_with_risk": "위험 감수 승인"
   },
+  "verification_status": {
+    "ai_self_report_only": "AI 자가보고만 있음",
+    "diff_reviewed": "Diff 확인됨",
+    "app_launched": "앱 실행 확인됨",
+    "preview_checked": "수동 프리뷰 확인됨",
+    "manual_observation": "직접 관찰 확인",
+    "automated_tests_passed": "자동 테스트 통과",
+    "external_test_not_run": "외부 테스트 없음",
+    "failed_but_accepted": "실패했지만 승인됨",
+    "approved_with_risk": "위험을 감수하고 승인됨",
+    "verification_deferred": "검증 유예됨"
+  },
   "roadmap": {
     "title": "로드맵",
     "refresh": "로드맵 새로고침",

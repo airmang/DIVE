@@ -5,6 +5,7 @@ import type {
   ProvocationVerification,
   VerificationEvidenceSummary,
   VerificationProvenanceItem,
+  VerificationStatusId,
   VerificationStatusItem,
 } from "./types";
 import {
@@ -13,6 +14,26 @@ import {
   hasConcreteVerification,
   hasExecutedTestCommand,
 } from "./verificationGrade";
+
+/**
+ * i18n keys for verification-status badges, resolved with `t()` at the render
+ * site (see verification_status.* in src/i18n/{en,ko}.json). The `label` field
+ * on VerificationStatusItem is legacy/persisted (kept for ApprovalProvenance
+ * back-compat) and is no longer rendered. The `Record<VerificationStatusId, …>`
+ * gives compile-time exhaustiveness when a new status id is added.
+ */
+export const VERIFICATION_STATUS_LABEL_KEY: Record<VerificationStatusId, string> = {
+  ai_self_report_only: "verification_status.ai_self_report_only",
+  diff_reviewed: "verification_status.diff_reviewed",
+  app_launched: "verification_status.app_launched",
+  preview_checked: "verification_status.preview_checked",
+  manual_observation: "verification_status.manual_observation",
+  automated_tests_passed: "verification_status.automated_tests_passed",
+  external_test_not_run: "verification_status.external_test_not_run",
+  failed_but_accepted: "verification_status.failed_but_accepted",
+  approved_with_risk: "verification_status.approved_with_risk",
+  verification_deferred: "verification_status.verification_deferred",
+};
 
 function hasManualChecks(verification: ProvocationVerification | undefined): boolean {
   return Boolean(verification?.manualChecks?.some((item) => item.trim().length > 0));

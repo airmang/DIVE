@@ -569,6 +569,18 @@
     "rollback_available": "Rollback available",
     "approved_with_risk": "Approved with risk"
   },
+  "verification_status": {
+    "ai_self_report_only": "AI self-report only",
+    "diff_reviewed": "Diff reviewed",
+    "app_launched": "App run verified",
+    "preview_checked": "Preview checked",
+    "manual_observation": "Observed directly",
+    "automated_tests_passed": "Automated tests passed",
+    "external_test_not_run": "No external test",
+    "failed_but_accepted": "Failed but accepted",
+    "approved_with_risk": "Approved with risk",
+    "verification_deferred": "Verification deferred"
+  },
   "roadmap": {
     "title": "Roadmap",
     "refresh": "Refresh roadmap",
