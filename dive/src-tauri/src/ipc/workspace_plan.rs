@@ -214,6 +214,18 @@ pub struct StepDraftInput {
     pub step_id: String,
 }
 
+/// S-033: one step in a multi-step fan-out. `depends_on_draft` holds indices of
+/// sibling drafts (within the same batch) this step depends on; the batch IPC
+/// inserts in dependency order and rewrites these to the siblings' assigned
+/// stable step_ids before insert.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MultiStepDraftInput {
+    pub draft: StepDraftInput,
+    #[serde(default)]
+    pub depends_on_draft: Vec<usize>,
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppendStepOptions {
@@ -597,6 +609,27 @@ pub async fn workspace_plan_supersede_step(
         plan_id,
         target_step_db_id,
         replacement,
+        AppendStepOptions {
+            mutation_reason,
+            linked_criterion_ids: linked_criterion_ids.unwrap_or_default(),
+            prd_delta,
+        },
+    )
+}
+
+#[tauri::command]
+pub async fn workspace_plan_append_steps(
+    state: State<'_, AppState>,
+    plan_id: i64,
+    drafts: Vec<MultiStepDraftInput>,
+    mutation_reason: Option<String>,
+    linked_criterion_ids: Option<Vec<String>>,
+    prd_delta: Option<ProjectSpecDelta>,
+) -> Result<Vec<StepRow>, String> {
+    workspace_plan_append_steps_impl(
+        &state,
+        plan_id,
+        drafts,
         AppendStepOptions {
             mutation_reason,
             linked_criterion_ids: linked_criterion_ids.unwrap_or_default(),
@@ -3459,6 +3492,121 @@ pub fn workspace_plan_supersede_step_impl(
     workspace_plan_service::artifacts::export_plan_artifacts(conn, plan_id, &project_root)
         .map_err(|e| e.to_string())?;
     Ok(new_row)
+}
+
+/// S-033: fan a genuinely multi-part ask into a dependency-ordered batch of
+/// steps. Validates the whole batch up front (envelope, in-range/acyclic
+/// sibling edges), inserts in topological order rewriting each draft's
+/// `depends_on_draft` to the assigned sibling step_ids, and detects duplicates
+/// (including intra-batch) as each step becomes visible — all in one
+/// transaction so a partial fan-out can never leak.
+pub fn workspace_plan_append_steps_impl(
+    state: &AppState,
+    plan_id: i64,
+    drafts: Vec<MultiStepDraftInput>,
+    options: AppendStepOptions,
+) -> Result<Vec<StepRow>, String> {
+    if drafts.is_empty() {
+        return Err("no steps to append".into());
+    }
+    for (i, item) in drafts.iter().enumerate() {
+        for &dep in &item.depends_on_draft {
+            if dep >= drafts.len() {
+                return Err(format!("dependsOnDraft index {dep} is out of range"));
+            }
+            if dep == i {
+                return Err("a draft cannot depend on itself".into());
+            }
+        }
+    }
+    let order = topo_sort_drafts(&drafts)?;
+    let batch_reason = options
+        .mutation_reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    let mut db = state.db.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn_mut();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let plan = plan_dao::get_by_id(&tx, plan_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("plan {plan_id} not found"))?;
+    if plan.status != "approved" {
+        return Err("plan must be approved before appending steps".into());
+    }
+    let existing_count = step_dao::list_active_by_plan(&tx, plan_id)
+        .map_err(|e| e.to_string())?
+        .len();
+    if existing_count + drafts.len() > MAX_PLAN_STEPS {
+        return Err(format!(
+            "plan exceeds DIVE execution envelope: at most {MAX_PLAN_STEPS} steps are allowed"
+        ));
+    }
+
+    let mut assigned: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
+    let mut rows = Vec::with_capacity(drafts.len());
+    for &idx in &order {
+        let mut draft = drafts[idx].draft.clone();
+        draft.linked_criterion_ids = compact_linked_criterion_ids(&draft.linked_criterion_ids);
+        for &dep in &drafts[idx].depends_on_draft {
+            let sibling = assigned.get(&dep).ok_or_else(|| {
+                "internal: sibling draft not inserted before dependent".to_string()
+            })?;
+            if !draft.dependencies.contains(sibling) {
+                draft.dependencies.push(sibling.clone());
+            }
+        }
+        validate_append_draft(&draft)?;
+        sanitize_step_verification(&mut draft);
+        validate_draft_dependencies(&tx, plan_id, &draft.dependencies)?;
+        if let Some(existing) = find_duplicate_step(&tx, plan_id, &draft)? {
+            return Err(format!(
+                "step already exists: {} ({})",
+                existing.step_id, existing.title
+            ));
+        }
+        let row = append_step_within_tx(&tx, &plan, &draft, batch_reason.as_deref(), None)?;
+        assigned.insert(idx, row.step_id.clone());
+        rows.push(row);
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    let project_root = state.project_root_required()?;
+    workspace_plan_service::artifacts::export_plan_artifacts(conn, plan_id, &project_root)
+        .map_err(|e| e.to_string())?;
+    Ok(rows)
+}
+
+/// S-033: Kahn topological sort over draft-local `depends_on_draft` edges.
+/// Returns the insert order, or an error when the batch contains a cycle. Ties
+/// break by original index so the order is deterministic.
+fn topo_sort_drafts(drafts: &[MultiStepDraftInput]) -> Result<Vec<usize>, String> {
+    let n = drafts.len();
+    let mut indegree = vec![0usize; n];
+    let mut dependents: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (i, item) in drafts.iter().enumerate() {
+        for &dep in &item.depends_on_draft {
+            dependents[dep].push(i);
+            indegree[i] += 1;
+        }
+    }
+    let mut queue: std::collections::VecDeque<usize> =
+        (0..n).filter(|&i| indegree[i] == 0).collect();
+    let mut order = Vec::with_capacity(n);
+    while let Some(node) = queue.pop_front() {
+        order.push(node);
+        for &next in &dependents[node] {
+            indegree[next] -= 1;
+            if indegree[next] == 0 {
+                queue.push_back(next);
+            }
+        }
+    }
+    if order.len() != n {
+        return Err("multi-step batch has a dependency cycle".into());
+    }
+    Ok(order)
 }
 
 /// S-033: reject retiring a step that an active step still depends on, so a

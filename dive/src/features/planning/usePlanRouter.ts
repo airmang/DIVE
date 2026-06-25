@@ -20,6 +20,14 @@ export interface StepRefPayload {
   title: string;
 }
 
+// S-033 multi-step fan-out: each draft may depend on sibling drafts (by index
+// in the batch); the backend inserts in dependency order and rewrites these to
+// the siblings' assigned stable step_ids.
+export interface MultiStepDraftInput {
+  draft: StepDraftInput;
+  dependsOnDraft: number[];
+}
+
 export type RouteDecision =
   | {
       action: "add_step";
@@ -150,9 +158,42 @@ export function usePlanRouter(projectId: number | null) {
     [api],
   );
 
+  const appendSteps = useCallback(
+    async (
+      planId: number,
+      drafts: MultiStepDraftInput[],
+      options: {
+        mutationReason?: string | null;
+        linkedCriterionIds?: string[];
+        prdDelta?: ProjectSpecDelta | null;
+      } = {},
+    ): Promise<PlanStepRow[]> => {
+      if (!api) throw new Error("Tauri IPC unavailable");
+      setAppendBusy(true);
+      setError(null);
+      try {
+        return await api.invoke<PlanStepRow[]>("workspace_plan_append_steps", {
+          planId,
+          drafts,
+          mutationReason: options.mutationReason ?? null,
+          linkedCriterionIds: options.linkedCriterionIds ?? [],
+          prdDelta: options.prdDelta ?? null,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+        throw err;
+      } finally {
+        setAppendBusy(false);
+      }
+    },
+    [api],
+  );
+
   return {
     route,
     appendStep,
+    appendSteps,
     cancelRoute,
     busy: routeBusy || appendBusy,
     routeBusy,
