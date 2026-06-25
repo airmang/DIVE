@@ -31,6 +31,7 @@ pub const PLAN_ADJUSTMENT_ACCEPTED_EVENT: &str = "plan_adjustment_accepted";
 pub const PLAN_ADJUSTMENT_DISMISSED_EVENT: &str = "plan_adjustment_dismissed";
 pub const PLAN_STEP_APPENDED_EVENT: &str = "plan_step_appended";
 pub const PLAN_STEP_CHANGED_EVENT: &str = "plan_step_changed";
+pub const PLAN_STEP_RETIRED_EVENT: &str = "plan_step_retired";
 pub const VERIFICATION_COACH_REQUESTED_EVENT: &str = "verification_coach.requested";
 pub const VERIFICATION_COACH_EVALUATED_EVENT: &str = "verification_coach.evaluated";
 pub const VERIFICATION_OBSERVATION_RECORDED_EVENT: &str = "verification_observation.recorded";
@@ -781,6 +782,7 @@ fn infer_evidence_summary(event_type: &str, payload: &Value) -> Option<Value> {
                 "planStepBlocked": event_type == "plan_step_open_failed",
                 "planStepAppended": event_type == "plan_step_appended",
                 "planStepChanged": event_type == PLAN_STEP_CHANGED_EVENT,
+                "planStepRetired": event_type == PLAN_STEP_RETIRED_EVENT,
                 "planStepRationaleChallenged": event_type == PLAN_STEP_RATIONALE_CHALLENGED_EVENT,
                 "planAdjustmentOffered": event_type == PLAN_ADJUSTMENT_OFFERED_EVENT,
                 "planAdjustmentAccepted": event_type == PLAN_ADJUSTMENT_ACCEPTED_EVENT,
@@ -1272,6 +1274,33 @@ pub fn plan_step_changed_payload(
         "stable_step_id": stable_step_id.into(),
         "changed_fields": changed_fields,
         "linked_criterion_ids": linked_criterion_ids,
+        "from_project_spec_version": from_project_spec_version,
+        "to_project_spec_version": to_project_spec_version,
+    }))
+}
+
+/// S-033: emitted when a plan step is retired (soft-removed). Mirrors
+/// [`plan_step_changed_payload`]; `criterion_ids_retired` records the criteria
+/// the retired step had linked so the export can reconstruct active/retired
+/// criterion coverage.
+#[allow(clippy::too_many_arguments)]
+pub fn plan_step_retired_payload(
+    mutation_id: impl Into<String>,
+    project_id: i64,
+    plan_id: i64,
+    step_id: i64,
+    stable_step_id: impl Into<String>,
+    criterion_ids_retired: Vec<String>,
+    from_project_spec_version: i64,
+    to_project_spec_version: i64,
+) -> Value {
+    redact_value(&json!({
+        "mutation_id": mutation_id.into(),
+        "project_id": project_id,
+        "plan_id": plan_id,
+        "step_id": step_id,
+        "stable_step_id": stable_step_id.into(),
+        "criterion_ids_retired": criterion_ids_retired,
         "from_project_spec_version": from_project_spec_version,
         "to_project_spec_version": to_project_spec_version,
     }))

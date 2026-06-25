@@ -169,6 +169,7 @@ pub fn run() {
             ipc::workspace_plan_route_chat,
             ipc::workspace_plan_route_cancel,
             ipc::workspace_plan_append_step,
+            ipc::workspace_plan_remove_step,
             ipc::workspace_plan_challenge_step_rationale,
             ipc::workspace_plan_respond_to_plan_adjustment_offer,
             ipc::roadmap_step_open,
