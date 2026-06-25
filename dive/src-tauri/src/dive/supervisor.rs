@@ -1530,21 +1530,39 @@ impl SupervisorActionId {
         }
     }
 
-    fn label(self) -> &'static str {
-        match self {
-            Self::OpenDiff => "변경 보기",
-            Self::OpenPreview => "미리보기 열기",
-            Self::RunTests => "테스트 실행",
-            Self::RunApp => "앱 실행",
-            Self::LinkCriterion => "기준 연결",
-            Self::SplitScope => "범위 나누기",
-            Self::EditPrd => "PRD 수정",
-            Self::AddVerificationStep => "검증 단계 추가",
-            Self::AskAiForRationale => "근거 묻기",
-            Self::RevertUnrelatedChanges => "관련 없는 변경 복구",
-            Self::CreateReproSteps => "재현 단계 만들기",
-            Self::RollbackLastChange => "마지막 변경 되돌리기",
-            Self::DismissReview => "닫기",
+    fn label(self, locale_english: bool) -> &'static str {
+        if locale_english {
+            match self {
+                Self::OpenDiff => "View changes",
+                Self::OpenPreview => "Open preview",
+                Self::RunTests => "Run tests",
+                Self::RunApp => "Run app",
+                Self::LinkCriterion => "Link criterion",
+                Self::SplitScope => "Split scope",
+                Self::EditPrd => "Edit PRD",
+                Self::AddVerificationStep => "Add verification step",
+                Self::AskAiForRationale => "Ask for rationale",
+                Self::RevertUnrelatedChanges => "Revert unrelated changes",
+                Self::CreateReproSteps => "Create repro steps",
+                Self::RollbackLastChange => "Roll back last change",
+                Self::DismissReview => "Dismiss",
+            }
+        } else {
+            match self {
+                Self::OpenDiff => "변경 보기",
+                Self::OpenPreview => "미리보기 열기",
+                Self::RunTests => "테스트 실행",
+                Self::RunApp => "앱 실행",
+                Self::LinkCriterion => "기준 연결",
+                Self::SplitScope => "범위 나누기",
+                Self::EditPrd => "PRD 수정",
+                Self::AddVerificationStep => "검증 단계 추가",
+                Self::AskAiForRationale => "근거 묻기",
+                Self::RevertUnrelatedChanges => "관련 없는 변경 복구",
+                Self::CreateReproSteps => "재현 단계 만들기",
+                Self::RollbackLastChange => "마지막 변경 되돌리기",
+                Self::DismissReview => "닫기",
+            }
         }
     }
 }
@@ -2256,7 +2274,7 @@ pub fn map_decision_to_card_at(
         .map(|action| ProvocationAction {
             id: action.as_str().to_string(),
             kind: *action,
-            label: action.label().to_string(),
+            label: action.label(locale_is_english(&context.locale)).to_string(),
             requires_reason: None,
             reason_prompt: None,
         })
