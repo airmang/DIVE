@@ -40,6 +40,23 @@ All notable changes to DIVE are documented here. Format: [Keep a Changelog](http
 - Release gate red lights cleared for `verify:production-wire`, `verify:version-sync`, and `format:check`.
 - Phase 10 Gate A rerun is green: frontend typecheck/lint/build/format/production-wire/v4 plus Rust fmt/check/test/clippy and the corrected release mock guard path.
 
+## [1.0.0-rc.5] — 2026-06-25
+
+E2E quality hardening — the supervised verify loop now demands real, per-criterion observation, and the in-app preview can actually exercise the behavior under test (spec 009 themes 2 & 3).
+
+### Changed
+
+- **Evidence gate is per-criterion and action-backed (S-029, 009 theme 2).** The decision gate clears only when EVERY acceptance criterion carries an observation backed by a real open/click/test action — typing free text or clicking through no longer satisfies it (specs 002/003 FR-030~033: click ≠ evidence). Criteria come from the step's linked criteria, or an enumerated single-string criterion is split into its parts; the gate surfaces an "N of M criteria observed" blocking reason and binds each "I observed" confirmation to one specific criterion.
+- **In-app preview can exercise the behavior under test (S-031, 009 theme 3).** The preview iframe sandbox now allows modals and forms (`confirm()` / `alert()` / `<form>` submit), a responsive width toolbar (mobile 375 / tablet 768 / desktop) makes breakpoints observable, a reload button forces a real reload, Escape no longer closes the panel while the preview is focused, and any project page can be opened through the loopback static server (which serves non-index pages and same-origin data).
+
+### Fixed
+
+- **Restored green CI.** Two verification-coach credential tests asserted `MissingCredentials` but used a bare `dev_mock()` (OS keyring), which errors on the headless CI runner and masked the reason as `RuntimeUnavailable`. They now inject the host-independent `InMemoryKeyring`, unblocking the release gate / Windows build jobs.
+
+### Verification
+
+- Frontend `pnpm typecheck` + `pnpm lint --max-warnings 0` + `pnpm format:check` + `pnpm test:unit`; Rust `cargo fmt --check` + `cargo clippy --all-targets --features dev-mock -D warnings` + `cargo test --features dev-mock --all-targets`. Live `.app` re-QA of the affected journeys (STATIC-05 / DEBUG-03 / ADDFEATURE-01 / STYLED-02 / DATA-01) is the remaining follow-up for this build.
+
 ## [1.0.0-rc.4] — 2026-06-24
 
 First MVP build of the Sarkar "AI as provocateur" supervision layer working end to end.
