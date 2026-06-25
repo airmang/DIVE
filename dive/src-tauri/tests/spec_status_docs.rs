@@ -208,7 +208,13 @@ fn status_ledger_identifies_s017_through_s020_outcomes() {
 }
 
 #[test]
-fn reserved_mutation_types_are_labeled_future_contract_reserved() {
+fn shipped_mutation_types_are_labeled_shipped_under_s033() {
+    // Retargeted from the 005/S-020 "truthful active spec status" guard. S-033
+    // (009 theme 5) shipped both the remove path (`retire_step` /
+    // `plan_step_retired`) and the supersede path (`change_step` /
+    // `plan_step_changed`) as visible, tested apply IPCs. The status docs must
+    // now describe these mutations as shipped under S-033, and must never
+    // relabel them future/contract-reserved, not shipped, or planned.
     let docs = format!(
         "{}\n{}",
         repo_doc("docs/spec-status.md"),
@@ -216,14 +222,15 @@ fn reserved_mutation_types_are_labeled_future_contract_reserved() {
     );
 
     for mutation_type in ["change_step", "retire_step"] {
-        let context = context_containing(&docs, mutation_type)
+        let primary = context_containing(&docs, mutation_type)
             .unwrap_or_else(|| panic!("status docs must mention {mutation_type}"));
-        assert_contains_all_ci(&context, &["future"]);
-        assert_contains_any_ci(&context, &["contract-reserved", "reserved"]);
-        if contains_ci(&context, "shipped") {
-            assert_contains_any_ci(&context, &["not shipped", "future", "reserved"]);
+        assert_contains_all_ci(&primary, &["shipped", "S-033"]);
+
+        for context in contexts_containing_any(&docs, &[mutation_type]) {
+            assert_not_contains_ci(&context, "contract-reserved");
+            assert_not_contains_ci(&context, "not shipped");
+            assert_not_contains_ci(&context, "planned");
         }
-        assert_not_contains_ci(&context, "planned");
     }
 }
 
