@@ -172,27 +172,48 @@ async fn wait_for_route_cancel(cancel: Arc<AtomicBool>) {
 }
 
 fn build_system_prompt() -> String {
-    "You are DIVE's plan router. Decide whether the user's new chat message \
-     should be proposed as a new step for the already-approved plan, or should \
-     stay normal chat.\n\
+    "You are DIVE's plan router. Decide how the user's new chat message relates \
+     to the already-approved plan: add a step, clarify an ambiguous add, remove \
+     a step, replace (supersede) a step, or stay normal chat.\n\
      Return exactly one line. No Markdown. No explanation outside the line.\n\
-     Use ROUTE chat for questions, status checks, clarifications, discussion, \
-     or anything that does not add concrete implementation work.\n\
+     Use ROUTE chat for questions, status checks, discussion, or anything that \
+     does not change the plan. If the user asks to run, continue, inspect, \
+     verify, or repeat work already covered by an existing listed step, use \
+     ROUTE chat.\n\
      Use ROUTE add_step only when the user asks for a new concrete task that \
-     belongs in the current approved plan. If the user asks to run, continue, \
-     inspect, verify, revise, or repeat work already covered by an existing \
-     listed step, use ROUTE chat instead.\n\
-     New steps must fit DIVE's execution envelope: one supervised turn, small \
-     file-focused scope, no shell scripts, and verification_command must be one \
-     no-shell command with explicit args and a 60 second budget.\n\
+     belongs in the current approved plan.\n\
+     Use ROUTE clarify when the user wants new work but the target, criterion, \
+     or scope is too ambiguous to draft without inventing details: ask one \
+     short, criterion-linked question instead of fabricating a step.\n\
+     Use ROUTE remove when the user asks to drop, cancel, or delete an existing \
+     listed step that is no longer wanted.\n\
+     Use ROUTE supersede when the user asks to replace, redo, or rework an \
+     existing listed step with materially different work (not merely re-run it); \
+     provide the full replacement step.\n\
+     For remove and supersede, target_step_id MUST be one of the step ids in the \
+     Steps list — never invent an id. If no listed step matches, use ROUTE chat.\n\
+     New or replacement steps must fit DIVE's execution envelope: one supervised \
+     turn, small file-focused scope, no shell scripts, and verification_command \
+     must be one no-shell command with explicit args and a 60 second budget.\n\
      Output formats:\n\
      ROUTE chat reason=\"short reason\"\n\
      ROUTE add_step title=\"...\" summary=\"...\" instruction_seed=\"...\" \
      expected_files=[\"path or glob\"] acceptance_criteria=[\"observable result\"] \
      verification_type=\"command|manual\" verification_command=\"command or empty\" \
      dependencies=[\"step-001\"] parallel_group=null reason=\"short reason\"\n\
+     ROUTE clarify question=\"one criterion-linked question\" \
+     candidate_intent=\"what you think they want\" \
+     suggested_criterion_ids=[\"ac-1\"] reason=\"short reason\"\n\
+     ROUTE remove target_step_id=\"step-001\" reason=\"short reason\"\n\
+     ROUTE supersede target_step_id=\"step-001\" title=\"...\" summary=\"...\" \
+     instruction_seed=\"...\" expected_files=[\"path or glob\"] \
+     acceptance_criteria=[\"observable result\"] \
+     verification_type=\"command|manual\" verification_command=\"command or empty\" \
+     dependencies=[\"step-001\"] parallel_group=null reason=\"short reason\"\n\
      Existing step ids are the only allowed dependency values. Use null for \
-     parallel_group unless a numeric existing group is clearly appropriate."
+     parallel_group unless a numeric existing group is clearly appropriate. \
+     For clarify, set suggested_criterion_ids to the acceptance-criterion ids the \
+     question relates to when identifiable, otherwise []."
         .to_string()
 }
 
@@ -369,6 +390,32 @@ fn empty_to_none(value: Option<String>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn system_prompt_documents_plan_mutation_verbs() {
+        // P6: the parser + IPC mapping for clarify/remove/supersede landed in
+        // P2–P4, but the router only emits them once the system prompt teaches
+        // the model the verbs and their output formats. Lock that teaching so a
+        // later prompt edit can't silently re-disable production emission.
+        let prompt = build_system_prompt();
+        for needle in [
+            "ROUTE clarify question=",
+            "ROUTE remove target_step_id=",
+            "ROUTE supersede target_step_id=",
+        ] {
+            assert!(
+                prompt.contains(needle),
+                "system prompt must document `{needle}`"
+            );
+        }
+        // Guardrail: a router-emitted target_step_id is constrained to ids that
+        // already exist in the plan (the IPC layer also degrades unknown ids to
+        // Skip, but the prompt must not invite fabrication in the first place).
+        assert!(
+            prompt.contains("target_step_id MUST be one of the step ids"),
+            "system prompt must constrain target_step_id to listed step ids"
+        );
+    }
 
     #[test]
     fn parse_chat_route_with_quoted_reason() {
