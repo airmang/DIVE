@@ -41,6 +41,27 @@ pub enum PlanRouterDecision {
     Chat {
         reason: String,
     },
+    /// S-033: ask one criterion-linked question before drafting an ambiguous
+    /// add, instead of fabricating a step. Non-mutating.
+    Clarify {
+        question: String,
+        candidate_intent: String,
+        suggested_criterion_ids: Vec<String>,
+        reason: String,
+    },
+    /// S-033: propose retiring an existing step. `target_step_id` is validated
+    /// against the live plan at the IPC layer (degrades to Skip if unknown).
+    Remove {
+        target_step_id: String,
+        reason: String,
+    },
+    /// S-033: propose replacing an existing step with a new draft (atomic
+    /// retire + add at apply time).
+    Supersede {
+        target_step_id: String,
+        replacement: Box<RouterStepDraft>,
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -213,8 +234,8 @@ fn parse_route_decision(text: &str) -> Result<PlanRouterDecision, String> {
         .map(str::trim)
         .find(|line| line.starts_with("ROUTE "))
         .ok_or_else(|| "router response did not contain a ROUTE line".to_string())?;
-    let route_re =
-        Regex::new(r"^ROUTE\s+(add_step|chat)\b(?P<rest>.*)$").map_err(|e| e.to_string())?;
+    let route_re = Regex::new(r"^ROUTE\s+(add_step|chat|clarify|remove|supersede)\b(?P<rest>.*)$")
+        .map_err(|e| e.to_string())?;
     let caps = route_re
         .captures(line)
         .ok_or_else(|| "router response used an invalid ROUTE format".to_string())?;
@@ -228,21 +249,41 @@ fn parse_route_decision(text: &str) -> Result<PlanRouterDecision, String> {
             reason: field_string(rest, "reason")?.unwrap_or_else(|| "normal chat".into()),
         }),
         "add_step" => Ok(PlanRouterDecision::AddStep {
-            draft: Box::new(RouterStepDraft {
-                title: required_string(rest, "title")?,
-                summary: required_string(rest, "summary")?,
-                instruction_seed: required_string(rest, "instruction_seed")?,
-                expected_files: field_array(rest, "expected_files")?.unwrap_or_default(),
-                acceptance_criteria: field_array(rest, "acceptance_criteria")?.unwrap_or_default(),
-                verification_command: empty_to_none(field_string(rest, "verification_command")?),
-                verification_type: empty_to_none(field_string(rest, "verification_type")?),
-                dependencies: field_array(rest, "dependencies")?.unwrap_or_default(),
-                parallel_group: field_parallel_group(rest)?,
-            }),
+            draft: Box::new(parse_router_step_draft(rest)?),
             reason: field_string(rest, "reason")?.unwrap_or_else(|| "new plan work".into()),
+        }),
+        "clarify" => Ok(PlanRouterDecision::Clarify {
+            question: required_string(rest, "question")?,
+            candidate_intent: field_string(rest, "candidate_intent")?.unwrap_or_default(),
+            suggested_criterion_ids: field_array(rest, "suggested_criterion_ids")?
+                .unwrap_or_default(),
+            reason: field_string(rest, "reason")?.unwrap_or_else(|| "needs clarification".into()),
+        }),
+        "remove" => Ok(PlanRouterDecision::Remove {
+            target_step_id: required_string(rest, "target_step_id")?,
+            reason: field_string(rest, "reason")?.unwrap_or_else(|| "remove step".into()),
+        }),
+        "supersede" => Ok(PlanRouterDecision::Supersede {
+            target_step_id: required_string(rest, "target_step_id")?,
+            replacement: Box::new(parse_router_step_draft(rest)?),
+            reason: field_string(rest, "reason")?.unwrap_or_else(|| "replace step".into()),
         }),
         _ => Err(format!("unsupported route action: {action}")),
     }
+}
+
+fn parse_router_step_draft(rest: &str) -> Result<RouterStepDraft, String> {
+    Ok(RouterStepDraft {
+        title: required_string(rest, "title")?,
+        summary: required_string(rest, "summary")?,
+        instruction_seed: required_string(rest, "instruction_seed")?,
+        expected_files: field_array(rest, "expected_files")?.unwrap_or_default(),
+        acceptance_criteria: field_array(rest, "acceptance_criteria")?.unwrap_or_default(),
+        verification_command: empty_to_none(field_string(rest, "verification_command")?),
+        verification_type: empty_to_none(field_string(rest, "verification_type")?),
+        dependencies: field_array(rest, "dependencies")?.unwrap_or_default(),
+        parallel_group: field_parallel_group(rest)?,
+    })
 }
 
 fn required_string(rest: &str, name: &str) -> Result<String, String> {
@@ -355,6 +396,56 @@ mod tests {
                 assert_eq!(draft.parallel_group, Some(2));
             }
             other => panic!("expected add_step, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_clarify_route() {
+        let parsed = parse_route_decision(
+            "ROUTE clarify question=\"Which page needs the nav?\" candidate_intent=\"add nav\" suggested_criterion_ids=[\"ac-2\"] reason=\"ambiguous target\"",
+        )
+        .unwrap();
+        assert_eq!(
+            parsed,
+            PlanRouterDecision::Clarify {
+                question: "Which page needs the nav?".into(),
+                candidate_intent: "add nav".into(),
+                suggested_criterion_ids: vec!["ac-2".into()],
+                reason: "ambiguous target".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_remove_route() {
+        assert_eq!(
+            parse_route_decision("ROUTE remove target_step_id=\"step-003\" reason=\"obsolete\"")
+                .unwrap(),
+            PlanRouterDecision::Remove {
+                target_step_id: "step-003".into(),
+                reason: "obsolete".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_supersede_route_reuses_draft_parser() {
+        let parsed = parse_route_decision(
+            "ROUTE supersede target_step_id=\"step-002\" title=\"Rework auth\" summary=\"Replace.\" instruction_seed=\"Redo it.\" expected_files=[\"src/auth.ts\"] acceptance_criteria=[\"Works.\"] verification_type=\"command\" verification_command=\"pnpm test\" dependencies=[] parallel_group=null reason=\"replace\"",
+        )
+        .unwrap();
+        match parsed {
+            PlanRouterDecision::Supersede {
+                target_step_id,
+                replacement,
+                reason,
+            } => {
+                assert_eq!(target_step_id, "step-002");
+                assert_eq!(reason, "replace");
+                assert_eq!(replacement.title, "Rework auth");
+                assert_eq!(replacement.expected_files, vec!["src/auth.ts"]);
+            }
+            other => panic!("expected supersede, got {other:?}"),
         }
     }
 }

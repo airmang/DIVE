@@ -14,6 +14,12 @@ async function loadTauri(): Promise<TauriApi | null> {
   return { invoke: core.invoke as TauriApi["invoke"] };
 }
 
+export interface StepRefPayload {
+  stepId: string;
+  dbId: number;
+  title: string;
+}
+
 export type RouteDecision =
   | {
       action: "add_step";
@@ -26,6 +32,27 @@ export type RouteDecision =
     }
   | {
       action: "skip";
+      reason: string;
+    }
+  // S-033 plan-mutation routing. The backend does not emit these until the
+  // per-outcome phases land their apply path + consumer; until then the chat
+  // route handler treats any non-add_step action as normal chat.
+  | {
+      action: "clarify";
+      question: string;
+      candidateIntent: string;
+      suggestedCriterionIds: string[];
+      reason: string;
+    }
+  | {
+      action: "remove_step";
+      target: StepRefPayload;
+      reason: string;
+    }
+  | {
+      action: "supersede_step";
+      target: StepRefPayload;
+      replacement: StepDraftInput;
       reason: string;
     };
 
