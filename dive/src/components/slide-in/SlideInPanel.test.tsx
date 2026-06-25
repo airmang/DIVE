@@ -124,4 +124,31 @@ describe("CheckpointTimeline accessibility", () => {
     fireEvent.click(restore);
     expect(onRestore).toHaveBeenCalledWith(2);
   });
+
+  it("renders the pre-edit anchor with its own glyph and localized kind (S-032)", () => {
+    render(
+      <CheckpointTimeline
+        sessionId={1}
+        mockItems={[
+          {
+            id: 5,
+            session_id: 1,
+            card_id: null,
+            git_sha: "feedbee1234",
+            kind: "auto-pre-edit",
+            label: null,
+            created_at: 1_720_000_000_000,
+            changed_files: ["src/App.tsx"],
+          },
+        ]}
+      />,
+    );
+
+    const dot = screen.getByTestId("timeline-dot");
+    expect(dot.getAttribute("data-kind")).toBe("auto-pre-edit");
+    expect(dot.textContent).toBe("E");
+    // The kind is localized (no raw "auto-pre-edit" string leaks to the user).
+    expect(dot.getAttribute("aria-label")).toContain("pre-edit");
+    expect(dot.getAttribute("aria-label")).not.toContain("auto-pre-edit");
+  });
 });

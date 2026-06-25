@@ -16,9 +16,10 @@ const MIGRATIONS: &[(i64, MigrationFn)] = &[
     (9, migration_v9),
     (10, migration_v10),
     (11, migration_v11),
+    (12, migration_v12),
 ];
 
-pub const LATEST_SCHEMA_VERSION: i64 = 11;
+pub const LATEST_SCHEMA_VERSION: i64 = 12;
 
 pub fn migrate(conn: &mut Connection) -> Result<(), DbError> {
     migrate_with_migrations(conn, MIGRATIONS)
@@ -241,6 +242,46 @@ fn migration_v11(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// S-032 — widen the Checkpoint `kind` CHECK constraint to admit the
+/// `auto-pre-edit` pre-edit anchor. Rebuilds the table (rename → recreate →
+/// copy → drop) because SQLite cannot alter a CHECK constraint in place. This
+/// also backfills `auto-pre-restore` for DBs created before it entered the
+/// constraint. The Checkpoint table has only outgoing FKs (no table references
+/// it), so the rename/recreate is safe.
+fn migration_v12(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    let checkpoint_sql: String = match tx.query_row(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'Checkpoint'",
+        [],
+        |row| row.get(0),
+    ) {
+        Ok(sql) => sql,
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            tx.execute_batch(schema::CREATE_CHECKPOINT)?;
+            return Ok(());
+        }
+        Err(e) => return Err(e),
+    };
+    if checkpoint_sql.contains("auto-pre-edit") {
+        // Table was created by the current schema and already admits the new
+        // anchor kind; nothing to rebuild. (Also avoids a needless FK-bearing
+        // copy on DBs whose Checkpoint table was freshly created.)
+        return Ok(());
+    }
+
+    // Genuinely old table: rebuild it to widen the constraint. Real DBs in this
+    // branch always have the Session/Card FK parents (created in migration v1),
+    // so the row copy resolves cleanly.
+    tx.execute_batch("ALTER TABLE Checkpoint RENAME TO Checkpoint_old;")?;
+    tx.execute_batch(schema::CREATE_CHECKPOINT)?;
+    tx.execute_batch(
+        "INSERT INTO Checkpoint(id, session_id, card_id, git_sha, kind, label, changed_files, stats, created_at)
+         SELECT id, session_id, card_id, git_sha, kind, label, changed_files, stats, created_at
+         FROM Checkpoint_old;",
+    )?;
+    tx.execute_batch("DROP TABLE Checkpoint_old;")?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use rusqlite::Transaction;
@@ -321,6 +362,66 @@ mod tests {
         db.conn()
             .execute(
                 "INSERT INTO Checkpoint(session_id, git_sha, kind, label, created_at) VALUES (?, 'a', 'auto-pre-restore', '복원 직전', 0)",
+                [session_id],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn migration_v12_widens_checkpoint_kind_constraint() {
+        // Reproduce a pre-S-032 Checkpoint table whose CHECK constraint predates
+        // the `auto-pre-edit` anchor, then prove v12's rebuild widens it while
+        // preserving existing rows.
+        let (mut db, _tmp) = fresh_db();
+        let (_, session_id) = seed_project_session(db.conn());
+        db.conn()
+            .execute_batch(
+                "DROP TABLE Checkpoint;
+                 CREATE TABLE Checkpoint (
+                    id INTEGER PRIMARY KEY,
+                    session_id INTEGER NOT NULL REFERENCES Session(id) ON DELETE CASCADE,
+                    card_id INTEGER REFERENCES Card(id) ON DELETE SET NULL,
+                    git_sha TEXT NOT NULL,
+                    kind TEXT NOT NULL CHECK(kind IN ('auto','manual','auto-pre-restore')),
+                    label TEXT,
+                    changed_files TEXT NOT NULL DEFAULT '[]',
+                    stats TEXT NOT NULL DEFAULT '{\"added\":0,\"removed\":0,\"modified\":0}',
+                    created_at INTEGER NOT NULL
+                 );",
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO Checkpoint(session_id, git_sha, kind, label, created_at) VALUES (?, 'sha-old', 'manual', 'keep', 1)",
+                [session_id],
+            )
+            .unwrap();
+        // Pre-migration, the new anchor kind is rejected by the old constraint.
+        assert!(db
+            .conn()
+            .execute(
+                "INSERT INTO Checkpoint(session_id, git_sha, kind, created_at) VALUES (?, 'sha-new', 'auto-pre-edit', 2)",
+                [session_id],
+            )
+            .is_err());
+
+        let tx = db.conn_mut().transaction().unwrap();
+        super::migration_v12(&tx).unwrap();
+        tx.commit().unwrap();
+
+        // Existing row preserved and the new anchor kind is now accepted.
+        let kept: String = db
+            .conn()
+            .query_row(
+                "SELECT label FROM Checkpoint WHERE git_sha = 'sha-old'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(kept, "keep");
+        db.conn()
+            .execute(
+                "INSERT INTO Checkpoint(session_id, git_sha, kind, created_at) VALUES (?, 'sha-new', 'auto-pre-edit', 2)",
                 [session_id],
             )
             .unwrap();

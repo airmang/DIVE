@@ -1102,6 +1102,14 @@ impl AgentLoop {
                     runtime = "pi_sidecar",
                     "tool execution started"
                 );
+                // S-032 pre-edit anchor: snapshot the working tree before any
+                // potentially-mutating (non-Safe) tool runs, so a broken or
+                // unwanted change has a fine-grained "before my last edit"
+                // restore point. Best-effort and deduplicated — never blocks the
+                // tool.
+                if risk != RiskLevel::Safe {
+                    self.snapshot_before_write(session_id, &tc.name);
+                }
                 let out = match tool.run(effective_args, &self.tool_ctx).await {
                     Ok(out) => out,
                     Err(e) => {
@@ -1351,6 +1359,48 @@ impl AgentLoop {
             .map_err(|_| AgentError::Internal("db mutex poisoned".into()))?;
         dive_event_log::append_to_conn(db.conn(), Some(session_id), kind, payload)?;
         Ok(())
+    }
+
+    /// S-032: create a locale-neutral `auto-pre-edit` checkpoint before an
+    /// approved mutating tool runs. Only commits when the working tree changed
+    /// since the last checkpoint, and only when the project's checkpoint repo is
+    /// already initialized. Best-effort: failures are logged but never surfaced
+    /// to the caller, so recovery anchoring can't break a tool execution.
+    fn snapshot_before_write(&self, session_id: i64, tool_name: &str) {
+        let engine = crate::checkpoint::CheckpointEngine::new(
+            self.tool_ctx.project_root.clone(),
+            self.db.clone(),
+        );
+        if !engine.checkpoint_dir().join("HEAD").exists() {
+            return;
+        }
+        match engine.create_checkpoint_if_changed(session_id, None, "auto-pre-edit", None) {
+            Ok(Some(row)) => {
+                let _ = self.log_event(
+                    session_id,
+                    "checkpoint_create",
+                    json!({
+                        "checkpoint_id": row.id,
+                        "card_id": row.card_id,
+                        "kind": row.kind,
+                        "label": row.label,
+                        "git_sha": row.git_sha,
+                        "changed_file_count": row.changed_files.len(),
+                        "trigger": "pre_edit",
+                        "tool": tool_name,
+                    }),
+                );
+            }
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!(
+                    session_id,
+                    tool = %tool_name,
+                    error = %e,
+                    "pre-edit checkpoint failed"
+                );
+            }
+        }
     }
 
     fn record_preview_open_tool_result(

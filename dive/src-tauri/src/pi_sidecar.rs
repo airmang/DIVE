@@ -1939,6 +1939,82 @@ rl.on("line", (line) => {{
     }
 
     #[tokio::test]
+    async fn supervised_write_creates_pre_edit_checkpoint_when_tree_dirty() {
+        let project = tempfile::tempdir().unwrap();
+        let (db, session_id) = create_test_db(project.path());
+        let engine = crate::checkpoint::CheckpointEngine::new(project.path(), db.clone());
+        engine.init().unwrap();
+        // Dirty the working tree relative to the init checkpoint so the pre-edit
+        // anchor has something to protect.
+        std::fs::write(project.path().join("dirty.txt"), "uncommitted").unwrap();
+
+        let loop_ = make_loop(
+            project.path(),
+            db.clone(),
+            session_id,
+            AgentRunMode::Build,
+            run_mode_permission(
+                AgentRunMode::Build,
+                true,
+                Some(1),
+                Arc::new(AlwaysApproveHook),
+            ),
+            None,
+        );
+        let tc = tool_call(
+            "w1",
+            "write_file",
+            json!({ "path": "new.txt", "content": "hello" }),
+        );
+        let out = loop_
+            .execute_supervised_tool_call(session_id, &tc, &mut |_event| {})
+            .await
+            .unwrap();
+        assert!(out.success, "write_file failed: {}", out.summary);
+
+        let list = engine.list_checkpoints(session_id).unwrap();
+        assert!(
+            list.iter().any(|c| c.kind == "auto-pre-edit"),
+            "approved write must create a pre-edit anchor, got {list:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn supervised_read_only_tool_creates_no_pre_edit_checkpoint() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(project.path().join("readme.txt"), "content").unwrap();
+        let (db, session_id) = create_test_db(project.path());
+        let engine = crate::checkpoint::CheckpointEngine::new(project.path(), db.clone());
+        engine.init().unwrap();
+        std::fs::write(project.path().join("dirty.txt"), "uncommitted").unwrap();
+
+        let loop_ = make_loop(
+            project.path(),
+            db.clone(),
+            session_id,
+            AgentRunMode::Build,
+            run_mode_permission(
+                AgentRunMode::Build,
+                true,
+                Some(1),
+                Arc::new(AlwaysApproveHook),
+            ),
+            None,
+        );
+        let tc = tool_call("r1", "read_file", json!({ "path": "readme.txt" }));
+        loop_
+            .execute_supervised_tool_call(session_id, &tc, &mut |_event| {})
+            .await
+            .unwrap();
+
+        let list = engine.list_checkpoints(session_id).unwrap();
+        assert!(
+            !list.iter().any(|c| c.kind == "auto-pre-edit"),
+            "read-only tool must not create a pre-edit anchor, got {list:?}"
+        );
+    }
+
+    #[tokio::test]
     #[cfg(unix)]
     async fn supervised_run_process_emits_bounded_project_command_evidence() {
         let project = tempfile::tempdir().unwrap();

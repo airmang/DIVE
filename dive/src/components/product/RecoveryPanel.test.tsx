@@ -109,4 +109,43 @@ describe("RecoveryPanel failure actions", () => {
     // No raw Korean backend label and no raw kind string — the kind is localized.
     expect(screen.getByTestId("last-change-card").textContent).toContain("복원 직전 체크포인트");
   });
+
+  it("localizes a label-less pre-edit anchor title (S-032)", () => {
+    renderPanel({
+      failedStep: null,
+      checkpoints: [{ id: 9, label: null, kind: "auto-pre-edit", createdAt: 40, changedFiles: [] }],
+    });
+
+    expect(screen.getByTestId("last-change-card").textContent).toContain("편집 직전 체크포인트");
+  });
+
+  it("marks only the most recent pre-edit anchor as the before-your-last-edit point (S-032)", () => {
+    renderPanel({
+      failedStep: null,
+      checkpoints: [
+        { id: 1, label: "older edit", kind: "auto-pre-edit", createdAt: 10, changedFiles: [] },
+        {
+          id: 2,
+          label: "newest edit",
+          kind: "auto-pre-edit",
+          createdAt: 30,
+          changedFiles: ["a.ts"],
+        },
+        { id: 3, label: "card move", kind: "auto", createdAt: 20, changedFiles: [] },
+      ],
+    });
+
+    const markers = screen.getAllByTestId("pre-edit-anchor-marker");
+    expect(markers).toHaveLength(1);
+    expect(markers[0].textContent).toBe("마지막 편집 직전");
+
+    // The marker sits on the newest pre-edit anchor (id 2), not the older one.
+    const newestItem = within(screen.getByTestId("recovery-checkpoint-list"))
+      .getByText("newest edit")
+      .closest("li");
+    expect(newestItem).not.toBeNull();
+    expect(
+      within(newestItem as HTMLElement).queryByTestId("pre-edit-anchor-marker"),
+    ).not.toBeNull();
+  });
 });
