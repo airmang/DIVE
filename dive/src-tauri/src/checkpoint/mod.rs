@@ -142,12 +142,10 @@ impl CheckpointEngine {
                 .ok_or(CheckpointError::CheckpointNotFound(checkpoint_id))?
         };
 
-        self.create_checkpoint(
-            target.session_id,
-            target.card_id,
-            "auto-pre-restore",
-            Some("복원 직전"),
-        )?;
+        // S-032: store no prose label — the "auto-pre-restore" kind is localized
+        // in the UI, so the stored label stays locale-neutral (NULL). The git
+        // commit message still uses the internal default_label fallback.
+        self.create_checkpoint(target.session_id, target.card_id, "auto-pre-restore", None)?;
 
         let repo = self.open_repo()?;
         let oid = git2::Oid::from_str(&target.git_sha)?;
@@ -427,8 +425,8 @@ mod tests {
         let list = engine.list_checkpoints(sid).unwrap();
         assert!(
             list.iter()
-                .any(|c| c.kind == "auto-pre-restore" && c.label.as_deref() == Some("복원 직전")),
-            "restore must auto-create a backup checkpoint, got {list:?}",
+                .any(|c| c.kind == "auto-pre-restore" && c.label.is_none()),
+            "restore must auto-create a locale-neutral backup checkpoint, got {list:?}",
         );
     }
 

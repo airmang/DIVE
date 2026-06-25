@@ -858,12 +858,17 @@ fn mapping_user_decision(value: &Value) -> String {
 }
 
 fn auto_checkpoint_label(transition: CardTransition, card_title: &str) -> Option<String> {
+    // S-032: store the locale-neutral card title only. The previous Korean
+    // transition prefixes ("[V 통과]" …) leaked into the English locale; the
+    // checkpoint kind ("auto", localized in the UI) plus the title and time
+    // identify the restore point. (Per-transition localized labels would need a
+    // structured label-key column — tracked as follow-up.)
     match transition {
-        CardTransition::EnterInstruct => Some(format!("[I 진입] {card_title}")),
-        CardTransition::RequestVerify => Some(format!("[V 요청] {card_title}")),
-        CardTransition::Reject => Some(format!("[V 거부] {card_title}")),
-        CardTransition::Approve => Some(format!("[V 통과] {card_title}")),
-        CardTransition::Extend => Some(format!("[E 진입] {card_title}")),
+        CardTransition::EnterInstruct
+        | CardTransition::RequestVerify
+        | CardTransition::Reject
+        | CardTransition::Approve
+        | CardTransition::Extend => Some(card_title.to_string()),
         CardTransition::ReopenFromReject => None,
     }
 }

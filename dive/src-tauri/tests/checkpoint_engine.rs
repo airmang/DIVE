@@ -110,5 +110,5 @@ fn restore_reverts_worktree_and_autosnapshots() {
     let list = engine.list_checkpoints(sid).unwrap();
     assert!(list
         .iter()
-        .any(|c| c.kind == "auto-pre-restore" && c.label.as_deref() == Some("복원 직전")));
+        .any(|c| c.kind == "auto-pre-restore" && c.label.is_none()));
 }

@@ -65,4 +65,48 @@ describe("RecoveryPanel failure actions", () => {
 
     expect(props.onRestoreCheckpoint).toHaveBeenCalledWith(2);
   });
+
+  it("warns that restore reverts files only before confirming (S-032)", () => {
+    renderPanel({
+      checkpoints: [{ id: 2, label: "latest", kind: "manual", createdAt: 20, changedFiles: [] }],
+    });
+
+    fireEvent.click(screen.getByTestId("failed-step-undo"));
+
+    const note = screen.getByTestId("restore-files-only-note");
+    expect(note.textContent).toContain("채팅·플랜·로드맵");
+  });
+
+  it("reconciles the checkpoint count with the badge and notes the truncated list (S-032)", () => {
+    renderPanel({
+      failedStep: null,
+      checkpoints: Array.from({ length: 5 }, (_, index) => ({
+        id: index + 1,
+        label: `cp-${index + 1}`,
+        kind: "manual",
+        createdAt: (index + 1) * 10,
+        changedFiles: [],
+      })),
+    });
+
+    const count = screen.getByTestId("recovery-checkpoint-count");
+    expect(count.textContent).toContain("복원 지점 5개");
+    expect(count.textContent).toContain("최근 3개");
+    // The panel only renders the latest 3 even though the badge counts all 5.
+    expect(
+      within(screen.getByTestId("recovery-checkpoint-list")).getAllByTestId("recovery-restore"),
+    ).toHaveLength(3);
+  });
+
+  it("localizes a label-less pre-restore checkpoint title (S-032)", () => {
+    renderPanel({
+      failedStep: null,
+      checkpoints: [
+        { id: 7, label: null, kind: "auto-pre-restore", createdAt: 30, changedFiles: [] },
+      ],
+    });
+
+    // No raw Korean backend label and no raw kind string — the kind is localized.
+    expect(screen.getByTestId("last-change-card").textContent).toContain("복원 직전 체크포인트");
+  });
 });

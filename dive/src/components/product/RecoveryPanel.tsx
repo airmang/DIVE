@@ -38,8 +38,26 @@ function formatTime(ms: number, locale: string): string {
   return new Date(ms).toLocaleString(locale);
 }
 
+function localizedCheckpointKind(kind: string, t: ReturnType<typeof useT>): string {
+  switch (kind) {
+    case "init":
+      return t("slide_in.checkpoint.kind_init");
+    case "auto":
+      return t("slide_in.checkpoint.kind_auto");
+    case "manual":
+      return t("slide_in.checkpoint.kind_manual");
+    case "auto-pre-restore":
+      return t("slide_in.checkpoint.kind_pre_restore");
+    default:
+      return t("slide_in.checkpoint.kind_other", { kind });
+  }
+}
+
 function checkpointTitle(item: RecoveryCheckpointItem, t: ReturnType<typeof useT>): string {
-  return item.label?.trim() || t("recovery.checkpoint_title", { kind: item.kind, id: item.id });
+  return (
+    item.label?.trim() ||
+    t("recovery.checkpoint_title", { kind: localizedCheckpointKind(item.kind, t), id: item.id })
+  );
 }
 
 function changedFilesCopy(files: string[], t: ReturnType<typeof useT>): string {
@@ -170,6 +188,12 @@ export function RecoveryPanel({
           <p className="mt-1 text-fg-muted">
             {t("recovery.restore_confirm_body", { checkpoint: checkpointTitle(confirmTarget, t) })}
           </p>
+          <p
+            className="mt-2 rounded border border-warn/40 bg-warn/10 px-2 py-1.5 text-[11px] text-warn"
+            data-testid="restore-files-only-note"
+          >
+            {t("recovery.restore_files_only_note")}
+          </p>
           <div className="mt-3 flex gap-2">
             <Button size="sm" variant="ghost" onClick={() => setConfirmRestoreId(null)}>
               {t("common.cancel")}
@@ -216,31 +240,46 @@ export function RecoveryPanel({
       </div>
 
       {visible.length > 0 ? (
-        <ol className="mt-3 space-y-2" data-testid="recovery-checkpoint-list">
-          {visible.map((item) => (
-            <li key={item.id} className="rounded-md border bg-bg px-3 py-2 text-xs">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-fg">{checkpointTitle(item, t)}</p>
-                  <p className="mt-0.5 text-fg-muted">{formatTime(item.createdAt, locale)}</p>
-                  <p className="mt-0.5 truncate text-fg-subtle">
-                    {changedFilesCopy(item.changedFiles, t)}
-                  </p>
+        <>
+          <div
+            className="mt-3 flex items-baseline justify-between text-[11px] text-fg-muted"
+            data-testid="recovery-checkpoint-count"
+          >
+            <span className="font-semibold text-fg">
+              {t("recovery.checkpoint_count", { count: sorted.length })}
+            </span>
+            {sorted.length > visible.length ? (
+              <span>
+                {t("recovery.checkpoint_count_showing_latest", { count: visible.length })}
+              </span>
+            ) : null}
+          </div>
+          <ol className="mt-2 space-y-2" data-testid="recovery-checkpoint-list">
+            {visible.map((item) => (
+              <li key={item.id} className="rounded-md border bg-bg px-3 py-2 text-xs">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-fg">{checkpointTitle(item, t)}</p>
+                    <p className="mt-0.5 text-fg-muted">{formatTime(item.createdAt, locale)}</p>
+                    <p className="mt-0.5 truncate text-fg-subtle">
+                      {changedFilesCopy(item.changedFiles, t)}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={restoringCheckpointId === item.id}
+                    onClick={() => setConfirmRestoreId(item.id)}
+                    data-testid="recovery-restore"
+                    data-checkpoint-id={item.id}
+                  >
+                    {t("recovery.undo")}
+                  </Button>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={restoringCheckpointId === item.id}
-                  onClick={() => setConfirmRestoreId(item.id)}
-                  data-testid="recovery-restore"
-                  data-checkpoint-id={item.id}
-                >
-                  {t("recovery.undo")}
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ol>
+              </li>
+            ))}
+          </ol>
+        </>
       ) : null}
     </section>
   );
