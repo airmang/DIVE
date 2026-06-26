@@ -8,7 +8,9 @@ export { computeLineDiff } from "./diff";
 export type {
   DiffPreviewData,
   PermissionActionContext,
+  PermissionApprovalWarnings,
   PermissionCardData,
   PermissionCardProps,
+  PermissionChangeSummary,
   RiskLevel,
 } from "./types";

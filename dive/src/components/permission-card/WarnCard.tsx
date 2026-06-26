@@ -9,15 +9,28 @@ import { McpProvenanceBadge } from "../mcp/McpProvenanceBadge";
 import { PatchPreviewPanel } from "./PatchPreviewPanel";
 import { PermissionSummary } from "./PermissionSummary";
 import { RawDetails } from "./RawDetails";
+import { summarizePatch } from "./summarize";
 import type { PermissionCardProps } from "./types";
 
-export function WarnCard({ card, onApprove, onDeny, approvalRequirement }: PermissionCardProps) {
+export function WarnCard({
+  card,
+  onApprove,
+  onDeny,
+  onDiffViewed,
+  approvalRequirement,
+}: PermissionCardProps) {
   const t = useT();
   const [editing, setEditing] = useState(false);
   const [denyingWithReason, setDenyingWithReason] = useState(false);
   const [denyReason, setDenyReason] = useState("");
   const [modifiedArgs, setModifiedArgs] = useState<unknown | null>(card.args);
   const explanation = explainTool(card.toolName, card.risk, card.args, t);
+  const changeSummary = summarizePatch({
+    toolName: card.toolName,
+    diff: card.diffPreview,
+    args: card.args,
+    t,
+  });
 
   const approvalBlocked =
     approvalRequirement?.required === true && approvalRequirement.satisfied !== true;
@@ -48,9 +61,16 @@ export function WarnCard({ card, onApprove, onDeny, approvalRequirement }: Permi
           risk={card.risk}
           explanation={explanation}
           actionContext={card.actionContext}
+          changeSummary={changeSummary}
         />
         <CommandExplainer explanation={explanation} />
-        <PatchPreviewPanel diff={card.diffPreview} expected={explanation.patchPreviewExpected} />
+        <PatchPreviewPanel
+          diff={card.diffPreview}
+          expected={explanation.patchPreviewExpected}
+          summary={changeSummary}
+          approvalWarnings={card.approvalWarnings}
+          onViewed={() => onDiffViewed?.(card.toolCallId)}
+        />
         <RawDetails value={{ preview: card.paramsPreview, args: card.args }} />
       </div>
 
@@ -78,11 +98,28 @@ export function WarnCard({ card, onApprove, onDeny, approvalRequirement }: Permi
 
       {approvalRequirement?.required ? (
         <div
-          className="border-t bg-warn/10 px-3 py-2 text-xs text-fg"
+          className="space-y-2 border-t bg-warn/10 px-3 py-2 text-xs text-fg"
           data-testid="permission-approval-requirement"
           data-satisfied={approvalRequirement.satisfied ? "true" : "false"}
         >
-          {approvalRequirement.message}
+          <p>{approvalRequirement.message}</p>
+          {approvalRequirement.onConfirmChange ? (
+            <label
+              className="flex items-start gap-2 rounded-sm border border-warn/30 bg-bg/70 px-2 py-2"
+              data-testid="permission-read-confirm"
+            >
+              <input
+                type="checkbox"
+                checked={approvalRequirement.confirmed === true}
+                onChange={(e) => approvalRequirement.onConfirmChange?.(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                data-testid="permission-read-confirm-checkbox"
+              />
+              <span className="min-w-0">
+                {approvalRequirement.confirmLabel ?? t("permission_card.read_gate.confirm_label")}
+              </span>
+            </label>
+          ) : null}
         </div>
       ) : null}
 

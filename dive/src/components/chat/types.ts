@@ -82,6 +82,16 @@ export interface StaleApprovalStateData {
   resolvedAt: number;
 }
 
+export interface PermissionWholeFileOverwriteWarningData {
+  linesRemoved: number;
+}
+
+export interface PermissionApprovalWarningsData {
+  secretFlagged: boolean;
+  secretReasons: string[];
+  wholeFileOverwrite: PermissionWholeFileOverwriteWarningData | null;
+}
+
 export interface ToolCallMessageData extends BaseMessage {
   kind: "tool_call";
   toolName: string;
@@ -98,6 +108,7 @@ export interface ToolCallMessageData extends BaseMessage {
     before: string;
     after: string;
   } | null;
+  approvalWarnings?: PermissionApprovalWarningsData | null;
   args?: unknown;
   deniedReason?: string;
   /** Spec §9.2 — populated when a `tool_call_blocked` event arrived. */
@@ -107,7 +118,7 @@ export interface ToolCallMessageData extends BaseMessage {
   };
 }
 
-export interface ToolApprovalMetadata {
+export interface ProvocationToolApprovalMetadata {
   source: "provocation.continue_with_risk";
   cardId: string;
   cardType: string;
@@ -115,6 +126,16 @@ export interface ToolApprovalMetadata {
   riskReason: string;
   highRiskFiles: string[];
 }
+
+export interface PermissionCardApprovalMetadata {
+  source: "permission_card.approval";
+  readGateSatisfied: boolean;
+  readGateMethod: "diff_viewed" | "checkbox" | "not_required";
+  secretFlagged: boolean;
+  warningKinds: string[];
+}
+
+export type ToolApprovalMetadata = ProvocationToolApprovalMetadata | PermissionCardApprovalMetadata;
 
 export interface ToolResultMessageData extends BaseMessage {
   kind: "tool_result";

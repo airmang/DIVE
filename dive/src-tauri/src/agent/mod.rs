@@ -14,8 +14,9 @@ pub use error::AgentError;
 pub use event::{AgentEvent, DiffPreview};
 pub use permission::{
     AgentRunMode, AlwaysApproveHook, AlwaysDenyHook, AutoApprove, AutoApprovePolicy, AwaitUserHook,
-    PendingApprovalSnapshot, PendingApprovals, PermissionDecision, PermissionHook,
-    PermissionRequestContext, PolicyAwareHook, PolicyHook, RunModePermissionHook, SafeOnlyHook,
+    PendingApprovalSnapshot, PendingApprovals, PermissionApprovalWarnings, PermissionDecision,
+    PermissionHook, PermissionRequestContext, PolicyAwareHook, PolicyHook, RunModePermissionHook,
+    SafeOnlyHook, WholeFileOverwriteWarning,
 };
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -36,7 +37,10 @@ use crate::providers::{
 use crate::tools::runtime::{
     classify_preview_open_command, RuntimeInputKind, RuntimeRoutingDecision, RuntimeRoutingOutcome,
 };
-use crate::tools::{params_preview, BlockReason, RiskLevel, ToolContext, ToolError, ToolRegistry};
+use crate::tools::{
+    assess_file_write_secrets, params_preview, BlockReason, RiskLevel, ToolContext, ToolError,
+    ToolRegistry,
+};
 
 const DEFAULT_MAX_ITERATIONS: u32 = 10;
 const PROJECT_COMMAND_DEFAULT_TIMEOUT_SEC: u64 = 30;
@@ -52,6 +56,71 @@ fn changed_paths_from_tool_result(tool_name: &str, full: &Value) -> Vec<String> 
         .and_then(Value::as_str)
         .map(|path| vec![path.to_owned()])
         .unwrap_or_default()
+}
+
+fn diff_line_count(text: &str) -> usize {
+    if text.is_empty() {
+        0
+    } else {
+        text.lines().count().max(1)
+    }
+}
+
+fn write_content_for_secret_assessment(tool_name: &str, args: &Value) -> Option<String> {
+    match tool_name {
+        "write_file" => args
+            .get("content")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        "edit_file" => args
+            .get("replace")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        _ => None,
+    }
+}
+
+fn approval_warnings_for_tool(
+    tool_name: &str,
+    args: &Value,
+    diff_preview: Option<&DiffPreview>,
+) -> PermissionApprovalWarnings {
+    if !matches!(tool_name, "write_file" | "edit_file") {
+        return PermissionApprovalWarnings::default();
+    }
+
+    let path = args
+        .get("path")
+        .and_then(Value::as_str)
+        .or_else(|| diff_preview.map(|diff| diff.path.as_str()))
+        .unwrap_or("");
+    let mut warnings = PermissionApprovalWarnings::default();
+
+    if let Some(content) = write_content_for_secret_assessment(tool_name, args) {
+        let secret = assess_file_write_secrets(path, &content);
+        warnings.secret_flagged = secret.flagged;
+        warnings.secret_reasons = secret.reasons;
+    }
+
+    if tool_name == "write_file" {
+        if let Some(diff) = diff_preview.filter(|diff| !diff.before.is_empty()) {
+            warnings.whole_file_overwrite = Some(WholeFileOverwriteWarning {
+                lines_removed: diff_line_count(&diff.before),
+            });
+        }
+    }
+
+    warnings
+}
+
+fn approval_risk(base: RiskLevel, warnings: &PermissionApprovalWarnings) -> RiskLevel {
+    if matches!(base, RiskLevel::Warn)
+        && (warnings.secret_flagged || warnings.whole_file_overwrite.is_some())
+    {
+        RiskLevel::Danger
+    } else {
+        base
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -294,7 +363,7 @@ impl AgentLoop {
 
             for tc in &tool_calls {
                 self.check_cancel()?;
-                let (risk, tool_opt) = match self.registry.get(&tc.name) {
+                let (base_risk, tool_opt) = match self.registry.get(&tc.name) {
                     Some(t) => (t.risk_level(), Some(t)),
                     None => (RiskLevel::Warn, None),
                 };
@@ -310,6 +379,9 @@ impl AgentLoop {
                     });
                 let preview = params_preview(&tc.name, &args_value);
                 let diff_preview = self.build_diff_preview(&tc.name, &args_value).await;
+                let approval_warnings =
+                    approval_warnings_for_tool(&tc.name, &args_value, diff_preview.as_ref());
+                let risk = approval_risk(base_risk, &approval_warnings);
                 let reasoning_text = reasoning_summary(&tc.name, &preview);
                 emit(AgentEvent::Reasoning {
                     id: Uuid::new_v4().to_string(),
@@ -328,13 +400,16 @@ impl AgentLoop {
                     params_preview: preview.clone(),
                     risk,
                     diff_preview: diff_preview.clone(),
+                    approval_warnings: approval_warnings.clone(),
                     args: args_value.clone(),
                 });
-                self.log_event(
-                    session_id,
-                    "tool_call_start",
-                    json!({ "tool": tc.name, "params_preview": preview, "risk": risk.as_str() }),
-                )?;
+                let mut start_payload =
+                    json!({ "tool": tc.name, "params_preview": preview, "risk": risk.as_str() });
+                if !approval_warnings.is_empty() {
+                    start_payload["approvalWarnings"] =
+                        serde_json::to_value(&approval_warnings).unwrap_or(Value::Null);
+                }
+                self.log_event(session_id, "tool_call_start", start_payload)?;
 
                 let Some(tool) = tool_opt else {
                     let msg = format!("tool '{}' not registered", tc.name);
@@ -408,6 +483,7 @@ impl AgentLoop {
                             session_id,
                             params_preview: preview.clone(),
                             diff_preview: diff_preview.clone(),
+                            approval_warnings: approval_warnings.clone(),
                             args: args_value.clone(),
                         },
                     )
@@ -870,7 +946,7 @@ impl AgentLoop {
         emit: &mut (dyn FnMut(AgentEvent) + Send),
     ) -> Result<SupervisedToolResult, AgentError> {
         self.check_cancel()?;
-        let (risk, tool_opt) = match self.registry.get(&tc.name) {
+        let (base_risk, tool_opt) = match self.registry.get(&tc.name) {
             Some(t) => (t.risk_level(), Some(t)),
             None => (RiskLevel::Warn, None),
         };
@@ -886,6 +962,9 @@ impl AgentLoop {
             });
         let preview = params_preview(&tc.name, &args_value);
         let diff_preview = self.build_diff_preview(&tc.name, &args_value).await;
+        let approval_warnings =
+            approval_warnings_for_tool(&tc.name, &args_value, diff_preview.as_ref());
+        let risk = approval_risk(base_risk, &approval_warnings);
         let reasoning_text = reasoning_summary(&tc.name, &preview);
         emit(AgentEvent::Reasoning {
             id: Uuid::new_v4().to_string(),
@@ -904,13 +983,20 @@ impl AgentLoop {
             params_preview: preview.clone(),
             risk,
             diff_preview: diff_preview.clone(),
+            approval_warnings: approval_warnings.clone(),
             args: args_value.clone(),
         });
-        self.log_event(
-            session_id,
-            "tool_call_start",
-            json!({ "tool": tc.name, "params_preview": preview, "risk": risk.as_str(), "runtime": "pi_sidecar" }),
-        )?;
+        let mut start_payload = json!({
+            "tool": tc.name,
+            "params_preview": preview,
+            "risk": risk.as_str(),
+            "runtime": "pi_sidecar"
+        });
+        if !approval_warnings.is_empty() {
+            start_payload["approvalWarnings"] =
+                serde_json::to_value(&approval_warnings).unwrap_or(Value::Null);
+        }
+        self.log_event(session_id, "tool_call_start", start_payload)?;
 
         let Some(tool) = tool_opt else {
             let msg = format!("tool '{}' not registered", tc.name);
@@ -1063,6 +1149,7 @@ impl AgentLoop {
                     session_id,
                     params_preview: preview.clone(),
                     diff_preview: diff_preview.clone(),
+                    approval_warnings: approval_warnings.clone(),
                     args: args_value.clone(),
                 },
             )

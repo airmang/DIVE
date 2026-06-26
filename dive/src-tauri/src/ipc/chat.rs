@@ -1038,9 +1038,12 @@ pub async fn tool_deny(
     state: State<'_, AppState>,
     tool_call_id: String,
     reason: Option<String>,
+    locale: Option<String>,
     session_id: Option<i64>,
 ) -> Result<bool, String> {
-    let decision = PermissionDecision::denied(reason.unwrap_or_else(|| "사용자가 거부함".into()));
+    let decision = PermissionDecision::denied(
+        reason.unwrap_or_else(|| default_tool_deny_reason(locale.as_deref()).into()),
+    );
     let resolved = state
         .pending_approvals
         .resolve_with_snapshot(&tool_call_id, decision);
@@ -1070,6 +1073,18 @@ pub async fn tool_deny(
             }
             Ok(false)
         }
+    }
+}
+
+fn default_tool_deny_reason(locale: Option<&str>) -> &'static str {
+    match locale
+        .unwrap_or("ko")
+        .split(['-', '_'])
+        .next()
+        .unwrap_or("ko")
+    {
+        "en" => "User denied",
+        _ => "사용자가 거부함",
     }
 }
 

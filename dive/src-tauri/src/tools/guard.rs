@@ -31,6 +31,21 @@ pub struct BlockReason {
     pub pattern: String,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SecretWriteAssessment {
+    pub flagged: bool,
+    pub reasons: Vec<String>,
+}
+
+impl SecretWriteAssessment {
+    fn push_reason(&mut self, reason: &str) {
+        self.flagged = true;
+        if !self.reasons.iter().any(|existing| existing == reason) {
+            self.reasons.push(reason.to_owned());
+        }
+    }
+}
+
 impl BlockReason {
     fn new(rule: &str, pattern: &str) -> Self {
         Self {
@@ -140,6 +155,20 @@ static REGEX_RULES: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
     ]
 });
 
+static SECRET_ASSIGNMENT_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r#"(?ix)
+        \b(?:api[_-]?key|token|secret|password|authorization|bearer|private[_-]?key|access[_-]?key|refresh[_-]?token|client[_-]?secret|OPENAI_API_KEY|ANTHROPIC_API_KEY|DATABASE_URL)\b
+        \s*[:=]\s*
+        ["']?[A-Za-z0-9_\-./+=]{8,}
+        "#,
+    )
+    .unwrap()
+});
+
+static HIGH_ENTROPY_TOKEN_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"[A-Za-z0-9_+/=-]{32,}"#).unwrap());
+
 /// Evaluate a bash command string against every rule. Returns the first match.
 pub fn classify_bash_command(cmd: &str) -> Option<BlockReason> {
     let trimmed = cmd.trim();
@@ -164,6 +193,62 @@ pub fn classify_bash_command(cmd: &str) -> Option<BlockReason> {
     }
 
     None
+}
+
+fn looks_like_env_file(path: &str) -> bool {
+    let name = Path::new(path)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(path);
+    name == ".env" || name.starts_with(".env.")
+}
+
+fn shannon_entropy(token: &str) -> f64 {
+    if token.is_empty() {
+        return 0.0;
+    }
+    let mut counts = std::collections::HashMap::<char, usize>::new();
+    for ch in token.chars() {
+        *counts.entry(ch).or_insert(0) += 1;
+    }
+    let len = token.chars().count() as f64;
+    counts
+        .values()
+        .map(|count| {
+            let p = *count as f64 / len;
+            -p * p.log2()
+        })
+        .sum()
+}
+
+fn high_entropy_literal(text: &str) -> bool {
+    HIGH_ENTROPY_TOKEN_RE.find_iter(text).any(|matched| {
+        let token = matched.as_str();
+        let has_letter = token.chars().any(|ch| ch.is_ascii_alphabetic());
+        let has_digit = token.chars().any(|ch| ch.is_ascii_digit());
+        let distinct = token
+            .chars()
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+        has_letter && has_digit && distinct >= 12 && shannon_entropy(token) >= 3.5
+    })
+}
+
+/// Evaluate file write/edit content for likely secrets before approval. This is
+/// a warning/escalation heuristic, not a hard block: users can still approve
+/// after the danger-tier diff acknowledgement.
+pub fn assess_file_write_secrets(path: &str, content: &str) -> SecretWriteAssessment {
+    let mut assessment = SecretWriteAssessment::default();
+    if looks_like_env_file(path) {
+        assessment.push_reason("env_file");
+    }
+    if SECRET_ASSIGNMENT_RE.is_match(content) {
+        assessment.push_reason("named_secret");
+    }
+    if high_entropy_literal(content) {
+        assessment.push_reason("high_entropy_literal");
+    }
+    assessment
 }
 
 /// Convert a `BlockReason` into a `ToolError` for the validate path.

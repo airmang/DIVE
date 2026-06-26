@@ -54,6 +54,7 @@ pub struct PermissionRequestContext {
     pub session_id: i64,
     pub params_preview: String,
     pub diff_preview: Option<DiffPreview>,
+    pub approval_warnings: PermissionApprovalWarnings,
     pub args: Value,
 }
 
@@ -64,9 +65,34 @@ impl PermissionRequestContext {
             session_id,
             params_preview: "{}".into(),
             diff_preview: None,
+            approval_warnings: PermissionApprovalWarnings::default(),
             args: Value::Object(Default::default()),
         }
     }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionApprovalWarnings {
+    pub secret_flagged: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub secret_reasons: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub whole_file_overwrite: Option<WholeFileOverwriteWarning>,
+}
+
+impl PermissionApprovalWarnings {
+    pub fn is_empty(&self) -> bool {
+        !self.secret_flagged
+            && self.secret_reasons.is_empty()
+            && self.whole_file_overwrite.is_none()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WholeFileOverwriteWarning {
+    pub lines_removed: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -79,6 +105,8 @@ pub struct PendingApprovalSnapshot {
     pub risk: RiskLevel,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diff_preview: Option<DiffPreview>,
+    #[serde(skip_serializing_if = "PermissionApprovalWarnings::is_empty")]
+    pub approval_warnings: PermissionApprovalWarnings,
     pub args: Value,
 }
 
@@ -91,6 +119,7 @@ impl PendingApprovalSnapshot {
             params_preview: context.params_preview,
             risk,
             diff_preview: context.diff_preview,
+            approval_warnings: context.approval_warnings,
             args: context.args,
         }
     }

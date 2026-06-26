@@ -220,6 +220,90 @@ fn default_export_hashes_all_message_roles() {
 }
 
 #[test]
+fn export_preserves_permission_read_gate_and_secret_outcomes_without_secret_text() {
+    let (db, sid) = seed();
+    {
+        let db_guard = db.lock().unwrap();
+        dive_event_log::append_to_conn(
+            db_guard.conn(),
+            Some(sid),
+            "tool_call_start",
+            json!({
+                "tool": "write_file",
+                "params_preview": "path: \".env\" OPENAI_API_KEY=sk-test-1234567890",
+                "risk": "danger",
+                "approvalWarnings": {
+                    "secretFlagged": true,
+                    "secretReasons": ["env_file", "named_secret"],
+                    "wholeFileOverwrite": null
+                }
+            }),
+        )
+        .unwrap();
+        dive_event_log::append_to_conn(
+            db_guard.conn(),
+            Some(sid),
+            "tool_approve",
+            json!({
+                "tool": "write_file",
+                "tool_call_id": "secret-write",
+                "risk": "danger",
+                "approval_metadata": {
+                    "source": "permission_card.approval",
+                    "readGateSatisfied": true,
+                    "readGateMethod": "checkbox",
+                    "secretFlagged": true,
+                    "warningKinds": ["secret_flagged"]
+                }
+            }),
+        )
+        .unwrap();
+        // A read-gated approval WITHOUT a secret: its dominant outcome is
+        // `read_gate_satisfied` (the secret event above dominates to
+        // `secret_flagged`), so the export vocabulary covers both outcomes.
+        dive_event_log::append_to_conn(
+            db_guard.conn(),
+            Some(sid),
+            "tool_approve",
+            json!({
+                "tool": "edit_file",
+                "tool_call_id": "read-gate-write",
+                "risk": "warn",
+                "approval_metadata": {
+                    "source": "permission_card.approval",
+                    "readGateSatisfied": true,
+                    "readGateMethod": "scroll"
+                }
+            }),
+        )
+        .unwrap();
+    }
+
+    let engine = ExportEngine::new(db);
+    let jsonl = engine
+        .export_session_with_salt(
+            sid,
+            &ExportOptions {
+                hash_user_text: false,
+                hash_file_paths: false,
+                hash_ids: false,
+                ..ExportOptions::default()
+            },
+            "fixed-salt",
+        )
+        .unwrap();
+
+    assert!(jsonl.contains("read_gate_satisfied"));
+    assert!(jsonl.contains("secret_flagged"));
+    assert!(jsonl.contains("\"readGateSatisfied\":true"));
+    assert!(jsonl.contains("\"secretFlagged\":true"));
+    assert!(
+        !jsonl.contains("sk-test-1234567890"),
+        "permission export leaked a secret literal: {jsonl}"
+    );
+}
+
+#[test]
 fn export_distinguishes_008_runtime_events_and_redacts_outputs() {
     let (db, sid) = seed();
     {

@@ -1901,6 +1901,7 @@ fn pending_tool_calls_are_rehydratable_by_session() {
         params_preview: "path: output".into(),
         risk: crate::tools::RiskLevel::Warn,
         diff_preview: None,
+        approval_warnings: crate::agent::PermissionApprovalWarnings::default(),
         args: serde_json::json!({ "path": "output" }),
     };
     let second = PendingApprovalSnapshot {
@@ -1910,6 +1911,7 @@ fn pending_tool_calls_are_rehydratable_by_session() {
         params_preview: "path: index.html".into(),
         risk: crate::tools::RiskLevel::Warn,
         diff_preview: None,
+        approval_warnings: crate::agent::PermissionApprovalWarnings::default(),
         args: serde_json::json!({ "path": "index.html" }),
     };
     let _first_rx = state.pending_approvals.register(first);

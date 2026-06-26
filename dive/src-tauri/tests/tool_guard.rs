@@ -3,7 +3,9 @@ use std::sync::{atomic::AtomicBool, Arc, Mutex};
 use dive_lib::agent::{AgentEvent, AgentLoop, AlwaysApproveHook};
 use dive_lib::db::dao::{card, project, session};
 use dive_lib::db::models::{CardState, NewCard, NewProject, NewSession};
-use dive_lib::tools::{classify_bash_command, RiskLevel, ToolContext, ToolRegistry};
+use dive_lib::tools::{
+    assess_file_write_secrets, classify_bash_command, RiskLevel, ToolContext, ToolRegistry,
+};
 use dive_lib::{ChatEvent, FinishReason, MockProvider};
 
 #[test]
@@ -82,6 +84,27 @@ fn blocklist_lets_normal_commands_pass() {
             "pattern must pass: {cmd}"
         );
     }
+}
+
+#[test]
+fn secret_write_heuristic_flags_env_named_secret_and_entropy() {
+    let env = assess_file_write_secrets(".env.local", "VITE_PUBLIC_URL=http://localhost:5173");
+    assert!(env.flagged);
+    assert!(env.reasons.iter().any(|reason| reason == "env_file"));
+
+    let named = assess_file_write_secrets("src/config.ts", "apiKey = 'sk-test-1234567890'");
+    assert!(named.flagged);
+    assert!(named.reasons.iter().any(|reason| reason == "named_secret"));
+
+    let entropy = assess_file_write_secrets(
+        "src/config.ts",
+        "const token = 'aB3dE5gH7jK9mN2pQ4rS6tU8vW0xY1zZ';",
+    );
+    assert!(entropy.flagged);
+    assert!(entropy
+        .reasons
+        .iter()
+        .any(|reason| reason == "high_entropy_literal"));
 }
 
 #[test]
@@ -257,4 +280,123 @@ async fn agent_rejects_unregistered_bash_without_approval() {
         result.is_some(),
         "unregistered bash must produce not-registered result"
     );
+}
+
+#[tokio::test]
+async fn agent_escalates_secret_write_approval_to_danger() {
+    let db_file = tempfile::NamedTempFile::new().unwrap();
+    let mut db = dive_lib::Database::open(db_file.path()).unwrap();
+    db.migrate().unwrap();
+    let project_root = tempfile::tempdir().unwrap();
+    let project_id = project::insert(
+        db.conn(),
+        &NewProject {
+            name: "t".into(),
+            path: project_root.path().to_string_lossy().into(),
+            provider_default: None,
+            model_default: None,
+        },
+    )
+    .unwrap();
+    let session_id = session::insert(
+        db.conn(),
+        &NewSession {
+            project_id,
+            title: "s".into(),
+            ended_at: None,
+            status: "active".into(),
+        },
+    )
+    .unwrap();
+    card::insert(
+        db.conn(),
+        &NewCard {
+            session_id,
+            title: "c".into(),
+            instruction: None,
+            assist_summary: None,
+            acceptance_criteria: None,
+            retrospective: None,
+            change_summary: None,
+            state: CardState::Decomposed,
+            verify_log: None,
+            changed_files: None,
+            test_command: None,
+            approval_judgment: None,
+            approval_provenance: None,
+            position: 1,
+        },
+    )
+    .unwrap();
+    let db = Arc::new(Mutex::new(db));
+
+    let mock = Arc::new(MockProvider::new(vec![
+        vec![
+            ChatEvent::ToolCallStart {
+                id: "secret-write".into(),
+                name: "write_file".into(),
+            },
+            ChatEvent::ToolCallDelta {
+                id: "secret-write".into(),
+                arguments_delta: r#"{"path":".env","content":"OPENAI_API_KEY=sk-test-1234567890"}"#
+                    .into(),
+            },
+            ChatEvent::ToolCallEnd {
+                id: "secret-write".into(),
+            },
+            ChatEvent::Done {
+                finish_reason: FinishReason::ToolCalls,
+            },
+        ],
+        vec![
+            ChatEvent::TextDelta("done".into()),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ],
+    ]));
+
+    let loop_ = AgentLoop::builder()
+        .provider(mock)
+        .registry(Arc::new(ToolRegistry::with_builtins()))
+        .permission(Arc::new(AlwaysApproveHook))
+        .db(db)
+        .tool_ctx(ToolContext::new(project_root.path(), session_id))
+        .model("mock-model")
+        .cancel(Arc::new(AtomicBool::new(false)))
+        .max_iterations(3)
+        .build()
+        .unwrap();
+
+    let mut events: Vec<AgentEvent> = Vec::new();
+    loop_
+        .run(session_id, "write secret", &mut |event| events.push(event))
+        .await
+        .unwrap();
+
+    let start = events
+        .iter()
+        .find_map(|event| match event {
+            AgentEvent::ToolCallStart {
+                id,
+                risk,
+                approval_warnings,
+                ..
+            } if id == "secret-write" => Some((risk, approval_warnings)),
+            _ => None,
+        })
+        .expect("secret write start event");
+
+    assert_eq!(*start.0, RiskLevel::Danger);
+    assert!(start.1.secret_flagged);
+    assert!(start
+        .1
+        .secret_reasons
+        .iter()
+        .any(|reason| reason == "env_file"));
+    assert!(start
+        .1
+        .secret_reasons
+        .iter()
+        .any(|reason| reason == "named_secret"));
 }

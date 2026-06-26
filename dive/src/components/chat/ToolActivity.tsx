@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import {
   Ban,
   Check,
@@ -20,7 +20,11 @@ import type {
 } from "./types";
 import { Badge } from "../ui/badge";
 import { PermissionCard } from "../permission-card";
-import type { PermissionActionContext, PermissionCardData } from "../permission-card";
+import type {
+  PermissionActionContext,
+  PermissionApprovalWarnings,
+  PermissionCardData,
+} from "../permission-card";
 import { formatRaw } from "../permission-card/explain";
 import { McpProvenanceBadge } from "../mcp/McpProvenanceBadge";
 import { useT } from "../../i18n";
@@ -115,6 +119,47 @@ function actionContextForCall(
   };
 }
 
+function requiresReadGate(call: ToolCallMessageData): boolean {
+  // Read gate fires for any pending non-Safe write/edit, or whenever the backend
+  // flagged a secret — independent of whether a diff preview is available. When
+  // no diff exists the cards fall back to a checkbox-only confirm, so the riskiest
+  // writes can never be rubber-stamped (read_file / Safe stay auto-approved).
+  if (call.status !== "pending" || call.risk === "safe") return false;
+  const isWriteOrEdit = call.toolName === "write_file" || call.toolName === "edit_file";
+  const secretFlagged = call.approvalWarnings?.secretFlagged === true;
+  return isWriteOrEdit || secretFlagged;
+}
+
+function warningKinds(warnings: PermissionApprovalWarnings | null | undefined): string[] {
+  const kinds: string[] = [];
+  if (warnings?.secretFlagged) kinds.push("secret_flagged");
+  if (warnings?.wholeFileOverwrite) kinds.push("whole_file_overwrite");
+  return kinds;
+}
+
+function permissionApprovalMetadata(
+  readGateRequired: boolean,
+  diffViewed: boolean,
+  readConfirmed: boolean,
+  warnings: PermissionApprovalWarnings | null | undefined,
+): ToolApprovalMetadata | undefined {
+  const kinds = warningKinds(warnings);
+  if (!readGateRequired && kinds.length === 0) return undefined;
+  return {
+    source: "permission_card.approval",
+    readGateSatisfied: !readGateRequired || diffViewed || readConfirmed,
+    readGateMethod: !readGateRequired
+      ? "not_required"
+      : diffViewed
+        ? "diff_viewed"
+        : readConfirmed
+          ? "checkbox"
+          : "not_required",
+    secretFlagged: warnings?.secretFlagged === true,
+    warningKinds: kinds,
+  };
+}
+
 function toolIcon(toolName: string): LucideIcon {
   switch (toolName) {
     case "read_file":
@@ -148,6 +193,12 @@ function runtimeActionLabelKey(action: ToolCallMessageData["runtimeAction"]): st
 
 function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocation }: Props) {
   const t = useT();
+  const [diffViewedByToolCallId, setDiffViewedByToolCallId] = useState<Record<string, boolean>>(
+    () => ({}),
+  );
+  const [readConfirmedByToolCallId, setReadConfirmedByToolCallId] = useState<
+    Record<string, boolean>
+  >(() => ({}));
 
   const showCard =
     call.status === "pending" &&
@@ -163,8 +214,40 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
     [call, provocation?.checkpointAvailable, targetFiles],
   );
 
+  const markDiffViewed = useCallback((toolCallId: string) => {
+    setDiffViewedByToolCallId((current) =>
+      current[toolCallId] ? current : { ...current, [toolCallId]: true },
+    );
+  }, []);
+  const setReadConfirmed = useCallback((toolCallId: string, confirmed: boolean) => {
+    setReadConfirmedByToolCallId((current) => ({ ...current, [toolCallId]: confirmed }));
+  }, []);
+
+  const readGateRequired = requiresReadGate(call);
+  const diffViewed = diffViewedByToolCallId[call.id] === true;
+  const readConfirmed = readConfirmedByToolCallId[call.id] === true;
+  const approvalRequirement = readGateRequired
+    ? {
+        required: true,
+        satisfied: diffViewed || readConfirmed,
+        message: t("permission_card.read_gate.message"),
+        confirmLabel: t("permission_card.read_gate.confirm_label"),
+        confirmed: readConfirmed,
+        onConfirmChange: (confirmed: boolean) => setReadConfirmed(call.id, confirmed),
+      }
+    : undefined;
+
   const handleApprove = (toolCallId: string, modifiedArgs?: unknown) => {
-    onApprove?.(toolCallId, modifiedArgs);
+    onApprove?.(
+      toolCallId,
+      modifiedArgs,
+      permissionApprovalMetadata(
+        readGateRequired,
+        diffViewed,
+        readConfirmed,
+        call.approvalWarnings,
+      ),
+    );
   };
 
   // pending + risk → elevated approval gate (supervision moment)
@@ -175,6 +258,7 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
       paramsPreview: call.paramsPreview,
       risk: call.risk!,
       diffPreview: call.diffPreview ?? null,
+      approvalWarnings: call.approvalWarnings ?? null,
       args: call.args,
       actionContext: permissionActionContext,
     };
@@ -192,7 +276,13 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
               <span className="font-semibold">↳ {t("tool_call.why_label")}</span> {reasoning.text}
             </p>
           ) : null}
-          <PermissionCard card={card} onApprove={handleApprove} onDeny={onDeny} />
+          <PermissionCard
+            card={card}
+            onApprove={handleApprove}
+            onDeny={onDeny}
+            onDiffViewed={markDiffViewed}
+            approvalRequirement={approvalRequirement}
+          />
         </div>
       </article>
     );

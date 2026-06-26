@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useT } from "../../i18n";
-import type { DiffPreviewData } from "./types";
+import type { DiffPreviewData, PermissionApprovalWarnings } from "./types";
 import { computeLineDiff } from "./diff";
 
 interface Props {
@@ -9,11 +9,29 @@ interface Props {
   /** When set, render a link in the truncated footer that opens the full diff
    * in the slide-in panel (task 2-5). */
   onExpand?: () => void;
+  onViewed?: () => void;
+  approvalWarnings?: PermissionApprovalWarnings | null;
 }
 
-export function DiffViewer({ diff, className, onExpand }: Props) {
+function secretReasonLabel(reason: string, t: (key: string) => string): string {
+  switch (reason) {
+    case "env_file":
+      return t("permission_card.diff.secret_reason_env_file");
+    case "named_secret":
+      return t("permission_card.diff.secret_reason_named_secret");
+    case "high_entropy_literal":
+      return t("permission_card.diff.secret_reason_high_entropy_literal");
+    default:
+      return reason;
+  }
+}
+
+export function DiffViewer({ diff, className, onExpand, onViewed, approvalWarnings }: Props) {
   const t = useT();
   const result = useMemo(() => computeLineDiff(diff.before, diff.after), [diff.before, diff.after]);
+  const markViewed = useCallback(() => {
+    onViewed?.();
+  }, [onViewed]);
 
   return (
     <div
@@ -34,7 +52,36 @@ export function DiffViewer({ diff, className, onExpand }: Props) {
           </span>
         </span>
       </header>
-      <pre className="max-h-72 overflow-auto font-mono text-xs leading-5">
+      {approvalWarnings?.secretFlagged ? (
+        <div
+          className="border-b border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger"
+          data-testid="diff-secret-callout"
+        >
+          <p className="font-semibold">{t("permission_card.diff.secret_title")}</p>
+          <p className="mt-0.5">{t("permission_card.diff.secret_body")}</p>
+          {approvalWarnings.secretReasons.length > 0 ? (
+            <p className="mt-1 font-mono text-[11px]">
+              {approvalWarnings.secretReasons
+                .map((reason) => secretReasonLabel(reason, t))
+                .join(", ")}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {approvalWarnings?.wholeFileOverwrite ? (
+        <div
+          className="border-b border-warn/30 bg-warn/10 px-3 py-2 text-xs text-fg"
+          data-testid="diff-overwrite-callout"
+        >
+          <p className="font-semibold text-warn">{t("permission_card.diff.overwrite_title")}</p>
+          <p className="mt-0.5">
+            {t("permission_card.diff.overwrite_body", {
+              count: approvalWarnings.wholeFileOverwrite.linesRemoved,
+            })}
+          </p>
+        </div>
+      ) : null}
+      <pre className="max-h-72 overflow-auto font-mono text-xs leading-5" onScroll={markViewed}>
         {result.lines.map((line, idx) => {
           const bg = line.op === "add" ? "bg-success/10" : line.op === "del" ? "bg-danger/10" : "";
           const prefix = line.op === "add" ? "+ " : line.op === "del" ? "− " : "  ";
@@ -66,7 +113,10 @@ export function DiffViewer({ diff, className, onExpand }: Props) {
           {onExpand ? (
             <button
               type="button"
-              onClick={onExpand}
+              onClick={() => {
+                markViewed();
+                onExpand?.();
+              }}
               data-testid="diff-expand"
               className="text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
             >

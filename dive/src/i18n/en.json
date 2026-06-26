@@ -1176,6 +1176,10 @@
       "args_aria": "Edit tool arguments as JSON",
       "json_error": "JSON error: {{message}}"
     },
+    "read_gate": {
+      "message": "Before approving, open or scroll the diff, or tick that you read the change.",
+      "confirm_label": "I read the change"
+    },
     "summary": {
       "files_title": "Files or folders involved",
       "files_empty": "No specific file path was provided.",
@@ -1192,6 +1196,29 @@
       "checkpoint_unavailable": "No checkpoint yet",
       "checkpoint_unknown": "Unknown",
       "none": "None"
+    },
+    "change_summary": {
+      "title": "Plain-language change summary",
+      "create_file": "Creates a new {{fileKind}} file with {{added}} lines.",
+      "edit_file": "Changes {{fileKind}}: {{added}} lines added, {{removed}} removed.",
+      "replace_file": "Replaces the entire {{fileKind}} file: {{removed}} lines removed, {{added}} lines written.",
+      "line_counts": "{{added}} lines added and {{removed}} lines removed.",
+      "file_kind": {
+        "html": "HTML",
+        "css": "CSS",
+        "component": "component",
+        "code": "code",
+        "json": "JSON",
+        "markdown": "Markdown",
+        "file": "project"
+      },
+      "hints": {
+        "table": "Adds a <table> ({{count}} rows).",
+        "form": "Adds a form.",
+        "hover": "Adds a :hover rule.",
+        "interaction": "Adds click or browser interaction code.",
+        "dependencies": "Changes dependencies: {{packages}}."
+      }
     },
     "command": {
       "title": "Command to run",
@@ -1212,16 +1239,30 @@
       "change_yes": "This action is expected to change project files.",
       "change_no": "This command is not expected to change files.",
       "failure_note": "If it fails, no approval is reused automatically. DIVE gets the error and can explain it.",
-      "deny_note": "You can deny now and ask DIVE why this command is needed."
+      "deny_note": "You can deny now and ask DIVE why this command is needed.",
+      "dependency_consent_title": "New dependency consent",
+      "dependency_consent_body": "This command can add or update project packages. Check the package names and reason before allowing it.",
+      "dependency_consent_packages": "Packages: {{packages}}"
     },
     "patch": {
       "title": "Patch preview before approval",
       "with_diff": "Review the exact before/after file change. Nothing here is applied until you allow it.",
-      "missing_diff": "A patch preview is not available for this request. Review the file path and raw details before deciding."
+      "missing_diff": "A patch preview is not available for this request. Review the file path and raw details before deciding.",
+      "explain": "Explain this change",
+      "explain_title": "Change explanation",
+      "explain_body": "This explanation is derived from the diff preview.",
+      "explain_unavailable": "A richer AI explanation is unavailable right now; the deterministic summary is still shown."
     },
     "diff": {
       "truncated": "Over 300 lines - showing part only",
-      "expand": "Show all"
+      "expand": "Show all",
+      "secret_title": "Possible secret written to source",
+      "secret_body": "This change looks like it writes a token, key, password, or .env value. Prefer a gitignored config file and deny if you did not expect this.",
+      "secret_reason_env_file": ".env target file",
+      "secret_reason_named_secret": "secret-looking name or assignment",
+      "secret_reason_high_entropy_literal": "long high-entropy literal",
+      "overwrite_title": "Whole-file replacement",
+      "overwrite_body": "This replaces the existing file and removes {{count}} lines. Confirm the whole file should be overwritten."
     },
     "risk": {
       "safe": {

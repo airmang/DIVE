@@ -10,6 +10,7 @@ import type {
   SystemMessageData,
   StaleApprovalStateData,
   ToolApprovalMetadata,
+  PermissionApprovalWarningsData,
   ToolCallMessageData,
   ToolResultMessageData,
   UserMessageData,
@@ -134,6 +135,7 @@ export type AgentEvent =
         before: string;
         after: string;
       } | null;
+      approval_warnings?: PermissionApprovalWarningsData | null;
       args: unknown;
     }
   | { type: "tool_call_approved"; id: string }
@@ -213,6 +215,7 @@ type PendingToolCall = {
     before: string;
     after: string;
   } | null;
+  approvalWarnings?: PermissionApprovalWarningsData | null;
   args: unknown;
 };
 
@@ -302,6 +305,7 @@ function pendingToolCallToMessage(call: PendingToolCall): ToolCallMessageData {
     risk: call.risk,
     runtimeAction: runtimeActionForTool(call.tool),
     diffPreview: call.diffPreview ?? null,
+    approvalWarnings: call.approvalWarnings ?? null,
     args: call.args,
   };
 }
@@ -859,6 +863,7 @@ export function useChatSession(
         const resolved = await api.invoke<boolean>("tool_deny", {
           toolCallId,
           reason: reason ?? null,
+          locale: useLocaleStore.getState().locale,
           sessionId,
         });
         if (!resolved) {
@@ -1241,6 +1246,7 @@ export function reduceChatSessionState(prev: ChatSessionState, evt: AgentEvent):
         risk: evt.risk,
         runtimeAction: runtimeActionForTool(evt.tool),
         diffPreview: evt.diff_preview ?? null,
+        approvalWarnings: evt.approval_warnings ?? null,
         args: evt.args,
       };
       return {
