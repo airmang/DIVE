@@ -1,6 +1,7 @@
-import { ClipboardList, MessageCircle, Repeat, Trash2 } from "lucide-react";
+import { ClipboardList, ListPlus, MessageCircle, Repeat, Trash2 } from "lucide-react";
 import type {
   AcceptanceCriterionInput,
+  MultiStepDraftInput,
   RouteDecision,
   StepDraftInput,
   StepRefPayload,
@@ -18,12 +19,19 @@ import {
 } from "../ui/dialog";
 
 // S-033 P8b: the confirm modal surfaces every reviewable router outcome. Apply
-// happens from here (remove/supersede) or routes to the add-step area (add_step);
-// duplicate is informational only.
+// happens from here (remove/supersede/multi_step) or routes to the add-step area
+// (add_step); duplicate and clarify are informational (dismiss-only).
 export type ConfirmableRouteDecision = Extract<
   RouteDecision,
-  { action: "add_step" | "remove_step" | "supersede_step" | "duplicate" }
+  {
+    action: "add_step" | "remove_step" | "supersede_step" | "duplicate" | "clarify" | "multi_step";
+  }
 >;
+
+// duplicate and clarify present information; they have no apply action.
+function isInfoOnly(action: ConfirmableRouteDecision["action"]): boolean {
+  return action === "duplicate" || action === "clarify";
+}
 
 type Translate = ReturnType<typeof useT>;
 
@@ -136,7 +144,76 @@ function RouteDecisionBody({
           />
         </div>
       );
+    case "clarify":
+      return <ClarifyCard decision={decision} t={t} />;
+    case "multi_step":
+      return <MultiStepList drafts={decision.drafts} t={t} />;
+    default: {
+      // Compile-time exhaustiveness: a new ConfirmableRouteDecision action must
+      // add a case here, or this `never` assignment fails to type-check.
+      const exhaustive: never = decision;
+      return exhaustive;
+    }
   }
+}
+
+function ClarifyCard({
+  decision,
+  t,
+}: {
+  decision: Extract<ConfirmableRouteDecision, { action: "clarify" }>;
+  t: Translate;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <section className="rounded-md border bg-bg-panel2 p-4">
+        <p className="text-xs font-semibold uppercase text-fg-muted">
+          {t("planning.route.confirm.clarify.question_label")}
+        </p>
+        <p className="mt-1 text-base font-semibold text-fg">{decision.question}</p>
+      </section>
+      {decision.candidateIntent ? (
+        <div>
+          <p className="text-xs font-medium text-fg-muted">
+            {t("planning.route.confirm.clarify.intent_label")}
+          </p>
+          <p className="mt-1 text-sm text-fg-muted">{decision.candidateIntent}</p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MultiStepList({ drafts, t }: { drafts: MultiStepDraftInput[]; t: Translate }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-xs font-semibold uppercase text-fg-muted">
+        {t("planning.route.confirm.multi_step.steps_label", { count: drafts.length })}
+      </p>
+      <ol className="flex flex-col gap-3">
+        {drafts.map((item, index) => (
+          <li key={index} className="rounded-md border bg-bg-panel2 p-4">
+            <div className="flex items-baseline justify-between gap-2">
+              <h3 className="text-sm font-semibold text-fg">
+                <span className="text-fg-muted">{index + 1}.</span> {item.draft.title}
+              </h3>
+              {item.dependsOnDraft.length > 0 ? (
+                <span className="shrink-0 text-xs text-fg-muted">
+                  {t("planning.route.confirm.multi_step.depends_on_label", {
+                    steps: item.dependsOnDraft.map((dep) => `#${dep + 1}`).join(", "),
+                  })}
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-1 text-sm text-fg-muted">{item.draft.summary}</p>
+            {item.draft.expectedFiles.length > 0 ? (
+              <p className="mt-2 text-xs text-fg-muted">{item.draft.expectedFiles.join(", ")}</p>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
 }
 
 function RouteDecisionFooter({
@@ -152,11 +229,13 @@ function RouteDecisionFooter({
   onReject: () => void;
   t: Translate;
 }) {
-  if (decision?.action === "duplicate") {
+  if (decision && isInfoOnly(decision.action)) {
     return (
       <DialogFooter>
         <Button onClick={onReject} data-testid="plan-route-dismiss">
-          {t("planning.route.confirm.duplicate.dismiss_button")}
+          {decision.action === "clarify"
+            ? t("planning.route.confirm.clarify.dismiss_button")
+            : t("planning.route.confirm.duplicate.dismiss_button")}
         </Button>
       </DialogFooter>
     );
@@ -269,6 +348,10 @@ function headerTitle(decision: ConfirmableRouteDecision | null, t: Translate): s
       return t("planning.route.confirm.supersede.title");
     case "duplicate":
       return t("planning.route.confirm.duplicate.title");
+    case "clarify":
+      return t("planning.route.confirm.clarify.title");
+    case "multi_step":
+      return t("planning.route.confirm.multi_step.title");
     default:
       return t("planning.route.confirm.title");
   }
@@ -282,6 +365,10 @@ function headerDescription(decision: ConfirmableRouteDecision | null, t: Transla
       return t("planning.route.confirm.supersede.description");
     case "duplicate":
       return t("planning.route.confirm.duplicate.description");
+    case "clarify":
+      return t("planning.route.confirm.clarify.description");
+    case "multi_step":
+      return t("planning.route.confirm.multi_step.description");
     default:
       return t("planning.route.confirm.description");
   }
@@ -293,6 +380,8 @@ function primaryLabel(decision: ConfirmableRouteDecision | null, t: Translate): 
       return t("planning.route.confirm.remove.confirm_button");
     case "supersede_step":
       return t("planning.route.confirm.supersede.confirm_button");
+    case "multi_step":
+      return t("planning.route.confirm.multi_step.confirm_button");
     default:
       return t("planning.route.confirm.add_button");
   }
@@ -304,6 +393,8 @@ function primaryIcon(decision: ConfirmableRouteDecision | null) {
       return <Trash2 className="h-4 w-4" />;
     case "supersede_step":
       return <Repeat className="h-4 w-4" />;
+    case "multi_step":
+      return <ListPlus className="h-4 w-4" />;
     default:
       return <ClipboardList className="h-4 w-4" />;
   }

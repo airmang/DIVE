@@ -488,22 +488,19 @@ export function useProductShellController() {
       }
 
       // add_step routes to the dashboard add-step area; remove/supersede apply
-      // directly from the confirm modal; duplicate is informational. clarify and
-      // multi_step still fall through to normal chat (surfaced in P8b-2).
-      if (
-        decision.action !== "add_step" &&
-        decision.action !== "remove_step" &&
-        decision.action !== "supersede_step" &&
-        decision.action !== "duplicate"
-      ) {
+      // chat / skip stay normal chat; every confirmable outcome opens the modal.
+      // add_step routes to the dashboard add-step area; remove / supersede /
+      // multi_step apply from the modal; duplicate / clarify are informational.
+      if (decision.action === "chat" || decision.action === "skip") {
         return true;
       }
 
       const approved = await requestPlanRouteConfirmation(decision);
 
-      if (decision.action === "duplicate") {
-        // Informational only: the modal was the response, so don't also send the
-        // original (duplicate) request to chat.
+      if (decision.action === "duplicate" || decision.action === "clarify") {
+        // Informational: the modal was the response — duplicate shows the
+        // collision, clarify asks a question the user answers in chat (which
+        // routes again). Don't re-send the original message.
         return false;
       }
 
@@ -526,18 +523,19 @@ export function useProductShellController() {
         return false;
       }
 
-      // remove_step / supersede_step: "Cancel" dismisses the proposal without
-      // re-sending the request to chat; approve applies directly, then refreshes.
+      // remove_step / supersede_step / multi_step apply directly from the modal;
+      // "Cancel" dismisses without re-sending the request to chat.
       if (!approved) return false;
       try {
-        const stepLabel = `${decision.target.stepId}: ${decision.target.title}`;
         if (decision.action === "remove_step") {
+          const stepLabel = `${decision.target.stepId}: ${decision.target.title}`;
           await planRouter.removeStep(approvedPlanId, decision.target.dbId, decision.reason);
           toast({
             variant: "success",
             title: t("planning.route.confirm.removed_toast", { step: stepLabel }),
           });
-        } else {
+        } else if (decision.action === "supersede_step") {
+          const stepLabel = `${decision.target.stepId}: ${decision.target.title}`;
           await planRouter.supersedeStep(
             approvedPlanId,
             decision.target.dbId,
@@ -547,6 +545,17 @@ export function useProductShellController() {
           toast({
             variant: "success",
             title: t("planning.route.confirm.superseded_toast", { step: stepLabel }),
+          });
+        } else {
+          // multi_step: insert the whole dependency-ordered batch in one IPC.
+          await planRouter.appendSteps(approvedPlanId, decision.drafts, {
+            mutationReason: decision.reason,
+          });
+          toast({
+            variant: "success",
+            title: t("planning.route.confirm.added_steps_toast", {
+              count: decision.drafts.length,
+            }),
           });
         }
         await planRoadmap.refresh();

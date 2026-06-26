@@ -1074,6 +1074,21 @@
           "attempted_label": "What you asked to add",
           "dismiss_button": "Got it"
         },
+        "clarify": {
+          "title": "One quick question first",
+          "description": "Before adding a step, DIVE needs to pin down what you mean. Answer in chat and it will route again.",
+          "question_label": "Question",
+          "intent_label": "What DIVE thinks you want",
+          "dismiss_button": "Answer in chat"
+        },
+        "multi_step": {
+          "title": "Add these steps to the plan?",
+          "description": "DIVE read your message as a multi-part task and fanned it into dependency-ordered steps.",
+          "steps_label": "{{count}} steps",
+          "depends_on_label": "after {{steps}}",
+          "confirm_button": "Add all steps"
+        },
+        "added_steps_toast": "Added {{count}} steps to the plan.",
         "removed_toast": "Removed {{step}} from the plan.",
         "superseded_toast": "Replaced {{step}}.",
         "apply_failed": "Couldn't apply the change: {{message}}"

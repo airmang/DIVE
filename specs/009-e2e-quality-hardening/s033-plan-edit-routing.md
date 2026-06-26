@@ -37,8 +37,9 @@ not previously persisted to a doc)
 | P6 | Router prompt emission of clarify/remove/supersede — `build_system_prompt` teaches the three verbs (output formats, selection criteria, `target_step_id` guardrail). Still propose-only; UI deferred to P8. | done (PR #40) |
 | P7 | First-class Duplicate outcome — route_chat's AddStep arm returns a typed `RouteDecision::Duplicate { existing, draft, reason }` (server-side `find_duplicate_step`, **not** a model verb) instead of silently downgrading to chat. Backend-first; UI deferred to P8b. | done (PR #41) |
 | P8a | `multi_step` router outcome — `ROUTE multi_step {JSON}` grammar (one single-line JSON object parsed by serde; flat `field_*` helpers can't hold a per-step batch), `PlanRouterDecision::MultiStep` + wire `RouteDecision::MultiStep { drafts, reason }`, route→wire mapping building `Vec<MultiStepDraftInput>` with placeholder ids (apply IPC owns allocation), prompt emission. Backend-first, propose-only; UI deferred to P8b. | done (PR #43) |
-| **P8b-1** | **Unified confirm modal — single-target outcomes.** `PlanRouteConfirmModal` extended (action-switched) to surface **remove / supersede / duplicate** (+ existing add_step); `handleBeforeChatSend` applies remove/supersede directly from the modal via new `usePlanRouter.removeStep`/`supersedeStep` hooks (then `planRoadmap.refresh()`); duplicate is informational (dismiss, no apply); ko/en i18n; component test. clarify + multi_step still fall through to chat. | **active** |
-| P8b-2 | Plan-diff confirm UI — **clarify** (question card → answer in chat → re-route) + **multi_step** (DAG fan-out → `appendSteps`); the `StepDraftInput.rationale` Option↔string TS fix before rendering `draft.rationale`; then ko/en live re-QA on the built `.app`. | planned |
+| P8b-1 | Unified confirm modal — single-target outcomes. `PlanRouteConfirmModal` extended (action-switched) to surface remove / supersede / duplicate (+ existing add_step); `handleBeforeChatSend` applies remove/supersede directly from the modal via new `usePlanRouter.removeStep`/`supersedeStep` hooks (then `planRoadmap.refresh()`); duplicate is informational; ko/en i18n; component test. | done (PR #44) |
+| **P8b-2** | **Confirm UI — clarify + multi_step (completes the modal).** `ClarifyCard` (question + intent; dismiss-only — user answers in chat → re-route) + `MultiStepList` (DAG fan-out; approve → `appendSteps`); `handleBeforeChatSend` now opens the modal for every confirmable outcome (only chat/skip fall through); `StepDraftInput.rationale` Option↔string TS fix (+ null-safe consumer in `PlanAddStepPanel`); ko/en i18n; component tests. Code complete; **ko/en live re-QA on the built `.app` is the remaining validation.** | **active** |
+| (QA) | ko/en live re-QA of theme-5 journeys on the built release `.app` (not dev) — surfaces clarify/remove/supersede/duplicate/multi_step proposals end-to-end and applies them. | pending |
 
 ### Notes
 
@@ -71,6 +72,17 @@ not previously persisted to a doc)
   time (a cyclic/oversized batch still parses as a valid propose-only proposal).
   The route→wire mapping builds drafts with placeholder `step_id`/`position` via
   `router_draft_to_input_unallocated` so the apply IPC owns id allocation.
+
+### Known polish (defer to live re-QA)
+
+- **clarify is a transient card**: the question is shown only in the modal and
+  the original (ambiguous) message is dropped on dismiss, so the user re-types
+  their answer from memory. This matches the chosen "question card → answer in
+  chat → re-route" UX, but live re-QA should judge whether the question needs to
+  persist (e.g. injected as an assistant chat turn) or the draft text preserved.
+- **multi_step apply errors** surface the raw Rust validation string
+  (e.g. `dependsOnDraft index 3 is out of range`, cycle/duplicate rejections)
+  verbatim via `apply_failed`; a friendlier mapping is a live-QA follow-up.
 
 ## Validation loop
 
