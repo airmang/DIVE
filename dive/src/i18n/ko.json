@@ -1052,7 +1052,31 @@
         "skip_button": "그냥 채팅",
         "reason_label": "이유",
         "dedicated_area_title": "Plan 영역에서 검토하세요",
-        "dedicated_area_description": "DIVE가 step 추가 폼에 초안을 채웠습니다. 검토한 뒤 거기에서만 저장하세요."
+        "dedicated_area_description": "DIVE가 step 추가 폼에 초안을 채웠습니다. 검토한 뒤 거기에서만 저장하세요.",
+        "cancel_button": "취소",
+        "current_step_label": "현재 step",
+        "remove": {
+          "title": "이 step을 plan에서 제거할까요?",
+          "description": "DIVE가 메시지를 기존 step 제거 요청으로 해석했습니다. 소프트 제거되며 이력은 보존됩니다.",
+          "confirm_button": "step 제거"
+        },
+        "supersede": {
+          "title": "이 step을 교체할까요?",
+          "description": "DIVE가 메시지를 기존 step 재작업 요청으로 해석했습니다. 기존 step은 은퇴되고 교체본이 그 자리를 대신합니다.",
+          "before_label": "현재 step",
+          "after_label": "교체본",
+          "confirm_button": "step 교체"
+        },
+        "duplicate": {
+          "title": "이미 plan에 있습니다",
+          "description": "기존 step이 이미 커버하는 작업으로 보여 DIVE가 중복을 추가하지 않았습니다.",
+          "existing_label": "이미 커버됨",
+          "attempted_label": "추가하려던 내용",
+          "dismiss_button": "확인"
+        },
+        "removed_toast": "{{step}}을(를) plan에서 제거했습니다.",
+        "superseded_toast": "{{step}}을(를) 교체했습니다.",
+        "apply_failed": "변경을 적용하지 못했습니다: {{message}}"
       },
       "error": {
         "routing_failed": "자동 라우팅 실패: {{message}}"

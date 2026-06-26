@@ -208,10 +208,64 @@ export function usePlanRouter(projectId: number | null) {
     [api],
   );
 
+  const removeStep = useCallback(
+    async (planId: number, stepDbId: number, reason?: string | null): Promise<void> => {
+      if (!api) throw new Error("Tauri IPC unavailable");
+      setAppendBusy(true);
+      setError(null);
+      try {
+        await api.invoke<void>("workspace_plan_remove_step", {
+          planId,
+          stepDbId,
+          mutationReason: reason ?? null,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+        throw err;
+      } finally {
+        setAppendBusy(false);
+      }
+    },
+    [api],
+  );
+
+  const supersedeStep = useCallback(
+    async (
+      planId: number,
+      targetStepDbId: number,
+      replacement: StepDraftInput,
+      reason?: string | null,
+    ): Promise<PlanStepRow> => {
+      if (!api) throw new Error("Tauri IPC unavailable");
+      setAppendBusy(true);
+      setError(null);
+      try {
+        return await api.invoke<PlanStepRow>("workspace_plan_supersede_step", {
+          planId,
+          targetStepDbId,
+          replacement,
+          mutationReason: reason ?? null,
+          linkedCriterionIds: replacement.linkedCriterionIds ?? null,
+          prdDelta: null,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+        throw err;
+      } finally {
+        setAppendBusy(false);
+      }
+    },
+    [api],
+  );
+
   return {
     route,
     appendStep,
     appendSteps,
+    removeStep,
+    supersedeStep,
     cancelRoute,
     busy: routeBusy || appendBusy,
     routeBusy,

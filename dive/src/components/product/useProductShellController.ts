@@ -42,6 +42,7 @@ import {
   type RouteDecision,
 } from "../../features/planning";
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
+import type { ConfirmableRouteDecision } from "./PlanRouteConfirmModal";
 import {
   usePlanInterviewLLM,
   type PlanDraftLlmErrorReason,
@@ -140,10 +141,8 @@ const PlanDraftApprovalScreen = lazy(() =>
   })),
 );
 
-type AddStepRouteDecision = Extract<RouteDecision, { action: "add_step" }>;
-
 interface PendingPlanRouteConfirmation {
-  decision: AddStepRouteDecision;
+  decision: ConfirmableRouteDecision;
   resolve: (approved: boolean) => void;
 }
 
@@ -418,7 +417,7 @@ export function useProductShellController() {
   );
 
   const requestPlanRouteConfirmation = useCallback(
-    (decision: AddStepRouteDecision) =>
+    (decision: ConfirmableRouteDecision) =>
       new Promise<boolean>((resolve) => {
         setPendingPlanRoute({ decision, resolve });
       }),
@@ -488,27 +487,76 @@ export function useProductShellController() {
         return true;
       }
 
-      // Only add_step opens the confirm modal today. clarify / remove_step /
-      // supersede_step / duplicate intentionally fall through to a normal chat
-      // send until P8 wires the plan-diff confirm UI that surfaces them.
-      if (decision.action !== "add_step") return true;
+      // add_step routes to the dashboard add-step area; remove/supersede apply
+      // directly from the confirm modal; duplicate is informational. clarify and
+      // multi_step still fall through to normal chat (surfaced in P8b-2).
+      if (
+        decision.action !== "add_step" &&
+        decision.action !== "remove_step" &&
+        decision.action !== "supersede_step" &&
+        decision.action !== "duplicate"
+      ) {
+        return true;
+      }
+
       const approved = await requestPlanRouteConfirmation(decision);
-      if (!approved) return true;
 
-      requestProjectRailTab("dashboard");
-      requestPlanAddStepDraft({
-        projectId: currentProjectId,
-        planId: approvedPlanId,
-        draft: decision.draft,
-        reason: decision.reason,
-        source: "chat_route",
-      });
+      if (decision.action === "duplicate") {
+        // Informational only: the modal was the response, so don't also send the
+        // original (duplicate) request to chat.
+        return false;
+      }
 
-      toast({
-        variant: "info",
-        title: t("planning.route.confirm.dedicated_area_title"),
-        description: t("planning.route.confirm.dedicated_area_description"),
-      });
+      if (decision.action === "add_step") {
+        // "Just chat" keeps the original message as a normal chat turn.
+        if (!approved) return true;
+        requestProjectRailTab("dashboard");
+        requestPlanAddStepDraft({
+          projectId: currentProjectId,
+          planId: approvedPlanId,
+          draft: decision.draft,
+          reason: decision.reason,
+          source: "chat_route",
+        });
+        toast({
+          variant: "info",
+          title: t("planning.route.confirm.dedicated_area_title"),
+          description: t("planning.route.confirm.dedicated_area_description"),
+        });
+        return false;
+      }
+
+      // remove_step / supersede_step: "Cancel" dismisses the proposal without
+      // re-sending the request to chat; approve applies directly, then refreshes.
+      if (!approved) return false;
+      try {
+        const stepLabel = `${decision.target.stepId}: ${decision.target.title}`;
+        if (decision.action === "remove_step") {
+          await planRouter.removeStep(approvedPlanId, decision.target.dbId, decision.reason);
+          toast({
+            variant: "success",
+            title: t("planning.route.confirm.removed_toast", { step: stepLabel }),
+          });
+        } else {
+          await planRouter.supersedeStep(
+            approvedPlanId,
+            decision.target.dbId,
+            decision.replacement,
+            decision.reason,
+          );
+          toast({
+            variant: "success",
+            title: t("planning.route.confirm.superseded_toast", { step: stepLabel }),
+          });
+        }
+        await planRoadmap.refresh();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        toast({
+          variant: "error",
+          title: t("planning.route.confirm.apply_failed", { message }),
+        });
+      }
       return false;
     },
     [currentProjectId, plan, planRoadmap, planRouter, requestPlanRouteConfirmation, t, toast],
@@ -1911,6 +1959,7 @@ export function useProductShellController() {
         open: pendingPlanRoute !== null,
         decision: pendingPlanRoute?.decision ?? null,
         steps: planRoadmap.steps,
+        busy: planRouter.appendBusy,
         onApprove: () => settlePlanRouteConfirmation(true),
         onReject: () => settlePlanRouteConfirmation(false),
       },
