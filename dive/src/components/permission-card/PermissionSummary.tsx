@@ -1,13 +1,14 @@
 import { Badge } from "../ui/badge";
 import { useT } from "../../i18n";
 import type { ToolExplanation } from "./explain";
-import type { PermissionActionContext, RiskLevel } from "./types";
+import type { PermissionActionContext, PermissionChangeSummary, RiskLevel } from "./types";
 
 interface Props {
   toolName: string;
   risk: RiskLevel;
   explanation: ToolExplanation;
   actionContext?: PermissionActionContext;
+  changeSummary?: PermissionChangeSummary | null;
 }
 
 const BADGE_VARIANT: Record<RiskLevel, "info" | "warn" | "danger"> = {
@@ -26,7 +27,13 @@ function compactList(items: string[], empty: string): string {
   return `${items.slice(0, 3).join(", ")} +${items.length - 3}`;
 }
 
-export function PermissionSummary({ toolName, risk, explanation, actionContext }: Props) {
+export function PermissionSummary({
+  toolName,
+  risk,
+  explanation,
+  actionContext,
+  changeSummary,
+}: Props) {
   const t = useT();
   const expectedFiles = uniqueItems(actionContext?.expectedFiles);
   const readFiles = uniqueItems(actionContext?.readFiles);
@@ -61,6 +68,23 @@ export function PermissionSummary({ toolName, risk, explanation, actionContext }
         <p className="mt-1 text-fg-muted">{explanation.actionBody}</p>
         <p className="mt-1 text-fg-muted">{explanation.riskBody}</p>
       </div>
+
+      {changeSummary ? (
+        <section
+          className="rounded-md border border-accent/30 bg-accent/5 px-3 py-2"
+          data-testid="permission-change-summary"
+        >
+          <p className="font-semibold text-fg">{t("permission_card.change_summary.title")}</p>
+          <p className="mt-1 text-fg">{changeSummary.headline}</p>
+          {changeSummary.details.length > 0 ? (
+            <ul className="mt-1 list-disc space-y-0.5 pl-4 text-fg-muted">
+              {changeSummary.details.map((detail) => (
+                <li key={detail}>{detail}</li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
 
       {hasSecondaryDetails ? (
         <details

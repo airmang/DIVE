@@ -489,6 +489,8 @@ impl ExportEngine {
                             sanitize_verification_coach_event_payload(&value)
                         } else if is_runtime_008_event_type(&ty) {
                             sanitize_runtime_event_payload(&value)
+                        } else if is_permission_approval_event_type(&ty) {
+                            sanitize_permission_event_payload(&value)
                         } else {
                             value
                         };
@@ -731,6 +733,10 @@ pub(crate) fn sanitize_runtime_event_payload(value: &Value) -> Value {
     sanitize_runtime_nested(value, None)
 }
 
+pub(crate) fn sanitize_permission_event_payload(value: &Value) -> Value {
+    sanitize_permission_nested(value, None)
+}
+
 fn is_runtime_008_event_type(ty: &str) -> bool {
     matches!(
         ty,
@@ -741,6 +747,44 @@ fn is_runtime_008_event_type(ty: &str) -> bool {
             | crate::dive::event_log::TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT
             | crate::dive::event_log::TERMINAL_SCRIPT_RESULT_EVENT
             | crate::dive::event_log::TOOL_APPROVAL_STALE_EVENT
+    )
+}
+
+fn is_permission_approval_event_type(ty: &str) -> bool {
+    matches!(ty, "tool_approve" | "tool_call_start")
+}
+
+fn sanitize_permission_nested(value: &Value, key: Option<&str>) -> Value {
+    if key.is_some_and(is_permission_raw_body_key) {
+        return raw_text_summary(value, "permission_raw_body");
+    }
+    match value {
+        Value::Object(map) => {
+            let mut out = serde_json::Map::new();
+            for (nested_key, nested) in map {
+                out.insert(
+                    nested_key.clone(),
+                    sanitize_permission_nested(nested, Some(nested_key)),
+                );
+            }
+            Value::Object(out)
+        }
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| sanitize_permission_nested(item, None))
+                .collect(),
+        ),
+        Value::String(text) => Value::String(redact_export_string(text)),
+        other => other.clone(),
+    }
+}
+
+fn is_permission_raw_body_key(key: &str) -> bool {
+    let normalized = key.to_ascii_lowercase().replace(['-', '_'], "");
+    matches!(
+        normalized.as_str(),
+        "content" | "before" | "after" | "diff" | "diffpreview" | "rawdiff" | "params"
     )
 }
 

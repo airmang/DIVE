@@ -25,7 +25,7 @@ use thiserror::Error;
 
 pub use context::ToolContext;
 pub use fs_guard::FsGuard;
-pub use guard::{classify_bash_command, BlockReason};
+pub use guard::{assess_file_write_secrets, classify_bash_command, BlockReason};
 pub use registry::ToolRegistry;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

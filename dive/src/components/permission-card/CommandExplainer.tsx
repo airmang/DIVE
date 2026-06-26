@@ -6,6 +6,41 @@ interface Props {
   explanation: ToolExplanation;
 }
 
+function dependencyPackages(command: string): string[] {
+  const tokens = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [];
+  const normalized = tokens.map((token) => token.replace(/^['"]|['"]$/g, ""));
+  const packages: string[] = [];
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const manager = normalized[index];
+    if (!manager || !["npm", "pnpm", "yarn", "bun"].includes(manager)) continue;
+    const verb = normalized[index + 1];
+    if (!verb) continue;
+
+    let start = -1;
+    if (manager === "npm" && ["install", "i", "add"].includes(verb)) start = index + 2;
+    if (manager === "pnpm" && ["add", "install", "i"].includes(verb)) start = index + 2;
+    if (manager === "yarn" && ["add"].includes(verb)) start = index + 2;
+    if (manager === "bun" && ["add", "install", "i"].includes(verb)) start = index + 2;
+    if (start < 0) continue;
+
+    for (const token of normalized.slice(start)) {
+      if (token === "&&" || token === "||" || token === ";") break;
+      if (token && !token.startsWith("-") && token !== "install" && token !== "add") {
+        packages.push(token);
+      }
+      if (packages.length >= 6) return packages;
+    }
+  }
+
+  return packages;
+}
+
+function compactPackages(packages: string[]): string {
+  if (packages.length <= 4) return packages.join(", ");
+  return `${packages.slice(0, 4).join(", ")} +${packages.length - 4}`;
+}
+
 export function CommandExplainer({ explanation }: Props) {
   const t = useT();
 
@@ -17,6 +52,7 @@ export function CommandExplainer({ explanation }: Props) {
       : explanation.commandWillChangeFiles === "yes"
         ? t("permission_card.command.change_yes")
         : t("permission_card.command.change_no");
+  const packages = dependencyPackages(explanation.command);
 
   return (
     <section
@@ -136,6 +172,24 @@ export function CommandExplainer({ explanation }: Props) {
             <dd className="mt-0.5">{t("permission_card.command.one_shot_body")}</dd>
           </div>
         </dl>
+      ) : null}
+      {packages.length > 0 ? (
+        <section
+          className="mt-2 rounded-sm border border-warn/40 bg-warn/10 p-2 text-[11px]"
+          data-testid="dependency-consent"
+        >
+          <p className="font-semibold text-fg">
+            {t("permission_card.command.dependency_consent_title")}
+          </p>
+          <p className="mt-0.5 text-fg-muted">
+            {t("permission_card.command.dependency_consent_body")}
+          </p>
+          <p className="mt-1 break-words font-mono text-fg-muted">
+            {t("permission_card.command.dependency_consent_packages", {
+              packages: compactPackages(packages),
+            })}
+          </p>
+        </section>
       ) : null}
       <ul className="mt-2 space-y-1 text-fg-muted">
         <li>{changeCopy}</li>

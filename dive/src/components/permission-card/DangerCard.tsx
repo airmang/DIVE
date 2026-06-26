@@ -9,9 +9,16 @@ import { McpProvenanceBadge } from "../mcp/McpProvenanceBadge";
 import { PatchPreviewPanel } from "./PatchPreviewPanel";
 import { PermissionSummary } from "./PermissionSummary";
 import { RawDetails } from "./RawDetails";
+import { summarizePatch } from "./summarize";
 import type { PermissionCardProps } from "./types";
 
-export function DangerCard({ card, onApprove, onDeny, approvalRequirement }: PermissionCardProps) {
+export function DangerCard({
+  card,
+  onApprove,
+  onDeny,
+  onDiffViewed,
+  approvalRequirement,
+}: PermissionCardProps) {
   const t = useT();
   const [editing, setEditing] = useState(false);
   const [modifiedArgs, setModifiedArgs] = useState<unknown | null>(card.args);
@@ -19,6 +26,12 @@ export function DangerCard({ card, onApprove, onDeny, approvalRequirement }: Per
   const [denyReason, setDenyReason] = useState("");
   const [diffAcknowledged, setDiffAcknowledged] = useState(false);
   const explanation = explainTool(card.toolName, card.risk, card.args, t);
+  const changeSummary = summarizePatch({
+    toolName: card.toolName,
+    diff: card.diffPreview,
+    args: card.args,
+    t,
+  });
 
   const approvalBlocked =
     approvalRequirement?.required === true && approvalRequirement.satisfied !== true;
@@ -59,9 +72,16 @@ export function DangerCard({ card, onApprove, onDeny, approvalRequirement }: Per
           risk={card.risk}
           explanation={explanation}
           actionContext={card.actionContext}
+          changeSummary={changeSummary}
         />
         <CommandExplainer explanation={explanation} />
-        <PatchPreviewPanel diff={card.diffPreview} expected={explanation.patchPreviewExpected} />
+        <PatchPreviewPanel
+          diff={card.diffPreview}
+          expected={explanation.patchPreviewExpected}
+          summary={changeSummary}
+          approvalWarnings={card.approvalWarnings}
+          onViewed={() => onDiffViewed?.(card.toolCallId)}
+        />
         {needsDiffAck ? (
           <label
             className="flex items-start gap-2 rounded-sm border border-border bg-bg/60 px-2 py-2 text-xs text-fg"
@@ -70,7 +90,10 @@ export function DangerCard({ card, onApprove, onDeny, approvalRequirement }: Per
             <input
               type="checkbox"
               checked={diffAcknowledged}
-              onChange={(e) => setDiffAcknowledged(e.target.checked)}
+              onChange={(e) => {
+                setDiffAcknowledged(e.target.checked);
+                approvalRequirement?.onConfirmChange?.(e.target.checked);
+              }}
               className="mt-0.5 h-4 w-4 rounded border-border text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               data-testid="danger-diff-ack-checkbox"
             />

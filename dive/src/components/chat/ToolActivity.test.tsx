@@ -31,7 +31,7 @@ describe("ToolActivity provocation permission gate", () => {
 
   afterEach(() => cleanup());
 
-  it("does not render quarantined keyword/rule cards or add approval friction by default", () => {
+  it("does not render quarantined keyword/rule cards and uses the write/edit read gate", () => {
     const approve = vi.fn();
 
     render(
@@ -55,22 +55,36 @@ describe("ToolActivity provocation permission gate", () => {
     );
 
     expect(screen.queryByTestId("provocation-card")).toBeNull();
-    expect(screen.queryByTestId("permission-approval-requirement")).toBeNull();
+    expect(screen.getByTestId("permission-approval-requirement")).toBeTruthy();
     const approveButton = screen.getByTestId("card-approve") as HTMLButtonElement;
+    expect(approveButton.disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("permission-read-confirm-checkbox"));
     expect(approveButton.disabled).toBe(false);
     fireEvent.click(approveButton);
 
     expect(approve).toHaveBeenCalledTimes(1);
     expect(approve.mock.calls[0][0]).toBe("tool-1");
-    expect(approve.mock.calls[0][2]).toBeUndefined();
+    expect(approve.mock.calls[0][2]).toEqual(
+      expect.objectContaining({
+        source: "permission_card.approval",
+        readGateSatisfied: true,
+        readGateMethod: "checkbox",
+      }),
+    );
   });
 
-  it("does not add approval friction for a non-high-risk UI-only edit", () => {
+  it("does not add approval friction for safe read_file calls", () => {
     const approve = vi.fn();
 
     render(
       <ToolActivity
-        call={pendingCall()}
+        call={pendingCall({
+          toolName: "read_file",
+          paramsPreview: "path: src/App.tsx",
+          risk: "safe",
+          diffPreview: null,
+          args: { path: "src/App.tsx" },
+        })}
         onApprove={approve}
         onDeny={vi.fn()}
         provocation={{

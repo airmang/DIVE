@@ -196,6 +196,26 @@ fn string_field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
+fn nested_bool_field(value: &Value, parent: &str, key: &str) -> Option<bool> {
+    value
+        .get(parent)
+        .and_then(|nested| nested.get(key))
+        .and_then(Value::as_bool)
+}
+
+fn read_gate_satisfied(payload: &Value) -> bool {
+    nested_bool_field(payload, "approval_metadata", "readGateSatisfied").unwrap_or(false)
+}
+
+fn secret_flagged(payload: &Value) -> bool {
+    payload
+        .get("approvalWarnings")
+        .and_then(|warnings| warnings.get("secretFlagged"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || nested_bool_field(payload, "approval_metadata", "secretFlagged").unwrap_or(false)
+}
+
 fn test_result_field(value: &Value) -> Option<&str> {
     string_field(value, "test_result").or_else(|| string_field(value, "testResult"))
 }
@@ -458,8 +478,13 @@ fn infer_agency_state(event_type: &str, payload: &Value) -> Option<&'static str>
                 _ => Some("verification_needed"),
             };
         }
+        "tool_call_start" if secret_flagged(payload) => return Some("secret_flagged"),
         "tool_approve" => {
-            return if has_risk_reason(payload) {
+            return if secret_flagged(payload) {
+                Some("secret_flagged")
+            } else if read_gate_satisfied(payload) {
+                Some("read_gate_satisfied")
+            } else if has_risk_reason(payload) {
                 Some("approved_with_risk")
             } else {
                 Some("approval_required")
@@ -754,7 +779,18 @@ fn infer_evidence_summary(event_type: &str, payload: &Value) -> Option<Value> {
                 "preRestoreBackup": payload
                     .get("pre_restore_backup")
                     .and_then(Value::as_bool)
-                    .unwrap_or(false),
+                .unwrap_or(false),
+            }));
+        }
+        "tool_call_start" if secret_flagged(payload) => {
+            return Some(json!({
+                "schemaVersion": 1,
+                "secretFlagged": true,
+                "wholeFileOverwrite": payload
+                    .get("approvalWarnings")
+                    .and_then(|warnings| warnings.get("wholeFileOverwrite"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
             }));
         }
         "tool_approve" => {
@@ -763,6 +799,13 @@ fn infer_evidence_summary(event_type: &str, payload: &Value) -> Option<Value> {
                 "permissionReviewed": true,
                 "riskAccepted": has_risk_reason(payload),
                 "highRiskFileCount": high_risk_file_count(payload),
+                "readGateSatisfied": read_gate_satisfied(payload),
+                "secretFlagged": secret_flagged(payload),
+                "warningKinds": payload
+                    .get("approval_metadata")
+                    .and_then(|metadata| metadata.get("warningKinds"))
+                    .cloned()
+                    .unwrap_or_else(|| json!([])),
             }));
         }
         "provocation.continued_with_risk" if string_field(payload, "tool").is_some() => {
@@ -904,7 +947,19 @@ fn infer_decision(event_type: &str, payload: &Value) -> Option<Value> {
         TOOL_APPROVAL_STALE_EVENT => return Some(json!({ "kind": "tool_approval_stale" })),
         "checkpoint_create" => return Some(json!({ "kind": "create_checkpoint" })),
         "checkpoint_restore" => return Some(json!({ "kind": "restore_checkpoint" })),
-        "tool_approve" => return Some(json!({ "kind": "approve_tool" })),
+        "tool_approve" => {
+            let outcome = if secret_flagged(payload) {
+                "secret_flagged"
+            } else if read_gate_satisfied(payload) {
+                "read_gate_satisfied"
+            } else {
+                "approved"
+            };
+            return Some(json!({
+                "kind": "approve_tool",
+                "outcome": outcome,
+            }));
+        }
         "provocation.continued_with_risk" => return Some(json!({ "kind": "accept_risk" })),
         "card_update" if string_field(payload, "action") == Some("transition") => {
             return Some(json!({
@@ -1364,6 +1419,13 @@ pub fn hash_text(text: &str) -> String {
 
 fn is_sensitive_key(key: &str) -> bool {
     let normalized = key.to_ascii_lowercase().replace(['-', '_'], "");
+    // S-034: secret-DETECTION metadata (a boolean flag and a list of categorical
+    // reasons like "env_file"/"named_secret"), never a secret value. Keep them in
+    // the evidence trail — the secret literal itself lives in raw-text fields
+    // (e.g. params_preview/content) and is still redacted by redact_text.
+    if matches!(normalized.as_str(), "secretflagged" | "secretreasons") {
+        return false;
+    }
     normalized.contains("apikey")
         || normalized.contains("token")
         || normalized.contains("secret")

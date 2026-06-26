@@ -1,6 +1,7 @@
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::agent::permission::PermissionApprovalWarnings;
 use crate::db::models::RuntimeCapabilityState;
 use crate::tools::runtime::{
     PreviewRequestKind, RuntimeInputKind, RuntimeRoutingOutcome, StaleApprovalDetectedBy,
@@ -157,6 +158,8 @@ pub enum AgentEvent {
         risk: RiskLevel,
         #[serde(skip_serializing_if = "Option::is_none")]
         diff_preview: Option<DiffPreview>,
+        #[serde(skip_serializing_if = "PermissionApprovalWarnings::is_empty")]
+        approval_warnings: PermissionApprovalWarnings,
         args: Value,
     },
     ToolCallApproved {

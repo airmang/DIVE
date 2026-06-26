@@ -1,15 +1,20 @@
+import { useState } from "react";
 import { FileDiff } from "lucide-react";
 import { useT } from "../../i18n";
 import { DiffViewer } from "./DiffViewer";
-import type { DiffPreviewData } from "./types";
+import type { DiffPreviewData, PermissionApprovalWarnings, PermissionChangeSummary } from "./types";
 
 interface Props {
   diff: DiffPreviewData | null;
   expected: boolean;
+  summary?: PermissionChangeSummary | null;
+  approvalWarnings?: PermissionApprovalWarnings | null;
+  onViewed?: () => void;
 }
 
-export function PatchPreviewPanel({ diff, expected }: Props) {
+export function PatchPreviewPanel({ diff, expected, summary, approvalWarnings, onViewed }: Props) {
   const t = useT();
+  const [explanationOpen, setExplanationOpen] = useState(false);
 
   if (!diff && !expected) return null;
 
@@ -24,7 +29,43 @@ export function PatchPreviewPanel({ diff, expected }: Props) {
           </p>
         </div>
       </div>
-      {diff ? <DiffViewer diff={diff} /> : null}
+      {diff ? (
+        <>
+          <DiffViewer diff={diff} approvalWarnings={approvalWarnings} onViewed={onViewed} />
+          {summary ? (
+            <div className="mt-2">
+              <button
+                type="button"
+                className="text-xs font-medium text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                onClick={() => setExplanationOpen((value) => !value)}
+                data-testid="patch-explain-toggle"
+              >
+                {t("permission_card.patch.explain")}
+              </button>
+              {explanationOpen ? (
+                <div
+                  className="mt-2 rounded-sm border bg-bg/70 px-2 py-2 text-xs"
+                  data-testid="patch-explain-panel"
+                >
+                  <p className="font-semibold text-fg">
+                    {t("permission_card.patch.explain_title")}
+                  </p>
+                  <p className="mt-1 text-fg-muted">{t("permission_card.patch.explain_body")}</p>
+                  <p className="mt-1 text-fg">{summary.headline}</p>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4 text-fg-muted">
+                    {summary.details.map((detail) => (
+                      <li key={detail}>{detail}</li>
+                    ))}
+                  </ul>
+                  <p className="mt-1 text-fg-muted">
+                    {t("permission_card.patch.explain_unavailable")}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </>
+      ) : null}
     </section>
   );
 }
