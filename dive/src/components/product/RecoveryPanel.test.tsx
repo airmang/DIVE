@@ -77,6 +77,26 @@ describe("RecoveryPanel failure actions", () => {
     expect(note.textContent).toContain("채팅·플랜·로드맵");
   });
 
+  it("suppresses the file-only warning when a checkpoint has a session-state snapshot (S-032)", () => {
+    renderPanel({
+      checkpoints: [
+        {
+          id: 2,
+          label: "latest",
+          kind: "manual",
+          createdAt: 20,
+          changedFiles: [],
+          hasSessionStateSnapshot: true,
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByTestId("failed-step-undo"));
+
+    expect(screen.queryByTestId("restore-files-only-note")).toBeNull();
+    expect(screen.getByTestId("restore-consistent-note").textContent).toContain("채팅·플랜·로드맵");
+  });
+
   it("reconciles the checkpoint count with the badge and notes the truncated list (S-032)", () => {
     renderPanel({
       failedStep: null,
@@ -117,6 +137,19 @@ describe("RecoveryPanel failure actions", () => {
     });
 
     expect(screen.getByTestId("last-change-card").textContent).toContain("편집 직전 체크포인트");
+  });
+
+  it("localizes a label-less pre-pivot anchor title (S-032)", () => {
+    renderPanel({
+      failedStep: null,
+      checkpoints: [
+        { id: 10, label: null, kind: "auto-pre-pivot", createdAt: 40, changedFiles: [] },
+      ],
+    });
+
+    expect(screen.getByTestId("last-change-card").textContent).toContain(
+      "계획 조정 직전 체크포인트",
+    );
   });
 
   it("marks only the most recent pre-edit anchor as the before-your-last-edit point (S-032)", () => {

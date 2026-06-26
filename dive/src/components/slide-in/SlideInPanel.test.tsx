@@ -151,4 +151,30 @@ describe("CheckpointTimeline accessibility", () => {
     expect(dot.getAttribute("aria-label")).toContain("pre-edit");
     expect(dot.getAttribute("aria-label")).not.toContain("auto-pre-edit");
   });
+
+  it("renders the pre-pivot anchor with its own glyph and localized kind (S-032)", () => {
+    render(
+      <CheckpointTimeline
+        sessionId={1}
+        mockItems={[
+          {
+            id: 6,
+            session_id: 1,
+            card_id: null,
+            git_sha: "abc1234feed",
+            kind: "auto-pre-pivot",
+            label: null,
+            created_at: 1_720_000_000_000,
+            changed_files: [".dive/plan.json"],
+          },
+        ]}
+      />,
+    );
+
+    const dot = screen.getByTestId("timeline-dot");
+    expect(dot.getAttribute("data-kind")).toBe("auto-pre-pivot");
+    expect(dot.textContent).toBe("P");
+    expect(dot.getAttribute("aria-label")).toContain("before plan change");
+    expect(dot.getAttribute("aria-label")).not.toContain("auto-pre-pivot");
+  });
 });

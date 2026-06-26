@@ -243,6 +243,11 @@ export interface CheckpointRowPayload {
     removed: number;
     modified: number;
   };
+  has_session_state_snapshot?: boolean;
+}
+
+interface CheckpointRestorePayload {
+  restored_session_state: boolean;
 }
 
 type TauriApi = {
@@ -957,24 +962,46 @@ export function useChatSession(
     return api.invoke<CheckpointRowPayload[]>("checkpoint_list", { sessionId });
   }, [sessionId]);
 
-  const restoreCheckpoint = useCallback(async (checkpointId: number) => {
-    const api = apiRef.current;
-    if (!api) return;
-    await api.invoke<void>("checkpoint_restore", { checkpointId });
-    const createdAt = Date.now();
-    const marker: SystemMessageData = {
-      id: `checkpoint-restore-${checkpointId}-${createdAt}`,
-      kind: "system",
-      createdAt,
-      content: translate(useLocaleStore.getState().locale, "recovery.restore_chat_marker", {
-        checkpoint: checkpointId,
-      }),
-    };
-    setState((s) => ({
-      ...s,
-      messages: mergeMessagesById(s.messages, [marker]),
-    }));
-  }, []);
+  const restoreCheckpoint = useCallback(
+    async (checkpointId: number) => {
+      const api = apiRef.current;
+      if (!api) return { restored_session_state: false };
+      const result = await api.invoke<CheckpointRestorePayload>("checkpoint_restore", {
+        checkpointId,
+      });
+      if (result.restored_session_state && sessionId !== null) {
+        const [history, pending] = await Promise.all([
+          api.invoke<ChatMessage[]>("message_list", { sessionId }),
+          api.invoke<PendingToolCall[]>("pending_tool_calls", { sessionId }),
+        ]);
+        const pendingMessages = pending.map(pendingToolCallToMessage);
+        setState((s) => ({
+          ...s,
+          messages: mergeMessagesById(history, pendingMessages),
+          isStreaming: pendingMessages.length > 0,
+          runStartedAt: pendingMessages.length > 0 ? (s.runStartedAt ?? Date.now()) : null,
+          error: null,
+        }));
+        return result;
+      }
+
+      const createdAt = Date.now();
+      const marker: SystemMessageData = {
+        id: `checkpoint-restore-${checkpointId}-${createdAt}`,
+        kind: "system",
+        createdAt,
+        content: translate(useLocaleStore.getState().locale, "recovery.restore_chat_marker", {
+          checkpoint: checkpointId,
+        }),
+      };
+      setState((s) => ({
+        ...s,
+        messages: mergeMessagesById(s.messages, [marker]),
+      }));
+      return result;
+    },
+    [sessionId],
+  );
 
   return {
     ...state,

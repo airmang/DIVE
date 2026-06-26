@@ -25,6 +25,7 @@ describe("product shell recovery logic", () => {
       kind: "manual",
       createdAt: 3,
       changedFiles: [],
+      hasSessionStateSnapshot: false,
     });
   });
 

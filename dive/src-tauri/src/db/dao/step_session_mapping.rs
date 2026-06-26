@@ -85,6 +85,19 @@ pub fn list(conn: &Connection) -> Result<Vec<StepSessionMappingRow>, DbError> {
     Ok(rows)
 }
 
+pub fn list_by_session(
+    conn: &Connection,
+    session_id: i64,
+) -> Result<Vec<StepSessionMappingRow>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, step_id, session_id, card_id, state_path, status, started_at, completed_at, checkpoint_ids, verification_status, verification_evidence, user_decision, created_at, updated_at FROM StepSessionMapping WHERE session_id = ? ORDER BY id",
+    )?;
+    let rows = stmt
+        .query_map([session_id], query_map_row)?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
 pub fn update(conn: &Connection, id: i64, row: &NewStepSessionMapping) -> Result<(), DbError> {
     let checkpoint_ids = optional_json_to_string(row.checkpoint_ids.as_ref())?;
     conn.execute(

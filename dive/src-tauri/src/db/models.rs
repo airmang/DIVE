@@ -226,6 +226,7 @@ pub struct NewCheckpoint {
     pub label: Option<String>,
     pub changed_files: Vec<String>,
     pub stats: CheckpointStats,
+    pub session_state_snapshot: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -239,6 +240,7 @@ pub struct CheckpointRow {
     pub created_at: i64,
     pub changed_files: Vec<String>,
     pub stats: CheckpointStats,
+    pub session_state_snapshot: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

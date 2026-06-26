@@ -10,6 +10,7 @@ export function checkpointToRecoveryItem(row: CheckpointRowPayload): RecoveryChe
     kind: row.kind,
     createdAt: row.created_at,
     changedFiles: row.changed_files ?? [],
+    hasSessionStateSnapshot: row.has_session_state_snapshot ?? false,
   };
 }
 
