@@ -1052,7 +1052,31 @@
         "skip_button": "Just chat",
         "reason_label": "Reason",
         "dedicated_area_title": "Review in the plan area",
-        "dedicated_area_description": "DIVE filled the add-step form with this draft. Save it there only after review."
+        "dedicated_area_description": "DIVE filled the add-step form with this draft. Save it there only after review.",
+        "cancel_button": "Cancel",
+        "current_step_label": "Current step",
+        "remove": {
+          "title": "Remove this step from the plan?",
+          "description": "DIVE read your message as a request to drop an existing step. This soft-removes it — its history is kept.",
+          "confirm_button": "Remove step"
+        },
+        "supersede": {
+          "title": "Replace this step?",
+          "description": "DIVE read your message as a request to rework an existing step. The old step is retired and the replacement takes its place.",
+          "before_label": "Current step",
+          "after_label": "Replacement",
+          "confirm_button": "Replace step"
+        },
+        "duplicate": {
+          "title": "Already in your plan",
+          "description": "This looks like work an existing step already covers, so DIVE did not add a duplicate.",
+          "existing_label": "Already covered by",
+          "attempted_label": "What you asked to add",
+          "dismiss_button": "Got it"
+        },
+        "removed_toast": "Removed {{step}} from the plan.",
+        "superseded_toast": "Replaced {{step}}.",
+        "apply_failed": "Couldn't apply the change: {{message}}"
       },
       "error": {
         "routing_failed": "Routing failed: {{message}}"
