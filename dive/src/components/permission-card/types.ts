@@ -49,6 +49,13 @@ export interface PermissionCardProps {
   onApprove: (toolCallId: string, modifiedArgs?: unknown) => void;
   onDeny: (toolCallId: string, reason?: string) => void;
   onDiffViewed?: (toolCallId: string) => void;
+  /**
+   * Read gate. When `required` is true the card keeps Approve disabled until
+   * `satisfied`. For the checkbox-only fallback (a non-Safe / secret-flagged
+   * write with no diff to acknowledge), `onConfirmChange` MUST be supplied — it
+   * drives the only control that can satisfy the gate, so omitting it would leave
+   * such a card fail-closed (permanently unapprovable).
+   */
   approvalRequirement?: {
     required: boolean;
     satisfied: boolean;

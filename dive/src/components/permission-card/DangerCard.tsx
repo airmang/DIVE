@@ -36,6 +36,13 @@ export function DangerCard({
   const approvalBlocked =
     approvalRequirement?.required === true && approvalRequirement.satisfied !== true;
   const needsDiffAck = card.diffPreview !== null;
+  // When the read gate is required but there is no diff to acknowledge (e.g. a
+  // secret-flagged write whose diff preview was unavailable), fall back to a
+  // checkbox-only confirm so Approve still can't be rubber-stamped.
+  const needsReadConfirm =
+    !needsDiffAck &&
+    approvalRequirement?.required === true &&
+    approvalRequirement.onConfirmChange !== undefined;
   const canApprove =
     (!editing || modifiedArgs !== null) && !approvalBlocked && (!needsDiffAck || diffAcknowledged);
 
@@ -127,11 +134,28 @@ export function DangerCard({
 
       {approvalRequirement?.required ? (
         <div
-          className="border-t bg-danger/10 px-3 py-2 text-xs text-fg"
+          className="space-y-2 border-t bg-danger/10 px-3 py-2 text-xs text-fg"
           data-testid="permission-approval-requirement"
           data-satisfied={approvalRequirement.satisfied ? "true" : "false"}
         >
-          {approvalRequirement.message}
+          <p>{approvalRequirement.message}</p>
+          {needsReadConfirm ? (
+            <label
+              className="flex items-start gap-2 rounded-sm border border-danger/30 bg-bg/70 px-2 py-2"
+              data-testid="permission-read-confirm"
+            >
+              <input
+                type="checkbox"
+                checked={approvalRequirement.confirmed === true}
+                onChange={(e) => approvalRequirement.onConfirmChange?.(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                data-testid="permission-read-confirm-checkbox"
+              />
+              <span className="min-w-0">
+                {approvalRequirement.confirmLabel ?? t("permission_card.read_gate.confirm_label")}
+              </span>
+            </label>
+          ) : null}
         </div>
       ) : null}
 

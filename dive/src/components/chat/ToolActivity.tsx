@@ -120,13 +120,14 @@ function actionContextForCall(
 }
 
 function requiresReadGate(call: ToolCallMessageData): boolean {
-  return (
-    call.status === "pending" &&
-    call.risk !== "safe" &&
-    (call.toolName === "write_file" || call.toolName === "edit_file") &&
-    call.diffPreview !== null &&
-    call.diffPreview !== undefined
-  );
+  // Read gate fires for any pending non-Safe write/edit, or whenever the backend
+  // flagged a secret — independent of whether a diff preview is available. When
+  // no diff exists the cards fall back to a checkbox-only confirm, so the riskiest
+  // writes can never be rubber-stamped (read_file / Safe stay auto-approved).
+  if (call.status !== "pending" || call.risk === "safe") return false;
+  const isWriteOrEdit = call.toolName === "write_file" || call.toolName === "edit_file";
+  const secretFlagged = call.approvalWarnings?.secretFlagged === true;
+  return isWriteOrEdit || secretFlagged;
 }
 
 function warningKinds(warnings: PermissionApprovalWarnings | null | undefined): string[] {

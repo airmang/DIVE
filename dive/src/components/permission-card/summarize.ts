@@ -22,12 +22,14 @@ function stringValue(args: ArgsObject, key: string): string | null {
 }
 
 function lineCount(text: string): number {
-  if (text.length === 0) return 0;
-  return text.split(/\r?\n/).length;
+  const value = String(text);
+  if (value.length === 0) return 0;
+  return value.split(/\r?\n/).length;
 }
 
 function extension(path: string): string {
-  const clean = path.split(/[?#]/)[0] ?? path;
+  const value = String(path);
+  const clean = value.split(/[?#]/)[0] ?? value;
   const last = clean.split("/").pop() ?? clean;
   const dot = last.lastIndexOf(".");
   return dot > 0 ? last.slice(dot + 1).toLowerCase() : "";

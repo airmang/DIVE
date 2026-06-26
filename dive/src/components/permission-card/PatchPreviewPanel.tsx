@@ -53,8 +53,8 @@ export function PatchPreviewPanel({ diff, expected, summary, approvalWarnings, o
                   <p className="mt-1 text-fg-muted">{t("permission_card.patch.explain_body")}</p>
                   <p className="mt-1 text-fg">{summary.headline}</p>
                   <ul className="mt-1 list-disc space-y-0.5 pl-4 text-fg-muted">
-                    {summary.details.map((detail) => (
-                      <li key={detail}>{detail}</li>
+                    {summary.details.map((detail, index) => (
+                      <li key={index}>{detail}</li>
                     ))}
                   </ul>
                   <p className="mt-1 text-fg-muted">

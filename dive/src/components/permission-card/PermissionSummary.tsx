@@ -78,8 +78,8 @@ export function PermissionSummary({
           <p className="mt-1 text-fg">{changeSummary.headline}</p>
           {changeSummary.details.length > 0 ? (
             <ul className="mt-1 list-disc space-y-0.5 pl-4 text-fg-muted">
-              {changeSummary.details.map((detail) => (
-                <li key={detail}>{detail}</li>
+              {changeSummary.details.map((detail, index) => (
+                <li key={index}>{detail}</li>
               ))}
             </ul>
           ) : null}

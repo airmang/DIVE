@@ -111,6 +111,108 @@ describe("ToolActivity provocation permission gate", () => {
     expect(approve.mock.calls[0][2]).toBeUndefined();
   });
 
+  it("gates a secret-flagged danger write even when no diff preview is available", () => {
+    const approve = vi.fn();
+
+    render(
+      <ToolActivity
+        call={pendingCall({
+          toolName: "write_file",
+          risk: "danger",
+          diffPreview: null,
+          paramsPreview: "path: .env",
+          args: { path: ".env", content: "API_KEY=sk-live-abc123" },
+          approvalWarnings: {
+            secretFlagged: true,
+            secretReasons: ["looks like an API key"],
+            wholeFileOverwrite: null,
+          },
+        })}
+        onApprove={approve}
+        onDeny={vi.fn()}
+      />,
+    );
+
+    // No diff means no diff-acknowledgment checkbox…
+    expect(screen.queryByTestId("danger-diff-ack-checkbox")).toBeNull();
+    // …but the read gate still fires with a checkbox-only confirm.
+    expect(screen.getByTestId("permission-approval-requirement")).toBeTruthy();
+    const approveButton = screen.getByTestId("card-approve") as HTMLButtonElement;
+    expect(approveButton.disabled).toBe(true);
+
+    fireEvent.click(screen.getByTestId("permission-read-confirm-checkbox"));
+    expect(approveButton.disabled).toBe(false);
+
+    fireEvent.click(approveButton);
+    expect(approve).toHaveBeenCalledTimes(1);
+    expect(approve.mock.calls[0][0]).toBe("tool-1");
+    expect(approve.mock.calls[0][2]).toEqual(
+      expect.objectContaining({
+        source: "permission_card.approval",
+        readGateSatisfied: true,
+        readGateMethod: "checkbox",
+        secretFlagged: true,
+      }),
+    );
+  });
+
+  it("gates a diff-less warn write behind the read-confirm checkbox", () => {
+    const approve = vi.fn();
+
+    render(
+      <ToolActivity
+        call={pendingCall({
+          toolName: "write_file",
+          risk: "warn",
+          diffPreview: null,
+          paramsPreview: "path: notes.md",
+          args: { path: "notes.md", content: "hello" },
+        })}
+        onApprove={approve}
+        onDeny={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("permission-approval-requirement")).toBeTruthy();
+    const approveButton = screen.getByTestId("card-approve") as HTMLButtonElement;
+    expect(approveButton.disabled).toBe(true);
+
+    fireEvent.click(screen.getByTestId("permission-read-confirm-checkbox"));
+    expect(approveButton.disabled).toBe(false);
+  });
+
+  it("gates any secret-flagged non-Safe tool, even a non-write command", () => {
+    // Defense-in-depth: requiresReadGate also fires on secretFlagged for tools
+    // that are not write_file/edit_file, using the checkbox-only fallback.
+    const approve = vi.fn();
+
+    render(
+      <ToolActivity
+        call={pendingCall({
+          toolName: "run_process",
+          risk: "danger",
+          diffPreview: null,
+          paramsPreview: 'command: "deploy --token=…"',
+          args: { command: "deploy", args: ["--token=sk-live-xyz"] },
+          approvalWarnings: {
+            secretFlagged: true,
+            secretReasons: ["argument looks like a secret token"],
+            wholeFileOverwrite: null,
+          },
+        })}
+        onApprove={approve}
+        onDeny={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("danger-diff-ack-checkbox")).toBeNull();
+    const approveButton = screen.getByTestId("card-approve") as HTMLButtonElement;
+    expect(approveButton.disabled).toBe(true);
+
+    fireEvent.click(screen.getByTestId("permission-read-confirm-checkbox"));
+    expect(approveButton.disabled).toBe(false);
+  });
+
   it("requires diff acknowledgment before approving a high-risk diff", () => {
     render(
       <ToolActivity call={pendingCall({ risk: "danger" })} onApprove={vi.fn()} onDeny={vi.fn()} />,
