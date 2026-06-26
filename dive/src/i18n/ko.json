@@ -1074,6 +1074,21 @@
           "attempted_label": "추가하려던 내용",
           "dismiss_button": "확인"
         },
+        "clarify": {
+          "title": "먼저 한 가지만 확인할게요",
+          "description": "step을 추가하기 전에 의도를 명확히 해야 합니다. 채팅으로 답하면 DIVE가 다시 라우팅합니다.",
+          "question_label": "질문",
+          "intent_label": "DIVE가 이해한 의도",
+          "dismiss_button": "채팅으로 답하기"
+        },
+        "multi_step": {
+          "title": "이 step들을 plan에 추가할까요?",
+          "description": "DIVE가 메시지를 여러 작업으로 해석해 의존 순서대로 step으로 나눴습니다.",
+          "steps_label": "step {{count}}개",
+          "depends_on_label": "{{steps}} 다음",
+          "confirm_button": "모든 step 추가"
+        },
+        "added_steps_toast": "step {{count}}개를 plan에 추가했습니다.",
         "removed_toast": "{{step}}을(를) plan에서 제거했습니다.",
         "superseded_toast": "{{step}}을(를) 교체했습니다.",
         "apply_failed": "변경을 적용하지 못했습니다: {{message}}"

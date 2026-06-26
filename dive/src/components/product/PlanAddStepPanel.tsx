@@ -444,7 +444,7 @@ export function PlanAddStepPanel({
     const draft = detail.draft;
     const nextReason =
       draft.summary.trim() ||
-      draft.rationale.trim() ||
+      draft.rationale?.trim() ||
       detail.reason?.trim() ||
       draft.instructionSeed;
     setTitle(draft.title);

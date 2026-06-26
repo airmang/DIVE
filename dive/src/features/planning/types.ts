@@ -225,7 +225,10 @@ export interface StepDraftInput {
   expectedFiles: string[];
   acceptanceCriteria: AcceptanceCriterionInput[];
   linkedCriterionIds: string[];
-  rationale: string;
+  // S-033 P8b-2: matches the Rust `Option<String>` wire shape, which serializes
+  // `None` as `null` (the `#[serde(default)]` field rides on add_step /
+  // supersede / multi_step drafts). Consumers must treat it as nullable.
+  rationale: string | null;
   verificationCommand: string | null;
   verificationType: string | null;
   dependencies: string[];

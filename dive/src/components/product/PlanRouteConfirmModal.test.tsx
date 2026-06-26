@@ -94,4 +94,34 @@ describe("PlanRouteConfirmModal — S-033 routing outcomes", () => {
     expect(screen.getByText("Add login")).toBeTruthy();
     expect(screen.getByTestId("plan-route-approve")).toBeTruthy();
   });
+
+  it("renders a clarify question as informational — dismiss only, no apply", () => {
+    renderModal({
+      action: "clarify",
+      question: "Which page needs the nav?",
+      candidateIntent: "add a nav bar",
+      suggestedCriterionIds: ["AC-001"],
+      reason: "ambiguous target",
+    });
+    expect(screen.getByTestId("plan-route-body-clarify")).toBeTruthy();
+    expect(screen.getByText("Which page needs the nav?")).toBeTruthy();
+    expect(screen.getByTestId("plan-route-dismiss")).toBeTruthy();
+    expect(screen.queryByTestId("plan-route-approve")).toBeNull();
+  });
+
+  it("renders a multi_step fan-out with each draft and an apply button", () => {
+    const { onApprove } = renderModal({
+      action: "multi_step",
+      drafts: [
+        { draft: draft("Scaffold module"), dependsOnDraft: [] },
+        { draft: draft("Wire handler"), dependsOnDraft: [0] },
+      ],
+      reason: "scaffold then wire",
+    });
+    expect(screen.getByTestId("plan-route-body-multi_step")).toBeTruthy();
+    expect(screen.getByText("Scaffold module")).toBeTruthy();
+    expect(screen.getByText("Wire handler")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("plan-route-approve"));
+    expect(onApprove).toHaveBeenCalledTimes(1);
+  });
 });
