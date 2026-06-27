@@ -45,6 +45,7 @@ import {
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
 import type { ConfirmableRouteDecision } from "./PlanRouteConfirmModal";
 import {
+  decodePlanDraftQualityError,
   usePlanInterviewLLM,
   type PlanDraftLlmErrorReason,
 } from "../../features/planning/usePlanInterviewLLM";
@@ -321,6 +322,7 @@ export function useProductShellController() {
   const [planDraftReviewRequestNonce, setPlanDraftReviewRequestNonce] = useState(0);
   const [planDraftFailure, setPlanDraftFailure] = useState<{
     reason: PlanDraftLlmErrorReason;
+    unresolvedQuestions: string[];
   } | null>(null);
   const [prdMode, setPrdMode] = useState<PrdMode>(null);
   const [prdDraft, setPrdDraft] = useState<LiveProjectSpecDraft | null>(null);
@@ -675,6 +677,28 @@ export function useProductShellController() {
             description: t("planning.interview.draft_ready_description"),
           });
         } catch (err) {
+          const qualityError = decodePlanDraftQualityError(err);
+          if (qualityError) {
+            const unresolvedQuestions = qualityError.unresolvedQuestions ?? [];
+            setPlanDraftFailure({
+              reason: qualityError.reason,
+              unresolvedQuestions,
+            });
+            setActiveInterview((current) =>
+              current
+                ? {
+                    ...current,
+                    unresolved_questions: unresolvedQuestions,
+                  }
+                : current,
+            );
+            toast({
+              variant: "warn",
+              title: t(`planning.interview.recovery.${qualityError.reason}.title`),
+              description: t(`planning.interview.recovery.${qualityError.reason}.description`),
+            });
+            return;
+          }
           toast({
             variant: "error",
             title: t("planning.interview.draft_failed_title"),
@@ -694,7 +718,16 @@ export function useProductShellController() {
       setPlanDraftExpectation(false);
       setPlanDraftFailure({
         reason: error.reason,
+        unresolvedQuestions: error.unresolvedQuestions ?? [],
       });
+      setActiveInterview((current) =>
+        current
+          ? {
+              ...current,
+              unresolved_questions: error.unresolvedQuestions ?? [],
+            }
+          : current,
+      );
       toast({
         variant: "warn",
         title: t(`planning.interview.recovery.${error.reason}.title`),
@@ -1938,6 +1971,7 @@ export function useProductShellController() {
         : planDraftFailure
           ? createElement(PlanDraftRecoveryScreen, {
               reason: planDraftFailure.reason,
+              unresolvedQuestions: planDraftFailure.unresolvedQuestions,
               busy: chat.isStreaming,
               onRetry: handleRetryPlanDraft,
               onDismiss: () => setPlanDraftFailure(null),

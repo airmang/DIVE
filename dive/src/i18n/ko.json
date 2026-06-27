@@ -957,6 +957,7 @@
       },
       "recovery": {
         "retry": "짧은 JSON으로 다시 생성",
+        "missing_items_title": "다음 항목을 더 물어봐야 합니다:",
         "hints": "모델 응답이 길면 계획 초안만 짧게 다시 요청하세요.|다시 실패하면 목표 범위를 더 작게 나누세요.",
         "length": {
           "title": "계획 응답이 중간에 끊겼습니다",
@@ -969,6 +970,14 @@
         "invalid_plan_shape": {
           "title": "계획 구조가 맞지 않습니다",
           "description": "JSON은 읽혔지만 DIVE가 필요한 goal, intent summary, steps 구조가 부족합니다. 호환되는 구조로 다시 생성할 수 있습니다."
+        },
+        "vague_criteria": {
+          "title": "완료 기준에 더 구체적인 확인 방법이 필요합니다",
+          "description": "일부 기준이 모호하거나 독립적으로 확인하기 어려워서, 검토 전에 DIVE가 이 계획을 막았습니다."
+        },
+        "missing_state_criteria": {
+          "title": "완료 기준에 필요한 상태가 빠졌습니다",
+          "description": "목표에 맞는 UI 또는 데이터 불러오기 상태 기준이 부족해서, 검토 전에 DIVE가 이 계획을 막았습니다."
         }
       }
     },

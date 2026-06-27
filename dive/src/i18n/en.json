@@ -957,6 +957,7 @@
       },
       "recovery": {
         "retry": "Regenerate short JSON",
+        "missing_items_title": "Ask for these missing details:",
         "hints": "If the model response is too long, ask only for a compact plan draft.|If it fails again, split the goal into a smaller scope.",
         "length": {
           "title": "Plan response was cut off",
@@ -969,6 +970,14 @@
         "invalid_plan_shape": {
           "title": "Plan structure is incomplete",
           "description": "The JSON was readable, but it did not include the goal, intent summary, and steps DIVE needs. DIVE can regenerate a compatible structure."
+        },
+        "vague_criteria": {
+          "title": "Acceptance criteria need more concrete checks",
+          "description": "DIVE blocked this plan before review because one or more criteria were vague or not independently checkable."
+        },
+        "missing_state_criteria": {
+          "title": "Acceptance criteria are missing required states",
+          "description": "DIVE blocked this plan before review because the goal needs additional criteria for the relevant UI or data-fetch states."
         }
       }
     },

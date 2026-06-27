@@ -21,6 +21,7 @@ export interface PlanDraftLlmError {
   reason: PlanDraftLlmErrorReason;
   finishReason: string | null;
   content: string;
+  unresolvedQuestions?: string[];
 }
 
 interface UsePlanInterviewLlmArgs {
@@ -137,6 +138,41 @@ function parseAssistantJson(content: string): ParseAssistantJsonResult {
     } catch {
       return { ok: false, value: null };
     }
+  }
+}
+
+const PLAN_DRAFT_QUALITY_ERROR_PREFIX = "PLAN_DRAFT_QUALITY_ERROR:";
+
+function isPlanDraftLlmErrorReason(value: unknown): value is PlanDraftLlmErrorReason {
+  return (
+    value === "length" ||
+    value === "invalid_json" ||
+    value === "invalid_plan_shape" ||
+    value === "vague_criteria" ||
+    value === "missing_state_criteria"
+  );
+}
+
+export function decodePlanDraftQualityError(error: unknown): PlanDraftLlmError | null {
+  const content = error instanceof Error ? error.message : String(error);
+  const prefixIndex = content.indexOf(PLAN_DRAFT_QUALITY_ERROR_PREFIX);
+  if (prefixIndex === -1) return null;
+  const encoded = content.slice(prefixIndex + PLAN_DRAFT_QUALITY_ERROR_PREFIX.length).trim();
+  try {
+    const payload = JSON.parse(encoded) as Record<string, unknown>;
+    const reason = payload.reason;
+    if (!isPlanDraftLlmErrorReason(reason)) return null;
+    const unresolvedQuestions = stringArray(
+      payload.unresolved_questions ?? payload.unresolvedQuestions,
+    );
+    return {
+      reason,
+      finishReason: null,
+      content,
+      unresolvedQuestions,
+    };
+  } catch {
+    return null;
   }
 }
 
