@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AmbiguityHit } from "../../lib/ambiguity";
+import type { AmbiguityHit, AmbiguityLocale } from "../../lib/ambiguity";
 import { detectAmbiguity, segmentWithHits } from "../../lib/ambiguity";
 
 interface Props {
   value: string;
+  locale: AmbiguityLocale;
   debounceMs?: number;
   onHitsChange?: (hits: AmbiguityHit[]) => void;
 }
 
-export function AmbiguityUnderlay({ value, debounceMs = 500, onHitsChange }: Props) {
+export function AmbiguityUnderlay({ value, locale, debounceMs = 500, onHitsChange }: Props) {
   const [hits, setHits] = useState<AmbiguityHit[]>([]);
   const timer = useRef<number | null>(null);
 
@@ -17,14 +18,14 @@ export function AmbiguityUnderlay({ value, debounceMs = 500, onHitsChange }: Pro
       window.clearTimeout(timer.current);
     }
     timer.current = window.setTimeout(() => {
-      const detected = detectAmbiguity(value);
+      const detected = detectAmbiguity(value, locale);
       setHits(detected);
       onHitsChange?.(detected);
     }, debounceMs);
     return () => {
       if (timer.current !== null) window.clearTimeout(timer.current);
     };
-  }, [value, debounceMs, onHitsChange]);
+  }, [value, locale, debounceMs, onHitsChange]);
 
   const segments = useMemo(() => segmentWithHits(value, hits), [value, hits]);
 

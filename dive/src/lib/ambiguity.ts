@@ -39,7 +39,7 @@ const RULES_BY_LOCALE: Record<AmbiguityLocale, Rule[]> = {
     },
     {
       kind: "vague_quantity",
-      pattern: /(적당히|대충|여러)\s*(개|번|건)?/gu,
+      pattern: /(적당히|대충|여러|알아서|아무거나)\s*(개|번|건)?/gu,
       suggestion: "개수·범위를 숫자 또는 이름 목록으로 명시해 주세요.",
     },
     {
@@ -52,7 +52,7 @@ const RULES_BY_LOCALE: Record<AmbiguityLocale, Rule[]> = {
   en: [
     {
       kind: "vague_subject",
-      pattern: /\b(something|nice|whatever)\b/giu,
+      pattern: /\b(something|nice|whatever|anything|up to you|you decide)\b/giu,
       suggestion: "Name the specific thing to build or improve.",
     },
     {

@@ -9,7 +9,7 @@ import { PromptHelperPanel } from "../prompt-helper/PromptHelperPanel";
 import { PromptCheckDialog, type PromptCheckResult } from "../prompt-helper/PromptCheckDialog";
 import { RuntimeModelSelector } from "./RuntimeModelSelector";
 import { useChatComposerStore } from "../../stores/chatComposer";
-import { useT } from "../../i18n";
+import { useLocale, useT } from "../../i18n";
 
 interface Props {
   onSend: (text: string) => void;
@@ -36,6 +36,7 @@ export function ChatInput({
   promptCheckMock,
 }: Props) {
   const t = useT();
+  const locale = useLocale();
   const [value, setValue] = useState("");
   const [hits, setHits] = useState<AmbiguityHit[]>([]);
   const [helperOpen, setHelperOpen] = useState(false);
@@ -144,7 +145,7 @@ export function ChatInput({
             )}
             style={{ minHeight: `${MIN_HEIGHT_PX}px`, maxHeight: `${MAX_HEIGHT_PX}px` }}
           />
-          <AmbiguityUnderlay value={value} onHitsChange={setHits} />
+          <AmbiguityUnderlay value={value} locale={locale} onHitsChange={setHits} />
         </div>
         <AmbiguityHintList hits={hits} />
         <div className="flex items-center gap-2">

@@ -1,11 +1,16 @@
 import { Check, Send } from "lucide-react";
 import { useState } from "react";
-import { useT } from "../../i18n";
+import { useLocale, useT, type Locale } from "../../i18n";
 import { Button } from "../ui/button";
 import type { ScaffoldMode } from "../../features/provocation";
+import type { InterviewAnswer } from "../../features/planning";
+import { remainingInterviewDimensions } from "../../features/planning/remainingInterviewDimensions";
+import { detectAmbiguity, type AmbiguityKind } from "../../lib/ambiguity";
 
 interface SocraticInterviewPanelProps {
   started: boolean;
+  answers?: readonly InterviewAnswer[];
+  unresolvedQuestionCount?: number;
   loading?: boolean;
   disabled?: boolean;
   provocation?: {
@@ -19,26 +24,36 @@ interface SocraticInterviewPanelProps {
   onComplete: () => void;
 }
 
-function isVagueAnswer(value: string): boolean {
-  const normalized = value.trim().toLocaleLowerCase();
-  if (!normalized) return false;
-  const vague = [
-    "그냥 적당히",
-    "적당히",
-    "알아서",
-    "대충",
-    "아무거나",
-    "whatever",
-    "anything",
-    "up to you",
-  ];
-  return vague.some(
-    (phrase) => normalized === phrase || (normalized.length <= 16 && normalized.includes(phrase)),
-  );
+const VAGUE_HINT_KINDS = new Set<AmbiguityKind>([
+  "vague_subject",
+  "vague_quantity",
+  "missing_target",
+]);
+
+function remainingQuestionsLabel(
+  count: number,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  if (count <= 0) return t("planning.interview.remaining_questions.done");
+  if (count === 1) return t("planning.interview.remaining_questions.one");
+  return t("planning.interview.remaining_questions.many", { count });
+}
+
+function shouldShowVagueInterviewHint(input: {
+  answer: string;
+  locale: Locale;
+  unresolvedQuestionCount: number;
+}): boolean {
+  const trimmed = input.answer.trim();
+  if (!trimmed) return false;
+  if (input.unresolvedQuestionCount > 0) return true;
+  return detectAmbiguity(trimmed, input.locale).some((hit) => VAGUE_HINT_KINDS.has(hit.kind));
 }
 
 export function SocraticInterviewPanel({
   started,
+  answers = [],
+  unresolvedQuestionCount = 0,
   loading = false,
   disabled = false,
   onSubmitGoal,
@@ -46,19 +61,22 @@ export function SocraticInterviewPanel({
   onComplete,
 }: SocraticInterviewPanelProps) {
   const t = useT();
+  const locale = useLocale();
   const [text, setText] = useState("");
-  const [validationError, setValidationError] = useState<string | null>(null);
   const trimmed = text.trim();
+  const remainingQuestions = remainingInterviewDimensions(answers);
+  const vagueHintVisible =
+    started &&
+    shouldShowVagueInterviewHint({
+      answer: text,
+      locale,
+      unresolvedQuestionCount,
+    });
 
   const submit = () => {
     if (!trimmed || disabled || loading) return;
-    if (started && isVagueAnswer(trimmed)) {
-      setValidationError(t("planning.interview.vague_answer_error"));
-      return;
-    }
     if (started) onSubmitAnswer(trimmed);
     else onSubmitGoal(trimmed);
-    setValidationError(null);
     setText("");
   };
 
@@ -68,13 +86,22 @@ export function SocraticInterviewPanel({
         className="rounded-md border border-accent/40 bg-bg-panel2 p-3"
         data-testid="socratic-interview-panel"
       >
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <div>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-fg">{t("planning.interview.title")}</p>
             <p className="text-xs text-fg-muted">
               {started ? t("planning.interview.answer_hint") : t("planning.interview.goal_hint")}
             </p>
           </div>
+          {started ? (
+            <span
+              className="shrink-0 rounded-full border border-accent/35 bg-accent/10 px-2.5 py-1 text-xs font-medium text-fg"
+              data-testid="interview-remaining-questions"
+              data-count={remainingQuestions}
+            >
+              {remainingQuestionsLabel(remainingQuestions, t)}
+            </span>
+          ) : null}
           <Button
             variant="outline"
             size="sm"
@@ -92,7 +119,6 @@ export function SocraticInterviewPanel({
             value={text}
             onChange={(event) => {
               setText(event.target.value);
-              if (validationError) setValidationError(null);
             }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -119,9 +145,9 @@ export function SocraticInterviewPanel({
             {started ? t("planning.interview.send_answer") : t("planning.interview.start")}
           </Button>
         </div>
-        {validationError ? (
-          <p className="mt-2 text-xs text-warn" role="alert">
-            {validationError}
+        {vagueHintVisible ? (
+          <p className="mt-2 text-xs text-warn" role="note" data-testid="interview-vague-hint">
+            {t("planning.interview.vague_answer_error")}
           </p>
         ) : null}
       </div>

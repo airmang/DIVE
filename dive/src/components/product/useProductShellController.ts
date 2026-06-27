@@ -40,6 +40,7 @@ import {
   type PrdInterviewConversationTurn,
   type ProjectSpec,
   type RouteDecision,
+  type InterviewAnswer,
 } from "../../features/planning";
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
 import type { ConfirmableRouteDecision } from "./PlanRouteConfirmModal";
@@ -64,6 +65,7 @@ import {
 } from "../../features/provocation/verificationGrade";
 import { useProductShellDialogs } from "./useProductShellDialogs";
 import { PlanDraftRecoveryScreen } from "./PlanDraftRecoveryScreen";
+import { PlanDraftPendingScreen } from "./PlanDraftPendingScreen";
 import { SocraticInterviewPanel } from "./SocraticInterviewPanel";
 import { useProductPlanStepRuntime } from "./useProductPlanStepRuntime";
 import { useProductConversationModel } from "./useProductConversationModel";
@@ -144,6 +146,54 @@ const PlanDraftApprovalScreen = lazy(() =>
 interface PendingPlanRouteConfirmation {
   decision: ConfirmableRouteDecision;
   resolve: (approved: boolean) => void;
+}
+
+export const PLAN_DRAFT_PENDING_TIMEOUT_MS = 30_000;
+
+export function shouldRenderPlanDraftPending(input: {
+  planDraftPending: boolean;
+  hasGeneratedPlanDraft: boolean;
+  hasPlanDraftFailure: boolean;
+}): boolean {
+  return input.planDraftPending && !input.hasGeneratedPlanDraft && !input.hasPlanDraftFailure;
+}
+
+export function usePlanDraftPendingController(timeoutMs: number = PLAN_DRAFT_PENDING_TIMEOUT_MS) {
+  const expectingPlanDraftRef = useRef(false);
+  const [planDraftPending, setPlanDraftPending] = useState(false);
+
+  const setPlanDraftExpectation = useCallback((pending: boolean) => {
+    expectingPlanDraftRef.current = pending;
+    setPlanDraftPending(pending);
+  }, []);
+
+  useEffect(() => {
+    if (!planDraftPending) return;
+    const handle = window.setTimeout(() => {
+      expectingPlanDraftRef.current = false;
+      setPlanDraftPending(false);
+    }, timeoutMs);
+    return () => window.clearTimeout(handle);
+  }, [planDraftPending, timeoutMs]);
+
+  return {
+    expectingPlanDraftRef,
+    planDraftPending,
+    setPlanDraftExpectation,
+  };
+}
+
+export function interviewAnswersFromQuestions(value: unknown): InterviewAnswer[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const record = item as Record<string, unknown>;
+      const question = typeof record.question === "string" ? record.question.trim() : "";
+      const answer = typeof record.answer === "string" ? record.answer.trim() : "";
+      return question && answer ? { question, answer } : null;
+    })
+    .filter((item): item is InterviewAnswer => item !== null);
 }
 
 function stringArray(value: unknown): string[] {
@@ -278,7 +328,8 @@ export function useProductShellController() {
   const [prdPatchFeedback, setPrdPatchFeedback] = useState<PrdPatchFeedback | null>(null);
   const [prdBusy, setPrdBusy] = useState(false);
   const [pendingPrdPlanRequest, setPendingPrdPlanRequest] = useState<ProjectSpec | null>(null);
-  const expectingPlanDraftRef = useRef(false);
+  const { expectingPlanDraftRef, planDraftPending, setPlanDraftExpectation } =
+    usePlanDraftPendingController();
   const [pendingPlanRoute, setPendingPlanRoute] = useState<PendingPlanRouteConfirmation | null>(
     null,
   );
@@ -574,8 +625,10 @@ export function useProductShellController() {
   const planInterviewObserver = usePlanInterviewLLM({
     onPlanDraft: (draft) => {
       const interview = activeInterviewRef.current;
-      if (!interview) return;
-      expectingPlanDraftRef.current = false;
+      if (!interview) {
+        setPlanDraftExpectation(false);
+        return;
+      }
       setPlanDraftFailure(null);
       void (async () => {
         try {
@@ -627,12 +680,18 @@ export function useProductShellController() {
             title: t("planning.interview.draft_failed_title"),
             description: err instanceof Error ? err.message : String(err),
           });
+        } finally {
+          setPlanDraftExpectation(false);
         }
       })();
     },
     onPlanDraftError: (error) => {
-      if (!expectingPlanDraftRef.current || !activeInterviewRef.current) return;
-      expectingPlanDraftRef.current = false;
+      if (!expectingPlanDraftRef.current) return;
+      if (!activeInterviewRef.current) {
+        setPlanDraftExpectation(false);
+        return;
+      }
+      setPlanDraftExpectation(false);
       setPlanDraftFailure({
         reason: error.reason,
       });
@@ -1322,13 +1381,13 @@ export function useProductShellController() {
         const interview = await plan.startInterview(projectSpec.goal);
         activeInterviewRef.current = interview;
         setActiveInterview(interview);
-        expectingPlanDraftRef.current = true;
+        setPlanDraftExpectation(true);
         setPlanDraftFailure(null);
         setGeneratedPlanDraft(null);
         requestChatFocus();
         await chat.sendUserMessage(buildPrdPlanGenerationPrompt(projectSpec), "interview", false);
       } catch (err) {
-        expectingPlanDraftRef.current = false;
+        setPlanDraftExpectation(false);
         toast({
           variant: "error",
           title: t("planning.interview.draft_failed_title"),
@@ -1336,7 +1395,7 @@ export function useProductShellController() {
         });
       }
     },
-    [chat, currentProjectId, plan, requestChatFocus, t, toast],
+    [chat, currentProjectId, plan, requestChatFocus, setPlanDraftExpectation, t, toast],
   );
 
   useEffect(() => {
@@ -1516,6 +1575,14 @@ export function useProductShellController() {
   );
 
   const interviewPanelDisabled = currentSessionId === null || !hasConnectedProvider;
+  const interviewAnswers = useMemo(
+    () => interviewAnswersFromQuestions(activeInterview?.questions),
+    [activeInterview?.questions],
+  );
+  const unresolvedQuestionCount = useMemo(
+    () => stringArray(activeInterview?.unresolved_questions).length,
+    [activeInterview?.unresolved_questions],
+  );
 
   const {
     lastManualCheckpointLabel,
@@ -1624,10 +1691,10 @@ export function useProductShellController() {
     const submitPrompt = t("planning.interview.submit_prompt", {
       goal: interview.goal,
     });
-    expectingPlanDraftRef.current = true;
+    setPlanDraftExpectation(true);
     setPlanDraftFailure(null);
     void chat.sendUserMessage(submitPrompt, "interview", false);
-  }, [chat, t]);
+  }, [chat, setPlanDraftExpectation, t]);
 
   const handleApproveGeneratedPlan = useCallback(() => {
     if (!generatedPlanDraft) return;
@@ -1656,11 +1723,11 @@ export function useProductShellController() {
           steps: generatedPlanDraft.steps,
         }),
       });
-      expectingPlanDraftRef.current = true;
+      setPlanDraftExpectation(true);
       setPlanDraftFailure(null);
       void chat.sendUserMessage(prompt, "interview", false);
     },
-    [chat, generatedPlanDraft, t],
+    [chat, generatedPlanDraft, setPlanDraftExpectation, t],
   );
 
   const handleRetryPlanDraft = useCallback(() => {
@@ -1670,10 +1737,10 @@ export function useProductShellController() {
       goal: interview.goal,
       reason: planDraftFailure.reason,
     });
-    expectingPlanDraftRef.current = true;
+    setPlanDraftExpectation(true);
     setPlanDraftFailure(null);
     void chat.sendUserMessage(prompt, "interview", false);
-  }, [chat, planDraftFailure, t]);
+  }, [chat, planDraftFailure, setPlanDraftExpectation, t]);
 
   const handleDiscardGeneratedPlan = useCallback(() => {
     if (!generatedPlanDraft) return;
@@ -1771,6 +1838,8 @@ export function useProductShellController() {
       interviewPanel: showInterviewPanel
         ? createElement(SocraticInterviewPanel, {
             started: activeInterview !== null,
+            answers: interviewAnswers,
+            unresolvedQuestionCount,
             loading: chat.isStreaming,
             disabled: interviewPanelDisabled,
             provocation: {
@@ -1873,7 +1942,13 @@ export function useProductShellController() {
               onRetry: handleRetryPlanDraft,
               onDismiss: () => setPlanDraftFailure(null),
             })
-          : null,
+          : shouldRenderPlanDraftPending({
+                planDraftPending,
+                hasGeneratedPlanDraft: generatedPlanDraft !== null,
+                hasPlanDraftFailure: planDraftFailure !== null,
+              })
+            ? createElement(PlanDraftPendingScreen)
+            : null,
       prdSurface,
       prdSurfaceMode: prdReferenceMode ? ("reference" as const) : ("full" as const),
     },

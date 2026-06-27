@@ -946,6 +946,15 @@
       "draft_ready_description": "Review the generated plan before approving it.",
       "draft_failed_title": "Could not create plan draft",
       "compact_retry_prompt": "The previous plan JSON generation failed. Reason: {{reason}}\nGoal: {{goal}}\nReturn complete, short JSON only. plan_input should contain 2-6 steps and must never exceed 8. Each step must include title, summary, instruction_seed, expected_files, acceptance_criteria, and verification_command, and must be small enough for one supervised turn. verification_command must be one no-shell command with explicit args. Do not include prose or Markdown fences.",
+      "pending": {
+        "title": "Generating your plan...",
+        "description": "DIVE is turning the interview into a short, reviewable plan draft."
+      },
+      "remaining_questions": {
+        "many": "{{count}} more quick questions",
+        "one": "1 more quick question",
+        "done": "Almost done"
+      },
       "recovery": {
         "retry": "Regenerate short JSON",
         "hints": "If the model response is too long, ask only for a compact plan draft.|If it fails again, split the goal into a smaller scope.",
