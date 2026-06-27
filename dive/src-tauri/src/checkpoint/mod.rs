@@ -16,14 +16,24 @@
 //!   an implicit "복원 직전" checkpoint so the operation is reversible.
 //! - Concurrency: single user, single process. No advisory lock.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use git2::{Delta, IndexAddOption, ObjectType, Oid, Repository, RepositoryInitOptions, Signature};
+use rusqlite::params;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use thiserror::Error;
 
-use crate::db::dao::checkpoint as checkpoint_dao;
-use crate::db::models::{CheckpointRow, CheckpointStats, NewCheckpoint};
+use crate::db::dao::{
+    card as card_dao, checkpoint as checkpoint_dao, message as message_dao, step as step_dao,
+    step_session_mapping as mapping_dao, workmap as workmap_dao,
+};
+use crate::db::models::{
+    CardRow, CheckpointRow, CheckpointStats, MessageRow, NewCheckpoint, StepRow,
+    StepSessionMappingRow, WorkmapRow,
+};
 use crate::db::Database;
 
 pub const CHECKPOINT_DIR: &str = ".dive/git";
@@ -56,6 +66,16 @@ struct CheckpointCommit {
     sha: String,
     changed_files: Vec<String>,
     stats: CheckpointStats,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionStateSnapshot {
+    pub cards: Vec<CardRow>,
+    pub messages: Vec<MessageRow>,
+    pub workmap: Option<WorkmapRow>,
+    #[serde(default)]
+    pub steps: Vec<StepRow>,
+    pub step_session_mappings: Vec<StepSessionMappingRow>,
 }
 
 impl CheckpointEngine {
@@ -126,6 +146,72 @@ impl CheckpointEngine {
             .map(Some)
     }
 
+    pub fn create_checkpoint_if_changed_with_snapshot(
+        &self,
+        session_id: i64,
+        card_id: Option<i64>,
+        kind: &str,
+        label: Option<&str>,
+        session_state_snapshot: String,
+    ) -> Result<Option<CheckpointRow>, CheckpointError> {
+        validate_kind(kind)?;
+        let repo = self.open_repo()?;
+        let message = label.unwrap_or_else(|| default_label(kind));
+        let commit = match self.commit_snapshot_opt(&repo, message, true)? {
+            Some(commit) => commit,
+            None => {
+                if self.latest_checkpoint_matches_snapshot(
+                    session_id,
+                    kind,
+                    &session_state_snapshot,
+                )? {
+                    return Ok(None);
+                }
+                self.commit_snapshot(&repo, message)?
+            }
+        };
+        self.persist_checkpoint_with_snapshot(
+            session_id,
+            card_id,
+            kind,
+            label,
+            commit,
+            Some(session_state_snapshot),
+        )
+        .map(Some)
+    }
+
+    pub fn capture_session_state_snapshot(
+        &self,
+        session_id: i64,
+    ) -> Result<String, CheckpointError> {
+        let db = self
+            .db
+            .lock()
+            .map_err(|e| CheckpointError::Db(e.to_string()))?;
+        serialize_session_state_snapshot(db.conn(), session_id)
+    }
+
+    fn latest_checkpoint_matches_snapshot(
+        &self,
+        session_id: i64,
+        kind: &str,
+        session_state_snapshot: &str,
+    ) -> Result<bool, CheckpointError> {
+        let db = self
+            .db
+            .lock()
+            .map_err(|e| CheckpointError::Db(e.to_string()))?;
+        let latest = checkpoint_dao::list_by_session(db.conn(), session_id)
+            .map_err(|e| CheckpointError::Db(e.to_string()))?
+            .into_iter()
+            .max_by_key(|row| (row.created_at, row.id));
+        Ok(latest.is_some_and(|row| {
+            row.kind == kind
+                && row.session_state_snapshot.as_deref() == Some(session_state_snapshot)
+        }))
+    }
+
     fn persist_checkpoint(
         &self,
         session_id: i64,
@@ -134,10 +220,26 @@ impl CheckpointEngine {
         label: Option<&str>,
         commit: CheckpointCommit,
     ) -> Result<CheckpointRow, CheckpointError> {
+        self.persist_checkpoint_with_snapshot(session_id, card_id, kind, label, commit, None)
+    }
+
+    fn persist_checkpoint_with_snapshot(
+        &self,
+        session_id: i64,
+        card_id: Option<i64>,
+        kind: &str,
+        label: Option<&str>,
+        commit: CheckpointCommit,
+        session_state_snapshot: Option<String>,
+    ) -> Result<CheckpointRow, CheckpointError> {
         let db = self
             .db
             .lock()
             .map_err(|e| CheckpointError::Db(e.to_string()))?;
+        let session_state_snapshot = match session_state_snapshot {
+            Some(snapshot) => Some(snapshot),
+            None => Some(serialize_session_state_snapshot(db.conn(), session_id)?),
+        };
         let id = checkpoint_dao::insert(
             db.conn(),
             &NewCheckpoint {
@@ -148,6 +250,7 @@ impl CheckpointEngine {
                 label: label.map(str::to_string),
                 changed_files: commit.changed_files,
                 stats: commit.stats,
+                session_state_snapshot,
             },
         )
         .map_err(|e| CheckpointError::Db(e.to_string()))?;
@@ -190,6 +293,175 @@ impl CheckpointEngine {
         write_tree_to_disk(&repo, &tree, &self.project_root)?;
 
         repo.reference("HEAD", oid, true, "checkpoint restore")?;
+        if let Some(snapshot) = target.session_state_snapshot.as_deref() {
+            self.restore_session_state(target.session_id, snapshot)?;
+        }
+        Ok(())
+    }
+
+    fn restore_session_state(
+        &self,
+        session_id: i64,
+        raw_snapshot: &str,
+    ) -> Result<(), CheckpointError> {
+        let snapshot: SessionStateSnapshot =
+            serde_json::from_str(raw_snapshot).map_err(|e| CheckpointError::Db(e.to_string()))?;
+        let mut db = self
+            .db
+            .lock()
+            .map_err(|e| CheckpointError::Db(e.to_string()))?;
+        let tx = db
+            .conn_mut()
+            .transaction()
+            .map_err(|e| CheckpointError::Db(e.to_string()))?;
+        let checkpoint_card_links = checkpoint_card_links_for_session(&tx, session_id)?;
+        let snapshot_plan_ids: BTreeSet<i64> =
+            snapshot.steps.iter().map(|step| step.plan_id).collect();
+        let snapshot_step_ids: BTreeSet<i64> = snapshot.steps.iter().map(|step| step.id).collect();
+
+        tx.execute("DELETE FROM Message WHERE session_id = ?", [session_id])
+            .map_err(|e| CheckpointError::Db(e.to_string()))?;
+        tx.execute(
+            "DELETE FROM StepSessionMapping WHERE session_id = ?",
+            [session_id],
+        )
+        .map_err(|e| CheckpointError::Db(e.to_string()))?;
+        if !snapshot_plan_ids.is_empty() {
+            // PlanMutation is an append-only audit ledger. A consistent restore
+            // replays Step, the user-visible plan structure; post-snapshot audit
+            // rows remain as history, and SQLite may NULL their deleted step_db_id.
+            for plan_id in &snapshot_plan_ids {
+                let current_step_ids = {
+                    let mut stmt = tx
+                        .prepare("SELECT id FROM Step WHERE plan_id = ?")
+                        .map_err(|e| CheckpointError::Db(e.to_string()))?;
+                    let rows = stmt
+                        .query_map([plan_id], |row| row.get::<_, i64>(0))
+                        .map_err(|e| CheckpointError::Db(e.to_string()))?;
+                    let mut ids = Vec::new();
+                    for row in rows {
+                        ids.push(row.map_err(|e| CheckpointError::Db(e.to_string()))?);
+                    }
+                    ids
+                };
+                for step_id in current_step_ids {
+                    if !snapshot_step_ids.contains(&step_id) {
+                        tx.execute("DELETE FROM Step WHERE id = ?", [step_id])
+                            .map_err(|e| CheckpointError::Db(e.to_string()))?;
+                    }
+                }
+            }
+            for step in &snapshot.steps {
+                upsert_step_row(&tx, step)?;
+            }
+        }
+        tx.execute("DELETE FROM Workmap WHERE session_id = ?", [session_id])
+            .map_err(|e| CheckpointError::Db(e.to_string()))?;
+        tx.execute("DELETE FROM Card WHERE session_id = ?", [session_id])
+            .map_err(|e| CheckpointError::Db(e.to_string()))?;
+
+        for card in &snapshot.cards {
+            let changed_files = optional_json_string(card.changed_files.as_ref())?;
+            tx.execute(
+                "INSERT INTO Card(id, session_id, title, instruction, assist_summary, acceptance_criteria, retrospective, change_summary, state, verify_log, changed_files, test_command, approval_judgment, approval_provenance, position, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                params![
+                    card.id,
+                    card.session_id,
+                    card.title,
+                    card.instruction,
+                    card.assist_summary,
+                    card.acceptance_criteria,
+                    card.retrospective,
+                    card.change_summary,
+                    card.state,
+                    card.verify_log,
+                    changed_files,
+                    card.test_command,
+                    card.approval_judgment,
+                    card.approval_provenance,
+                    card.position,
+                    card.created_at,
+                    card.updated_at,
+                ],
+            )
+            .map_err(|e| CheckpointError::Db(e.to_string()))?;
+        }
+
+        for (checkpoint_id, card_id) in &checkpoint_card_links {
+            tx.execute(
+                "UPDATE Checkpoint
+                    SET card_id = ?
+                  WHERE id = ?
+                    AND EXISTS (SELECT 1 FROM Card WHERE id = ?)",
+                params![card_id, checkpoint_id, card_id],
+            )
+            .map_err(|e| CheckpointError::Db(e.to_string()))?;
+        }
+
+        if let Some(workmap) = &snapshot.workmap {
+            tx.execute(
+                "INSERT INTO Workmap(session_id, current_stage, collapsed, current_card_id) VALUES (?, ?, ?, ?)",
+                params![
+                    workmap.session_id,
+                    workmap.current_stage,
+                    workmap.collapsed,
+                    workmap.current_card_id,
+                ],
+            )
+            .map_err(|e| CheckpointError::Db(e.to_string()))?;
+        }
+
+        for message in &snapshot.messages {
+            let tool_calls = optional_json_string(message.tool_calls.as_ref())?;
+            let usage = optional_json_string(message.usage.as_ref())?;
+            tx.execute(
+                "INSERT INTO Message(id, session_id, card_id, role, content, reasoning_content, tool_calls, usage, provider, model, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                params![
+                    message.id,
+                    message.session_id,
+                    message.card_id,
+                    message.role,
+                    message.content,
+                    message.reasoning_content,
+                    tool_calls,
+                    usage,
+                    message.provider,
+                    message.model,
+                    message.created_at,
+                ],
+            )
+            .map_err(|e| CheckpointError::Db(e.to_string()))?;
+        }
+
+        for mapping in &snapshot.step_session_mappings {
+            let checkpoint_ids = optional_json_string(mapping.checkpoint_ids.as_ref())?;
+            tx.execute(
+                "INSERT OR REPLACE INTO StepSessionMapping(id, step_id, session_id, card_id, state_path, status, started_at, completed_at, checkpoint_ids, verification_status, verification_evidence, user_decision, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                params![
+                    mapping.id,
+                    mapping.step_id,
+                    mapping.session_id,
+                    mapping.card_id,
+                    mapping.state_path,
+                    mapping.status,
+                    mapping.started_at,
+                    mapping.completed_at,
+                    checkpoint_ids,
+                    mapping.verification_status,
+                    mapping.verification_evidence,
+                    mapping.user_decision,
+                    mapping.created_at,
+                    mapping.updated_at,
+                ],
+            )
+            .map_err(|e| CheckpointError::Db(e.to_string()))?;
+        }
+
+        tx.commit()
+            .map_err(|e| CheckpointError::Db(e.to_string()))?;
         Ok(())
     }
 
@@ -322,6 +594,157 @@ fn path_to_checkpoint_string(path: &Path) -> Option<String> {
     }
 }
 
+fn serialize_session_state_snapshot(
+    conn: &rusqlite::Connection,
+    session_id: i64,
+) -> Result<String, CheckpointError> {
+    let step_session_mappings = mapping_dao::list_by_session(conn, session_id)
+        .map_err(|e| CheckpointError::Db(e.to_string()))?;
+    let snapshot = SessionStateSnapshot {
+        cards: card_dao::list_by_session(conn, session_id)
+            .map_err(|e| CheckpointError::Db(e.to_string()))?,
+        messages: message_dao::list_by_session(conn, session_id, i64::MAX)
+            .map_err(|e| CheckpointError::Db(e.to_string()))?,
+        workmap: workmap_dao::get(conn, session_id)
+            .map_err(|e| CheckpointError::Db(e.to_string()))?,
+        steps: steps_for_session_plans(conn, &step_session_mappings)?,
+        step_session_mappings,
+    };
+    serde_json::to_string(&snapshot).map_err(|e| CheckpointError::Db(e.to_string()))
+}
+
+fn steps_for_session_plans(
+    conn: &rusqlite::Connection,
+    mappings: &[StepSessionMappingRow],
+) -> Result<Vec<StepRow>, CheckpointError> {
+    let mut plan_ids = BTreeSet::new();
+    for mapping in mappings {
+        if let Some(step) = step_dao::get_by_id(conn, mapping.step_id)
+            .map_err(|e| CheckpointError::Db(e.to_string()))?
+        {
+            plan_ids.insert(step.plan_id);
+        }
+    }
+
+    let mut steps = Vec::new();
+    for plan_id in plan_ids {
+        steps.extend(
+            step_dao::list_by_plan(conn, plan_id)
+                .map_err(|e| CheckpointError::Db(e.to_string()))?,
+        );
+    }
+    Ok(steps)
+}
+
+fn checkpoint_card_links_for_session(
+    conn: &rusqlite::Connection,
+    session_id: i64,
+) -> Result<Vec<(i64, i64)>, CheckpointError> {
+    let mut stmt = conn
+        .prepare("SELECT id, card_id FROM Checkpoint WHERE session_id = ? AND card_id IS NOT NULL")
+        .map_err(|e| CheckpointError::Db(e.to_string()))?;
+    let rows = stmt
+        .query_map([session_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(|e| CheckpointError::Db(e.to_string()))?;
+    let mut links = Vec::new();
+    for row in rows {
+        links.push(row.map_err(|e| CheckpointError::Db(e.to_string()))?);
+    }
+    Ok(links)
+}
+
+fn upsert_step_row(conn: &rusqlite::Connection, step: &StepRow) -> Result<(), CheckpointError> {
+    let expected_files = optional_json_string(step.expected_files.as_ref())?;
+    let acceptance_criteria = optional_json_string(step.acceptance_criteria.as_ref())?;
+    let dependencies = optional_json_string(step.dependencies.as_ref())?;
+    conn.execute(
+        "DELETE FROM Step WHERE plan_id = ? AND step_id = ? AND id <> ?",
+        params![step.plan_id, step.step_id, step.id],
+    )
+    .map_err(|e| CheckpointError::Db(e.to_string()))?;
+    let updated = conn
+        .execute(
+            "UPDATE Step
+                SET plan_id = ?,
+                    step_id = ?,
+                    title = ?,
+                    summary = ?,
+                    instruction_seed = ?,
+                    expected_files = ?,
+                    acceptance_criteria = ?,
+                    verification_kind = ?,
+                    verification_command = ?,
+                    verification_manual_check = ?,
+                    dependencies = ?,
+                    parallel_group = ?,
+                    position = ?,
+                    created_at = ?,
+                    updated_at = ?,
+                    status = ?,
+                    superseded_by_step_id = ?,
+                    suppression_reason = ?
+              WHERE id = ?",
+            params![
+                step.plan_id,
+                step.step_id,
+                step.title,
+                step.summary,
+                step.instruction_seed,
+                expected_files,
+                acceptance_criteria,
+                step.verification_kind,
+                step.verification_command,
+                step.verification_manual_check,
+                dependencies,
+                step.parallel_group,
+                step.position,
+                step.created_at,
+                step.updated_at,
+                step.status,
+                step.superseded_by_step_id,
+                step.suppression_reason,
+                step.id,
+            ],
+        )
+        .map_err(|e| CheckpointError::Db(e.to_string()))?;
+    if updated == 0 {
+        conn.execute(
+            "INSERT INTO Step(id, plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at, status, superseded_by_step_id, suppression_reason)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                step.id,
+                step.plan_id,
+                step.step_id,
+                step.title,
+                step.summary,
+                step.instruction_seed,
+                expected_files,
+                acceptance_criteria,
+                step.verification_kind,
+                step.verification_command,
+                step.verification_manual_check,
+                dependencies,
+                step.parallel_group,
+                step.position,
+                step.created_at,
+                step.updated_at,
+                step.status,
+                step.superseded_by_step_id,
+                step.suppression_reason,
+            ],
+        )
+        .map_err(|e| CheckpointError::Db(e.to_string()))?;
+    }
+    Ok(())
+}
+
+fn optional_json_string(value: Option<&Value>) -> Result<Option<String>, CheckpointError> {
+    value
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|e| CheckpointError::Db(e.to_string()))
+}
+
 fn write_tree_to_disk(
     repo: &Repository,
     tree: &git2::Tree<'_>,
@@ -371,7 +794,7 @@ fn path_filter(path: &Path, _matched_spec: &[u8]) -> i32 {
 
 fn validate_kind(kind: &str) -> Result<(), CheckpointError> {
     match kind {
-        "auto" | "manual" | "auto-pre-restore" | "auto-pre-edit" => Ok(()),
+        "auto" | "manual" | "auto-pre-restore" | "auto-pre-edit" | "auto-pre-pivot" => Ok(()),
         other => Err(CheckpointError::InvalidKind(other.to_string())),
     }
 }
@@ -384,6 +807,7 @@ fn default_label(kind: &str) -> &'static str {
         "auto" => "자동 체크포인트",
         "auto-pre-restore" => "복원 직전",
         "auto-pre-edit" => "편집 직전",
+        "auto-pre-pivot" => "계획 조정 직전",
         "manual" => "수동 체크포인트",
         _ => "체크포인트",
     }
@@ -398,8 +822,14 @@ impl From<std::io::Error> for CheckpointError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::dao::{project, session};
-    use crate::db::models::{NewProject, NewSession};
+    use crate::db::dao::{
+        card, message, plan, project, session, step, step_session_mapping, workmap,
+    };
+    use crate::db::models::{
+        CardState, NewCard, NewMessage, NewPlan, NewProject, NewSession, NewStep,
+        NewStepSessionMapping, NewWorkmap,
+    };
+    use serde_json::json;
 
     fn engine_with_tempdir() -> (CheckpointEngine, tempfile::TempDir, i64) {
         let tmp = tempfile::tempdir().unwrap();
@@ -429,6 +859,179 @@ mod tests {
         Box::leak(Box::new(db_file));
         let engine = CheckpointEngine::new(tmp.path(), Arc::new(Mutex::new(db)));
         (engine, tmp, sid)
+    }
+
+    fn current_session_snapshot(
+        engine: &CheckpointEngine,
+        session_id: i64,
+    ) -> SessionStateSnapshot {
+        let db = engine.db.lock().unwrap();
+        let raw = serialize_session_state_snapshot(db.conn(), session_id).unwrap();
+        serde_json::from_str(&raw).unwrap()
+    }
+
+    fn project_id_for_session(engine: &CheckpointEngine, session_id: i64) -> i64 {
+        let db = engine.db.lock().unwrap();
+        db.conn()
+            .query_row(
+                "SELECT project_id FROM Session WHERE id = ?",
+                [session_id],
+                |row| row.get(0),
+            )
+            .unwrap()
+    }
+
+    fn seed_session_state_rows(engine: &CheckpointEngine, session_id: i64) -> (i64, i64, i64, i64) {
+        let project_id = project_id_for_session(engine, session_id);
+        let db = engine.db.lock().unwrap();
+        let card_id = card::insert(
+            db.conn(),
+            &NewCard {
+                session_id,
+                title: "Snapshot card".into(),
+                instruction: Some("Do the saved work".into()),
+                assist_summary: Some("Saved assist".into()),
+                acceptance_criteria: Some("Saved criterion".into()),
+                retrospective: Some("Saved retrospective".into()),
+                change_summary: Some("Saved change".into()),
+                state: CardState::Instructed,
+                verify_log: Some("{\"test_result\":\"pass\"}".into()),
+                changed_files: Some(json!(["src/lib.rs"])),
+                test_command: Some("cargo test".into()),
+                approval_judgment: Some("approved".into()),
+                approval_provenance: Some("{\"source\":\"test\"}".into()),
+                position: 1,
+            },
+        )
+        .unwrap();
+        workmap::upsert(
+            db.conn(),
+            &NewWorkmap {
+                session_id,
+                current_stage: "I".into(),
+                collapsed: true,
+                current_card_id: Some(card_id),
+            },
+        )
+        .unwrap();
+        message::insert(
+            db.conn(),
+            &NewMessage {
+                session_id,
+                card_id: Some(card_id),
+                role: "assistant".into(),
+                content: "Saved answer".into(),
+                reasoning_content: Some("Saved reasoning".into()),
+                tool_calls: Some(json!([{ "name": "read_file" }])),
+                usage: Some(json!({ "input_tokens": 1 })),
+                provider: Some("mock".into()),
+                model: Some("mock-model".into()),
+            },
+        )
+        .unwrap();
+        let plan_id = plan::insert(
+            db.conn(),
+            &NewPlan {
+                project_id,
+                interview_id: None,
+                goal: "Saved goal".into(),
+                intent_summary: Some("Saved intent".into()),
+                scope: Some(json!(["scope"])),
+                non_goals: Some(json!([])),
+                constraints: Some(json!([])),
+                acceptance_criteria: Some(json!(["Saved criterion"])),
+                status: "approved".into(),
+            },
+        )
+        .unwrap();
+        let step_id = step::insert(
+            db.conn(),
+            &NewStep {
+                plan_id,
+                step_id: "step-001".into(),
+                title: "Saved step".into(),
+                summary: Some("Saved summary".into()),
+                instruction_seed: Some("Saved seed".into()),
+                expected_files: Some(json!(["src/lib.rs"])),
+                acceptance_criteria: Some(json!(["Saved criterion"])),
+                verification_kind: Some("command".into()),
+                verification_command: Some("cargo test".into()),
+                verification_manual_check: None,
+                dependencies: Some(json!([])),
+                parallel_group: None,
+                position: 1,
+            },
+        )
+        .unwrap();
+        let mapping_id = step_session_mapping::insert(
+            db.conn(),
+            &NewStepSessionMapping {
+                step_id,
+                session_id: Some(session_id),
+                card_id: Some(card_id),
+                state_path: Some("step-001".into()),
+                status: "in_progress".into(),
+                started_at: Some(100),
+                completed_at: None,
+                checkpoint_ids: Some(json!(["cp-saved"])),
+                verification_status: Some("running".into()),
+                verification_evidence: Some("saved evidence".into()),
+                user_decision: Some("continue".into()),
+            },
+        )
+        .unwrap();
+        (card_id, mapping_id, plan_id, step_id)
+    }
+
+    fn insert_extra_step(engine: &CheckpointEngine, plan_id: i64, step_id: &str) -> i64 {
+        let db = engine.db.lock().unwrap();
+        step::insert(
+            db.conn(),
+            &NewStep {
+                plan_id,
+                step_id: step_id.into(),
+                title: format!("Extra {step_id}"),
+                summary: Some("Added after checkpoint".into()),
+                instruction_seed: Some("Extra seed".into()),
+                expected_files: Some(json!(["src/extra.rs"])),
+                acceptance_criteria: Some(json!(["Extra criterion"])),
+                verification_kind: Some("manual".into()),
+                verification_command: None,
+                verification_manual_check: Some("Inspect manually".into()),
+                dependencies: Some(json!([])),
+                parallel_group: None,
+                position: 2,
+            },
+        )
+        .unwrap()
+    }
+
+    fn mutate_session_state_rows(engine: &CheckpointEngine, session_id: i64) {
+        let db = engine.db.lock().unwrap();
+        db.conn()
+            .execute(
+                "UPDATE Card SET title = 'Mutated card', state = 'verified' WHERE session_id = ?",
+                [session_id],
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "UPDATE Message SET content = 'Mutated answer' WHERE session_id = ?",
+                [session_id],
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "UPDATE Workmap SET current_stage = 'V', collapsed = 0 WHERE session_id = ?",
+                [session_id],
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "UPDATE StepSessionMapping SET status = 'done', completed_at = 200, verification_status = 'passed' WHERE session_id = ?",
+                [session_id],
+            )
+            .unwrap();
     }
 
     #[test]
@@ -486,6 +1089,125 @@ mod tests {
                 .any(|c| c.kind == "auto-pre-restore" && c.label.is_none()),
             "restore must auto-create a locale-neutral backup checkpoint, got {list:?}",
         );
+    }
+
+    #[test]
+    fn restore_reapplies_session_state_snapshot() {
+        let (engine, tmp, sid) = engine_with_tempdir();
+        engine.init().unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "v1").unwrap();
+        let (_, mapping_id, _, _) = seed_session_state_rows(&engine, sid);
+
+        let v1 = engine
+            .create_checkpoint(sid, None, "manual", Some("v1"))
+            .unwrap();
+        let expected: SessionStateSnapshot =
+            serde_json::from_str(v1.session_state_snapshot.as_deref().unwrap()).unwrap();
+
+        std::fs::write(tmp.path().join("a.txt"), "v2").unwrap();
+        mutate_session_state_rows(&engine, sid);
+        {
+            let db = engine.db.lock().unwrap();
+            db.conn()
+                .execute(
+                    "UPDATE StepSessionMapping SET session_id = NULL WHERE id = ?",
+                    [mapping_id],
+                )
+                .unwrap();
+        }
+        assert_ne!(current_session_snapshot(&engine, sid), expected);
+
+        engine.restore_checkpoint(v1.id).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("a.txt")).unwrap(),
+            "v1"
+        );
+        assert_eq!(current_session_snapshot(&engine, sid), expected);
+    }
+
+    #[test]
+    fn restore_preserves_checkpoint_card_id_after_card_replay() {
+        let (engine, tmp, sid) = engine_with_tempdir();
+        engine.init().unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "v1").unwrap();
+        let (card_id, _, _, _) = seed_session_state_rows(&engine, sid);
+
+        let v1 = engine
+            .create_checkpoint(sid, Some(card_id), "manual", Some("v1"))
+            .unwrap();
+
+        std::fs::write(tmp.path().join("a.txt"), "v2").unwrap();
+        mutate_session_state_rows(&engine, sid);
+        engine.restore_checkpoint(v1.id).unwrap();
+
+        let db = engine.db.lock().unwrap();
+        let restored = checkpoint_dao::get_by_id(db.conn(), v1.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(restored.card_id, Some(card_id));
+    }
+
+    #[test]
+    fn restore_reverts_plan_steps_to_session_snapshot() {
+        let (engine, tmp, sid) = engine_with_tempdir();
+        engine.init().unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "v1").unwrap();
+        let (_, _, plan_id, saved_step_id) = seed_session_state_rows(&engine, sid);
+
+        let v1 = engine
+            .create_checkpoint(sid, None, "manual", Some("v1"))
+            .unwrap();
+        let extra_step_id = insert_extra_step(&engine, plan_id, "step-002");
+
+        {
+            let db = engine.db.lock().unwrap();
+            assert!(step::get_by_id(db.conn(), extra_step_id).unwrap().is_some());
+        }
+
+        engine.restore_checkpoint(v1.id).unwrap();
+
+        let db = engine.db.lock().unwrap();
+        let steps = step::list_by_plan(db.conn(), plan_id).unwrap();
+        let stable_ids = steps
+            .iter()
+            .map(|step| step.step_id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(stable_ids, vec!["step-001"]);
+        assert!(step::get_by_id(db.conn(), extra_step_id).unwrap().is_none());
+        assert!(step::get_by_id(db.conn(), saved_step_id).unwrap().is_some());
+    }
+
+    #[test]
+    fn restore_without_session_state_snapshot_keeps_file_only_behavior() {
+        let (engine, tmp, sid) = engine_with_tempdir();
+        engine.init().unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "v1").unwrap();
+        seed_session_state_rows(&engine, sid);
+        let v1 = engine
+            .create_checkpoint(sid, None, "manual", Some("legacy-v1"))
+            .unwrap();
+        {
+            let db = engine.db.lock().unwrap();
+            db.conn()
+                .execute(
+                    "UPDATE Checkpoint SET session_state_snapshot = NULL WHERE id = ?",
+                    [v1.id],
+                )
+                .unwrap();
+        }
+
+        std::fs::write(tmp.path().join("a.txt"), "v2").unwrap();
+        mutate_session_state_rows(&engine, sid);
+        let mutated = current_session_snapshot(&engine, sid);
+
+        engine.restore_checkpoint(v1.id).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("a.txt")).unwrap(),
+            "v1"
+        );
+        assert_eq!(current_session_snapshot(&engine, sid), mutated);
     }
 
     #[test]

@@ -11,6 +11,7 @@ export interface RecoveryCheckpointItem {
   kind: string;
   createdAt: number;
   changedFiles: string[];
+  hasSessionStateSnapshot?: boolean;
 }
 
 export interface FailedStepRecovery {
@@ -50,6 +51,8 @@ function localizedCheckpointKind(kind: string, t: ReturnType<typeof useT>): stri
       return t("slide_in.checkpoint.kind_pre_restore");
     case "auto-pre-edit":
       return t("slide_in.checkpoint.kind_pre_edit");
+    case "auto-pre-pivot":
+      return t("slide_in.checkpoint.kind_pre_pivot");
     default:
       return t("slide_in.checkpoint.kind_other", { kind });
   }
@@ -196,12 +199,21 @@ export function RecoveryPanel({
           <p className="mt-1 text-fg-muted">
             {t("recovery.restore_confirm_body", { checkpoint: checkpointTitle(confirmTarget, t) })}
           </p>
-          <p
-            className="mt-2 rounded border border-warn/40 bg-warn/10 px-2 py-1.5 text-[11px] text-warn"
-            data-testid="restore-files-only-note"
-          >
-            {t("recovery.restore_files_only_note")}
-          </p>
+          {confirmTarget.hasSessionStateSnapshot ? (
+            <p
+              className="mt-2 rounded border border-success/40 bg-success/10 px-2 py-1.5 text-[11px] text-success"
+              data-testid="restore-consistent-note"
+            >
+              {t("recovery.restore_consistent_note")}
+            </p>
+          ) : (
+            <p
+              className="mt-2 rounded border border-warn/40 bg-warn/10 px-2 py-1.5 text-[11px] text-warn"
+              data-testid="restore-files-only-note"
+            >
+              {t("recovery.restore_files_only_note")}
+            </p>
+          )}
           <div className="mt-3 flex gap-2">
             <Button size="sm" variant="ghost" onClick={() => setConfirmRestoreId(null)}>
               {t("common.cancel")}

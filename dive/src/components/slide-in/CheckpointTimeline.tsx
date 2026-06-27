@@ -16,6 +16,7 @@ export interface TimelineItem {
     removed: number;
     modified: number;
   };
+  has_session_state_snapshot?: boolean;
 }
 
 interface Props {
@@ -57,6 +58,8 @@ function dotClassFor(kind: string, active: boolean): string {
       return `${base} bg-accent border-accent`;
     case "auto-pre-edit":
       return `${base} bg-warn border-warn`;
+    case "auto-pre-pivot":
+      return `${base} bg-warn border-warn`;
     default:
       return `${base} bg-bg-panel2 border-fg-muted`;
   }
@@ -80,6 +83,8 @@ function checkpointKindLabel(kind: string, t: T): string {
       return t("slide_in.checkpoint.kind_pre_restore");
     case "auto-pre-edit":
       return t("slide_in.checkpoint.kind_pre_edit");
+    case "auto-pre-pivot":
+      return t("slide_in.checkpoint.kind_pre_pivot");
     default:
       return t("slide_in.checkpoint.kind_other", { kind });
   }
@@ -97,6 +102,8 @@ function checkpointKindGlyph(kind: string): string {
       return "R";
     case "auto-pre-edit":
       return "E";
+    case "auto-pre-pivot":
+      return "P";
     default:
       return "C";
   }

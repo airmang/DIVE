@@ -18,6 +18,7 @@ pub struct CheckpointTimelineItem {
     pub file_changes: i64,
     pub changed_files: Vec<String>,
     pub stats: CheckpointStats,
+    pub has_session_state_snapshot: bool,
 }
 
 impl From<CheckpointRow> for CheckpointTimelineItem {
@@ -33,6 +34,7 @@ impl From<CheckpointRow> for CheckpointTimelineItem {
             file_changes: row.changed_files.len() as i64,
             changed_files: row.changed_files,
             stats: row.stats,
+            has_session_state_snapshot: row.session_state_snapshot.is_some(),
         }
     }
 }
@@ -69,6 +71,7 @@ mod tests {
                 removed: 0,
                 modified: 1,
             },
+            session_state_snapshot: None,
         };
         let item = CheckpointTimelineItem::from(row);
         assert_eq!(item.id, 42);
@@ -76,5 +79,6 @@ mod tests {
         assert_eq!(item.file_changes, 2);
         assert_eq!(item.changed_files, vec!["src/main.rs", "src/lib.rs"]);
         assert_eq!(item.stats.added, 1);
+        assert!(!item.has_session_state_snapshot);
     }
 }

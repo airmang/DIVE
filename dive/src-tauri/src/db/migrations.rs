@@ -18,9 +18,10 @@ const MIGRATIONS: &[(i64, MigrationFn)] = &[
     (11, migration_v11),
     (12, migration_v12),
     (13, migration_v13),
+    (14, migration_v14),
 ];
 
-pub const LATEST_SCHEMA_VERSION: i64 = 13;
+pub const LATEST_SCHEMA_VERSION: i64 = 14;
 
 pub fn migrate(conn: &mut Connection) -> Result<(), DbError> {
     migrate_with_migrations(conn, MIGRATIONS)
@@ -309,6 +310,67 @@ fn migration_v13(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// S-032 — persist the logical session snapshot on each checkpoint and widen
+/// the `kind` CHECK constraint for plan-adjustment recovery anchors. Rebuilds
+/// Checkpoint because SQLite cannot alter a CHECK constraint in place.
+fn migration_v14(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    let checkpoint_sql: String = match tx.query_row(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'Checkpoint'",
+        [],
+        |row| row.get(0),
+    ) {
+        Ok(sql) => sql,
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            tx.execute_batch(schema::CREATE_CHECKPOINT)?;
+            return Ok(());
+        }
+        Err(e) => return Err(e),
+    };
+    if checkpoint_sql.contains("session_state_snapshot")
+        && checkpoint_sql.contains("auto-pre-pivot")
+    {
+        return Ok(());
+    }
+
+    let has_changed_files = checkpoint_column_exists(tx, "changed_files")?;
+    let has_stats = checkpoint_column_exists(tx, "stats")?;
+    let has_snapshot = checkpoint_column_exists(tx, "session_state_snapshot")?;
+    let changed_files_expr = if has_changed_files {
+        "COALESCE(changed_files, '[]')"
+    } else {
+        "'[]'"
+    };
+    let stats_expr = if has_stats {
+        "COALESCE(stats, '{\"added\":0,\"removed\":0,\"modified\":0}')"
+    } else {
+        "'{\"added\":0,\"removed\":0,\"modified\":0}'"
+    };
+    let snapshot_expr = if has_snapshot {
+        "session_state_snapshot"
+    } else {
+        "NULL"
+    };
+
+    tx.execute_batch("ALTER TABLE Checkpoint RENAME TO Checkpoint_old;")?;
+    tx.execute_batch(schema::CREATE_CHECKPOINT)?;
+    tx.execute_batch(&format!(
+        "INSERT INTO Checkpoint(id, session_id, card_id, git_sha, kind, label, changed_files, stats, session_state_snapshot, created_at)
+         SELECT id, session_id, card_id, git_sha, kind, label, {changed_files_expr}, {stats_expr}, {snapshot_expr}, created_at
+         FROM Checkpoint_old;",
+    ))?;
+    tx.execute_batch("DROP TABLE Checkpoint_old;")?;
+    Ok(())
+}
+
+fn checkpoint_column_exists(tx: &Transaction<'_>, column: &str) -> rusqlite::Result<bool> {
+    let exists: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('Checkpoint') WHERE name = ?",
+        [column],
+        |row| row.get(0),
+    )?;
+    Ok(exists > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use rusqlite::Transaction;
@@ -452,6 +514,76 @@ mod tests {
                 [session_id],
             )
             .unwrap();
+    }
+
+    #[test]
+    fn migration_v14_adds_checkpoint_session_snapshot_and_pre_pivot_kind() {
+        let (mut db, _tmp) = fresh_db();
+        let (_, session_id) = seed_project_session(db.conn());
+        db.conn()
+            .execute_batch(
+                "DROP TABLE Checkpoint;
+                 CREATE TABLE Checkpoint (
+                    id INTEGER PRIMARY KEY,
+                    session_id INTEGER NOT NULL REFERENCES Session(id) ON DELETE CASCADE,
+                    card_id INTEGER REFERENCES Card(id) ON DELETE SET NULL,
+                    git_sha TEXT NOT NULL,
+                    kind TEXT NOT NULL CHECK(kind IN ('auto','manual','auto-pre-restore','auto-pre-edit')),
+                    label TEXT,
+                    changed_files TEXT NOT NULL DEFAULT '[]',
+                    stats TEXT NOT NULL DEFAULT '{\"added\":0,\"removed\":0,\"modified\":0}',
+                    created_at INTEGER NOT NULL
+                 );",
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO Checkpoint(session_id, git_sha, kind, label, changed_files, stats, created_at) VALUES (?, 'sha-old', 'manual', 'keep', '[\"a.ts\"]', '{\"added\":1,\"removed\":0,\"modified\":0}', 1)",
+                [session_id],
+            )
+            .unwrap();
+        assert!(db
+            .conn()
+            .execute(
+                "INSERT INTO Checkpoint(session_id, git_sha, kind, created_at) VALUES (?, 'sha-pivot', 'auto-pre-pivot', 2)",
+                [session_id],
+            )
+            .is_err());
+
+        let tx = db.conn_mut().transaction().unwrap();
+        super::migration_v14(&tx).unwrap();
+        tx.commit().unwrap();
+
+        let has_snapshot_col: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('Checkpoint') WHERE name = 'session_state_snapshot'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_snapshot_col, 1);
+        let kept: (String, Option<String>, String) = db
+            .conn()
+            .query_row(
+                "SELECT label, session_state_snapshot, changed_files FROM Checkpoint WHERE git_sha = 'sha-old'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(kept.0, "keep");
+        assert_eq!(kept.1, None);
+        assert_eq!(kept.2, "[\"a.ts\"]");
+        db.conn()
+            .execute(
+                "INSERT INTO Checkpoint(session_id, git_sha, kind, created_at) VALUES (?, 'sha-pivot', 'auto-pre-pivot', 2)",
+                [session_id],
+            )
+            .unwrap();
+
+        let tx = db.conn_mut().transaction().unwrap();
+        super::migration_v14(&tx).unwrap();
+        tx.commit().unwrap();
     }
 
     #[test]

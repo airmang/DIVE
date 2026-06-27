@@ -17,7 +17,7 @@ interface ProductRecoveryChat {
   messages: ChatMessage[];
   listCheckpoints: () => Promise<CheckpointRowPayload[]>;
   createCheckpoint: (cardId: number | null, label: string) => Promise<CheckpointRowPayload | null>;
-  restoreCheckpoint: (checkpointId: number) => Promise<void>;
+  restoreCheckpoint: (checkpointId: number) => Promise<{ restored_session_state: boolean }>;
   sendUserMessage: (
     text: string,
     runMode?: "interview" | "plan" | "build" | "verify",

@@ -21,6 +21,7 @@ fn map_row(row: &rusqlite::Row<'_>) -> Result<CheckpointRow, DbError> {
         created_at: row.get(6)?,
         changed_files: parse_changed_files(row.get(7)?)?,
         stats: parse_stats(row.get(8)?)?,
+        session_state_snapshot: row.get(9)?,
     })
 }
 
@@ -34,36 +35,38 @@ pub fn insert(conn: &Connection, row: &NewCheckpoint) -> Result<i64, DbError> {
     let changed_files = serde_json::to_string(&row.changed_files)?;
     let stats = serde_json::to_string(&row.stats)?;
     conn.execute(
-        "INSERT INTO Checkpoint(session_id, card_id, git_sha, kind, label, changed_files, stats, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        params![row.session_id,row.card_id,row.git_sha,row.kind,row.label,changed_files,stats,now_ms()],
+        "INSERT INTO Checkpoint(session_id, card_id, git_sha, kind, label, changed_files, stats, session_state_snapshot, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        params![row.session_id,row.card_id,row.git_sha,row.kind,row.label,changed_files,stats,row.session_state_snapshot,now_ms()],
     )?;
     Ok(conn.last_insert_rowid())
 }
 pub fn get_by_id(conn: &Connection, id: i64) -> Result<Option<CheckpointRow>, DbError> {
     Ok(conn
         .query_row(
-            "SELECT id, session_id, card_id, git_sha, kind, label, created_at, changed_files, stats FROM Checkpoint WHERE id = ?",
+            "SELECT id, session_id, card_id, git_sha, kind, label, created_at, changed_files, stats, session_state_snapshot FROM Checkpoint WHERE id = ?",
             [id],
             query_map_row,
         )
         .optional()?)
 }
 pub fn list(conn: &Connection) -> Result<Vec<CheckpointRow>, DbError> {
-    let mut stmt=conn.prepare("SELECT id, session_id, card_id, git_sha, kind, label, created_at, changed_files, stats FROM Checkpoint ORDER BY id")?;
+    let mut stmt=conn.prepare("SELECT id, session_id, card_id, git_sha, kind, label, created_at, changed_files, stats, session_state_snapshot FROM Checkpoint ORDER BY id")?;
     let rows = stmt
         .query_map([], query_map_row)?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
 pub fn list_by_session(conn: &Connection, session_id: i64) -> Result<Vec<CheckpointRow>, DbError> {
-    let mut stmt=conn.prepare("SELECT id, session_id, card_id, git_sha, kind, label, created_at, changed_files, stats FROM Checkpoint WHERE session_id = ? ORDER BY created_at, id")?;
+    let mut stmt=conn.prepare("SELECT id, session_id, card_id, git_sha, kind, label, created_at, changed_files, stats, session_state_snapshot FROM Checkpoint WHERE session_id = ? ORDER BY created_at, id")?;
     let rows = stmt
         .query_map([session_id], query_map_row)?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
 pub fn update(conn: &Connection, id: i64, row: &NewCheckpoint) -> Result<(), DbError> {
-    conn.execute("UPDATE Checkpoint SET session_id = ?, card_id = ?, git_sha = ?, kind = ?, label = ? WHERE id = ?",params![row.session_id,row.card_id,row.git_sha,row.kind,row.label,id])?;
+    let changed_files = serde_json::to_string(&row.changed_files)?;
+    let stats = serde_json::to_string(&row.stats)?;
+    conn.execute("UPDATE Checkpoint SET session_id = ?, card_id = ?, git_sha = ?, kind = ?, label = ?, changed_files = ?, stats = ?, session_state_snapshot = ? WHERE id = ?",params![row.session_id,row.card_id,row.git_sha,row.kind,row.label,changed_files,stats,row.session_state_snapshot,id])?;
     Ok(())
 }
 pub fn delete(conn: &Connection, id: i64) -> Result<(), DbError> {
@@ -83,6 +86,7 @@ mod tests {
             label: Some("l".into()),
             changed_files: Vec::new(),
             stats: CheckpointStats::zero(),
+            session_state_snapshot: None,
         }
     }
     #[test]

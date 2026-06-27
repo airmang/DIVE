@@ -1,8 +1,14 @@
 use std::sync::{Arc, Mutex};
 
-use dive_lib::checkpoint::CheckpointEngine;
-use dive_lib::db::dao::{card, project, session};
-use dive_lib::db::models::{CardState, NewCard, NewProject, NewSession};
+use dive_lib::checkpoint::{CheckpointEngine, SessionStateSnapshot};
+use dive_lib::db::dao::{
+    card, message, plan, project, session, step, step_session_mapping as mapping, workmap,
+};
+use dive_lib::db::models::{
+    CardState, NewCard, NewMessage, NewPlan, NewProject, NewSession, NewStep,
+    NewStepSessionMapping, NewWorkmap,
+};
+use serde_json::json;
 
 fn env() -> (Arc<Mutex<dive_lib::Database>>, tempfile::TempDir, i64, i64) {
     let tmp = tempfile::tempdir().unwrap();
@@ -111,4 +117,192 @@ fn restore_reverts_worktree_and_autosnapshots() {
     assert!(list
         .iter()
         .any(|c| c.kind == "auto-pre-restore" && c.label.is_none()));
+}
+
+#[test]
+fn restore_replays_session_state_snapshot() {
+    let (db, tmp, sid, cid) = env();
+    let (message_id, mapping_id) = seed_session_state(db.clone(), tmp.path(), sid, cid);
+    let engine = CheckpointEngine::new(tmp.path(), db.clone());
+    engine.init().unwrap();
+    std::fs::write(tmp.path().join("a.txt"), "v1").unwrap();
+    let v1 = engine
+        .create_checkpoint(sid, Some(cid), "manual", Some("v1"))
+        .unwrap();
+    let snapshot: SessionStateSnapshot =
+        serde_json::from_str(v1.session_state_snapshot.as_deref().unwrap()).unwrap();
+
+    std::fs::write(tmp.path().join("a.txt"), "v2").unwrap();
+    {
+        let db = db.lock().unwrap();
+        db.conn()
+            .execute("UPDATE Card SET title = 'mutated' WHERE id = ?", [cid])
+            .unwrap();
+        db.conn()
+            .execute(
+                "UPDATE Message SET content = 'after' WHERE id = ?",
+                [message_id],
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "UPDATE Workmap SET current_stage = 'V', collapsed = 1 WHERE session_id = ?",
+                [sid],
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "UPDATE StepSessionMapping SET status = 'done', completed_at = 2 WHERE id = ?",
+                [mapping_id],
+            )
+            .unwrap();
+    }
+
+    engine.restore_checkpoint(v1.id).unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(tmp.path().join("a.txt")).unwrap(),
+        "v1"
+    );
+    let db = db.lock().unwrap();
+    assert_eq!(
+        card::list_by_session(db.conn(), sid).unwrap(),
+        snapshot.cards
+    );
+    assert_eq!(
+        message::list_by_session(db.conn(), sid, i64::MAX).unwrap(),
+        snapshot.messages
+    );
+    assert_eq!(workmap::get(db.conn(), sid).unwrap(), snapshot.workmap);
+    assert_eq!(
+        mapping::list_by_session(db.conn(), sid).unwrap(),
+        snapshot.step_session_mappings
+    );
+}
+
+#[test]
+fn restore_without_session_state_snapshot_keeps_file_only_behavior() {
+    let (db, tmp, sid, cid) = env();
+    seed_session_state(db.clone(), tmp.path(), sid, cid);
+    let engine = CheckpointEngine::new(tmp.path(), db.clone());
+    engine.init().unwrap();
+    std::fs::write(tmp.path().join("a.txt"), "v1").unwrap();
+    let v1 = engine
+        .create_checkpoint(sid, Some(cid), "manual", Some("legacy"))
+        .unwrap();
+    {
+        let db = db.lock().unwrap();
+        db.conn()
+            .execute(
+                "UPDATE Checkpoint SET session_state_snapshot = NULL WHERE id = ?",
+                [v1.id],
+            )
+            .unwrap();
+        db.conn()
+            .execute("UPDATE Card SET title = 'mutated' WHERE id = ?", [cid])
+            .unwrap();
+    }
+    std::fs::write(tmp.path().join("a.txt"), "v2").unwrap();
+
+    engine.restore_checkpoint(v1.id).unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(tmp.path().join("a.txt")).unwrap(),
+        "v1"
+    );
+    let db = db.lock().unwrap();
+    assert_eq!(
+        card::get_by_id(db.conn(), cid).unwrap().unwrap().title,
+        "mutated"
+    );
+}
+
+fn seed_session_state(
+    db: Arc<Mutex<dive_lib::Database>>,
+    project_root: &std::path::Path,
+    sid: i64,
+    cid: i64,
+) -> (i64, i64) {
+    let db = db.lock().unwrap();
+    let project_id = session::get_by_id(db.conn(), sid)
+        .unwrap()
+        .unwrap()
+        .project_id;
+    let plan_id = plan::insert(
+        db.conn(),
+        &NewPlan {
+            project_id,
+            interview_id: None,
+            goal: "goal".into(),
+            intent_summary: None,
+            scope: None,
+            non_goals: None,
+            constraints: None,
+            acceptance_criteria: None,
+            status: "approved".into(),
+        },
+    )
+    .unwrap();
+    let step_id = step::insert(
+        db.conn(),
+        &NewStep {
+            plan_id,
+            step_id: "step-001".into(),
+            title: "Step 1".into(),
+            summary: None,
+            instruction_seed: Some("Do it".into()),
+            expected_files: Some(json!([project_root.join("a.txt").to_string_lossy()])),
+            acceptance_criteria: Some(json!(["done"])),
+            verification_kind: None,
+            verification_command: None,
+            verification_manual_check: None,
+            dependencies: Some(json!([])),
+            parallel_group: None,
+            position: 1,
+        },
+    )
+    .unwrap();
+    workmap::upsert(
+        db.conn(),
+        &NewWorkmap {
+            session_id: sid,
+            current_stage: "I".into(),
+            collapsed: false,
+            current_card_id: Some(cid),
+        },
+    )
+    .unwrap();
+    let message_id = message::insert(
+        db.conn(),
+        &NewMessage {
+            session_id: sid,
+            card_id: Some(cid),
+            role: "assistant".into(),
+            content: "before".into(),
+            reasoning_content: Some("reason".into()),
+            tool_calls: Some(json!([{ "name": "read" }])),
+            usage: Some(json!({ "tokens": 3 })),
+            provider: Some("mock".into()),
+            model: Some("model".into()),
+        },
+    )
+    .unwrap();
+    let mapping_id = mapping::insert(
+        db.conn(),
+        &NewStepSessionMapping {
+            step_id,
+            session_id: Some(sid),
+            card_id: Some(cid),
+            state_path: Some("step-001".into()),
+            status: "in_progress".into(),
+            started_at: Some(1),
+            completed_at: None,
+            checkpoint_ids: Some(json!([1])),
+            verification_status: Some("pending".into()),
+            verification_evidence: Some("none".into()),
+            user_decision: Some("working".into()),
+        },
+    )
+    .unwrap();
+    (message_id, mapping_id)
 }

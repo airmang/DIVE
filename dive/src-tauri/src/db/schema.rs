@@ -80,10 +80,11 @@ CREATE TABLE IF NOT EXISTS Checkpoint (
     session_id INTEGER NOT NULL REFERENCES Session(id) ON DELETE CASCADE,
     card_id INTEGER REFERENCES Card(id) ON DELETE SET NULL,
     git_sha TEXT NOT NULL,
-    kind TEXT NOT NULL CHECK(kind IN ('auto','manual','auto-pre-restore','auto-pre-edit')),
+    kind TEXT NOT NULL CHECK(kind IN ('auto','manual','auto-pre-restore','auto-pre-edit','auto-pre-pivot')),
     label TEXT,
     changed_files TEXT NOT NULL DEFAULT '[]',
     stats TEXT NOT NULL DEFAULT '{\"added\":0,\"removed\":0,\"modified\":0}',
+    session_state_snapshot TEXT,
     created_at INTEGER NOT NULL
 )";
 

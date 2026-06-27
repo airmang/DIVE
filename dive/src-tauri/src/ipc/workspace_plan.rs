@@ -28,7 +28,7 @@ use crate::dive::event_log as dive_event_log;
 use crate::dive::plan_router::{
     self, PlanRouterContext, PlanRouterDecision, PlanRouterStepContext, RouterStepDraft,
 };
-use crate::ipc::AppState;
+use crate::ipc::{log_event, AppState};
 use crate::providers::{with_retry, ChatEvent, ChatRequest, FinishReason, Message, ToolChoice};
 use crate::workspace_plan as workspace_plan_service;
 
@@ -3155,6 +3155,78 @@ async fn wait_for_route_cancel(cancel: Arc<AtomicBool>) {
     }
 }
 
+#[derive(Debug, Clone)]
+struct PrePivotCheckpointInput {
+    session_id: i64,
+    snapshot: String,
+}
+
+fn prepare_pre_pivot_checkpoint(state: &AppState, plan_id: i64) -> Option<PrePivotCheckpointInput> {
+    let session_id = resolve_plan_session_id_for_checkpoint(state, plan_id)?;
+    let engine =
+        crate::checkpoint::CheckpointEngine::new(state.project_root_snapshot(), state.db.clone());
+    let snapshot = engine.capture_session_state_snapshot(session_id).ok()?;
+    Some(PrePivotCheckpointInput {
+        session_id,
+        snapshot,
+    })
+}
+
+fn resolve_plan_session_id_for_checkpoint(state: &AppState, plan_id: i64) -> Option<i64> {
+    let db = state.db.lock().ok()?;
+    let steps = step_dao::list_active_by_plan(db.conn(), plan_id).ok()?;
+    for step in steps {
+        let Some(mapping) = mapping_dao::get_by_step(db.conn(), step.id).ok().flatten() else {
+            continue;
+        };
+        if let Some(session_id) = mapping.session_id {
+            return Some(session_id);
+        }
+    }
+    None
+}
+
+fn maybe_create_pre_pivot_checkpoint(
+    state: &AppState,
+    checkpoint: Option<PrePivotCheckpointInput>,
+) {
+    let Some(checkpoint) = checkpoint else {
+        return;
+    };
+    let Ok(project_root) = state.project_root_required() else {
+        return;
+    };
+    let engine = crate::checkpoint::CheckpointEngine::new(project_root, state.db.clone());
+    if !engine.checkpoint_dir().join("HEAD").exists() {
+        return;
+    }
+    let row = engine
+        .create_checkpoint_if_changed_with_snapshot(
+            checkpoint.session_id,
+            None,
+            "auto-pre-pivot",
+            None,
+            checkpoint.snapshot,
+        )
+        .ok()
+        .flatten();
+    if let Some(row) = row {
+        let _ = log_event(
+            state,
+            Some(checkpoint.session_id),
+            "checkpoint_create",
+            json!({
+                "checkpoint_id": row.id,
+                "card_id": row.card_id,
+                "kind": row.kind,
+                "label": row.label,
+                "git_sha": row.git_sha,
+                "changed_file_count": row.changed_files.len(),
+            }),
+        );
+    }
+}
+
 pub fn workspace_plan_append_step_impl(
     state: &AppState,
     plan_id: i64,
@@ -3188,41 +3260,50 @@ pub fn workspace_plan_append_step_with_options_impl(
         .map(str::to_string);
     validate_append_draft(&draft)?;
     sanitize_step_verification(&mut draft);
-    let mut db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.conn_mut();
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-    let plan = plan_dao::get_by_id(&tx, plan_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("plan {plan_id} not found"))?;
-    if plan.status != "approved" {
-        return Err("plan must be approved before appending steps".into());
-    }
-    let existing_count = step_dao::list_active_by_plan(&tx, plan_id)
-        .map_err(|e| e.to_string())?
-        .len();
-    if existing_count >= MAX_PLAN_STEPS {
-        return Err(format!(
-            "plan exceeds DIVE execution envelope: at most {MAX_PLAN_STEPS} steps are allowed"
-        ));
-    }
+    let pre_pivot_checkpoint = prepare_pre_pivot_checkpoint(state, plan_id);
+    let row = {
+        let mut db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.conn_mut();
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        let plan = plan_dao::get_by_id(&tx, plan_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("plan {plan_id} not found"))?;
+        if plan.status != "approved" {
+            return Err("plan must be approved before appending steps".into());
+        }
+        let existing_count = step_dao::list_active_by_plan(&tx, plan_id)
+            .map_err(|e| e.to_string())?
+            .len();
+        if existing_count >= MAX_PLAN_STEPS {
+            return Err(format!(
+                "plan exceeds DIVE execution envelope: at most {MAX_PLAN_STEPS} steps are allowed"
+            ));
+        }
 
-    validate_draft_dependencies(&tx, plan_id, &draft.dependencies)?;
-    if let Some(existing) = find_duplicate_step(&tx, plan_id, &draft)? {
-        return Err(format!(
-            "step already exists: {} ({})",
-            existing.step_id, existing.title
-        ));
-    }
-    let row = append_step_within_tx(
-        &tx,
-        &plan,
-        &draft,
-        mutation_reason.as_deref(),
-        options.prd_delta.as_ref(),
-    )?;
-    tx.commit().map_err(|e| e.to_string())?;
+        validate_draft_dependencies(&tx, plan_id, &draft.dependencies)?;
+        if let Some(existing) = find_duplicate_step(&tx, plan_id, &draft)? {
+            return Err(format!(
+                "step already exists: {} ({})",
+                existing.step_id, existing.title
+            ));
+        }
+        let row = append_step_within_tx(
+            &tx,
+            &plan,
+            &draft,
+            mutation_reason.as_deref(),
+            options.prd_delta.as_ref(),
+        )?;
+        tx.commit().map_err(|e| e.to_string())?;
+        row
+    };
+    // The DB snapshot was captured before this mutation. Creating the checkpoint
+    // after commit avoids holding the mutation transaction open on git I/O, and
+    // it still runs before artifact export mutates `.dive/plan.json`.
+    maybe_create_pre_pivot_checkpoint(state, pre_pivot_checkpoint);
     let project_root = state.project_root_required()?;
-    workspace_plan_service::artifacts::export_plan_artifacts(conn, plan_id, &project_root)
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    workspace_plan_service::artifacts::export_plan_artifacts(db.conn(), plan_id, &project_root)
         .map_err(|e| e.to_string())?;
     Ok(row)
 }
@@ -3338,77 +3419,83 @@ pub fn workspace_plan_remove_step_impl(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
-    let mut db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.conn_mut();
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-    let plan = plan_dao::get_by_id(&tx, plan_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("plan {plan_id} not found"))?;
-    if plan.status != "approved" {
-        return Err("plan must be approved before removing steps".into());
-    }
-    let step = step_dao::get_by_id(&tx, step_db_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("step {step_db_id} not found"))?;
-    if step.plan_id != plan_id {
-        return Err(format!(
-            "step {step_db_id} does not belong to plan {plan_id}"
-        ));
-    }
-    if step.status != "active" {
-        return Err(format!("step {} is not active", step.step_id));
-    }
-    validate_no_active_dependents(&tx, plan_id, &step.step_id)?;
+    let pre_pivot_checkpoint = prepare_pre_pivot_checkpoint(state, plan_id);
+    {
+        let mut db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.conn_mut();
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        let plan = plan_dao::get_by_id(&tx, plan_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("plan {plan_id} not found"))?;
+        if plan.status != "approved" {
+            return Err("plan must be approved before removing steps".into());
+        }
+        let step = step_dao::get_by_id(&tx, step_db_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("step {step_db_id} not found"))?;
+        if step.plan_id != plan_id {
+            return Err(format!(
+                "step {step_db_id} does not belong to plan {plan_id}"
+            ));
+        }
+        if step.status != "active" {
+            return Err(format!("step {} is not active", step.step_id));
+        }
+        validate_no_active_dependents(&tx, plan_id, &step.step_id)?;
 
-    let latest_prd = prd_dao::latest_version(&tx, plan.project_id).map_err(|e| e.to_string())?;
-    let prd_update =
-        persist_prd_delta_for_plan_mutation(&tx, plan.project_id, latest_prd.as_ref(), None)?;
+        let latest_prd =
+            prd_dao::latest_version(&tx, plan.project_id).map_err(|e| e.to_string())?;
+        let prd_update =
+            persist_prd_delta_for_plan_mutation(&tx, plan.project_id, latest_prd.as_ref(), None)?;
 
-    step_dao::set_status(&tx, step.id, "removed", None, mutation_reason.as_deref())
-        .map_err(|e| e.to_string())?;
+        step_dao::set_status(&tx, step.id, "removed", None, mutation_reason.as_deref())
+            .map_err(|e| e.to_string())?;
 
-    let mutation_id = format!("mut-{}-{}", step.step_id, now_ms());
-    plan_mutation_dao::insert_mutation(
-        &tx,
-        &NewPlanMutation {
-            mutation_id: mutation_id.clone(),
-            project_id: plan.project_id,
-            plan_id: plan.id,
-            r#type: PlanMutationType::RetireStep,
-            step_db_id: Some(step.id),
-            stable_step_id: Some(step.step_id.clone()),
-            reason: mutation_reason.clone(),
-            criterion_ids: Vec::new(),
-            prd_delta: prd_update.delta.clone(),
-            scope_expansion: ScopeExpansionAssessment {
-                expanded: false,
-                reason_codes: Vec::new(),
-                evidence_refs: Vec::new(),
+        let mutation_id = format!("mut-{}-{}", step.step_id, now_ms());
+        plan_mutation_dao::insert_mutation(
+            &tx,
+            &NewPlanMutation {
+                mutation_id: mutation_id.clone(),
+                project_id: plan.project_id,
+                plan_id: plan.id,
+                r#type: PlanMutationType::RetireStep,
+                step_db_id: Some(step.id),
+                stable_step_id: Some(step.step_id.clone()),
+                reason: mutation_reason.clone(),
+                criterion_ids: Vec::new(),
+                prd_delta: prd_update.delta.clone(),
+                scope_expansion: ScopeExpansionAssessment {
+                    expanded: false,
+                    reason_codes: Vec::new(),
+                    evidence_refs: Vec::new(),
+                },
             },
-        },
-    )
-    .map_err(|e| e.to_string())?;
-
-    let mut payload = dive_event_log::plan_step_retired_payload(
-        mutation_id,
-        plan.project_id,
-        plan.id,
-        step.id,
-        step.step_id.clone(),
-        Vec::new(),
-        prd_update.from_version,
-        prd_update.to_version,
-    );
-    if let Value::Object(map) = &mut payload {
-        map.insert("step_title".into(), json!(step.title.clone()));
-        map.insert("message".into(), json!("Step retired from plan"));
-        map.insert("reason".into(), json!(mutation_reason));
-    }
-    dive_event_log::append_to_conn(&tx, None, dive_event_log::PLAN_STEP_RETIRED_EVENT, payload)
+        )
         .map_err(|e| e.to_string())?;
-    tx.commit().map_err(|e| e.to_string())?;
+
+        let mut payload = dive_event_log::plan_step_retired_payload(
+            mutation_id,
+            plan.project_id,
+            plan.id,
+            step.id,
+            step.step_id.clone(),
+            Vec::new(),
+            prd_update.from_version,
+            prd_update.to_version,
+        );
+        if let Value::Object(map) = &mut payload {
+            map.insert("step_title".into(), json!(step.title.clone()));
+            map.insert("message".into(), json!("Step retired from plan"));
+            map.insert("reason".into(), json!(mutation_reason));
+        }
+        dive_event_log::append_to_conn(&tx, None, dive_event_log::PLAN_STEP_RETIRED_EVENT, payload)
+            .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+    }
+    maybe_create_pre_pivot_checkpoint(state, pre_pivot_checkpoint);
     let project_root = state.project_root_required()?;
-    workspace_plan_service::artifacts::export_plan_artifacts(conn, plan_id, &project_root)
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    workspace_plan_service::artifacts::export_plan_artifacts(db.conn(), plan_id, &project_root)
         .map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -3441,98 +3528,105 @@ pub fn workspace_plan_supersede_step_impl(
     validate_append_draft(&replacement)?;
     sanitize_step_verification(&mut replacement);
 
-    let mut db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.conn_mut();
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-    let plan = plan_dao::get_by_id(&tx, plan_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("plan {plan_id} not found"))?;
-    if plan.status != "approved" {
-        return Err("plan must be approved before superseding steps".into());
-    }
-    let target = step_dao::get_by_id(&tx, target_step_db_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("step {target_step_db_id} not found"))?;
-    if target.plan_id != plan_id {
-        return Err(format!(
-            "step {target_step_db_id} does not belong to plan {plan_id}"
-        ));
-    }
-    if target.status != "active" {
-        return Err(format!("step {} is not active", target.step_id));
-    }
-    validate_draft_dependencies(&tx, plan_id, &replacement.dependencies)?;
+    let pre_pivot_checkpoint = prepare_pre_pivot_checkpoint(state, plan_id);
+    let new_row = {
+        let mut db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.conn_mut();
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        let plan = plan_dao::get_by_id(&tx, plan_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("plan {plan_id} not found"))?;
+        if plan.status != "approved" {
+            return Err("plan must be approved before superseding steps".into());
+        }
+        let target = step_dao::get_by_id(&tx, target_step_db_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("step {target_step_db_id} not found"))?;
+        if target.plan_id != plan_id {
+            return Err(format!(
+                "step {target_step_db_id} does not belong to plan {plan_id}"
+            ));
+        }
+        if target.status != "active" {
+            return Err(format!("step {} is not active", target.step_id));
+        }
+        validate_draft_dependencies(&tx, plan_id, &replacement.dependencies)?;
 
-    // Insert the replacement first so we know its stable step_id for the link.
-    let new_row = append_step_within_tx(
-        &tx,
-        &plan,
-        &replacement,
-        mutation_reason.as_deref(),
-        options.prd_delta.as_ref(),
-    )?;
+        // Insert the replacement first so we know its stable step_id for the link.
+        let new_row = append_step_within_tx(
+            &tx,
+            &plan,
+            &replacement,
+            mutation_reason.as_deref(),
+            options.prd_delta.as_ref(),
+        )?;
 
-    // Retire the target, pointing it at the replacement.
-    step_dao::set_status(
-        &tx,
-        target.id,
-        "superseded",
-        Some(&new_row.step_id),
-        mutation_reason.as_deref(),
-    )
-    .map_err(|e| e.to_string())?;
-
-    // Record the target's change_step mutation + plan_step_changed event.
-    let latest_prd = prd_dao::latest_version(&tx, plan.project_id).map_err(|e| e.to_string())?;
-    let target_update =
-        persist_prd_delta_for_plan_mutation(&tx, plan.project_id, latest_prd.as_ref(), None)?;
-    let change_mutation_id = format!("mut-{}-{}", target.step_id, now_ms());
-    plan_mutation_dao::insert_mutation(
-        &tx,
-        &NewPlanMutation {
-            mutation_id: change_mutation_id.clone(),
-            project_id: plan.project_id,
-            plan_id: plan.id,
-            r#type: PlanMutationType::ChangeStep,
-            step_db_id: Some(target.id),
-            stable_step_id: Some(target.step_id.clone()),
-            reason: mutation_reason.clone(),
-            criterion_ids: Vec::new(),
-            prd_delta: target_update.delta.clone(),
-            scope_expansion: ScopeExpansionAssessment {
-                expanded: false,
-                reason_codes: Vec::new(),
-                evidence_refs: Vec::new(),
-            },
-        },
-    )
-    .map_err(|e| e.to_string())?;
-    let mut payload = dive_event_log::plan_step_changed_payload(
-        change_mutation_id,
-        plan.project_id,
-        plan.id,
-        target.id,
-        target.step_id.clone(),
-        vec!["status".into(), "superseded_by_step_id".into()],
-        Vec::new(),
-        target_update.from_version,
-        target_update.to_version,
-    );
-    if let Value::Object(map) = &mut payload {
-        map.insert(
-            "superseded_by_step_id".into(),
-            json!(new_row.step_id.clone()),
-        );
-        map.insert("step_title".into(), json!(target.title.clone()));
-        map.insert("message".into(), json!("Step superseded by replacement"));
-        map.insert("reason".into(), json!(mutation_reason));
-    }
-    dive_event_log::append_to_conn(&tx, None, dive_event_log::PLAN_STEP_CHANGED_EVENT, payload)
+        // Retire the target, pointing it at the replacement.
+        step_dao::set_status(
+            &tx,
+            target.id,
+            "superseded",
+            Some(&new_row.step_id),
+            mutation_reason.as_deref(),
+        )
         .map_err(|e| e.to_string())?;
 
-    tx.commit().map_err(|e| e.to_string())?;
+        // Record the target's change_step mutation + plan_step_changed event.
+        let latest_prd =
+            prd_dao::latest_version(&tx, plan.project_id).map_err(|e| e.to_string())?;
+        let target_update =
+            persist_prd_delta_for_plan_mutation(&tx, plan.project_id, latest_prd.as_ref(), None)?;
+        let change_mutation_id = format!("mut-{}-{}", target.step_id, now_ms());
+        plan_mutation_dao::insert_mutation(
+            &tx,
+            &NewPlanMutation {
+                mutation_id: change_mutation_id.clone(),
+                project_id: plan.project_id,
+                plan_id: plan.id,
+                r#type: PlanMutationType::ChangeStep,
+                step_db_id: Some(target.id),
+                stable_step_id: Some(target.step_id.clone()),
+                reason: mutation_reason.clone(),
+                criterion_ids: Vec::new(),
+                prd_delta: target_update.delta.clone(),
+                scope_expansion: ScopeExpansionAssessment {
+                    expanded: false,
+                    reason_codes: Vec::new(),
+                    evidence_refs: Vec::new(),
+                },
+            },
+        )
+        .map_err(|e| e.to_string())?;
+        let mut payload = dive_event_log::plan_step_changed_payload(
+            change_mutation_id,
+            plan.project_id,
+            plan.id,
+            target.id,
+            target.step_id.clone(),
+            vec!["status".into(), "superseded_by_step_id".into()],
+            Vec::new(),
+            target_update.from_version,
+            target_update.to_version,
+        );
+        if let Value::Object(map) = &mut payload {
+            map.insert(
+                "superseded_by_step_id".into(),
+                json!(new_row.step_id.clone()),
+            );
+            map.insert("step_title".into(), json!(target.title.clone()));
+            map.insert("message".into(), json!("Step superseded by replacement"));
+            map.insert("reason".into(), json!(mutation_reason));
+        }
+        dive_event_log::append_to_conn(&tx, None, dive_event_log::PLAN_STEP_CHANGED_EVENT, payload)
+            .map_err(|e| e.to_string())?;
+
+        tx.commit().map_err(|e| e.to_string())?;
+        new_row
+    };
+    maybe_create_pre_pivot_checkpoint(state, pre_pivot_checkpoint);
     let project_root = state.project_root_required()?;
-    workspace_plan_service::artifacts::export_plan_artifacts(conn, plan_id, &project_root)
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    workspace_plan_service::artifacts::export_plan_artifacts(db.conn(), plan_id, &project_root)
         .map_err(|e| e.to_string())?;
     Ok(new_row)
 }
@@ -3570,53 +3664,60 @@ pub fn workspace_plan_append_steps_impl(
         .filter(|value| !value.is_empty())
         .map(str::to_string);
 
-    let mut db = state.db.lock().map_err(|e| e.to_string())?;
-    let conn = db.conn_mut();
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-    let plan = plan_dao::get_by_id(&tx, plan_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("plan {plan_id} not found"))?;
-    if plan.status != "approved" {
-        return Err("plan must be approved before appending steps".into());
-    }
-    let existing_count = step_dao::list_active_by_plan(&tx, plan_id)
-        .map_err(|e| e.to_string())?
-        .len();
-    if existing_count + drafts.len() > MAX_PLAN_STEPS {
-        return Err(format!(
-            "plan exceeds DIVE execution envelope: at most {MAX_PLAN_STEPS} steps are allowed"
-        ));
-    }
-
-    let mut assigned: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
-    let mut rows = Vec::with_capacity(drafts.len());
-    for &idx in &order {
-        let mut draft = drafts[idx].draft.clone();
-        draft.linked_criterion_ids = compact_linked_criterion_ids(&draft.linked_criterion_ids);
-        for &dep in &drafts[idx].depends_on_draft {
-            let sibling = assigned.get(&dep).ok_or_else(|| {
-                "internal: sibling draft not inserted before dependent".to_string()
-            })?;
-            if !draft.dependencies.contains(sibling) {
-                draft.dependencies.push(sibling.clone());
-            }
+    let pre_pivot_checkpoint = prepare_pre_pivot_checkpoint(state, plan_id);
+    let rows = {
+        let mut db = state.db.lock().map_err(|e| e.to_string())?;
+        let conn = db.conn_mut();
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        let plan = plan_dao::get_by_id(&tx, plan_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("plan {plan_id} not found"))?;
+        if plan.status != "approved" {
+            return Err("plan must be approved before appending steps".into());
         }
-        validate_append_draft(&draft)?;
-        sanitize_step_verification(&mut draft);
-        validate_draft_dependencies(&tx, plan_id, &draft.dependencies)?;
-        if let Some(existing) = find_duplicate_step(&tx, plan_id, &draft)? {
+        let existing_count = step_dao::list_active_by_plan(&tx, plan_id)
+            .map_err(|e| e.to_string())?
+            .len();
+        if existing_count + drafts.len() > MAX_PLAN_STEPS {
             return Err(format!(
-                "step already exists: {} ({})",
-                existing.step_id, existing.title
+                "plan exceeds DIVE execution envelope: at most {MAX_PLAN_STEPS} steps are allowed"
             ));
         }
-        let row = append_step_within_tx(&tx, &plan, &draft, batch_reason.as_deref(), None)?;
-        assigned.insert(idx, row.step_id.clone());
-        rows.push(row);
-    }
-    tx.commit().map_err(|e| e.to_string())?;
+
+        let mut assigned: std::collections::HashMap<usize, String> =
+            std::collections::HashMap::new();
+        let mut rows = Vec::with_capacity(drafts.len());
+        for &idx in &order {
+            let mut draft = drafts[idx].draft.clone();
+            draft.linked_criterion_ids = compact_linked_criterion_ids(&draft.linked_criterion_ids);
+            for &dep in &drafts[idx].depends_on_draft {
+                let sibling = assigned.get(&dep).ok_or_else(|| {
+                    "internal: sibling draft not inserted before dependent".to_string()
+                })?;
+                if !draft.dependencies.contains(sibling) {
+                    draft.dependencies.push(sibling.clone());
+                }
+            }
+            validate_append_draft(&draft)?;
+            sanitize_step_verification(&mut draft);
+            validate_draft_dependencies(&tx, plan_id, &draft.dependencies)?;
+            if let Some(existing) = find_duplicate_step(&tx, plan_id, &draft)? {
+                return Err(format!(
+                    "step already exists: {} ({})",
+                    existing.step_id, existing.title
+                ));
+            }
+            let row = append_step_within_tx(&tx, &plan, &draft, batch_reason.as_deref(), None)?;
+            assigned.insert(idx, row.step_id.clone());
+            rows.push(row);
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+        rows
+    };
+    maybe_create_pre_pivot_checkpoint(state, pre_pivot_checkpoint);
     let project_root = state.project_root_required()?;
-    workspace_plan_service::artifacts::export_plan_artifacts(conn, plan_id, &project_root)
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    workspace_plan_service::artifacts::export_plan_artifacts(db.conn(), plan_id, &project_root)
         .map_err(|e| e.to_string())?;
     Ok(rows)
 }
@@ -4777,5 +4878,169 @@ mod envelope_tests {
         assert!(!sanitize_step_verification(&mut step));
         assert_eq!(step.verification_command.as_deref(), Some("pnpm test"));
         assert_eq!(step.verification_type.as_deref(), Some("command"));
+    }
+}
+
+#[cfg(test)]
+mod pre_pivot_checkpoint_tests {
+    use super::*;
+    use crate::checkpoint::CheckpointEngine;
+    use crate::db::dao::{
+        card as card_dao, checkpoint as checkpoint_dao, plan as plan_dao, project as project_dao,
+        session as session_dao, step as step_dao, step_session_mapping as mapping_dao,
+        workmap as workmap_dao,
+    };
+    use crate::db::models::{
+        CardState, NewCard, NewPlan, NewProject, NewSession, NewStep, NewStepSessionMapping,
+        NewWorkmap,
+    };
+    use serde_json::json;
+
+    fn append_draft() -> StepDraftInput {
+        StepDraftInput {
+            title: "Add recovery copy".into(),
+            summary: "Add the visible recovery copy for the current plan.".into(),
+            instruction_seed: "Update the recovery panel text only.".into(),
+            expected_files: vec!["src/App.tsx".into()],
+            acceptance_criteria: vec![AcceptanceCriterionInput::Text(
+                "Recovery copy is visible in the panel.".into(),
+            )],
+            linked_criterion_ids: Vec::new(),
+            rationale: None,
+            verification_command: None,
+            verification_type: Some("manual".into()),
+            dependencies: Vec::new(),
+            parallel_group: None,
+            position: 0,
+            step_id: String::new(),
+        }
+    }
+
+    fn seed_plan_session(state: &AppState, project_root: &std::path::Path) -> (i64, i64) {
+        let db = state.db.lock().unwrap();
+        let project_id = project_dao::insert(
+            db.conn(),
+            &NewProject {
+                name: "p".into(),
+                path: project_root.to_string_lossy().into(),
+                provider_default: None,
+                model_default: None,
+            },
+        )
+        .unwrap();
+        let plan_id = plan_dao::insert(
+            db.conn(),
+            &NewPlan {
+                project_id,
+                interview_id: None,
+                goal: "Build recovery anchors".into(),
+                intent_summary: None,
+                scope: None,
+                non_goals: None,
+                constraints: None,
+                acceptance_criteria: None,
+                status: "approved".into(),
+            },
+        )
+        .unwrap();
+        let step_id = step_dao::insert(
+            db.conn(),
+            &NewStep {
+                plan_id,
+                step_id: "step-001".into(),
+                title: "Existing step".into(),
+                summary: Some("Existing summary".into()),
+                instruction_seed: Some("Existing seed".into()),
+                expected_files: Some(json!(["src/App.tsx"])),
+                acceptance_criteria: Some(json!(["Existing criterion"])),
+                verification_kind: Some("manual".into()),
+                verification_command: None,
+                verification_manual_check: None,
+                dependencies: Some(json!([])),
+                parallel_group: None,
+                position: 1,
+            },
+        )
+        .unwrap();
+        let session_id = session_dao::insert(
+            db.conn(),
+            &NewSession {
+                project_id,
+                title: "Existing step".into(),
+                ended_at: None,
+                status: "active".into(),
+            },
+        )
+        .unwrap();
+        let card_id = card_dao::insert(
+            db.conn(),
+            &NewCard {
+                session_id,
+                title: "Existing step".into(),
+                instruction: Some("Existing seed".into()),
+                assist_summary: None,
+                acceptance_criteria: None,
+                retrospective: None,
+                change_summary: None,
+                state: CardState::Instructed,
+                verify_log: None,
+                changed_files: None,
+                test_command: None,
+                approval_judgment: None,
+                approval_provenance: None,
+                position: 1,
+            },
+        )
+        .unwrap();
+        workmap_dao::upsert(
+            db.conn(),
+            &NewWorkmap {
+                session_id,
+                current_stage: "I".into(),
+                collapsed: false,
+                current_card_id: Some(card_id),
+            },
+        )
+        .unwrap();
+        mapping_dao::insert(
+            db.conn(),
+            &NewStepSessionMapping {
+                step_id,
+                session_id: Some(session_id),
+                card_id: Some(card_id),
+                state_path: Some("step-001".into()),
+                status: "in_progress".into(),
+                started_at: Some(now_ms()),
+                completed_at: None,
+                checkpoint_ids: Some(json!([])),
+                verification_status: None,
+                verification_evidence: None,
+                user_decision: None,
+            },
+        )
+        .unwrap();
+        (plan_id, session_id)
+    }
+
+    #[test]
+    fn append_step_creates_auto_pre_pivot_checkpoint() {
+        let state = AppState::dev_mock();
+        let tmp = tempfile::tempdir().unwrap();
+        state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+        let (plan_id, session_id) = seed_plan_session(&state, tmp.path());
+        CheckpointEngine::new(tmp.path(), state.db.clone())
+            .init()
+            .unwrap();
+
+        workspace_plan_append_step_impl(&state, plan_id, append_draft()).unwrap();
+
+        let db = state.db.lock().unwrap();
+        let checkpoints = checkpoint_dao::list_by_session(db.conn(), session_id).unwrap();
+        let pre_pivot = checkpoints
+            .iter()
+            .find(|row| row.kind == "auto-pre-pivot")
+            .expect("plan mutation should create a pre-pivot checkpoint");
+        assert!(pre_pivot.label.is_none());
+        assert!(pre_pivot.session_state_snapshot.is_some());
     }
 }

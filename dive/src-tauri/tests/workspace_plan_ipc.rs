@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use dive_lib::auth::InMemoryKeyring;
+use dive_lib::checkpoint::CheckpointEngine;
 use dive_lib::db::dao::{
     card, event_log, interview, plan, plan_mutation, prd, project, session, step,
     step_session_mapping as mapping, workmap,
@@ -2008,6 +2009,34 @@ fn append_step_increments_position_and_passes_dependency_check() {
             .len(),
         3
     );
+}
+
+#[test]
+fn append_step_creates_auto_pre_pivot_checkpoint_for_linked_session() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "approved");
+    let step_id = insert_step(&state, plan_id, "step-001", &[]);
+    let opened = roadmap_step_open_impl(&state, step_id).unwrap();
+    let session_id = opened.session_id.unwrap();
+    let engine = CheckpointEngine::new(tmp.path(), state.db.clone());
+    engine.init().unwrap();
+    std::fs::write(tmp.path().join("before-plan-change.txt"), "dirty").unwrap();
+
+    workspace_plan_append_step_impl(&state, plan_id, append_step_draft(vec!["step-001".into()]))
+        .unwrap();
+
+    let checkpoints = engine.list_checkpoints(session_id).unwrap();
+    let pre_pivot = checkpoints
+        .iter()
+        .find(|row| row.kind == "auto-pre-pivot")
+        .expect("append step should create a pre-pivot checkpoint");
+    assert!(pre_pivot.label.is_none());
+    assert!(pre_pivot.session_state_snapshot.is_some());
+    assert!(pre_pivot
+        .changed_files
+        .contains(&"before-plan-change.txt".to_string()));
 }
 
 #[test]
