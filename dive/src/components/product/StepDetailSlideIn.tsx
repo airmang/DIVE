@@ -520,6 +520,11 @@ export function StepDetailSlideIn({
   const acceptanceCriterionConfirmed =
     gatingCriteria.length > 0 &&
     gatingCriteria.every((criterion) => observedCriterionIds.has(criterion.criterionId));
+  // A step with no gating criteria has nothing to observe per-criterion, so the
+  // S-029 approve gate permits approval; mirror that in the stepper so the
+  // observe/decision green check matches the gate instead of being stuck at
+  // "visited" (vacuous satisfaction). Steps WITH criteria stay strict.
+  const acceptanceCriteriaSatisfied = acceptanceCriterionConfirmed || gatingCriteria.length === 0;
   const provocationContext: ProvocationContext | null =
     step && provocation?.enabled
       ? {
@@ -1024,8 +1029,8 @@ export function StepDetailSlideIn({
       id: "observe",
       marker: "2",
       title: t("roadmap.step_detail.stepper_stage_observe_title"),
-      evidenced: acceptanceCriterionConfirmed,
-      summary: acceptanceCriterionConfirmed
+      evidenced: acceptanceCriteriaSatisfied,
+      summary: acceptanceCriteriaSatisfied
         ? t("roadmap.step_detail.stepper_stage_observe_summary_done")
         : t("roadmap.step_detail.stepper_stage_observe_summary_pending"),
       content: (
@@ -1090,8 +1095,8 @@ export function StepDetailSlideIn({
         id: "decision",
         marker: "4",
         title: t("roadmap.step_detail.stepper_stage_decision_title"),
-        evidenced: acceptanceCriterionConfirmed,
-        summary: acceptanceCriterionConfirmed
+        evidenced: acceptanceCriteriaSatisfied,
+        summary: acceptanceCriteriaSatisfied
           ? t("roadmap.step_detail.stepper_stage_decision_summary_ready")
           : t("roadmap.step_detail.stepper_stage_decision_summary_needs_observation"),
         content: (
