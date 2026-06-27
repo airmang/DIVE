@@ -255,6 +255,6 @@ async fn reports_dev_server_startup_failure_as_preview_failure() {
     assert_eq!(result.status, PreviewOpenStatus::Failed);
     assert_eq!(
         result.reason_code.as_deref(),
-        Some("dev_server_unavailable")
+        Some("missing_dev_or_start_script")
     );
 }

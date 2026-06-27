@@ -61,6 +61,25 @@ pub struct PreviewStartOptions {
     pub force_install: bool,
 }
 
+#[derive(Debug, Clone)]
+struct PreviewStartError {
+    reason_code: &'static str,
+    message: String,
+}
+
+impl PreviewStartError {
+    fn new(reason_code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            reason_code,
+            message: message.into(),
+        }
+    }
+
+    fn dev_server_unavailable(message: impl Into<String>) -> Self {
+        Self::new("dev_server_unavailable", message)
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewOpenRequest {
@@ -184,6 +203,7 @@ pub async fn preview_start(
         }),
     )
     .await
+    .map_err(|err| err.message)
 }
 
 #[tauri::command]
@@ -315,12 +335,12 @@ pub async fn preview_open_impl(
                 command_summary: Some(start.command.join(" ")),
                 resolved_at: now_ms(),
             }),
-            Err(message) => Ok(failed_preview_response(
+            Err(error) => Ok(failed_preview_response(
                 request_id,
                 request.kind,
                 target_label,
-                "dev_server_unavailable",
-                message,
+                error.reason_code,
+                error.message,
                 Vec::new(),
                 None,
             )),
@@ -382,12 +402,12 @@ pub async fn preview_open_impl(
                         command_summary: Some(start.command.join(" ")),
                         resolved_at: now_ms(),
                     }),
-                    Err(message) => Ok(failed_preview_response(
+                    Err(error) => Ok(failed_preview_response(
                         request_id,
                         PreviewRequestKind::DevServer,
                         target_label,
-                        "dev_server_unavailable",
-                        message,
+                        error.reason_code,
+                        error.message,
                         Vec::new(),
                         None,
                     )),
@@ -639,11 +659,16 @@ fn content_type_for_path(path: &Path) -> &'static str {
 async fn preview_start_impl(
     state: &AppState,
     options: PreviewStartOptions,
-) -> Result<PreviewStartResult, String> {
-    let root = state.project_root_required()?;
+) -> Result<PreviewStartResult, PreviewStartError> {
+    let root = state
+        .project_root_required()
+        .map_err(|message| PreviewStartError::new("missing_project", message))?;
     let info = detect_package_info(&root)?;
 
-    if let Some(result) = try_reuse_preview(state, &root, &info).await? {
+    if let Some(result) = try_reuse_preview(state, &root, &info)
+        .await
+        .map_err(PreviewStartError::dev_server_unavailable)?
+    {
         return Ok(result);
     }
 
@@ -658,7 +683,7 @@ async fn preview_start_impl(
         });
     }
 
-    stop_preview_process(state)?;
+    stop_preview_process(state).map_err(PreviewStartError::dev_server_unavailable)?;
 
     let mut logs = Vec::new();
     let install_ran = options.force_install || !root.join("node_modules").is_dir();
@@ -668,11 +693,15 @@ async fn preview_start_impl(
             info.manager.executable(),
             info.manager.install_args().join(" ")
         ));
-        let install_output = run_install(&root, info.manager).await?;
+        let install_output = run_install(&root, info.manager)
+            .await
+            .map_err(PreviewStartError::dev_server_unavailable)?;
         push_truncated_lines(&mut logs, &install_output);
     }
 
-    let (mut child, mut rx) = spawn_dev_server(&root, &info).await?;
+    let (mut child, mut rx) = spawn_dev_server(&root, &info)
+        .await
+        .map_err(PreviewStartError::dev_server_unavailable)?;
     logs.push(format!("$ {}", info.dev_command().join(" ")));
 
     let mut found_url = None;
@@ -693,8 +722,12 @@ async fn preview_start_impl(
                     found_url = Some(url);
                     break;
                 }
-                if let Some(status) = child.try_wait().map_err(|e| format!("dev server status: {e}"))? {
-                    return Err(format!("dev server exited before preview URL was ready: {status}"));
+                if let Some(status) = child
+                    .try_wait()
+                    .map_err(|e| PreviewStartError::dev_server_unavailable(format!("dev server status: {e}")))? {
+                    return Err(PreviewStartError::dev_server_unavailable(format!(
+                        "dev server exited before preview URL was ready: {status}"
+                    )));
                 }
             }
         }
@@ -702,11 +735,16 @@ async fn preview_start_impl(
 
     let Some(url) = found_url else {
         let _ = child.start_kill();
-        return Err("dev server started, but no localhost preview URL was detected.".into());
+        return Err(PreviewStartError::dev_server_unavailable(
+            "dev server started, but no localhost preview URL was detected.",
+        ));
     };
 
     {
-        let mut guard = state.preview_process.lock().map_err(|e| e.to_string())?;
+        let mut guard = state
+            .preview_process
+            .lock()
+            .map_err(|e| PreviewStartError::dev_server_unavailable(e.to_string()))?;
         *guard = Some(PreviewProcess {
             root: root.clone(),
             url: url.clone(),
@@ -923,6 +961,7 @@ fn record_preview_events(
         json!({
             "requestId": response.request_id,
             "status": response.status,
+            "kind": response.kind,
             "targetLabel": response.target_label,
             "reasonCode": response.reason_code,
             "message": response.message,
@@ -960,6 +999,7 @@ fn emit_preview_events(
 fn preview_open_result_event(response: &PreviewOpenResponse) -> AgentEvent {
     AgentEvent::PreviewOpenResult {
         request_id: response.request_id.clone(),
+        kind: response.kind,
         status: response.status.as_str().to_string(),
         preview_url: response.preview_url.clone(),
         asset_file_path: response.asset_file_path.clone(),
@@ -1019,25 +1059,38 @@ fn stop_preview_process(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
-fn detect_package_info(root: &Path) -> Result<PackageInfo, String> {
+fn detect_package_info(root: &Path) -> Result<PackageInfo, PreviewStartError> {
     let package_json = root.join("package.json");
     if !package_json.is_file() {
-        return Err("package.json이 있는 웹 프로젝트를 선택하세요.".into());
+        return Err(PreviewStartError::new(
+            "missing_package_json",
+            "The selected project does not include a package.json.",
+        ));
     }
-    let raw =
-        std::fs::read_to_string(&package_json).map_err(|e| format!("read package.json: {e}"))?;
-    let value: serde_json::Value =
-        serde_json::from_str(&raw).map_err(|e| format!("parse package.json: {e}"))?;
+    let raw = std::fs::read_to_string(&package_json).map_err(|e| {
+        PreviewStartError::dev_server_unavailable(format!("read package.json: {e}"))
+    })?;
+    let value: serde_json::Value = serde_json::from_str(&raw).map_err(|e| {
+        PreviewStartError::dev_server_unavailable(format!("parse package.json: {e}"))
+    })?;
     let scripts = value
         .get("scripts")
         .and_then(|v| v.as_object())
-        .ok_or_else(|| "package.json에 scripts 항목이 없습니다.".to_owned())?;
+        .ok_or_else(|| {
+            PreviewStartError::new(
+                "missing_dev_or_start_script",
+                "package.json does not define scripts.dev or scripts.start.",
+            )
+        })?;
     let script = if scripts.contains_key("dev") {
         "dev"
     } else if scripts.contains_key("start") {
         "start"
     } else {
-        return Err("package.json에 dev 또는 start script가 없습니다.".into());
+        return Err(PreviewStartError::new(
+            "missing_dev_or_start_script",
+            "package.json does not define scripts.dev or scripts.start.",
+        ));
     };
     let script_text = scripts
         .get(script)
@@ -1237,7 +1290,14 @@ mod tests {
     }
 
     #[test]
-    fn package_info_requires_dev_or_start_script() {
+    fn package_info_reports_missing_package_json_reason_code() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = detect_package_info(tmp.path()).unwrap_err();
+        assert_eq!(err.reason_code, "missing_package_json");
+    }
+
+    #[test]
+    fn package_info_reports_missing_dev_or_start_script_reason_code() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(
             tmp.path().join("package.json"),
@@ -1245,7 +1305,15 @@ mod tests {
         )
         .unwrap();
         let err = detect_package_info(tmp.path()).unwrap_err();
-        assert!(err.contains("dev 또는 start"));
+        assert_eq!(err.reason_code, "missing_dev_or_start_script");
+    }
+
+    #[test]
+    fn package_info_reports_missing_scripts_reason_code() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("package.json"), r#"{"name":"plain"}"#).unwrap();
+        let err = detect_package_info(tmp.path()).unwrap_err();
+        assert_eq!(err.reason_code, "missing_dev_or_start_script");
     }
 
     #[test]

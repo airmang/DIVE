@@ -104,7 +104,7 @@ export const useSlideInStore = create<SlideInState>((set) => ({
   setPreviewUrl: (url) => set({ previewUrl: url }),
   setPreviewSession: (session) =>
     set({
-      previewSession: session,
+      previewSession: session ? { ...session, kind: session.kind } : null,
       previewUrl: session?.previewUrl ?? null,
     }),
   setPreviewRequestContext: (context) => set({ previewRequestContext: context }),

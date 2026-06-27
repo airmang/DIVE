@@ -1454,6 +1454,8 @@
       "url_aria": "Preview URL",
       "open": "Open",
       "auto_connect": "Check result",
+      "show_result": "Show my result",
+      "other_ways": "Other ways to preview",
       "static_path_placeholder": "Open a project page, e.g. about.html",
       "static_path_aria": "Project page path to preview",
       "static_path_open": "Open page",
@@ -1465,12 +1467,19 @@
       "viewport_desktop": "Desktop",
       "viewport_full": "Full",
       "iframe_title": "Preview",
-      "empty_title": "Choose a local URL to view the result.",
-      "empty_description": "If a web project server is running, you can check it directly from one of the default addresses below.",
+      "empty_title": "Preview your project result.",
+      "empty_description": "DIVE can open a static file preview or a dev-server preview. Nothing runs until you choose Show my result or open a local URL.",
+      "mode": {
+        "static": "Static file preview",
+        "server": "Dev-server preview",
+        "empty_hint": "Static file previews open plain HTML. Dev-server previews run projects that need a local app server."
+      },
       "reason": {
-        "missing_project": "Select a web project that has a package.json.",
+        "missing_project": "Select a project before opening Preview.",
         "missing_target": "No preview target was provided.",
         "missing_static_file": "That file was not found in the project.",
+        "missing_package_json": "This project does not have a package.json, so DIVE could not start a dev server.",
+        "missing_dev_or_start_script": "package.json needs a dev or start script before DIVE can start a dev server.",
         "local_url_unreachable": "The local preview URL did not respond.",
         "dev_server_unavailable": "The dev server is not running, so the preview could not load."
       }

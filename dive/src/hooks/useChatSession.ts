@@ -17,6 +17,7 @@ import type {
 } from "../components/chat/types";
 import { translate, useLocaleStore } from "../i18n";
 import { useSlideInStore } from "../stores/slideIn";
+import type { PreviewSessionKind } from "../components/slide-in/types";
 
 /**
  * Mirror of `AgentEvent` (Rust src-tauri/src/agent/event.rs). Variants match
@@ -69,6 +70,7 @@ export type AgentEvent =
   | {
       type: "preview_open_result";
       requestId: string;
+      kind?: "static_file" | "local_url" | "dev_server" | "auto";
       status: "ready" | "failed" | "unavailable";
       previewUrl?: string | null;
       assetFilePath?: string | null;
@@ -423,6 +425,7 @@ function appendTerminalScriptResultToTerminal(
 function isPreviewOpenPayload(value: unknown): value is {
   requestId: string;
   status: "ready" | "failed" | "unavailable";
+  kind?: "static_file" | "local_url" | "dev_server" | "auto";
   previewUrl?: string | null;
   assetFilePath?: string | null;
   targetLabel: string;
@@ -438,6 +441,12 @@ function isPreviewOpenPayload(value: unknown): value is {
     typeof record.targetLabel === "string" &&
     typeof record.message === "string"
   );
+}
+
+function previewSessionKind(value: unknown): PreviewSessionKind | undefined {
+  return value === "static_file" || value === "local_url" || value === "dev_server"
+    ? value
+    : undefined;
 }
 
 function normalizeEvidenceStatus(
@@ -624,6 +633,7 @@ export function useChatSession(
             setPreviewSession({
               requestId: payload.full.requestId,
               status: payload.full.status,
+              kind: previewSessionKind(payload.full.kind),
               previewUrl: displayUrl,
               assetFilePath: payload.full.assetFilePath ?? null,
               targetLabel: payload.full.targetLabel,
@@ -643,6 +653,7 @@ export function useChatSession(
           setPreviewSession({
             requestId: payload.requestId,
             status: payload.status,
+            kind: previewSessionKind(payload.kind),
             previewUrl: displayUrl,
             assetFilePath: payload.assetFilePath ?? null,
             targetLabel: payload.targetLabel,

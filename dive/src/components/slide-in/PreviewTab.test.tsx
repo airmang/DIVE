@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
 import { useSlideInStore } from "../../stores/slideIn";
 import { PreviewTab } from "./PreviewTab";
+import { previewModeHint } from "./previewModeHint";
 
 const invokeMock = vi.fn();
 const convertFileSrcMock = vi.fn((path: string) => `asset:${path}`);
@@ -18,6 +19,37 @@ function installTauriInternals() {
     configurable: true,
     value: {},
   });
+}
+
+function readyPreviewResponse(
+  overrides: Partial<{
+    requestId: string;
+    status: "ready" | "unavailable" | "failed";
+    kind: "static_file" | "local_url" | "dev_server" | "auto";
+    previewUrl: string | null;
+    assetFilePath: string | null;
+    targetLabel: string;
+    reasonCode: string | null;
+    message: string;
+    logs: string[];
+    commandSummary: string | null;
+    resolvedAt: number;
+  }> = {},
+) {
+  return {
+    requestId: "preview-1",
+    status: "ready" as const,
+    kind: "static_file" as const,
+    previewUrl: "http://127.0.0.1:49152/index.html",
+    assetFilePath: "/project/index.html",
+    targetLabel: "index.html",
+    reasonCode: null,
+    message: "Preview opened.",
+    logs: [],
+    commandSummary: null,
+    resolvedAt: 123,
+    ...overrides,
+  };
 }
 
 describe("PreviewTab", () => {
@@ -45,22 +77,64 @@ describe("PreviewTab", () => {
     cleanup();
   });
 
-  it("opens a static HTML target through preview_open without shell approval copy", async () => {
-    invokeMock.mockResolvedValueOnce({
-      requestId: "preview-1",
-      status: "ready",
-      kind: "static_file",
-      previewUrl: "http://127.0.0.1:49152/index.html",
-      assetFilePath: "/project/index.html",
-      targetLabel: "index.html",
-      reasonCode: null,
-      message: "Preview opened.",
-      logs: [],
-      commandSummary: null,
-      resolvedAt: 123,
-    });
+  it("maps preview mode hints over the full resolved kind union", () => {
+    expect(previewModeHint("static_file")).toBe("static");
+    expect(previewModeHint("local_url")).toBe("server");
+    expect(previewModeHint("dev_server")).toBe("server");
+    expect(previewModeHint(undefined)).toBeNull();
+  });
+
+  it("opens Show my result through Auto and uses the resolved static kind for the hint", async () => {
+    invokeMock.mockResolvedValueOnce(readyPreviewResponse());
 
     render(<PreviewTab />);
+    fireEvent.click(screen.getByTestId("preview-auto-connect"));
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("preview_open", expect.anything()));
+    expect(screen.getByTestId("preview-auto-connect").textContent).toContain("Show my result");
+    expect(invokeMock.mock.calls[0][1]).toEqual({
+      request: {
+        sessionId: 12,
+        cardId: 34,
+        kind: "auto",
+        target: "",
+        source: "review_action",
+      },
+    });
+    expect((await screen.findByTestId("preview-mode-badge")).textContent).toContain(
+      "Static file preview",
+    );
+    expect(useSlideInStore.getState().previewSession?.kind).toBe("static_file");
+  });
+
+  it("hides and shows the legacy preview mechanisms under Other ways to preview", () => {
+    render(<PreviewTab />);
+
+    expect(screen.queryByTestId("preview-static-candidate")).toBeNull();
+    expect(screen.queryByTestId("preview-candidate")).toBeNull();
+    expect(screen.queryByTestId("preview-static-path-input")).toBeNull();
+    expect(screen.queryByTestId("preview-static-path-open")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("preview-other-ways-toggle"));
+
+    expect(screen.getByTestId("preview-static-candidate")).toBeTruthy();
+    expect(screen.getAllByTestId("preview-candidate")).toHaveLength(2);
+    expect(screen.getByTestId("preview-static-path-input")).toBeTruthy();
+    expect(screen.getByTestId("preview-static-path-open")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("preview-other-ways-toggle"));
+
+    expect(screen.queryByTestId("preview-static-candidate")).toBeNull();
+    expect(screen.queryByTestId("preview-candidate")).toBeNull();
+    expect(screen.queryByTestId("preview-static-path-input")).toBeNull();
+    expect(screen.queryByTestId("preview-static-path-open")).toBeNull();
+  });
+
+  it("opens a static HTML target through preview_open without shell approval copy", async () => {
+    invokeMock.mockResolvedValueOnce(readyPreviewResponse());
+
+    render(<PreviewTab />);
+    fireEvent.click(screen.getByTestId("preview-other-ways-toggle"));
     fireEvent.click(screen.getByTestId("preview-static-candidate"));
 
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("preview_open", expect.anything()));
@@ -81,24 +155,16 @@ describe("PreviewTab", () => {
     expect(screen.queryByText(/approval/i)).toBeNull();
     expect(screen.queryByText(/shell command/i)).toBeNull();
     expect(useSlideInStore.getState().previewSession?.status).toBe("ready");
+    expect(screen.getByTestId("preview-mode-badge").textContent).toContain("Static file preview");
   });
 
   it("exposes modals/forms sandbox, responsive width, and reload (S-031)", async () => {
-    invokeMock.mockResolvedValueOnce({
-      requestId: "preview-4",
-      status: "ready",
-      kind: "static_file",
-      previewUrl: "http://127.0.0.1:49152/index.html",
-      assetFilePath: "/project/index.html",
-      targetLabel: "index.html",
-      reasonCode: null,
-      message: "Preview opened.",
-      logs: [],
-      commandSummary: null,
-      resolvedAt: 200,
-    });
+    invokeMock.mockResolvedValueOnce(
+      readyPreviewResponse({ requestId: "preview-4", resolvedAt: 200 }),
+    );
 
     render(<PreviewTab />);
+    fireEvent.click(screen.getByTestId("preview-other-ways-toggle"));
     fireEvent.click(screen.getByTestId("preview-static-candidate"));
     const iframe = await screen.findByTestId("preview-iframe");
 
@@ -122,21 +188,18 @@ describe("PreviewTab", () => {
   });
 
   it("opens a non-index project page via the project-page input (S-031)", async () => {
-    invokeMock.mockResolvedValueOnce({
-      requestId: "preview-5",
-      status: "ready",
-      kind: "static_file",
-      previewUrl: "http://127.0.0.1:49152/about.html",
-      assetFilePath: "/project/about.html",
-      targetLabel: "about.html",
-      reasonCode: null,
-      message: "Preview opened.",
-      logs: [],
-      commandSummary: null,
-      resolvedAt: 210,
-    });
+    invokeMock.mockResolvedValueOnce(
+      readyPreviewResponse({
+        requestId: "preview-5",
+        previewUrl: "http://127.0.0.1:49152/about.html",
+        assetFilePath: "/project/about.html",
+        targetLabel: "about.html",
+        resolvedAt: 210,
+      }),
+    );
 
     render(<PreviewTab />);
+    fireEvent.click(screen.getByTestId("preview-other-ways-toggle"));
     fireEvent.change(screen.getByTestId("preview-static-path-input"), {
       target: { value: "about.html" },
     });
@@ -157,20 +220,39 @@ describe("PreviewTab", () => {
     );
   });
 
+  it("renders the dev-server mode hint from a resolved dev_server response", async () => {
+    invokeMock.mockResolvedValueOnce(
+      readyPreviewResponse({
+        requestId: "preview-dev",
+        kind: "dev_server",
+        previewUrl: "http://127.0.0.1:5173/",
+        assetFilePath: null,
+        targetLabel: "http://127.0.0.1:5173/",
+        commandSummary: "pnpm dev",
+        resolvedAt: 211,
+      }),
+    );
+
+    render(<PreviewTab />);
+    fireEvent.click(screen.getByTestId("preview-auto-connect"));
+
+    expect((await screen.findByTestId("preview-mode-badge")).textContent).toContain(
+      "Dev-server preview",
+    );
+    expect(useSlideInStore.getState().previewSession?.kind).toBe("dev_server");
+  });
+
   it("opens a loopback URL and rejects external URLs before IPC", async () => {
-    invokeMock.mockResolvedValueOnce({
-      requestId: "preview-2",
-      status: "ready",
-      kind: "local_url",
-      previewUrl: "http://127.0.0.1:5173/",
-      assetFilePath: null,
-      targetLabel: "http://127.0.0.1:5173/",
-      reasonCode: null,
-      message: "Preview opened.",
-      logs: [],
-      commandSummary: null,
-      resolvedAt: 124,
-    });
+    invokeMock.mockResolvedValueOnce(
+      readyPreviewResponse({
+        requestId: "preview-2",
+        kind: "local_url",
+        previewUrl: "http://127.0.0.1:5173/",
+        assetFilePath: null,
+        targetLabel: "http://127.0.0.1:5173/",
+        resolvedAt: 124,
+      }),
+    );
 
     render(<PreviewTab />);
     fireEvent.change(screen.getByTestId("preview-url-input"), {
@@ -191,25 +273,49 @@ describe("PreviewTab", () => {
   });
 
   it("renders preview-specific unavailable state", async () => {
-    invokeMock.mockResolvedValueOnce({
-      requestId: "preview-3",
-      status: "unavailable",
-      kind: "static_file",
-      previewUrl: null,
-      assetFilePath: null,
-      targetLabel: "notes.txt",
-      reasonCode: "unsupported_extension",
-      message: "Preview supports local .html and .htm files.",
-      logs: [],
-      commandSummary: null,
-      resolvedAt: 125,
-    });
+    invokeMock.mockResolvedValueOnce(
+      readyPreviewResponse({
+        requestId: "preview-3",
+        status: "unavailable",
+        previewUrl: null,
+        assetFilePath: null,
+        targetLabel: "notes.txt",
+        reasonCode: "unsupported_extension",
+        message: "Preview supports local .html and .htm files.",
+        resolvedAt: 125,
+      }),
+    );
 
     render(<PreviewTab />);
+    fireEvent.click(screen.getByTestId("preview-other-ways-toggle"));
     fireEvent.click(screen.getByTestId("preview-static-candidate"));
 
     expect((await screen.findByTestId("preview-error")).textContent).toContain(".html");
     expect(screen.queryByTestId("preview-iframe")).toBeNull();
     expect(useSlideInStore.getState().previewSession?.status).toBe("unavailable");
+  });
+
+  it("resolves backend reason codes to translated preview copy", async () => {
+    invokeMock.mockResolvedValueOnce(
+      readyPreviewResponse({
+        requestId: "preview-missing-package",
+        status: "failed",
+        kind: "dev_server",
+        previewUrl: null,
+        assetFilePath: null,
+        targetLabel: "project preview",
+        reasonCode: "missing_package_json",
+        message: "The selected project does not include a package.json.",
+        resolvedAt: 126,
+      }),
+    );
+
+    render(<PreviewTab />);
+    fireEvent.click(screen.getByTestId("preview-auto-connect"));
+
+    expect((await screen.findByTestId("preview-error")).textContent).toContain(
+      "This project does not have a package.json",
+    );
+    expect(useSlideInStore.getState().previewSession?.errorReason).toBe("missing_package_json");
   });
 });
