@@ -37,16 +37,16 @@ const manualObservation: VerificationStatusItem = {
 
 function driftCard(overrides: Partial<ProvocationCard> = {}): ProvocationCard {
   return {
-    id: "diff_scope_drift:finalApproval:1",
-    type: "diff_scope_drift",
-    stage: "finalApproval",
-    severity: "risk",
+    id: "diff_scope_review:verify:1",
+    type: "diff_scope_review",
+    stage: "verify",
+    severity: "caution",
     title: "목표 밖 변경이 섞였을 수 있습니다",
     message: "고위험 파일이 함께 바뀌었습니다.",
     evidence: [{ source: "diff", label: "관련 확인 필요 파일", value: "package.json" }],
     actions: [],
     createdAt: "2026-06-13T00:00:00.000Z",
-    metadata: { highRisk: true, highRiskFiles: ["package.json"] },
+    metadata: { diffReadyAssessment: { highRiskFiles: ["package.json"] } },
     ...overrides,
   };
 }
@@ -379,6 +379,137 @@ describe("DecisionGate policy", () => {
           evidence: "package.json",
         }),
       ]),
+    );
+  });
+
+  it("fires on a Caution diff_ready card with nested high-risk metadata and no LLM question", () => {
+    const card = driftCard({ prompt: undefined });
+    const policy = deriveDecisionGatePolicy({
+      verificationStatuses: [automatedEvidence],
+      verifyLog: {
+        intent_match: true,
+        test_result: "pass",
+        details: "ok",
+        model: "mock",
+        ran_at: 1,
+        test_command: "pnpm test",
+        test_exit_code: 0,
+      },
+      provocationCards: [card],
+      rollbackAvailable: true,
+    });
+
+    expect(card.prompt).toBeUndefined();
+    expect(policy.hasVerifiedEvidence).toBe(true);
+    expect(policy.requiresReason).toBe(true);
+    expect(policy.reasons).toEqual([
+      { id: "high_risk_unexpected_files", evidence: "package.json" },
+    ]);
+  });
+
+  it("fires from deterministic diff_ready metadata after a supervisor parse_error", () => {
+    const policy = deriveDecisionGatePolicy({
+      verificationStatuses: [automatedEvidence],
+      verifyLog: {
+        intent_match: true,
+        test_result: "pass",
+        details: "ok",
+        model: "mock",
+        ran_at: 1,
+        test_command: "pnpm test",
+        test_exit_code: 0,
+      },
+      provocationCards: [
+        driftCard({
+          id: "diff_ready:deterministic:parse_error",
+          metadata: {
+            supervisorEvent: "diff_ready",
+            validationOutcome: "parse_error",
+            diffReadyAssessment: { highRiskFiles: [".env"] },
+          },
+        }),
+      ],
+      rollbackAvailable: true,
+    });
+
+    expect(policy.requiresReason).toBe(true);
+    expect(policy.reasons).toEqual([{ id: "high_risk_unexpected_files", evidence: ".env" }]);
+  });
+
+  it("does not fire when the deterministic assessment has no out-of-scope high-risk files", () => {
+    const policy = deriveDecisionGatePolicy({
+      verificationStatuses: [automatedEvidence],
+      verifyLog: {
+        intent_match: true,
+        test_result: "pass",
+        details: "ok",
+        model: "mock",
+        ran_at: 1,
+        test_command: "pnpm test",
+        test_exit_code: 0,
+      },
+      provocationCards: [
+        driftCard({
+          metadata: {
+            diffReadyAssessment: {
+              unexpectedFiles: [],
+              highRiskFiles: [],
+            },
+          },
+        }),
+      ],
+      rollbackAvailable: true,
+    });
+
+    expect(policy.reasons.map((reason) => reason.id)).not.toContain("high_risk_unexpected_files");
+    expect(policy.requiresReason).toBe(false);
+    expect(policy.canApproveDirectly).toBe(true);
+  });
+
+  it("keeps high-risk file reasons alongside other written-risk reasons", () => {
+    const policy = deriveDecisionGatePolicy({
+      verificationStatuses: [aiSelfReportOnly],
+      provocationCards: [driftCard()],
+      rollbackAvailable: true,
+    });
+
+    expect(policy.requiresReason).toBe(true);
+    expect(policy.reasons.map((reason) => reason.id)).toEqual(
+      expect.arrayContaining(["ai_self_report_only", "high_risk_unexpected_files"]),
+    );
+  });
+
+  it("allows high-risk unexpected files through the written-risk approval path", () => {
+    const props = renderGate({
+      verificationStatuses: [automatedEvidence],
+      verifyLog: {
+        intent_match: true,
+        test_result: "pass",
+        details: "ok",
+        model: "mock",
+        ran_at: 1,
+        test_command: "pnpm test",
+        test_exit_code: 0,
+      },
+      provocationCards: [driftCard()],
+      rollbackAvailable: true,
+    });
+
+    expect(screen.getByTestId("decision-gate").dataset.reasonRequired).toBe("true");
+    expect((screen.getByTestId("decision-gate-risk-approve") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+
+    fireEvent.change(screen.getByTestId("decision-gate-risk-reason"), {
+      target: { value: "Reviewed why the package.json change is needed" },
+    });
+    expect((screen.getByTestId("decision-gate-risk-approve") as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+    fireEvent.click(screen.getByTestId("decision-gate-risk-approve"));
+
+    expect(props.onAcceptRisk).toHaveBeenCalledWith(
+      "Reviewed why the package.json change is needed",
     );
   });
 

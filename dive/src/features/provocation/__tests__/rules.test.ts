@@ -2,8 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { selectPrimaryProvocationCard } from "../priority";
 import {
   assistantReportsFromConversation,
+  createDiffReadySupervisorRequest,
   createProvocationContext,
   detectAssistantSelfReportCompletion,
+  normalizeChangedFile,
+  normalizeSupervisorEvaluationResponse,
   retrySignalsFromConversation,
 } from "../adapters";
 import {
@@ -22,6 +25,7 @@ import {
   summarizeVerificationEvidence,
 } from "../verificationStatus";
 import type { ProvocationContext } from "../types";
+import { deriveDecisionGatePolicy } from "../../../components/product/decisionGatePolicy";
 
 function ctx(overrides: Partial<ProvocationContext> = {}): ProvocationContext {
   return {
@@ -575,6 +579,96 @@ describe("provocation rules", () => {
     );
 
     expect(cards).toEqual([]);
+  });
+
+  it("keeps production rule cards quarantined while supervisor diff_ready drives high-risk reasons", () => {
+    vi.stubEnv("VITE_DIVE_INTERNAL_PROVOCATION_RULE_CARDS", "false");
+
+    const context = ctx({
+      stage: "verify",
+      goalText: "Change only the button copy",
+      targetFiles: ["src/App.tsx"],
+      changedFiles: [
+        { path: "src/App.tsx", category: "ui" },
+        { path: "package.json", category: "dependency" },
+      ],
+    });
+    expect(generateProvocationCards(context)).toEqual([]);
+
+    const request = createDiffReadySupervisorRequest({
+      sessionId: 2,
+      projectId: 1,
+      stepId: 1,
+      stepTitle: "Button copy",
+      sourceUiMode: "work",
+      goalSummary: "Change only the button copy",
+      stepSummary: "Only update src/App.tsx",
+      changedFiles: [
+        normalizeChangedFile({ path: "src/App.tsx" }),
+        normalizeChangedFile({ path: "package.json" }),
+      ],
+      expectedFiles: ["src/App.tsx"],
+      diffViewed: false,
+      uiState: {
+        goalSummary: "Change only the button copy",
+        planSummary: { stepCount: 1, activeStep: "Button copy" },
+        verification: {
+          aiClaimedDone: false,
+          diffReviewed: false,
+          appLaunched: false,
+          previewChecked: false,
+          automatedTestsPassed: false,
+          testResult: "skipped",
+          acceptanceCriterionConfirmed: false,
+          manualChecks: [],
+        },
+        feasibility: {
+          runnable: false,
+          previewable: false,
+          hasTests: true,
+          diffAvailable: true,
+        },
+      },
+    });
+    const response = normalizeSupervisorEvaluationResponse(
+      {
+        status: "shown",
+        evaluation_id: "eval-diff",
+        card: {
+          id: "card-diff",
+          type: "diff_scope_review",
+          stage: "verify",
+          severity: "caution",
+          title: "Review needed",
+          message: "Review changed files against the current step.",
+          evidence: [],
+          actions: [{ id: "open_diff", kind: "open_diff", label: "Open diff" }],
+          metadata: {
+            assessmentSummary: {
+              highRiskFiles: ["package.json"],
+            },
+          },
+          created_at: "2026-06-17T00:00:00.000Z",
+        },
+      },
+      request,
+    );
+
+    expect(response.status).toBe("shown");
+    if (response.status !== "shown") throw new Error("expected shown response");
+    expect(
+      deriveDecisionGatePolicy({
+        provocationCards: [response.card],
+        rollbackAvailable: true,
+      }).reasons,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "high_risk_unexpected_files",
+          evidence: "package.json",
+        }),
+      ]),
+    );
   });
 
   it("keeps scope-expansion rule-card generation out of shipped add-step surfaces", () => {

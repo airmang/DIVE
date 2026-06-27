@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDiffReadyReviewAssessment,
   createDiffReadySupervisorRequest,
   createPlanDraftSupervisorRequest,
   createRetryLoopSupervisorRequest,
   createScopeExpansionSupervisorRequest,
+  guessChangedFileCategory,
   normalizeChangedFile,
   normalizeSupervisorEvaluationResponse,
 } from "./adapters";
@@ -134,6 +136,61 @@ describe("scope-expansion supervisor adapters", () => {
 });
 
 describe("expanded supervisor adapters", () => {
+  it("classifies CI, generic dependency, and secret paths as high-risk categories", () => {
+    expect(guessChangedFileCategory(".github/workflows/ci.yml")).toBe("ci");
+    expect(guessChangedFileCategory("Dockerfile")).toBe("ci");
+    expect(guessChangedFileCategory("Cargo.lock")).toBe("dependency");
+    expect(guessChangedFileCategory("go.sum")).toBe("dependency");
+    expect(guessChangedFileCategory("certs/deploy.pem")).toBe("secret");
+    expect(guessChangedFileCategory("keys/id_rsa")).toBe("secret");
+
+    const assessment = buildDiffReadyReviewAssessment({
+      changedFiles: [
+        normalizeChangedFile({ path: ".github/workflows/ci.yml" }),
+        normalizeChangedFile({ path: "Dockerfile" }),
+        normalizeChangedFile({ path: "Cargo.lock" }),
+        normalizeChangedFile({ path: "go.sum" }),
+        normalizeChangedFile({ path: "certs/deploy.pem" }),
+        normalizeChangedFile({ path: "keys/id_rsa" }),
+      ],
+      expectedFiles: ["src/App.tsx"],
+    });
+
+    expect(assessment.reasonCodes).toContain("high_risk_area");
+    expect(assessment.highRiskFiles).toEqual([
+      ".github/workflows/ci.yml",
+      "Dockerfile",
+      "Cargo.lock",
+      "go.sum",
+      "certs/deploy.pem",
+      "keys/id_rsa",
+    ]);
+  });
+
+  it("keeps high-risk expected files out of the diff_ready high-risk list", () => {
+    const inScope = buildDiffReadyReviewAssessment({
+      changedFiles: [
+        normalizeChangedFile({ path: "package.json" }),
+        normalizeChangedFile({ path: "src/App.tsx" }),
+      ],
+      expectedFiles: ["package.json", "src/App.tsx"],
+    });
+    expect(inScope.reasonCodes).not.toContain("high_risk_area");
+    expect(inScope.highRiskFiles).toEqual([]);
+    expect(inScope.eligible).toBe(false);
+
+    const outOfScope = buildDiffReadyReviewAssessment({
+      changedFiles: [
+        normalizeChangedFile({ path: "package.json" }),
+        normalizeChangedFile({ path: "src/App.tsx" }),
+      ],
+      expectedFiles: ["src/App.tsx"],
+    });
+    expect(outOfScope.reasonCodes).toContain("high_risk_area");
+    expect(outOfScope.highRiskFiles).toEqual(["package.json"]);
+    expect(outOfScope.eligible).toBe(true);
+  });
+
   it("builds plan_drafted request with deterministic assessment and evidence refs", () => {
     const request = createPlanDraftSupervisorRequest({
       sessionId: 12,

@@ -740,6 +740,33 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
     expect(onOpenCode).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps deterministic high-risk gate evidence when diff_ready parsing drops the card", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "dropped",
+      evaluationId: "eval-parse",
+      dropReason: "parse_error",
+    });
+
+    renderStepDetail({
+      changedFiles: [
+        { path: "src/App.tsx", diff: null },
+        { path: "package.json", diff: null },
+      ],
+    });
+
+    await waitFor(() => expect(findSupervisorRequest("diff_ready")).toBeTruthy());
+    await waitFor(() => expect(evaluateMock.mock.calls.length).toBeGreaterThanOrEqual(2));
+
+    expect(screen.queryByTestId("verification-stepper-stage-review-card")).toBeNull();
+    expect(screen.queryByTestId("provocation-card")).toBeNull();
+    expect(screen.getByTestId("step-detail-code-high-risk").textContent).toContain("1");
+
+    openDecisionStage();
+    expect(screen.getByTestId("decision-gate").dataset.reasonRequired).toBe("true");
+    fireEvent.click(screen.getByTestId("decision-gate-details"));
+    expect(screen.getByTestId("decision-gate-reasons").textContent).toContain("package.json");
+  });
+
   it("places a retry_loop card after the same step failure repeats and opens recovery", async () => {
     const onOpenRecovery = vi.fn();
     evaluateMock.mockImplementation((request) => {

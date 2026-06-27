@@ -120,6 +120,8 @@ export type ChangedFileCategory =
   | "logic"
   | "config"
   | "dependency"
+  | "ci"
+  | "secret"
   | "auth"
   | "db"
   | "test"
