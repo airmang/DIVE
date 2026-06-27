@@ -3150,6 +3150,31 @@ mod tests {
     }
 
     #[test]
+    fn supervisor_prompt_instructs_english_question_for_en_locale() {
+        let mut context = sample_context_with_event(SupervisorEvent::VerifyEntered);
+        context.locale = "en-US".to_string();
+        let prompt = build_supervisor_prompt(&context).unwrap();
+
+        assert!(prompt.contains("written in English"));
+        assert!(!prompt.contains("written in Korean"));
+    }
+
+    #[test]
+    fn supervisor_prompt_instructs_korean_question_for_non_en_locale() {
+        let mut context = sample_context_with_event(SupervisorEvent::VerifyEntered);
+        context.locale = "ko-KR".to_string();
+        let prompt = build_supervisor_prompt(&context).unwrap();
+
+        assert!(prompt.contains("written in Korean"));
+        assert!(!prompt.contains("written in English"));
+
+        context.locale.clear();
+        let default_prompt = build_supervisor_prompt(&context).unwrap();
+        assert!(default_prompt.contains("written in Korean"));
+        assert!(!default_prompt.contains("written in English"));
+    }
+
+    #[test]
     fn supervisor_mode_normalization_maps_legacy_inputs() {
         let guided = normalize_source_ui_mode("guided").unwrap();
         assert_eq!(guided.mode, SupervisorMode::Guided);

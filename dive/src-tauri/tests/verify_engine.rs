@@ -114,7 +114,7 @@ async fn verify_success_writes_verify_log() {
     let provider = Arc::new(MockProvider::new(vec![scripted_ok_response()]));
     let engine = VerifyEngine::new(provider, db.clone(), "mock-model".into());
 
-    let log = engine.verify_card(sid, cid).await.unwrap();
+    let log = engine.verify_card(sid, cid, "").await.unwrap();
     assert!(log.intent_match);
     assert_eq!(log.test_result, TestResult::Skipped);
     assert_eq!(log.model, "mock-model");
@@ -146,7 +146,7 @@ async fn verify_runs_success_test_command_and_persists_output() {
     let engine =
         VerifyEngine::new(provider, db.clone(), "mock-model".into()).with_project_root(tmp.path());
 
-    let log = engine.verify_card(sid, cid).await.unwrap();
+    let log = engine.verify_card(sid, cid, "").await.unwrap();
 
     assert_eq!(log.test_result, TestResult::Pass);
     assert_eq!(log.test_command.as_deref(), Some("bin/pass.sh"));
@@ -180,7 +180,7 @@ async fn verify_runs_failing_test_command_and_records_exit_stderr() {
     let provider = Arc::new(MockProvider::new(vec![scripted_ok_response()]));
     let engine = VerifyEngine::new(provider, db, "mock-model".into()).with_project_root(tmp.path());
 
-    let log = engine.verify_card(sid, cid).await.unwrap();
+    let log = engine.verify_card(sid, cid, "").await.unwrap();
 
     assert_eq!(log.test_result, TestResult::Fail);
     assert_eq!(log.test_exit_code, Some(7));
@@ -200,7 +200,7 @@ async fn verify_rejects_test_command_that_escapes_project_sandbox() {
     let provider = Arc::new(MockProvider::new(vec![scripted_ok_response()]));
     let engine = VerifyEngine::new(provider, db, "mock-model".into()).with_project_root(tmp.path());
 
-    let err = engine.verify_card(sid, cid).await.unwrap_err();
+    let err = engine.verify_card(sid, cid, "").await.unwrap_err();
 
     assert!(matches!(err, VerifyError::TestCommand(_)));
     assert!(err.to_string().contains("project root"));
@@ -211,7 +211,7 @@ async fn verify_rejects_wrong_state() {
     let (db, sid, cid) = seed(CardState::Instructed);
     let provider = Arc::new(MockProvider::new(vec![scripted_ok_response()]));
     let engine = VerifyEngine::new(provider, db, "mock-model".into());
-    let err = engine.verify_card(sid, cid).await.unwrap_err();
+    let err = engine.verify_card(sid, cid, "").await.unwrap_err();
     assert!(matches!(err, VerifyError::NotVerifying(_, _)));
 }
 
@@ -221,7 +221,7 @@ async fn verify_parses_failure_verdict() {
     let provider = Arc::new(MockProvider::new(vec![scripted_fail_response()]));
     let engine = VerifyEngine::new(provider, db.clone(), "mock-model".into());
 
-    let log = engine.verify_card(sid, cid).await.unwrap();
+    let log = engine.verify_card(sid, cid, "").await.unwrap();
     assert!(!log.intent_match);
     assert_eq!(log.test_result, TestResult::Fail);
     assert!(!log.approve_eligible());
@@ -237,7 +237,7 @@ async fn verify_missing_tool_call_errors() {
         },
     ]]));
     let engine = VerifyEngine::new(provider, db, "mock-model".into());
-    let err = engine.verify_card(sid, cid).await.unwrap_err();
+    let err = engine.verify_card(sid, cid, "").await.unwrap_err();
     assert!(matches!(err, VerifyError::NoToolCall));
 }
 
@@ -259,7 +259,7 @@ async fn verify_invalid_json_errors() {
         },
     ]]));
     let engine = VerifyEngine::new(provider, db, "mock-model".into());
-    let err = engine.verify_card(sid, cid).await.unwrap_err();
+    let err = engine.verify_card(sid, cid, "").await.unwrap_err();
     assert!(matches!(err, VerifyError::ParseLog(_)));
 }
 
@@ -268,7 +268,7 @@ async fn verify_missing_card_errors() {
     let (db, sid, _) = seed(CardState::Verifying);
     let provider = Arc::new(MockProvider::new(vec![scripted_ok_response()]));
     let engine = VerifyEngine::new(provider, db, "mock-model".into());
-    let err = engine.verify_card(sid, 99_999).await.unwrap_err();
+    let err = engine.verify_card(sid, 99_999, "").await.unwrap_err();
     assert!(matches!(err, VerifyError::CardNotFound(99_999)));
 }
 
@@ -278,7 +278,7 @@ async fn verify_sends_specific_tool_choice() {
     let provider = Arc::new(MockProvider::new(vec![scripted_ok_response()]));
     let engine = VerifyEngine::new(provider.clone(), db, "mock-model".into());
 
-    engine.verify_card(sid, cid).await.unwrap();
+    engine.verify_card(sid, cid, "").await.unwrap();
     let reqs = provider.requests_snapshot();
     assert_eq!(reqs.len(), 1);
     let req = &reqs[0];

@@ -888,7 +888,9 @@ pub async fn card_verify(
     app: AppHandle,
     session_id: i64,
     card_id: i64,
+    locale: Option<String>,
 ) -> Result<crate::dive::VerifyLog, String> {
+    let locale = locale.unwrap_or_else(|| "ko".to_string());
     let snap = state.ensure_provider_runtime().await?;
     if snap.kind.is_none() {
         let msg = crate::providers::ProviderError::NotConfigured.to_string();
@@ -910,7 +912,7 @@ pub async fn card_verify(
         "verify_started",
         serde_json::json!({ "session_id": session_id, "card_id": card_id }),
     );
-    let log = match engine.verify_card(session_id, card_id).await {
+    let log = match engine.verify_card(session_id, card_id, &locale).await {
         Ok(log) => log,
         Err(err) => {
             let message = err.to_string();

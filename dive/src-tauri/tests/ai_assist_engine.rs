@@ -24,7 +24,7 @@ fn ok_response() -> Vec<ChatEvent> {
 async fn assist_returns_cards() {
     let provider = Arc::new(MockProvider::new(vec![ok_response()]));
     let engine = AiAssistEngine::new(provider, "mock-model".into());
-    let cards = engine.suggest_cards("로그인 폼 만들기").await.unwrap();
+    let cards = engine.suggest_cards("로그인 폼 만들기", "").await.unwrap();
     assert_eq!(cards.len(), 3);
     assert_eq!(cards[0].title, "입력 폼");
     assert!(cards[0].summary.contains("이메일"));
@@ -39,7 +39,7 @@ async fn assist_errors_when_no_tool_call() {
         },
     ]]));
     let engine = AiAssistEngine::new(provider, "mock-model".into());
-    let err = engine.suggest_cards("x").await.unwrap_err();
+    let err = engine.suggest_cards("x", "").await.unwrap_err();
     assert!(matches!(err, AssistError::NoToolCall));
 }
 
@@ -60,6 +60,6 @@ async fn assist_errors_on_bad_json() {
         },
     ]]));
     let engine = AiAssistEngine::new(provider, "mock-model".into());
-    let err = engine.suggest_cards("x").await.unwrap_err();
+    let err = engine.suggest_cards("x", "").await.unwrap_err();
     assert!(matches!(err, AssistError::ParseArgs(_)));
 }
