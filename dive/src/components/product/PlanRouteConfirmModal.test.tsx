@@ -15,7 +15,7 @@ function draft(title: string): StepDraftInput {
     linkedCriterionIds: [],
     rationale: "",
     verificationCommand: "pnpm test",
-    verificationType: "command",
+    verificationType: "test",
     dependencies: [],
     parallelGroup: null,
     position: 0,

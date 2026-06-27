@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { AGENCY_STATE_META, deriveAgencyStateView } from "./agencyStatus";
+import {
+  AGENCY_STATE_META,
+  deriveAgencyStateView,
+  type DeriveAgencyStateInput,
+} from "./agencyStatus";
 import { SUPPORTED_LOCALES, translate } from "../../i18n";
 import type { ApprovalProvenance } from "../provocation";
 
@@ -88,6 +92,22 @@ describe("deriveAgencyStateView", () => {
     });
 
     expect(view.items.map((item) => item.id)).not.toContain("verified_with_evidence");
+  });
+
+  it("does not treat preview or manual verification type as concrete evidence", () => {
+    for (const verificationType of ["preview", "manual"] as const) {
+      const input: DeriveAgencyStateInput & { verificationType: typeof verificationType } = {
+        goalText: "Static HTML preview",
+        acceptanceCriteria: ["The index page is visible in the browser"],
+        status: "review",
+        verificationType,
+      };
+
+      const view = deriveAgencyStateView(input);
+
+      expect(view.items.map((item) => item.id)).not.toContain("verified_with_evidence");
+      expect(view.items.map((item) => item.id)).toContain("verification_needed");
+    }
   });
 
   it("maps preview with acceptance criterion confirmation to verified_with_evidence", () => {

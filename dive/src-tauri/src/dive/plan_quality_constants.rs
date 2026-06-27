@@ -30,9 +30,34 @@ impl VerificationType {
 
 pub fn verification_type_from_legacy(command: Option<&str>) -> VerificationType {
     match command {
+        Some(command) if legacy_command_looks_like_test(command) => VerificationType::Test,
         Some(command) if !command.trim().is_empty() => VerificationType::Run,
         _ => VerificationType::Manual,
     }
+}
+
+fn legacy_command_looks_like_test(command: &str) -> bool {
+    let command = command.trim().to_ascii_lowercase();
+    if command.is_empty() {
+        return false;
+    }
+    let executable = command
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(".exe");
+    if matches!(executable, "cargo-nextest" | "jest" | "pytest" | "vitest") {
+        return true;
+    }
+    command.split_whitespace().any(|token| {
+        token == "test"
+            || token.starts_with("test:")
+            || token.ends_with(":test")
+            || token == "test:unit"
+    })
 }
 
 pub fn vague_terms(locale_is_en: bool) -> &'static [&'static str] {
@@ -130,9 +155,17 @@ mod tests {
     }
 
     #[test]
-    fn legacy_command_maps_to_run() {
+    fn legacy_command_maps_to_test_when_command_is_test_like() {
         assert_eq!(
             verification_type_from_legacy(Some("npm test")),
+            VerificationType::Test
+        );
+    }
+
+    #[test]
+    fn legacy_command_maps_to_run_when_command_is_not_test_like() {
+        assert_eq!(
+            verification_type_from_legacy(Some("npm run build")),
             VerificationType::Run
         );
     }

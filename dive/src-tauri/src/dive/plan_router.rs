@@ -206,13 +206,16 @@ fn build_system_prompt() -> String {
      For remove and supersede, target_step_id MUST be one of the step ids in the \
      Steps list — never invent an id. If no listed step matches, use ROUTE chat.\n\
      New or replacement steps must fit DIVE's execution envelope: one supervised \
-     turn, small file-focused scope, no shell scripts, and verification_command \
-     must be one no-shell command with explicit args and a 60 second budget.\n\
+     turn, small file-focused scope, no shell scripts, and verification_type \
+     must be one of run, preview, manual, or test. Use preview or manual with \
+     an empty verification_command for static front-end or no-runnable-command \
+     steps; use run or test only with a real no-shell command with explicit args \
+     and a 60 second budget.\n\
      Output formats:\n\
      ROUTE chat reason=\"short reason\"\n\
      ROUTE add_step title=\"...\" summary=\"...\" instruction_seed=\"...\" \
      expected_files=[\"path or glob\"] acceptance_criteria=[\"observable result\"] \
-     verification_type=\"command|manual\" verification_command=\"command or empty\" \
+     verification_type=\"run|preview|manual|test\" verification_command=\"command or empty\" \
      dependencies=[\"step-001\"] parallel_group=null reason=\"short reason\"\n\
      ROUTE clarify question=\"one criterion-linked question\" \
      candidate_intent=\"what you think they want\" \
@@ -221,12 +224,12 @@ fn build_system_prompt() -> String {
      ROUTE supersede target_step_id=\"step-001\" title=\"...\" summary=\"...\" \
      instruction_seed=\"...\" expected_files=[\"path or glob\"] \
      acceptance_criteria=[\"observable result\"] \
-     verification_type=\"command|manual\" verification_command=\"command or empty\" \
+     verification_type=\"run|preview|manual|test\" verification_command=\"command or empty\" \
      dependencies=[\"step-001\"] parallel_group=null reason=\"short reason\"\n\
      ROUTE multi_step {\"reason\":\"short reason\",\"steps\":[{\"title\":\"...\",\
      \"summary\":\"...\",\"instruction_seed\":\"...\",\"expected_files\":[\"path\"],\
      \"acceptance_criteria\":[\"observable result\"],\"verification_type\":\
-     \"command|manual\",\"verification_command\":\"command or empty\",\
+     \"run|preview|manual|test\",\"verification_command\":\"command or empty\",\
      \"dependencies\":[\"step-001\"],\"parallel_group\":null,\"depends_on\":[0]}]}\n\
      The multi_step payload is one JSON object on the SAME single line (no \
      Markdown, no newline inside it). depends_on lists 0-based indices of earlier \
@@ -516,6 +519,8 @@ mod tests {
             "ROUTE supersede target_step_id=",
             // P8a: lock the multi_step JSON-tail grammar (verb + opening brace).
             "ROUTE multi_step {",
+            "verification_type=\"run|preview|manual|test\"",
+            "static front-end",
         ] {
             assert!(
                 prompt.contains(needle),
@@ -551,7 +556,7 @@ mod tests {
     #[test]
     fn parse_add_step_route_with_arrays() {
         let parsed = parse_route_decision(
-            "ROUTE add_step title=\"Add auth\" summary=\"Add sign-in.\" instruction_seed=\"Implement it.\" expected_files=[\"src/auth.ts\"] acceptance_criteria=[\"Users can sign in.\"] verification_type=\"command\" verification_command=\"pnpm test\" dependencies=[\"step-001\"] parallel_group=2 reason=\"new work\"",
+            "ROUTE add_step title=\"Add auth\" summary=\"Add sign-in.\" instruction_seed=\"Implement it.\" expected_files=[\"src/auth.ts\"] acceptance_criteria=[\"Users can sign in.\"] verification_type=\"test\" verification_command=\"pnpm test\" dependencies=[\"step-001\"] parallel_group=2 reason=\"new work\"",
         )
         .unwrap();
 
@@ -560,6 +565,7 @@ mod tests {
                 assert_eq!(reason, "new work");
                 assert_eq!(draft.title, "Add auth");
                 assert_eq!(draft.expected_files, vec!["src/auth.ts"]);
+                assert_eq!(draft.verification_type.as_deref(), Some("test"));
                 assert_eq!(draft.dependencies, vec!["step-001"]);
                 assert_eq!(draft.parallel_group, Some(2));
             }
@@ -599,7 +605,7 @@ mod tests {
     #[test]
     fn parse_supersede_route_reuses_draft_parser() {
         let parsed = parse_route_decision(
-            "ROUTE supersede target_step_id=\"step-002\" title=\"Rework auth\" summary=\"Replace.\" instruction_seed=\"Redo it.\" expected_files=[\"src/auth.ts\"] acceptance_criteria=[\"Works.\"] verification_type=\"command\" verification_command=\"pnpm test\" dependencies=[] parallel_group=null reason=\"replace\"",
+            "ROUTE supersede target_step_id=\"step-002\" title=\"Rework auth\" summary=\"Replace.\" instruction_seed=\"Redo it.\" expected_files=[\"src/auth.ts\"] acceptance_criteria=[\"Works.\"] verification_type=\"test\" verification_command=\"pnpm test\" dependencies=[] parallel_group=null reason=\"replace\"",
         )
         .unwrap();
         match parsed {
@@ -611,13 +617,14 @@ mod tests {
                 assert_eq!(target_step_id, "step-002");
                 assert_eq!(reason, "replace");
                 assert_eq!(replacement.title, "Rework auth");
+                assert_eq!(replacement.verification_type.as_deref(), Some("test"));
                 assert_eq!(replacement.expected_files, vec!["src/auth.ts"]);
             }
             other => panic!("expected supersede, got {other:?}"),
         }
     }
 
-    const MULTI_STEP_3: &str = "ROUTE multi_step {\"reason\":\"scaffold then wire\",\"steps\":[{\"title\":\"Skeleton\",\"summary\":\"Create module.\",\"instruction_seed\":\"Add module.\",\"expected_files\":[\"src/a.ts\"],\"acceptance_criteria\":[\"compiles\"],\"verification_type\":\"command\",\"verification_command\":\"pnpm build\",\"dependencies\":[],\"parallel_group\":null,\"depends_on\":[]},{\"title\":\"Wire\",\"summary\":\"Wire it.\",\"instruction_seed\":\"Wire module.\",\"expected_files\":[\"src/b.ts\"],\"acceptance_criteria\":[\"works\"],\"verification_type\":\"command\",\"verification_command\":\"\",\"dependencies\":[\"step-001\"],\"parallel_group\":null,\"depends_on\":[0]},{\"title\":\"Test\",\"summary\":\"Cover it.\",\"instruction_seed\":\"Add tests.\",\"expected_files\":[\"src/c.ts\"],\"acceptance_criteria\":[\"green\"],\"verification_type\":\"command\",\"verification_command\":\"pnpm test\",\"dependencies\":[],\"parallel_group\":null,\"depends_on\":[0]}]}";
+    const MULTI_STEP_3: &str = "ROUTE multi_step {\"reason\":\"scaffold then wire\",\"steps\":[{\"title\":\"Skeleton\",\"summary\":\"Create module.\",\"instruction_seed\":\"Add module.\",\"expected_files\":[\"src/a.ts\"],\"acceptance_criteria\":[\"compiles\"],\"verification_type\":\"run\",\"verification_command\":\"pnpm build\",\"dependencies\":[],\"parallel_group\":null,\"depends_on\":[]},{\"title\":\"Wire\",\"summary\":\"Wire it.\",\"instruction_seed\":\"Wire module.\",\"expected_files\":[\"src/b.ts\"],\"acceptance_criteria\":[\"works\"],\"verification_type\":\"preview\",\"verification_command\":\"\",\"dependencies\":[\"step-001\"],\"parallel_group\":null,\"depends_on\":[0]},{\"title\":\"Test\",\"summary\":\"Cover it.\",\"instruction_seed\":\"Add tests.\",\"expected_files\":[\"src/c.ts\"],\"acceptance_criteria\":[\"green\"],\"verification_type\":\"test\",\"verification_command\":\"pnpm test\",\"dependencies\":[],\"parallel_group\":null,\"depends_on\":[0]}]}";
 
     #[test]
     fn parse_multi_step_route_parses_json_batch() {
@@ -633,6 +640,7 @@ mod tests {
                 assert_eq!(steps[2].1, vec![0]);
                 // empty_to_none parity: an empty verification_command becomes None.
                 assert_eq!(steps[1].0.verification_command, None);
+                assert_eq!(steps[1].0.verification_type.as_deref(), Some("preview"));
                 assert_eq!(steps[1].0.dependencies, vec!["step-001"]);
             }
             other => panic!("expected multi_step, got {other:?}"),

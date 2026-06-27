@@ -9,6 +9,7 @@ import type {
   ProjectSpecDelta,
   ScopeExpansionAssessment,
   StepDraftInput,
+  VerificationType,
 } from "../../features/planning";
 import {
   PLAN_ADD_STEP_DRAFT_REQUEST_EVENT,
@@ -297,7 +298,7 @@ export function PlanAddStepPanel({
   const [reason, setReason] = useState("");
   const [expectedFilesText, setExpectedFilesText] = useState("");
   const [verificationCheck, setVerificationCheck] = useState("");
-  const [verificationType, setVerificationType] = useState<string | null>(null);
+  const [verificationType, setVerificationType] = useState<VerificationType | null>(null);
   const [selectedCriterionIds, setSelectedCriterionIds] = useState<string[]>([]);
   const [draftAcceptanceCriteria, setDraftAcceptanceCriteria] = useState<
     StepDraftInput["acceptanceCriteria"]

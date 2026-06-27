@@ -25,7 +25,10 @@ use crate::db::models::{
 };
 use crate::db::now_ms;
 use crate::dive::event_log as dive_event_log;
-use crate::dive::plan_quality_constants::{data_fetch_keywords, ui_goal_keywords, vague_terms};
+use crate::dive::plan_quality_constants::{
+    data_fetch_keywords, ui_goal_keywords, vague_terms, verification_type_from_legacy,
+    VerificationType,
+};
 use crate::dive::plan_router::{
     self, PlanRouterContext, PlanRouterDecision, PlanRouterStepContext, RouterStepDraft,
 };
@@ -4983,24 +4986,36 @@ fn verification_command_is_envelope_safe(command: &str) -> bool {
     )
 }
 
-/// If a step's verification_command does not fit the execution envelope, drop it
-/// and downgrade verification to manual instead of rejecting the whole plan. The
-/// command is never executed once dropped, so this is safe; honest-verify
-/// already surfaces a manual/unverified step as "not externally verified",
-/// keeping the supervision signal honest while letting the plan generate on the
-/// first try. Returns true when the command was sanitized away.
+/// Normalize a step's verification type/command into DIVE's execution envelope.
+/// Preview/manual steps never carry a command. Run/test steps must carry one
+/// no-shell command with explicit args; otherwise they downgrade to manual
+/// instead of producing an inert or unsafe command. Returns true when the input
+/// changed.
 fn sanitize_step_verification(step: &mut StepDraftInput) -> bool {
-    let needs_sanitize = step
+    let original_command = step.verification_command.clone();
+    let original_type = step.verification_type.clone();
+    let command = step
         .verification_command
         .as_deref()
         .map(str::trim)
-        .filter(|command| !command.is_empty())
-        .is_some_and(|command| !verification_command_is_envelope_safe(command));
-    if needs_sanitize {
-        step.verification_command = None;
-        step.verification_type = Some("manual".to_string());
-    }
-    needs_sanitize
+        .filter(|command| !command.is_empty());
+    let requested_type = VerificationType::from_str_opt(step.verification_type.as_deref())
+        .unwrap_or_else(|| verification_type_from_legacy(command));
+
+    let (verification_type, verification_command) = match requested_type {
+        VerificationType::Preview | VerificationType::Manual => (requested_type, None),
+        VerificationType::Run | VerificationType::Test => match command {
+            Some(command) if verification_command_is_envelope_safe(command) => {
+                (requested_type, Some(command.to_string()))
+            }
+            _ => (VerificationType::Manual, None),
+        },
+    };
+
+    step.verification_type = Some(verification_type.as_str().to_string());
+    step.verification_command = verification_command;
+
+    original_command != step.verification_command || original_type != step.verification_type
 }
 
 fn build_router_context(
@@ -5450,7 +5465,7 @@ mod envelope_tests {
             linked_criterion_ids: vec!["AC-001".into()],
             rationale: Some("This step isolates the visible state required by AC-001.".into()),
             verification_command: Some("pnpm test".into()),
-            verification_type: Some("command".into()),
+            verification_type: Some("run".into()),
             dependencies: Vec::new(),
             parallel_group: None,
             position: 1,
@@ -5493,30 +5508,95 @@ mod envelope_tests {
     }
 
     #[test]
-    fn sanitize_drops_shell_verification_and_downgrades_to_manual() {
+    fn sanitize_drops_shell_verification_and_downgrades_run_to_manual() {
         let mut step = focused_step();
         step.verification_command = Some("bash -lc 'pnpm test'".into());
+        step.verification_type = Some("run".into());
         assert!(sanitize_step_verification(&mut step));
         assert_eq!(step.verification_command, None);
         assert_eq!(step.verification_type.as_deref(), Some("manual"));
     }
 
     #[test]
-    fn sanitize_drops_piped_command() {
+    fn sanitize_drops_piped_test_command_and_downgrades_to_manual() {
         let mut step = focused_step();
         step.verification_command = Some("cat foo | grep bar".into());
+        step.verification_type = Some("test".into());
         assert!(sanitize_step_verification(&mut step));
         assert_eq!(step.verification_command, None);
         assert_eq!(step.verification_type.as_deref(), Some("manual"));
     }
 
     #[test]
-    fn sanitize_keeps_envelope_safe_command() {
+    fn sanitize_keeps_envelope_safe_run_command() {
+        let mut step = focused_step();
+        step.verification_command = Some("npm run build".into());
+        step.verification_type = Some("run".into());
+        assert!(!sanitize_step_verification(&mut step));
+        assert_eq!(step.verification_command.as_deref(), Some("npm run build"));
+        assert_eq!(step.verification_type.as_deref(), Some("run"));
+    }
+
+    #[test]
+    fn sanitize_keeps_envelope_safe_test_command() {
         let mut step = focused_step();
         step.verification_command = Some("pnpm test".into());
+        step.verification_type = Some("test".into());
         assert!(!sanitize_step_verification(&mut step));
         assert_eq!(step.verification_command.as_deref(), Some("pnpm test"));
-        assert_eq!(step.verification_type.as_deref(), Some("command"));
+        assert_eq!(step.verification_type.as_deref(), Some("test"));
+    }
+
+    #[test]
+    fn sanitize_preview_step_drops_any_command() {
+        let mut step = focused_step();
+        step.verification_type = Some("preview".into());
+        step.verification_command = Some("open index.html".into());
+        assert!(sanitize_step_verification(&mut step));
+        assert_eq!(step.verification_command, None);
+        assert_eq!(step.verification_type.as_deref(), Some("preview"));
+    }
+
+    #[test]
+    fn sanitize_manual_step_never_emits_empty_string_command() {
+        let mut step = focused_step();
+        step.verification_type = Some("manual".into());
+        step.verification_command = Some("   ".into());
+        assert!(sanitize_step_verification(&mut step));
+        assert_eq!(step.verification_command, None);
+        assert_eq!(step.verification_type.as_deref(), Some("manual"));
+    }
+
+    #[test]
+    fn sanitize_run_or_test_without_command_downgrades_to_manual() {
+        for verification_type in ["run", "test"] {
+            let mut step = focused_step();
+            step.verification_type = Some(verification_type.into());
+            step.verification_command = None;
+            assert!(sanitize_step_verification(&mut step));
+            assert_eq!(step.verification_command, None);
+            assert_eq!(step.verification_type.as_deref(), Some("manual"));
+        }
+    }
+
+    #[test]
+    fn sanitize_legacy_command_type_migrates_to_run_or_test() {
+        let mut build_step = focused_step();
+        build_step.verification_type = Some("command".into());
+        build_step.verification_command = Some("npm run build".into());
+        assert!(sanitize_step_verification(&mut build_step));
+        assert_eq!(
+            build_step.verification_command.as_deref(),
+            Some("npm run build")
+        );
+        assert_eq!(build_step.verification_type.as_deref(), Some("run"));
+
+        let mut test_step = focused_step();
+        test_step.verification_type = Some("command".into());
+        test_step.verification_command = Some("pnpm test".into());
+        assert!(sanitize_step_verification(&mut test_step));
+        assert_eq!(test_step.verification_command.as_deref(), Some("pnpm test"));
+        assert_eq!(test_step.verification_type.as_deref(), Some("test"));
     }
 }
 

@@ -71,6 +71,7 @@ describe("decodeWorkspacePlanDraftFromLlm criterion-linked decomposition", () =>
     expect(step.rationale).toBe(
       "저장 완료 여부를 확인하는 기준을 먼저 구현해야 AC-001을 검증할 수 있다.",
     );
+    expect(step.verificationType).toBe("test");
   });
 
   it("keeps legacy string criteria readable through migration adapters", () => {

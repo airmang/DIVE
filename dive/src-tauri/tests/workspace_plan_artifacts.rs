@@ -128,6 +128,7 @@ fn approving_plan_exports_snapshot_artifacts() {
         artifact["steps"][1]["dependencies"],
         serde_json::json!(["step-001"])
     );
+    assert_eq!(artifact["steps"][0]["verification"]["kind"], "test");
     assert_eq!(artifact["steps"][1]["verification"]["kind"], "manual");
 
     let markdown = std::fs::read_to_string(markdown_path).unwrap();
@@ -142,6 +143,56 @@ fn approving_plan_exports_snapshot_artifacts() {
     let approved = plan::get_by_id(db.conn(), plan_id).unwrap().unwrap();
     assert_eq!(approved.status, "approved");
     assert!(approved.approved_at.is_some());
+}
+
+#[test]
+fn approving_plan_exports_preview_verification_without_empty_command() {
+    let db_file = tempfile::NamedTempFile::new().unwrap();
+    let mut db = Database::open(db_file.path()).unwrap();
+    db.migrate().unwrap();
+    let project_root = tempfile::tempdir().unwrap();
+    let plan_id = seed_plan_with_steps(&db);
+
+    step::insert(
+        db.conn(),
+        &NewStep {
+            plan_id,
+            step_id: "step-003".into(),
+            title: "Preview static page".into(),
+            summary: Some("Inspect the static index page in the browser.".into()),
+            instruction_seed: Some("Open index.html through DIVE Preview.".into()),
+            expected_files: Some(serde_json::json!(["index.html"])),
+            acceptance_criteria: Some(serde_json::json!(["The static page renders."])),
+            verification_kind: Some("preview".into()),
+            verification_command: Some("   ".into()),
+            verification_manual_check: None,
+            dependencies: Some(serde_json::json!([])),
+            parallel_group: None,
+            position: 3,
+        },
+    )
+    .unwrap();
+
+    dive_lib::workspace_plan::approve_plan_and_export(db.conn(), plan_id, project_root.path())
+        .unwrap();
+
+    let raw_json = std::fs::read_to_string(project_root.path().join(".dive/plan.json")).unwrap();
+    let artifact: Value = serde_json::from_str(&raw_json).unwrap();
+    let verification = artifact["steps"][2]["verification"]
+        .as_object()
+        .expect("preview verification artifact");
+    assert_eq!(
+        verification.get("kind").and_then(Value::as_str),
+        Some("preview")
+    );
+    assert!(
+        !verification.contains_key("command"),
+        "preview verification must not export an empty command"
+    );
+
+    let markdown = std::fs::read_to_string(project_root.path().join(".dive/plan.md")).unwrap();
+    assert!(markdown.contains("**Verification:** preview"));
+    assert!(!markdown.contains("- Command: ``"));
 }
 
 #[test]

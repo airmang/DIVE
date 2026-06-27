@@ -147,7 +147,7 @@ describe("PlanDashboardPanel add-step area", () => {
         linkedCriterionIds: ["AC-001"],
         rationale: "Export is required for research reconstruction.",
         verificationCommand: "cargo test export",
-        verificationType: "command",
+        verificationType: "test",
         dependencies: ["step-001"],
         parallelGroup: null,
         position: 2,
@@ -252,7 +252,7 @@ describe("PlanDashboardPanel add-step area", () => {
         draft: expect.objectContaining({
           title: "Export mutation data",
           verificationCommand: "cargo test export",
-          verificationType: "command",
+          verificationType: "test",
         }),
       }),
     );

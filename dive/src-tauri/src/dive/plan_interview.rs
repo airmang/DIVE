@@ -35,7 +35,7 @@ pub fn build_system_prompt(locale: &str) -> String {
              - Do not output completion markers or control tokens, and do not create the final JSON on your own.\n\
              - Only once the goal, intent summary, scope, non-goals, and at least two concrete acceptance criteria are all specific (usually after 3-6 exchanges) may you summarize what you learned in 2-3 lines and ask: \"Should I make the plan this way? Tell me what to refine if anything is missing.\"\n\
              - Return the final JSON only on a turn where the user explicitly asks to finish or submit. Before then, only ask questions or propose proceeding.\n\
-             - The plan must fit DIVE's execution envelope: 2-6 steps preferred, 8 steps maximum; each step should be small enough for one supervised turn; verification_command must be one no-shell command with explicit args and a 60 second budget.\n\
+             - The plan must fit DIVE's execution envelope: 2-6 steps preferred, 8 steps maximum; each step should be small enough for one supervised turn; verification_type must be one of run, preview, manual, or test. For static front-end or no-runnable-command steps (for example, a static index.html checked in the browser), choose preview or manual and set verification_command to null. Use run or test only when there is a real no-shell command with explicit args and a 60 second budget.\n\
              - Outside the final JSON, do not use Markdown, explanations, or code fences.\n\
              - Final JSON fields: intent_summary, unresolved_questions[], plan_input.\n\
              - plan_input fields: goal, intent_summary, scope[], non_goals[], constraints[], acceptance_criteria[], \
@@ -54,7 +54,7 @@ pub fn build_system_prompt(locale: &str) -> String {
              - 종료 신호나 제어용 토큰(대문자 마커 등)을 직접 출력하지 말고, 계획(최종 JSON)도 스스로 먼저 만들지 마세요.\n\
              - 목표·의도·범위·non_goals·구체적 수용기준 2개가 모두 구체화된 뒤에만(보통 3~6번의 교환) 파악한 내용을 2~3줄로 요약하고 \"이대로 계획을 만들까요? 더 다듬을 부분이 있으면 알려주세요\"라고 진행 여부를 물어보세요.\n\
              - 계획(최종 JSON)은 사용자가 명시적으로 완료/제출을 요청한 턴에만 반환합니다. 그 전에는 질문하거나 진행을 제안하기만 하세요.\n\
-             - 계획은 DIVE 실행 envelope 안에 들어야 합니다: 권장 2~6개 step, 최대 8개 step; 각 step은 감독 턴 1회로 다룰 수 있을 만큼 작게 쪼개고, verification_command는 셸 없이 명시적 인자만 쓰는 단일 명령이며 60초 안에 끝나야 합니다.\n\
+             - 계획은 DIVE 실행 envelope 안에 들어야 합니다: 권장 2~6개 step, 최대 8개 step; 각 step은 감독 턴 1회로 다룰 수 있을 만큼 작게 쪼개고, verification_type은 run, preview, manual, test 중 하나여야 합니다. 정적 프런트엔드나 실행할 명령이 없는 step(예: 브라우저에서 확인하는 정적 index.html)은 preview 또는 manual을 고르고 verification_command는 null로 둡니다. run 또는 test는 셸 없이 명시적 인자만 쓰는 실제 명령이 있고 60초 안에 끝날 때만 사용합니다.\n\
              - 최종 JSON 외에는 마크다운, 설명, 코드블록을 쓰지 마세요.\n\
              - 최종 JSON 필드: intent_summary, unresolved_questions[], plan_input.\n\
              - plan_input 필드: goal, intent_summary, scope[], non_goals[], constraints[], acceptance_criteria[], \
@@ -200,6 +200,22 @@ mod tests {
     }
 
     #[test]
+    fn schema_verification_type_rejects_unknown_values() {
+        let schema = plan_draft_schema();
+        let verification_type_enum = schema["properties"]["plan_input"]["properties"]["steps"]
+            ["items"]["properties"]["verification_type"]["enum"]
+            .as_array()
+            .expect("verification_type enum");
+
+        assert!(verification_type_enum.contains(&json!("run")));
+        assert!(verification_type_enum.contains(&json!("preview")));
+        assert!(verification_type_enum.contains(&json!("manual")));
+        assert!(verification_type_enum.contains(&json!("test")));
+        assert!(verification_type_enum.contains(&Value::Null));
+        assert!(!verification_type_enum.contains(&json!("foo")));
+    }
+
+    #[test]
     fn ko_system_prompt_defines_socratic_interview_rules() {
         let prompt = build_system_prompt("ko");
         assert!(prompt.contains("ko"));
@@ -213,6 +229,9 @@ mod tests {
         assert!(prompt.contains("최종 JSON"));
         assert!(prompt.contains("60초"));
         assert!(prompt.contains("최대 8개"));
+        assert!(prompt.contains("verification_type은 run, preview, manual, test"));
+        assert!(prompt.contains("index.html"));
+        assert!(prompt.contains("verification_command는 null"));
         // Regression: the interview must push for concreteness, not accept vague input.
         assert!(prompt.contains("독립적으로 확인 가능한"));
         assert!(prompt.contains("unresolved_questions에"));
@@ -231,6 +250,9 @@ mod tests {
         assert!(prompt.contains("Socratic planning interviewer"));
         assert!(prompt.contains("60 second"));
         assert!(prompt.contains("8 steps maximum"));
+        assert!(prompt.contains("verification_type must be one of run, preview, manual, or test"));
+        assert!(prompt.contains("static index.html"));
+        assert!(prompt.contains("verification_command to null"));
         assert!(prompt.contains("independently checkable"));
         assert!(prompt.contains("responsive behavior"));
         assert!(prompt.contains("survives reload"));

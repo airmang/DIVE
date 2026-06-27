@@ -22,6 +22,8 @@ export interface AcceptanceCriterion {
 
 export type AcceptanceCriterionInput = string | AcceptanceCriterion;
 
+export type VerificationType = "run" | "preview" | "manual" | "test";
+
 export interface ProjectSpec {
   projectSpecId: string;
   projectId: number;
@@ -230,7 +232,7 @@ export interface StepDraftInput {
   // supersede / multi_step drafts). Consumers must treat it as nullable.
   rationale: string | null;
   verificationCommand: string | null;
-  verificationType: string | null;
+  verificationType: VerificationType | null;
   dependencies: string[];
   parallelGroup: number | null;
   position: number;
