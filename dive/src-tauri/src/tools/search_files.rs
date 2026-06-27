@@ -6,7 +6,7 @@ use std::path::Path;
 
 use super::{RiskLevel, Tool, ToolContext, ToolError, ToolOutput};
 
-const IGNORED_DIRS: &[&str] = &[
+pub(crate) const IGNORED_DIRS: &[&str] = &[
     ".git",
     "node_modules",
     "dist",
