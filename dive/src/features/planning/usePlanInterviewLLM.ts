@@ -10,7 +10,12 @@ interface AssistantEndEvent {
 
 type ObservedEvent = AssistantEndEvent | { type: string };
 
-export type PlanDraftLlmErrorReason = "length" | "invalid_json" | "invalid_plan_shape";
+export type PlanDraftLlmErrorReason =
+  | "length"
+  | "invalid_json"
+  | "invalid_plan_shape"
+  | "vague_criteria"
+  | "missing_state_criteria";
 
 export interface PlanDraftLlmError {
   reason: PlanDraftLlmErrorReason;

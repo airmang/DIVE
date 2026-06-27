@@ -118,7 +118,8 @@ fn plan_draft_schema() -> Value {
                                     "items": { "type": "string" }
                                 },
                                 "verification_type": {
-                                    "type": ["string", "null"]
+                                    "type": ["string", "null"],
+                                    "enum": ["run", "preview", "manual", "test", null]
                                 },
                                 "verification_command": {
                                     "type": ["string", "null"]
