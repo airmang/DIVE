@@ -2144,6 +2144,7 @@ fn emit_preview_open_tool_events(payload: &Value, emit: &mut (dyn FnMut(AgentEve
     });
     emit(AgentEvent::PreviewOpenResult {
         request_id,
+        kind,
         status: payload
             .get("status")
             .and_then(Value::as_str)

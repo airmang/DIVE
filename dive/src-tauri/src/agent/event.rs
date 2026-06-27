@@ -67,6 +67,7 @@ pub enum AgentEvent {
     PreviewOpenResult {
         #[serde(rename = "requestId")]
         request_id: String,
+        kind: PreviewRequestKind,
         status: String,
         #[serde(rename = "previewUrl", skip_serializing_if = "Option::is_none")]
         preview_url: Option<String>,
@@ -201,6 +202,7 @@ mod tests {
     fn serializes_preview_open_result_asset_file_path_as_camel_case() {
         let value = serde_json::to_value(AgentEvent::PreviewOpenResult {
             request_id: "preview-1".into(),
+            kind: crate::tools::runtime::PreviewRequestKind::StaticFile,
             status: "ready".into(),
             preview_url: Some("asset://project/index.html".into()),
             asset_file_path: Some("/project/index.html".into()),
@@ -212,6 +214,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(value["type"], "preview_open_result");
+        assert_eq!(value["kind"], "static_file");
         assert_eq!(value["previewUrl"], "asset://project/index.html");
         assert_eq!(value["assetFilePath"], "/project/index.html");
         assert!(value.get("asset_file_path").is_none());

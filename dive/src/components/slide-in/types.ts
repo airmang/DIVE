@@ -3,6 +3,7 @@ import type { DiffPreviewData } from "../permission-card";
 export type SlideInTab = "code" | "preview" | "terminal";
 export type CodeEmptyReason = "no_output" | "blocked_no_output";
 export type PreviewSessionStatus = "opening" | "ready" | "unavailable" | "failed";
+export type PreviewSessionKind = "static_file" | "local_url" | "dev_server";
 export type RuntimeEvidenceSource = "preview" | "project_command" | "terminal_script";
 export type RuntimeEvidenceStatus =
   | "ready"
@@ -27,6 +28,7 @@ export interface TerminalLine {
 export interface PreviewSessionState {
   requestId: string;
   status: PreviewSessionStatus;
+  kind?: PreviewSessionKind;
   previewUrl: string | null;
   assetFilePath?: string | null;
   targetLabel: string;

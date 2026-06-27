@@ -20,6 +20,7 @@ describe("SlideInPanel i18n", () => {
       emptyReason: null,
       selectedFilePath: null,
       previewUrl: null,
+      previewSession: null,
       terminalLines: [],
     });
   });
@@ -35,6 +36,7 @@ describe("SlideInPanel i18n", () => {
       emptyReason: null,
       selectedFilePath: null,
       previewUrl: null,
+      previewSession: null,
       terminalLines: [],
     });
   });
@@ -46,8 +48,9 @@ describe("SlideInPanel i18n", () => {
     expect(screen.getByRole("button", { name: "Close panel" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Preview" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Check result" })).toBeTruthy();
-    expect(screen.getByText("Choose a local URL to view the result.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Show my result" })).toBeTruthy();
+    expect(screen.getByText("Preview your project result.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Other ways to preview" })).toBeTruthy();
 
     useSlideInStore.setState({ activeTab: "terminal" });
     rerender(<SlideInPanel />);

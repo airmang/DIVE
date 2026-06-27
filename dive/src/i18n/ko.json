@@ -1454,6 +1454,9 @@
       "url_aria": "미리보기 URL",
       "open": "열기",
       "auto_connect": "결과 확인",
+      "show_result": "내 결과 보기",
+      "other_ways": "다른 방법으로 미리보기",
+      "reopen_last": "마지막 미리보기 다시 열기",
       "static_path_placeholder": "프로젝트 페이지 열기 (예: about.html)",
       "static_path_aria": "미리볼 프로젝트 페이지 경로",
       "static_path_open": "페이지 열기",
@@ -1465,12 +1468,26 @@
       "viewport_desktop": "데스크톱",
       "viewport_full": "전체",
       "iframe_title": "미리보기",
-      "empty_title": "결과를 볼 로컬 주소를 선택하세요.",
-      "empty_description": "웹 프로젝트 서버가 실행 중이면 아래 기본 주소로 바로 확인할 수 있습니다.",
+      "empty_title": "프로젝트 결과를 미리보기로 확인하세요.",
+      "empty_description": "DIVE는 정적 파일 미리보기나 개발 서버 미리보기를 열 수 있습니다. 내 결과 보기 또는 로컬 URL 열기를 누르기 전에는 아무것도 실행하지 않습니다.",
+      "mode": {
+        "static": "정적 파일 미리보기",
+        "server": "개발 서버 미리보기",
+        "empty_hint": "정적 파일은 일반 HTML을 열고, 개발 서버는 로컬 앱 서버가 필요한 프로젝트를 실행합니다."
+      },
+      "onboarding": {
+        "title": "미리보기는 결과를 살펴보는 곳입니다.",
+        "static": "정적 파일 미리보기는 앱 서버를 시작하지 않고 프로젝트 HTML 파일을 엽니다.",
+        "server": "개발 서버 미리보기는 프레임워크 프로젝트용 로컬 앱 서버에 연결하거나 시작합니다.",
+        "human_confirm": "DIVE는 결과를 보여주고, 작동 여부는 AI가 아니라 사람이 확인합니다.",
+        "dismiss": "미리보기 안내 닫기"
+      },
       "reason": {
-        "missing_project": "package.json이 있는 웹 프로젝트를 선택하세요.",
+        "missing_project": "미리보기를 열 프로젝트를 먼저 선택하세요.",
         "missing_target": "미리볼 대상이 지정되지 않았습니다.",
         "missing_static_file": "프로젝트에서 해당 파일을 찾을 수 없습니다.",
+        "missing_package_json": "이 프로젝트에는 package.json이 없어 개발 서버를 시작할 수 없습니다.",
+        "missing_dev_or_start_script": "개발 서버를 시작하려면 package.json에 dev 또는 start script가 필요합니다.",
         "local_url_unreachable": "로컬 미리보기 URL이 응답하지 않았습니다.",
         "dev_server_unavailable": "개발 서버가 실행 중이 아니어서 미리보기를 불러올 수 없습니다."
       }
