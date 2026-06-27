@@ -73,7 +73,19 @@ export function normalizePlanStep(input: {
 
 export function guessChangedFileCategory(path: string): ChangedFileCategory {
   const lower = path.toLowerCase();
-  if (/(^|\/)package\.json$|(^|\/)(pnpm-lock|package-lock|yarn)\.lock$/.test(lower)) {
+  if (
+    /(\.pem|\.key)$/.test(lower) ||
+    /(^|\/)(id_rsa|credentials|\.npmrc|\.netrc)($|[./_-])/.test(lower)
+  ) {
+    return "secret";
+  }
+  if (/(^|\/)\.github\/workflows\//.test(lower)) return "ci";
+  if (/(^|\/)(\.gitlab-ci(\.ya?ml)?|dockerfile|makefile)$/.test(lower)) return "ci";
+  if (
+    /(^|\/)package\.json$|(^|\/)(pnpm-lock\.ya?ml|package-lock\.json|yarn\.lock|cargo\.lock|poetry\.lock|gemfile\.lock|go\.sum|requirements\.txt)$/.test(
+      lower,
+    )
+  ) {
     return "dependency";
   }
   if (/(^|\/)\.env|config|tsconfig|vite|webpack|tailwind|eslint/.test(lower)) {
@@ -98,6 +110,33 @@ export function normalizeChangedFile(input: {
     changeType: input.changeType,
     category: input.category ?? guessChangedFileCategory(input.path),
   };
+}
+
+function uniqueNonEmptyStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function nonEmptyStringArray(value: unknown): string[] {
+  return uniqueNonEmptyStrings(stringArray(value));
+}
+
+export function highRiskFilesFromDiffScopeCard(
+  card: Pick<ProvocationCard, "type" | "metadata">,
+): string[] {
+  if (card.type !== "diff_scope_drift" && card.type !== "diff_scope_review") return [];
+
+  const metadata = recordValue(card.metadata);
+  const assessmentSummary = recordValue(metadata.assessmentSummary);
+  const diffReadyAssessment = recordValue(metadata.diffReadyAssessment);
+  const nestedHighRiskFiles = uniqueNonEmptyStrings([
+    ...nonEmptyStringArray(assessmentSummary.highRiskFiles),
+    ...nonEmptyStringArray(diffReadyAssessment.highRiskFiles),
+  ]);
+  if (nestedHighRiskFiles.length > 0) return nestedHighRiskFiles;
+
+  const flatHighRiskFiles = nonEmptyStringArray(metadata.highRiskFiles);
+  if (flatHighRiskFiles.length > 0) return flatHighRiskFiles;
+  return metadata.highRisk === true ? nonEmptyStringArray(metadata.changedFiles) : [];
 }
 
 const ASSISTANT_COMPLETION_TERMS = [
@@ -723,7 +762,7 @@ function pathMatchesExpected(path: string, expectedFiles: string[]): boolean {
 
 function isHighRiskFile(file: ProvocationChangedFile): boolean {
   const category = file.category ?? guessChangedFileCategory(file.path);
-  return ["auth", "config", "db", "dependency", "routing"].includes(category);
+  return ["auth", "config", "db", "dependency", "routing", "ci", "secret"].includes(category);
 }
 
 export function buildDiffReadyReviewAssessment(input: {

@@ -32,11 +32,13 @@ import {
   createRetryLoopSupervisorRequest,
   deriveVerificationStatuses,
   evaluateProvocationSupervisor,
+  highRiskFilesFromDiffScopeCard,
   normalizeFailureFingerprint,
   normalizeChangedFile,
   type ProvocationAction,
   type ProvocationCard,
   type ProvocationContext,
+  type DiffReadySupervisorEvaluationRequest,
   type ScaffoldMode,
   type SupervisorEvaluationRequest,
   VERIFICATION_STATUS_LABEL_KEY,
@@ -167,22 +169,34 @@ function splitAcceptanceCriteria(text: string): string[] {
   return unique.length > 0 ? unique : [trimmed];
 }
 
-function metadataStringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-    : [];
+function highRiskFilesFromCards(cards: ProvocationCard[]): string[] {
+  return uniqueStrings(cards.flatMap(highRiskFilesFromDiffScopeCard));
 }
 
-function highRiskFilesFromCards(cards: ProvocationCard[]): string[] {
-  return uniqueStrings(
-    cards
-      .filter(
-        (card) =>
-          (card.type === "diff_scope_drift" || card.type === "diff_scope_review") &&
-          card.severity === "risk",
-      )
-      .flatMap((card) => metadataStringArray(card.metadata?.highRiskFiles)),
-  );
+function diffReadyAssessmentEvidenceCard(
+  request: DiffReadySupervisorEvaluationRequest | null,
+): ProvocationCard | null {
+  const highRiskFiles = request?.diffReadyAssessment.highRiskFiles ?? [];
+  if (!request || highRiskFiles.length === 0) return null;
+
+  return {
+    id: `diff_ready:deterministic:${request.contextHash ?? request.evidenceHash ?? request.artifactRef.id}`,
+    type: "diff_scope_review",
+    stage: "verify",
+    severity: "caution",
+    title: "Diff ready deterministic evidence",
+    message: "Deterministic diff-ready assessment evidence.",
+    evidence: [],
+    actions: [],
+    metadata: {
+      supervisorEvent: "diff_ready",
+      artifactRef: request.artifactRef,
+      contextHash: request.contextHash,
+      evidenceHash: request.evidenceHash,
+      diffReadyAssessment: request.diffReadyAssessment,
+    },
+    createdAt: "1970-01-01T00:00:00.000Z",
+  };
 }
 
 function statusIcon(status: RoadmapStepStatus) {
@@ -855,7 +869,18 @@ export function StepDetailSlideIn({
       return next.size === current.size ? current : next;
     });
   }, [provocationCards]);
-  const unexpectedHighRiskFiles = highRiskFilesFromCards(provocationCards);
+  const diffReadyDeterministicCard = useMemo(
+    () => diffReadyAssessmentEvidenceCard(diffReadySupervisorRequest),
+    [diffReadySupervisorRequest],
+  );
+  const decisionProvocationCards = useMemo(
+    () =>
+      diffReadyDeterministicCard
+        ? [...provocationCards, diffReadyDeterministicCard]
+        : provocationCards,
+    [diffReadyDeterministicCard, provocationCards],
+  );
+  const unexpectedHighRiskFiles = highRiskFilesFromCards(decisionProvocationCards);
   const reviewCardsEvidenced =
     provocationCards.length > 0 &&
     provocationCards.every((card) => handledProvocationCardIds.has(card.id));
@@ -1103,7 +1128,7 @@ export function StepDetailSlideIn({
           <DecisionGate
             verificationStatuses={verificationStatuses}
             agencyState={agencyState}
-            provocationCards={provocationCards}
+            provocationCards={decisionProvocationCards}
             verifyLog={verifyLog}
             rollbackAvailable={rollbackAvailable}
             acceptanceCriterionConfirmed={acceptanceCriterionConfirmed}

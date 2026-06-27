@@ -1354,6 +1354,88 @@ fn export_preserves_005_eventlog_contracts_without_raw_sensitive_text() {
 }
 
 #[test]
+fn export_preserves_diff_ready_high_risk_reason_and_files() {
+    let (db, sid) = seed();
+    {
+        let db_guard = db.lock().unwrap();
+        dive_event_log::append_to_conn(
+            db_guard.conn(),
+            Some(sid),
+            dive_event_log::SUPERVISOR_EVALUATED_EVENT,
+            json!({
+                "schemaVersion": 1,
+                "event": "diff_ready",
+                "artifactRef": {"kind": "diff", "id": "step-1:diff", "label": "Changed work"},
+                "contextHash": "sha256:diff-context",
+                "evidenceHash": "sha256:diff-evidence",
+                "validationOutcome": "shown",
+                "dropReason": null,
+                "cardId": "provocation:step-1:diff_scope_review:sha256:evidence",
+                "supervisorEvaluationId": "eval-diff-high-risk",
+                "decisionSummary": {
+                    "provoke": true,
+                    "concern": "diff_scope_drift",
+                    "severity": "caution",
+                    "evidenceRefIds": ["diff.changed_files"],
+                    "suggestedActionIds": ["open_diff"],
+                    "strippedActionIds": []
+                },
+                "assessmentSummary": {
+                    "reasonCodes": ["high_risk_area"],
+                    "evidenceRefs": ["diff.changed_files"],
+                    "changedFileCount": 1,
+                    "unexpectedFiles": [".env"],
+                    "highRiskFiles": [".env"],
+                    "diffViewed": false
+                },
+                "evidenceRefs": [{
+                    "id": "diff.changed_files",
+                    "source": "diff",
+                    "kind": "changed_file",
+                    "label": "Changed files",
+                    "verificationEvidence": false
+                }]
+            }),
+        )
+        .unwrap();
+    }
+
+    let exported = ExportEngine::new(db)
+        .export_session_with_salt(
+            sid,
+            &ExportOptions {
+                hash_file_paths: false,
+                hash_ids: false,
+                ..ExportOptions::default()
+            },
+            "fixed-salt",
+        )
+        .unwrap();
+    let records = lines(&exported);
+    let supervisor = records
+        .iter()
+        .find(|record| {
+            record["kind"] == "event"
+                && record["type"] == dive_event_log::SUPERVISOR_EVALUATED_EVENT
+                && record["payload"]["event"] == "diff_ready"
+        })
+        .expect("diff_ready supervisor event");
+
+    assert_eq!(
+        supervisor["payload"]["assessmentSummary"]["reasonCodes"],
+        json!(["high_risk_area"])
+    );
+    assert_eq!(
+        supervisor["payload"]["assessmentSummary"]["highRiskFiles"],
+        json!([".env"])
+    );
+    assert_eq!(
+        supervisor["payload"]["affectedFiles"]["highRiskFiles"],
+        json!([".env"])
+    );
+}
+
+#[test]
 fn export_preserves_plan_generated_lifecycle_event_for_reconstruction() {
     let (db, sid) = seed();
     {

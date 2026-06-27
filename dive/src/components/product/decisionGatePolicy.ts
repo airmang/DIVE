@@ -5,6 +5,7 @@ import type {
   SupervisorFeasibility,
   VerificationStatusItem,
 } from "../../features/provocation";
+import { highRiskFilesFromDiffScopeCard } from "../../features/provocation";
 import {
   automatedTestEvidenceStrength,
   hasConcreteAutomatedFail,
@@ -52,20 +53,6 @@ export interface DecisionGatePolicyInput {
 
 function uniqueNonEmpty(values: string[] | undefined): string[] {
   return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
-}
-
-function metadataStringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-    : [];
-}
-
-function highRiskFilesFromCard(card: ProvocationCard): string[] {
-  const metadata = card.metadata ?? {};
-  const explicit = metadataStringArray(metadata.highRiskFiles);
-  if (explicit.length > 0) return explicit;
-  if (metadata.highRisk === true) return metadataStringArray(metadata.changedFiles);
-  return [];
 }
 
 export function deriveDecisionGatePolicy(input: DecisionGatePolicyInput): DecisionGatePolicy {
@@ -119,11 +106,14 @@ export function deriveDecisionGatePolicy(input: DecisionGatePolicyInput): Decisi
     statusIds.has("failed_but_accepted") ||
     agencyIds.has("verification_failed"),
   );
+  // S-037 is decision-time path drift from the supervisor diff_ready assessment.
+  // It does not scan file contents; S-034 secret/.env warnings remain approval-
+  // time guard.rs warnings that can precede this later written-justification reason.
   const highRiskFiles = [
     ...new Set(
       (input.provocationCards ?? [])
-        .filter((card) => card.type === "diff_scope_drift" && card.severity === "risk")
-        .flatMap(highRiskFilesFromCard),
+        .filter((card) => card.type === "diff_scope_drift" || card.type === "diff_scope_review")
+        .flatMap(highRiskFilesFromDiffScopeCard),
     ),
   ];
   const highRiskUnexpectedFiles = highRiskFiles.length > 0;

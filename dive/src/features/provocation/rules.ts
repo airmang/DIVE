@@ -134,6 +134,8 @@ const GOAL_CATEGORY_TERMS: Record<ChangedFileCategory, string[]> = {
   logic: ["logic", "로직", "동작", "behavior", "state"],
   config: ["config", "설정", "환경", "빌드", "vite", "tsconfig"],
   dependency: ["dependency", "dependencies", "의존성", "패키지", "package"],
+  ci: ["ci", "workflow", "dockerfile", "makefile"],
+  secret: ["secret", "credential", "credentials", "key", "pem"],
   auth: ["auth", "login", "oauth", "로그인", "인증"],
   db: ["db", "database", "데이터베이스", "schema", "migration"],
   test: ["test", "테스트", "spec", "검증"],
