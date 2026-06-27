@@ -2,7 +2,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
+import { useProjectSessionStore } from "../../stores/project-session";
 import { useSlideInStore } from "../../stores/slideIn";
+import { useUiPreferencesStore } from "../../stores/ui-preferences";
 import { PreviewTab } from "./PreviewTab";
 import { previewModeHint } from "./previewModeHint";
 
@@ -54,7 +56,17 @@ function readyPreviewResponse(
 
 describe("PreviewTab", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     useLocaleStore.setState({ locale: "en" });
+    useProjectSessionStore.setState({
+      currentProjectId: null,
+      currentSessionId: null,
+    });
+    useUiPreferencesStore.setState({
+      tutorialEnabled: false,
+      previewOnboardingDismissed: false,
+      previewModeByProject: {},
+    });
     useSlideInStore.setState({
       isOpen: true,
       activeTab: "preview",
@@ -85,6 +97,7 @@ describe("PreviewTab", () => {
   });
 
   it("opens Show my result through Auto and uses the resolved static kind for the hint", async () => {
+    useProjectSessionStore.setState({ currentProjectId: 7 });
     invokeMock.mockResolvedValueOnce(readyPreviewResponse());
 
     render(<PreviewTab />);
@@ -105,6 +118,10 @@ describe("PreviewTab", () => {
       "Static file preview",
     );
     expect(useSlideInStore.getState().previewSession?.kind).toBe("static_file");
+    expect(useUiPreferencesStore.getState().previewModeByProject[7]).toEqual({
+      kind: "static_file",
+      lastUrl: "http://127.0.0.1:49152/index.html",
+    });
   });
 
   it("hides and shows the legacy preview mechanisms under Other ways to preview", () => {
@@ -128,6 +145,27 @@ describe("PreviewTab", () => {
     expect(screen.queryByTestId("preview-candidate")).toBeNull();
     expect(screen.queryByTestId("preview-static-path-input")).toBeNull();
     expect(screen.queryByTestId("preview-static-path-open")).toBeNull();
+  });
+
+  it("uses remembered project preview mode as defaults without opening preview on mount", () => {
+    useProjectSessionStore.setState({ currentProjectId: 7 });
+    useUiPreferencesStore.setState({
+      previewModeByProject: {
+        7: { kind: "dev_server", lastUrl: "http://127.0.0.1:5173/" },
+        9: { kind: "static_file", lastUrl: "index.html" },
+      },
+    });
+
+    render(<PreviewTab />);
+
+    expect((screen.getByTestId("preview-url-input") as HTMLInputElement).value).toBe(
+      "http://127.0.0.1:5173/",
+    );
+    expect(screen.getByTestId("preview-reopen-last").textContent).toContain("Reopen last preview");
+    expect(screen.getByTestId("preview-remembered-mode").textContent).toContain(
+      "Dev-server preview",
+    );
+    expect(invokeMock).not.toHaveBeenCalled();
   });
 
   it("opens a static HTML target through preview_open without shell approval copy", async () => {

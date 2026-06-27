@@ -9,10 +9,13 @@ import {
   Smartphone,
   Tablet,
 } from "lucide-react";
+import { useProjectSessionStore } from "../../stores/project-session";
 import { useSlideInStore } from "../../stores/slideIn";
+import { useUiPreferencesStore } from "../../stores/ui-preferences";
 import { Button } from "../ui/button";
 import { useT } from "../../i18n";
 import type { PreviewSessionKind } from "./types";
+import { PreviewOnboardingCoachmark } from "./PreviewOnboardingCoachmark";
 import { previewModeHint } from "./previewModeHint";
 
 const PREVIEW_CANDIDATES = ["http://127.0.0.1:5173", "http://localhost:5173"];
@@ -96,6 +99,16 @@ function previewSessionKind(kind: PreviewOpenKind): PreviewSessionKind | undefin
   return kind === "auto" ? undefined : kind;
 }
 
+function staticTargetFromRememberedUrl(lastUrl: string): string {
+  try {
+    const url = new URL(lastUrl);
+    const target = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
+    return target || lastUrl;
+  } catch {
+    return lastUrl;
+  }
+}
+
 /**
  * Localized message for a known backend preview reason code (so the UI shows a
  * translated sentence instead of a raw code / Korean backend string). Returns
@@ -118,20 +131,40 @@ export function PreviewTab() {
   const setPreviewUrl = useSlideInStore((s) => s.setPreviewUrl);
   const setPreviewSession = useSlideInStore((s) => s.setPreviewSession);
   const pushTerminalLine = useSlideInStore((s) => s.pushTerminalLine);
-  const [input, setInput] = useState(previewUrl ?? "");
+  const currentProjectId = useProjectSessionStore((s) => s.currentProjectId);
+  const setProjectPreviewMode = useUiPreferencesStore((s) => s.setProjectPreviewMode);
+  const rememberedPreview = useUiPreferencesStore((s) =>
+    currentProjectId === null ? null : (s.previewModeByProject[currentProjectId] ?? null),
+  );
+  const rememberedLastUrl = rememberedPreview?.lastUrl ?? "";
+  const rememberedModeHint = previewModeHint(rememberedPreview?.kind);
+  const [input, setInput] = useState(() => previewUrl ?? rememberedLastUrl);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [viewport, setViewport] = useState<PreviewViewport>("desktop");
   const [reloadNonce, setReloadNonce] = useState(0);
-  const [staticPath, setStaticPath] = useState("");
+  const [staticPath, setStaticPath] = useState(() =>
+    rememberedPreview?.kind === "static_file"
+      ? staticTargetFromRememberedUrl(rememberedLastUrl)
+      : "",
+  );
   const [showOtherPreviewWays, setShowOtherPreviewWays] = useState(false);
   const viewportWidth = VIEWPORT_WIDTH[viewport];
   const modeHint = previewModeHint(previewSession?.kind);
 
   useEffect(() => {
-    setInput(previewUrl ?? "");
-  }, [previewUrl]);
+    if (previewUrl) {
+      setInput(previewUrl);
+      return;
+    }
+    if (rememberedPreview?.kind === "static_file") {
+      setInput(rememberedLastUrl);
+      setStaticPath(staticTargetFromRememberedUrl(rememberedLastUrl));
+      return;
+    }
+    setInput(rememberedLastUrl);
+  }, [previewUrl, rememberedLastUrl, rememberedPreview?.kind]);
 
   const applyPreviewResponse = (api: TauriApi, result: PreviewOpenResponse) => {
     const displayUrl =
@@ -153,6 +186,12 @@ export function PreviewTab() {
       setInput(result.kind === "local_url" ? result.targetLabel : displayUrl);
       setStatus(`${result.message} (${result.targetLabel})`);
       setError(null);
+      if (currentProjectId !== null && resolvedKind) {
+        setProjectPreviewMode(currentProjectId, {
+          kind: resolvedKind,
+          lastUrl: displayUrl,
+        });
+      }
     } else {
       setError(previewReasonText(result.reasonCode, t) ?? result.message);
       setStatus(null);
@@ -244,6 +283,32 @@ export function PreviewTab() {
     setConnecting(true);
     try {
       await openPreview("auto");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      setStatus(null);
+      pushTerminalLine({ kind: "stderr", text: `[preview] ${message}` });
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const reopenRememberedPreview = async () => {
+    if (!rememberedPreview) return;
+    const target = rememberedPreview.lastUrl ?? "";
+    if (rememberedPreview.kind !== "dev_server" && target.trim().length === 0) {
+      setError(t("slide_in.preview.reason.missing_target"));
+      return;
+    }
+    setError(null);
+    setStatus(t("slide_in.preview.checking_project"));
+    setConnecting(true);
+    try {
+      // Dev-server memory never writes the remembered URL directly; Rust re-checks or starts it.
+      if (rememberedPreview.kind === "dev_server") await openPreview("dev_server");
+      else if (rememberedPreview.kind === "static_file")
+        await openPreview("static_file", staticTargetFromRememberedUrl(target));
+      else await openPreview(rememberedPreview.kind, target);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
@@ -379,6 +444,7 @@ export function PreviewTab() {
             data-testid="preview-empty"
           >
             <div className="max-w-sm">
+              <PreviewOnboardingCoachmark />
               <p className="text-sm font-semibold text-fg">{t("slide_in.preview.empty_title")}</p>
               <p className="mt-2 text-sm text-fg-muted">
                 {previewSession?.status === "unavailable" || previewSession?.status === "failed"
@@ -390,6 +456,31 @@ export function PreviewTab() {
               <p className="mt-2 text-xs text-fg-muted" data-testid="preview-mode-empty-hint">
                 {t("slide_in.preview.mode.empty_hint")}
               </p>
+              {rememberedPreview ? (
+                <div
+                  className="mt-4 flex flex-col items-center gap-2"
+                  data-testid="preview-remembered-preview"
+                >
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void reopenRememberedPreview()}
+                    disabled={connecting}
+                    data-testid="preview-reopen-last"
+                  >
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                    {t("slide_in.preview.reopen_last")}
+                  </Button>
+                  {rememberedModeHint ? (
+                    <span
+                      className="rounded border border-border bg-bg px-2 py-1 text-xs font-medium text-fg-muted"
+                      data-testid="preview-remembered-mode"
+                    >
+                      {t(`slide_in.preview.mode.${rememberedModeHint}`)}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="mt-4">
                 <Button
                   size="sm"

@@ -1456,6 +1456,7 @@
       "auto_connect": "Check result",
       "show_result": "Show my result",
       "other_ways": "Other ways to preview",
+      "reopen_last": "Reopen last preview",
       "static_path_placeholder": "Open a project page, e.g. about.html",
       "static_path_aria": "Project page path to preview",
       "static_path_open": "Open page",
@@ -1473,6 +1474,13 @@
         "static": "Static file preview",
         "server": "Dev-server preview",
         "empty_hint": "Static file previews open plain HTML. Dev-server previews run projects that need a local app server."
+      },
+      "onboarding": {
+        "title": "Preview helps you inspect the result.",
+        "static": "Static preview opens a project HTML file without starting an app server.",
+        "server": "Dev-server preview connects to or starts a local app server for framework projects.",
+        "human_confirm": "DIVE shows the result; the human confirms it works, not the AI.",
+        "dismiss": "Dismiss preview onboarding"
       },
       "reason": {
         "missing_project": "Select a project before opening Preview.",
