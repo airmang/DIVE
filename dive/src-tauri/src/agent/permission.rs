@@ -54,6 +54,7 @@ pub struct PermissionRequestContext {
     pub session_id: i64,
     pub params_preview: String,
     pub diff_preview: Option<DiffPreview>,
+    pub diff_previews: Vec<DiffPreview>,
     pub approval_warnings: PermissionApprovalWarnings,
     pub args: Value,
 }
@@ -65,6 +66,7 @@ impl PermissionRequestContext {
             session_id,
             params_preview: "{}".into(),
             diff_preview: None,
+            diff_previews: Vec::new(),
             approval_warnings: PermissionApprovalWarnings::default(),
             args: Value::Object(Default::default()),
         }
@@ -105,6 +107,8 @@ pub struct PendingApprovalSnapshot {
     pub risk: RiskLevel,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diff_preview: Option<DiffPreview>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub diff_previews: Vec<DiffPreview>,
     #[serde(skip_serializing_if = "PermissionApprovalWarnings::is_empty")]
     pub approval_warnings: PermissionApprovalWarnings,
     pub args: Value,
@@ -119,6 +123,7 @@ impl PendingApprovalSnapshot {
             params_preview: context.params_preview,
             risk,
             diff_preview: context.diff_preview,
+            diff_previews: context.diff_previews,
             approval_warnings: context.approval_warnings,
             args: context.args,
         }
@@ -180,6 +185,7 @@ impl AgentRunMode {
             tool_name,
             "write_file"
                 | "edit_file"
+                | "multi_replace"
                 | "delete_file"
                 | "mkdir"
                 | "bash"
@@ -599,6 +605,43 @@ mod tests {
             PermissionDecision::Denied(reason) => {
                 assert!(reason.contains("build mode"));
                 assert!(reason.contains("write_file"));
+            }
+            other => panic!("expected denial, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn plan_and_build_mode_deny_multi_replace_without_approved_active_step() {
+        let plan_hook = RunModePermissionHook::new(AgentRunMode::Plan, Arc::new(AlwaysApproveHook));
+        let plan_decision = plan_hook
+            .intercept(
+                &call("multi_replace"),
+                RiskLevel::Warn,
+                PermissionRequestContext::test(1),
+            )
+            .await;
+        match plan_decision {
+            PermissionDecision::Denied(reason) => {
+                assert!(reason.contains("plan"));
+                assert!(reason.contains("multi_replace"));
+            }
+            other => panic!("expected denial, got {other:?}"),
+        }
+
+        let build_hook =
+            RunModePermissionHook::new(AgentRunMode::Build, Arc::new(AlwaysApproveHook))
+                .with_plan_accepted(true);
+        let build_decision = build_hook
+            .intercept(
+                &call("multi_replace"),
+                RiskLevel::Warn,
+                PermissionRequestContext::test(1),
+            )
+            .await;
+        match build_decision {
+            PermissionDecision::Denied(reason) => {
+                assert!(reason.contains("build mode"));
+                assert!(reason.contains("multi_replace"));
             }
             other => panic!("expected denial, got {other:?}"),
         }

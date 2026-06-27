@@ -71,6 +71,7 @@ export interface StepDetailSlideInProps {
     verificationCommand?: string | null;
     verificationManualCheck?: string | null;
     verificationKind?: string | null;
+    stepKind?: string | null;
     dependencies?: string[];
     parallelGroup?: string | null;
     purpose?: string | null;
@@ -698,6 +699,7 @@ export function StepDetailSlideIn({
       changedFiles: changedFiles.map((file) => normalizeChangedFile({ path: file.path })),
       expectedFiles,
       diffViewed,
+      stepKind: planContext?.stepKind ?? null,
       uiState: supervisorUiState,
     });
   }, [
@@ -705,6 +707,7 @@ export function StepDetailSlideIn({
     diffViewed,
     expectedFiles,
     planContext?.purpose,
+    planContext?.stepKind,
     provocation?.enabled,
     provocation?.mode,
     provocation?.projectId,

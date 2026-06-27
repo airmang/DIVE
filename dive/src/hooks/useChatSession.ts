@@ -137,6 +137,13 @@ export type AgentEvent =
         before: string;
         after: string;
       } | null;
+      diff_previews?:
+        | {
+            path: string;
+            before: string;
+            after: string;
+          }[]
+        | null;
       approval_warnings?: PermissionApprovalWarningsData | null;
       args: unknown;
     }
@@ -217,6 +224,13 @@ type PendingToolCall = {
     before: string;
     after: string;
   } | null;
+  diffPreviews?:
+    | {
+        path: string;
+        before: string;
+        after: string;
+      }[]
+    | null;
   approvalWarnings?: PermissionApprovalWarningsData | null;
   args: unknown;
 };
@@ -312,6 +326,7 @@ function pendingToolCallToMessage(call: PendingToolCall): ToolCallMessageData {
     risk: call.risk,
     runtimeAction: runtimeActionForTool(call.tool),
     diffPreview: call.diffPreview ?? null,
+    diffPreviews: call.diffPreviews ?? null,
     approvalWarnings: call.approvalWarnings ?? null,
     args: call.args,
   };
@@ -1285,6 +1300,7 @@ export function reduceChatSessionState(prev: ChatSessionState, evt: AgentEvent):
         risk: evt.risk,
         runtimeAction: runtimeActionForTool(evt.tool),
         diffPreview: evt.diff_preview ?? null,
+        diffPreviews: evt.diff_previews ?? null,
         approvalWarnings: evt.approval_warnings ?? null,
         args: evt.args,
       };

@@ -26,6 +26,7 @@ export interface PlanStepRow {
   instruction_seed: string | null;
   expected_files: unknown | null;
   acceptance_criteria: unknown | null;
+  step_kind?: string | null;
   verification_kind: string | null;
   verification_command: string | null;
   verification_manual_check: string | null;

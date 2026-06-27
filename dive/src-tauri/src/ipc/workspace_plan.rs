@@ -21,7 +21,7 @@ use crate::db::models::{
     NewSession, NewStep, NewStepSessionMapping, NewWorkmap, ObjectionSuggestionStatus,
     PlanMutationType, PlanRow, PrdPatch, PrdPatchOperation, ProjectRow, ProjectSpec,
     ProjectSpecDelta, ProjectSpecDraft, ProjectSpecStatus, ProjectSpecVersionRow,
-    ScopeExpansionAssessment, StepRow, StepSessionMappingRow,
+    ScopeExpansionAssessment, StepKind, StepRow, StepSessionMappingRow,
 };
 use crate::db::now_ms;
 use crate::dive::event_log as dive_event_log;
@@ -211,6 +211,8 @@ pub struct StepDraftInput {
     pub linked_criterion_ids: Vec<String>,
     #[serde(default)]
     pub rationale: Option<String>,
+    #[serde(default)]
+    pub step_kind: Option<StepKind>,
     pub verification_command: Option<String>,
     pub verification_type: Option<String>,
     pub dependencies: Vec<String>,
@@ -2794,6 +2796,7 @@ pub fn workspace_plan_generate_draft_impl(
     let step_count = plan_input.steps.len();
     let mut step_criterion_links: Vec<(String, Vec<String>)> = Vec::new();
     for step in plan_input.steps {
+        let step_kind = step_kind_for_draft(&step);
         let acceptance_criteria = step_criteria_payload(&step, &project_prd)?;
         step_criterion_links.push((
             step.step_id.clone(),
@@ -2809,6 +2812,7 @@ pub fn workspace_plan_generate_draft_impl(
                 instruction_seed: Some(step.instruction_seed),
                 expected_files: Some(serde_json::json!(step.expected_files)),
                 acceptance_criteria: Some(acceptance_criteria),
+                step_kind,
                 verification_kind: step.verification_type,
                 verification_command: step.verification_command,
                 verification_manual_check: None,
@@ -3345,6 +3349,7 @@ fn append_step_within_tx(
     let step_id = step_dao::next_step_id(tx, plan.id).map_err(|e| e.to_string())?;
     let position = step_dao::next_position(tx, plan.id).map_err(|e| e.to_string())?;
     let acceptance_criteria = append_step_criteria_payload(draft, latest_prd.as_ref())?;
+    let step_kind = step_kind_for_draft(draft);
     let inserted_id = step_dao::insert(
         tx,
         &NewStep {
@@ -3355,6 +3360,7 @@ fn append_step_within_tx(
             instruction_seed: Some(draft.instruction_seed.clone()),
             expected_files: Some(serde_json::json!(draft.expected_files.clone())),
             acceptance_criteria: Some(acceptance_criteria),
+            step_kind,
             verification_kind: draft.verification_type.clone(),
             verification_command: draft.verification_command.clone(),
             verification_manual_check: None,
@@ -5085,6 +5091,91 @@ fn broad_scope_score(step: &StepDraftInput) -> usize {
         .count()
 }
 
+fn step_kind_for_draft(step: &StepDraftInput) -> StepKind {
+    step.step_kind
+        .unwrap_or_else(|| classify_step_kind_from_draft(step))
+}
+
+fn classify_step_kind_from_draft(step: &StepDraftInput) -> StepKind {
+    let acceptance_text = step
+        .acceptance_criteria
+        .iter()
+        .filter_map(criterion_input_text)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut text = format!(
+        "{}\n{}\n{}\n{}",
+        step.title, step.summary, step.instruction_seed, acceptance_text
+    )
+    .to_ascii_lowercase();
+    for item in &step.expected_files {
+        text.push('\n');
+        text.push_str(&item.to_ascii_lowercase());
+    }
+
+    if contains_any(
+        &text,
+        &[
+            "rename",
+            "renaming",
+            "renamed",
+            "이름 변경",
+            "이름을 변경",
+            "명칭 변경",
+        ],
+    ) {
+        StepKind::Rename
+    } else if contains_any(
+        &text,
+        &[
+            "refactor",
+            "restructure",
+            "reorganize",
+            "extract",
+            "move code",
+            "split module",
+            "동작 보존",
+            "리팩터",
+            "리팩토",
+            "구조 개선",
+        ],
+    ) {
+        StepKind::Refactor
+    } else if contains_any(
+        &text,
+        &[
+            "debug",
+            "diagnose",
+            "investigate",
+            "fix bug",
+            "failing",
+            "error",
+            "디버그",
+            "진단",
+            "오류",
+            "버그",
+        ],
+    ) {
+        StepKind::Debug
+    } else if contains_any(
+        &text,
+        &[
+            "comment",
+            "documentation",
+            "docs",
+            "readme",
+            "copy update",
+            "주석",
+            "문서",
+            "설명",
+        ],
+    ) {
+        StepKind::Comment
+    } else {
+        StepKind::Feature
+    }
+}
+
 /// Whether a verification_command fits DIVE's no-shell, single-command, 60s
 /// execution envelope. Used to *sanitize* (drop) rather than reject: a model
 /// emitting a shell-y command should not block the whole plan from generating.
@@ -5201,6 +5292,7 @@ fn router_draft_to_input_unallocated(draft: RouterStepDraft) -> StepDraftInput {
             .collect(),
         linked_criterion_ids: Vec::new(),
         rationale: None,
+        step_kind: draft.step_kind,
         verification_command: draft.verification_command,
         verification_type: draft.verification_type,
         dependencies: draft.dependencies,
@@ -5455,6 +5547,7 @@ mod criterion_quality_tests {
                 .collect(),
             linked_criterion_ids: vec!["AC-001".into()],
             rationale: Some("This step maps directly to the acceptance criteria.".into()),
+            step_kind: None,
             verification_command: Some("pnpm test".into()),
             verification_type: Some("run".into()),
             dependencies: Vec::new(),
@@ -5688,6 +5781,7 @@ mod envelope_tests {
             )],
             linked_criterion_ids: vec!["AC-001".into()],
             rationale: Some("This step isolates the visible state required by AC-001.".into()),
+            step_kind: None,
             verification_command: Some("pnpm test".into()),
             verification_type: Some("run".into()),
             dependencies: Vec::new(),
@@ -5850,6 +5944,7 @@ mod pre_pivot_checkpoint_tests {
             )],
             linked_criterion_ids: Vec::new(),
             rationale: None,
+            step_kind: None,
             verification_command: None,
             verification_type: Some("manual".into()),
             dependencies: Vec::new(),
@@ -5896,6 +5991,7 @@ mod pre_pivot_checkpoint_tests {
                 instruction_seed: Some("Existing seed".into()),
                 expected_files: Some(json!(["src/App.tsx"])),
                 acceptance_criteria: Some(json!(["Existing criterion"])),
+                step_kind: Default::default(),
                 verification_kind: Some("manual".into()),
                 verification_command: None,
                 verification_manual_check: None,

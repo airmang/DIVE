@@ -253,6 +253,7 @@ fn seed_session_state(
             instruction_seed: Some("Do it".into()),
             expected_files: Some(json!([project_root.join("a.txt").to_string_lossy()])),
             acceptance_criteria: Some(json!(["done"])),
+            step_kind: Default::default(),
             verification_kind: None,
             verification_command: None,
             verification_manual_check: None,

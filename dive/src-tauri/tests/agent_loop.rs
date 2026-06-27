@@ -555,6 +555,7 @@ async fn product_path_build_step_creates_code_output_and_records_changed_files()
             linked_criterion_ids: Vec::new(),
             decomposition_rationale: None,
             expected_files: Some(r#"["index.html"]"#.into()),
+            step_kind: Default::default(),
         }))
         .max_iterations(5)
         .build()

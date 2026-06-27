@@ -11,6 +11,7 @@ use std::time::Duration;
 use futures::StreamExt;
 use regex::Regex;
 
+use crate::db::models::StepKind;
 use crate::providers::{ChatEvent, ChatRequest, FinishReason, LlmProvider, Message, ToolChoice};
 
 const ROUTE_CANCELLED_MESSAGE: &str = "route chat cancelled";
@@ -79,6 +80,7 @@ pub struct RouterStepDraft {
     pub instruction_seed: String,
     pub expected_files: Vec<String>,
     pub acceptance_criteria: Vec<String>,
+    pub step_kind: Option<StepKind>,
     pub verification_command: Option<String>,
     pub verification_type: Option<String>,
     pub dependencies: Vec<String>,
@@ -210,11 +212,15 @@ fn build_system_prompt() -> String {
      must be one of run, preview, manual, or test. Use preview or manual with \
      an empty verification_command for static front-end or no-runnable-command \
      steps; use run or test only with a real no-shell command with explicit args \
-     and a 60 second budget.\n\
+     and a 60 second budget. Set step_kind to one of feature, refactor, rename, \
+     comment, or debug based on the proposed step itself. Use refactor/rename \
+     only for behavior-preserving move/restructure/name changes; use debug for \
+     diagnose-then-fix work.\n\
      Output formats:\n\
      ROUTE chat reason=\"short reason\"\n\
      ROUTE add_step title=\"...\" summary=\"...\" instruction_seed=\"...\" \
      expected_files=[\"path or glob\"] acceptance_criteria=[\"observable result\"] \
+     step_kind=\"feature|refactor|rename|comment|debug\" \
      verification_type=\"run|preview|manual|test\" verification_command=\"command or empty\" \
      dependencies=[\"step-001\"] parallel_group=null reason=\"short reason\"\n\
      ROUTE clarify question=\"one criterion-linked question\" \
@@ -223,12 +229,13 @@ fn build_system_prompt() -> String {
      ROUTE remove target_step_id=\"step-001\" reason=\"short reason\"\n\
      ROUTE supersede target_step_id=\"step-001\" title=\"...\" summary=\"...\" \
      instruction_seed=\"...\" expected_files=[\"path or glob\"] \
-     acceptance_criteria=[\"observable result\"] \
+     acceptance_criteria=[\"observable result\"] step_kind=\"feature|refactor|rename|comment|debug\" \
      verification_type=\"run|preview|manual|test\" verification_command=\"command or empty\" \
      dependencies=[\"step-001\"] parallel_group=null reason=\"short reason\"\n\
      ROUTE multi_step {\"reason\":\"short reason\",\"steps\":[{\"title\":\"...\",\
      \"summary\":\"...\",\"instruction_seed\":\"...\",\"expected_files\":[\"path\"],\
-     \"acceptance_criteria\":[\"observable result\"],\"verification_type\":\
+     \"acceptance_criteria\":[\"observable result\"],\"step_kind\":\"feature\",\
+     \"verification_type\":\
      \"run|preview|manual|test\",\"verification_command\":\"command or empty\",\
      \"dependencies\":[\"step-001\"],\"parallel_group\":null,\"depends_on\":[0]}]}\n\
      The multi_step payload is one JSON object on the SAME single line (no \
@@ -342,6 +349,8 @@ struct RouterMultiStepItem {
     #[serde(default)]
     acceptance_criteria: Vec<String>,
     #[serde(default)]
+    step_kind: Option<StepKind>,
+    #[serde(default)]
     verification_command: Option<String>,
     #[serde(default)]
     verification_type: Option<String>,
@@ -364,6 +373,7 @@ impl RouterMultiStepItem {
             instruction_seed: self.instruction_seed,
             expected_files: self.expected_files,
             acceptance_criteria: self.acceptance_criteria,
+            step_kind: self.step_kind,
             verification_command: empty_to_none(self.verification_command),
             verification_type: empty_to_none(self.verification_type),
             dependencies: self.dependencies,
@@ -415,6 +425,7 @@ fn parse_router_step_draft(rest: &str) -> Result<RouterStepDraft, String> {
         instruction_seed: required_string(rest, "instruction_seed")?,
         expected_files: field_array(rest, "expected_files")?.unwrap_or_default(),
         acceptance_criteria: field_array(rest, "acceptance_criteria")?.unwrap_or_default(),
+        step_kind: field_string(rest, "step_kind")?.map(|value| StepKind::from_marker(&value)),
         verification_command: empty_to_none(field_string(rest, "verification_command")?),
         verification_type: empty_to_none(field_string(rest, "verification_type")?),
         dependencies: field_array(rest, "dependencies")?.unwrap_or_default(),

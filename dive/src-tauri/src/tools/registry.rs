@@ -5,8 +5,9 @@ use crate::providers::ToolDef;
 
 use super::{
     delete_file::DeleteFile, edit_file::EditFile, list_dir::ListDir, mkdir::Mkdir,
-    read_file::ReadFile, run_process::RunProcess, runtime::PreviewOpen, search_files::SearchFiles,
-    terminal_script::RunTerminalScript, write_file::WriteFile, Tool,
+    multi_replace::MultiReplace, read_file::ReadFile, run_process::RunProcess,
+    runtime::PreviewOpen, search_files::SearchFiles, terminal_script::RunTerminalScript,
+    write_file::WriteFile, Tool,
 };
 
 /// Registry of built-in tools indexed by name. Tools are `Arc<dyn Tool>` so
@@ -29,6 +30,7 @@ impl ToolRegistry {
         r.register(Arc::new(ListDir));
         r.register(Arc::new(WriteFile));
         r.register(Arc::new(EditFile));
+        r.register(Arc::new(MultiReplace));
         r.register(Arc::new(SearchFiles));
         r.register(Arc::new(Mkdir));
         r.register(Arc::new(DeleteFile));
@@ -83,6 +85,7 @@ mod tests {
             ("search_files", RiskLevel::Safe),
             ("write_file", RiskLevel::Warn),
             ("edit_file", RiskLevel::Warn),
+            ("multi_replace", RiskLevel::Warn),
             ("mkdir", RiskLevel::Warn),
             ("delete_file", RiskLevel::Danger),
             ("run_process", RiskLevel::Danger),

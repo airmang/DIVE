@@ -389,6 +389,7 @@ async fn agent_loop_injects_active_step_context_into_system_prompt() {
                 "The export step preserves PRD reconstruction evidence.".into(),
             ),
             expected_files: Some(".dive/plan.json".into()),
+            step_kind: Default::default(),
         }))
         .build()
         .unwrap();

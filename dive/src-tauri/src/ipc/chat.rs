@@ -804,6 +804,7 @@ fn load_active_step_context(
             linked_criterion_ids: step_criteria.linked_criterion_ids,
             decomposition_rationale: step_criteria.rationale,
             expected_files: join_json_strings(step.expected_files.as_ref(), ", "),
+            step_kind: step.step_kind,
         },
         plan_approved: plan.status == "approved",
     }))
@@ -1200,6 +1201,7 @@ mod tests {
             linked_criterion_ids: context.linked_criterion_ids,
             decomposition_rationale: context.rationale,
             expected_files: None,
+            step_kind: Default::default(),
         };
         assert_eq!(
             step_context.acceptance_criteria.as_deref(),

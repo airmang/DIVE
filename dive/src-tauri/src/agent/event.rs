@@ -159,6 +159,8 @@ pub enum AgentEvent {
         risk: RiskLevel,
         #[serde(skip_serializing_if = "Option::is_none")]
         diff_preview: Option<DiffPreview>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        diff_previews: Vec<DiffPreview>,
         #[serde(skip_serializing_if = "PermissionApprovalWarnings::is_empty")]
         approval_warnings: PermissionApprovalWarnings,
         args: Value,

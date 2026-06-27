@@ -99,11 +99,25 @@ function actionContextForCall(
   checkpointAvailable: boolean | null | undefined,
 ): PermissionActionContext {
   const argFiles = filesFromArgs(call.args);
-  const diffPath = call.diffPreview?.path ?? pathFromArgs(call.args);
-  const diffFiles = diffPath ? [diffPath] : [];
+  const multiDiffPaths = (call.diffPreviews ?? [])
+    .map((diff) => diff.path.trim())
+    .filter((path) => path.length > 0);
+  const singleDiffPath = call.diffPreview?.path?.trim() || null;
+  const argPath = pathFromArgs(call.args);
+  const diffFiles =
+    multiDiffPaths.length > 0
+      ? multiDiffPaths
+      : singleDiffPath
+        ? [singleDiffPath]
+        : argPath
+          ? [argPath]
+          : [];
+  const diffPreviewPath =
+    multiDiffPaths.length > 0 ? multiDiffPaths.join(", ") : (singleDiffPath ?? null);
   const mutatesFiles =
     call.toolName === "write_file" ||
     call.toolName === "edit_file" ||
+    call.toolName === "multi_replace" ||
     call.toolName === "delete_file" ||
     call.toolName === "mkdir";
   const readsFiles =
@@ -114,18 +128,22 @@ function actionContextForCall(
     expectedFiles,
     readFiles: readsFiles ? argFiles : [],
     writeFiles: mutatesFiles ? [...new Set([...argFiles, ...diffFiles])] : [],
-    diffPreviewPath: call.diffPreview?.path ?? null,
+    diffPreviewPath,
     checkpointAvailable: checkpointAvailable ?? null,
   };
 }
 
 function requiresReadGate(call: ToolCallMessageData): boolean {
-  // Read gate fires for any pending non-Safe write/edit, or whenever the backend
-  // flagged a secret — independent of whether a diff preview is available. When
-  // no diff exists the cards fall back to a checkbox-only confirm, so the riskiest
-  // writes can never be rubber-stamped (read_file / Safe stay auto-approved).
+  // Read gate fires for any pending non-Safe file write/edit batch, or whenever
+  // the backend flagged a secret — independent of whether a diff preview is
+  // available. When no diff exists the cards fall back to a checkbox-only confirm,
+  // so the riskiest writes can never be rubber-stamped (read_file / Safe stay
+  // auto-approved).
   if (call.status !== "pending" || call.risk === "safe") return false;
-  const isWriteOrEdit = call.toolName === "write_file" || call.toolName === "edit_file";
+  const isWriteOrEdit =
+    call.toolName === "write_file" ||
+    call.toolName === "edit_file" ||
+    call.toolName === "multi_replace";
   const secretFlagged = call.approvalWarnings?.secretFlagged === true;
   return isWriteOrEdit || secretFlagged;
 }
@@ -167,6 +185,7 @@ function toolIcon(toolName: string): LucideIcon {
       return toolName === "read_file" ? FileText : Eye;
     case "write_file":
     case "edit_file":
+    case "multi_replace":
       return FileText;
     case "delete_file":
       return Trash2;
@@ -258,6 +277,7 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
       paramsPreview: call.paramsPreview,
       risk: call.risk!,
       diffPreview: call.diffPreview ?? null,
+      diffPreviews: call.diffPreviews ?? null,
       approvalWarnings: call.approvalWarnings ?? null,
       args: call.args,
       actionContext: permissionActionContext,

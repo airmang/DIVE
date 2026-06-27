@@ -19,9 +19,10 @@ const MIGRATIONS: &[(i64, MigrationFn)] = &[
     (12, migration_v12),
     (13, migration_v13),
     (14, migration_v14),
+    (15, migration_v15),
 ];
 
-pub const LATEST_SCHEMA_VERSION: i64 = 14;
+pub const LATEST_SCHEMA_VERSION: i64 = 15;
 
 pub fn migrate(conn: &mut Connection) -> Result<(), DbError> {
     migrate_with_migrations(conn, MIGRATIONS)
@@ -371,6 +372,23 @@ fn checkpoint_column_exists(tx: &Transaction<'_>, column: &str) -> rusqlite::Res
     Ok(exists > 0)
 }
 
+/// S-039 Pass B — persist the D-stage step classification used by behavior-
+/// preserving refactor/rename guidance. Additive, guarded ADD COLUMN; existing
+/// rows backfill to the compile-safe `feature` default.
+fn migration_v15(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    let exists: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('Step') WHERE name = 'step_kind'",
+        [],
+        |row| row.get(0),
+    )?;
+    if exists == 0 {
+        tx.execute_batch(
+            "ALTER TABLE Step ADD COLUMN step_kind TEXT NOT NULL DEFAULT 'feature' CHECK(step_kind IN ('feature','refactor','rename','comment','debug'))",
+        )?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use rusqlite::Transaction;
@@ -669,6 +687,81 @@ mod tests {
         // Idempotent: re-running the guarded ADD COLUMNs is a no-op.
         let tx = db.conn_mut().transaction().unwrap();
         super::migration_v13(&tx).unwrap();
+        tx.commit().unwrap();
+    }
+
+    #[test]
+    fn migration_v15_adds_step_kind_and_backfills_feature() {
+        use crate::db::dao::plan as plan_dao;
+        use crate::db::models::NewPlan;
+
+        let (mut db, _tmp) = fresh_db();
+        let (project_id, _session_id) = seed_project_session(db.conn());
+        let plan_id = plan_dao::insert(
+            db.conn(),
+            &NewPlan {
+                project_id,
+                interview_id: None,
+                goal: "g".into(),
+                intent_summary: None,
+                scope: None,
+                non_goals: None,
+                constraints: None,
+                acceptance_criteria: None,
+                status: "draft".into(),
+            },
+        )
+        .unwrap();
+        db.conn()
+            .execute_batch(
+                "DROP TABLE Step;
+                 CREATE TABLE Step (
+                    id INTEGER PRIMARY KEY,
+                    plan_id INTEGER NOT NULL REFERENCES Plan(id) ON DELETE CASCADE,
+                    step_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    summary TEXT,
+                    instruction_seed TEXT,
+                    expected_files TEXT DEFAULT '[]',
+                    acceptance_criteria TEXT DEFAULT '[]',
+                    verification_kind TEXT,
+                    verification_command TEXT,
+                    verification_manual_check TEXT,
+                    dependencies TEXT DEFAULT '[]',
+                    parallel_group TEXT,
+                    position INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    superseded_by_step_id TEXT,
+                    suppression_reason TEXT,
+                    UNIQUE(plan_id, step_id)
+                 );",
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO Step(plan_id, step_id, title, position, created_at, updated_at) VALUES (?, 'step-001', 'Old step', 1, 0, 0)",
+                [plan_id],
+            )
+            .unwrap();
+
+        let tx = db.conn_mut().transaction().unwrap();
+        super::migration_v15(&tx).unwrap();
+        tx.commit().unwrap();
+
+        let step_kind: String = db
+            .conn()
+            .query_row(
+                "SELECT step_kind FROM Step WHERE step_id = 'step-001'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(step_kind, "feature");
+
+        let tx = db.conn_mut().transaction().unwrap();
+        super::migration_v15(&tx).unwrap();
         tx.commit().unwrap();
     }
 

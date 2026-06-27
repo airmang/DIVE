@@ -10,6 +10,7 @@ pub mod fs_guard;
 pub mod guard;
 pub mod list_dir;
 pub mod mkdir;
+pub mod multi_replace;
 pub mod read_file;
 pub mod registry;
 pub mod run_process;
@@ -116,6 +117,23 @@ pub fn params_preview(tool_name: &str, args: &Value) -> String {
             .and_then(|v| v.as_str())
             .map(|p| format!("path: \"{p}\""))
             .unwrap_or_else(|| "path: \".\"".to_string()),
+        "multi_replace" => {
+            let find = args.get("find").and_then(|v| v.as_str()).unwrap_or("");
+            let replace = args.get("replace").and_then(|v| v.as_str()).unwrap_or("");
+            let explicit_targets = args
+                .get("paths")
+                .and_then(|v| v.as_array())
+                .map_or(0, |items| items.len());
+            let glob_targets =
+                usize::from(args.get("path_glob").and_then(|v| v.as_str()).is_some());
+            let target_count = explicit_targets + glob_targets;
+            format!(
+                "\"{}\" -> \"{}\" across {} targets",
+                truncate_utf8(find, 28, "..."),
+                truncate_utf8(replace, 28, "..."),
+                target_count
+            )
+        }
         "run_process" => {
             let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
             let argv = args

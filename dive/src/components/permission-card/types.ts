@@ -31,6 +31,7 @@ export interface PermissionCardData {
   paramsPreview: string;
   risk: RiskLevel;
   diffPreview: DiffPreviewData | null;
+  diffPreviews?: DiffPreviewData[] | null;
   approvalWarnings?: PermissionApprovalWarnings | null;
   args: unknown;
   actionContext?: PermissionActionContext;

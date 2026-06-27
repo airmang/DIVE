@@ -672,6 +672,7 @@ fn upsert_step_row(conn: &rusqlite::Connection, step: &StepRow) -> Result<(), Ch
                     instruction_seed = ?,
                     expected_files = ?,
                     acceptance_criteria = ?,
+                    step_kind = ?,
                     verification_kind = ?,
                     verification_command = ?,
                     verification_manual_check = ?,
@@ -692,6 +693,7 @@ fn upsert_step_row(conn: &rusqlite::Connection, step: &StepRow) -> Result<(), Ch
                 step.instruction_seed,
                 expected_files,
                 acceptance_criteria,
+                step.step_kind.as_str(),
                 step.verification_kind,
                 step.verification_command,
                 step.verification_manual_check,
@@ -709,8 +711,8 @@ fn upsert_step_row(conn: &rusqlite::Connection, step: &StepRow) -> Result<(), Ch
         .map_err(|e| CheckpointError::Db(e.to_string()))?;
     if updated == 0 {
         conn.execute(
-            "INSERT INTO Step(id, plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at, status, superseded_by_step_id, suppression_reason)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO Step(id, plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, step_kind, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at, status, superseded_by_step_id, suppression_reason)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 step.id,
                 step.plan_id,
@@ -720,6 +722,7 @@ fn upsert_step_row(conn: &rusqlite::Connection, step: &StepRow) -> Result<(), Ch
                 step.instruction_seed,
                 expected_files,
                 acceptance_criteria,
+                step.step_kind.as_str(),
                 step.verification_kind,
                 step.verification_command,
                 step.verification_manual_check,
@@ -954,6 +957,7 @@ mod tests {
                 instruction_seed: Some("Saved seed".into()),
                 expected_files: Some(json!(["src/lib.rs"])),
                 acceptance_criteria: Some(json!(["Saved criterion"])),
+                step_kind: Default::default(),
                 verification_kind: Some("command".into()),
                 verification_command: Some("cargo test".into()),
                 verification_manual_check: None,
@@ -995,6 +999,7 @@ mod tests {
                 instruction_seed: Some("Extra seed".into()),
                 expected_files: Some(json!(["src/extra.rs"])),
                 acceptance_criteria: Some(json!(["Extra criterion"])),
+                step_kind: Default::default(),
                 verification_kind: Some("manual".into()),
                 verification_command: None,
                 verification_manual_check: Some("Inspect manually".into()),

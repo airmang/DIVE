@@ -191,6 +191,36 @@ describe("expanded supervisor adapters", () => {
     expect(outOfScope.eligible).toBe(true);
   });
 
+  it("flags unverified renamed files as behavior-preserving refactor review", () => {
+    const assessment = buildDiffReadyReviewAssessment({
+      changedFiles: [normalizeChangedFile({ path: "src/new-name.ts", changeType: "renamed" })],
+      expectedFiles: ["src/new-name.ts"],
+    });
+
+    expect(assessment.reasonCodes).toContain("behavior_preserving_refactor");
+    expect(assessment.evidenceRefs).toContain("diff.behavior_preserving_refactor");
+    expect(assessment.unexpectedFiles).toEqual([]);
+    expect(assessment.highRiskFiles).toEqual([]);
+    expect(assessment.eligible).toBe(true);
+  });
+
+  it("does not nag a behavior-preserving refactor with verification evidence", () => {
+    const assessment = buildDiffReadyReviewAssessment({
+      changedFiles: [normalizeChangedFile({ path: "src/new-name.ts", changeType: "renamed" })],
+      expectedFiles: ["src/new-name.ts"],
+      verification: {
+        automatedTestsPassed: true,
+        testResult: "pass",
+        testCommand: "pnpm test",
+        testExitCode: 0,
+      },
+    });
+
+    expect(assessment.reasonCodes).not.toContain("behavior_preserving_refactor");
+    expect(assessment.evidenceRefs).not.toContain("diff.behavior_preserving_refactor");
+    expect(assessment.eligible).toBe(false);
+  });
+
   it("builds plan_drafted request with deterministic assessment and evidence refs", () => {
     const request = createPlanDraftSupervisorRequest({
       sessionId: 12,

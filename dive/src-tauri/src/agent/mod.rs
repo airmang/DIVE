@@ -27,13 +27,14 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::db::dao::{card, message, workmap};
-use crate::db::models::NewMessage;
+use crate::db::models::{NewMessage, StepKind};
 use crate::db::Database;
-use crate::dive::build_plan_interview_system_prompt;
 use crate::dive::event_log as dive_event_log;
+use crate::dive::{build_plan_interview_system_prompt, prompt_locale_is_english};
 use crate::providers::{
     ChatEvent, ChatRequest, FinishReason, LlmProvider, Message as ProviderMessage, ToolCall,
 };
+use crate::tools::multi_replace;
 use crate::tools::runtime::{
     classify_preview_open_command, RuntimeInputKind, RuntimeRoutingDecision, RuntimeRoutingOutcome,
 };
@@ -45,17 +46,31 @@ use crate::tools::{
 const DEFAULT_MAX_ITERATIONS: u32 = 10;
 const PROJECT_COMMAND_DEFAULT_TIMEOUT_SEC: u64 = 30;
 
+#[derive(Debug, Clone, Default)]
+struct DiffPreviewBundle {
+    diff_preview: Option<DiffPreview>,
+    diff_previews: Vec<DiffPreview>,
+}
+
 fn changed_paths_from_tool_result(tool_name: &str, full: &Value) -> Vec<String> {
-    if !matches!(
-        tool_name,
-        "write_file" | "edit_file" | "delete_file" | "mkdir"
-    ) {
-        return Vec::new();
+    match tool_name {
+        "write_file" | "edit_file" | "delete_file" | "mkdir" => full
+            .get("path")
+            .and_then(Value::as_str)
+            .map(|path| vec![path.to_owned()])
+            .unwrap_or_default(),
+        "multi_replace" => full
+            .get("changed_files")
+            .and_then(Value::as_array)
+            .map(|files| {
+                files
+                    .iter()
+                    .filter_map(|file| file.get("path").and_then(Value::as_str).map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        _ => Vec::new(),
     }
-    full.get("path")
-        .and_then(Value::as_str)
-        .map(|path| vec![path.to_owned()])
-        .unwrap_or_default()
 }
 
 fn diff_line_count(text: &str) -> usize {
@@ -84,8 +99,9 @@ fn approval_warnings_for_tool(
     tool_name: &str,
     args: &Value,
     diff_preview: Option<&DiffPreview>,
+    diff_previews: &[DiffPreview],
 ) -> PermissionApprovalWarnings {
-    if !matches!(tool_name, "write_file" | "edit_file") {
+    if !matches!(tool_name, "write_file" | "edit_file" | "multi_replace") {
         return PermissionApprovalWarnings::default();
     }
 
@@ -96,10 +112,12 @@ fn approval_warnings_for_tool(
         .unwrap_or("");
     let mut warnings = PermissionApprovalWarnings::default();
 
-    if let Some(content) = write_content_for_secret_assessment(tool_name, args) {
-        let secret = assess_file_write_secrets(path, &content);
-        warnings.secret_flagged = secret.flagged;
-        warnings.secret_reasons = secret.reasons;
+    if tool_name == "multi_replace" {
+        for diff in diff_previews {
+            merge_secret_warning(&mut warnings, &diff.path, &diff.after);
+        }
+    } else if let Some(content) = write_content_for_secret_assessment(tool_name, args) {
+        merge_secret_warning(&mut warnings, path, &content);
     }
 
     if tool_name == "write_file" {
@@ -111,6 +129,23 @@ fn approval_warnings_for_tool(
     }
 
     warnings
+}
+
+fn merge_secret_warning(warnings: &mut PermissionApprovalWarnings, path: &str, content: &str) {
+    let secret = assess_file_write_secrets(path, content);
+    if !secret.flagged {
+        return;
+    }
+    warnings.secret_flagged = true;
+    for reason in secret.reasons {
+        if !warnings
+            .secret_reasons
+            .iter()
+            .any(|existing| existing == &reason)
+        {
+            warnings.secret_reasons.push(reason);
+        }
+    }
 }
 
 fn approval_risk(base: RiskLevel, warnings: &PermissionApprovalWarnings) -> RiskLevel {
@@ -132,6 +167,7 @@ pub struct StepContext {
     pub linked_criterion_ids: Vec<String>,
     pub decomposition_rationale: Option<String>,
     pub expected_files: Option<String>,
+    pub step_kind: StepKind,
 }
 
 pub struct AgentLoop {
@@ -378,9 +414,13 @@ impl AgentLoop {
                         Value::Object(Default::default())
                     });
                 let preview = params_preview(&tc.name, &args_value);
-                let diff_preview = self.build_diff_preview(&tc.name, &args_value).await;
-                let approval_warnings =
-                    approval_warnings_for_tool(&tc.name, &args_value, diff_preview.as_ref());
+                let diff_preview_bundle = self.build_diff_preview(&tc.name, &args_value).await;
+                let approval_warnings = approval_warnings_for_tool(
+                    &tc.name,
+                    &args_value,
+                    diff_preview_bundle.diff_preview.as_ref(),
+                    &diff_preview_bundle.diff_previews,
+                );
                 let risk = approval_risk(base_risk, &approval_warnings);
                 let reasoning_text = reasoning_summary(&tc.name, &preview);
                 emit(AgentEvent::Reasoning {
@@ -399,7 +439,8 @@ impl AgentLoop {
                     tool: tc.name.clone(),
                     params_preview: preview.clone(),
                     risk,
-                    diff_preview: diff_preview.clone(),
+                    diff_preview: diff_preview_bundle.diff_preview.clone(),
+                    diff_previews: diff_preview_bundle.diff_previews.clone(),
                     approval_warnings: approval_warnings.clone(),
                     args: args_value.clone(),
                 });
@@ -482,7 +523,8 @@ impl AgentLoop {
                         PermissionRequestContext {
                             session_id,
                             params_preview: preview.clone(),
-                            diff_preview: diff_preview.clone(),
+                            diff_preview: diff_preview_bundle.diff_preview.clone(),
+                            diff_previews: diff_preview_bundle.diff_previews.clone(),
                             approval_warnings: approval_warnings.clone(),
                             args: args_value.clone(),
                         },
@@ -624,7 +666,8 @@ impl AgentLoop {
                             session_id,
                             &tc.name,
                             &out.full,
-                            diff_preview.as_ref(),
+                            diff_preview_bundle.diff_preview.as_ref(),
+                            &diff_preview_bundle.diff_previews,
                         )?;
                         self.log_event(
                             session_id,
@@ -961,9 +1004,13 @@ impl AgentLoop {
                 Value::Object(Default::default())
             });
         let preview = params_preview(&tc.name, &args_value);
-        let diff_preview = self.build_diff_preview(&tc.name, &args_value).await;
-        let approval_warnings =
-            approval_warnings_for_tool(&tc.name, &args_value, diff_preview.as_ref());
+        let diff_preview_bundle = self.build_diff_preview(&tc.name, &args_value).await;
+        let approval_warnings = approval_warnings_for_tool(
+            &tc.name,
+            &args_value,
+            diff_preview_bundle.diff_preview.as_ref(),
+            &diff_preview_bundle.diff_previews,
+        );
         let risk = approval_risk(base_risk, &approval_warnings);
         let reasoning_text = reasoning_summary(&tc.name, &preview);
         emit(AgentEvent::Reasoning {
@@ -982,7 +1029,8 @@ impl AgentLoop {
             tool: tc.name.clone(),
             params_preview: preview.clone(),
             risk,
-            diff_preview: diff_preview.clone(),
+            diff_preview: diff_preview_bundle.diff_preview.clone(),
+            diff_previews: diff_preview_bundle.diff_previews.clone(),
             approval_warnings: approval_warnings.clone(),
             args: args_value.clone(),
         });
@@ -1148,7 +1196,8 @@ impl AgentLoop {
                 PermissionRequestContext {
                     session_id,
                     params_preview: preview.clone(),
-                    diff_preview: diff_preview.clone(),
+                    diff_preview: diff_preview_bundle.diff_preview.clone(),
+                    diff_previews: diff_preview_bundle.diff_previews.clone(),
                     approval_warnings: approval_warnings.clone(),
                     args: args_value.clone(),
                 },
@@ -1302,7 +1351,13 @@ impl AgentLoop {
                     runtime = "pi_sidecar",
                     "tool execution completed"
                 );
-                self.record_changed_files(session_id, &tc.name, &out.full, diff_preview.as_ref())?;
+                self.record_changed_files(
+                    session_id,
+                    &tc.name,
+                    &out.full,
+                    diff_preview_bundle.diff_preview.as_ref(),
+                    &diff_preview_bundle.diff_previews,
+                )?;
                 self.log_event(
                     session_id,
                     "tool_result",
@@ -1707,6 +1762,7 @@ impl AgentLoop {
         tool_name: &str,
         full: &Value,
         diff_preview: Option<&DiffPreview>,
+        diff_previews: &[DiffPreview],
     ) -> Result<(), AgentError> {
         let Some(card_id) = self.current_card_id(session_id)? else {
             return Ok(());
@@ -1718,7 +1774,10 @@ impl AgentLoop {
         let entries = paths
             .iter()
             .map(|path| {
-                if let Some(diff) = diff_preview.filter(|diff| diff.path == *path) {
+                if let Some(diff) = diff_preview
+                    .filter(|diff| diff.path == *path)
+                    .or_else(|| diff_previews.iter().find(|diff| diff.path == *path))
+                {
                     json!({
                         "path": path,
                         "diff": {
@@ -1764,42 +1823,12 @@ impl AgentLoop {
         let Some(card) = card::get_by_id(db.conn(), cid)? else {
             return Ok(None);
         };
-        let mut prompt_parts = Vec::new();
-        if let Some(ctx) = &self.step_context {
-            prompt_parts.push(format!("현재 작업 단계: {}", ctx.title));
-            if let Some(instruction) = &ctx.instruction_seed {
-                prompt_parts.push(format!("단계 지시: {}", instruction));
-            }
-            if let Some(criteria) = &ctx.acceptance_criteria {
-                prompt_parts.push(format!("수용 기준: {}", criteria));
-            }
-            if !ctx.linked_criterion_ids.is_empty() {
-                prompt_parts.push(format!(
-                    "연결된 PRD 기준: {}",
-                    ctx.linked_criterion_ids.join(", ")
-                ));
-            }
-            if let Some(rationale) = &ctx.decomposition_rationale {
-                prompt_parts.push(format!("분해 근거: {}", rationale));
-            }
-            if let Some(files) = &ctx.expected_files {
-                prompt_parts.push(format!("예상 변경 파일: {}", files));
-            }
-            prompt_parts.push(
-                "단계 종료 규칙: 수용 기준을 충족했거나 더 이상 필요한 도구 호출이 없으면 즉시 도구 호출을 멈추고 최종 응답으로 변경 내용, 검증/미검증 근거, 남은 리스크를 요약하세요. 같은 정보를 반복 확인하기 위해 동일한 도구 호출을 반복하지 마세요.".to_string(),
-            );
-        }
-
-        let instruction = card.instruction.as_deref().unwrap_or("").trim();
-        if instruction.is_empty() {
-            prompt_parts.push(format!("현재 작업 중인 카드: {}", card.title));
-        } else {
-            prompt_parts.push(format!(
-                "현재 작업 중인 카드: {}\n지시: {}",
-                card.title, instruction
-            ));
-        }
-        Ok(Some(prompt_parts.join("\n\n")))
+        Ok(Some(build_current_card_system_prompt(
+            self.step_context.as_ref(),
+            &card.title,
+            card.instruction.as_deref(),
+            self.locale.as_deref(),
+        )))
     }
 
     fn locale_system_prompt(&self) -> Option<String> {
@@ -1821,42 +1850,161 @@ impl AgentLoop {
         ))
     }
 
-    async fn build_diff_preview(&self, tool_name: &str, args: &Value) -> Option<DiffPreview> {
-        let path = args.get("path")?.as_str()?.to_string();
+    async fn build_diff_preview(&self, tool_name: &str, args: &Value) -> DiffPreviewBundle {
         match tool_name {
             "write_file" => {
-                let after = args.get("content")?.as_str()?.to_string();
-                let resolved = self.tool_ctx.fs.resolve_read(&path).ok()?;
+                let Some(path) = args.get("path").and_then(Value::as_str).map(str::to_owned) else {
+                    return DiffPreviewBundle::default();
+                };
+                let Some(after) = args
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                else {
+                    return DiffPreviewBundle::default();
+                };
+                let Some(resolved) = self.tool_ctx.fs.resolve_read(&path).ok() else {
+                    return DiffPreviewBundle::default();
+                };
                 let before = tokio::fs::read_to_string(&resolved)
                     .await
                     .unwrap_or_default();
-                Some(DiffPreview {
-                    path,
-                    before,
-                    after,
-                })
-            }
-            "edit_file" => {
-                let find = args.get("find")?.as_str()?;
-                let replace = args.get("replace")?.as_str()?;
-                let resolved = self.tool_ctx.fs.resolve_read(&path).ok()?;
-                let before = tokio::fs::read_to_string(&resolved).await.ok()?;
-                if !before.contains(find) {
-                    return Some(DiffPreview {
+                DiffPreviewBundle {
+                    diff_preview: Some(DiffPreview {
                         path,
                         before,
-                        after: String::new(),
-                    });
+                        after,
+                    }),
+                    diff_previews: Vec::new(),
+                }
+            }
+            "edit_file" => {
+                let Some(path) = args.get("path").and_then(Value::as_str).map(str::to_owned) else {
+                    return DiffPreviewBundle::default();
+                };
+                let Some(find) = args.get("find").and_then(Value::as_str) else {
+                    return DiffPreviewBundle::default();
+                };
+                let Some(replace) = args.get("replace").and_then(Value::as_str) else {
+                    return DiffPreviewBundle::default();
+                };
+                let Some(resolved) = self.tool_ctx.fs.resolve_read(&path).ok() else {
+                    return DiffPreviewBundle::default();
+                };
+                let Some(before) = tokio::fs::read_to_string(&resolved).await.ok() else {
+                    return DiffPreviewBundle::default();
+                };
+                if !before.contains(find) {
+                    return DiffPreviewBundle {
+                        diff_preview: Some(DiffPreview {
+                            path,
+                            before,
+                            after: String::new(),
+                        }),
+                        diff_previews: Vec::new(),
+                    };
                 }
                 let after = before.replacen(find, replace, 1);
-                Some(DiffPreview {
-                    path,
-                    before,
-                    after,
-                })
+                DiffPreviewBundle {
+                    diff_preview: Some(DiffPreview {
+                        path,
+                        before,
+                        after,
+                    }),
+                    diff_previews: Vec::new(),
+                }
             }
-            _ => None,
+            "multi_replace" => {
+                let diff_previews = multi_replace::preview_replacements(args, &self.tool_ctx)
+                    .await
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|preview| DiffPreview {
+                        path: preview.path,
+                        before: preview.before,
+                        after: preview.after,
+                    })
+                    .collect();
+                DiffPreviewBundle {
+                    diff_preview: None,
+                    diff_previews,
+                }
+            }
+            _ => DiffPreviewBundle::default(),
         }
+    }
+}
+
+fn build_current_card_system_prompt(
+    step_context: Option<&StepContext>,
+    card_title: &str,
+    card_instruction: Option<&str>,
+    locale: Option<&str>,
+) -> String {
+    let mut prompt_parts = Vec::new();
+    if let Some(ctx) = step_context {
+        prompt_parts.push(format!("현재 작업 단계: {}", ctx.title));
+        if let Some(instruction) = &ctx.instruction_seed {
+            prompt_parts.push(format!("단계 지시: {}", instruction));
+        }
+        if let Some(criteria) = &ctx.acceptance_criteria {
+            prompt_parts.push(format!("수용 기준: {}", criteria));
+        }
+        if !ctx.linked_criterion_ids.is_empty() {
+            prompt_parts.push(format!(
+                "연결된 PRD 기준: {}",
+                ctx.linked_criterion_ids.join(", ")
+            ));
+        }
+        if let Some(rationale) = &ctx.decomposition_rationale {
+            prompt_parts.push(format!("분해 근거: {}", rationale));
+        }
+        if let Some(files) = &ctx.expected_files {
+            prompt_parts.push(format!("예상 변경 파일: {}", files));
+        }
+        if let Some(clause) = step_kind_prompt_clause(ctx.step_kind, locale) {
+            prompt_parts.push(clause.to_string());
+        }
+        prompt_parts.push(
+            "단계 종료 규칙: 수용 기준을 충족했거나 더 이상 필요한 도구 호출이 없으면 즉시 도구 호출을 멈추고 최종 응답으로 변경 내용, 검증/미검증 근거, 남은 리스크를 요약하세요. 같은 정보를 반복 확인하기 위해 동일한 도구 호출을 반복하지 마세요.".to_string(),
+        );
+    }
+
+    let instruction = card_instruction.unwrap_or("").trim();
+    if instruction.is_empty() {
+        prompt_parts.push(format!("현재 작업 중인 카드: {card_title}"));
+    } else {
+        prompt_parts.push(format!(
+            "현재 작업 중인 카드: {card_title}\n지시: {instruction}",
+        ));
+    }
+    prompt_parts.join("\n\n")
+}
+
+fn step_kind_prompt_clause(kind: StepKind, locale: Option<&str>) -> Option<&'static str> {
+    let english = locale.is_some_and(prompt_locale_is_english);
+    match kind {
+        StepKind::Refactor | StepKind::Rename => {
+            if english {
+                Some(
+                    "Behavior-preserving step: move the code verbatim - do not change logic, defaults, or ordering; this step must preserve behavior.",
+                )
+            } else {
+                Some(
+                    "동작 보존 단계: 코드를 그대로 옮기세요. 로직, 기본값, 순서를 바꾸지 말고 이 단계는 동작을 보존해야 합니다.",
+                )
+            }
+        }
+        StepKind::Debug => {
+            if english {
+                Some(
+                    "Debug step: diagnose before editing, identify the smallest likely cause, and make the minimal fix.",
+                )
+            } else {
+                Some("디버그 단계: 편집하기 전에 먼저 진단하고 가장 작은 원인을 찾아 최소 수정만 하세요.")
+            }
+        }
+        StepKind::Feature | StepKind::Comment => None,
     }
 }
 
@@ -2359,7 +2507,53 @@ impl AgentLoopBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+    use std::sync::{Arc, Mutex};
+
     use super::*;
+    use crate::db::models::{CardState, NewCard};
+
+    fn make_test_loop(
+        project: &Path,
+        db: Arc<Mutex<crate::db::Database>>,
+        session_id: i64,
+    ) -> AgentLoop {
+        AgentLoop::builder()
+            .provider(Arc::new(crate::providers::MockProvider::new(Vec::new())))
+            .registry(Arc::new(crate::tools::ToolRegistry::with_builtins()))
+            .permission(Arc::new(AlwaysApproveHook))
+            .db(db)
+            .tool_ctx(crate::tools::ToolContext::new(project, session_id))
+            .model("test-model")
+            .run_mode(AgentRunMode::Build)
+            .build()
+            .unwrap()
+    }
+
+    fn insert_current_card(db: &crate::db::Database, session_id: i64) -> i64 {
+        let card_id = card::insert(
+            db.conn(),
+            &NewCard {
+                session_id,
+                title: "current card".into(),
+                instruction: None,
+                assist_summary: None,
+                acceptance_criteria: None,
+                retrospective: None,
+                change_summary: None,
+                state: CardState::Instructed,
+                verify_log: None,
+                changed_files: None,
+                test_command: None,
+                approval_judgment: None,
+                approval_provenance: None,
+                position: 1,
+            },
+        )
+        .unwrap();
+        workmap::set_current_card(db.conn(), session_id, Some(card_id)).unwrap();
+        card_id
+    }
 
     #[test]
     fn changed_paths_extracts_only_mutating_file_tools() {
@@ -2367,10 +2561,166 @@ mod tests {
             changed_paths_from_tool_result("write_file", &json!({"path": "src/App.tsx"})),
             vec!["src/App.tsx"]
         );
+        assert_eq!(
+            changed_paths_from_tool_result(
+                "multi_replace",
+                &json!({
+                    "changed_files": [
+                        { "path": "src/a.ts", "replacements": 1 },
+                        { "path": "src/b.ts", "replacements": 2 }
+                    ]
+                })
+            ),
+            vec!["src/a.ts", "src/b.ts"]
+        );
         assert!(
             changed_paths_from_tool_result("read_file", &json!({"path": "src/App.tsx"})).is_empty()
         );
         assert!(changed_paths_from_tool_result("bash", &json!({"stdout": "changed"})).is_empty());
+    }
+
+    #[test]
+    fn multi_replace_secret_warning_escalates_warn_to_danger() {
+        let diff_previews = vec![
+            DiffPreview {
+                path: "src/one.ts".into(),
+                before: "const name = \"old\";".into(),
+                after: "const name = \"new\";".into(),
+            },
+            DiffPreview {
+                path: "src/secrets.ts".into(),
+                before: "export const token = \"placeholder\";".into(),
+                after: "export const api_key = \"abcd1234\";".into(),
+            },
+        ];
+
+        let warnings =
+            approval_warnings_for_tool("multi_replace", &json!({}), None, &diff_previews);
+
+        assert!(warnings.secret_flagged);
+        assert_eq!(warnings.secret_reasons, vec!["named_secret"]);
+        assert_eq!(approval_risk(RiskLevel::Warn, &warnings), RiskLevel::Danger);
+    }
+
+    #[tokio::test]
+    async fn build_diff_preview_multi_replace_returns_per_target_previews() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(project.path().join("src")).unwrap();
+        std::fs::write(project.path().join("src/one.ts"), "OldName();\n").unwrap();
+        std::fs::write(
+            project.path().join("src/two.ts"),
+            "const v = \"OldName\";\n",
+        )
+        .unwrap();
+        let (db, _db_file) = crate::db::tests::fresh_db();
+        let (_, session_id) = crate::db::tests::seed_project_session(db.conn());
+        let loop_ = make_test_loop(project.path(), Arc::new(Mutex::new(db)), session_id);
+
+        let bundle = loop_
+            .build_diff_preview(
+                "multi_replace",
+                &json!({
+                    "find": "OldName",
+                    "replace": "NewName",
+                    "paths": ["src/one.ts", "src/two.ts"]
+                }),
+            )
+            .await;
+
+        assert!(bundle.diff_preview.is_none());
+        assert_eq!(bundle.diff_previews.len(), 2);
+        assert_eq!(bundle.diff_previews[0].path, "src/one.ts");
+        assert_eq!(bundle.diff_previews[0].before, "OldName();\n");
+        assert_eq!(bundle.diff_previews[0].after, "NewName();\n");
+        assert_eq!(bundle.diff_previews[1].path, "src/two.ts");
+        assert_eq!(bundle.diff_previews[1].before, "const v = \"OldName\";\n");
+        assert_eq!(bundle.diff_previews[1].after, "const v = \"NewName\";\n");
+    }
+
+    #[tokio::test]
+    async fn build_diff_preview_write_file_keeps_single_diff_path_only() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(project.path().join("src")).unwrap();
+        std::fs::write(project.path().join("src/App.tsx"), "old").unwrap();
+        let (db, _db_file) = crate::db::tests::fresh_db();
+        let (_, session_id) = crate::db::tests::seed_project_session(db.conn());
+        let loop_ = make_test_loop(project.path(), Arc::new(Mutex::new(db)), session_id);
+
+        let bundle = loop_
+            .build_diff_preview(
+                "write_file",
+                &json!({ "path": "src/App.tsx", "content": "new" }),
+            )
+            .await;
+
+        let diff = bundle
+            .diff_preview
+            .expect("write_file should keep single diff");
+        assert_eq!(diff.path, "src/App.tsx");
+        assert_eq!(diff.before, "old");
+        assert_eq!(diff.after, "new");
+        assert!(bundle.diff_previews.is_empty());
+    }
+
+    #[test]
+    fn record_changed_files_attaches_each_multi_replace_diff_by_path() {
+        let project = tempfile::tempdir().unwrap();
+        let (db, _db_file) = crate::db::tests::fresh_db();
+        let (_, session_id) = crate::db::tests::seed_project_session(db.conn());
+        let card_id = insert_current_card(&db, session_id);
+        let db = Arc::new(Mutex::new(db));
+        let loop_ = make_test_loop(project.path(), db.clone(), session_id);
+        let diff_previews = vec![
+            DiffPreview {
+                path: "src/one.ts".into(),
+                before: "OldName();".into(),
+                after: "NewName();".into(),
+            },
+            DiffPreview {
+                path: "src/two.ts".into(),
+                before: "OldName.test();".into(),
+                after: "NewName.test();".into(),
+            },
+        ];
+
+        loop_
+            .record_changed_files(
+                session_id,
+                "multi_replace",
+                &json!({
+                    "changed_files": [
+                        { "path": "src/one.ts", "replacements": 1 },
+                        { "path": "src/two.ts", "replacements": 1 }
+                    ]
+                }),
+                None,
+                &diff_previews,
+            )
+            .unwrap();
+
+        let db = db.lock().unwrap();
+        let card = card::get_by_id(db.conn(), card_id).unwrap().unwrap();
+        assert_eq!(
+            card.changed_files,
+            Some(json!([
+                {
+                    "path": "src/one.ts",
+                    "diff": {
+                        "path": "src/one.ts",
+                        "before": "OldName();",
+                        "after": "NewName();"
+                    }
+                },
+                {
+                    "path": "src/two.ts",
+                    "diff": {
+                        "path": "src/two.ts",
+                        "before": "OldName.test();",
+                        "after": "NewName.test();"
+                    }
+                }
+            ]))
+        );
     }
 
     #[test]
@@ -2402,5 +2752,57 @@ mod tests {
         assert_eq!(payload["tool_call_id"], "tool-1");
         assert_eq!(payload["reason"], "package change is intentional");
         assert_eq!(payload["highRiskFiles"][0], "package.json");
+    }
+
+    fn test_step_context(kind: StepKind) -> StepContext {
+        StepContext {
+            step_id: 1,
+            title: "Move auth helper".into(),
+            instruction_seed: Some("Move the helper into auth.ts".into()),
+            acceptance_criteria: Some("Existing auth behavior still works".into()),
+            linked_criterion_ids: vec!["AC-001".into()],
+            decomposition_rationale: Some("Keep the behavior scoped to auth.".into()),
+            expected_files: Some("src/auth.ts".into()),
+            step_kind: kind,
+        }
+    }
+
+    #[test]
+    fn current_card_prompt_adds_verbatim_clause_for_refactor_step() {
+        let prompt = build_current_card_system_prompt(
+            Some(&test_step_context(StepKind::Refactor)),
+            "Refactor card",
+            Some("Move helper"),
+            Some("en-US"),
+        );
+
+        assert!(prompt.contains("move the code verbatim"));
+        assert!(prompt.contains("this step must preserve behavior"));
+    }
+
+    #[test]
+    fn current_card_prompt_omits_verbatim_clause_for_default_feature_step() {
+        let prompt = build_current_card_system_prompt(
+            Some(&test_step_context(StepKind::Feature)),
+            "Feature card",
+            Some("Add behavior"),
+            Some("en-US"),
+        );
+
+        assert!(!prompt.contains("move the code verbatim"));
+        assert!(!prompt.contains("preserve behavior"));
+    }
+
+    #[test]
+    fn current_card_prompt_adds_debug_clause_for_debug_step() {
+        let prompt = build_current_card_system_prompt(
+            Some(&test_step_context(StepKind::Debug)),
+            "Debug card",
+            Some("Fix failing save"),
+            Some("en-US"),
+        );
+
+        assert!(prompt.contains("diagnose before editing"));
+        assert!(prompt.contains("make the minimal fix"));
     }
 }

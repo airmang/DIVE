@@ -27,7 +27,7 @@ use crate::dive::{
     dropped_validation_result, no_card_validation_result, normalize_source_ui_mode,
     validate_supervisor_decision, validate_supervisor_decision_json, ArtifactRef, PlanSummary,
     ProvocationCard, SourceUiMode, SupervisorActionId, SupervisorContext,
-    SupervisorContextBuildInput, SupervisorDedupState, SupervisorDropReason,
+    SupervisorContextBuildInput, SupervisorDecision, SupervisorDedupState, SupervisorDropReason,
     SupervisorEvaluationLog, SupervisorEvent, SupervisorValidationOutcome,
     SupervisorValidationResult, SupervisorVerificationUiState, VerificationFeasibility,
 };
@@ -317,20 +317,21 @@ fn evaluate_with_output_and_log(
         no_card_validation_result(SupervisorDropReason::ProvokeFalse)
     } else {
         match output {
-            StageCSupervisorOutput::DomainShell => {
-                if matches!(
-                    context.event,
-                    SupervisorEvent::ScopeExpansion
-                        | SupervisorEvent::PlanDrafted
-                        | SupervisorEvent::DiffReady
-                        | SupervisorEvent::RetryLoop
-                ) {
+            StageCSupervisorOutput::DomainShell => match context.event {
+                SupervisorEvent::DiffReady => {
+                    let decision = build_diff_ready_supervisor_shell_decision(&context);
+                    validate_supervisor_decision(&context, decision, dedup)
+                }
+                SupervisorEvent::ScopeExpansion
+                | SupervisorEvent::PlanDrafted
+                | SupervisorEvent::RetryLoop => {
                     dropped_validation_result(SupervisorDropReason::RuntimeUnavailable)
-                } else {
+                }
+                SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => {
                     let decision = build_stage_c_supervisor_decision(&context);
                     validate_supervisor_decision(&context, decision, dedup)
                 }
-            }
+            },
             StageCSupervisorOutput::DecisionJson {
                 raw,
                 supervisor_model: model,
@@ -490,6 +491,55 @@ fn response_from_validation(
                 drop_reason: validation.drop_reason,
             }
         }
+    }
+}
+
+fn build_diff_ready_supervisor_shell_decision(context: &SupervisorContext) -> SupervisorDecision {
+    let behavior_preserving = context
+        .diff_ready_assessment
+        .as_ref()
+        .is_some_and(|assessment| {
+            assessment
+                .reason_codes
+                .iter()
+                .any(|code| code == "behavior_preserving_refactor")
+        });
+    let english = context.locale.trim().to_ascii_lowercase().starts_with("en");
+    let question = match (english, behavior_preserving) {
+        (true, true) => "This refactor or rename has no verification evidence yet. Can you confirm the behavior stayed the same from the diff or tests?".to_string(),
+        (true, false) => "Can you check whether these changed files still match the current goal and plan scope before approving?".to_string(),
+        (false, true) => "이 리팩터/이름 변경에는 아직 검증 근거가 없습니다. diff나 테스트로 동작이 그대로인지 확인할 수 있나요?".to_string(),
+        (false, false) => "승인하기 전에 이 변경 파일들이 현재 목표와 계획 범위에 맞는지 확인할 수 있나요?".to_string(),
+    };
+    let suggested_action_ids = [
+        SupervisorActionId::OpenDiff,
+        SupervisorActionId::AskAiForRationale,
+        SupervisorActionId::RunTests,
+    ]
+    .into_iter()
+    .filter(|action| context.allowed_action_ids.contains(action))
+    .map(|action| action.as_str().to_string())
+    .collect::<Vec<_>>();
+
+    SupervisorDecision {
+        schema_version: 1,
+        provoke: true,
+        concern: "diff_scope_drift".to_string(),
+        severity: "caution".to_string(),
+        question,
+        evidence_ref_ids: context
+            .evidence_refs
+            .iter()
+            .map(|evidence| evidence.id.clone())
+            .collect(),
+        suggested_action_ids,
+        supervision_habit: Some(if english {
+            "Check behavior-preserving or scope-sensitive diffs against evidence before approval."
+                .to_string()
+        } else {
+            "승인 전에 동작 보존 또는 범위 민감 diff를 근거와 함께 확인합니다.".to_string()
+        }),
+        log_rationale: Some("Deterministic DiffReady supervisor shell decision".to_string()),
     }
 }
 
@@ -1425,22 +1475,36 @@ mod tests {
         assert!(log.assessment_summary.is_some());
     }
 
+    fn behavior_preserving_diff_ready_request(locale: &str) -> ProvocationAgentEvaluateRequest {
+        let mut request = diff_ready_request();
+        request.locale = Some(locale.to_string());
+        request.evidence_refs.push(ScopeExpansionEvidenceRefInput {
+            id: "diff.behavior_preserving_refactor".to_string(),
+            source: Some("diff".to_string()),
+            kind: Some("diff_ready_assessment".to_string()),
+            label: Some("Behavior-preserving refactor signal".to_string()),
+            value_summary: json!({"stepKind":"refactor","hasVerificationEvidence":false}),
+            verification_evidence: false,
+        });
+        let assessment = request.diff_ready_assessment.as_mut().unwrap();
+        assessment.reason_codes = vec!["behavior_preserving_refactor".into()];
+        assessment.evidence_refs = vec![
+            "diff.changed_files".into(),
+            "diff.behavior_preserving_refactor".into(),
+        ];
+        assessment.unexpected_files = Vec::new();
+        assessment.high_risk_files = Vec::new();
+        request
+    }
+
     #[test]
-    fn provocation_agent_evaluate_diff_ready_false_or_unavailable_has_no_card() {
+    fn provocation_agent_evaluate_diff_ready_false_has_no_card() {
         let mut request = diff_ready_request();
         request.diff_ready_assessment.as_mut().unwrap().eligible = false;
         request.diff_ready_assessment.as_mut().unwrap().reason_codes = vec![];
         let mut dedup = SupervisorDedupState::new();
-        let evaluated = evaluate_with_output_and_log(
-            request,
-            StageCSupervisorOutput::DecisionJson {
-                raw: valid_diff_ready_decision_json(),
-                supervisor_model: Some("mock-supervisor".to_string()),
-                latency_ms: Some(20),
-                usage: None,
-            },
-            &mut dedup,
-        );
+        let evaluated =
+            evaluate_with_output_and_log(request, StageCSupervisorOutput::DomainShell, &mut dedup);
         assert_eq!(
             evaluated.response.status,
             ProvocationAgentEvaluateStatus::NoCard
@@ -1450,22 +1514,53 @@ mod tests {
             Some(SupervisorDropReason::ProvokeFalse)
         );
         assert!(evaluated.response.card.is_none());
+    }
 
+    #[test]
+    fn provocation_agent_evaluate_diff_ready_domain_shell_yields_locale_shell() {
         let mut dedup = SupervisorDedupState::new();
-        let unavailable = evaluate_with_output_and_log(
-            diff_ready_request(),
+        let korean = evaluate_with_output_and_log(
+            behavior_preserving_diff_ready_request("ko-KR"),
             StageCSupervisorOutput::DomainShell,
             &mut dedup,
         );
         assert_eq!(
-            unavailable.response.status,
-            ProvocationAgentEvaluateStatus::Dropped
+            korean.response.status,
+            ProvocationAgentEvaluateStatus::Shown
+        );
+        let korean_card = korean.response.card.as_ref().unwrap();
+        assert_eq!(korean_card.card_type, ProvocationCardType::DiffScopeReview);
+        assert_eq!(korean_card.metadata["supervisorEvent"], json!("diff_ready"));
+        assert!(korean_card
+            .prompt
+            .as_deref()
+            .unwrap()
+            .contains("동작이 그대로"));
+        assert_eq!(
+            korean_card
+                .actions
+                .iter()
+                .map(|action| action.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["open_diff", "ask_ai_for_rationale", "run_tests"]
+        );
+
+        let mut dedup = SupervisorDedupState::new();
+        let english = evaluate_with_output_and_log(
+            behavior_preserving_diff_ready_request("en-US"),
+            StageCSupervisorOutput::DomainShell,
+            &mut dedup,
         );
         assert_eq!(
-            unavailable.response.drop_reason,
-            Some(SupervisorDropReason::RuntimeUnavailable)
+            english.response.status,
+            ProvocationAgentEvaluateStatus::Shown
         );
-        assert!(unavailable.response.card.is_none());
+        let english_card = english.response.card.as_ref().unwrap();
+        assert!(english_card
+            .prompt
+            .as_deref()
+            .unwrap()
+            .contains("behavior stayed the same"));
     }
 
     #[test]
