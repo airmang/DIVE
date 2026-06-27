@@ -8,6 +8,7 @@ pub mod plan_interview;
 pub mod plan_quality_constants;
 pub mod plan_router;
 pub mod prompt_check;
+pub mod prompt_locale;
 pub mod state_machine;
 pub mod supervisor;
 pub mod verification_coach;
@@ -21,6 +22,7 @@ pub use plan_interview::{
     EMIT_PLAN_DRAFT_TOOL_NAME,
 };
 pub use prompt_check::{PromptCheckEngine, PromptCheckError, PromptCheckResult, PromptIssue};
+pub use prompt_locale::prompt_locale_is_english;
 pub use state_machine::{apply as apply_transition, CardTransition, TransitionError};
 pub use supervisor::{
     allowed_actions_for_p1, build_p1_evidence_refs, build_stage_c_supervisor_decision,

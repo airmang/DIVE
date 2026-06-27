@@ -6,14 +6,16 @@ use super::AppState;
 pub async fn ai_assist_cards(
     state: State<'_, AppState>,
     description: String,
+    locale: Option<String>,
 ) -> Result<Vec<crate::dive::AssistedCard>, String> {
+    let locale = locale.unwrap_or_else(|| "ko".to_string());
     let snap = state.ensure_provider_runtime().await?;
     if snap.kind.is_none() {
         return Err(crate::providers::ProviderError::NotConfigured.to_string());
     }
     let engine = crate::dive::AiAssistEngine::new(snap.provider, snap.model);
     engine
-        .suggest_cards(&description)
+        .suggest_cards(&description, &locale)
         .await
         .map_err(|e| e.to_string())
 }

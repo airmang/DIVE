@@ -6,6 +6,7 @@ import type { CardTransitionKind } from "../stores/workmap";
 import type { VerifyLogView } from "../components/workmap/types";
 import type { ChangedFile } from "../components/slide-in/types";
 import type { ApprovalProvenance } from "../features/provocation";
+import { useLocaleStore } from "../i18n";
 
 type TauriApi = {
   invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -302,7 +303,11 @@ export function useWorkmap(sessionId: number | null) {
         return next;
       });
       try {
-        await activeApi.invoke<VerifyLogView>("card_verify", { sessionId, cardId });
+        await activeApi.invoke<VerifyLogView>("card_verify", {
+          sessionId,
+          cardId,
+          locale: useLocaleStore.getState().locale,
+        });
         await refresh();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

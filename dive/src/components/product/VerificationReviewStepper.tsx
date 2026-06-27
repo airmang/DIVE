@@ -9,6 +9,7 @@ export interface VerificationReviewStage {
   title: string;
   summary: string;
   content: ReactNode;
+  evidenced?: boolean;
 }
 
 interface VerificationReviewStepperProps {
@@ -31,18 +32,18 @@ export function VerificationReviewStepper({
   stages,
 }: VerificationReviewStepperProps) {
   const [activeStageId, setActiveStageId] = useState(() => stages[0]?.id ?? "");
-  const [completedStageIds, setCompletedStageIds] = useState<Set<string>>(() => new Set());
+  const [visitedStageIds, setVisitedStageIds] = useState<Set<string>>(() => new Set());
   const stageIds = useMemo(() => new Set(stages.map((stage) => stage.id)), [stages]);
 
   useEffect(() => {
     if (stages.length === 0) {
       setActiveStageId("");
-      setCompletedStageIds(new Set());
+      setVisitedStageIds(new Set());
       return;
     }
 
     setActiveStageId((current) => (stageIds.has(current) ? current : stages[0].id));
-    setCompletedStageIds((current) => {
+    setVisitedStageIds((current) => {
       const next = new Set([...current].filter((id) => stageIds.has(id)));
       return next.size === current.size ? current : next;
     });
@@ -56,7 +57,7 @@ export function VerificationReviewStepper({
 
   const visitStage = (stageId: string) => {
     if (stageId === activeStageId) return;
-    setCompletedStageIds((current) => {
+    setVisitedStageIds((current) => {
       if (!activeStageId) return current;
       const next = new Set(current);
       next.add(activeStageId);
@@ -88,8 +89,17 @@ export function VerificationReviewStepper({
       <ol className="mt-3 space-y-4">
         {stages.map((stage, index) => {
           const isActive = stage.id === activeStage.id;
-          const isCompleted = completedStageIds.has(stage.id) && !isActive;
-          const stageState = isActive ? "current" : isCompleted ? "completed" : "future";
+          const hasVisited = visitedStageIds.has(stage.id);
+          const isCompleted = (stage.evidenced ?? hasVisited) && !isActive;
+          const isVisited = hasVisited && !isCompleted && !isActive;
+          const stageState = isActive
+            ? "current"
+            : isCompleted
+              ? "completed"
+              : isVisited
+                ? "visited"
+                : "future";
+          const canRevisit = isCompleted || isVisited;
           return (
             <li
               key={stage.id}
@@ -101,18 +111,24 @@ export function VerificationReviewStepper({
               <div className="flex min-w-0 items-start gap-2.5">
                 <div className="mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center">
                   {isCompleted ? (
-                    <CheckCircle2 className="h-[18px] w-[18px] text-success" aria-hidden />
+                    <CheckCircle2
+                      className="h-[18px] w-[18px] text-success"
+                      aria-hidden
+                      data-testid={`verification-stepper-success-${stage.id}`}
+                    />
                   ) : (
                     <span
                       className={cn(
                         "flex h-[18px] w-[18px] items-center justify-center rounded-full text-[10px] font-bold leading-none",
                         isActive
                           ? "bg-accent text-accent-fg"
-                          : "border border-border bg-transparent text-transparent",
+                          : isVisited
+                            ? "border border-border bg-bg-panel2 text-fg-muted"
+                            : "border border-border bg-transparent text-transparent",
                       )}
                       aria-hidden
                     >
-                      {isActive ? stage.marker : ""}
+                      {isActive || isVisited ? stage.marker : ""}
                     </span>
                   )}
                 </div>
@@ -138,7 +154,7 @@ export function VerificationReviewStepper({
                       {stage.summary}
                     </p>
                   </div>
-                  {isCompleted ? (
+                  {canRevisit ? (
                     <Button
                       type="button"
                       variant="ghost"

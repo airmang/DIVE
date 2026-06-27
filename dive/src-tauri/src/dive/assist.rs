@@ -14,6 +14,8 @@ use thiserror::Error;
 
 use crate::providers::{ChatEvent, ChatRequest, LlmProvider, Message, ToolChoice, ToolDef};
 
+use super::prompt_locale::prompt_locale_is_english;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AssistedCard {
     pub title: String,
@@ -45,7 +47,11 @@ impl AiAssistEngine {
         Self { provider, model }
     }
 
-    pub async fn suggest_cards(&self, description: &str) -> Result<Vec<AssistedCard>, AssistError> {
+    pub async fn suggest_cards(
+        &self,
+        description: &str,
+        locale: &str,
+    ) -> Result<Vec<AssistedCard>, AssistError> {
         if self.model.is_empty() {
             return Err(AssistError::NoModel);
         }
@@ -60,11 +66,11 @@ impl AiAssistEngine {
         let req = ChatRequest {
             model: self.model.clone(),
             messages: vec![
-                Message::System { content: build_system_prompt() },
+                Message::System {
+                    content: build_system_prompt(locale),
+                },
                 Message::User {
-                    content: format!(
-                        "만들고 싶은 기능:\n{description}\n\n`assist_cards` 도구로 3~6개의 작은 카드를 제안하세요."
-                    ),
+                    content: build_user_prompt(description, locale),
                 },
             ],
             tools: Some(vec![tool]),
@@ -144,8 +150,19 @@ impl AiAssistEngine {
     }
 }
 
-fn build_system_prompt() -> String {
-    "당신은 DIVE의 D 단계 도우미입니다. 사용자가 만들고 싶다고 설명한 기능을 \
+fn build_system_prompt(locale: &str) -> String {
+    if prompt_locale_is_english(locale) {
+        "You are DIVE's D-stage assistant. Decompose the feature the user wants to build \
+into 3-6 small cards. Each card must include:\n\
+- an English title, 20 characters or fewer\n\
+- a one-sentence English summary, 80 characters or fewer\n\
+- one sentence explaining why this card is needed as the rationale\n\
+- one priority: must, should, or nice\n\
+- the estimated number of implementation steps for a novice\n\
+Call only the `assist_cards` tool."
+            .to_string()
+    } else {
+        "당신은 DIVE의 D 단계 도우미입니다. 사용자가 만들고 싶다고 설명한 기능을 \
 3~6개의 작은 카드로 분해합니다. 각 카드는:\n\
 - 한국어로 20자 이내의 제목\n\
 - 한국어로 한 문장의 요약(80자 이내)\n\
@@ -153,7 +170,20 @@ fn build_system_prompt() -> String {
 - 우선순위 must/should/nice 중 하나\n\
 - 초심자 기준 예상 구현 단계 수\n\
 반드시 `assist_cards` 도구만 호출하세요."
-        .to_string()
+            .to_string()
+    }
+}
+
+fn build_user_prompt(description: &str, locale: &str) -> String {
+    if prompt_locale_is_english(locale) {
+        format!(
+            "Feature the user wants to build:\n{description}\n\nUse the `assist_cards` tool to suggest 3-6 small cards."
+        )
+    } else {
+        format!(
+            "만들고 싶은 기능:\n{description}\n\n`assist_cards` 도구로 3~6개의 작은 카드를 제안하세요."
+        )
+    }
 }
 
 fn assist_schema() -> Value {
@@ -191,5 +221,18 @@ mod tests {
         assert!(s["properties"]["cards"]["type"] == "array");
         assert!(s["properties"]["cards"]["minItems"].as_u64() == Some(3));
         assert!(s["properties"]["cards"]["maxItems"].as_u64() == Some(6));
+    }
+
+    #[test]
+    fn build_system_prompt_branches_by_locale() {
+        let english = build_system_prompt("en");
+        assert!(english.contains("an English title, 20 characters or fewer"));
+        assert!(english.contains("one-sentence English summary"));
+        assert!(!english.contains("한국어"));
+
+        let korean = build_system_prompt("");
+        assert!(korean.contains("한국어로 20자 이내의 제목"));
+        assert!(korean.contains("한국어로 한 문장의 요약"));
+        assert!(!korean.contains("English title"));
     }
 }

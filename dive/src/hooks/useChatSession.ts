@@ -941,6 +941,7 @@ export function useChatSession(
       return api.invoke<VerifyLogPayload>("card_verify", {
         sessionId,
         cardId,
+        locale: useLocaleStore.getState().locale,
       });
     },
     [sessionId],

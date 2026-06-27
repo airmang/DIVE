@@ -25,6 +25,8 @@ use crate::providers::{
 };
 use crate::tools::{Tool, ToolContext};
 
+use super::prompt_locale::prompt_locale_is_english;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum TestResult {
@@ -130,6 +132,7 @@ impl VerifyEngine {
         &self,
         _session_id: i64,
         card_id: i64,
+        locale: &str,
     ) -> Result<VerifyLog, VerifyError> {
         if self.model.is_empty() {
             return Err(VerifyError::NoModel);
@@ -152,13 +155,13 @@ impl VerifyEngine {
         let instruction = card.instruction.clone().unwrap_or_default();
         let changed_files_json: Value = card.changed_files.clone().unwrap_or(Value::Null);
 
-        let system = build_system_prompt();
-        let user = build_user_prompt(&card.title, &instruction, &changed_files_json);
+        let system = build_system_prompt(locale);
+        let user = build_user_prompt(&card.title, &instruction, &changed_files_json, locale);
 
         let tool = ToolDef {
             name: "verify_result".into(),
             description: "Report intent-code alignment and test status for this card.".into(),
-            parameters: verify_result_schema(),
+            parameters: verify_result_schema(locale),
         };
 
         let req = ChatRequest {
@@ -341,18 +344,35 @@ fn split_test_command(command_text: &str) -> Result<(String, Vec<String>), Verif
     Ok((command.clone(), args.to_vec()))
 }
 
-fn build_system_prompt() -> String {
-    "당신은 DIVE V 단계의 자체 검증자입니다. 학생이 작성한 카드의 지시문과 그 카드에 \
+fn build_system_prompt(locale: &str) -> String {
+    if prompt_locale_is_english(locale) {
+        "You are DIVE's V-stage self-verifier. You receive the instruction for a student-authored card \
+and the list of changed files linked to that card, then return a verdict using the structured tool (`verify_result`).\n\n\
+Verdict criteria:\n\
+- intent_match: true when the changes satisfy the core intent of the instruction.\n\
+- test_result: if no external test execution is provided, it must be 'skipped'. Do not report pass from static inference alone.\n\
+- details: explain the verdict in English in 2-4 sentences.\n\n\
+Call only the `verify_result` tool, with no other text or tools."
+            .to_string()
+    } else {
+        "당신은 DIVE V 단계의 자체 검증자입니다. 학생이 작성한 카드의 지시문과 그 카드에 \
 연결된 변경 파일 목록을 받고, 아래 구조화된 도구(`verify_result`)로 판정을 돌려줍니다.\n\n\
 판정 기준:\n\
 - intent_match: 변경이 지시문의 핵심 의도를 충족하면 true.\n\
 - test_result: 외부 테스트 실행이 제공되지 않았으면 반드시 'skipped'. 정적 추론만으로 pass를 보고하지 마세요.\n\
-- details: 판정 근거를 한국어 2~4문장으로.\n\n\
+- details: 판정 근거를 한국어로 2~4문장 작성하세요.\n\n\
 반드시 `verify_result` 도구만 호출하고, 다른 텍스트나 도구를 사용하지 마세요."
-        .to_string()
+            .to_string()
+    }
 }
 
-fn build_user_prompt(title: &str, instruction: &str, changed_files: &Value) -> String {
+fn build_user_prompt(
+    title: &str,
+    instruction: &str,
+    changed_files: &Value,
+    locale: &str,
+) -> String {
+    let english = prompt_locale_is_english(locale);
     let files_summary = match changed_files {
         Value::Array(arr) if !arr.is_empty() => {
             let names: Vec<String> = arr
@@ -365,19 +385,35 @@ fn build_user_prompt(title: &str, instruction: &str, changed_files: &Value) -> S
                 names.join(", ")
             }
         }
+        _ if english => "(no changed file information)".to_string(),
         _ => "(변경 파일 정보 없음)".to_string(),
     };
+    let instruction_summary = if instruction.is_empty() {
+        if english {
+            "(no instruction)"
+        } else {
+            "(지시 없음)"
+        }
+    } else {
+        instruction
+    };
+    if english {
+        return format!(
+            "Card title: {title}\n\nInstruction:\n{instruction_summary}\n\nChanged files:\n{files_summary}\n\nUse the information above to call `verify_result`."
+        );
+    }
     format!(
         "카드 제목: {title}\n\n지시:\n{}\n\n변경된 파일:\n{files_summary}\n\n위 정보를 바탕으로 `verify_result`를 호출하세요.",
-        if instruction.is_empty() {
-            "(지시 없음)"
-        } else {
-            instruction
-        }
+        instruction_summary
     )
 }
 
-fn verify_result_schema() -> Value {
+fn verify_result_schema(locale: &str) -> Value {
+    let details_description = if prompt_locale_is_english(locale) {
+        "English explanation of the verdict (2-4 sentences)."
+    } else {
+        "Korean explanation of the verdict (2-4 sentences)."
+    };
     json!({
         "type": "object",
         "properties": {
@@ -392,7 +428,7 @@ fn verify_result_schema() -> Value {
             },
             "details": {
                 "type": "string",
-                "description": "Korean explanation of the verdict (2-4 sentences)."
+                "description": details_description
             }
         },
         "required": ["intent_match", "test_result", "details"]
@@ -473,11 +509,46 @@ mod tests {
 
     #[test]
     fn verify_result_schema_has_required_fields() {
-        let schema = verify_result_schema();
+        let schema = verify_result_schema("");
         let required = schema["required"].as_array().unwrap();
         let names: Vec<&str> = required.iter().filter_map(|v| v.as_str()).collect();
         assert!(names.contains(&"intent_match"));
         assert!(names.contains(&"test_result"));
         assert!(names.contains(&"details"));
+    }
+
+    #[test]
+    fn build_system_prompt_uses_english_output_clause_for_en_locale() {
+        let prompt = build_system_prompt("en");
+        assert!(prompt.contains("explain the verdict in English in 2-4 sentences"));
+        assert!(!prompt.contains("한국어"));
+    }
+
+    #[test]
+    fn build_system_prompt_uses_korean_output_clause_by_default() {
+        let prompt = build_system_prompt("");
+        assert!(prompt.contains("한국어로 2~4문장"));
+        assert!(!prompt.contains("in English"));
+    }
+
+    #[test]
+    fn build_user_prompt_uses_english_labels_for_en_locale() {
+        let prompt = build_user_prompt("Title", "", &Value::Null, "en-US");
+        assert!(prompt.contains("Card title: Title"));
+        assert!(prompt.contains("Instruction:\n(no instruction)"));
+        assert!(prompt.contains("Changed files:\n(no changed file information)"));
+        assert!(!prompt.contains("카드 제목"));
+        assert!(!prompt.contains("(지시 없음)"));
+        assert!(!prompt.contains("(변경 파일 정보 없음)"));
+    }
+
+    #[test]
+    fn build_user_prompt_uses_korean_labels_by_default() {
+        let prompt = build_user_prompt("Title", "", &Value::Null, "");
+        assert!(prompt.contains("카드 제목: Title"));
+        assert!(prompt.contains("지시:\n(지시 없음)"));
+        assert!(prompt.contains("변경된 파일:\n(변경 파일 정보 없음)"));
+        assert!(!prompt.contains("Card title"));
+        assert!(!prompt.contains("no changed file information"));
     }
 }
