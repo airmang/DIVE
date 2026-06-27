@@ -106,6 +106,9 @@ export function deriveDecisionGatePolicy(input: DecisionGatePolicyInput): Decisi
     statusIds.has("failed_but_accepted") ||
     agencyIds.has("verification_failed"),
   );
+  // S-037 is decision-time path drift from the supervisor diff_ready assessment.
+  // It does not scan file contents; S-034 secret/.env warnings remain approval-
+  // time guard.rs warnings that can precede this later written-justification reason.
   const highRiskFiles = [
     ...new Set(
       (input.provocationCards ?? [])

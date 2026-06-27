@@ -3967,6 +3967,73 @@ mod tests {
     }
 
     #[test]
+    fn supervisor_diff_ready_card_metadata_carries_high_risk_files() {
+        let context = sample_diff_ready_context();
+        let question = "이 변경 파일이 현재 목표 범위 안에 있나요?";
+        let decision = decision_for(
+            DIFF_READY_CONCERN,
+            question,
+            vec!["diff.changed_files"],
+            vec!["open_diff", "ask_ai_for_rationale"],
+        );
+
+        let result =
+            validate_supervisor_decision(&context, decision, &mut SupervisorDedupState::new());
+
+        assert_eq!(
+            result.validation_outcome,
+            SupervisorValidationOutcome::Shown
+        );
+        let card = result.card.unwrap();
+        assert_eq!(card.card_type, ProvocationCardType::DiffScopeReview);
+        assert_eq!(card.stage, ProvocationCardStage::Verify);
+        assert_eq!(card.severity, ProvocationSeverity::Caution);
+        assert_eq!(card.prompt.as_deref(), Some(question));
+        assert_eq!(
+            card.metadata["assessmentSummary"]["highRiskFiles"],
+            json!(["src/auth.ts"])
+        );
+        assert!(card
+            .actions
+            .iter()
+            .all(|action| action.requires_reason != Some(true)));
+    }
+
+    #[test]
+    fn supervisor_diff_ready_unexpected_only_card_has_no_high_risk_files() {
+        let mut context = sample_diff_ready_context();
+        let assessment = context.diff_ready_assessment.as_mut().unwrap();
+        assessment.reason_codes = vec!["unexpected_file".into()];
+        assessment.unexpected_files = vec!["src/settings.ts".into()];
+        assessment.high_risk_files = vec![];
+        context.context_hash = context.compute_context_hash();
+
+        let result = validate_supervisor_decision(
+            &context,
+            decision_for(
+                DIFF_READY_CONCERN,
+                "이 변경 파일이 현재 목표 범위 안에 있나요?",
+                vec!["diff.changed_files"],
+                vec!["open_diff"],
+            ),
+            &mut SupervisorDedupState::new(),
+        );
+
+        assert_eq!(
+            result.validation_outcome,
+            SupervisorValidationOutcome::Shown
+        );
+        let card = result.card.unwrap();
+        assert_eq!(
+            card.metadata["assessmentSummary"]["unexpectedFiles"],
+            json!(["src/settings.ts"])
+        );
+        assert!(card.metadata["assessmentSummary"]["highRiskFiles"]
+            .as_array()
+            .is_some_and(|files| files.is_empty()));
+    }
+
+    #[test]
     fn supervisor_diff_ready_gate_covers_scope_drift_edges() {
         let unexpected = sample_diff_ready_context();
         assert!(supervisor_provoke_gate(&unexpected));
