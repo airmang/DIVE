@@ -21,6 +21,7 @@ interface ProvocationCardHostProps {
   mode: SupervisorSourceUiMode;
   className?: string;
   onAction?: (action: ProvocationAction, card: ProvocationCardData, reason?: string) => void;
+  onHandled?: (card: ProvocationCardData) => void;
 }
 
 export function ProvocationCardHost({
@@ -29,6 +30,7 @@ export function ProvocationCardHost({
   mode,
   className,
   onAction,
+  onHandled,
 }: ProvocationCardHostProps) {
   const t = useT();
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
@@ -57,6 +59,7 @@ export function ProvocationCardHost({
 
   const dismiss = () => {
     setDismissed((prev) => new Set(prev).add(primary.id));
+    onHandled?.(primary);
     void logProvocationEvent({
       eventType: "provocation.dismissed",
       card: primary,
@@ -67,6 +70,7 @@ export function ProvocationCardHost({
 
   const markIrrelevant = () => {
     setDismissed((prev) => new Set(prev).add(primary.id));
+    onHandled?.(primary);
     void logProvocationEvent({
       eventType: "provocation.marked_irrelevant",
       card: primary,

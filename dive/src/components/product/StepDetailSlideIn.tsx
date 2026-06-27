@@ -34,6 +34,7 @@ import {
   evaluateProvocationSupervisor,
   normalizeFailureFingerprint,
   normalizeChangedFile,
+  type ProvocationAction,
   type ProvocationCard,
   type ProvocationContext,
   type ScaffoldMode,
@@ -794,6 +795,9 @@ export function StepDetailSlideIn({
     verifyLog?.test_result,
   ]);
   const [provocationCards, setProvocationCards] = useState<ProvocationCard[]>([]);
+  const [handledProvocationCardIds, setHandledProvocationCardIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -839,7 +843,17 @@ export function StepDetailSlideIn({
       cancelled = true;
     };
   }, [diffReadySupervisorRequest, retryLoopSupervisorRequest, supervisorEvaluationRequest]);
+  useEffect(() => {
+    const currentCardIds = new Set(provocationCards.map((card) => card.id));
+    setHandledProvocationCardIds((current) => {
+      const next = new Set([...current].filter((id) => currentCardIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [provocationCards]);
   const unexpectedHighRiskFiles = highRiskFilesFromCards(provocationCards);
+  const reviewCardsEvidenced =
+    provocationCards.length > 0 &&
+    provocationCards.every((card) => handledProvocationCardIds.has(card.id));
   const verificationStatuses = provocationContext
     ? deriveVerificationStatuses(provocationContext)
     : [];
@@ -912,6 +926,20 @@ export function StepDetailSlideIn({
         note: reason?.trim() || null,
       }),
   });
+  const markProvocationCardHandled = (card: ProvocationCard) => {
+    setHandledProvocationCardIds((current) => {
+      if (current.has(card.id)) return current;
+      return new Set(current).add(card.id);
+    });
+  };
+  const handleReviewCardAction = (
+    action: ProvocationAction,
+    card: ProvocationCard,
+    reason?: string,
+  ) => {
+    markProvocationCardHandled(card);
+    handleProvocationAction(action, card, reason);
+  };
   const primaryVerificationAction: VerificationFocusAction | null = step
     ? verificationFeasibility.previewable && onOpenPreview
       ? {
@@ -956,6 +984,7 @@ export function StepDetailSlideIn({
       id: "code",
       marker: "1",
       title: t("roadmap.step_detail.stepper_stage_code_title"),
+      evidenced: diffViewed,
       summary: diffViewed
         ? t("roadmap.step_detail.stepper_stage_code_summary_done")
         : t("roadmap.step_detail.stepper_stage_code_summary_pending"),
@@ -995,6 +1024,7 @@ export function StepDetailSlideIn({
       id: "observe",
       marker: "2",
       title: t("roadmap.step_detail.stepper_stage_observe_title"),
+      evidenced: acceptanceCriterionConfirmed,
       summary: acceptanceCriterionConfirmed
         ? t("roadmap.step_detail.stepper_stage_observe_summary_done")
         : t("roadmap.step_detail.stepper_stage_observe_summary_pending"),
@@ -1038,6 +1068,7 @@ export function StepDetailSlideIn({
         id: "review-card",
         marker: "3",
         title: t("roadmap.step_detail.stepper_stage_review_title"),
+        evidenced: reviewCardsEvidenced,
         summary: t("roadmap.step_detail.stepper_stage_review_summary", {
           count: provocationCards.length,
         }),
@@ -1047,7 +1078,8 @@ export function StepDetailSlideIn({
             cards={provocationCards}
             context={provocationContext ?? undefined}
             mode={provocation?.mode ?? "standard"}
-            onAction={handleProvocationAction}
+            onAction={handleReviewCardAction}
+            onHandled={markProvocationCardHandled}
           />
         ),
       });
@@ -1058,6 +1090,7 @@ export function StepDetailSlideIn({
         id: "decision",
         marker: "4",
         title: t("roadmap.step_detail.stepper_stage_decision_title"),
+        evidenced: acceptanceCriterionConfirmed,
         summary: acceptanceCriterionConfirmed
           ? t("roadmap.step_detail.stepper_stage_decision_summary_ready")
           : t("roadmap.step_detail.stepper_stage_decision_summary_needs_observation"),

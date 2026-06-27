@@ -847,7 +847,7 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
 
     fireEvent.click(screen.getByTestId("verification-stepper-next"));
     expect(screen.getByTestId("verification-stepper-stage-code").dataset.stageState).toBe(
-      "completed",
+      "visited",
     );
     expect(screen.getByTestId("verification-stepper-stage-observe").dataset.stageState).toBe(
       "current",
@@ -864,6 +864,26 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
       "current",
     );
     expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("marks the code stepper stage completed after diff evidence is viewed", () => {
+    const onOpenCode = vi.fn();
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+
+    renderStepDetail({ onOpenCode });
+
+    fireEvent.click(screen.getByTestId("step-detail-open-code"));
+    expect(onOpenCode).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId("verification-stepper-next"));
+    expect(screen.getByTestId("verification-stepper-stage-code").dataset.stageState).toBe(
+      "completed",
+    );
+    expect(screen.getByTestId("verification-stepper-success-code")).toBeTruthy();
   });
 
   it("clamps, resets, persists, restores, and supports keyboard resizing", async () => {
