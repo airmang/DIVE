@@ -59,6 +59,16 @@ const COACH_UNAVAILABLE_REASON_KEYS: Record<GuidanceReasonCode, string> = {
   missing_criterion: "roadmap.step_detail.coach_unavailable_reason.missing_criterion",
 };
 
+const COACH_FALLBACK_HINT_KEYS: Record<string, string> = {
+  responsive: "roadmap.step_detail.coach_fallback.responsive",
+  persistence: "roadmap.step_detail.coach_fallback.persistence",
+  accessibility: "roadmap.step_detail.coach_fallback.accessibility",
+  loading: "roadmap.step_detail.coach_fallback.loading",
+  empty: "roadmap.step_detail.coach_fallback.empty",
+  error: "roadmap.step_detail.coach_fallback.error",
+  generic: "roadmap.step_detail.coach_fallback.generic",
+};
+
 function automaticGenerationKey(request: VerificationCoachGenerateRequest | null): string {
   if (!request) return "";
   const { evidence, guideVersion: _guideVersion, ...stableRequest } = request;
@@ -132,6 +142,20 @@ export function VerificationCoachPanel({
   const criteria = request.step.acceptanceCriteria.filter(
     (criterion) => criterion.criterionId.trim().length > 0,
   );
+  const criterionTextById = new Map(
+    criteria.map((criterion) => [criterion.criterionId, criterion.text.trim()] as const),
+  );
+  const fallbackRows =
+    response?.status === "shown"
+      ? []
+      : (response?.fallbackGuidance ?? []).map((guidance) => {
+          const firstClass = guidance.classes[0] ?? "generic";
+          return {
+            criterionId: guidance.criterionId,
+            criterionText: criterionTextById.get(guidance.criterionId) ?? guidance.criterionId,
+            hintKey: COACH_FALLBACK_HINT_KEYS[firstClass] ?? COACH_FALLBACK_HINT_KEYS.generic,
+          };
+        });
   // Each observation binds to ONE criterion (S-029): one observation must not
   // clear every linked criterion collectively. Default to the first criterion.
   const activeCriterionId =
@@ -200,9 +224,29 @@ export function VerificationCoachPanel({
       ) : guide ? (
         <GuideView guide={guide} />
       ) : (
-        <p className="mt-3 text-xs text-fg-muted" data-testid="verification-coach-unavailable">
-          {unavailableMessage}
-        </p>
+        <div className="mt-3 space-y-3">
+          <p className="text-xs text-fg-muted" data-testid="verification-coach-unavailable">
+            {unavailableMessage}
+          </p>
+          {fallbackRows.length > 0 ? (
+            <div
+              className="rounded-sm border border-border/80 bg-bg/70 px-2 py-2 text-xs"
+              data-testid="verification-coach-fallback"
+            >
+              <div className="font-semibold text-fg">
+                {t("roadmap.step_detail.coach_fallback_title")}
+              </div>
+              <ul className="mt-2 space-y-2">
+                {fallbackRows.map((row) => (
+                  <li key={row.criterionId} data-testid="verification-coach-fallback-item">
+                    <div className="font-medium text-fg">{row.criterionText}</div>
+                    <p className="mt-1 text-fg-muted">{t(row.hintKey)}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
       )}
 
       <div

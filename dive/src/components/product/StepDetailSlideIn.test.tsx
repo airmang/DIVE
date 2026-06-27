@@ -12,6 +12,7 @@ import {
   recordVerificationObservation,
 } from "../../features/verification-coach/api";
 import { StepDetailSlideIn } from "./StepDetailSlideIn";
+import { deriveDecisionGatePolicy } from "./decisionGatePolicy";
 
 vi.mock("../../features/provocation", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../features/provocation")>();
@@ -182,6 +183,7 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
         ],
         evidencePrompts: ["무엇을 확인했나요?"],
       },
+      fallbackGuidance: [{ criterionId: "step-1-criterion-1", classes: ["responsive"] }],
       validation: {
         outcome: "valid",
         reasonCode: "ok",
@@ -340,6 +342,7 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
     expect(screen.getByTestId("verification-coach-guide").textContent).toContain(
       "버튼에 저장 문구",
     );
+    expect(screen.queryByTestId("verification-coach-fallback")).toBeNull();
     expect(coachMock).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: 2,
@@ -355,26 +358,105 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
     expect(screen.queryByTestId("provocation-card")).toBeNull();
   });
 
-  it("explains why verification coach guidance is unavailable", async () => {
+  it("renders a labeled deterministic fallback checklist when guidance is unavailable", async () => {
     evaluateMock.mockResolvedValue({
       status: "none",
       evaluationId: "eval-none",
       dropReason: "provoke_false",
+    });
+    const step = reviewStep({
+      linkedCriteria: [
+        { criterionId: "c1", text: "모바일 375px에서 레이아웃이 맞게 접힘" },
+        { criterionId: "c2", text: "검색 결과가 없을 때 빈 상태 메시지가 보임" },
+      ],
     });
     coachMock.mockResolvedValue({
       status: "unavailable",
       eventId: "coach-missing-credentials",
       guideVersion: 1,
       dropReason: "missing_credentials",
+      fallbackGuidance: [
+        { criterionId: "c1", classes: ["responsive"] },
+        { criterionId: "c2", classes: ["empty"] },
+      ],
     });
 
-    renderStepDetail();
+    renderStepDetail({ step });
 
     openStepperStage("observe");
     expect((await screen.findByTestId("verification-coach-unavailable")).textContent).toContain(
       "인증 정보",
     );
+    const fallback = screen.getByTestId("verification-coach-fallback");
+    expect(fallback.textContent).toContain("오프라인 대체 안내");
+    expect(fallback.textContent).toContain("AI 코치 아님");
+    expect(within(fallback).getAllByTestId("verification-coach-fallback-item")).toHaveLength(2);
+    expect(fallback.textContent).toContain("모바일 375px");
+    expect(fallback.textContent).toContain("창 너비를 375px");
+    expect(fallback.textContent).toContain("빈 상태 메시지");
     expect(screen.queryByTestId("verification-coach-guide")).toBeNull();
+  });
+
+  it("keeps fallback-only guidance out of the S-029 observation gate", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+    const step = reviewStep({
+      linkedCriteria: [
+        { criterionId: "c1", text: "모바일 375px에서 레이아웃이 맞게 접힘" },
+        { criterionId: "c2", text: "검색 결과가 없을 때 빈 상태 메시지가 보임" },
+      ],
+    });
+    coachMock.mockResolvedValue({
+      status: "unavailable",
+      eventId: "coach-runtime-unavailable",
+      guideVersion: 1,
+      dropReason: "runtime_unavailable",
+      fallbackGuidance: [
+        { criterionId: "c1", classes: ["responsive"] },
+        { criterionId: "c2", classes: ["empty"] },
+      ],
+    });
+
+    renderStepDetail({ step });
+
+    openStepperStage("observe");
+    await screen.findByTestId("verification-coach-fallback");
+    expect(screen.queryByTestId("verification-coach-guide")).toBeNull();
+    expect(observationMock).not.toHaveBeenCalled();
+
+    const policy = deriveDecisionGatePolicy({
+      verifyLog: {
+        intent_match: true,
+        test_result: "skipped",
+        details: "AI reported completion without external verification.",
+        model: "mock",
+        ran_at: 1,
+      },
+      rollbackAvailable: true,
+      acceptanceCriterionConfirmed: false,
+      verificationFeasibility: {
+        runnable: true,
+        previewable: true,
+        hasTests: true,
+        diffAvailable: true,
+      },
+      gatingCriterionIds: ["c1", "c2"],
+      observedCriterionIds: [],
+    });
+    expect(policy.reasons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "criteria_unobserved", evidence: "0/2" }),
+      ]),
+    );
+
+    openDecisionStage();
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("decision-gate-details"));
+    expect(screen.getByTestId("decision-gate-reasons").textContent).toContain("0/2");
+    expect(observationMock).not.toHaveBeenCalled();
   });
 
   it("records criterion-linked observation evidence and enables normal approval", async () => {

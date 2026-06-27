@@ -8,10 +8,10 @@ use crate::dive::event_log::{
     VERIFICATION_OBSERVATION_RECORDED_EVENT,
 };
 use crate::dive::verification_coach::{
-    build_verification_coach_prompt, evidence_summary, next_guide_version, parse_guide_json,
-    unavailable_response, validate_guide, GuidanceReasonCode, GuidanceValidationOutcome,
-    ObservationEvidenceInput, ObservationEvidenceRecord, VerificationCoachGenerateRequest,
-    VerificationCoachGenerateResponse, VerificationCoachStatus,
+    build_verification_coach_prompt, evidence_summary, fallback_guidance, next_guide_version,
+    parse_guide_json, unavailable_response, validate_guide, GuidanceReasonCode,
+    GuidanceValidationOutcome, ObservationEvidenceInput, ObservationEvidenceRecord,
+    VerificationCoachGenerateRequest, VerificationCoachGenerateResponse, VerificationCoachStatus,
 };
 use crate::pi_sidecar::{
     run_supervisor_turn, supervisor_turn_timeout, PiSidecarSupervisorErrorKind,
@@ -50,6 +50,7 @@ pub(crate) async fn verification_coach_generate_impl(
                         event_id: event_id.clone(),
                         guide_version,
                         guide: Some(guide),
+                        fallback_guidance: Vec::new(),
                         validation: Some(validation),
                         drop_reason: None,
                         message: None,
@@ -62,20 +63,19 @@ pub(crate) async fn verification_coach_generate_impl(
                         event_id: event_id.clone(),
                         guide_version,
                         guide: None,
+                        fallback_guidance: fallback_guidance(&request),
                         drop_reason: Some(validation.reason_code.clone()),
                         validation: Some(validation),
-                        message: Some(
-                            "검증 안내가 현재 근거와 맞지 않아 표시하지 않았습니다.".to_string(),
-                        ),
+                        message: None,
                         model,
                         latency_ms,
                     }
                 }
             }
-            Err(reason) => unavailable_response(event_id.clone(), guide_version, reason),
+            Err(reason) => unavailable_response(event_id.clone(), guide_version, reason, &request),
         },
         CoachRuntimeOutput::Unavailable(reason) => {
-            unavailable_response(event_id.clone(), guide_version, reason)
+            unavailable_response(event_id.clone(), guide_version, reason, &request)
         }
     };
     response.event_id = event_id;
@@ -322,8 +322,42 @@ fn log_evaluated(
 mod tests {
     use super::*;
 
+    fn coach_request() -> VerificationCoachGenerateRequest {
+        VerificationCoachGenerateRequest {
+            session_id: 1,
+            project_id: Some(1),
+            card_id: 1,
+            plan_step_id: Some(1),
+            guide_version: None,
+            source_ui_mode: "work".to_string(),
+            locale: Some("ko-KR".to_string()),
+            step: crate::dive::verification_coach::VerificationCoachStep {
+                title: "Review step".to_string(),
+                summary: None,
+                instruction: None,
+                acceptance_criteria: vec![crate::dive::verification_coach::VerificationCriterion {
+                    criterion_id: "c1".to_string(),
+                    text: "Resize to 375px and confirm columns adapt".to_string(),
+                }],
+            },
+            evidence: crate::dive::verification_coach::VerificationCoachEvidence {
+                changed_files: Vec::new(),
+                verification_kind: None,
+                verification_command: None,
+                verification_manual_check: None,
+                test_result: None,
+                ai_claimed_done: false,
+                preview_available: false,
+                app_run_available: false,
+                diff_available: false,
+                prior_observations: Vec::new(),
+            },
+        }
+    }
+
     #[test]
     fn sidecar_failure_modes_return_unavailable_without_panicking() {
+        let request = coach_request();
         for (kind, reason) in [
             (
                 PiSidecarSupervisorErrorKind::RuntimeUnavailable,
@@ -346,8 +380,12 @@ mod tests {
                 GuidanceReasonCode::SidecarError,
             ),
         ] {
-            let response =
-                unavailable_response("event-1".to_string(), 1, sidecar_failure_reason(kind));
+            let response = unavailable_response(
+                "event-1".to_string(),
+                1,
+                sidecar_failure_reason(kind),
+                &request,
+            );
 
             assert_eq!(response.status, VerificationCoachStatus::Unavailable);
             assert_eq!(response.drop_reason, Some(reason.clone()));
@@ -366,6 +404,8 @@ mod tests {
                 Some(&reason)
             );
             assert!(response.guide.is_none());
+            assert_eq!(response.fallback_guidance.len(), 1);
+            assert_eq!(response.fallback_guidance[0].classes, vec!["responsive"]);
         }
     }
 }

@@ -165,6 +165,13 @@ pub struct GuidanceValidationResult {
     pub evidence_refs: Vec<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct VerificationFallbackGuidance {
+    pub criterion_id: String,
+    pub classes: Vec<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VerificationCoachGenerateResponse {
@@ -173,6 +180,8 @@ pub struct VerificationCoachGenerateResponse {
     pub guide_version: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub guide: Option<VerificationGuide>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fallback_guidance: Vec<VerificationFallbackGuidance>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub validation: Option<GuidanceValidationResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -238,15 +247,28 @@ pub fn evidence_summary(request: &VerificationCoachGenerateRequest) -> Value {
 }
 
 pub fn build_verification_coach_prompt(request: &VerificationCoachGenerateRequest) -> String {
+    let locale = request.locale.as_deref().unwrap_or("ko-KR");
+    let english =
+        crate::dive::prompt_locale_is_english(request.locale.as_deref().unwrap_or("ko-KR"));
+    let locale_clause = if english {
+        format!(" Current user language: {locale}. Write criterionSummary, every recommendedChecks label/instruction/expectedObservation, every expectedObservations entry, and every evidencePrompts entry in that language. JSON keys stay in English.")
+    } else {
+        format!(" 현재 사용자 언어: {locale}. criterionSummary와 모든 recommendedChecks의 label/instruction/expectedObservation, expectedObservations, evidencePrompts를 그 언어로 작성하세요. JSON 키는 영어로 둡니다.")
+    };
+    let system_instruction = format!(
+        "{}{}",
+        "You are DIVE's verification coach. Generate concise JSON only. Explain how the student can verify the current real project step. Do not approve the step. Do not claim the step is done. Use only supplied evidence and safe inspection actions.",
+        locale_clause
+    );
     let context = json!({
         "step": request.step,
         "evidence": request.evidence,
         "sourceUiMode": request.source_ui_mode,
-        "locale": request.locale.as_deref().unwrap_or("ko-KR"),
+        "locale": locale,
     });
     format!(
         "{}\n\n{}\n{}",
-        "You are DIVE's verification coach. Generate concise JSON only. Explain how the student can verify the current real project step. Do not approve the step. Do not claim the step is done. Use only supplied evidence and safe inspection actions.",
+        system_instruction,
         "Return shape: {\"criterionSummary\":\"...\",\"recommendedChecks\":[{\"kind\":\"terminal|file|diff|test|preview|app_run|manual\",\"label\":\"...\",\"instruction\":\"...\",\"expectedObservation\":\"...\"}],\"expectedObservations\":[\"...\"],\"evidencePrompts\":[\"...\"]}.",
         serde_json::to_string(&context).unwrap_or_else(|_| "{}".to_string())
     )
@@ -306,22 +328,41 @@ pub fn unavailable_response(
     event_id: String,
     guide_version: u32,
     reason: GuidanceReasonCode,
+    request: &VerificationCoachGenerateRequest,
 ) -> VerificationCoachGenerateResponse {
     VerificationCoachGenerateResponse {
         status: VerificationCoachStatus::Unavailable,
         event_id,
         guide_version,
         guide: None,
+        fallback_guidance: fallback_guidance(request),
         validation: Some(GuidanceValidationResult {
             outcome: GuidanceValidationOutcome::Unavailable,
             reason_code: reason.clone(),
             evidence_refs: Vec::new(),
         }),
         drop_reason: Some(reason),
-        message: Some("현재 검증 안내를 만들 수 없습니다. Diff를 확인하거나 직접 관찰 결과를 남긴 뒤 승인 여부를 결정하세요.".to_string()),
+        message: None,
         model: None,
         latency_ms: None,
     }
+}
+
+pub fn fallback_guidance(
+    request: &VerificationCoachGenerateRequest,
+) -> Vec<VerificationFallbackGuidance> {
+    request
+        .step
+        .acceptance_criteria
+        .iter()
+        .map(|criterion| VerificationFallbackGuidance {
+            criterion_id: criterion.criterion_id.clone(),
+            classes: crate::dive::plan_quality_constants::criterion_classes(&criterion.text)
+                .into_iter()
+                .map(|class| class.as_str().to_string())
+                .collect(),
+        })
+        .collect()
 }
 
 fn dropped(reason_code: GuidanceReasonCode) -> GuidanceValidationResult {
@@ -519,5 +560,76 @@ mod tests {
         assert!(prompt.contains("src/main.ts"));
         assert!(prompt.contains("\"previewAvailable\":false"));
         assert!(prompt.contains("\"appRunAvailable\":false"));
+    }
+
+    #[test]
+    fn prompt_value_language_clause_matches_locale() {
+        let english_clause = "Current user language: en. Write criterionSummary, every recommendedChecks label/instruction/expectedObservation, every expectedObservations entry, and every evidencePrompts entry in that language. JSON keys stay in English.";
+        let korean_clause = "현재 사용자 언어: ko. criterionSummary와 모든 recommendedChecks의 label/instruction/expectedObservation, expectedObservations, evidencePrompts를 그 언어로 작성하세요. JSON 키는 영어로 둡니다.";
+
+        let mut english_request = request();
+        english_request.locale = Some("en".to_string());
+        let english_prompt = build_verification_coach_prompt(&english_request);
+
+        assert!(english_prompt.contains(english_clause));
+        assert!(!english_prompt.contains(korean_clause));
+
+        let mut korean_request = request();
+        korean_request.locale = Some("ko".to_string());
+        let korean_prompt = build_verification_coach_prompt(&korean_request);
+
+        assert!(korean_prompt.contains(korean_clause));
+        assert!(!korean_prompt.contains(english_clause));
+    }
+
+    #[test]
+    fn unavailable_response_includes_per_criterion_fallback_guidance() {
+        let mut request = request();
+        request.step.acceptance_criteria = vec![
+            VerificationCriterion {
+                criterion_id: "responsive".to_string(),
+                text: "Resize to 375px and confirm the columns collapse".to_string(),
+            },
+            VerificationCriterion {
+                criterion_id: "persistence".to_string(),
+                text: "Reload and confirm the saved value persists".to_string(),
+            },
+            VerificationCriterion {
+                criterion_id: "accessibility".to_string(),
+                text: "Tab through the form and confirm ARIA labels".to_string(),
+            },
+            VerificationCriterion {
+                criterion_id: "loading-empty-error".to_string(),
+                text: "Show a loading spinner, empty state, and retryable error".to_string(),
+            },
+            VerificationCriterion {
+                criterion_id: "generic".to_string(),
+                text: "The success sound plays".to_string(),
+            },
+        ];
+
+        let response = unavailable_response(
+            "event-1".to_string(),
+            2,
+            GuidanceReasonCode::RuntimeUnavailable,
+            &request,
+        );
+
+        assert_eq!(response.status, VerificationCoachStatus::Unavailable);
+        assert!(response.guide.is_none());
+        assert!(response.message.is_none());
+        assert_eq!(response.fallback_guidance.len(), 5);
+        assert_eq!(response.fallback_guidance[0].criterion_id, "responsive");
+        assert_eq!(response.fallback_guidance[0].classes, vec!["responsive"]);
+        assert_eq!(response.fallback_guidance[1].classes, vec!["persistence"]);
+        assert_eq!(response.fallback_guidance[2].classes, vec!["accessibility"]);
+        assert_eq!(
+            response.fallback_guidance[3].classes,
+            vec!["loading", "empty", "error"]
+        );
+        assert!(response.fallback_guidance[4].classes.is_empty());
+
+        let serialized = serde_json::to_string(&response).expect("serializes response");
+        assert!(!serialized.contains("현재 검증 안내를 만들 수 없습니다"));
     }
 }
