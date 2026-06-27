@@ -5414,6 +5414,36 @@ mod criterion_quality_tests {
     }
 
     #[test]
+    fn quick_intake_vague_criteria_routes_back_through_same_gate() {
+        let plan = plan_with_criteria("make it nice", &["looks good", "works well"]);
+
+        let err = validate_criterion_quality("make it nice", &plan).unwrap_err();
+
+        assert_eq!(err.reason, CriterionQualityErrorReason::VagueCriteria);
+        assert!(err
+            .unresolved_questions
+            .iter()
+            .any(|item| item.contains("looks good")));
+    }
+
+    #[test]
+    fn quick_intake_concrete_static_ui_criteria_pass_same_gate() {
+        let plan = plan_with_criteria(
+            "A responsive bakery menu page shows categories, item names, and prices",
+            &[
+                "At 390px width, every menu category, item name, and price remains readable.",
+                "Refreshing the page keeps all menu content visible, and keyboard focus reaches navigation links with ARIA labels.",
+            ],
+        );
+
+        assert!(validate_criterion_quality(
+            "A responsive bakery menu page shows categories, item names, and prices",
+            &plan,
+        )
+        .is_ok());
+    }
+
+    #[test]
     fn concrete_single_criterion_passes_without_domain_coverage() {
         let balance_plan = plan_with_criteria(
             "Calculate wallet balance",

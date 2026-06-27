@@ -955,6 +955,43 @@
         "one": "1 more quick question",
         "done": "Almost done"
       },
+      "quick_intake": {
+        "title": "Quick intake",
+        "description": "Short form for simple static work.",
+        "submit": "Use intake and draft plan",
+        "fields": {
+          "audience": {
+            "label": "Audience",
+            "placeholder": "Bakery visitors checking the menu",
+            "help": "Name who will use or inspect the first version."
+          },
+          "doneSignal": {
+            "label": "Done signal (observable result)",
+            "placeholder": "A responsive menu page shows categories and prices",
+            "help": "Describe what someone can see or do when the work is done."
+          },
+          "inScope": {
+            "label": "In scope",
+            "placeholder": "Static menu page; mobile layout; price list",
+            "help": "List only what belongs in this first version."
+          },
+          "outOfScope": {
+            "label": "Out of scope (non-goals)",
+            "placeholder": "Online ordering; payments; admin editor",
+            "help": "List what DIVE should avoid for now."
+          },
+          "acceptanceCriterion1": {
+            "label": "Acceptance criterion 1",
+            "placeholder": "At 390px width, every menu category and price remains readable",
+            "help": "Write one independently checkable condition."
+          },
+          "acceptanceCriterion2": {
+            "label": "Acceptance criterion 2",
+            "placeholder": "Refreshing the page keeps the menu content visible without errors",
+            "help": "Write another independently checkable condition."
+          }
+        }
+      },
       "recovery": {
         "retry": "Regenerate short JSON",
         "missing_items_title": "Ask for these missing details:",

@@ -226,24 +226,20 @@ async fn generate_from_runtime(
                 message = %crate::telemetry::redact_log_text(&err.message),
                 "verification coach Pi supervisor turn failed"
             );
-            match err.kind {
-                PiSidecarSupervisorErrorKind::CredentialUnavailable => {
-                    CoachRuntimeOutput::Unavailable(GuidanceReasonCode::MissingCredentials)
-                }
-                PiSidecarSupervisorErrorKind::SidecarUnavailable => {
-                    CoachRuntimeOutput::Unavailable(GuidanceReasonCode::SidecarUnavailable)
-                }
-                PiSidecarSupervisorErrorKind::Timeout => {
-                    CoachRuntimeOutput::Unavailable(GuidanceReasonCode::Timeout)
-                }
-                PiSidecarSupervisorErrorKind::SidecarError => {
-                    CoachRuntimeOutput::Unavailable(GuidanceReasonCode::SidecarError)
-                }
-                PiSidecarSupervisorErrorKind::RuntimeUnavailable => {
-                    CoachRuntimeOutput::Unavailable(GuidanceReasonCode::RuntimeUnavailable)
-                }
-            }
+            CoachRuntimeOutput::Unavailable(sidecar_failure_reason(err.kind))
         }
+    }
+}
+
+fn sidecar_failure_reason(kind: PiSidecarSupervisorErrorKind) -> GuidanceReasonCode {
+    match kind {
+        PiSidecarSupervisorErrorKind::CredentialUnavailable => {
+            GuidanceReasonCode::MissingCredentials
+        }
+        PiSidecarSupervisorErrorKind::SidecarUnavailable => GuidanceReasonCode::SidecarUnavailable,
+        PiSidecarSupervisorErrorKind::Timeout => GuidanceReasonCode::Timeout,
+        PiSidecarSupervisorErrorKind::SidecarError => GuidanceReasonCode::SidecarError,
+        PiSidecarSupervisorErrorKind::RuntimeUnavailable => GuidanceReasonCode::RuntimeUnavailable,
     }
 }
 
@@ -320,4 +316,56 @@ fn log_evaluated(
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sidecar_failure_modes_return_unavailable_without_panicking() {
+        for (kind, reason) in [
+            (
+                PiSidecarSupervisorErrorKind::RuntimeUnavailable,
+                GuidanceReasonCode::RuntimeUnavailable,
+            ),
+            (
+                PiSidecarSupervisorErrorKind::CredentialUnavailable,
+                GuidanceReasonCode::MissingCredentials,
+            ),
+            (
+                PiSidecarSupervisorErrorKind::SidecarUnavailable,
+                GuidanceReasonCode::SidecarUnavailable,
+            ),
+            (
+                PiSidecarSupervisorErrorKind::Timeout,
+                GuidanceReasonCode::Timeout,
+            ),
+            (
+                PiSidecarSupervisorErrorKind::SidecarError,
+                GuidanceReasonCode::SidecarError,
+            ),
+        ] {
+            let response =
+                unavailable_response("event-1".to_string(), 1, sidecar_failure_reason(kind));
+
+            assert_eq!(response.status, VerificationCoachStatus::Unavailable);
+            assert_eq!(response.drop_reason, Some(reason.clone()));
+            assert_eq!(
+                response
+                    .validation
+                    .as_ref()
+                    .map(|validation| &validation.outcome),
+                Some(&GuidanceValidationOutcome::Unavailable)
+            );
+            assert_eq!(
+                response
+                    .validation
+                    .as_ref()
+                    .map(|validation| &validation.reason_code),
+                Some(&reason)
+            );
+            assert!(response.guide.is_none());
+        }
+    }
 }

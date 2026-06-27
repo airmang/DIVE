@@ -4,10 +4,12 @@ import {
   allocateCriterionId,
   markDraftStudentEdited,
   validateConfirmableProjectSpec,
+  applyQuickIntakeToDraft,
   type AcceptanceCriterion,
   type LiveProjectSpecDraft,
   type PrdPatchValidationOutcome,
   type PrdInterviewConversationTurn,
+  type QuickIntakeInput,
 } from "../../features/planning";
 import { useT } from "../../i18n";
 import {
@@ -19,6 +21,7 @@ import { buildPrdIntentCheckCard } from "../../features/provocation/rules";
 import { Button } from "../ui/button";
 import { RuntimeModelSelector } from "../chat/RuntimeModelSelector";
 import { cn } from "../../lib/utils";
+import { QuickIntakePanel } from "./QuickIntakePanel";
 
 export type PrdAuthoringState = "missing" | "draft" | "minimal" | "saved" | "editing";
 
@@ -51,6 +54,7 @@ export interface PrdAuthoringBoardProps {
   busy?: boolean;
   recentlyChangedFields?: string[];
   patchFeedback?: PrdPatchFeedback | null;
+  quickIntakeEnabled?: boolean;
   onDraftChange: (draft: LiveProjectSpecDraft) => void;
   onSubmitAnswer: (
     answer: string,
@@ -58,6 +62,7 @@ export interface PrdAuthoringBoardProps {
   ) => PrdInterviewSubmissionResult | void | Promise<PrdInterviewSubmissionResult | void>;
   onSaveDraft?: (draft: LiveProjectSpecDraft) => void;
   onSavePrdAndCreatePlan: (draft: LiveProjectSpecDraft) => void;
+  onQuickIntakeSubmit?: (draft: LiveProjectSpecDraft, input: QuickIntakeInput) => void;
   onOpenHistory?: () => void;
 }
 
@@ -179,10 +184,12 @@ export function PrdAuthoringBoard({
   busy = false,
   recentlyChangedFields = [],
   patchFeedback = null,
+  quickIntakeEnabled = false,
   onDraftChange,
   onSubmitAnswer,
   onSaveDraft,
   onSavePrdAndCreatePlan,
+  onQuickIntakeSubmit,
   onOpenHistory,
 }: PrdAuthoringBoardProps) {
   const t = useT();
@@ -307,6 +314,13 @@ export function PrdAuthoringBoard({
     updateSpecField("acceptanceCriteria", next, "acceptanceCriteria");
   };
 
+  const submitQuickIntake = (input: QuickIntakeInput) => {
+    const next = applyQuickIntakeToDraft(localDraft, input);
+    setLocalDraft(next);
+    onDraftChange(next);
+    onQuickIntakeSubmit?.(next, input);
+  };
+
   const submitAnswer = async () => {
     const trimmed = answer.trim();
     if (!trimmed || isAnswerBusy || submittingAnswerRef.current) return;
@@ -426,6 +440,11 @@ export function PrdAuthoringBoard({
             <p className="text-sm font-semibold text-fg">{t("prd.authoring.interview_rail")}</p>
             <p className="mt-1 text-xs text-fg-muted">{t("prd.authoring.interview_prompt")}</p>
           </div>
+          <QuickIntakePanel
+            enabled={quickIntakeEnabled}
+            busy={isAnswerBusy}
+            onSubmit={submitQuickIntake}
+          />
           <div className="min-h-0 flex-1 space-y-2 overflow-auto px-4 py-3 text-sm">
             {conversationTurns.map((turn) => (
               <div

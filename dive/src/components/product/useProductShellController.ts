@@ -34,6 +34,7 @@ import {
   PLAN_DRAFT_REVIEW_REQUEST_EVENT,
   createLiveProjectSpecDraft,
   requestPlanAddStepDraft,
+  quickIntakeInterviewAnswers,
   usePlan,
   usePlanRouter,
   type LiveProjectSpecDraft,
@@ -41,6 +42,7 @@ import {
   type ProjectSpec,
   type RouteDecision,
   type InterviewAnswer,
+  type QuickIntakeInput,
 } from "../../features/planning";
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
 import type { ConfirmableRouteDecision } from "./PlanRouteConfirmModal";
@@ -77,6 +79,11 @@ import { fallbackModels } from "../settings/providerModels";
 import { requestProjectRailTab } from "./ProjectRail";
 
 export type PrdMode = "authoring" | "read" | null;
+
+interface PendingPrdPlanRequest {
+  projectSpec: ProjectSpec;
+  interviewAnswers?: InterviewAnswer[];
+}
 
 export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
   const activeCriteria = projectSpec.acceptanceCriteria
@@ -329,7 +336,9 @@ export function useProductShellController() {
   const [currentProjectSpec, setCurrentProjectSpec] = useState<ProjectSpec | null>(null);
   const [prdPatchFeedback, setPrdPatchFeedback] = useState<PrdPatchFeedback | null>(null);
   const [prdBusy, setPrdBusy] = useState(false);
-  const [pendingPrdPlanRequest, setPendingPrdPlanRequest] = useState<ProjectSpec | null>(null);
+  const [pendingPrdPlanRequest, setPendingPrdPlanRequest] = useState<PendingPrdPlanRequest | null>(
+    null,
+  );
   const { expectingPlanDraftRef, planDraftPending, setPlanDraftExpectation } =
     usePlanDraftPendingController();
   const [pendingPlanRoute, setPendingPlanRoute] = useState<PendingPlanRouteConfirmation | null>(
@@ -352,6 +361,7 @@ export function useProductShellController() {
   const currentSessionId = useProjectSessionStore((s) => s.currentSessionId);
   const enableProvocationCards = useUiPreferencesStore((s) => s.enableProvocationCards);
   const provocationScaffoldMode = useUiPreferencesStore((s) => s.provocationScaffoldMode);
+  const quickIntakeEnabled = useUiPreferencesStore((s) => s.quickIntakeEnabled);
   const currentProjectName = useProjectSessionStore(
     (s) => s.projects.find((p) => p.id === s.currentProjectId)?.name ?? null,
   );
@@ -1404,14 +1414,17 @@ export function useProductShellController() {
   );
 
   const startPlanGenerationFromPrd = useCallback(
-    async (projectSpec: ProjectSpec) => {
+    async (projectSpec: ProjectSpec, options: { interviewAnswers?: InterviewAnswer[] } = {}) => {
       if (currentProjectId === null) return;
       if (chat.isStreaming) {
         requestChatFocus();
         return;
       }
       try {
-        const interview = await plan.startInterview(projectSpec.goal);
+        let interview = await plan.startInterview(projectSpec.goal);
+        for (const answer of options.interviewAnswers ?? []) {
+          interview = await plan.saveInterviewAnswer(interview.id, answer.question, answer.answer);
+        }
         activeInterviewRef.current = interview;
         setActiveInterview(interview);
         setPlanDraftExpectation(true);
@@ -1440,9 +1453,9 @@ export function useProductShellController() {
     ) {
       return;
     }
-    const projectSpec = pendingPrdPlanRequest;
+    const { projectSpec, interviewAnswers } = pendingPrdPlanRequest;
     setPendingPrdPlanRequest(null);
-    void startPlanGenerationFromPrd(projectSpec);
+    void startPlanGenerationFromPrd(projectSpec, { interviewAnswers });
   }, [
     chat.isTauri,
     chat.loadingHistory,
@@ -1472,7 +1485,7 @@ export function useProductShellController() {
         return;
       }
       if (currentSessionId === null || chat.loadingHistory || !chat.isTauri) {
-        setPendingPrdPlanRequest(currentProjectSpec);
+        setPendingPrdPlanRequest({ projectSpec: currentProjectSpec });
         if (currentSessionId === null) {
           void createSession(currentProjectId);
         }
@@ -1503,6 +1516,65 @@ export function useProductShellController() {
     t,
     toast,
   ]);
+
+  const handleQuickIntakeSubmit = useCallback(
+    (draft: LiveProjectSpecDraft, input: QuickIntakeInput) => {
+      if (currentProjectId === null || prdBusy) return;
+      if (!hasConnectedProvider) {
+        openSettingsRoute();
+        return;
+      }
+      const interviewAnswers = quickIntakeInterviewAnswers(input);
+      setPrdBusy(true);
+      void plan
+        .saveProjectSpec(draft.spec, "interview")
+        .then((saved) => {
+          setCurrentProjectSpec(saved);
+          setPrdDraft(null);
+          setPrdPatchFeedback(null);
+          setPrdMode("read");
+          toast({
+            variant: "success",
+            title: t("prd.authoring.save_success_title"),
+            description: t("prd.authoring.save_success_description"),
+          });
+          if (currentSessionId === null || chat.loadingHistory || !chat.isTauri) {
+            setPendingPrdPlanRequest({ projectSpec: saved, interviewAnswers });
+            if (currentSessionId === null) {
+              void createSession(currentProjectId);
+            }
+            requestChatFocus();
+            return;
+          }
+          void startPlanGenerationFromPrd(saved, { interviewAnswers });
+        })
+        .catch((err) => {
+          toast({
+            variant: "error",
+            title: t("prd.authoring.save_failed_title"),
+            description: err instanceof Error ? err.message : String(err),
+          });
+        })
+        .finally(() => {
+          setPrdBusy(false);
+        });
+    },
+    [
+      chat.isTauri,
+      chat.loadingHistory,
+      createSession,
+      currentProjectId,
+      currentSessionId,
+      hasConnectedProvider,
+      openSettingsRoute,
+      plan,
+      prdBusy,
+      requestChatFocus,
+      startPlanGenerationFromPrd,
+      t,
+      toast,
+    ],
+  );
 
   const {
     stageBanner,
@@ -1802,9 +1874,11 @@ export function useProductShellController() {
         busy: prdBusy,
         recentlyChangedFields: prdPatchFeedback?.appliedFieldPaths ?? [],
         patchFeedback: prdPatchFeedback,
+        quickIntakeEnabled,
         onDraftChange: handlePrdDraftChange,
         onSubmitAnswer: handleSubmitPrdAnswer,
         onSavePrdAndCreatePlan: handleSavePrdAndCreatePlan,
+        onQuickIntakeSubmit: handleQuickIntakeSubmit,
       });
     }
     if (prdMode === "read" && currentProjectSpec) {
@@ -1830,6 +1904,7 @@ export function useProductShellController() {
     hasExistingPlan,
     handleCreatePlanFromRail,
     handlePrdDraftChange,
+    handleQuickIntakeSubmit,
     handleSavePrdAndCreatePlan,
     handleSubmitPrdAnswer,
     prdBusy,
@@ -1837,6 +1912,7 @@ export function useProductShellController() {
     prdMode,
     prdPatchFeedback,
     prdReadiness,
+    quickIntakeEnabled,
     t,
   ]);
 

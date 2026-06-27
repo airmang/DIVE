@@ -10,6 +10,7 @@ function seedPersistedMode(mode: string) {
         tutorialEnabled: false,
         enableProvocationCards: false,
         provocationScaffoldMode: mode,
+        quickIntakeEnabled: true,
       },
       version: 0,
     }),
@@ -23,6 +24,7 @@ describe("ui preferences persistence", () => {
       tutorialEnabled: true,
       enableProvocationCards: true,
       provocationScaffoldMode: "guided",
+      quickIntakeEnabled: false,
     });
   });
 
@@ -39,5 +41,14 @@ describe("ui preferences persistence", () => {
 
   it("keeps the default review-card mode guided", () => {
     expect(useUiPreferencesStore.getState().provocationScaffoldMode).toBe("guided");
+  });
+
+  it("keeps quick intake disabled by default and preserves an explicit classroom flag", async () => {
+    expect(useUiPreferencesStore.getState().quickIntakeEnabled).toBe(false);
+
+    seedPersistedMode("guided");
+    await useUiPreferencesStore.persist.rehydrate();
+
+    expect(useUiPreferencesStore.getState().quickIntakeEnabled).toBe(true);
   });
 });

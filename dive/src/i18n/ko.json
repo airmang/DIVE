@@ -955,6 +955,43 @@
         "one": "질문 1개 더 남았어요",
         "done": "거의 다 됐어요"
       },
+      "quick_intake": {
+        "title": "빠른 입력",
+        "description": "단순한 정적 작업용 짧은 입력 양식입니다.",
+        "submit": "이 내용으로 계획 초안 만들기",
+        "fields": {
+          "audience": {
+            "label": "대상",
+            "placeholder": "메뉴를 확인하는 빵집 방문자",
+            "help": "첫 버전을 사용하거나 확인할 사람을 적으세요."
+          },
+          "doneSignal": {
+            "label": "완료 신호(관찰 가능한 결과)",
+            "placeholder": "반응형 메뉴 페이지에 분류와 가격이 보임",
+            "help": "작업이 끝났을 때 사용자가 보거나 할 수 있는 일을 적으세요."
+          },
+          "inScope": {
+            "label": "포함 범위",
+            "placeholder": "정적 메뉴 페이지; 모바일 레이아웃; 가격 목록",
+            "help": "첫 버전에 포함할 일만 적으세요."
+          },
+          "outOfScope": {
+            "label": "제외 범위(비목표)",
+            "placeholder": "온라인 주문; 결제; 관리자 편집기",
+            "help": "지금은 DIVE가 하지 않아야 할 일을 적으세요."
+          },
+          "acceptanceCriterion1": {
+            "label": "완료 기준 1",
+            "placeholder": "390px 너비에서도 모든 메뉴 분류와 가격을 읽을 수 있음",
+            "help": "독립적으로 확인할 수 있는 조건 하나를 적으세요."
+          },
+          "acceptanceCriterion2": {
+            "label": "완료 기준 2",
+            "placeholder": "새로고침해도 메뉴 내용이 오류 없이 계속 보임",
+            "help": "독립적으로 확인할 수 있는 다른 조건 하나를 적으세요."
+          }
+        }
+      },
       "recovery": {
         "retry": "짧은 JSON으로 다시 생성",
         "missing_items_title": "다음 항목을 더 물어봐야 합니다:",
