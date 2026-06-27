@@ -35,7 +35,7 @@ export function DangerCard({
 
   const approvalBlocked =
     approvalRequirement?.required === true && approvalRequirement.satisfied !== true;
-  const needsDiffAck = card.diffPreview !== null;
+  const needsDiffAck = card.diffPreview !== null || (card.diffPreviews?.length ?? 0) > 0;
   // When the read gate is required but there is no diff to acknowledge (e.g. a
   // secret-flagged write whose diff preview was unavailable), fall back to a
   // checkbox-only confirm so Approve still can't be rubber-stamped.
@@ -84,6 +84,7 @@ export function DangerCard({
         <CommandExplainer explanation={explanation} />
         <PatchPreviewPanel
           diff={card.diffPreview}
+          diffPreviews={card.diffPreviews}
           expected={explanation.patchPreviewExpected}
           summary={changeSummary}
           approvalWarnings={card.approvalWarnings}

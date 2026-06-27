@@ -9,6 +9,7 @@ fn pending(id: &str, session_id: i64) -> PendingApprovalSnapshot {
         params_preview: "command: \"pnpm test\"".into(),
         risk: RiskLevel::Danger,
         diff_preview: None,
+        diff_previews: Vec::new(),
         approval_warnings: dive_lib::agent::PermissionApprovalWarnings::default(),
         args: serde_json::json!({ "command": "pnpm", "args": ["test"] }),
     }

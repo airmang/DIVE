@@ -56,7 +56,7 @@ function numberValue(args: ArgsObject, key: string): number | null {
 
 function pathList(args: ArgsObject): string[] {
   const path = stringValue(args, "path");
-  return path ? [path] : [];
+  return [...new Set([...(path ? [path] : []), ...stringArray(args, "paths")])];
 }
 
 function projectCommandDetails(args: ArgsObject): ToolExplanation["projectCommand"] {
@@ -172,6 +172,17 @@ export function explainTool(
         ...baseRisk,
         actionTitle: t("permission_card.explain.tools.edit_file.title"),
         actionBody: t("permission_card.explain.tools.edit_file.body"),
+        files: pathList(objectArgs),
+        command,
+        commandWillChangeFiles: "yes",
+        choices: choices(t, ["allow_edit", "edit_request", "deny_ask_safer_change"]),
+        patchPreviewExpected: true,
+      };
+    case "multi_replace":
+      return {
+        ...baseRisk,
+        actionTitle: t("permission_card.explain.tools.multi_replace.title"),
+        actionBody: t("permission_card.explain.tools.multi_replace.body"),
         files: pathList(objectArgs),
         command,
         commandWillChangeFiles: "yes",

@@ -1303,6 +1303,7 @@
     "patch": {
       "title": "Patch preview before approval",
       "with_diff": "Review the exact before/after file change. Nothing here is applied until you allow it.",
+      "with_multi_diff": "Review the exact before/after changes across {{count}} files. Nothing here is applied until you allow it.",
       "missing_diff": "A patch preview is not available for this request. Review the file path and raw details before deciding.",
       "explain": "Explain this change",
       "explain_title": "Change explanation",
@@ -1355,6 +1356,10 @@
         "edit_file": {
           "title": "Edit part of a file",
           "body": "DIVE wants to replace matching text in this file. Review the before/after preview."
+        },
+        "multi_replace": {
+          "title": "Edit multiple files",
+          "body": "DIVE wants to replace matching text across multiple project files. Review every before/after preview."
         },
         "delete_file": {
           "title": "Delete a file",

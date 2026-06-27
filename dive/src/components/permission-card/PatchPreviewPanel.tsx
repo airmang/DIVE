@@ -6,17 +6,27 @@ import type { DiffPreviewData, PermissionApprovalWarnings, PermissionChangeSumma
 
 interface Props {
   diff: DiffPreviewData | null;
+  diffPreviews?: DiffPreviewData[] | null;
   expected: boolean;
   summary?: PermissionChangeSummary | null;
   approvalWarnings?: PermissionApprovalWarnings | null;
   onViewed?: () => void;
 }
 
-export function PatchPreviewPanel({ diff, expected, summary, approvalWarnings, onViewed }: Props) {
+export function PatchPreviewPanel({
+  diff,
+  diffPreviews,
+  expected,
+  summary,
+  approvalWarnings,
+  onViewed,
+}: Props) {
   const t = useT();
   const [explanationOpen, setExplanationOpen] = useState(false);
+  const multiDiffs = diffPreviews && diffPreviews.length > 0 ? diffPreviews : null;
+  const hasDiff = diff !== null || multiDiffs !== null;
 
-  if (!diff && !expected) return null;
+  if (!hasDiff && !expected) return null;
 
   return (
     <section className="rounded-md border bg-bg-panel2/40 p-3" data-testid="patch-preview-panel">
@@ -25,11 +35,26 @@ export function PatchPreviewPanel({ diff, expected, summary, approvalWarnings, o
         <div>
           <p className="font-semibold text-fg">{t("permission_card.patch.title")}</p>
           <p className="text-fg-muted">
-            {diff ? t("permission_card.patch.with_diff") : t("permission_card.patch.missing_diff")}
+            {multiDiffs
+              ? t("permission_card.patch.with_multi_diff", { count: multiDiffs.length })
+              : diff
+                ? t("permission_card.patch.with_diff")
+                : t("permission_card.patch.missing_diff")}
           </p>
         </div>
       </div>
-      {diff ? (
+      {multiDiffs ? (
+        <div className="space-y-2" data-testid="multi-diff-preview-list">
+          {multiDiffs.map((item) => (
+            <DiffViewer
+              key={item.path}
+              diff={item}
+              approvalWarnings={approvalWarnings}
+              onViewed={onViewed}
+            />
+          ))}
+        </div>
+      ) : diff ? (
         <>
           <DiffViewer diff={diff} approvalWarnings={approvalWarnings} onViewed={onViewed} />
           {summary ? (

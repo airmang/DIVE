@@ -1905,6 +1905,7 @@ fn pending_tool_calls_are_rehydratable_by_session() {
         params_preview: "path: output".into(),
         risk: crate::tools::RiskLevel::Warn,
         diff_preview: None,
+        diff_previews: Vec::new(),
         approval_warnings: crate::agent::PermissionApprovalWarnings::default(),
         args: serde_json::json!({ "path": "output" }),
     };
@@ -1915,6 +1916,7 @@ fn pending_tool_calls_are_rehydratable_by_session() {
         params_preview: "path: index.html".into(),
         risk: crate::tools::RiskLevel::Warn,
         diff_preview: None,
+        diff_previews: Vec::new(),
         approval_warnings: crate::agent::PermissionApprovalWarnings::default(),
         args: serde_json::json!({ "path": "index.html" }),
     };

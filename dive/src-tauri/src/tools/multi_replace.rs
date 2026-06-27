@@ -66,6 +66,12 @@ struct ReplacementPlan {
     replacements: usize,
 }
 
+pub(crate) struct MultiReplacePreview {
+    pub path: String,
+    pub before: String,
+    pub after: String,
+}
+
 pub struct MultiReplace;
 
 #[async_trait]
@@ -112,21 +118,8 @@ impl Tool for MultiReplace {
     }
 
     async fn run(&self, input: Value, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
-        let args: Input =
-            serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
-        if args.find.is_empty() {
-            return Err(ToolError::InvalidInput("find must not be empty".into()));
-        }
-        if args.paths.is_empty() && args.path_glob.as_deref().map_or(true, str::is_empty) {
-            return Err(ToolError::InvalidInput(
-                "at least one of paths or path_glob is required".into(),
-            ));
-        }
-
-        let mut requested_paths = args.paths.clone();
-        if let Some(path_glob) = args.path_glob.as_deref().filter(|glob| !glob.is_empty()) {
-            requested_paths.extend(resolve_path_glob(path_glob, ctx.fs.project_root())?);
-        }
+        let args = parse_input(input)?;
+        let requested_paths = collect_requested_paths(&args, ctx.fs.project_root())?;
 
         if requested_paths.is_empty() {
             return Ok(ToolOutput::failure(
@@ -242,6 +235,55 @@ impl Tool for MultiReplace {
             )),
         }
     }
+}
+
+pub(crate) async fn preview_replacements(
+    input: &Value,
+    ctx: &ToolContext,
+) -> Result<Vec<MultiReplacePreview>, ToolError> {
+    let args = parse_input(input.clone())?;
+    let requested_paths = collect_requested_paths(&args, ctx.fs.project_root())?;
+    let mut seen = BTreeSet::new();
+    let mut previews = Vec::new();
+
+    for requested_path in requested_paths {
+        let target = resolve_target(&requested_path, ctx)?;
+        if !seen.insert(target.rel_path.clone()) {
+            continue;
+        }
+        let plan = read_plan(&target, &args)
+            .await
+            .map_err(|error| ToolError::InvalidInput(format!("{}: {error}", target.rel_path)))?;
+        previews.push(MultiReplacePreview {
+            path: plan.rel_path,
+            before: plan.before,
+            after: plan.after,
+        });
+    }
+
+    Ok(previews)
+}
+
+fn parse_input(input: Value) -> Result<Input, ToolError> {
+    let args: Input =
+        serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+    if args.find.is_empty() {
+        return Err(ToolError::InvalidInput("find must not be empty".into()));
+    }
+    if args.paths.is_empty() && args.path_glob.as_deref().map_or(true, str::is_empty) {
+        return Err(ToolError::InvalidInput(
+            "at least one of paths or path_glob is required".into(),
+        ));
+    }
+    Ok(args)
+}
+
+fn collect_requested_paths(args: &Input, root: &Path) -> Result<Vec<String>, ToolError> {
+    let mut requested_paths = args.paths.clone();
+    if let Some(path_glob) = args.path_glob.as_deref().filter(|glob| !glob.is_empty()) {
+        requested_paths.extend(resolve_path_glob(path_glob, root)?);
+    }
+    Ok(requested_paths)
 }
 
 async fn read_plan(target: &Target, args: &Input) -> Result<ReplacementPlan, String> {

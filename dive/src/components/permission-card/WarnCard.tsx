@@ -66,6 +66,7 @@ export function WarnCard({
         <CommandExplainer explanation={explanation} />
         <PatchPreviewPanel
           diff={card.diffPreview}
+          diffPreviews={card.diffPreviews}
           expected={explanation.patchPreviewExpected}
           summary={changeSummary}
           approvalWarnings={card.approvalWarnings}

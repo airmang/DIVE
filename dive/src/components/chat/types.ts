@@ -108,6 +108,13 @@ export interface ToolCallMessageData extends BaseMessage {
     before: string;
     after: string;
   } | null;
+  diffPreviews?:
+    | {
+        path: string;
+        before: string;
+        after: string;
+      }[]
+    | null;
   approvalWarnings?: PermissionApprovalWarningsData | null;
   args?: unknown;
   deniedReason?: string;
