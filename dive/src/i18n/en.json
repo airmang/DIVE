@@ -685,6 +685,16 @@
         "unsafe_action": "The guidance included an unsafe action, so DIVE did not show it. Inspect the diff or run only safe checks, then record what you observed.",
         "missing_criterion": "DIVE needs a clearer completion criterion before it can create verification guidance. Refine the criterion or record your own observation before deciding."
       },
+      "coach_fallback_title": "Manual verification checklist (offline fallback — not the AI coach)",
+      "coach_fallback": {
+        "responsive": "Resize the window to 375px and confirm the columns/layout adapt",
+        "persistence": "Reload the app and confirm the change survives",
+        "accessibility": "Tab through and confirm focus order and ARIA labels",
+        "loading": "Force the loading state and confirm the spinner/placeholder",
+        "empty": "Force the empty state and confirm the empty message",
+        "error": "Force an error and confirm the error message + retry",
+        "generic": "Open the preview / run the check and observe the stated result"
+      },
       "coach_regenerate": "Regenerate guidance",
       "coach_observation_label": "What you observed",
       "coach_observation_placeholder": "Example: I ran pnpm test and confirmed a new item appears after clicking Save.",

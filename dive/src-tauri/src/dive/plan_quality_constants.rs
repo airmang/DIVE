@@ -39,6 +39,17 @@ pub enum MissingCriterionClass {
 }
 
 impl MissingCriterionClass {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MissingCriterionClass::Responsive => "responsive",
+            MissingCriterionClass::Persistence => "persistence",
+            MissingCriterionClass::Accessibility => "accessibility",
+            MissingCriterionClass::Loading => "loading",
+            MissingCriterionClass::Empty => "empty",
+            MissingCriterionClass::Error => "error",
+        }
+    }
+
     pub fn label(&self, locale_is_en: bool) -> &'static str {
         match (self, locale_is_en) {
             (MissingCriterionClass::Responsive, true) => "responsive behavior",

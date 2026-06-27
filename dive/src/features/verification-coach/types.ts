@@ -101,11 +101,17 @@ export interface GuidanceValidationResult {
   evidenceRefs: string[];
 }
 
+export interface VerificationCoachFallbackGuidance {
+  criterionId: string;
+  classes: string[];
+}
+
 export interface VerificationCoachGenerateResponse {
   status: VerificationCoachStatus;
   eventId: string;
   guideVersion: number;
   guide?: VerificationGuide | null;
+  fallbackGuidance?: VerificationCoachFallbackGuidance[];
   validation?: GuidanceValidationResult | null;
   dropReason?: GuidanceReasonCode | null;
   message?: string | null;
