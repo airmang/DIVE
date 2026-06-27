@@ -4619,10 +4619,10 @@ fn criterion_is_pure_vague_filler(value: &str) -> bool {
 
 fn criterion_has_observable_marker(value: &str) -> bool {
     let normalized = normalize_quality_text(value);
-    value.chars().any(|ch| ch.is_ascii_digit())
-        || contains_any(&normalized, COMPARATOR_MARKERS)
+    contains_any(&normalized, COMPARATOR_MARKERS)
         || contains_any(&normalized, NAMED_UI_MARKERS)
         || contains_any(&normalized, STATE_MARKERS)
+        || has_meaningful_numeric_marker(&normalized)
 }
 
 fn criterion_class_is_covered(criteria_text: &str, class: MissingCriterionClass) -> bool {
@@ -4641,10 +4641,73 @@ fn normalize_quality_text(value: &str) -> String {
 }
 
 fn contains_any(value: &str, needles: &[&str]) -> bool {
-    needles
-        .iter()
-        .map(|needle| normalize_quality_text(needle))
-        .any(|needle| value.contains(&needle))
+    let normalized_value = normalize_quality_text(value);
+    needles.iter().any(|needle| {
+        let needle = normalize_quality_text(needle);
+        quality_marker_matches(&normalized_value, &needle)
+    })
+}
+
+fn quality_marker_matches(value: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    if needle.chars().any(|ch| ch.is_whitespace()) {
+        return value.contains(needle);
+    }
+    if needle.chars().all(|ch| ch.is_ascii_alphanumeric()) {
+        return value
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .any(|token| token == needle);
+    }
+    if needle.chars().all(is_hangul_char) {
+        if needle.chars().count() == 1 {
+            return value
+                .split(|ch| !is_hangul_char(ch))
+                .any(|token| token == needle);
+        }
+        return value.contains(needle);
+    }
+    value.contains(needle)
+}
+
+fn is_hangul_char(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0xAC00..=0xD7AF | 0x1100..=0x11FF | 0x3130..=0x318F
+    )
+}
+
+fn has_meaningful_numeric_marker(value: &str) -> bool {
+    if !value.chars().any(|ch| ch.is_ascii_digit()) {
+        return false;
+    }
+    if value.contains('%') {
+        return true;
+    }
+    let tokens = value
+        .split(|ch: char| !ch.is_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+
+    tokens.iter().enumerate().any(|(index, token)| {
+        let token = *token;
+        if !token.chars().any(|ch| ch.is_ascii_digit()) {
+            return false;
+        }
+        if token.chars().any(|ch| ch.is_ascii_alphabetic()) {
+            return true;
+        }
+        let previous = index
+            .checked_sub(1)
+            .and_then(|previous| tokens.get(previous))
+            .copied();
+        let next = tokens.get(index + 1).copied();
+        previous
+            .into_iter()
+            .chain(next)
+            .any(|context| NUMERIC_CONTEXT_MARKERS.contains(&context))
+    })
 }
 
 fn text_prefers_english(value: &str) -> bool {
@@ -4672,7 +4735,48 @@ fn compact_preview(value: &str) -> String {
 
 const VAGUE_FILLER_WORDS: &[&str] = &[
     "make", "it", "just", "do", "be", "is", "are", "the", "a", "an", "to", "for", "with", "and",
-    "or", "you", "decide", "best",
+    "or", "in", "you", "decide", "best", "well", "way", "ways",
+];
+
+const NUMERIC_CONTEXT_MARKERS: &[&str] = &[
+    "px",
+    "pixel",
+    "pixels",
+    "percent",
+    "percentage",
+    "rem",
+    "em",
+    "vh",
+    "vw",
+    "ms",
+    "sec",
+    "secs",
+    "second",
+    "seconds",
+    "item",
+    "items",
+    "result",
+    "results",
+    "row",
+    "rows",
+    "column",
+    "columns",
+    "card",
+    "cards",
+    "file",
+    "files",
+    "step",
+    "steps",
+    "character",
+    "characters",
+    "char",
+    "chars",
+    "error",
+    "errors",
+    "warning",
+    "warnings",
+    "true",
+    "false",
 ];
 
 const COMPARATOR_MARKERS: &[&str] = &[
@@ -4771,17 +4875,11 @@ const NAMED_UI_MARKERS: &[&str] = &[
 ];
 
 const STATE_MARKERS: &[&str] = &[
-    "after",
-    "before",
-    "when",
-    "if",
     "state",
     "visible",
     "hidden",
     "shows",
-    "show",
     "displays",
-    "display",
     "appears",
     "updates",
     "selected",
@@ -4800,7 +4898,24 @@ const STATE_MARKERS: &[&str] = &[
     "survives",
     "reload",
     "refresh",
-    "complete",
+    "sort",
+    "sorts",
+    "sorted",
+    "parse",
+    "parses",
+    "parsed",
+    "compute",
+    "computes",
+    "computed",
+    "return",
+    "returns",
+    "returned",
+    "validate",
+    "validates",
+    "validated",
+    "calculate",
+    "calculates",
+    "calculated",
     "완료",
     "보임",
     "표시",
@@ -4842,12 +4957,26 @@ const RESPONSIVE_MARKERS: &[&str] = &[
 
 const PERSISTENCE_MARKERS: &[&str] = &[
     "persist",
+    "persists",
+    "persisted",
+    "persisting",
     "persistence",
     "save",
+    "saves",
     "saved",
+    "saving",
     "reload",
+    "reloads",
+    "reloaded",
+    "reloading",
     "refresh",
+    "refreshes",
+    "refreshed",
+    "refreshing",
     "survive",
+    "survives",
+    "survived",
+    "surviving",
     "localstorage",
     "storage",
     "저장",
@@ -5348,6 +5477,71 @@ mod criterion_quality_tests {
                 .collect(),
             steps: vec![step_with_criteria(criteria)],
         }
+    }
+
+    #[test]
+    fn upload_goal_does_not_match_load_inside_word() {
+        let plan = plan_with_criteria(
+            "Build upload widget",
+            &["Clicking Upload adds the selected file to the list and shows its name."],
+        );
+
+        assert!(validate_criterion_quality("Build upload widget", &plan).is_ok());
+    }
+
+    #[test]
+    fn ascii_keyword_matching_requires_whole_words() {
+        let rapid_plan = plan_with_criteria(
+            "rapid prototype dashboard",
+            &["Prototype dashboard list shows the selected card title."],
+        );
+
+        assert!(validate_criterion_quality("rapid prototype dashboard", &rapid_plan).is_ok());
+        assert!(!contains_any("build upload widget", data_fetch_keywords()));
+        assert!(!contains_any(
+            "rapid prototype dashboard",
+            data_fetch_keywords()
+        ));
+        assert!(!contains_any("overall layout polish", COMPARATOR_MARKERS));
+    }
+
+    #[test]
+    fn short_hangul_markers_require_standalone_tokens() {
+        let text = "발표 내용을 나열하고 빈칸을 정리한다";
+
+        assert!(!criterion_has_observable_marker(text));
+        assert!(!contains_any(text, NAMED_UI_MARKERS));
+        assert!(!contains_any(text, RESPONSIVE_MARKERS));
+        assert!(!contains_any(text, EMPTY_STATE_MARKERS));
+    }
+
+    #[test]
+    fn terse_algorithmic_criteria_have_observable_markers() {
+        let sort_plan = plan_with_criteria("Implement number sorting", &["Sorts numerically"]);
+        let validate_plan = plan_with_criteria(
+            "Implement input validation",
+            &["Returns true for valid input"],
+        );
+
+        assert!(criterion_has_observable_marker("Sorts numerically"));
+        assert!(criterion_has_observable_marker(
+            "Returns true for valid input"
+        ));
+        assert!(validate_criterion_quality("Implement number sorting", &sort_plan).is_ok());
+        assert!(validate_criterion_quality("Implement input validation", &validate_plan).is_ok());
+    }
+
+    #[test]
+    fn vague_criterion_with_stray_digit_is_blocked() {
+        let plan = plan_with_criteria("Build a small calculator", &["make it nice in 2 ways"]);
+
+        let err = validate_criterion_quality("Build a small calculator", &plan).unwrap_err();
+
+        assert_eq!(err.reason, CriterionQualityErrorReason::VagueCriteria);
+        assert!(err
+            .unresolved_questions
+            .iter()
+            .any(|item| item.contains("make it nice in 2 ways")));
     }
 
     #[test]
