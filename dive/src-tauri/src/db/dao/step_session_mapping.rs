@@ -155,6 +155,7 @@ mod tests {
                 instruction_seed: None,
                 expected_files: Some(json!([])),
                 acceptance_criteria: Some(json!([])),
+                step_kind: Default::default(),
                 verification_kind: None,
                 verification_command: None,
                 verification_manual_check: None,

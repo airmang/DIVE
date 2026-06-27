@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type {
   LlmPlanDraftPayload,
   PlanDraftInput,
+  StepKind,
   StepDraftInput,
   VerificationType,
 } from "./types";
@@ -79,6 +80,96 @@ function optionalVerificationType(value: unknown, command: string | null): Verif
   }
 }
 
+function optionalStepKind(value: unknown): StepKind | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === "feature" ||
+    normalized === "refactor" ||
+    normalized === "rename" ||
+    normalized === "comment" ||
+    normalized === "debug"
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function includesAny(text: string, needles: string[]) {
+  return needles.some((needle) => text.includes(needle));
+}
+
+function classifyStepKind(input: {
+  title: string;
+  summary: string;
+  instructionSeed: string;
+  expectedFiles: string[];
+  acceptanceCriteria: ReturnType<typeof criteriaArray>;
+}): StepKind {
+  const criteriaText = input.acceptanceCriteria.map((criterion) => criterion.text).join("\n");
+  const text = [
+    input.title,
+    input.summary,
+    input.instructionSeed,
+    criteriaText,
+    ...input.expectedFiles,
+  ]
+    .join("\n")
+    .toLowerCase();
+  if (
+    includesAny(text, ["rename", "renaming", "renamed", "이름 변경", "이름을 변경", "명칭 변경"])
+  ) {
+    return "rename";
+  }
+  if (
+    includesAny(text, [
+      "refactor",
+      "restructure",
+      "reorganize",
+      "extract",
+      "move code",
+      "split module",
+      "동작 보존",
+      "리팩터",
+      "리팩토",
+      "구조 개선",
+    ])
+  ) {
+    return "refactor";
+  }
+  if (
+    includesAny(text, [
+      "debug",
+      "diagnose",
+      "investigate",
+      "fix bug",
+      "failing",
+      "error",
+      "디버그",
+      "진단",
+      "오류",
+      "버그",
+    ])
+  ) {
+    return "debug";
+  }
+  if (
+    includesAny(text, [
+      "comment",
+      "documentation",
+      "docs",
+      "readme",
+      "copy update",
+      "주석",
+      "문서",
+      "설명",
+    ])
+  ) {
+    return "comment";
+  }
+  return "feature";
+}
+
 function criteriaArray(value: unknown) {
   return adaptAcceptanceCriteria(value);
 }
@@ -101,6 +192,10 @@ function decodeStep(raw: unknown, index: number): StepDraftInput | null {
   const verificationCommand = optionalString(
     source.verification_command ?? source.verificationCommand,
   );
+  const expectedFiles = stringArray(source.expected_files ?? source.expectedFiles);
+  const stepKind =
+    optionalStepKind(source.step_kind ?? source.stepKind) ??
+    classifyStepKind({ title, summary, instructionSeed, expectedFiles, acceptanceCriteria });
   return {
     stepId:
       optionalString(source.step_id ?? source.stepId) ??
@@ -108,10 +203,11 @@ function decodeStep(raw: unknown, index: number): StepDraftInput | null {
     title,
     summary,
     instructionSeed,
-    expectedFiles: stringArray(source.expected_files ?? source.expectedFiles),
+    expectedFiles,
     acceptanceCriteria,
     linkedCriterionIds: derivedLinkedCriterionIds,
     rationale,
+    stepKind,
     verificationCommand,
     verificationType: optionalVerificationType(
       source.verification_type ?? source.verificationType,

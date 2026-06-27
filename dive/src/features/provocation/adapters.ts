@@ -26,6 +26,7 @@ import type {
   SupervisorSourceUiMode,
 } from "./types";
 import { useLocaleStore } from "../../i18n";
+import { hasConcreteVerificationEvidence } from "./verificationStatus";
 
 export function stringArray(value: unknown): string[] {
   return Array.isArray(value)
@@ -769,6 +770,8 @@ export function buildDiffReadyReviewAssessment(input: {
   changedFiles: ProvocationChangedFile[];
   expectedFiles: string[];
   diffViewed?: boolean;
+  stepKind?: string | null;
+  verification?: ProvocationContext["verification"];
 }): DiffReadyReviewAssessmentContract {
   const changedFiles = input.changedFiles.filter((file) => file.path.trim().length > 0);
   const expectedFiles = input.expectedFiles.filter((path) => path.trim().length > 0);
@@ -786,9 +789,22 @@ export function buildDiffReadyReviewAssessment(input: {
       )
       .map((file) => file.path),
   );
+  const normalizedStepKind = input.stepKind?.trim().toLowerCase();
+  const behaviorPreservingShape =
+    changedFiles.some((file) => file.changeType === "renamed") ||
+    normalizedStepKind === "refactor" ||
+    normalizedStepKind === "rename";
+  const hasVerificationEvidence = hasConcreteVerificationEvidence({
+    mode: "work",
+    stage: "verify",
+    verification: input.verification,
+  });
   const reasonCodes: string[] = [];
   if (unexpectedFiles.length > 0) reasonCodes.push("outside_expected_files");
   if (highRiskFiles.length > 0) reasonCodes.push("high_risk_area");
+  if (behaviorPreservingShape && !hasVerificationEvidence) {
+    reasonCodes.push("behavior_preserving_refactor");
+  }
   const evidenceRefs = [
     "diff.changed_files",
     "diff.expected_files",
@@ -796,6 +812,9 @@ export function buildDiffReadyReviewAssessment(input: {
     "diff.viewed",
     ...(unexpectedFiles.length > 0 ? ["diff.unexpected_files"] : []),
     ...(highRiskFiles.length > 0 ? ["diff.high_risk_files"] : []),
+    ...(behaviorPreservingShape && !hasVerificationEvidence
+      ? ["diff.behavior_preserving_refactor"]
+      : []),
   ];
 
   return {
@@ -814,8 +833,11 @@ export function buildDiffReadyEvidenceRefs(input: {
   stepSummary: string;
   changedFiles: ProvocationChangedFile[];
   expectedFiles: string[];
+  stepKind?: string | null;
+  locale?: string | null;
   assessment: DiffReadyReviewAssessmentContract;
 }): SupervisorEvidenceRefContract[] {
+  const localeIsEnglish = input.locale?.trim().toLowerCase().startsWith("en") ?? false;
   const refs = [
     evidenceRef({
       id: "diff.changed_files",
@@ -877,6 +899,22 @@ export function buildDiffReadyEvidenceRefs(input: {
         paths: input.assessment.highRiskFiles,
       },
     }),
+    evidenceRef({
+      id: "diff.behavior_preserving_refactor",
+      source: "diff",
+      kind: "diff_ready_assessment",
+      label: localeIsEnglish ? "Behavior-preserving refactor signal" : "동작 보존 리팩터 신호",
+      valueSummary: {
+        stepKind: input.stepKind ?? null,
+        renamedFiles: compactArray(
+          input.changedFiles
+            .filter((file) => file.changeType === "renamed")
+            .map((file) => file.path),
+          8,
+        ),
+        hasVerificationEvidence: false,
+      },
+    }),
   ];
   const allowed = new Set(input.assessment.evidenceRefs);
   return refs.filter((ref) => allowed.has(ref.id));
@@ -895,6 +933,7 @@ export function createDiffReadySupervisorRequest(input: {
   changedFiles: ProvocationChangedFile[];
   expectedFiles: string[];
   diffViewed?: boolean;
+  stepKind?: string | null;
   uiState: DiffReadySupervisorEvaluationRequest["uiState"];
 }): DiffReadySupervisorEvaluationRequest {
   const sourceUiMode = input.sourceUiMode ?? "standard";
@@ -902,12 +941,19 @@ export function createDiffReadySupervisorRequest(input: {
     changedFiles: input.changedFiles,
     expectedFiles: input.expectedFiles,
     diffViewed: input.diffViewed,
+    stepKind: input.stepKind,
+    verification: {
+      ...input.uiState.verification,
+      testResult: input.uiState.verification.testResult ?? undefined,
+    },
   });
   const evidenceRefs = buildDiffReadyEvidenceRefs({
     goalSummary: input.goalSummary,
     stepSummary: input.stepSummary,
     changedFiles: input.changedFiles,
     expectedFiles: input.expectedFiles,
+    stepKind: input.stepKind,
+    locale: input.locale,
     assessment,
   });
   const artifactRef = {
@@ -920,6 +966,7 @@ export function createDiffReadySupervisorRequest(input: {
     artifactRef,
     goalSummary: input.goalSummary,
     stepSummary: input.stepSummary,
+    stepKind: input.stepKind ?? null,
     assessment,
   };
   return {

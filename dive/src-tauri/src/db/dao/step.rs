@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::db::dao::{optional_json_to_string, parse_optional_json};
-use crate::db::models::{NewStep, StepRow};
+use crate::db::models::{NewStep, StepKind, StepRow};
 use crate::db::{now_ms, DbError};
 
 fn map_row(row: &rusqlite::Row<'_>) -> Result<StepRow, DbError> {
@@ -16,17 +16,18 @@ fn map_row(row: &rusqlite::Row<'_>) -> Result<StepRow, DbError> {
         instruction_seed: row.get(5)?,
         expected_files: parse_optional_json(row.get(6)?)?,
         acceptance_criteria: parse_optional_json(row.get(7)?)?,
-        verification_kind: row.get(8)?,
-        verification_command: row.get(9)?,
-        verification_manual_check: row.get(10)?,
-        dependencies: parse_optional_json(row.get(11)?)?,
-        parallel_group: row.get(12)?,
-        position: row.get(13)?,
-        created_at: row.get(14)?,
-        updated_at: row.get(15)?,
-        status: row.get(16)?,
-        superseded_by_step_id: row.get(17)?,
-        suppression_reason: row.get(18)?,
+        step_kind: StepKind::from_marker(&row.get::<_, String>(8)?),
+        verification_kind: row.get(9)?,
+        verification_command: row.get(10)?,
+        verification_manual_check: row.get(11)?,
+        dependencies: parse_optional_json(row.get(12)?)?,
+        parallel_group: row.get(13)?,
+        position: row.get(14)?,
+        created_at: row.get(15)?,
+        updated_at: row.get(16)?,
+        status: row.get(17)?,
+        superseded_by_step_id: row.get(18)?,
+        suppression_reason: row.get(19)?,
     })
 }
 
@@ -42,8 +43,8 @@ pub fn insert(conn: &Connection, row: &NewStep) -> Result<i64, DbError> {
     let acceptance = optional_json_to_string(row.acceptance_criteria.as_ref())?;
     let dependencies = optional_json_to_string(row.dependencies.as_ref())?;
     conn.execute(
-        "INSERT INTO Step(plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        params![row.plan_id, row.step_id, row.title, row.summary, row.instruction_seed, expected_files, acceptance, row.verification_kind, row.verification_command, row.verification_manual_check, dependencies, row.parallel_group, row.position, now, now],
+        "INSERT INTO Step(plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, step_kind, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        params![row.plan_id, row.step_id, row.title, row.summary, row.instruction_seed, expected_files, acceptance, row.step_kind.as_str(), row.verification_kind, row.verification_command, row.verification_manual_check, dependencies, row.parallel_group, row.position, now, now],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -51,7 +52,7 @@ pub fn insert(conn: &Connection, row: &NewStep) -> Result<i64, DbError> {
 pub fn get_by_id(conn: &Connection, id: i64) -> Result<Option<StepRow>, DbError> {
     Ok(conn
         .query_row(
-            "SELECT id, plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at, status, superseded_by_step_id, suppression_reason FROM Step WHERE id = ?",
+            "SELECT id, plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, step_kind, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at, status, superseded_by_step_id, suppression_reason FROM Step WHERE id = ?",
             [id],
             query_map_row,
         )
@@ -65,7 +66,7 @@ pub fn get_by_plan_and_step_id(
 ) -> Result<Option<StepRow>, DbError> {
     Ok(conn
         .query_row(
-            "SELECT id, plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at, status, superseded_by_step_id, suppression_reason FROM Step WHERE plan_id = ? AND step_id = ?",
+            "SELECT id, plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, step_kind, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at, status, superseded_by_step_id, suppression_reason FROM Step WHERE plan_id = ? AND step_id = ?",
             params![plan_id, step_id],
             query_map_row,
         )
@@ -74,7 +75,7 @@ pub fn get_by_plan_and_step_id(
 
 pub fn list_by_plan(conn: &Connection, plan_id: i64) -> Result<Vec<StepRow>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT id, plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at, status, superseded_by_step_id, suppression_reason FROM Step WHERE plan_id = ? ORDER BY position, id",
+        "SELECT id, plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, step_kind, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at, status, superseded_by_step_id, suppression_reason FROM Step WHERE plan_id = ? ORDER BY position, id",
     )?;
     let rows = stmt
         .query_map([plan_id], query_map_row)?
@@ -87,7 +88,7 @@ pub fn list_by_plan(conn: &Connection, plan_id: i64) -> Result<Vec<StepRow>, DbE
 /// `list_by_plan` still returns history (and reserves removed step_ids).
 pub fn list_active_by_plan(conn: &Connection, plan_id: i64) -> Result<Vec<StepRow>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT id, plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at, status, superseded_by_step_id, suppression_reason FROM Step WHERE plan_id = ? AND status = 'active' ORDER BY position, id",
+        "SELECT id, plan_id, step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, step_kind, verification_kind, verification_command, verification_manual_check, dependencies, parallel_group, position, created_at, updated_at, status, superseded_by_step_id, suppression_reason FROM Step WHERE plan_id = ? AND status = 'active' ORDER BY position, id",
     )?;
     let rows = stmt
         .query_map([plan_id], query_map_row)?
@@ -117,8 +118,8 @@ pub fn update(conn: &Connection, id: i64, row: &NewStep) -> Result<(), DbError> 
     let acceptance = optional_json_to_string(row.acceptance_criteria.as_ref())?;
     let dependencies = optional_json_to_string(row.dependencies.as_ref())?;
     conn.execute(
-        "UPDATE Step SET plan_id = ?, step_id = ?, title = ?, summary = ?, instruction_seed = ?, expected_files = ?, acceptance_criteria = ?, verification_kind = ?, verification_command = ?, verification_manual_check = ?, dependencies = ?, parallel_group = ?, position = ?, updated_at = ? WHERE id = ?",
-        params![row.plan_id, row.step_id, row.title, row.summary, row.instruction_seed, expected_files, acceptance, row.verification_kind, row.verification_command, row.verification_manual_check, dependencies, row.parallel_group, row.position, now_ms(), id],
+        "UPDATE Step SET plan_id = ?, step_id = ?, title = ?, summary = ?, instruction_seed = ?, expected_files = ?, acceptance_criteria = ?, step_kind = ?, verification_kind = ?, verification_command = ?, verification_manual_check = ?, dependencies = ?, parallel_group = ?, position = ?, updated_at = ? WHERE id = ?",
+        params![row.plan_id, row.step_id, row.title, row.summary, row.instruction_seed, expected_files, acceptance, row.step_kind.as_str(), row.verification_kind, row.verification_command, row.verification_manual_check, dependencies, row.parallel_group, row.position, now_ms(), id],
     )?;
     Ok(())
 }
@@ -252,6 +253,7 @@ mod tests {
             instruction_seed: None,
             expected_files: Some(json!([])),
             acceptance_criteria: Some(json!([])),
+            step_kind: StepKind::Feature,
             verification_kind: None,
             verification_command: None,
             verification_manual_check: None,
@@ -406,6 +408,7 @@ mod tests {
         });
         let row: StepRow = serde_json::from_value(value).unwrap();
         assert_eq!(row.status, "active");
+        assert_eq!(row.step_kind, StepKind::Feature);
         assert!(row.superseded_by_step_id.is_none());
         assert!(row.suppression_reason.is_none());
     }

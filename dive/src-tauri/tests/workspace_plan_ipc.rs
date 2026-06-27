@@ -273,6 +273,7 @@ fn insert_step(state: &AppState, plan_id: i64, step_id: &str, deps: &[&str]) -> 
             instruction_seed: Some(format!("Do {step_id}")),
             expected_files: Some(serde_json::json!([])),
             acceptance_criteria: Some(serde_json::json!(["done"])),
+            step_kind: Default::default(),
             verification_kind: None,
             verification_command: None,
             verification_manual_check: None,
@@ -307,6 +308,7 @@ fn draft_input() -> PlanDraftInput {
                 rationale: Some(
                     "The schema step persists the PRD-backed plan needed for AC-001.".into(),
                 ),
+                step_kind: None,
                 verification_command: Some("cargo test".into()),
                 verification_type: Some("test".into()),
                 dependencies: vec![],
@@ -327,6 +329,7 @@ fn draft_input() -> PlanDraftInput {
                     "The export step proves the PRD-backed decomposition remains reconstructable."
                         .into(),
                 ),
+                step_kind: None,
                 verification_command: None,
                 verification_type: Some("manual".into()),
                 dependencies: vec!["step-001".into()],
@@ -347,6 +350,7 @@ fn append_step_draft(dependencies: Vec<String>) -> StepDraftInput {
         acceptance_criteria: vec![AcceptanceCriterionInput::Text("Users can sign in.".into())],
         linked_criterion_ids: Vec::new(),
         rationale: None,
+        step_kind: None,
         verification_command: Some("pnpm test".into()),
         verification_type: Some("test".into()),
         dependencies,

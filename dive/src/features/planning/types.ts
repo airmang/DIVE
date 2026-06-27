@@ -219,6 +219,8 @@ export interface InterviewRow {
   updated_at: number;
 }
 
+export type StepKind = "feature" | "refactor" | "rename" | "comment" | "debug";
+
 export interface StepDraftInput {
   stepId: string;
   title: string;
@@ -231,6 +233,7 @@ export interface StepDraftInput {
   // `None` as `null` (the `#[serde(default)]` field rides on add_step /
   // supersede / multi_step drafts). Consumers must treat it as nullable.
   rationale: string | null;
+  stepKind?: StepKind;
   verificationCommand: string | null;
   verificationType: VerificationType | null;
   dependencies: string[];

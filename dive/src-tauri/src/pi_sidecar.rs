@@ -1326,6 +1326,7 @@ mod tests {
                 instruction_seed: Some("Exercise runtime abort handling".into()),
                 expected_files: Some(json!(["src/pi_sidecar.rs"])),
                 acceptance_criteria: Some(json!(["runtime aborts are retryable"])),
+                step_kind: Default::default(),
                 verification_kind: None,
                 verification_command: None,
                 verification_manual_check: None,
@@ -1360,6 +1361,7 @@ mod tests {
             linked_criterion_ids: Vec::new(),
             decomposition_rationale: None,
             expected_files: Some("[\"src/pi_sidecar.rs\"]".into()),
+            step_kind: Default::default(),
         }
     }
 

@@ -27,10 +27,10 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::db::dao::{card, message, workmap};
-use crate::db::models::NewMessage;
+use crate::db::models::{NewMessage, StepKind};
 use crate::db::Database;
-use crate::dive::build_plan_interview_system_prompt;
 use crate::dive::event_log as dive_event_log;
+use crate::dive::{build_plan_interview_system_prompt, prompt_locale_is_english};
 use crate::providers::{
     ChatEvent, ChatRequest, FinishReason, LlmProvider, Message as ProviderMessage, ToolCall,
 };
@@ -132,6 +132,7 @@ pub struct StepContext {
     pub linked_criterion_ids: Vec<String>,
     pub decomposition_rationale: Option<String>,
     pub expected_files: Option<String>,
+    pub step_kind: StepKind,
 }
 
 pub struct AgentLoop {
@@ -1764,42 +1765,12 @@ impl AgentLoop {
         let Some(card) = card::get_by_id(db.conn(), cid)? else {
             return Ok(None);
         };
-        let mut prompt_parts = Vec::new();
-        if let Some(ctx) = &self.step_context {
-            prompt_parts.push(format!("현재 작업 단계: {}", ctx.title));
-            if let Some(instruction) = &ctx.instruction_seed {
-                prompt_parts.push(format!("단계 지시: {}", instruction));
-            }
-            if let Some(criteria) = &ctx.acceptance_criteria {
-                prompt_parts.push(format!("수용 기준: {}", criteria));
-            }
-            if !ctx.linked_criterion_ids.is_empty() {
-                prompt_parts.push(format!(
-                    "연결된 PRD 기준: {}",
-                    ctx.linked_criterion_ids.join(", ")
-                ));
-            }
-            if let Some(rationale) = &ctx.decomposition_rationale {
-                prompt_parts.push(format!("분해 근거: {}", rationale));
-            }
-            if let Some(files) = &ctx.expected_files {
-                prompt_parts.push(format!("예상 변경 파일: {}", files));
-            }
-            prompt_parts.push(
-                "단계 종료 규칙: 수용 기준을 충족했거나 더 이상 필요한 도구 호출이 없으면 즉시 도구 호출을 멈추고 최종 응답으로 변경 내용, 검증/미검증 근거, 남은 리스크를 요약하세요. 같은 정보를 반복 확인하기 위해 동일한 도구 호출을 반복하지 마세요.".to_string(),
-            );
-        }
-
-        let instruction = card.instruction.as_deref().unwrap_or("").trim();
-        if instruction.is_empty() {
-            prompt_parts.push(format!("현재 작업 중인 카드: {}", card.title));
-        } else {
-            prompt_parts.push(format!(
-                "현재 작업 중인 카드: {}\n지시: {}",
-                card.title, instruction
-            ));
-        }
-        Ok(Some(prompt_parts.join("\n\n")))
+        Ok(Some(build_current_card_system_prompt(
+            self.step_context.as_ref(),
+            &card.title,
+            card.instruction.as_deref(),
+            self.locale.as_deref(),
+        )))
     }
 
     fn locale_system_prompt(&self) -> Option<String> {
@@ -1857,6 +1828,79 @@ impl AgentLoop {
             }
             _ => None,
         }
+    }
+}
+
+fn build_current_card_system_prompt(
+    step_context: Option<&StepContext>,
+    card_title: &str,
+    card_instruction: Option<&str>,
+    locale: Option<&str>,
+) -> String {
+    let mut prompt_parts = Vec::new();
+    if let Some(ctx) = step_context {
+        prompt_parts.push(format!("현재 작업 단계: {}", ctx.title));
+        if let Some(instruction) = &ctx.instruction_seed {
+            prompt_parts.push(format!("단계 지시: {}", instruction));
+        }
+        if let Some(criteria) = &ctx.acceptance_criteria {
+            prompt_parts.push(format!("수용 기준: {}", criteria));
+        }
+        if !ctx.linked_criterion_ids.is_empty() {
+            prompt_parts.push(format!(
+                "연결된 PRD 기준: {}",
+                ctx.linked_criterion_ids.join(", ")
+            ));
+        }
+        if let Some(rationale) = &ctx.decomposition_rationale {
+            prompt_parts.push(format!("분해 근거: {}", rationale));
+        }
+        if let Some(files) = &ctx.expected_files {
+            prompt_parts.push(format!("예상 변경 파일: {}", files));
+        }
+        if let Some(clause) = step_kind_prompt_clause(ctx.step_kind, locale) {
+            prompt_parts.push(clause.to_string());
+        }
+        prompt_parts.push(
+            "단계 종료 규칙: 수용 기준을 충족했거나 더 이상 필요한 도구 호출이 없으면 즉시 도구 호출을 멈추고 최종 응답으로 변경 내용, 검증/미검증 근거, 남은 리스크를 요약하세요. 같은 정보를 반복 확인하기 위해 동일한 도구 호출을 반복하지 마세요.".to_string(),
+        );
+    }
+
+    let instruction = card_instruction.unwrap_or("").trim();
+    if instruction.is_empty() {
+        prompt_parts.push(format!("현재 작업 중인 카드: {card_title}"));
+    } else {
+        prompt_parts.push(format!(
+            "현재 작업 중인 카드: {card_title}\n지시: {instruction}",
+        ));
+    }
+    prompt_parts.join("\n\n")
+}
+
+fn step_kind_prompt_clause(kind: StepKind, locale: Option<&str>) -> Option<&'static str> {
+    let english = locale.is_some_and(prompt_locale_is_english);
+    match kind {
+        StepKind::Refactor | StepKind::Rename => {
+            if english {
+                Some(
+                    "Behavior-preserving step: move the code verbatim - do not change logic, defaults, or ordering; this step must preserve behavior.",
+                )
+            } else {
+                Some(
+                    "동작 보존 단계: 코드를 그대로 옮기세요. 로직, 기본값, 순서를 바꾸지 말고 이 단계는 동작을 보존해야 합니다.",
+                )
+            }
+        }
+        StepKind::Debug => {
+            if english {
+                Some(
+                    "Debug step: diagnose before editing, identify the smallest likely cause, and make the minimal fix.",
+                )
+            } else {
+                Some("디버그 단계: 편집하기 전에 먼저 진단하고 가장 작은 원인을 찾아 최소 수정만 하세요.")
+            }
+        }
+        StepKind::Feature | StepKind::Comment => None,
     }
 }
 
@@ -2402,5 +2446,57 @@ mod tests {
         assert_eq!(payload["tool_call_id"], "tool-1");
         assert_eq!(payload["reason"], "package change is intentional");
         assert_eq!(payload["highRiskFiles"][0], "package.json");
+    }
+
+    fn test_step_context(kind: StepKind) -> StepContext {
+        StepContext {
+            step_id: 1,
+            title: "Move auth helper".into(),
+            instruction_seed: Some("Move the helper into auth.ts".into()),
+            acceptance_criteria: Some("Existing auth behavior still works".into()),
+            linked_criterion_ids: vec!["AC-001".into()],
+            decomposition_rationale: Some("Keep the behavior scoped to auth.".into()),
+            expected_files: Some("src/auth.ts".into()),
+            step_kind: kind,
+        }
+    }
+
+    #[test]
+    fn current_card_prompt_adds_verbatim_clause_for_refactor_step() {
+        let prompt = build_current_card_system_prompt(
+            Some(&test_step_context(StepKind::Refactor)),
+            "Refactor card",
+            Some("Move helper"),
+            Some("en-US"),
+        );
+
+        assert!(prompt.contains("move the code verbatim"));
+        assert!(prompt.contains("this step must preserve behavior"));
+    }
+
+    #[test]
+    fn current_card_prompt_omits_verbatim_clause_for_default_feature_step() {
+        let prompt = build_current_card_system_prompt(
+            Some(&test_step_context(StepKind::Feature)),
+            "Feature card",
+            Some("Add behavior"),
+            Some("en-US"),
+        );
+
+        assert!(!prompt.contains("move the code verbatim"));
+        assert!(!prompt.contains("preserve behavior"));
+    }
+
+    #[test]
+    fn current_card_prompt_adds_debug_clause_for_debug_step() {
+        let prompt = build_current_card_system_prompt(
+            Some(&test_step_context(StepKind::Debug)),
+            "Debug card",
+            Some("Fix failing save"),
+            Some("en-US"),
+        );
+
+        assert!(prompt.contains("diagnose before editing"));
+        assert!(prompt.contains("make the minimal fix"));
     }
 }

@@ -767,6 +767,47 @@ pub struct PlanRow {
     pub updated_at: i64,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StepKind {
+    #[default]
+    Feature,
+    Refactor,
+    Rename,
+    Comment,
+    Debug,
+}
+
+impl StepKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Feature => "feature",
+            Self::Refactor => "refactor",
+            Self::Rename => "rename",
+            Self::Comment => "comment",
+            Self::Debug => "debug",
+        }
+    }
+
+    pub fn from_marker(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "refactor" => Self::Refactor,
+            "rename" => Self::Rename,
+            "comment" => Self::Comment,
+            "debug" => Self::Debug,
+            _ => Self::Feature,
+        }
+    }
+
+    pub fn behavior_preserving(self) -> bool {
+        matches!(self, Self::Refactor | Self::Rename)
+    }
+}
+
+fn default_step_kind() -> StepKind {
+    StepKind::Feature
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NewStep {
     pub plan_id: i64,
@@ -776,6 +817,8 @@ pub struct NewStep {
     pub instruction_seed: Option<String>,
     pub expected_files: Option<Value>,
     pub acceptance_criteria: Option<Value>,
+    #[serde(default = "default_step_kind")]
+    pub step_kind: StepKind,
     pub verification_kind: Option<String>,
     pub verification_command: Option<String>,
     pub verification_manual_check: Option<String>,
@@ -798,6 +841,8 @@ pub struct StepRow {
     pub instruction_seed: Option<String>,
     pub expected_files: Option<Value>,
     pub acceptance_criteria: Option<Value>,
+    #[serde(default = "default_step_kind")]
+    pub step_kind: StepKind,
     pub verification_kind: Option<String>,
     pub verification_command: Option<String>,
     pub verification_manual_check: Option<String>,

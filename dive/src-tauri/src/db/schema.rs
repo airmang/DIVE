@@ -148,6 +148,7 @@ CREATE TABLE IF NOT EXISTS Step (
     instruction_seed TEXT,
     expected_files TEXT DEFAULT '[]',
     acceptance_criteria TEXT DEFAULT '[]',
+    step_kind TEXT NOT NULL DEFAULT 'feature' CHECK(step_kind IN ('feature','refactor','rename','comment','debug')),
     verification_kind TEXT,
     verification_command TEXT,
     verification_manual_check TEXT,
