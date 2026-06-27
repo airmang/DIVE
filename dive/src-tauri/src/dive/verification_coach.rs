@@ -238,15 +238,28 @@ pub fn evidence_summary(request: &VerificationCoachGenerateRequest) -> Value {
 }
 
 pub fn build_verification_coach_prompt(request: &VerificationCoachGenerateRequest) -> String {
+    let locale = request.locale.as_deref().unwrap_or("ko-KR");
+    let english =
+        crate::dive::prompt_locale_is_english(request.locale.as_deref().unwrap_or("ko-KR"));
+    let locale_clause = if english {
+        format!(" Current user language: {locale}. Write criterionSummary, every recommendedChecks label/instruction/expectedObservation, every expectedObservations entry, and every evidencePrompts entry in that language. JSON keys stay in English.")
+    } else {
+        format!(" 현재 사용자 언어: {locale}. criterionSummary와 모든 recommendedChecks의 label/instruction/expectedObservation, expectedObservations, evidencePrompts를 그 언어로 작성하세요. JSON 키는 영어로 둡니다.")
+    };
+    let system_instruction = format!(
+        "{}{}",
+        "You are DIVE's verification coach. Generate concise JSON only. Explain how the student can verify the current real project step. Do not approve the step. Do not claim the step is done. Use only supplied evidence and safe inspection actions.",
+        locale_clause
+    );
     let context = json!({
         "step": request.step,
         "evidence": request.evidence,
         "sourceUiMode": request.source_ui_mode,
-        "locale": request.locale.as_deref().unwrap_or("ko-KR"),
+        "locale": locale,
     });
     format!(
         "{}\n\n{}\n{}",
-        "You are DIVE's verification coach. Generate concise JSON only. Explain how the student can verify the current real project step. Do not approve the step. Do not claim the step is done. Use only supplied evidence and safe inspection actions.",
+        system_instruction,
         "Return shape: {\"criterionSummary\":\"...\",\"recommendedChecks\":[{\"kind\":\"terminal|file|diff|test|preview|app_run|manual\",\"label\":\"...\",\"instruction\":\"...\",\"expectedObservation\":\"...\"}],\"expectedObservations\":[\"...\"],\"evidencePrompts\":[\"...\"]}.",
         serde_json::to_string(&context).unwrap_or_else(|_| "{}".to_string())
     )
@@ -519,5 +532,25 @@ mod tests {
         assert!(prompt.contains("src/main.ts"));
         assert!(prompt.contains("\"previewAvailable\":false"));
         assert!(prompt.contains("\"appRunAvailable\":false"));
+    }
+
+    #[test]
+    fn prompt_value_language_clause_matches_locale() {
+        let english_clause = "Current user language: en. Write criterionSummary, every recommendedChecks label/instruction/expectedObservation, every expectedObservations entry, and every evidencePrompts entry in that language. JSON keys stay in English.";
+        let korean_clause = "현재 사용자 언어: ko. criterionSummary와 모든 recommendedChecks의 label/instruction/expectedObservation, expectedObservations, evidencePrompts를 그 언어로 작성하세요. JSON 키는 영어로 둡니다.";
+
+        let mut english_request = request();
+        english_request.locale = Some("en".to_string());
+        let english_prompt = build_verification_coach_prompt(&english_request);
+
+        assert!(english_prompt.contains(english_clause));
+        assert!(!english_prompt.contains(korean_clause));
+
+        let mut korean_request = request();
+        korean_request.locale = Some("ko".to_string());
+        let korean_prompt = build_verification_coach_prompt(&korean_request);
+
+        assert!(korean_prompt.contains(korean_clause));
+        assert!(!korean_prompt.contains(english_clause));
     }
 }

@@ -26,9 +26,11 @@ use crate::db::models::{
 use crate::db::now_ms;
 use crate::dive::event_log as dive_event_log;
 use crate::dive::plan_quality_constants::{
-    data_fetch_keywords, ui_goal_keywords, vague_terms, verification_type_from_legacy,
-    VerificationType,
+    contains_any, criterion_class_is_covered, data_fetch_keywords, ui_goal_keywords, vague_terms,
+    verification_type_from_legacy, MissingCriterionClass, VerificationType, STATE_MARKERS,
 };
+#[cfg(test)]
+use crate::dive::plan_quality_constants::{EMPTY_STATE_MARKERS, RESPONSIVE_MARKERS};
 use crate::dive::plan_router::{
     self, PlanRouterContext, PlanRouterDecision, PlanRouterStepContext, RouterStepDraft,
 };
@@ -4475,35 +4477,6 @@ impl std::fmt::Display for CriterionQualityError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MissingCriterionClass {
-    Responsive,
-    Persistence,
-    Accessibility,
-    Loading,
-    Empty,
-    Error,
-}
-
-impl MissingCriterionClass {
-    fn label(&self, locale_is_en: bool) -> &'static str {
-        match (self, locale_is_en) {
-            (MissingCriterionClass::Responsive, true) => "responsive behavior",
-            (MissingCriterionClass::Responsive, false) => "반응형 동작",
-            (MissingCriterionClass::Persistence, true) => "persistence after reload",
-            (MissingCriterionClass::Persistence, false) => "새로고침 후 유지",
-            (MissingCriterionClass::Accessibility, true) => "keyboard/ARIA accessibility",
-            (MissingCriterionClass::Accessibility, false) => "키보드/ARIA 접근성",
-            (MissingCriterionClass::Loading, true) => "loading state",
-            (MissingCriterionClass::Loading, false) => "로딩 상태",
-            (MissingCriterionClass::Empty, true) => "empty state",
-            (MissingCriterionClass::Empty, false) => "빈 상태",
-            (MissingCriterionClass::Error, true) => "error state",
-            (MissingCriterionClass::Error, false) => "오류 상태",
-        }
-    }
-}
-
 fn validate_criterion_quality(
     goal: &str,
     plan_input: &PlanDraftInput,
@@ -4631,57 +4604,8 @@ fn criterion_has_observable_marker(value: &str) -> bool {
         || has_meaningful_numeric_marker(&normalized)
 }
 
-fn criterion_class_is_covered(criteria_text: &str, class: MissingCriterionClass) -> bool {
-    match class {
-        MissingCriterionClass::Responsive => contains_any(criteria_text, RESPONSIVE_MARKERS),
-        MissingCriterionClass::Persistence => contains_any(criteria_text, PERSISTENCE_MARKERS),
-        MissingCriterionClass::Accessibility => contains_any(criteria_text, ACCESSIBILITY_MARKERS),
-        MissingCriterionClass::Loading => contains_any(criteria_text, LOADING_STATE_MARKERS),
-        MissingCriterionClass::Empty => contains_any(criteria_text, EMPTY_STATE_MARKERS),
-        MissingCriterionClass::Error => contains_any(criteria_text, ERROR_STATE_MARKERS),
-    }
-}
-
 fn normalize_quality_text(value: &str) -> String {
     value.to_lowercase()
-}
-
-fn contains_any(value: &str, needles: &[&str]) -> bool {
-    let normalized_value = normalize_quality_text(value);
-    needles.iter().any(|needle| {
-        let needle = normalize_quality_text(needle);
-        quality_marker_matches(&normalized_value, &needle)
-    })
-}
-
-fn quality_marker_matches(value: &str, needle: &str) -> bool {
-    if needle.is_empty() {
-        return false;
-    }
-    if needle.chars().any(|ch| ch.is_whitespace()) {
-        return value.contains(needle);
-    }
-    if needle.chars().all(|ch| ch.is_ascii_alphanumeric()) {
-        return value
-            .split(|ch: char| !ch.is_ascii_alphanumeric())
-            .any(|token| token == needle);
-    }
-    if needle.chars().all(is_hangul_char) {
-        if needle.chars().count() == 1 {
-            return value
-                .split(|ch| !is_hangul_char(ch))
-                .any(|token| token == needle);
-        }
-        return value.contains(needle);
-    }
-    value.contains(needle)
-}
-
-fn is_hangul_char(ch: char) -> bool {
-    matches!(
-        ch as u32,
-        0xAC00..=0xD7AF | 0x1100..=0x11FF | 0x3130..=0x318F
-    )
 }
 
 fn has_meaningful_numeric_marker(value: &str) -> bool {
@@ -4878,172 +4802,6 @@ const NAMED_UI_MARKERS: &[&str] = &[
     "태블릿",
     "모바일",
     "키보드",
-];
-
-const STATE_MARKERS: &[&str] = &[
-    "state",
-    "visible",
-    "hidden",
-    "shows",
-    "displays",
-    "appears",
-    "updates",
-    "selected",
-    "disabled",
-    "enabled",
-    "loading",
-    "empty",
-    "error",
-    "success",
-    "succeeds",
-    "failure",
-    "fails",
-    "saved",
-    "persists",
-    "persisted",
-    "survives",
-    "reload",
-    "refresh",
-    "sort",
-    "sorts",
-    "sorted",
-    "parse",
-    "parses",
-    "parsed",
-    "compute",
-    "computes",
-    "computed",
-    "return",
-    "returns",
-    "returned",
-    "validate",
-    "validates",
-    "validated",
-    "calculate",
-    "calculates",
-    "calculated",
-    "완료",
-    "보임",
-    "표시",
-    "나타",
-    "선택",
-    "비활성",
-    "활성",
-    "로딩",
-    "빈",
-    "오류",
-    "에러",
-    "성공",
-    "실패",
-    "저장",
-    "유지",
-    "새로고침",
-];
-
-const RESPONSIVE_MARKERS: &[&str] = &[
-    "responsive",
-    "breakpoint",
-    "desktop",
-    "tablet",
-    "mobile",
-    "phone",
-    "column",
-    "columns",
-    "grid",
-    "width",
-    "반응형",
-    "브레이크포인트",
-    "데스크톱",
-    "태블릿",
-    "모바일",
-    "열",
-    "그리드",
-    "너비",
-];
-
-const PERSISTENCE_MARKERS: &[&str] = &[
-    "persist",
-    "persists",
-    "persisted",
-    "persisting",
-    "persistence",
-    "save",
-    "saves",
-    "saved",
-    "saving",
-    "reload",
-    "reloads",
-    "reloaded",
-    "reloading",
-    "refresh",
-    "refreshes",
-    "refreshed",
-    "refreshing",
-    "survive",
-    "survives",
-    "survived",
-    "surviving",
-    "localstorage",
-    "storage",
-    "저장",
-    "유지",
-    "새로고침",
-    "재로드",
-    "스토리지",
-];
-
-const ACCESSIBILITY_MARKERS: &[&str] = &[
-    "accessibility",
-    "a11y",
-    "keyboard",
-    "aria",
-    "screen reader",
-    "focus",
-    "tab order",
-    "접근성",
-    "키보드",
-    "스크린리더",
-    "포커스",
-];
-
-const LOADING_STATE_MARKERS: &[&str] = &[
-    "loading",
-    "spinner",
-    "skeleton",
-    "pending",
-    "while data loads",
-    "while request",
-    "로딩",
-    "불러오는 중",
-    "스피너",
-    "스켈레톤",
-    "대기",
-];
-
-const EMPTY_STATE_MARKERS: &[&str] = &[
-    "empty",
-    "no results",
-    "no data",
-    "zero",
-    "none",
-    "blank",
-    "빈",
-    "결과 없음",
-    "데이터 없음",
-    "없을 때",
-];
-
-const ERROR_STATE_MARKERS: &[&str] = &[
-    "error",
-    "failure",
-    "failed",
-    "retry",
-    "network",
-    "에러",
-    "오류",
-    "실패",
-    "재시도",
-    "네트워크",
 ];
 
 fn validate_step_envelope(step: &StepDraftInput) -> Result<(), String> {
