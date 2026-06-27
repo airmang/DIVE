@@ -308,7 +308,7 @@ fn draft_input() -> PlanDraftInput {
                     "The schema step persists the PRD-backed plan needed for AC-001.".into(),
                 ),
                 verification_command: Some("cargo test".into()),
-                verification_type: Some("command".into()),
+                verification_type: Some("test".into()),
                 dependencies: vec![],
                 parallel_group: None,
                 position: 1,
@@ -348,7 +348,7 @@ fn append_step_draft(dependencies: Vec<String>) -> StepDraftInput {
         linked_criterion_ids: Vec::new(),
         rationale: None,
         verification_command: Some("pnpm test".into()),
-        verification_type: Some("command".into()),
+        verification_type: Some("test".into()),
         dependencies,
         parallel_group: Some(1),
         position: 99,
@@ -885,7 +885,7 @@ fn generate_draft_accepts_legacy_criteria_with_step_links_and_rationale() {
             "linkedCriterionIds": ["AC-001"],
             "rationale": "This step creates the durable storage needed for AC-001.",
             "verificationCommand": "cargo test",
-            "verificationType": "command",
+            "verificationType": "test",
             "dependencies": [],
             "parallelGroup": null,
             "position": 1
@@ -1294,7 +1294,7 @@ async fn route_chat_parses_add_step_and_generates_next_step_id() {
     let (state, _provider) = mk_state_with_scripts(
         &tmp,
         vec![vec![
-            ChatEvent::TextDelta("ROUTE add_step title=\"Add authentication\" summary=\"Add sign-in and session handling.\" instruction_seed=\"Implement authentication flows.\" expected_files=[\"src/auth.ts\"] acceptance_criteria=[\"Users can sign in.\"] verification_type=\"command\" verification_command=\"pnpm test\" dependencies=[\"step-001\"] parallel_group=1 reason=\"new implementation request\"".into()),
+            ChatEvent::TextDelta("ROUTE add_step title=\"Add authentication\" summary=\"Add sign-in and session handling.\" instruction_seed=\"Implement authentication flows.\" expected_files=[\"src/auth.ts\"] acceptance_criteria=[\"Users can sign in.\"] verification_type=\"test\" verification_command=\"pnpm test\" dependencies=[\"step-001\"] parallel_group=1 reason=\"new implementation request\"".into()),
             ChatEvent::Done {
                 finish_reason: FinishReason::Stop,
             },
@@ -1414,7 +1414,7 @@ async fn route_chat_parses_multi_step_into_multi_step_without_mutating() {
     let (state, _provider) = mk_state_with_scripts(
         &tmp,
         vec![vec![
-            ChatEvent::TextDelta("ROUTE multi_step {\"reason\":\"scaffold then wire\",\"steps\":[{\"title\":\"Skeleton\",\"summary\":\"Create module.\",\"instruction_seed\":\"Add module.\",\"expected_files\":[\"src/a.ts\"],\"acceptance_criteria\":[\"compiles\"],\"verification_type\":\"command\",\"verification_command\":\"pnpm build\",\"dependencies\":[],\"parallel_group\":null,\"depends_on\":[]},{\"title\":\"Wire\",\"summary\":\"Wire it.\",\"instruction_seed\":\"Wire module.\",\"expected_files\":[\"src/b.ts\"],\"acceptance_criteria\":[\"works\"],\"verification_type\":\"command\",\"verification_command\":\"\",\"dependencies\":[\"step-001\"],\"parallel_group\":null,\"depends_on\":[0]},{\"title\":\"Test\",\"summary\":\"Cover it.\",\"instruction_seed\":\"Add tests.\",\"expected_files\":[\"src/c.ts\"],\"acceptance_criteria\":[\"green\"],\"verification_type\":\"command\",\"verification_command\":\"pnpm test\",\"dependencies\":[],\"parallel_group\":null,\"depends_on\":[0]}]}".into()),
+            ChatEvent::TextDelta("ROUTE multi_step {\"reason\":\"scaffold then wire\",\"steps\":[{\"title\":\"Skeleton\",\"summary\":\"Create module.\",\"instruction_seed\":\"Add module.\",\"expected_files\":[\"src/a.ts\"],\"acceptance_criteria\":[\"compiles\"],\"verification_type\":\"run\",\"verification_command\":\"pnpm build\",\"dependencies\":[],\"parallel_group\":null,\"depends_on\":[]},{\"title\":\"Wire\",\"summary\":\"Wire it.\",\"instruction_seed\":\"Wire module.\",\"expected_files\":[\"src/b.ts\"],\"acceptance_criteria\":[\"works\"],\"verification_type\":\"preview\",\"verification_command\":\"\",\"dependencies\":[\"step-001\"],\"parallel_group\":null,\"depends_on\":[0]},{\"title\":\"Test\",\"summary\":\"Cover it.\",\"instruction_seed\":\"Add tests.\",\"expected_files\":[\"src/c.ts\"],\"acceptance_criteria\":[\"green\"],\"verification_type\":\"test\",\"verification_command\":\"pnpm test\",\"dependencies\":[],\"parallel_group\":null,\"depends_on\":[0]}]}".into()),
             ChatEvent::Done {
                 finish_reason: FinishReason::Stop,
             },
@@ -1555,7 +1555,7 @@ async fn route_chat_parses_supersede_into_supersede_step() {
     let (state, _provider) = mk_state_with_scripts(
         &tmp,
         vec![vec![
-            ChatEvent::TextDelta("ROUTE supersede target_step_id=\"step-001\" title=\"Rework auth\" summary=\"Replace the auth step.\" instruction_seed=\"Redo authentication.\" expected_files=[\"src/auth.ts\"] acceptance_criteria=[\"Users can sign in.\"] verification_type=\"command\" verification_command=\"pnpm test\" dependencies=[] parallel_group=null reason=\"replace step\"".into()),
+            ChatEvent::TextDelta("ROUTE supersede target_step_id=\"step-001\" title=\"Rework auth\" summary=\"Replace the auth step.\" instruction_seed=\"Redo authentication.\" expected_files=[\"src/auth.ts\"] acceptance_criteria=[\"Users can sign in.\"] verification_type=\"test\" verification_command=\"pnpm test\" dependencies=[] parallel_group=null reason=\"replace step\"".into()),
             ChatEvent::Done {
                 finish_reason: FinishReason::Stop,
             },

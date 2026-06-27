@@ -5,13 +5,21 @@ import type { PlanDraftLlmErrorReason } from "../../features/planning/usePlanInt
 
 interface Props {
   reason: PlanDraftLlmErrorReason;
+  unresolvedQuestions?: string[];
   busy?: boolean;
   onRetry: () => void;
   onDismiss: () => void;
 }
 
-export function PlanDraftRecoveryScreen({ reason, busy, onRetry, onDismiss }: Props) {
+export function PlanDraftRecoveryScreen({
+  reason,
+  unresolvedQuestions = [],
+  busy,
+  onRetry,
+  onDismiss,
+}: Props) {
   const t = useT();
+  const missingItems = unresolvedQuestions.map((item) => item.trim()).filter(Boolean);
   return (
     <div
       className="flex h-full min-h-0 flex-col items-center justify-center bg-bg px-6 py-8"
@@ -29,6 +37,18 @@ export function PlanDraftRecoveryScreen({ reason, busy, onRetry, onDismiss }: Pr
             <p className="mt-1 text-sm leading-6 text-fg-muted">
               {t(`planning.interview.recovery.${reason}.description`)}
             </p>
+            {missingItems.length > 0 ? (
+              <div className="mt-3" data-testid="plan-draft-recovery-missing-items">
+                <p className="text-xs font-semibold text-fg">
+                  {t("planning.interview.recovery.missing_items_title")}
+                </p>
+                <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-fg-muted">
+                  {missingItems.map((item, index) => (
+                    <li key={`${item}-${index}`}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <ul className="mt-3 list-disc space-y-1 pl-4 text-xs text-fg-muted">
               {t("planning.interview.recovery.hints")
                 .split("|")

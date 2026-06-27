@@ -336,7 +336,7 @@ describe("PlanAddStepPanel scope-expansion supervisor cards", () => {
             linkedCriterionIds: ["AC-001"],
             rationale: "Export is required for research reconstruction.",
             verificationCommand: "cargo test export",
-            verificationType: "command",
+            verificationType: "test",
             dependencies: ["step-001"],
             parallelGroup: 2,
             position: 2,
@@ -368,7 +368,7 @@ describe("PlanAddStepPanel scope-expansion supervisor cards", () => {
       draft: expect.objectContaining({
         title: "Export mutation data",
         verificationCommand: "cargo test export",
-        verificationType: "command",
+        verificationType: "test",
         dependencies: ["step-001"],
         parallelGroup: 2,
       }),

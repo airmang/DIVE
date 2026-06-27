@@ -120,7 +120,7 @@ fn append_scope_draft() -> StepDraftInput {
         linked_criterion_ids: vec!["AC-001".into()],
         rationale: Some("The export step preserves AC-001 evidence.".into()),
         verification_command: Some("cargo test".into()),
-        verification_type: Some("command".into()),
+        verification_type: Some("test".into()),
         dependencies: vec![],
         parallel_group: None,
         position: 2,

@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef } from "react";
-import type { LlmPlanDraftPayload, PlanDraftInput, StepDraftInput } from "./types";
+import type {
+  LlmPlanDraftPayload,
+  PlanDraftInput,
+  StepDraftInput,
+  VerificationType,
+} from "./types";
 import { adaptAcceptanceCriteria } from "./projectSpec";
 
 interface AssistantEndEvent {
@@ -10,12 +15,18 @@ interface AssistantEndEvent {
 
 type ObservedEvent = AssistantEndEvent | { type: string };
 
-export type PlanDraftLlmErrorReason = "length" | "invalid_json" | "invalid_plan_shape";
+export type PlanDraftLlmErrorReason =
+  | "length"
+  | "invalid_json"
+  | "invalid_plan_shape"
+  | "vague_criteria"
+  | "missing_state_criteria";
 
 export interface PlanDraftLlmError {
   reason: PlanDraftLlmErrorReason;
   finishReason: string | null;
   content: string;
+  unresolvedQuestions?: string[];
 }
 
 interface UsePlanInterviewLlmArgs {
@@ -37,6 +48,37 @@ function optionalNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function legacyVerificationType(command: string | null): VerificationType | null {
+  if (!command) return null;
+  const tokens = command.trim().toLowerCase().split(/\s+/);
+  const executable =
+    tokens[0]
+      ?.split(/[\\/]/)
+      .pop()
+      ?.replace(/\.exe$/, "") ?? "";
+  const testLike =
+    ["cargo-nextest", "jest", "pytest", "vitest"].includes(executable) ||
+    tokens.some(
+      (token) => token === "test" || token.startsWith("test:") || token.endsWith(":test"),
+    );
+  return testLike ? "test" : "run";
+}
+
+function optionalVerificationType(value: unknown, command: string | null): VerificationType | null {
+  if (typeof value !== "string") return legacyVerificationType(command);
+  switch (value.trim().toLowerCase()) {
+    case "run":
+    case "preview":
+    case "manual":
+    case "test":
+      return value.trim().toLowerCase() as VerificationType;
+    case "command":
+      return legacyVerificationType(command) ?? "manual";
+    default:
+      return legacyVerificationType(command);
+  }
+}
+
 function criteriaArray(value: unknown) {
   return adaptAcceptanceCriteria(value);
 }
@@ -56,6 +98,9 @@ function decodeStep(raw: unknown, index: number): StepDraftInput | null {
       : acceptanceCriteria.map((criterion) => criterion.criterionId);
   const rationale = optionalString(source.rationale ?? source.decomposition_rationale);
   if (derivedLinkedCriterionIds.length === 0 || !rationale) return null;
+  const verificationCommand = optionalString(
+    source.verification_command ?? source.verificationCommand,
+  );
   return {
     stepId:
       optionalString(source.step_id ?? source.stepId) ??
@@ -67,8 +112,11 @@ function decodeStep(raw: unknown, index: number): StepDraftInput | null {
     acceptanceCriteria,
     linkedCriterionIds: derivedLinkedCriterionIds,
     rationale,
-    verificationCommand: optionalString(source.verification_command ?? source.verificationCommand),
-    verificationType: optionalString(source.verification_type ?? source.verificationType),
+    verificationCommand,
+    verificationType: optionalVerificationType(
+      source.verification_type ?? source.verificationType,
+      verificationCommand,
+    ),
     dependencies: stringArray(source.dependencies),
     parallelGroup: optionalNumber(source.parallel_group ?? source.parallelGroup),
     position: index + 1,
@@ -132,6 +180,41 @@ function parseAssistantJson(content: string): ParseAssistantJsonResult {
     } catch {
       return { ok: false, value: null };
     }
+  }
+}
+
+const PLAN_DRAFT_QUALITY_ERROR_PREFIX = "PLAN_DRAFT_QUALITY_ERROR:";
+
+function isPlanDraftLlmErrorReason(value: unknown): value is PlanDraftLlmErrorReason {
+  return (
+    value === "length" ||
+    value === "invalid_json" ||
+    value === "invalid_plan_shape" ||
+    value === "vague_criteria" ||
+    value === "missing_state_criteria"
+  );
+}
+
+export function decodePlanDraftQualityError(error: unknown): PlanDraftLlmError | null {
+  const content = error instanceof Error ? error.message : String(error);
+  const prefixIndex = content.indexOf(PLAN_DRAFT_QUALITY_ERROR_PREFIX);
+  if (prefixIndex === -1) return null;
+  const encoded = content.slice(prefixIndex + PLAN_DRAFT_QUALITY_ERROR_PREFIX.length).trim();
+  try {
+    const payload = JSON.parse(encoded) as Record<string, unknown>;
+    const reason = payload.reason;
+    if (!isPlanDraftLlmErrorReason(reason)) return null;
+    const unresolvedQuestions = stringArray(
+      payload.unresolved_questions ?? payload.unresolvedQuestions,
+    );
+    return {
+      reason,
+      finishReason: null,
+      content,
+      unresolvedQuestions,
+    };
+  } catch {
+    return null;
   }
 }
 

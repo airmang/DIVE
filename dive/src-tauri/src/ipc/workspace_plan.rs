@@ -25,6 +25,10 @@ use crate::db::models::{
 };
 use crate::db::now_ms;
 use crate::dive::event_log as dive_event_log;
+use crate::dive::plan_quality_constants::{
+    data_fetch_keywords, ui_goal_keywords, vague_terms, verification_type_from_legacy,
+    VerificationType,
+};
 use crate::dive::plan_router::{
     self, PlanRouterContext, PlanRouterDecision, PlanRouterStepContext, RouterStepDraft,
 };
@@ -39,6 +43,7 @@ const MAX_STEP_ACCEPTANCE_CRITERIA: usize = 8;
 const MAX_VERIFICATION_COMMAND_WORDS: usize = 24;
 const MAX_PRD_PATCH_OPERATIONS: usize = 20;
 const MAX_PRD_PATCH_TEXT_CHARS: usize = 1200;
+const PLAN_DRAFT_QUALITY_ERROR_PREFIX: &str = "PLAN_DRAFT_QUALITY_ERROR:";
 const BROAD_SCOPE_MARKERS: &[&str] = &[
     "desktop app",
     "full app",
@@ -2724,9 +2729,6 @@ pub fn workspace_plan_generate_draft_impl(
     replace_approved: bool,
 ) -> Result<(PlanRow, Vec<StepRow>), String> {
     validate_plan_draft(&plan_input)?;
-    for step in &mut plan_input.steps {
-        sanitize_step_verification(step);
-    }
     let mut db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.conn_mut();
     let interview = interview_dao::get_by_id(conn, interview_id)
@@ -2743,6 +2745,10 @@ pub fn workspace_plan_generate_draft_impl(
         return Err("minimal PRD is required before generating a plan draft".into());
     }
     let project_prd = project_prd.expect("minimal PRD checked above");
+    validate_criterion_quality(&interview.goal, &plan_input).map_err(|e| e.to_string())?;
+    for step in &mut plan_input.steps {
+        sanitize_step_verification(step);
+    }
     validate_generated_step_traceability(&plan_input, &project_prd)?;
     let plan_acceptance_criteria = normalize_criterion_inputs(
         &plan_input.acceptance_criteria,
@@ -4408,6 +4414,632 @@ fn validate_plan_draft(plan_input: &PlanDraftInput) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum CriterionQualityErrorReason {
+    VagueCriteria,
+    MissingStateCriteria,
+}
+
+impl CriterionQualityErrorReason {
+    fn as_str(&self) -> &'static str {
+        match self {
+            CriterionQualityErrorReason::VagueCriteria => "vague_criteria",
+            CriterionQualityErrorReason::MissingStateCriteria => "missing_state_criteria",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CriterionQualityError {
+    reason: CriterionQualityErrorReason,
+    unresolved_questions: Vec<String>,
+}
+
+impl CriterionQualityError {
+    fn new(reason: CriterionQualityErrorReason, unresolved_questions: Vec<String>) -> Self {
+        Self {
+            reason,
+            unresolved_questions,
+        }
+    }
+}
+
+impl std::fmt::Display for CriterionQualityError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        #[derive(Serialize)]
+        struct Payload<'a> {
+            code: &'static str,
+            reason: &'static str,
+            unresolved_questions: &'a [String],
+        }
+
+        let payload = Payload {
+            code: "plan_draft_quality",
+            reason: self.reason.as_str(),
+            unresolved_questions: &self.unresolved_questions,
+        };
+        let encoded = serde_json::to_string(&payload).unwrap_or_else(|_| {
+            format!(
+                "{{\"code\":\"plan_draft_quality\",\"reason\":\"{}\",\"unresolved_questions\":[]}}",
+                self.reason.as_str()
+            )
+        });
+        write!(f, "{PLAN_DRAFT_QUALITY_ERROR_PREFIX}{encoded}")
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MissingCriterionClass {
+    Responsive,
+    Persistence,
+    Accessibility,
+    Loading,
+    Empty,
+    Error,
+}
+
+impl MissingCriterionClass {
+    fn label(&self, locale_is_en: bool) -> &'static str {
+        match (self, locale_is_en) {
+            (MissingCriterionClass::Responsive, true) => "responsive behavior",
+            (MissingCriterionClass::Responsive, false) => "반응형 동작",
+            (MissingCriterionClass::Persistence, true) => "persistence after reload",
+            (MissingCriterionClass::Persistence, false) => "새로고침 후 유지",
+            (MissingCriterionClass::Accessibility, true) => "keyboard/ARIA accessibility",
+            (MissingCriterionClass::Accessibility, false) => "키보드/ARIA 접근성",
+            (MissingCriterionClass::Loading, true) => "loading state",
+            (MissingCriterionClass::Loading, false) => "로딩 상태",
+            (MissingCriterionClass::Empty, true) => "empty state",
+            (MissingCriterionClass::Empty, false) => "빈 상태",
+            (MissingCriterionClass::Error, true) => "error state",
+            (MissingCriterionClass::Error, false) => "오류 상태",
+        }
+    }
+}
+
+fn validate_criterion_quality(
+    goal: &str,
+    plan_input: &PlanDraftInput,
+) -> Result<(), CriterionQualityError> {
+    let criteria = collect_acceptance_criterion_texts(plan_input);
+    if criteria.is_empty() {
+        return Err(CriterionQualityError::new(
+            CriterionQualityErrorReason::VagueCriteria,
+            vec!["Add at least one independently checkable acceptance criterion.".into()],
+        ));
+    }
+
+    let mut criterion_issues = Vec::new();
+    for criterion in &criteria {
+        if criterion_substantive_len(criterion) < 8 {
+            criterion_issues.push(format!(
+                "Rewrite acceptance criterion with a concrete observable result: \"{}\"",
+                compact_preview(criterion)
+            ));
+            continue;
+        }
+        if criterion_is_pure_vague_filler(criterion) {
+            criterion_issues.push(format!(
+                "Replace vague acceptance criterion with a concrete observable result: \"{}\"",
+                compact_preview(criterion)
+            ));
+            continue;
+        }
+        if !criterion_has_observable_marker(criterion) {
+            criterion_issues.push(format!(
+                "Add an independently checkable marker such as a number, comparator, named UI element, or state: \"{}\"",
+                compact_preview(criterion)
+            ));
+        }
+    }
+    if !criterion_issues.is_empty() {
+        return Err(CriterionQualityError::new(
+            CriterionQualityErrorReason::VagueCriteria,
+            criterion_issues,
+        ));
+    }
+
+    let locale_is_en = text_prefers_english(goal);
+    let goal_text = normalize_quality_text(&format!("{goal}\n{}", plan_input.goal));
+    let criteria_text = normalize_quality_text(&criteria.join("\n"));
+    let mut missing = Vec::new();
+
+    if contains_any(&goal_text, ui_goal_keywords()) {
+        for class in [
+            MissingCriterionClass::Responsive,
+            MissingCriterionClass::Persistence,
+            MissingCriterionClass::Accessibility,
+        ] {
+            if !criterion_class_is_covered(&criteria_text, class) {
+                missing.push(class.label(locale_is_en).to_string());
+            }
+        }
+    }
+
+    if contains_any(&goal_text, data_fetch_keywords()) {
+        for class in [
+            MissingCriterionClass::Loading,
+            MissingCriterionClass::Empty,
+            MissingCriterionClass::Error,
+        ] {
+            if !criterion_class_is_covered(&criteria_text, class) {
+                missing.push(class.label(locale_is_en).to_string());
+            }
+        }
+    }
+
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(CriterionQualityError::new(
+            CriterionQualityErrorReason::MissingStateCriteria,
+            missing,
+        ))
+    }
+}
+
+fn collect_acceptance_criterion_texts(plan_input: &PlanDraftInput) -> Vec<String> {
+    plan_input
+        .acceptance_criteria
+        .iter()
+        .chain(
+            plan_input
+                .steps
+                .iter()
+                .flat_map(|step| step.acceptance_criteria.iter()),
+        )
+        .filter_map(criterion_input_text)
+        .collect()
+}
+
+fn criterion_substantive_len(value: &str) -> usize {
+    value.chars().filter(|ch| ch.is_alphanumeric()).count()
+}
+
+fn criterion_is_pure_vague_filler(value: &str) -> bool {
+    let normalized = normalize_quality_text(value);
+    let has_vague_term = contains_any(&normalized, vague_terms(true))
+        || contains_any(&normalized, vague_terms(false));
+    if !has_vague_term {
+        return false;
+    }
+    !criterion_has_observable_marker(value)
+        && normalized
+            .split(|ch: char| !ch.is_alphanumeric())
+            .filter(|token| {
+                !token.is_empty()
+                    && !VAGUE_FILLER_WORDS.contains(token)
+                    && !vague_terms(true).contains(token)
+                    && !vague_terms(false).contains(token)
+            })
+            .count()
+            <= 1
+}
+
+fn criterion_has_observable_marker(value: &str) -> bool {
+    let normalized = normalize_quality_text(value);
+    contains_any(&normalized, COMPARATOR_MARKERS)
+        || contains_any(&normalized, NAMED_UI_MARKERS)
+        || contains_any(&normalized, STATE_MARKERS)
+        || has_meaningful_numeric_marker(&normalized)
+}
+
+fn criterion_class_is_covered(criteria_text: &str, class: MissingCriterionClass) -> bool {
+    match class {
+        MissingCriterionClass::Responsive => contains_any(criteria_text, RESPONSIVE_MARKERS),
+        MissingCriterionClass::Persistence => contains_any(criteria_text, PERSISTENCE_MARKERS),
+        MissingCriterionClass::Accessibility => contains_any(criteria_text, ACCESSIBILITY_MARKERS),
+        MissingCriterionClass::Loading => contains_any(criteria_text, LOADING_STATE_MARKERS),
+        MissingCriterionClass::Empty => contains_any(criteria_text, EMPTY_STATE_MARKERS),
+        MissingCriterionClass::Error => contains_any(criteria_text, ERROR_STATE_MARKERS),
+    }
+}
+
+fn normalize_quality_text(value: &str) -> String {
+    value.to_lowercase()
+}
+
+fn contains_any(value: &str, needles: &[&str]) -> bool {
+    let normalized_value = normalize_quality_text(value);
+    needles.iter().any(|needle| {
+        let needle = normalize_quality_text(needle);
+        quality_marker_matches(&normalized_value, &needle)
+    })
+}
+
+fn quality_marker_matches(value: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    if needle.chars().any(|ch| ch.is_whitespace()) {
+        return value.contains(needle);
+    }
+    if needle.chars().all(|ch| ch.is_ascii_alphanumeric()) {
+        return value
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .any(|token| token == needle);
+    }
+    if needle.chars().all(is_hangul_char) {
+        if needle.chars().count() == 1 {
+            return value
+                .split(|ch| !is_hangul_char(ch))
+                .any(|token| token == needle);
+        }
+        return value.contains(needle);
+    }
+    value.contains(needle)
+}
+
+fn is_hangul_char(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0xAC00..=0xD7AF | 0x1100..=0x11FF | 0x3130..=0x318F
+    )
+}
+
+fn has_meaningful_numeric_marker(value: &str) -> bool {
+    if !value.chars().any(|ch| ch.is_ascii_digit()) {
+        return false;
+    }
+    if value.contains('%') {
+        return true;
+    }
+    let tokens = value
+        .split(|ch: char| !ch.is_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+
+    tokens.iter().enumerate().any(|(index, token)| {
+        let token = *token;
+        if !token.chars().any(|ch| ch.is_ascii_digit()) {
+            return false;
+        }
+        if token.chars().any(|ch| ch.is_ascii_alphabetic()) {
+            return true;
+        }
+        let previous = index
+            .checked_sub(1)
+            .and_then(|previous| tokens.get(previous))
+            .copied();
+        let next = tokens.get(index + 1).copied();
+        previous
+            .into_iter()
+            .chain(next)
+            .any(|context| NUMERIC_CONTEXT_MARKERS.contains(&context))
+    })
+}
+
+fn text_prefers_english(value: &str) -> bool {
+    let hangul = value
+        .chars()
+        .filter(|ch| matches!(*ch as u32, 0xAC00..=0xD7AF | 0x1100..=0x11FF | 0x3130..=0x318F))
+        .count();
+    let ascii_alpha = value.chars().filter(|ch| ch.is_ascii_alphabetic()).count();
+    ascii_alpha >= hangul
+}
+
+fn compact_preview(value: &str) -> String {
+    const MAX_PREVIEW_CHARS: usize = 96;
+    let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.chars().count() <= MAX_PREVIEW_CHARS {
+        return compact;
+    }
+    let mut preview = compact
+        .chars()
+        .take(MAX_PREVIEW_CHARS.saturating_sub(1))
+        .collect::<String>();
+    preview.push_str("...");
+    preview
+}
+
+const VAGUE_FILLER_WORDS: &[&str] = &[
+    "make", "it", "just", "do", "be", "is", "are", "the", "a", "an", "to", "for", "with", "and",
+    "or", "in", "you", "decide", "best", "well", "way", "ways",
+];
+
+const NUMERIC_CONTEXT_MARKERS: &[&str] = &[
+    "px",
+    "pixel",
+    "pixels",
+    "percent",
+    "percentage",
+    "rem",
+    "em",
+    "vh",
+    "vw",
+    "ms",
+    "sec",
+    "secs",
+    "second",
+    "seconds",
+    "item",
+    "items",
+    "result",
+    "results",
+    "row",
+    "rows",
+    "column",
+    "columns",
+    "card",
+    "cards",
+    "file",
+    "files",
+    "step",
+    "steps",
+    "character",
+    "characters",
+    "char",
+    "chars",
+    "error",
+    "errors",
+    "warning",
+    "warnings",
+    "true",
+    "false",
+];
+
+const COMPARATOR_MARKERS: &[&str] = &[
+    ">",
+    "<",
+    "=",
+    ">=",
+    "<=",
+    "at least",
+    "at most",
+    "no more than",
+    "no less than",
+    "fewer than",
+    "less than",
+    "more than",
+    "minimum",
+    "maximum",
+    "within",
+    "under",
+    "over",
+    "이상",
+    "이하",
+    "초과",
+    "미만",
+    "최소",
+    "최대",
+    "안에",
+    "이내",
+];
+
+const NAMED_UI_MARKERS: &[&str] = &[
+    "button",
+    "input",
+    "field",
+    "form",
+    "page",
+    "screen",
+    "modal",
+    "dialog",
+    "toast",
+    "banner",
+    "list",
+    "card",
+    "menu",
+    "tab",
+    "sidebar",
+    "header",
+    "link",
+    "checkbox",
+    "dropdown",
+    "select",
+    "search",
+    "table",
+    "chart",
+    "column",
+    "columns",
+    "row",
+    "grid",
+    "breakpoint",
+    "desktop",
+    "tablet",
+    "mobile",
+    "phone",
+    "aria",
+    "keyboard",
+    "버튼",
+    "입력",
+    "필드",
+    "폼",
+    "페이지",
+    "화면",
+    "모달",
+    "대화상자",
+    "토스트",
+    "배너",
+    "목록",
+    "카드",
+    "메뉴",
+    "탭",
+    "사이드바",
+    "헤더",
+    "링크",
+    "체크박스",
+    "드롭다운",
+    "검색",
+    "표",
+    "차트",
+    "열",
+    "행",
+    "그리드",
+    "브레이크포인트",
+    "데스크톱",
+    "태블릿",
+    "모바일",
+    "키보드",
+];
+
+const STATE_MARKERS: &[&str] = &[
+    "state",
+    "visible",
+    "hidden",
+    "shows",
+    "displays",
+    "appears",
+    "updates",
+    "selected",
+    "disabled",
+    "enabled",
+    "loading",
+    "empty",
+    "error",
+    "success",
+    "succeeds",
+    "failure",
+    "fails",
+    "saved",
+    "persists",
+    "persisted",
+    "survives",
+    "reload",
+    "refresh",
+    "sort",
+    "sorts",
+    "sorted",
+    "parse",
+    "parses",
+    "parsed",
+    "compute",
+    "computes",
+    "computed",
+    "return",
+    "returns",
+    "returned",
+    "validate",
+    "validates",
+    "validated",
+    "calculate",
+    "calculates",
+    "calculated",
+    "완료",
+    "보임",
+    "표시",
+    "나타",
+    "선택",
+    "비활성",
+    "활성",
+    "로딩",
+    "빈",
+    "오류",
+    "에러",
+    "성공",
+    "실패",
+    "저장",
+    "유지",
+    "새로고침",
+];
+
+const RESPONSIVE_MARKERS: &[&str] = &[
+    "responsive",
+    "breakpoint",
+    "desktop",
+    "tablet",
+    "mobile",
+    "phone",
+    "column",
+    "columns",
+    "grid",
+    "width",
+    "반응형",
+    "브레이크포인트",
+    "데스크톱",
+    "태블릿",
+    "모바일",
+    "열",
+    "그리드",
+    "너비",
+];
+
+const PERSISTENCE_MARKERS: &[&str] = &[
+    "persist",
+    "persists",
+    "persisted",
+    "persisting",
+    "persistence",
+    "save",
+    "saves",
+    "saved",
+    "saving",
+    "reload",
+    "reloads",
+    "reloaded",
+    "reloading",
+    "refresh",
+    "refreshes",
+    "refreshed",
+    "refreshing",
+    "survive",
+    "survives",
+    "survived",
+    "surviving",
+    "localstorage",
+    "storage",
+    "저장",
+    "유지",
+    "새로고침",
+    "재로드",
+    "스토리지",
+];
+
+const ACCESSIBILITY_MARKERS: &[&str] = &[
+    "accessibility",
+    "a11y",
+    "keyboard",
+    "aria",
+    "screen reader",
+    "focus",
+    "tab order",
+    "접근성",
+    "키보드",
+    "스크린리더",
+    "포커스",
+];
+
+const LOADING_STATE_MARKERS: &[&str] = &[
+    "loading",
+    "spinner",
+    "skeleton",
+    "pending",
+    "while data loads",
+    "while request",
+    "로딩",
+    "불러오는 중",
+    "스피너",
+    "스켈레톤",
+    "대기",
+];
+
+const EMPTY_STATE_MARKERS: &[&str] = &[
+    "empty",
+    "no results",
+    "no data",
+    "zero",
+    "none",
+    "blank",
+    "빈",
+    "결과 없음",
+    "데이터 없음",
+    "없을 때",
+];
+
+const ERROR_STATE_MARKERS: &[&str] = &[
+    "error",
+    "failure",
+    "failed",
+    "retry",
+    "network",
+    "에러",
+    "오류",
+    "실패",
+    "재시도",
+    "네트워크",
+];
+
 fn validate_step_envelope(step: &StepDraftInput) -> Result<(), String> {
     if step.expected_files.len() > MAX_STEP_EXPECTED_FILES {
         return Err(format!(
@@ -4483,24 +5115,36 @@ fn verification_command_is_envelope_safe(command: &str) -> bool {
     )
 }
 
-/// If a step's verification_command does not fit the execution envelope, drop it
-/// and downgrade verification to manual instead of rejecting the whole plan. The
-/// command is never executed once dropped, so this is safe; honest-verify
-/// already surfaces a manual/unverified step as "not externally verified",
-/// keeping the supervision signal honest while letting the plan generate on the
-/// first try. Returns true when the command was sanitized away.
+/// Normalize a step's verification type/command into DIVE's execution envelope.
+/// Preview/manual steps never carry a command. Run/test steps must carry one
+/// no-shell command with explicit args; otherwise they downgrade to manual
+/// instead of producing an inert or unsafe command. Returns true when the input
+/// changed.
 fn sanitize_step_verification(step: &mut StepDraftInput) -> bool {
-    let needs_sanitize = step
+    let original_command = step.verification_command.clone();
+    let original_type = step.verification_type.clone();
+    let command = step
         .verification_command
         .as_deref()
         .map(str::trim)
-        .filter(|command| !command.is_empty())
-        .is_some_and(|command| !verification_command_is_envelope_safe(command));
-    if needs_sanitize {
-        step.verification_command = None;
-        step.verification_type = Some("manual".to_string());
-    }
-    needs_sanitize
+        .filter(|command| !command.is_empty());
+    let requested_type = VerificationType::from_str_opt(step.verification_type.as_deref())
+        .unwrap_or_else(|| verification_type_from_legacy(command));
+
+    let (verification_type, verification_command) = match requested_type {
+        VerificationType::Preview | VerificationType::Manual => (requested_type, None),
+        VerificationType::Run | VerificationType::Test => match command {
+            Some(command) if verification_command_is_envelope_safe(command) => {
+                (requested_type, Some(command.to_string()))
+            }
+            _ => (VerificationType::Manual, None),
+        },
+    };
+
+    step.verification_type = Some(verification_type.as_str().to_string());
+    step.verification_command = verification_command;
+
+    original_command != step.verification_command || original_type != step.verification_type
 }
 
 fn build_router_context(
@@ -4796,6 +5440,240 @@ mod prd_interview_prompt_tests {
 }
 
 #[cfg(test)]
+mod criterion_quality_tests {
+    use super::*;
+
+    fn step_with_criteria(criteria: &[&str]) -> StepDraftInput {
+        StepDraftInput {
+            title: "Implement focused behavior".into(),
+            summary: "Implement the smallest visible slice.".into(),
+            instruction_seed: "Update the relevant UI and state in one focused pass.".into(),
+            expected_files: vec!["src/App.tsx".into()],
+            acceptance_criteria: criteria
+                .iter()
+                .map(|criterion| AcceptanceCriterionInput::Text((*criterion).into()))
+                .collect(),
+            linked_criterion_ids: vec!["AC-001".into()],
+            rationale: Some("This step maps directly to the acceptance criteria.".into()),
+            verification_command: Some("pnpm test".into()),
+            verification_type: Some("run".into()),
+            dependencies: Vec::new(),
+            parallel_group: None,
+            position: 1,
+            step_id: "step-001".into(),
+        }
+    }
+
+    fn plan_with_criteria(goal: &str, criteria: &[&str]) -> PlanDraftInput {
+        PlanDraftInput {
+            goal: goal.into(),
+            intent_summary: "Deliver a focused, checkable slice.".into(),
+            scope: vec!["Focused slice".into()],
+            non_goals: vec!["No extra features".into()],
+            constraints: vec!["Keep existing architecture".into()],
+            acceptance_criteria: criteria
+                .iter()
+                .map(|criterion| AcceptanceCriterionInput::Text((*criterion).into()))
+                .collect(),
+            steps: vec![step_with_criteria(criteria)],
+        }
+    }
+
+    #[test]
+    fn upload_goal_does_not_match_load_inside_word() {
+        let plan = plan_with_criteria(
+            "Build upload widget",
+            &["Clicking Upload adds the selected file to the list and shows its name."],
+        );
+
+        assert!(validate_criterion_quality("Build upload widget", &plan).is_ok());
+    }
+
+    #[test]
+    fn ascii_keyword_matching_requires_whole_words() {
+        let rapid_plan = plan_with_criteria(
+            "rapid prototype dashboard",
+            &["Prototype dashboard list shows the selected card title."],
+        );
+
+        assert!(validate_criterion_quality("rapid prototype dashboard", &rapid_plan).is_ok());
+        assert!(!contains_any("build upload widget", data_fetch_keywords()));
+        assert!(!contains_any(
+            "rapid prototype dashboard",
+            data_fetch_keywords()
+        ));
+        assert!(!contains_any("overall layout polish", COMPARATOR_MARKERS));
+    }
+
+    #[test]
+    fn short_hangul_markers_require_standalone_tokens() {
+        let text = "발표 내용을 나열하고 빈칸을 정리한다";
+
+        assert!(!criterion_has_observable_marker(text));
+        assert!(!contains_any(text, NAMED_UI_MARKERS));
+        assert!(!contains_any(text, RESPONSIVE_MARKERS));
+        assert!(!contains_any(text, EMPTY_STATE_MARKERS));
+    }
+
+    #[test]
+    fn terse_algorithmic_criteria_have_observable_markers() {
+        let sort_plan = plan_with_criteria("Implement number sorting", &["Sorts numerically"]);
+        let validate_plan = plan_with_criteria(
+            "Implement input validation",
+            &["Returns true for valid input"],
+        );
+
+        assert!(criterion_has_observable_marker("Sorts numerically"));
+        assert!(criterion_has_observable_marker(
+            "Returns true for valid input"
+        ));
+        assert!(validate_criterion_quality("Implement number sorting", &sort_plan).is_ok());
+        assert!(validate_criterion_quality("Implement input validation", &validate_plan).is_ok());
+    }
+
+    #[test]
+    fn vague_criterion_with_stray_digit_is_blocked() {
+        let plan = plan_with_criteria("Build a small calculator", &["make it nice in 2 ways"]);
+
+        let err = validate_criterion_quality("Build a small calculator", &plan).unwrap_err();
+
+        assert_eq!(err.reason, CriterionQualityErrorReason::VagueCriteria);
+        assert!(err
+            .unresolved_questions
+            .iter()
+            .any(|item| item.contains("make it nice in 2 ways")));
+    }
+
+    #[test]
+    fn ui_goal_missing_responsive_criteria_is_blocked() {
+        let plan = plan_with_criteria(
+            "Build the settings page",
+            &[
+                "The saved theme choice survives reload and remains visible after refresh.",
+                "Keyboard focus reaches the Save button and ARIA label describes the action.",
+            ],
+        );
+
+        let err = validate_criterion_quality("Build the settings page", &plan).unwrap_err();
+
+        assert_eq!(
+            err.reason,
+            CriterionQualityErrorReason::MissingStateCriteria
+        );
+        assert!(err
+            .unresolved_questions
+            .iter()
+            .any(|item| item == "responsive behavior"));
+    }
+
+    #[test]
+    fn fetch_goal_missing_empty_and_error_states_is_blocked() {
+        let plan = plan_with_criteria(
+            "Fetch account balances from an API",
+            &["Loading spinner appears while the API request is pending."],
+        );
+
+        let err =
+            validate_criterion_quality("Fetch account balances from an API", &plan).unwrap_err();
+
+        assert_eq!(
+            err.reason,
+            CriterionQualityErrorReason::MissingStateCriteria
+        );
+        assert!(err
+            .unresolved_questions
+            .iter()
+            .any(|item| item == "empty state"));
+        assert!(err
+            .unresolved_questions
+            .iter()
+            .any(|item| item == "error state"));
+        assert!(!err
+            .unresolved_questions
+            .iter()
+            .any(|item| item == "loading state"));
+    }
+
+    #[test]
+    fn vague_criterion_is_blocked() {
+        let plan = plan_with_criteria("Build a small calculator", &["make it nice"]);
+
+        let err = validate_criterion_quality("Build a small calculator", &plan).unwrap_err();
+
+        assert_eq!(err.reason, CriterionQualityErrorReason::VagueCriteria);
+        assert!(err
+            .unresolved_questions
+            .iter()
+            .any(|item| item.contains("make it nice")));
+    }
+
+    #[test]
+    fn quick_intake_vague_criteria_routes_back_through_same_gate() {
+        let plan = plan_with_criteria("make it nice", &["looks good", "works well"]);
+
+        let err = validate_criterion_quality("make it nice", &plan).unwrap_err();
+
+        assert_eq!(err.reason, CriterionQualityErrorReason::VagueCriteria);
+        assert!(err
+            .unresolved_questions
+            .iter()
+            .any(|item| item.contains("looks good")));
+    }
+
+    #[test]
+    fn quick_intake_concrete_static_ui_criteria_pass_same_gate() {
+        let plan = plan_with_criteria(
+            "A responsive bakery menu page shows categories, item names, and prices",
+            &[
+                "At 390px width, every menu category, item name, and price remains readable.",
+                "Refreshing the page keeps all menu content visible, and keyboard focus reaches navigation links with ARIA labels.",
+            ],
+        );
+
+        assert!(validate_criterion_quality(
+            "A responsive bakery menu page shows categories, item names, and prices",
+            &plan,
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn concrete_single_criterion_passes_without_domain_coverage() {
+        let balance_plan = plan_with_criteria(
+            "Calculate wallet balance",
+            &["Balance shows 70 after +100 then -30."],
+        );
+        let layout_plan = plan_with_criteria(
+            "Organize dashboard cards",
+            &["3 columns desktop, 1 column phone, survives reload."],
+        );
+
+        assert!(validate_criterion_quality("Calculate wallet balance", &balance_plan).is_ok());
+        assert!(validate_criterion_quality("Organize dashboard cards", &layout_plan).is_ok());
+    }
+
+    #[test]
+    fn full_concrete_ui_and_data_prd_passes() {
+        let plan = plan_with_criteria(
+            "Build a responsive page that fetches API data",
+            &[
+                "At 1024px desktop the results grid shows 3 columns, and at 390px phone it shows 1 column.",
+                "Saved filter selection survives reload and remains visible after refresh.",
+                "Keyboard focus reaches the Search button and ARIA label announces loading status.",
+                "Loading spinner appears while the API request is pending.",
+                "Empty state displays 'No results' when the API returns zero items.",
+                "Error state shows a retry button when the network request fails.",
+            ],
+        );
+
+        assert!(
+            validate_criterion_quality("Build a responsive page that fetches API data", &plan)
+                .is_ok()
+        );
+    }
+}
+
+#[cfg(test)]
 mod envelope_tests {
     use super::*;
 
@@ -4811,7 +5689,7 @@ mod envelope_tests {
             linked_criterion_ids: vec!["AC-001".into()],
             rationale: Some("This step isolates the visible state required by AC-001.".into()),
             verification_command: Some("pnpm test".into()),
-            verification_type: Some("command".into()),
+            verification_type: Some("run".into()),
             dependencies: Vec::new(),
             parallel_group: None,
             position: 1,
@@ -4854,30 +5732,95 @@ mod envelope_tests {
     }
 
     #[test]
-    fn sanitize_drops_shell_verification_and_downgrades_to_manual() {
+    fn sanitize_drops_shell_verification_and_downgrades_run_to_manual() {
         let mut step = focused_step();
         step.verification_command = Some("bash -lc 'pnpm test'".into());
+        step.verification_type = Some("run".into());
         assert!(sanitize_step_verification(&mut step));
         assert_eq!(step.verification_command, None);
         assert_eq!(step.verification_type.as_deref(), Some("manual"));
     }
 
     #[test]
-    fn sanitize_drops_piped_command() {
+    fn sanitize_drops_piped_test_command_and_downgrades_to_manual() {
         let mut step = focused_step();
         step.verification_command = Some("cat foo | grep bar".into());
+        step.verification_type = Some("test".into());
         assert!(sanitize_step_verification(&mut step));
         assert_eq!(step.verification_command, None);
         assert_eq!(step.verification_type.as_deref(), Some("manual"));
     }
 
     #[test]
-    fn sanitize_keeps_envelope_safe_command() {
+    fn sanitize_keeps_envelope_safe_run_command() {
+        let mut step = focused_step();
+        step.verification_command = Some("npm run build".into());
+        step.verification_type = Some("run".into());
+        assert!(!sanitize_step_verification(&mut step));
+        assert_eq!(step.verification_command.as_deref(), Some("npm run build"));
+        assert_eq!(step.verification_type.as_deref(), Some("run"));
+    }
+
+    #[test]
+    fn sanitize_keeps_envelope_safe_test_command() {
         let mut step = focused_step();
         step.verification_command = Some("pnpm test".into());
+        step.verification_type = Some("test".into());
         assert!(!sanitize_step_verification(&mut step));
         assert_eq!(step.verification_command.as_deref(), Some("pnpm test"));
-        assert_eq!(step.verification_type.as_deref(), Some("command"));
+        assert_eq!(step.verification_type.as_deref(), Some("test"));
+    }
+
+    #[test]
+    fn sanitize_preview_step_drops_any_command() {
+        let mut step = focused_step();
+        step.verification_type = Some("preview".into());
+        step.verification_command = Some("open index.html".into());
+        assert!(sanitize_step_verification(&mut step));
+        assert_eq!(step.verification_command, None);
+        assert_eq!(step.verification_type.as_deref(), Some("preview"));
+    }
+
+    #[test]
+    fn sanitize_manual_step_never_emits_empty_string_command() {
+        let mut step = focused_step();
+        step.verification_type = Some("manual".into());
+        step.verification_command = Some("   ".into());
+        assert!(sanitize_step_verification(&mut step));
+        assert_eq!(step.verification_command, None);
+        assert_eq!(step.verification_type.as_deref(), Some("manual"));
+    }
+
+    #[test]
+    fn sanitize_run_or_test_without_command_downgrades_to_manual() {
+        for verification_type in ["run", "test"] {
+            let mut step = focused_step();
+            step.verification_type = Some(verification_type.into());
+            step.verification_command = None;
+            assert!(sanitize_step_verification(&mut step));
+            assert_eq!(step.verification_command, None);
+            assert_eq!(step.verification_type.as_deref(), Some("manual"));
+        }
+    }
+
+    #[test]
+    fn sanitize_legacy_command_type_migrates_to_run_or_test() {
+        let mut build_step = focused_step();
+        build_step.verification_type = Some("command".into());
+        build_step.verification_command = Some("npm run build".into());
+        assert!(sanitize_step_verification(&mut build_step));
+        assert_eq!(
+            build_step.verification_command.as_deref(),
+            Some("npm run build")
+        );
+        assert_eq!(build_step.verification_type.as_deref(), Some("run"));
+
+        let mut test_step = focused_step();
+        test_step.verification_type = Some("command".into());
+        test_step.verification_command = Some("pnpm test".into());
+        assert!(sanitize_step_verification(&mut test_step));
+        assert_eq!(test_step.verification_command.as_deref(), Some("pnpm test"));
+        assert_eq!(test_step.verification_type.as_deref(), Some("test"));
     }
 }
 

@@ -6,15 +6,18 @@ type PersistedUiPreferences = Partial<{
   tutorialEnabled: boolean;
   enableProvocationCards: boolean;
   provocationScaffoldMode: ScaffoldMode;
+  quickIntakeEnabled: boolean;
 }>;
 
 interface UiPreferencesStore {
   tutorialEnabled: boolean;
   enableProvocationCards: boolean;
   provocationScaffoldMode: ScaffoldMode;
+  quickIntakeEnabled: boolean;
   setTutorialEnabled: (enabled: boolean) => void;
   setEnableProvocationCards: (enabled: boolean) => void;
   setProvocationScaffoldMode: (mode: ScaffoldMode) => void;
+  setQuickIntakeEnabled: (enabled: boolean) => void;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -32,6 +35,7 @@ function normalizePersistedPreferences(value: unknown): PersistedUiPreferences {
   return {
     ...value,
     provocationScaffoldMode: normalizeProvocationScaffoldMode(value.provocationScaffoldMode),
+    quickIntakeEnabled: value.quickIntakeEnabled === true,
   };
 }
 
@@ -41,9 +45,11 @@ export const useUiPreferencesStore = create<UiPreferencesStore>()(
       tutorialEnabled: true,
       enableProvocationCards: true,
       provocationScaffoldMode: "guided",
+      quickIntakeEnabled: false,
       setTutorialEnabled: (tutorialEnabled) => set({ tutorialEnabled }),
       setEnableProvocationCards: (enableProvocationCards) => set({ enableProvocationCards }),
       setProvocationScaffoldMode: (provocationScaffoldMode) => set({ provocationScaffoldMode }),
+      setQuickIntakeEnabled: (quickIntakeEnabled) => set({ quickIntakeEnabled }),
     }),
     {
       name: "dive:ui-preferences",
@@ -67,4 +73,8 @@ export function useProvocationCardsEnabled(): boolean {
 
 export function useProvocationScaffoldMode(): ScaffoldMode {
   return useUiPreferencesStore((state) => state.provocationScaffoldMode);
+}
+
+export function useQuickIntakeEnabled(): boolean {
+  return useUiPreferencesStore((state) => state.quickIntakeEnabled);
 }

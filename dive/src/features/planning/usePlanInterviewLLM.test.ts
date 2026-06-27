@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { decodeWorkspacePlanDraftFromLlm } from "./usePlanInterviewLLM";
+import {
+  decodePlanDraftQualityError,
+  decodeWorkspacePlanDraftFromLlm,
+} from "./usePlanInterviewLLM";
 
 describe("decodeWorkspacePlanDraftFromLlm criterion-linked decomposition", () => {
   it("decodes object-form criteria, linked criterion ids, and step rationale", () => {
@@ -68,6 +71,7 @@ describe("decodeWorkspacePlanDraftFromLlm criterion-linked decomposition", () =>
     expect(step.rationale).toBe(
       "저장 완료 여부를 확인하는 기준을 먼저 구현해야 AC-001을 검증할 수 있다.",
     );
+    expect(step.verificationType).toBe("test");
   });
 
   it("keeps legacy string criteria readable through migration adapters", () => {
@@ -111,5 +115,21 @@ describe("decodeWorkspacePlanDraftFromLlm criterion-linked decomposition", () =>
     });
     expect(step.linkedCriterionIds).toEqual(["AC-001"]);
     expect(step.rationale).toContain("AC-001");
+  });
+});
+
+describe("decodePlanDraftQualityError", () => {
+  it("maps backend quality errors to recovery reasons and unresolved questions", () => {
+    const decoded = decodePlanDraftQualityError(
+      new Error(
+        'PLAN_DRAFT_QUALITY_ERROR:{"code":"plan_draft_quality","reason":"missing_state_criteria","unresolved_questions":["empty state","error state"]}',
+      ),
+    );
+
+    expect(decoded).toMatchObject({
+      reason: "missing_state_criteria",
+      finishReason: null,
+      unresolvedQuestions: ["empty state", "error state"],
+    });
   });
 });

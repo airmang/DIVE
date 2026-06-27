@@ -34,16 +34,20 @@ import {
   PLAN_DRAFT_REVIEW_REQUEST_EVENT,
   createLiveProjectSpecDraft,
   requestPlanAddStepDraft,
+  quickIntakeInterviewAnswers,
   usePlan,
   usePlanRouter,
   type LiveProjectSpecDraft,
   type PrdInterviewConversationTurn,
   type ProjectSpec,
   type RouteDecision,
+  type InterviewAnswer,
+  type QuickIntakeInput,
 } from "../../features/planning";
 import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
 import type { ConfirmableRouteDecision } from "./PlanRouteConfirmModal";
 import {
+  decodePlanDraftQualityError,
   usePlanInterviewLLM,
   type PlanDraftLlmErrorReason,
 } from "../../features/planning/usePlanInterviewLLM";
@@ -64,6 +68,7 @@ import {
 } from "../../features/provocation/verificationGrade";
 import { useProductShellDialogs } from "./useProductShellDialogs";
 import { PlanDraftRecoveryScreen } from "./PlanDraftRecoveryScreen";
+import { PlanDraftPendingScreen } from "./PlanDraftPendingScreen";
 import { SocraticInterviewPanel } from "./SocraticInterviewPanel";
 import { useProductPlanStepRuntime } from "./useProductPlanStepRuntime";
 import { useProductConversationModel } from "./useProductConversationModel";
@@ -74,6 +79,11 @@ import { fallbackModels } from "../settings/providerModels";
 import { requestProjectRailTab } from "./ProjectRail";
 
 export type PrdMode = "authoring" | "read" | null;
+
+interface PendingPrdPlanRequest {
+  projectSpec: ProjectSpec;
+  interviewAnswers?: InterviewAnswer[];
+}
 
 export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
   const activeCriteria = projectSpec.acceptanceCriteria
@@ -144,6 +154,54 @@ const PlanDraftApprovalScreen = lazy(() =>
 interface PendingPlanRouteConfirmation {
   decision: ConfirmableRouteDecision;
   resolve: (approved: boolean) => void;
+}
+
+export const PLAN_DRAFT_PENDING_TIMEOUT_MS = 30_000;
+
+export function shouldRenderPlanDraftPending(input: {
+  planDraftPending: boolean;
+  hasGeneratedPlanDraft: boolean;
+  hasPlanDraftFailure: boolean;
+}): boolean {
+  return input.planDraftPending && !input.hasGeneratedPlanDraft && !input.hasPlanDraftFailure;
+}
+
+export function usePlanDraftPendingController(timeoutMs: number = PLAN_DRAFT_PENDING_TIMEOUT_MS) {
+  const expectingPlanDraftRef = useRef(false);
+  const [planDraftPending, setPlanDraftPending] = useState(false);
+
+  const setPlanDraftExpectation = useCallback((pending: boolean) => {
+    expectingPlanDraftRef.current = pending;
+    setPlanDraftPending(pending);
+  }, []);
+
+  useEffect(() => {
+    if (!planDraftPending) return;
+    const handle = window.setTimeout(() => {
+      expectingPlanDraftRef.current = false;
+      setPlanDraftPending(false);
+    }, timeoutMs);
+    return () => window.clearTimeout(handle);
+  }, [planDraftPending, timeoutMs]);
+
+  return {
+    expectingPlanDraftRef,
+    planDraftPending,
+    setPlanDraftExpectation,
+  };
+}
+
+export function interviewAnswersFromQuestions(value: unknown): InterviewAnswer[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const record = item as Record<string, unknown>;
+      const question = typeof record.question === "string" ? record.question.trim() : "";
+      const answer = typeof record.answer === "string" ? record.answer.trim() : "";
+      return question && answer ? { question, answer } : null;
+    })
+    .filter((item): item is InterviewAnswer => item !== null);
 }
 
 function stringArray(value: unknown): string[] {
@@ -271,14 +329,18 @@ export function useProductShellController() {
   const [planDraftReviewRequestNonce, setPlanDraftReviewRequestNonce] = useState(0);
   const [planDraftFailure, setPlanDraftFailure] = useState<{
     reason: PlanDraftLlmErrorReason;
+    unresolvedQuestions: string[];
   } | null>(null);
   const [prdMode, setPrdMode] = useState<PrdMode>(null);
   const [prdDraft, setPrdDraft] = useState<LiveProjectSpecDraft | null>(null);
   const [currentProjectSpec, setCurrentProjectSpec] = useState<ProjectSpec | null>(null);
   const [prdPatchFeedback, setPrdPatchFeedback] = useState<PrdPatchFeedback | null>(null);
   const [prdBusy, setPrdBusy] = useState(false);
-  const [pendingPrdPlanRequest, setPendingPrdPlanRequest] = useState<ProjectSpec | null>(null);
-  const expectingPlanDraftRef = useRef(false);
+  const [pendingPrdPlanRequest, setPendingPrdPlanRequest] = useState<PendingPrdPlanRequest | null>(
+    null,
+  );
+  const { expectingPlanDraftRef, planDraftPending, setPlanDraftExpectation } =
+    usePlanDraftPendingController();
   const [pendingPlanRoute, setPendingPlanRoute] = useState<PendingPlanRouteConfirmation | null>(
     null,
   );
@@ -299,6 +361,7 @@ export function useProductShellController() {
   const currentSessionId = useProjectSessionStore((s) => s.currentSessionId);
   const enableProvocationCards = useUiPreferencesStore((s) => s.enableProvocationCards);
   const provocationScaffoldMode = useUiPreferencesStore((s) => s.provocationScaffoldMode);
+  const quickIntakeEnabled = useUiPreferencesStore((s) => s.quickIntakeEnabled);
   const currentProjectName = useProjectSessionStore(
     (s) => s.projects.find((p) => p.id === s.currentProjectId)?.name ?? null,
   );
@@ -574,8 +637,10 @@ export function useProductShellController() {
   const planInterviewObserver = usePlanInterviewLLM({
     onPlanDraft: (draft) => {
       const interview = activeInterviewRef.current;
-      if (!interview) return;
-      expectingPlanDraftRef.current = false;
+      if (!interview) {
+        setPlanDraftExpectation(false);
+        return;
+      }
       setPlanDraftFailure(null);
       void (async () => {
         try {
@@ -622,20 +687,57 @@ export function useProductShellController() {
             description: t("planning.interview.draft_ready_description"),
           });
         } catch (err) {
+          const qualityError = decodePlanDraftQualityError(err);
+          if (qualityError) {
+            const unresolvedQuestions = qualityError.unresolvedQuestions ?? [];
+            setPlanDraftFailure({
+              reason: qualityError.reason,
+              unresolvedQuestions,
+            });
+            setActiveInterview((current) =>
+              current
+                ? {
+                    ...current,
+                    unresolved_questions: unresolvedQuestions,
+                  }
+                : current,
+            );
+            toast({
+              variant: "warn",
+              title: t(`planning.interview.recovery.${qualityError.reason}.title`),
+              description: t(`planning.interview.recovery.${qualityError.reason}.description`),
+            });
+            return;
+          }
           toast({
             variant: "error",
             title: t("planning.interview.draft_failed_title"),
             description: err instanceof Error ? err.message : String(err),
           });
+        } finally {
+          setPlanDraftExpectation(false);
         }
       })();
     },
     onPlanDraftError: (error) => {
-      if (!expectingPlanDraftRef.current || !activeInterviewRef.current) return;
-      expectingPlanDraftRef.current = false;
+      if (!expectingPlanDraftRef.current) return;
+      if (!activeInterviewRef.current) {
+        setPlanDraftExpectation(false);
+        return;
+      }
+      setPlanDraftExpectation(false);
       setPlanDraftFailure({
         reason: error.reason,
+        unresolvedQuestions: error.unresolvedQuestions ?? [],
       });
+      setActiveInterview((current) =>
+        current
+          ? {
+              ...current,
+              unresolved_questions: error.unresolvedQuestions ?? [],
+            }
+          : current,
+      );
       toast({
         variant: "warn",
         title: t(`planning.interview.recovery.${error.reason}.title`),
@@ -1312,23 +1414,26 @@ export function useProductShellController() {
   );
 
   const startPlanGenerationFromPrd = useCallback(
-    async (projectSpec: ProjectSpec) => {
+    async (projectSpec: ProjectSpec, options: { interviewAnswers?: InterviewAnswer[] } = {}) => {
       if (currentProjectId === null) return;
       if (chat.isStreaming) {
         requestChatFocus();
         return;
       }
       try {
-        const interview = await plan.startInterview(projectSpec.goal);
+        let interview = await plan.startInterview(projectSpec.goal);
+        for (const answer of options.interviewAnswers ?? []) {
+          interview = await plan.saveInterviewAnswer(interview.id, answer.question, answer.answer);
+        }
         activeInterviewRef.current = interview;
         setActiveInterview(interview);
-        expectingPlanDraftRef.current = true;
+        setPlanDraftExpectation(true);
         setPlanDraftFailure(null);
         setGeneratedPlanDraft(null);
         requestChatFocus();
         await chat.sendUserMessage(buildPrdPlanGenerationPrompt(projectSpec), "interview", false);
       } catch (err) {
-        expectingPlanDraftRef.current = false;
+        setPlanDraftExpectation(false);
         toast({
           variant: "error",
           title: t("planning.interview.draft_failed_title"),
@@ -1336,7 +1441,7 @@ export function useProductShellController() {
         });
       }
     },
-    [chat, currentProjectId, plan, requestChatFocus, t, toast],
+    [chat, currentProjectId, plan, requestChatFocus, setPlanDraftExpectation, t, toast],
   );
 
   useEffect(() => {
@@ -1348,9 +1453,9 @@ export function useProductShellController() {
     ) {
       return;
     }
-    const projectSpec = pendingPrdPlanRequest;
+    const { projectSpec, interviewAnswers } = pendingPrdPlanRequest;
     setPendingPrdPlanRequest(null);
-    void startPlanGenerationFromPrd(projectSpec);
+    void startPlanGenerationFromPrd(projectSpec, { interviewAnswers });
   }, [
     chat.isTauri,
     chat.loadingHistory,
@@ -1380,7 +1485,7 @@ export function useProductShellController() {
         return;
       }
       if (currentSessionId === null || chat.loadingHistory || !chat.isTauri) {
-        setPendingPrdPlanRequest(currentProjectSpec);
+        setPendingPrdPlanRequest({ projectSpec: currentProjectSpec });
         if (currentSessionId === null) {
           void createSession(currentProjectId);
         }
@@ -1411,6 +1516,65 @@ export function useProductShellController() {
     t,
     toast,
   ]);
+
+  const handleQuickIntakeSubmit = useCallback(
+    (draft: LiveProjectSpecDraft, input: QuickIntakeInput) => {
+      if (currentProjectId === null || prdBusy) return;
+      if (!hasConnectedProvider) {
+        openSettingsRoute();
+        return;
+      }
+      const interviewAnswers = quickIntakeInterviewAnswers(input);
+      setPrdBusy(true);
+      void plan
+        .saveProjectSpec(draft.spec, "interview")
+        .then((saved) => {
+          setCurrentProjectSpec(saved);
+          setPrdDraft(null);
+          setPrdPatchFeedback(null);
+          setPrdMode("read");
+          toast({
+            variant: "success",
+            title: t("prd.authoring.save_success_title"),
+            description: t("prd.authoring.save_success_description"),
+          });
+          if (currentSessionId === null || chat.loadingHistory || !chat.isTauri) {
+            setPendingPrdPlanRequest({ projectSpec: saved, interviewAnswers });
+            if (currentSessionId === null) {
+              void createSession(currentProjectId);
+            }
+            requestChatFocus();
+            return;
+          }
+          void startPlanGenerationFromPrd(saved, { interviewAnswers });
+        })
+        .catch((err) => {
+          toast({
+            variant: "error",
+            title: t("prd.authoring.save_failed_title"),
+            description: err instanceof Error ? err.message : String(err),
+          });
+        })
+        .finally(() => {
+          setPrdBusy(false);
+        });
+    },
+    [
+      chat.isTauri,
+      chat.loadingHistory,
+      createSession,
+      currentProjectId,
+      currentSessionId,
+      hasConnectedProvider,
+      openSettingsRoute,
+      plan,
+      prdBusy,
+      requestChatFocus,
+      startPlanGenerationFromPrd,
+      t,
+      toast,
+    ],
+  );
 
   const {
     stageBanner,
@@ -1516,6 +1680,14 @@ export function useProductShellController() {
   );
 
   const interviewPanelDisabled = currentSessionId === null || !hasConnectedProvider;
+  const interviewAnswers = useMemo(
+    () => interviewAnswersFromQuestions(activeInterview?.questions),
+    [activeInterview?.questions],
+  );
+  const unresolvedQuestionCount = useMemo(
+    () => stringArray(activeInterview?.unresolved_questions).length,
+    [activeInterview?.unresolved_questions],
+  );
 
   const {
     lastManualCheckpointLabel,
@@ -1624,10 +1796,10 @@ export function useProductShellController() {
     const submitPrompt = t("planning.interview.submit_prompt", {
       goal: interview.goal,
     });
-    expectingPlanDraftRef.current = true;
+    setPlanDraftExpectation(true);
     setPlanDraftFailure(null);
     void chat.sendUserMessage(submitPrompt, "interview", false);
-  }, [chat, t]);
+  }, [chat, setPlanDraftExpectation, t]);
 
   const handleApproveGeneratedPlan = useCallback(() => {
     if (!generatedPlanDraft) return;
@@ -1656,11 +1828,11 @@ export function useProductShellController() {
           steps: generatedPlanDraft.steps,
         }),
       });
-      expectingPlanDraftRef.current = true;
+      setPlanDraftExpectation(true);
       setPlanDraftFailure(null);
       void chat.sendUserMessage(prompt, "interview", false);
     },
-    [chat, generatedPlanDraft, t],
+    [chat, generatedPlanDraft, setPlanDraftExpectation, t],
   );
 
   const handleRetryPlanDraft = useCallback(() => {
@@ -1670,10 +1842,10 @@ export function useProductShellController() {
       goal: interview.goal,
       reason: planDraftFailure.reason,
     });
-    expectingPlanDraftRef.current = true;
+    setPlanDraftExpectation(true);
     setPlanDraftFailure(null);
     void chat.sendUserMessage(prompt, "interview", false);
-  }, [chat, planDraftFailure, t]);
+  }, [chat, planDraftFailure, setPlanDraftExpectation, t]);
 
   const handleDiscardGeneratedPlan = useCallback(() => {
     if (!generatedPlanDraft) return;
@@ -1702,9 +1874,11 @@ export function useProductShellController() {
         busy: prdBusy,
         recentlyChangedFields: prdPatchFeedback?.appliedFieldPaths ?? [],
         patchFeedback: prdPatchFeedback,
+        quickIntakeEnabled,
         onDraftChange: handlePrdDraftChange,
         onSubmitAnswer: handleSubmitPrdAnswer,
         onSavePrdAndCreatePlan: handleSavePrdAndCreatePlan,
+        onQuickIntakeSubmit: handleQuickIntakeSubmit,
       });
     }
     if (prdMode === "read" && currentProjectSpec) {
@@ -1730,6 +1904,7 @@ export function useProductShellController() {
     hasExistingPlan,
     handleCreatePlanFromRail,
     handlePrdDraftChange,
+    handleQuickIntakeSubmit,
     handleSavePrdAndCreatePlan,
     handleSubmitPrdAnswer,
     prdBusy,
@@ -1737,6 +1912,7 @@ export function useProductShellController() {
     prdMode,
     prdPatchFeedback,
     prdReadiness,
+    quickIntakeEnabled,
     t,
   ]);
 
@@ -1771,6 +1947,8 @@ export function useProductShellController() {
       interviewPanel: showInterviewPanel
         ? createElement(SocraticInterviewPanel, {
             started: activeInterview !== null,
+            answers: interviewAnswers,
+            unresolvedQuestionCount,
             loading: chat.isStreaming,
             disabled: interviewPanelDisabled,
             provocation: {
@@ -1869,11 +2047,18 @@ export function useProductShellController() {
         : planDraftFailure
           ? createElement(PlanDraftRecoveryScreen, {
               reason: planDraftFailure.reason,
+              unresolvedQuestions: planDraftFailure.unresolvedQuestions,
               busy: chat.isStreaming,
               onRetry: handleRetryPlanDraft,
               onDismiss: () => setPlanDraftFailure(null),
             })
-          : null,
+          : shouldRenderPlanDraftPending({
+                planDraftPending,
+                hasGeneratedPlanDraft: generatedPlanDraft !== null,
+                hasPlanDraftFailure: planDraftFailure !== null,
+              })
+            ? createElement(PlanDraftPendingScreen)
+            : null,
       prdSurface,
       prdSurfaceMode: prdReferenceMode ? ("reference" as const) : ("full" as const),
     },

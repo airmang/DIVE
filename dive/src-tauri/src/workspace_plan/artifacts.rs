@@ -14,6 +14,7 @@ use crate::dive::event_log::{
     PLAN_ADJUSTMENT_ACCEPTED_EVENT, PLAN_ADJUSTMENT_DISMISSED_EVENT, PLAN_ADJUSTMENT_OFFERED_EVENT,
     PLAN_GENERATED_EVENT, RUNTIME_CAPABILITY_EVALUATED_EVENT, SUPERVISOR_EVALUATED_EVENT,
 };
+use crate::dive::plan_quality_constants::{verification_type_from_legacy, VerificationType};
 
 const ARTIFACT_SCHEMA_VERSION: i32 = 1;
 
@@ -115,7 +116,7 @@ pub struct StepArtifact {
     pub parallel_group: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VerificationArtifact {
     pub kind: String,
@@ -260,14 +261,7 @@ fn build_step_artifact(step: &StepRow) -> StepArtifact {
         acceptance_criteria: step.acceptance_criteria.clone(),
         linked_criterion_ids: linked_criterion_ids(step.acceptance_criteria.as_ref()),
         decomposition_rationale: decomposition_rationale(step.acceptance_criteria.as_ref()),
-        verification: step
-            .verification_kind
-            .as_ref()
-            .map(|kind| VerificationArtifact {
-                kind: kind.clone(),
-                command: step.verification_command.clone(),
-                manual_check: step.verification_manual_check.clone(),
-            }),
+        verification: build_verification_artifact(step),
         dependencies: string_array(step.dependencies.as_ref()),
         parallel_group: step.parallel_group.clone(),
     }
@@ -322,12 +316,12 @@ fn build_plan_markdown(plan: &PlanRow, steps: &[StepRow]) -> String {
         if let Some(rationale) = decomposition_rationale(step.acceptance_criteria.as_ref()) {
             md.push_str(&format!("**Rationale:** {}\n\n", rationale));
         }
-        if let Some(kind) = &step.verification_kind {
-            md.push_str(&format!("**Verification:** {}\n", kind));
-            if let Some(command) = &step.verification_command {
+        if let Some(verification) = build_verification_artifact(step) {
+            md.push_str(&format!("**Verification:** {}\n", verification.kind));
+            if let Some(command) = &verification.command {
                 md.push_str(&format!("- Command: `{}`\n", command));
             }
-            if let Some(check) = &step.verification_manual_check {
+            if let Some(check) = &verification.manual_check {
                 md.push_str(&format!("- Manual Check: {}\n", check));
             }
             md.push('\n');
@@ -338,6 +332,43 @@ fn build_plan_markdown(plan: &PlanRow, steps: &[StepRow]) -> String {
         }
     }
     md
+}
+
+fn build_verification_artifact(step: &StepRow) -> Option<VerificationArtifact> {
+    let command = step
+        .verification_command
+        .as_deref()
+        .map(str::trim)
+        .filter(|command| !command.is_empty())
+        .map(str::to_string);
+    let manual_check = step
+        .verification_manual_check
+        .as_deref()
+        .map(str::trim)
+        .filter(|check| !check.is_empty())
+        .map(str::to_string);
+    let raw_kind = step
+        .verification_kind
+        .as_deref()
+        .map(str::trim)
+        .filter(|kind| !kind.is_empty());
+    let kind = VerificationType::from_str_opt(raw_kind).or_else(|| {
+        if raw_kind.is_some() || command.is_some() || manual_check.is_some() {
+            Some(verification_type_from_legacy(command.as_deref()))
+        } else {
+            None
+        }
+    })?;
+    let command = match kind {
+        VerificationType::Run | VerificationType::Test => command,
+        VerificationType::Preview | VerificationType::Manual => None,
+    };
+
+    Some(VerificationArtifact {
+        kind: kind.as_str().to_string(),
+        command,
+        manual_check,
+    })
 }
 
 fn append_array_section(md: &mut String, title: &str, value: Option<&Value>, code: bool) {

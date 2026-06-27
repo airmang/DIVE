@@ -2,7 +2,12 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
-import { createLiveProjectSpecDraft } from "../../features/planning";
+import {
+  createLiveProjectSpecDraft,
+  quickIntakeInterviewAnswers,
+  type QuickIntakeInput,
+} from "../../features/planning";
+import { remainingInterviewDimensions } from "../../features/planning/remainingInterviewDimensions";
 import { useProjectSessionStore } from "../../stores/project-session";
 import { PrdAuthoringBoard, isPrdCompletionIntent } from "./PrdAuthoringBoard";
 
@@ -59,7 +64,88 @@ describe("PrdAuthoringBoard", () => {
     expect(screen.getByTestId("prd-interview-rail")).toBeTruthy();
     expect(screen.getByTestId("prd-live-canvas")).toBeTruthy();
     expect(screen.getByTestId("prd-bottom-action-bar")).toBeTruthy();
+    expect(screen.queryByTestId("quick-intake-panel")).toBeNull();
     await waitFor(() => expect(screen.getByTestId("chat-runtime-selector")).toBeTruthy());
+  });
+
+  it("keeps quick intake hidden behind the default-off flag", () => {
+    renderBoard({ quickIntakeEnabled: false });
+
+    expect(screen.queryByTestId("quick-intake-panel")).toBeNull();
+    expect(screen.queryByTestId("quick-intake-toggle")).toBeNull();
+  });
+
+  it("maps concrete quick intake fields into the same PRD draft and interview dimensions", () => {
+    const props = renderBoard({
+      quickIntakeEnabled: true,
+      onQuickIntakeSubmit: vi.fn(),
+    });
+    const input: QuickIntakeInput = {
+      audience: "Bakery visitors browsing on phones",
+      doneSignal: "A responsive bakery menu page shows categories, item names, and prices",
+      inScope: "Static menu page; responsive layout; visible prices",
+      outOfScope: "Online ordering; payment; admin editor",
+      acceptanceCriterion1:
+        "At 390px width, every menu category, item name, and price remains readable",
+      acceptanceCriterion2:
+        "Refreshing the page keeps all menu content visible without console errors",
+    };
+
+    fireEvent.click(screen.getByTestId("quick-intake-toggle"));
+    for (const [key, value] of Object.entries(input) as Array<[keyof QuickIntakeInput, string]>) {
+      fireEvent.change(screen.getByTestId(`quick-intake-${key}`), {
+        target: { value },
+      });
+    }
+    fireEvent.click(screen.getByTestId("quick-intake-submit"));
+
+    expect(props.onDraftChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spec: expect.objectContaining({
+          goal: input.doneSignal,
+          intentSummary: `${input.audience} - ${input.doneSignal}`,
+          scope: ["Static menu page", "responsive layout", "visible prices"],
+          nonGoals: ["Online ordering", "payment", "admin editor"],
+          acceptanceCriteria: expect.arrayContaining([
+            expect.objectContaining({ text: input.acceptanceCriterion1 }),
+            expect.objectContaining({ text: input.acceptanceCriterion2 }),
+          ]),
+        }),
+      }),
+    );
+    expect(props.onQuickIntakeSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ spec: expect.objectContaining({ goal: input.doneSignal }) }),
+      input,
+    );
+    expect(props.onSavePrdAndCreatePlan).not.toHaveBeenCalled();
+    expect(remainingInterviewDimensions(quickIntakeInterviewAnswers(input))).toBe(0);
+  });
+
+  it("passes vague quick intake fields onward instead of marking a ready draft locally", () => {
+    const props = renderBoard({
+      quickIntakeEnabled: true,
+      onQuickIntakeSubmit: vi.fn(),
+    });
+    const input: QuickIntakeInput = {
+      audience: "users",
+      doneSignal: "make it nice",
+      inScope: "stuff",
+      outOfScope: "nothing",
+      acceptanceCriterion1: "looks good",
+      acceptanceCriterion2: "works well",
+    };
+
+    fireEvent.click(screen.getByTestId("quick-intake-toggle"));
+    for (const [key, value] of Object.entries(input) as Array<[keyof QuickIntakeInput, string]>) {
+      fireEvent.change(screen.getByTestId(`quick-intake-${key}`), {
+        target: { value },
+      });
+    }
+    fireEvent.click(screen.getByTestId("quick-intake-submit"));
+
+    expect(props.onQuickIntakeSubmit).toHaveBeenCalledTimes(1);
+    expect(props.onSavePrdAndCreatePlan).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("plan-draft-approval")).toBeNull();
   });
 
   it("does not confirm a bare goal plus one criterion", () => {

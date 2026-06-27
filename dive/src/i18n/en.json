@@ -567,7 +567,7 @@
   },
   "provocation_action": {
     "seed_add_criteria": "Make the acceptance criteria concrete with 2–3 items — include what the user should see to know it's done.",
-    "seed_add_verification": "Make this step's verification method concrete — pick one of run, preview, or test.",
+    "seed_add_verification": "Make this step's verification method concrete — pick one of run, preview, manual, or test.",
     "seed_split_scope": "Reduce the current request to just the first single feature and rewrite it.",
     "seed_ask_rationale": "Explain how this change connects to the goal.",
     "seed_create_repro": "From the repeated error, lay out the reproduction steps, the smallest check command, and what to inspect in the last change.",
@@ -937,7 +937,7 @@
       "send_answer": "Send",
       "complete": "Finish interview",
       "question_fallback": "Latest interview question",
-      "submit_prompt": "[INTERVIEW_SUBMIT]\nGoal: {{goal}}\nSummarize the interview and return compact JSON only with intent_summary, unresolved_questions, and a workspace_plan_generate_draft-compatible plan_input. Prefer 2-6 plan_input.steps and never exceed 8. Each step must be small enough for one supervised turn. verification_command must be one no-shell command with explicit args. Do not include Markdown fences or prose.",
+      "submit_prompt": "[INTERVIEW_SUBMIT]\nGoal: {{goal}}\nSummarize the interview and return compact JSON only with intent_summary, unresolved_questions, and a workspace_plan_generate_draft-compatible plan_input. Prefer 2-6 plan_input.steps and never exceed 8. Each step must be small enough for one supervised turn. verification_type must be one of run, preview, manual, or test. For static front-end or no-runnable-command steps, use preview or manual with verification_command null; use run or test only for a real no-shell command with explicit args. Do not include Markdown fences or prose.",
       "adjust_failure_seed": "Re-open the plan interview for {{title}}. The issue to resolve by narrowing scope or adjusting the plan is: {{reason}}",
       "vague_answer_error": "Please be more specific about the audience, scope, success criteria, or constraints.",
       "start_failed_title": "Could not start interview",
@@ -945,9 +945,56 @@
       "draft_ready_title": "Plan draft ready",
       "draft_ready_description": "Review the generated plan before approving it.",
       "draft_failed_title": "Could not create plan draft",
-      "compact_retry_prompt": "The previous plan JSON generation failed. Reason: {{reason}}\nGoal: {{goal}}\nReturn complete, short JSON only. plan_input should contain 2-6 steps and must never exceed 8. Each step must include title, summary, instruction_seed, expected_files, acceptance_criteria, and verification_command, and must be small enough for one supervised turn. verification_command must be one no-shell command with explicit args. Do not include prose or Markdown fences.",
+      "compact_retry_prompt": "The previous plan JSON generation failed. Reason: {{reason}}\nGoal: {{goal}}\nReturn complete, short JSON only. plan_input should contain 2-6 steps and must never exceed 8. Each step must include title, summary, instruction_seed, expected_files, acceptance_criteria, verification_type, and verification_command, and must be small enough for one supervised turn. verification_type must be one of run, preview, manual, or test. For static front-end or no-runnable-command steps, use preview or manual with verification_command null; use run or test only for a real no-shell command with explicit args. Do not include prose or Markdown fences.",
+      "pending": {
+        "title": "Generating your plan...",
+        "description": "DIVE is turning the interview into a short, reviewable plan draft."
+      },
+      "remaining_questions": {
+        "many": "{{count}} more quick questions",
+        "one": "1 more quick question",
+        "done": "Almost done"
+      },
+      "quick_intake": {
+        "title": "Quick intake",
+        "description": "Short form for simple static work.",
+        "submit": "Use intake and draft plan",
+        "fields": {
+          "audience": {
+            "label": "Audience",
+            "placeholder": "Bakery visitors checking the menu",
+            "help": "Name who will use or inspect the first version."
+          },
+          "doneSignal": {
+            "label": "Done signal (observable result)",
+            "placeholder": "A responsive menu page shows categories and prices",
+            "help": "Describe what someone can see or do when the work is done."
+          },
+          "inScope": {
+            "label": "In scope",
+            "placeholder": "Static menu page; mobile layout; price list",
+            "help": "List only what belongs in this first version."
+          },
+          "outOfScope": {
+            "label": "Out of scope (non-goals)",
+            "placeholder": "Online ordering; payments; admin editor",
+            "help": "List what DIVE should avoid for now."
+          },
+          "acceptanceCriterion1": {
+            "label": "Acceptance criterion 1",
+            "placeholder": "At 390px width, every menu category and price remains readable",
+            "help": "Write one independently checkable condition."
+          },
+          "acceptanceCriterion2": {
+            "label": "Acceptance criterion 2",
+            "placeholder": "Refreshing the page keeps the menu content visible without errors",
+            "help": "Write another independently checkable condition."
+          }
+        }
+      },
       "recovery": {
         "retry": "Regenerate short JSON",
+        "missing_items_title": "Ask for these missing details:",
         "hints": "If the model response is too long, ask only for a compact plan draft.|If it fails again, split the goal into a smaller scope.",
         "length": {
           "title": "Plan response was cut off",
@@ -960,6 +1007,14 @@
         "invalid_plan_shape": {
           "title": "Plan structure is incomplete",
           "description": "The JSON was readable, but it did not include the goal, intent summary, and steps DIVE needs. DIVE can regenerate a compatible structure."
+        },
+        "vague_criteria": {
+          "title": "Acceptance criteria need more concrete checks",
+          "description": "DIVE blocked this plan before review because one or more criteria were vague or not independently checkable."
+        },
+        "missing_state_criteria": {
+          "title": "Acceptance criteria are missing required states",
+          "description": "DIVE blocked this plan before review because the goal needs additional criteria for the relevant UI or data-fetch states."
         }
       }
     },
@@ -993,7 +1048,7 @@
       "request_step_changes": "Request this step",
       "request_changes_placeholder": "Describe what should change in this draft...",
       "revision_add_criteria": "Please add acceptance criteria to the plan — e.g. write 2–3 observable things the user should see when it's done.",
-      "revision_add_verification": "A verification step is needed. Add to the plan how you'll check it — run, preview, or test.",
+      "revision_add_verification": "A verification step is needed. Add to the plan how you'll check it — run, preview, manual, or test.",
       "revision_split_scope": "Please split the scope smaller. Rewrite the plan so only the first single feature is up for approval.",
       "revision_continue_risk": "To proceed knowing the remaining risk, leave a short note in the request-changes box on why it's okay to continue as-is.",
       "critique_question": "Is this plan missing any steps?",
