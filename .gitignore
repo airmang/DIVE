@@ -6,6 +6,7 @@ ralph_logs/
 
 # 로컬 QA 산출물 (Computer Use / release smoke 재현용, 커밋 대상 아님)
 qa-sandbox/
+.qa-backups/
 
 # Playwright/검증 스크립트 산출물 (스크린샷 등, 커밋 대상 아님)
 dive/test-results/

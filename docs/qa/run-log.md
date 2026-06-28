@@ -109,3 +109,18 @@ Live LLM = OpenRouter `claude-sonnet-4.6`. Goal sent: "Add a button labeled 'Cli
 ## Summary so far (iterations 1–3)
 
 **~25 scenarios run · 0 confirmed defects · 4 false-positives avoided via code cross-check.** Highest-risk historical areas (supervisor/review card rendering & JSON parsing, tool-approval safety, verification observation tracking) all **PASS live**. App is in solid shape for a finishing pass. Main non-product finding = a computer-use harness caveat (intermittent action-button click non-firing; mitigated with keyboard / retry).
+
+## Focused 009 continuation — 2026-06-27
+
+See `009-live-qa-run-log.md` for the resumed S-035..S-040 pass. Live app
+verification passed for S-036, S-038, and S-040; S-035, S-037, and S-039 were
+source/test-wiring confirmed with their full fresh live journeys deferred.
+
+### Pre-release addendum — 2026-06-27
+
+The same run log now includes the final local pre-release pass. The rebuilt
+macOS `.app` launches, contains the bundled Pi sidecar, clears `pi-sidecar`
+audit findings after the 0.79.10 patch update, and passes the local release
+gates. Remaining release conditions are external: Windows NSIS installed-app
+smoke, GitHub release authority checks, and committing/tagging the intended
+release SHA.
