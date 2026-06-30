@@ -117,6 +117,18 @@ Rebuilt the app (release, includes Pass A/B/C) and re-QA'd the headline must-con
 
 **Conclusion:** the headline S-041 PRD interview dead-end is **fixed and confirmed on the real app**. Combined with 386 frontend + 598 Rust unit tests green, S-041 is implementation-complete and live-validated for its must-confirm journey.
 
+## S-042 — anti-automation-bias hardening (2026-06-30, freshly built `tauri build --bundles app`)
+
+Implemented all 11 Theme-2 findings (commit `0ea8aeb`), rebuilt the release `.app`, installed to `/Applications`, and launched on macOS computer-use (ko locale, provider OpenRouter Claude Sonnet connected).
+
+| Check | Live verdict | Evidence |
+| --- | --- | --- |
+| **Rebuilt app health (no regression from S-042)** | **CONFIRMED** | `pnpm tauri build --bundles app` succeeded; `/Applications/DIVE.app` launches clean and renders the PRD Authoring Board (목표/의도 요약/범위/하지 않을 일/제약/수락 기준 AC-001·AC-002, "+ 완료 기준 추가", 감독 모드/결과 확인/코드·미리보기) with no crash or blank screen. All S-042 frontend+Rust changes are integrated in the running binary. |
+| **P1-21 offline verify-provocation (must-confirm)** | **NOT FORCED LIVE this session** | Covered by deterministic Rust units (`runtime_unavailable_output` → `DomainShell` for AiClaimedDone/VerifyEntered; existing `…maps_stage_c_shell_to_shown_response`) and uses the **same production render path already live-verified for DiffReady offline** (commit `02dded7`, round-1). Live repro needs a step at Verify with changed files **and** the provider runtime unavailable — a focused offline-staging scenario recommended as the immediate next live check. |
+| P1-14/P1-15 critique note + provenance, P1-17 danger read-gate, P1-18 divergence, P1-25 secret callout, P1-26 read-gate copy, P2-13 trust hint, P2-14 engaged≠dismissed, P2-30 neutral glyph | NOT individually forced live this session | All covered by new Vitest + Rust tests (CI green). Reachable live surfaces (plan-approval critique gate; Danger/secret permission cards; ai_self_report_only review card) are spot-checkable in a follow-up interactive pass. |
+
+**Conclusion:** S-042 is implementation-complete, fully local-CI-green (Rust fmt/clippy -Dwarnings/test --features dev-mock incl. new keystone/critique/provenance tests; frontend format/typecheck/lint/test:unit = 397; en/ko key parity), and the rebuilt app launches healthy with all changes integrated. The headline offline verify-provocation journey is test-proven and shares a live-verified render path; a focused offline live repro is the recommended next live step.
+
 ## New observations (not in audit)
 
-<!-- filled live -->
+- **Wily state-machine not bootstrapped for round-2 stages** (process, not product): `design_stage` creates a Stage in `draft`; `claim_stage` requires `ready` and `plan_stage` requires `active`, with no normal-tool path from `draft` → `ready`/`active` available for these stages (S-041 was likewise left at `draft` despite being done + live-verified). Round-2 completion is therefore recorded via `add_stage_note` evidence (commit/CI/findings) rather than a `done` status transition. Worth bootstrapping the Stage lifecycle (or documenting the intended transition tool) so S-041–S-048 can reach `done` truthfully.
