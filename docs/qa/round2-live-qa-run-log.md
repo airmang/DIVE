@@ -99,6 +99,24 @@ Because A/B admit a PRD that C can reject, plan-confirm is unreachable whenever 
 
 **Fix direction** (fold into **S-041** — shared root cause): reconcile the PRD readiness/admission bar (Tier A/B) with `validate_criterion_quality` (Tier C) so the PRD interview drives toward state-class coverage *before* declaring ready (mirror the S-041 reconciliation); AND break the no-progress retry — feed the actual missing classes (`unresolvedQuestions`/`missingItems`) into the retry prompt and/or route the student from the recovery screen back to PRD authoring with the missing classes named. Files: `workspace_plan.rs` (gates), `useProductShellController.ts:1840-1849` + `en/ko.json:958` (retry), `PlanDraftRecoveryScreen.tsx` (escape affordance), `projectSpec.ts` (align confirmable gate).
 
+---
+
+## Live re-QA after S-041 fix (2026-06-30, freshly built `tauri build --bundles app`)
+
+Rebuilt the app (release, includes Pass A/B/C) and re-QA'd the headline must-confirm journey in ko on a fresh project `round2-reqa-prd`.
+
+| Check | Live verdict | Evidence |
+| --- | --- | --- |
+| **S-041 PRD dead-end fixed (P1-09/P1-10)** | **CONFIRMED FIXED** | Asked DIVE "이정도면 충분한 것 같아요. **이제 확정하면 될까요?**" with the draft not yet confirmable (no non-goal, <2 substantive criteria). DIVE replied **"아직 한 가지만 더 채워두면 완성이에요! 😊 …'처음부터 이런 건 넣지 않겠다'고 미리 정해두면…"** — i.e. it does NOT prematurely say "확정하세요"; it asks for the next genuinely-missing gate field (the non-goal) in plain Korean. PRD 확정 button stays disabled and the footer matches. The rc.5 dead-end ("충분히 갖춰졌어요 🎉 확정 버튼 누르세요" while disabled) is gone. |
+| **Add-criterion affordance (P1-30)** | **CONFIRMED** | "+ 완료 기준 추가" button renders under the criteria; a trailing empty row (AC-002) appears after AC-001 gets text. |
+| **Neutral placeholder (Theme 7b)** | **CONFIRMED** | Interview input placeholder is "여기에 답을 입력하세요" (no biased teacher/grading example). |
+| **Field capture from conversation** | **CONFIRMED** | DIVE patched 의도 요약 + 범위 from casual answers; manually-edited 목표 preserved ("직접 고친 필드는 유지하고, 새 제안만 따로 보관했습니다"). |
+| Plan-confirm loop (Pass B) | NOT FORCED LIVE | Requires a specific thin-PRD whose generated plan misses a state-class; covered by the adversarially-verified root cause + retry-progress/recovery-escape code + unit tests. The dead-end (the owner's primary live concern) is the one confirmed live. |
+
+**Environment friction (not product defects), logged for the harness:** (1) macOS **Notification/Control Center** kept re-opening a transparent full-screen click-catcher that blocked every computer-use click — recurs on each notification; **resolved by the owner enabling Do Not Disturb**. ⚠️ Clearing it via OS-level Escape (`osascript … key code 53`) **wipes the focused PRD input** (Escape clears the textarea), so prefer DND over the Escape workaround. (2) **한컴오피스 한글 / Codex** kept stealing focus from DIVE, causing 대화 보내기 / 전송 click misfires and one duplicate send. (3) Pre-existing UX quirk: typing a fresh acceptance criterion character-by-character loses focus after the first char (the `criterionId` allocation remounts the input under a new React key) — surfaced by computer-use's per-char typing; worth a small follow-up (stable key for new rows) but out of S-041 scope.
+
+**Conclusion:** the headline S-041 PRD interview dead-end is **fixed and confirmed on the real app**. Combined with 386 frontend + 598 Rust unit tests green, S-041 is implementation-complete and live-validated for its must-confirm journey.
+
 ## New observations (not in audit)
 
 <!-- filled live -->
