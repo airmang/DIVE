@@ -1352,6 +1352,7 @@ export function useProductShellController() {
           });
           return {
             assistantMessage: result.assistantMessage,
+            appliedChange: (result.appliedFieldPaths?.length ?? 0) > 0,
           };
         })
         .catch((err) => {

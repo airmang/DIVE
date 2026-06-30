@@ -257,6 +257,50 @@ describe("PrdAuthoringBoard", () => {
     );
   });
 
+  it("offers an Add-criterion button and a trailing empty row for manual authoring", () => {
+    const props = renderBoard({
+      draft: createLiveProjectSpecDraft(42, {
+        goal: "Build a simple to-do list",
+        acceptanceCriteria: ["Adding an item shows it in the list immediately"],
+      }),
+    });
+
+    // The single AI criterion plus a trailing empty row the student can type into.
+    expect(screen.getByTestId("prd-criterion-input-0")).toHaveProperty(
+      "value",
+      "Adding an item shows it in the list immediately",
+    );
+    const trailing = screen.getByTestId("prd-criterion-input-1");
+    expect(trailing).toHaveProperty("value", "");
+    expect(screen.getByTestId("prd-add-criterion")).toBeTruthy();
+
+    // Typing in the trailing row authors a second criterion by hand (P1-30).
+    fireEvent.change(trailing, {
+      target: { value: "Deleting an item removes it from the list" },
+    });
+    const draftCalls = (props.onDraftChange as ReturnType<typeof vi.fn>).mock.calls;
+    const lastDraft = draftCalls[draftCalls.length - 1]?.[0];
+    expect(lastDraft.spec.acceptanceCriteria).toHaveLength(2);
+    expect(lastDraft.spec.acceptanceCriteria[1].text).toBe(
+      "Deleting an item removes it from the list",
+    );
+  });
+
+  it("renders a factual reply on a patch-only turn instead of deleting the bubble (P1-12)", async () => {
+    const onSubmitAnswer = vi.fn().mockResolvedValue({ appliedChange: true });
+    renderBoard({ onSubmitAnswer });
+    const rail = screen.getByTestId("prd-interview-rail");
+
+    fireEvent.change(within(rail).getByTestId("prd-interview-input"), {
+      target: { value: "It should keep items after a refresh" },
+    });
+    fireEvent.click(within(rail).getByTestId("prd-interview-send"));
+
+    await waitFor(() =>
+      expect(screen.getByText("I've folded that into the PRD draft.")).toBeTruthy(),
+    );
+  });
+
   it("shows a non-blocking PRD intent-check card once the PRD is confirmable", () => {
     renderBoard({
       draft: createLiveProjectSpecDraft(42, {

@@ -1,4 +1,4 @@
-import { CheckCircle2, History, Save, Send } from "lucide-react";
+import { CheckCircle2, History, Plus, Save, Send } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   allocateCriterionId,
@@ -33,6 +33,10 @@ export interface PrdPatchFeedback {
 
 export interface PrdInterviewSubmissionResult {
   assistantMessage?: string | null;
+  /** True when the turn applied at least one PRD field change. Lets the board
+   *  render a factual reply on patch-only turns instead of deleting the bubble
+   *  (silent dead-air, round-2 P1-12). */
+  appliedChange?: boolean;
 }
 
 type PrdConversationTurnState = "pending" | "error";
@@ -93,6 +97,31 @@ function nextCriterion(
     status: "active",
     createdInVersion: version ?? 1,
     retiredInVersion: null,
+  };
+}
+
+function emptyCriterion(version: number | undefined): AcceptanceCriterion {
+  return {
+    criterionId: "",
+    text: "",
+    source: "student_edit",
+    status: "active",
+    createdInVersion: version ?? 1,
+    retiredInVersion: null,
+  };
+}
+
+/** Strip blank acceptance criteria before saving so an empty manual row never
+ *  reaches plan generation (an empty criterion fails the plan-confirm gate). */
+function withNonEmptyCriteria(draft: LiveProjectSpecDraft): LiveProjectSpecDraft {
+  return {
+    ...draft,
+    spec: {
+      ...draft.spec,
+      acceptanceCriteria: draft.spec.acceptanceCriteria.filter((criterion) =>
+        criterion.text.trim(),
+      ),
+    },
   };
 }
 
@@ -232,11 +261,27 @@ export function PrdAuthoringBoard({
     [localDraft.spec],
   );
   const criteria = normalizeCriteria(localDraft.spec.acceptanceCriteria);
+  // Always offer a trailing empty row so the student can author the 2nd criterion
+  // by hand when the AI won't extend it (round-2 P1-30 / S-041 dead-end escape).
+  const displayCriteria =
+    criteria.length > 0 && criteria[criteria.length - 1].text.trim()
+      ? [...criteria, emptyCriterion(localDraft.spec.currentVersion)]
+      : criteria;
   const isAnswerBusy = busy || submittingAnswer;
   const canConfirmPrd = validation.valid && !busy;
   const confirmPrd = () => {
     if (!canConfirmPrd) return;
-    onSavePrdAndCreatePlan(localDraft);
+    onSavePrdAndCreatePlan(withNonEmptyCriteria(localDraft));
+  };
+  const addCriterion = () => {
+    const current = localDraft.spec.acceptanceCriteria;
+    // A trailing empty row already exists to type into; don't stack blanks.
+    if (current.some((criterion) => !criterion.text.trim())) return;
+    updateSpecField(
+      "acceptanceCriteria",
+      [...current, emptyCriterion(localDraft.spec.currentVersion)],
+      "acceptanceCriteria",
+    );
   };
 
   // Non-blocking reflective provocation: once the PRD is confirmable, prompt the
@@ -364,10 +409,14 @@ export function PrdAuthoringBoard({
         prdConversationContext([...conversationTurns, studentTurn]),
       );
       const assistantText = result?.assistantMessage?.trim();
+      // On a patch-only turn (no assistant prose) DIVE still changed the draft;
+      // render a factual reply instead of deleting the bubble (P1-12 dead-air).
+      const reply =
+        assistantText || (result?.appliedChange ? t("prd.authoring.turn_applied") : null);
       setConversationTurns((turns) =>
-        assistantText
+        reply
           ? turns.map((turn) =>
-              turn.id === pendingId ? { ...turn, text: assistantText, state: undefined } : turn,
+              turn.id === pendingId ? { ...turn, text: reply, state: undefined } : turn,
             )
           : turns.filter((turn) => turn.id !== pendingId),
       );
@@ -603,7 +652,7 @@ export function PrdAuthoringBoard({
               <span className="text-xs font-semibold text-fg-muted">
                 {t("prd.fields.acceptance_criteria")}
               </span>
-              {criteria.map((criterion, index) => (
+              {displayCriteria.map((criterion, index) => (
                 <label key={criterion.criterionId || index} className="flex items-center gap-2">
                   <span className="w-14 shrink-0 text-xs font-semibold text-accent">
                     {criterion.criterionId || `AC-${String(index + 1).padStart(3, "0")}`}
@@ -617,6 +666,15 @@ export function PrdAuthoringBoard({
                   />
                 </label>
               ))}
+              <button
+                type="button"
+                onClick={addCriterion}
+                className="mt-1 inline-flex w-fit items-center gap-1 text-xs font-medium text-accent hover:underline"
+                data-testid="prd-add-criterion"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {t("prd.authoring.add_criterion")}
+              </button>
             </div>
           </div>
         </main>
