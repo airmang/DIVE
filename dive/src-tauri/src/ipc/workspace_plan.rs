@@ -1762,8 +1762,127 @@ fn is_minimal_project_spec_draft(spec: &ProjectSpecDraft) -> bool {
         })
 }
 
+// Confirm-gate thresholds mirror the frontend `validateConfirmableProjectSpec`
+// (dive/src/features/planning/projectSpec.ts). The PRD interview readiness signal
+// MUST track these so DIVE never tells the student to confirm while the "PRD 확정"
+// button is disabled (round-2 S-041 / P1-09, P1-10). Lengths are char counts to
+// match the TS validator's string-length semantics.
+const MIN_CONFIRMABLE_GOAL_CHARS: usize = 10;
+const MIN_CONFIRMABLE_INTENT_CHARS: usize = 8;
+const MIN_CONFIRMABLE_LIST_ITEM_CHARS: usize = 4;
+const MIN_CONFIRMABLE_CRITERION_CHARS: usize = 6;
+const MIN_CONFIRMABLE_ACCEPTANCE_CRITERIA: usize = 2;
+const VAGUE_GOAL_TERMS: &[&str] = &[
+    "대충",
+    "적당히",
+    "알아서",
+    "아무거나",
+    "뭔가",
+    "그냥 만들",
+    "그냥 해",
+    "something",
+    "whatever",
+    "anything",
+];
+
+struct ConfirmableGap {
+    /// Short field name for `missing_confirmable_prd_fields`.
+    label: &'static str,
+    /// One-field interview focus instruction for `prd_interview_next_focus`.
+    focus: &'static str,
+}
+
+fn goal_is_vague(goal: &str) -> bool {
+    let trimmed = goal.trim();
+    let len = trimmed.chars().count();
+    if len < MIN_CONFIRMABLE_GOAL_CHARS {
+        return true;
+    }
+    if len < 24 {
+        let lower = trimmed.to_lowercase();
+        if VAGUE_GOAL_TERMS
+            .iter()
+            .any(|term| lower.contains(&term.to_lowercase()))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn substantive_list_count(values: &[String], min_chars: usize) -> usize {
+    values
+        .iter()
+        .filter(|value| value.trim().chars().count() >= min_chars)
+        .count()
+}
+
+fn substantive_active_criteria_count(criteria: &[AcceptanceCriterion]) -> usize {
+    criteria
+        .iter()
+        .filter(|criterion| {
+            criterion.status == AcceptanceCriterionStatus::Active
+                && criterion.text.trim().chars().count() >= MIN_CONFIRMABLE_CRITERION_CHARS
+        })
+        .count()
+}
+
+/// Ordered gaps between the draft and the confirmable bar. Empty == confirmable.
+/// Mirrors `validateConfirmableProjectSpec` (non-vague goal + intent + >=1 scope +
+/// >=1 non-goal + >=2 substantive criteria); constraints stay optional there too.
+fn confirmable_draft_gaps(spec: &ProjectSpecDraft) -> Vec<ConfirmableGap> {
+    let mut gaps = Vec::new();
+    let goal = spec.goal.trim();
+    if goal.is_empty() {
+        gaps.push(ConfirmableGap {
+            label: "goal",
+            focus: "clarify_goal_in_plain_language: ask who needs this, in what situation, and what problem it should solve",
+        });
+    } else if goal_is_vague(goal) {
+        gaps.push(ConfirmableGap {
+            label: "specific goal",
+            focus: "sharpen_goal: the goal is too short or vague — ask one plain question so it names who it is for and what it should concretely do",
+        });
+    }
+    let intent_len = spec
+        .intent_summary
+        .as_deref()
+        .map(|value| value.trim().chars().count())
+        .unwrap_or(0);
+    if intent_len < MIN_CONFIRMABLE_INTENT_CHARS {
+        gaps.push(ConfirmableGap {
+            label: "intent summary",
+            focus: "capture_intent_summary: ask in one plain question who will use this and why, so it can be summarized in one sentence",
+        });
+    }
+    if substantive_list_count(&spec.scope, MIN_CONFIRMABLE_LIST_ITEM_CHARS) < 1 {
+        gaps.push(ConfirmableGap {
+            label: "in-scope item",
+            focus: "capture_scope: ask what the first version should include — one concrete thing it must do",
+        });
+    }
+    if substantive_list_count(&spec.non_goals, MIN_CONFIRMABLE_LIST_ITEM_CHARS) < 1 {
+        gaps.push(ConfirmableGap {
+            label: "non-goal",
+            focus: "capture_non_goal: ask what the first version should NOT include or do — one thing to leave out for now",
+        });
+    }
+    match substantive_active_criteria_count(&spec.acceptance_criteria) {
+        0 => gaps.push(ConfirmableGap {
+            label: "observable done state",
+            focus: "capture_observable_done_state: ask what the student would see when the project is working",
+        }),
+        count if count < MIN_CONFIRMABLE_ACCEPTANCE_CRITERIA => gaps.push(ConfirmableGap {
+            label: "second observable done state",
+            focus: "capture_second_observable_done_state: ask for one more concrete, checkable sign that the project works, so there are at least two",
+        }),
+        _ => {}
+    }
+    gaps
+}
+
 fn is_confirmable_project_spec_draft(spec: &ProjectSpecDraft) -> bool {
-    is_minimal_project_spec_draft(spec)
+    confirmable_draft_gaps(spec).is_empty()
 }
 
 fn allocate_acceptance_criterion_id(criteria: &[AcceptanceCriterion]) -> String {
@@ -2079,38 +2198,18 @@ fn format_prd_interview_conversation(conversation: &[PrdInterviewConversationTur
 }
 
 fn missing_confirmable_prd_fields(spec: &ProjectSpecDraft) -> Vec<&'static str> {
-    let mut fields = Vec::new();
-    if spec.goal.trim().is_empty() {
-        fields.push("goal");
+    let gaps = confirmable_draft_gaps(spec);
+    if gaps.is_empty() {
+        return vec!["none"];
     }
-    if spec
-        .acceptance_criteria
-        .iter()
-        .all(|criterion| criterion.text.trim().is_empty())
-    {
-        fields.push("observable done state");
-    }
-    if fields.is_empty() {
-        fields.push("none");
-    }
-    fields
+    gaps.into_iter().map(|gap| gap.label).collect()
 }
 
 fn prd_interview_next_focus(spec: &ProjectSpecDraft) -> &'static str {
-    if spec.goal.trim().is_empty() {
-        return "clarify_goal_in_plain_language: ask who needs this, in what situation, and what problem it should solve";
+    match confirmable_draft_gaps(spec).first() {
+        Some(gap) => gap.focus,
+        None => "ready_to_save: the draft is complete enough; point to the PRD confirmation action",
     }
-    if spec
-        .acceptance_criteria
-        .iter()
-        .all(|criterion| criterion.text.trim().is_empty())
-    {
-        return "capture_observable_done_state: ask what the student would see when the project is working";
-    }
-    if !is_confirmable_project_spec_draft(spec) {
-        return "tighten_confirmation_fields: ask one short question about the missing confirmation field";
-    }
-    "ready_to_save: the draft is complete enough; point to the PRD confirmation action"
 }
 
 #[derive(Debug, Deserialize)]
@@ -5265,7 +5364,12 @@ mod prd_interview_prompt_tests {
     }
 
     #[test]
-    fn prd_interview_ready_focus_does_not_require_optional_scope_or_constraints() {
+    fn prd_interview_not_ready_until_confirmable_bar_met() {
+        // Goal + a single criterion is NOT enough: the real confirm gate
+        // (validateConfirmableProjectSpec) also needs intent, >=1 scope, >=1
+        // non-goal, and a second criterion. The interview readiness signal must
+        // mirror that so DIVE does not tell the student to confirm while the
+        // button is disabled (round-2 S-041 / P1-09, P1-10).
         let mut draft = empty_draft();
         draft.spec.goal = "Build a personal schedule app".into();
         draft.spec.acceptance_criteria.push(AcceptanceCriterion {
@@ -5277,15 +5381,53 @@ mod prd_interview_prompt_tests {
             retired_in_version: None,
         });
 
+        assert_ne!(
+            prd_interview_next_focus(&draft.spec),
+            "ready_to_save: the draft is complete enough; point to the PRD confirmation action"
+        );
+        // The interview asks for the next genuinely-missing field, one at a time.
+        assert!(prd_interview_next_focus(&draft.spec).starts_with("capture_intent_summary"));
+        let missing = missing_confirmable_prd_fields(&draft.spec);
+        assert!(missing.contains(&"intent summary"));
+        assert!(missing.contains(&"in-scope item"));
+        assert!(missing.contains(&"non-goal"));
+        assert!(missing.contains(&"second observable done state"));
+        assert!(!missing.contains(&"none"));
+    }
+
+    #[test]
+    fn prd_interview_ready_only_when_confirmable_bar_met() {
+        let mut draft = empty_draft();
+        draft.spec.goal = "Build a personal schedule app for students".into();
+        draft.spec.intent_summary =
+            Some("A student tracks classes and homework in one place".into());
+        draft.spec.scope = vec!["Add and remove schedule items".into()];
+        draft.spec.non_goals = vec!["No account or login in the first version".into()];
+        for (idx, text) in [
+            "Schedules and tasks appear in separate lists",
+            "Adding an item shows it immediately in the list",
+        ]
+        .iter()
+        .enumerate()
+        {
+            draft.spec.acceptance_criteria.push(AcceptanceCriterion {
+                criterion_id: format!("AC-{:03}", idx + 1),
+                text: (*text).into(),
+                source: AcceptanceCriterionSource::Interview,
+                status: AcceptanceCriterionStatus::Active,
+                created_in_version: 1,
+                retired_in_version: None,
+            });
+        }
+
         assert_eq!(
             prd_interview_next_focus(&draft.spec),
             "ready_to_save: the draft is complete enough; point to the PRD confirmation action"
         );
-
+        // Constraints remain optional (validateConfirmableProjectSpec ignores them).
         let prompt = build_prd_interview_user_prompt(&draft, &[], "이 정도면 충분해");
         assert!(prompt.contains("Missing fields required before PRD confirmation, if any: none"));
         assert!(prompt.contains("instead of asking a new required question"));
-        assert!(prompt.contains("or asking whether to save"));
     }
 }
 
