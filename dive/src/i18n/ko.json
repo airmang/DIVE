@@ -122,7 +122,7 @@
       "student_label": "나",
       "turn_pending": "좋아요. 방금 말한 내용을 PRD 초안에 정리하고 있어요...",
       "turn_error_retryable": "잠시 모델 응답이 불안정했어요. 방금 말한 내용은 남겨두었으니 다시 보내면 이어서 정리할게요.",
-      "answer_placeholder": "예: 선생님이 학생 과제를 확인할 때 누락된 제출물을 바로 보고 싶어",
+      "answer_placeholder": "여기에 답을 입력하세요",
       "answer_send": "대화 보내기",
       "goal_placeholder": "대화에서 목표가 정리되면 여기에 채워집니다.",
       "intent_placeholder": "대화에서 사용 의도가 보이면 한 문장으로 정리됩니다.",

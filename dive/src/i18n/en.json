@@ -122,7 +122,7 @@
       "student_label": "Me",
       "turn_pending": "Got it. I am folding that into the PRD draft...",
       "turn_error_retryable": "The model response was unstable for a moment. Your last thought is still here; send it again and I will continue from it.",
-      "answer_placeholder": "Example: Teachers want to quickly see which student submissions are missing",
+      "answer_placeholder": "Type your answer here",
       "answer_send": "Send",
       "goal_placeholder": "The goal will appear here as the conversation clarifies.",
       "intent_placeholder": "The user's intent will be summarized here as it emerges.",
