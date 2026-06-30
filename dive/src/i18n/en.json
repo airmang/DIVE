@@ -156,6 +156,8 @@
       "save_success_title": "PRD saved",
       "save_success_description": "Use the final PRD view to create the plan from this PRD.",
       "save_failed_title": "Could not save PRD",
+      "quick_intake_incomplete_title": "A little more is needed",
+      "quick_intake_incomplete_description": "To confirm the PRD it needs a goal, intent, scope, what to leave out, and 2 done-state criteria. Finish it in the conversation, then confirm.",
       "confirm_prd": "Confirm PRD",
       "save_draft": "Save draft",
       "save_create_plan": "Confirm PRD",

@@ -35,6 +35,7 @@ import {
   createLiveProjectSpecDraft,
   requestPlanAddStepDraft,
   quickIntakeInterviewAnswers,
+  validateConfirmableProjectSpec,
   usePlan,
   usePlanRouter,
   type LiveProjectSpecDraft,
@@ -1525,6 +1526,17 @@ export function useProductShellController() {
       if (currentProjectId === null || prdBusy) return;
       if (!hasConnectedProvider) {
         openSettingsRoute();
+        return;
+      }
+      // QuickIntake must clear the SAME confirmable gate as the interview path —
+      // do not fast-path a vacuous PRD straight to save (round-2 P1-13). The
+      // student's answers are already on the live draft, so keep them on the board.
+      if (!validateConfirmableProjectSpec(draft.spec).valid) {
+        toast({
+          variant: "error",
+          title: t("prd.authoring.quick_intake_incomplete_title"),
+          description: t("prd.authoring.quick_intake_incomplete_description"),
+        });
         return;
       }
       const interviewAnswers = quickIntakeInterviewAnswers(input);
