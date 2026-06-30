@@ -40,8 +40,8 @@ describe("RecoveryPanel failure actions", () => {
     const actions = within(screen.getByTestId("failed-step-actions")).getAllByRole("button");
     expect(actions.map((button) => button.textContent)).toEqual([
       "되돌리기 지점 없음",
-      "에러 로그 요약 / 재현 단계",
-      "범위 줄이기 / 계획 조정",
+      "오류 내용 정리 / 다시 해보기",
+      "범위 줄이기 / 계획 고치기",
       "AI에게 다시 고쳐달라고 하기",
     ]);
     expect((actions[0] as HTMLButtonElement).disabled).toBe(true);

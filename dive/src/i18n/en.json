@@ -3,6 +3,12 @@
     "name": "DIVE",
     "tagline": "Desktop coding agent for beginners"
   },
+  "startup": {
+    "error": {
+      "title": "DIVE initialization failed",
+      "description": "An error occurred while starting the app. If it repeats after restarting, please check the logs."
+    }
+  },
   "common": {
     "cancel": "Cancel",
     "confirm": "Confirm",
@@ -29,6 +35,8 @@
     "start": "Start ChatGPT sign-in",
     "waiting_instructions": "Open the auth page with the button below. Once you finish signing in, DIVE receives the callback automatically and completes the connection. Only if auto-complete doesn't happen, paste the full callback URL from the browser address bar into the code field and click Complete connection.",
     "open_browser": "Open in browser",
+    "code_label": "Verification code (code)",
+    "state_label": "Security value (state)",
     "code_placeholder": "The ?code=… value from the redirect URL",
     "state_placeholder": "The &state=… value from the redirect URL",
     "expected_state": "Expected state:",
@@ -506,7 +514,7 @@
     "blocked_title": "Blocked command — cannot run",
     "blocked_rule": "Block rule:",
     "blocked_pattern": "Pattern:",
-    "blocked_explain": "This command is blocked by the safety policy (§9.2) and cannot run, with or without your approval.",
+    "blocked_explain": "This command is blocked because it's dangerous. It won't run even if you approve — that's for your safety.",
     "rerouted_title": "Opened through Preview instead",
     "stale_title": "No command ran",
     "why_label": "why",
@@ -691,9 +699,9 @@
       },
       "coach_fallback_title": "Manual verification checklist (offline fallback — not the AI coach)",
       "coach_fallback": {
-        "responsive": "Resize the window to 375px and confirm the columns/layout adapt",
+        "responsive": "Make the window narrow and confirm text and buttons don't overlap",
         "persistence": "Reload the app and confirm the change survives",
-        "accessibility": "Tab through and confirm focus order and ARIA labels",
+        "accessibility": "Confirm you can reach each button in order using only the keyboard",
         "loading": "Force the loading state and confirm the spinner/placeholder",
         "empty": "Force the empty state and confirm the empty message",
         "error": "Force an error and confirm the error message + retry",
@@ -1177,8 +1185,8 @@
     "undo_available": "Undo available",
     "no_undo_yet": "No undo yet",
     "failed_title": "This step needs recovery",
-    "explain_error": "Summarize error / repro steps",
-    "adjust_plan": "Narrow scope / adjust plan",
+    "explain_error": "Sum up the error / how to retry",
+    "adjust_plan": "Narrow scope / fix the plan",
     "retry_ai": "Ask AI to fix again",
     "undo": "Undo",
     "undo_last_change": "Undo last change",
@@ -1515,7 +1523,10 @@
         "missing_package_json": "This project does not have a package.json, so DIVE could not start a dev server.",
         "missing_dev_or_start_script": "package.json needs a dev or start script before DIVE can start a dev server.",
         "local_url_unreachable": "The local preview URL did not respond.",
-        "dev_server_unavailable": "The dev server is not running, so the preview could not load."
+        "dev_server_unavailable": "The dev server is not running, so the preview could not load.",
+        "unsupported_extension": "Preview only opens .html files inside your project.",
+        "project_escape": "Preview only works with files inside your project folder.",
+        "unsupported_url": "Enter a local preview URL (http://localhost:… format)."
       }
     },
     "terminal": {
@@ -1593,6 +1604,24 @@
     "retry_unavailable_description": "DIVE could not find the last user message to resend."
   },
   "error": {
+    "project_create": {
+      "unsafe_path": {
+        "title": "Can't create a project there",
+        "body": "Projects can't be created in system folders. Make a new folder inside Documents or Desktop and choose it."
+      },
+      "permission": {
+        "title": "No permission for this folder",
+        "body": "You don't have permission to write to this folder. Choose a different one."
+      },
+      "canonicalize": {
+        "title": "Can't find that folder",
+        "body": "This folder path couldn't be read. Check the path and try again."
+      },
+      "generic": {
+        "title": "Couldn't create the project",
+        "body": "Something went wrong while creating the project. Pick the folder again or try again in a moment."
+      }
+    },
     "auth": {
       "title": "Authentication error",
       "body": "Check your API key or login permission. Raw: {{message}}",

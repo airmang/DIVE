@@ -93,6 +93,9 @@ const KNOWN_PREVIEW_REASONS = new Set([
   "missing_dev_or_start_script",
   "local_url_unreachable",
   "dev_server_unavailable",
+  "unsupported_extension",
+  "project_escape",
+  "unsupported_url",
 ]);
 
 function previewSessionKind(kind: PreviewOpenKind): PreviewSessionKind | undefined {

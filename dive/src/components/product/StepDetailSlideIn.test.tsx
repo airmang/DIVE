@@ -385,14 +385,14 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
 
     openStepperStage("observe");
     expect((await screen.findByTestId("verification-coach-unavailable")).textContent).toContain(
-      "인증 정보",
+      "AI 연결 정보",
     );
     const fallback = screen.getByTestId("verification-coach-fallback");
     expect(fallback.textContent).toContain("오프라인 대체 안내");
     expect(fallback.textContent).toContain("AI 코치 아님");
     expect(within(fallback).getAllByTestId("verification-coach-fallback-item")).toHaveLength(2);
     expect(fallback.textContent).toContain("모바일 375px");
-    expect(fallback.textContent).toContain("창 너비를 375px");
+    expect(fallback.textContent).toContain("글자와 버튼이 겹치지 않는지");
     expect(fallback.textContent).toContain("빈 상태 메시지");
     expect(screen.queryByTestId("verification-coach-guide")).toBeNull();
   });

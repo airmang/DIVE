@@ -12,6 +12,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { useProjectSessionStore } from "../../stores/project-session";
 import { isTauriEnv, pickFolder } from "../../lib/tauri-dialog";
+import { classifyProjectCreateError } from "../../lib/error-classify";
 import { useT } from "../../i18n";
 
 interface Props {
@@ -62,7 +63,8 @@ export function NewProjectDialog({ open, onOpenChange }: Props) {
         setPath("");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      // Show a deterministic plain-Korean message, never the raw Rust error (P1-06).
+      setError(t(classifyProjectCreateError(err).bodyKey));
     } finally {
       setSubmitting(false);
     }

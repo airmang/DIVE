@@ -3,6 +3,12 @@
     "name": "DIVE",
     "tagline": "초심자를 위한 데스크톱 코딩 에이전트"
   },
+  "startup": {
+    "error": {
+      "title": "DIVE 초기화 실패",
+      "description": "앱을 시작하는 동안 문제가 발생했습니다. 다시 실행해도 반복되면 로그를 확인해 주세요."
+    }
+  },
   "common": {
     "cancel": "취소",
     "confirm": "확인",
@@ -29,9 +35,11 @@
     "start": "ChatGPT로 로그인 시작",
     "waiting_instructions": "아래 버튼으로 인증 페이지를 여세요. 로그인이 끝나면 DIVE가 자동으로 callback을 받아 연결을 완료합니다. 자동 완료가 되지 않는 경우에만 브라우저 주소창의 callback URL 전체를 code 칸에 붙여넣고 연결 완료를 누르세요.",
     "open_browser": "브라우저에서 열기",
+    "code_label": "인증 코드 (code)",
+    "state_label": "보안 검증 값 (state)",
     "code_placeholder": "리다이렉트 URL의 ?code=… 값",
     "state_placeholder": "리다이렉트 URL의 &state=… 값",
-    "expected_state": "기대 state:",
+    "expected_state": "기대하는 state 값:",
     "complete_busy": "토큰 교환 중…",
     "complete": "연결 완료",
     "done_title": "연결 완료",
@@ -463,7 +471,7 @@
     "supervised_label": "감독 모드",
     "supervised_tooltip": "DIVE는 에이전트를 감독 런타임에서 실행합니다. 파일 수정·명령 실행 등 에이전트가 하려는 모든 작업은 먼저 당신의 승인이 필요합니다. 통제권은 당신에게 있습니다.",
     "pi_label": "Pi runtime",
-    "selected_tooltip": "이번 응답은 {{runtime}}에서 실행 중입니다. Provider: {{provider}}, model: {{model}}. 이유: {{reason}}",
+    "selected_tooltip": "이번 응답은 {{runtime}}에서 실행 중입니다. 제공자: {{provider}}, 모델: {{model}}. 이유: {{reason}}",
     "actions": {
       "preview": "미리보기",
       "project_command": "프로젝트 명령",
@@ -475,11 +483,11 @@
     },
     "capability": {
       "ready_label": "감독 Pi 준비됨",
-      "ready_message": "이 provider는 DIVE의 감독 Pi 런타임으로 실행할 수 있습니다.",
+      "ready_message": "이 AI 제공자는 DIVE의 감독 Pi 런타임으로 실행할 수 있습니다.",
       "unavailable_label": "런타임 사용 불가",
       "unavailable_message": "감독 Pi 실행이 준비될 때까지 이 작업을 시작할 수 없습니다.",
-      "unavailable_tooltip": "{{message}} Provider: {{provider}}, model: {{model}}.",
-      "setup_action": "Provider 설정 열기",
+      "unavailable_tooltip": "{{message}} 제공자: {{provider}}, 모델: {{model}}.",
+      "setup_action": "제공자 설정 열기",
       "reasons": {
         "provider_not_configured": "설정된 AI provider가 없습니다.",
         "provider_not_pi_capable": "이 provider는 확인된 Pi 런타임 지원이 없습니다.",
@@ -506,7 +514,7 @@
     "blocked_title": "차단된 명령 — 실행 불가",
     "blocked_rule": "차단 규칙:",
     "blocked_pattern": "패턴:",
-    "blocked_explain": "이 명령은 안전 정책(§9.2)에 의해 승인 여부와 무관하게 실행이 차단됩니다.",
+    "blocked_explain": "이 명령은 위험해서 DIVE가 막았어요. 승인해도 실행되지 않습니다 — 안전을 위한 거예요.",
     "rerouted_title": "미리보기로 전환됨",
     "stale_title": "실행된 명령 없음",
     "why_label": "왜",
@@ -528,11 +536,11 @@
     "provider_action": "AI 연결하기",
     "prd_title": "요구사항 초안 작성",
     "prd_desc": "질문에 답하며 실제 프로젝트에 맞는 요구사항 초안을 만듭니다.",
-    "prd_action": "PRD 작성",
-    "prd_resume_action": "PRD 이어쓰기",
-    "prd_done_hint": "저장된 PRD 준비됨",
+    "prd_action": "요구사항 작성",
+    "prd_resume_action": "요구사항 이어쓰기",
+    "prd_done_hint": "저장된 요구사항 준비됨",
     "plan_title": "계획과 세션 만들기",
-    "plan_desc": "저장된 PRD를 확인한 뒤 계획을 만들고 첫 작업 세션을 시작합니다.",
+    "plan_desc": "저장된 요구사항을 확인한 뒤 계획을 만들고 첫 작업 세션을 시작합니다.",
     "plan_action": "계획 만들기"
   },
   "card_state": {
@@ -618,7 +626,7 @@
   },
   "verification_status": {
     "ai_self_report_only": "AI 자가보고만 있음",
-    "diff_reviewed": "Diff 확인됨",
+    "diff_reviewed": "변경 코드 확인됨",
     "app_launched": "앱 실행 확인됨",
     "preview_checked": "수동 프리뷰 확인됨",
     "manual_observation": "직접 관찰 확인",
@@ -673,27 +681,27 @@
       "coach_title": "검증 코치",
       "coach_role": "이 안내는 검증 방법입니다. 관찰 증거나 테스트 통과가 있어야 승인 증거가 됩니다.",
       "coach_loading": "현재 단계에 맞는 검증 방법을 만드는 중입니다.",
-      "coach_unavailable": "현재 검증 안내를 만들 수 없습니다. Diff를 확인하거나 관찰 결과를 남긴 뒤 판단하세요.",
+      "coach_unavailable": "현재 검증 안내를 만들 수 없습니다. 변경 코드를 확인하거나 관찰 결과를 남긴 뒤 판단하세요.",
       "coach_unavailable_reason": {
-        "provider_not_configured": "AI provider가 설정되지 않아 검증 안내를 만들지 못했습니다. 설정에서 AI 연결을 완료한 뒤 다시 만들기를 시도하거나, Diff를 확인하고 직접 관찰 결과를 남겨 판단하세요.",
-        "missing_credentials": "AI provider 인증 정보를 사용할 수 없어 검증 안내를 만들지 못했습니다. 설정에서 provider를 다시 연결한 뒤 다시 만들기를 시도하거나, 직접 확인한 내용을 관찰 증거로 남기세요.",
-        "missing_project_root": "열린 프로젝트 경로를 확인할 수 없어 검증 안내를 만들지 못했습니다. 프로젝트를 다시 열거나 Diff를 확인한 뒤 직접 관찰 결과를 남겨 판단하세요.",
-        "provider_not_supported": "현재 선택한 AI provider는 Pi 감독 런타임의 검증 코치와 연결되지 않았습니다. 지원되는 provider로 바꾸거나 직접 관찰 결과를 남겨 판단하세요.",
-        "runtime_unavailable": "AI 런타임 연결을 사용할 수 없어 검증 안내를 만들지 못했습니다. 설정에서 AI 연결을 확인한 뒤 다시 만들기를 시도하거나, Diff를 확인하고 직접 관찰 결과를 남겨 판단하세요.",
-        "sidecar_unavailable": "Pi sidecar 실행 파일을 시작할 수 없어 검증 안내를 만들지 못했습니다. 설치본에 런타임 파일이 포함되어 있는지 확인한 뒤 다시 시도하거나 직접 관찰 결과를 남겨 판단하세요.",
-        "sidecar_error": "Pi sidecar가 실행 중 오류를 반환해 검증 안내를 만들지 못했습니다. 다시 만들기를 시도하거나 Diff와 실행 결과를 직접 확인해 관찰 결과를 남기세요.",
-        "timeout": "AI 런타임 응답 시간이 초과되어 검증 안내를 만들지 못했습니다. 잠시 후 다시 만들기를 시도하거나, Diff를 확인하고 직접 관찰 결과를 남겨 판단하세요.",
+        "provider_not_configured": "AI가 연결되지 않아 검증 안내를 만들지 못했습니다. 설정에서 AI 연결을 완료한 뒤 다시 만들기를 시도하거나, 변경 코드를 확인하고 직접 관찰 결과를 남겨 판단하세요.",
+        "missing_credentials": "AI 연결 정보를 사용할 수 없어 검증 안내를 만들지 못했습니다. 설정에서 AI를 다시 연결한 뒤 다시 만들기를 시도하거나, 직접 확인한 내용을 관찰 증거로 남기세요.",
+        "missing_project_root": "열린 프로젝트 경로를 확인할 수 없어 검증 안내를 만들지 못했습니다. 프로젝트를 다시 열거나 변경 코드를 확인한 뒤 직접 관찰 결과를 남겨 판단하세요.",
+        "provider_not_supported": "지금 선택한 AI는 DIVE의 검증 코치와 연결되지 않았습니다. 설정에서 지원되는 AI로 바꾸거나 직접 관찰 결과를 남겨 판단하세요.",
+        "runtime_unavailable": "AI 연결을 사용할 수 없어 검증 안내를 만들지 못했습니다. 설정에서 AI 연결을 확인한 뒤 다시 만들기를 시도하거나, 변경 코드를 확인하고 직접 관찰 결과를 남겨 판단하세요.",
+        "sidecar_unavailable": "AI 실행 파일을 시작할 수 없어 검증 안내를 만들지 못했습니다. 잠시 후 다시 시도하거나 직접 관찰 결과를 남겨 판단하세요.",
+        "sidecar_error": "AI 실행 중 오류가 생겨 검증 안내를 만들지 못했습니다. 다시 만들기를 시도하거나 변경 코드와 실행 결과를 직접 확인해 관찰 결과를 남기세요.",
+        "timeout": "AI 응답 시간이 초과되어 검증 안내를 만들지 못했습니다. 잠시 후 다시 만들기를 시도하거나, 변경 코드를 확인하고 직접 관찰 결과를 남겨 판단하세요.",
         "malformed_output": "AI가 검증 안내 형식에 맞지 않는 응답을 반환해 표시하지 않았습니다. 다시 만들기를 시도하거나 직접 관찰 결과를 남겨 판단하세요.",
-        "generic_guidance": "검증 안내가 현재 단계에 충분히 구체적이지 않아 표시하지 않았습니다. Diff나 실행 결과를 확인하고 관찰 결과를 남겨 판단하세요.",
-        "unsupported_evidence": "검증 안내가 DIVE가 가진 근거와 맞지 않아 표시하지 않았습니다. Diff를 확인하거나 직접 관찰 결과를 남겨 판단하세요.",
-        "unsafe_action": "검증 안내에 안전하지 않은 작업이 포함되어 표시하지 않았습니다. Diff를 확인하거나 안전한 명령만 직접 실행한 뒤 관찰 결과를 남기세요.",
+        "generic_guidance": "검증 안내가 현재 단계에 충분히 구체적이지 않아 표시하지 않았습니다. 변경 코드나 실행 결과를 확인하고 관찰 결과를 남겨 판단하세요.",
+        "unsupported_evidence": "검증 안내가 DIVE가 가진 근거와 맞지 않아 표시하지 않았습니다. 변경 코드를 확인하거나 직접 관찰 결과를 남겨 판단하세요.",
+        "unsafe_action": "검증 안내에 안전하지 않은 작업이 포함되어 표시하지 않았습니다. 변경 코드를 확인하거나 안전한 명령만 직접 실행한 뒤 관찰 결과를 남기세요.",
         "missing_criterion": "확인할 완료 기준이 부족해 검증 안내를 만들지 못했습니다. 완료 기준을 보완하거나 직접 관찰 결과를 남겨 판단하세요."
       },
       "coach_fallback_title": "수동 검증 체크리스트(오프라인 대체 안내 — AI 코치 아님)",
       "coach_fallback": {
-        "responsive": "창 너비를 375px로 줄여 열/레이아웃이 맞게 바뀌는지 확인하세요",
+        "responsive": "창을 좁게 줄였을 때 글자와 버튼이 겹치지 않는지 확인하세요",
         "persistence": "앱을 새로고침한 뒤 변경 사항이 유지되는지 확인하세요",
-        "accessibility": "Tab 키로 이동하며 포커스 순서와 ARIA 라벨을 확인하세요",
+        "accessibility": "키보드의 탭 키만으로 버튼들을 차례대로 누를 수 있는지 확인하세요",
         "loading": "로딩 상태를 강제로 만들고 스피너나 자리표시자가 보이는지 확인하세요",
         "empty": "빈 상태를 강제로 만들고 빈 상태 메시지가 보이는지 확인하세요",
         "error": "오류를 강제로 만들고 오류 메시지와 재시도가 보이는지 확인하세요",
@@ -732,9 +740,9 @@
       "stepper_revisit": "다시 보기",
       "stepper_open_stage": "단계 열기",
       "stepper_stage_code_title": "코드 이해",
-      "stepper_stage_code_summary_pending": "변경 파일과 Diff 확인 상태를 먼저 봅니다.",
+      "stepper_stage_code_summary_pending": "변경 파일과 변경 코드 확인 상태를 먼저 봅니다.",
       "stepper_stage_code_summary_done": "변경 코드를 열어 확인했습니다.",
-      "stepper_code_files": "변경 파일 {{count}}개 — Diff를 열어 확인하세요.",
+      "stepper_code_files": "변경 파일 {{count}}개 — 변경 코드(diff: 빨강=지운 줄, 초록=추가한 줄)를 열어 확인하세요.",
       "stepper_code_high_risk": "예상 밖 고위험 파일 {{count}}개 — 아래 세부 정보를 확인하세요.",
       "stepper_stage_observe_title": "점검·관찰",
       "stepper_stage_observe_summary_pending": "검증 방법을 따라 보고 완료 기준에 연결된 관찰을 남깁니다.",
@@ -806,9 +814,9 @@
       "bundle_expected_files": "예상 파일",
       "bundle_actual_files": "실제 변경 파일",
       "bundle_unexpected_high_risk": "예상 밖 고위험 파일",
-      "bundle_diff_review": "Diff 확인",
-      "bundle_diff_reviewed": "Diff를 열어 확인했습니다. 이 표시는 테스트 통과와 별개입니다.",
-      "bundle_diff_not_reviewed": "아직 Diff를 열어 확인하지 않았습니다.",
+      "bundle_diff_review": "변경 코드 확인",
+      "bundle_diff_reviewed": "변경 코드를 열어 확인했습니다. 이 표시는 테스트 통과와 별개입니다.",
+      "bundle_diff_not_reviewed": "아직 변경 코드를 열어 확인하지 않았습니다.",
       "bundle_rollback": "되돌리기",
       "bundle_rollback_available": "사용할 수 있는 체크포인트가 있습니다.",
       "bundle_rollback_unavailable": "아직 사용할 수 있는 체크포인트가 없습니다.",
@@ -908,20 +916,20 @@
   },
   "plan_view": {
     "aria": "프로젝트 플랜",
-    "eyebrow": "Project Plan",
+    "eyebrow": "프로젝트 플랜",
     "default_title": "현재 프로젝트",
-    "done": "Done",
+    "done": "완료",
     "show_minimap": "의존성 그래프 보기",
     "hide_minimap": "의존성 그래프 접기",
     "minimap_aria": "플랜 의존성 미니맵",
     "minimap_node_aria": "{{step}}, {{status}}. 해당 단계로 이동",
     "open_step_aria": "{{step}} 열기 — {{title}}",
-    "dependencies": "needs",
-    "blocked_by": "blocked by",
-    "parallel": "Parallel · 동시 실행",
-    "parallel_named": "Parallel · {{name}}",
+    "dependencies": "필요",
+    "blocked_by": "막은 단계",
+    "parallel": "병렬 · 동시 실행",
+    "parallel_named": "병렬 · {{name}}",
     "parallel_tag": "병렬",
-    "run_group": "Run both ×{{count}}",
+    "run_group": "병렬 실행 ×{{count}}",
     "run_group_aria": "준비된 병렬 단계 {{count}}개 시작",
     "empty_title": "저장된 PRD로 계획을 만들 준비가 됐습니다",
     "empty_description": "확정된 PRD를 바탕으로 계획 초안을 만든 뒤 검토하고 승인합니다.",
@@ -929,15 +937,15 @@
     "error_title": "플랜을 불러올 수 없음",
     "retry": "재시도",
     "actions": {
-      "start": "Start",
-      "resume": "Resume",
+      "start": "시작",
+      "resume": "이어하기",
       "open_review": "검토 열기",
       "review_plan": "계획 검토",
-      "open": "Open",
-      "locked": "Locked",
+      "open": "열기",
+      "locked": "잠김",
       "locked_reason": "앞 단계({{deps}})를 먼저 완료하면 잠금이 풀립니다",
       "locked_reason_generic": "앞 단계가 끝나면 잠금이 풀립니다",
-      "working": "Working..."
+      "working": "진행 중..."
     }
   },
   "planning": {
@@ -1177,8 +1185,8 @@
     "undo_available": "되돌리기 가능",
     "no_undo_yet": "아직 되돌릴 지점 없음",
     "failed_title": "이 단계는 복구가 필요합니다",
-    "explain_error": "에러 로그 요약 / 재현 단계",
-    "adjust_plan": "범위 줄이기 / 계획 조정",
+    "explain_error": "오류 내용 정리 / 다시 해보기",
+    "adjust_plan": "범위 줄이기 / 계획 고치기",
     "retry_ai": "AI에게 다시 고쳐달라고 하기",
     "undo": "되돌리기",
     "undo_last_change": "마지막 변경 되돌리기",
@@ -1265,7 +1273,7 @@
       "expected_files": "계획상 예상 파일",
       "read_files": "읽을 파일",
       "write_files": "바꿀 파일",
-      "diff_preview": "Diff 미리보기",
+      "diff_preview": "변경 코드 미리보기",
       "checkpoint": "되돌리기 지점",
       "checkpoint_available": "체크포인트 있음",
       "checkpoint_unavailable": "체크포인트 없음",
@@ -1515,7 +1523,10 @@
         "missing_package_json": "이 프로젝트에는 package.json이 없어 개발 서버를 시작할 수 없습니다.",
         "missing_dev_or_start_script": "개발 서버를 시작하려면 package.json에 dev 또는 start script가 필요합니다.",
         "local_url_unreachable": "로컬 미리보기 URL이 응답하지 않았습니다.",
-        "dev_server_unavailable": "개발 서버가 실행 중이 아니어서 미리보기를 불러올 수 없습니다."
+        "dev_server_unavailable": "개발 서버가 실행 중이 아니어서 미리보기를 불러올 수 없습니다.",
+        "unsupported_extension": "미리보기는 프로젝트 안의 .html 파일만 열 수 있어요.",
+        "project_escape": "미리보기는 프로젝트 폴더 안의 파일만 열 수 있어요.",
+        "unsupported_url": "로컬 미리보기 주소(http://localhost:… 형식)를 입력하세요."
       }
     },
     "terminal": {
@@ -1593,6 +1604,24 @@
     "retry_unavailable_description": "마지막 사용자 메시지를 찾을 수 없어 자동 재시도를 실행하지 않았습니다."
   },
   "error": {
+    "project_create": {
+      "unsafe_path": {
+        "title": "폴더를 만들 수 없는 위치예요",
+        "body": "시스템 폴더에는 프로젝트를 만들 수 없어요. 바탕화면이나 문서 폴더 안에 새 폴더를 만들어 선택하세요."
+      },
+      "permission": {
+        "title": "폴더 권한이 없어요",
+        "body": "이 폴더에 쓸 권한이 없어요. 다른 폴더를 골라 보세요."
+      },
+      "canonicalize": {
+        "title": "폴더를 찾을 수 없어요",
+        "body": "폴더 경로를 읽을 수 없어요. 경로가 맞는지 다시 확인해 보세요."
+      },
+      "generic": {
+        "title": "프로젝트를 만들지 못했어요",
+        "body": "프로젝트를 만드는 중 문제가 생겼어요. 폴더를 다시 골라 보거나 잠시 후 다시 시도하세요."
+      }
+    },
     "auth": {
       "title": "인증 오류",
       "body": "API 키나 로그인 권한을 확인하세요. 원문: {{message}}",
