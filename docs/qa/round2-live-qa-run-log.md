@@ -129,6 +129,19 @@ Implemented all 11 Theme-2 findings (commit `0ea8aeb`), rebuilt the release `.ap
 
 **Conclusion:** S-042 is implementation-complete, fully local-CI-green (Rust fmt/clippy -Dwarnings/test --features dev-mock incl. new keystone/critique/provenance tests; frontend format/typecheck/lint/test:unit = 397; en/ko key parity), and the rebuilt app launches healthy with all changes integrated. The headline offline verify-provocation journey is test-proven and shares a live-verified render path; a focused offline live repro is the recommended next live step.
 
+## S-043 — i18n Korean-parity sweep (2026-07-01, freshly built `tauri build --bundles app`)
+
+Implemented 15/16 Theme-3 findings (commit `2c94ff9`), rebuilt + reinstalled the release `.app`, relaunched on macOS computer-use (ko locale).
+
+| Check | Live verdict | Evidence |
+| --- | --- | --- |
+| **P1-16/P1-28 Korean roadmap rail (must-confirm)** | **CONFIRMED FIXED** | Opened `round2-prd-deadend` (approved plan) → the workspace roadmap rail (PlanView/PlanStepActions) now renders the primary controls in Korean: step-1 status **준비됨** + **▷ 시작** button; step-2/3 status **막힘** + **잠김** + **막은 단계 step-1/2**. The rc.5/S-042 English leak (Start/Locked/blocked by) is gone. Dashboard mirrors it (▷ 시작, 준비/진행/막힘). |
+| **P2-08 PRD → 요구사항** | **CONFIRMED** | First-run Get-Started checklist shows **요구사항 초안 작성 / 요구사항 이어쓰기 / 저장된 요구사항을 확인한 뒤…** (was "PRD 작성"/"PRD"). |
+| **Rebuilt app health (no regression)** | **CONFIRMED** | Clean launch; Get-Started checklist, Plan Dashboard, and the workspace roadmap rail all render with the S-043 i18n changes integrated. |
+| Other 13 findings (Codex labels, preview reason codes, supervisor chips, project-create classifier, startup boundary, blocked-command §9.2, coach copy, parity lock) | NOT individually forced live | Covered by Vitest (parity + classifier) + Rust tests; reachable surfaces spot-checkable in a follow-up. |
+
+**Conclusion:** S-043 is implementation-complete (15/16; P2-38 deferred), fully local-CI-green (frontend format/typecheck/lint/test:unit=403 incl. the new en/ko parity + classifier tests; Rust fmt/clippy -Dwarnings/test --features dev-mock), and the headline Korean roadmap-rail leak is **confirmed fixed on the real app** in ko.
+
 ## New observations (not in audit)
 
 - **Wily state-machine not bootstrapped for round-2 stages** (process, not product): `design_stage` creates a Stage in `draft`; `claim_stage` requires `ready` and `plan_stage` requires `active`, with no normal-tool path from `draft` → `ready`/`active` available for these stages (S-041 was likewise left at `draft` despite being done + live-verified). Round-2 completion is therefore recorded via `add_stage_note` evidence (commit/CI/findings) rather than a `done` status transition. Worth bootstrapping the Stage lifecycle (or documenting the intended transition tool) so S-041–S-048 can reach `done` truthfully.
