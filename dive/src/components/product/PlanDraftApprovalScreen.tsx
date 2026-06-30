@@ -1,7 +1,11 @@
 import { AlertTriangle, Check, ChevronDown, ChevronUp, RotateCcw, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../../i18n";
-import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
+import type {
+  InterviewRow,
+  PlanCritiqueResolution,
+  PlanGenerationResult,
+} from "../../features/planning";
 import { criterionTexts, normalizeStepCriteria } from "../../features/planning";
 import { useTutorialEnabled } from "../../stores/ui-preferences";
 import { Button } from "../ui/button";
@@ -34,7 +38,7 @@ interface PlanDraftApprovalScreenProps {
     projectId?: number | null;
     sessionId?: number | null;
   };
-  onApprove: () => void;
+  onApprove: (critiqueResolution?: PlanCritiqueResolution) => void;
   onRequestRevision: (feedback: string) => void;
   onDiscard: () => void;
 }
@@ -220,6 +224,7 @@ export function PlanDraftApprovalScreen({
   const [rawDraftOpen, setRawDraftOpen] = useState(false);
   const [expandedStepIds, setExpandedStepIds] = useState<Set<string>>(() => new Set());
   const [critique, setCritique] = useState<"unset" | "none" | "found">("unset");
+  const [critiqueNote, setCritiqueNote] = useState("");
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
   const lastSupervisorEvaluationKeyRef = useRef("");
   const unresolved = useMemo(
@@ -228,7 +233,18 @@ export function PlanDraftApprovalScreen({
   );
   const markdown = useMemo(() => buildPlanMarkdown(draft), [draft]);
   const plan = draft.plan;
-  const approveBlocked = tutorialEnabled && critique !== "none";
+  // The "없음 — 승인 가능" path must carry one authored line about the real plan
+  // before it unblocks approval, so a beginner can't one-click rubber-stamp
+  // without engaging (P1-14). Tutorial-off keeps the gate-free fast path.
+  const critiqueNoteValid = critiqueNote.trim().length >= 4;
+  const approveBlocked = tutorialEnabled && (critique !== "none" || !critiqueNoteValid);
+  const critiqueResolution: PlanCritiqueResolution | undefined =
+    tutorialEnabled && critique !== "unset"
+      ? {
+          response: critique,
+          note: critique === "none" && critiqueNote.trim() ? critiqueNote.trim() : undefined,
+        }
+      : undefined;
   const revisionOpen = revisionTarget !== null;
   const acceptanceCriteria = useMemo(
     () => criterionTexts(plan.acceptance_criteria),
@@ -383,7 +399,7 @@ export function PlanDraftApprovalScreen({
             <Button
               variant="primary"
               size="sm"
-              onClick={onApprove}
+              onClick={() => onApprove(critiqueResolution)}
               disabled={busy || approveBlocked}
             >
               <Check />
@@ -443,6 +459,24 @@ export function PlanDraftApprovalScreen({
               <span className="w-full text-[11px] text-fg-muted">
                 {t("planning.approval.critique_found_hint")}
               </span>
+            ) : null}
+            {critique === "none" ? (
+              <div className="w-full">
+                <input
+                  type="text"
+                  value={critiqueNote}
+                  onChange={(event) => setCritiqueNote(event.target.value)}
+                  placeholder={t("planning.approval.critique_none_note_placeholder")}
+                  aria-label={t("planning.approval.critique_none_note_placeholder")}
+                  data-testid="plan-critique-none-note"
+                  className="w-full rounded-md border bg-bg px-3 py-1.5 text-sm text-fg placeholder:text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                />
+                {!critiqueNoteValid ? (
+                  <p className="mt-1 text-[11px] text-fg-muted">
+                    {t("planning.approval.critique_none_note_hint")}
+                  </p>
+                ) : null}
+              </div>
             ) : null}
           </div>
         ) : null}

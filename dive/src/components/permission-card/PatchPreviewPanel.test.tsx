@@ -51,4 +51,30 @@ describe("PatchPreviewPanel", () => {
     expect(screen.getAllByTestId("diff-viewer")).toHaveLength(1);
     expect(screen.getByTestId("diff-path").textContent).toBe("src/App.tsx");
   });
+
+  it("surfaces the secret callout even with no diff to scroll (P1-25)", () => {
+    render(
+      <PatchPreviewPanel
+        diff={null}
+        expected
+        approvalWarnings={{
+          secretFlagged: true,
+          secretReasons: ["named_secret"],
+          wholeFileOverwrite: null,
+        }}
+        onViewed={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("diff-viewer")).toBeNull();
+    expect(screen.getByTestId("diff-secret-callout")).toBeTruthy();
+  });
+
+  it("renders nothing when there is no diff and no warning to show", () => {
+    const { container } = render(
+      <PatchPreviewPanel diff={null} expected={false} onViewed={vi.fn()} />,
+    );
+
+    expect(container.firstChild).toBeNull();
+  });
 });

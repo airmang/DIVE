@@ -133,19 +133,33 @@ function actionContextForCall(
   };
 }
 
+function callHasDiff(call: ToolCallMessageData): boolean {
+  return (
+    (call.diffPreview !== null && call.diffPreview !== undefined) ||
+    (call.diffPreviews?.length ?? 0) > 0
+  );
+}
+
 function requiresReadGate(call: ToolCallMessageData): boolean {
-  // Read gate fires for any pending non-Safe file write/edit batch, or whenever
-  // the backend flagged a secret — independent of whether a diff preview is
-  // available. When no diff exists the cards fall back to a checkbox-only confirm,
-  // so the riskiest writes can never be rubber-stamped (read_file / Safe stay
-  // auto-approved).
+  // Read gate fires for any pending non-Safe file write/edit batch, whenever the
+  // backend flagged a secret, or for a Danger-tier delete/shell action that has
+  // no diff to scroll — independent of whether a diff preview is available. When
+  // no diff exists the cards fall back to a checkbox-only confirm, so the riskiest
+  // actions (delete a file, run a process/shell script) can never be one-click
+  // rubber-stamped (read_file / Safe stay auto-approved).
   if (call.status !== "pending" || call.risk === "safe") return false;
   const isWriteOrEdit =
     call.toolName === "write_file" ||
     call.toolName === "edit_file" ||
     call.toolName === "multi_replace";
   const secretFlagged = call.approvalWarnings?.secretFlagged === true;
-  return isWriteOrEdit || secretFlagged;
+  const noDiffDangerAction =
+    call.risk === "danger" &&
+    !callHasDiff(call) &&
+    (call.toolName === "delete_file" ||
+      call.toolName === "run_process" ||
+      call.toolName === "run_terminal_script");
+  return isWriteOrEdit || secretFlagged || noDiffDangerAction;
 }
 
 function warningKinds(warnings: PermissionApprovalWarnings | null | undefined): string[] {
@@ -245,11 +259,17 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
   const readGateRequired = requiresReadGate(call);
   const diffViewed = diffViewedByToolCallId[call.id] === true;
   const readConfirmed = readConfirmedByToolCallId[call.id] === true;
+  // Don't tell the student to "open or scroll the diff" when no diff is on screen
+  // (delete/shell actions, or a secret write with no preview); point at the
+  // concrete file path / action details that ARE shown instead.
+  const readGateHasDiff = callHasDiff(call);
   const approvalRequirement = readGateRequired
     ? {
         required: true,
         satisfied: diffViewed || readConfirmed,
-        message: t("permission_card.read_gate.message"),
+        message: readGateHasDiff
+          ? t("permission_card.read_gate.message")
+          : t("permission_card.read_gate.message_no_diff"),
         confirmLabel: t("permission_card.read_gate.confirm_label"),
         confirmed: readConfirmed,
         onConfirmChange: (confirmed: boolean) => setReadConfirmed(call.id, confirmed),

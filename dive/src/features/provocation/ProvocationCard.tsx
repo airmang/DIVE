@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Eye, X } from "lucide-react";
+import { AlertTriangle, Eye, EyeOff, X } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../../lib/utils";
 import { Button } from "../../components/ui/button";
@@ -171,6 +171,14 @@ export function ProvocationCard({
                   {guidedExplanation}
                 </p>
               ) : null}
+              {card.type === "ai_self_report_only" ? (
+                <p
+                  className="mt-1 text-xs italic leading-snug text-fg-muted"
+                  data-testid="provocation-trust-calibration-hint"
+                >
+                  {t("roadmap.step_detail.trust_calibration_hint")}
+                </p>
+              ) : null}
             </div>
             <div className="flex shrink-0 gap-1">
               {onMarkIrrelevant ? (
@@ -180,10 +188,11 @@ export function ProvocationCard({
                   size="icon"
                   className="h-7 w-7"
                   aria-label={t("roadmap.step_detail.review_card_mark_irrelevant_aria")}
+                  title={t("roadmap.step_detail.review_card_mark_irrelevant_aria")}
                   onClick={onMarkIrrelevant}
                   data-testid="provocation-mark-irrelevant"
                 >
-                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  <EyeOff className="h-3.5 w-3.5" />
                 </Button>
               ) : null}
               {onDismiss ? (

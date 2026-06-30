@@ -204,6 +204,24 @@ pub async fn provocation_agent_evaluate(
         .response)
 }
 
+/// Output to use when the live runtime cannot produce a supervisor decision.
+///
+/// A verify-stage provocation (`AiClaimedDone` / `VerifyEntered`) reaching this
+/// point has already passed `p1_provoke_gate` (self-report present, no concrete
+/// evidence). The "AI said done is not verified" lesson is DIVE's core
+/// anti-automation-bias teaching moment, so offline / no-provider must not
+/// silently drop it: fall back to the existing deterministic Stage-C shell,
+/// which `evaluate_with_output_and_log` routes through
+/// `build_stage_c_supervisor_decision`. Every other event stays unavailable.
+fn runtime_unavailable_output(event: SupervisorEvent) -> StageCSupervisorOutput {
+    match event {
+        SupervisorEvent::AiClaimedDone | SupervisorEvent::VerifyEntered => {
+            StageCSupervisorOutput::DomainShell
+        }
+        _ => StageCSupervisorOutput::RuntimeUnavailable,
+    }
+}
+
 async fn supervisor_output_from_runtime(
     state: &AppState,
     request: &ProvocationAgentEvaluateRequest,
@@ -222,19 +240,19 @@ async fn supervisor_output_from_runtime(
     };
     let snap = match state.ensure_provider_runtime().await {
         Ok(snap) if !snap.kind.is_none() => snap,
-        _ => return StageCSupervisorOutput::RuntimeUnavailable,
+        _ => return runtime_unavailable_output(context.event),
     };
     let descriptor = match crate::pi_sidecar::parity::pi_provider_descriptor(snap.kind.clone()) {
         Some(descriptor) => descriptor,
-        None => return StageCSupervisorOutput::RuntimeUnavailable,
+        None => return runtime_unavailable_output(context.event),
     };
     let provider_config_id = match snap.config_id {
         Some(id) => id,
-        None => return StageCSupervisorOutput::RuntimeUnavailable,
+        None => return runtime_unavailable_output(context.event),
     };
     let cwd = match state.project_root_required() {
         Ok(cwd) => cwd,
-        Err(_) => return StageCSupervisorOutput::RuntimeUnavailable,
+        Err(_) => return runtime_unavailable_output(context.event),
     };
 
     match run_supervisor_turn(
@@ -253,7 +271,7 @@ async fn supervisor_output_from_runtime(
             PiSidecarSupervisorErrorKind::RuntimeUnavailable
             | PiSidecarSupervisorErrorKind::CredentialUnavailable
             | PiSidecarSupervisorErrorKind::SidecarUnavailable => {
-                StageCSupervisorOutput::RuntimeUnavailable
+                runtime_unavailable_output(context.event)
             }
             PiSidecarSupervisorErrorKind::Timeout => StageCSupervisorOutput::Timeout,
             PiSidecarSupervisorErrorKind::SidecarError => StageCSupervisorOutput::SidecarError,
@@ -1070,6 +1088,32 @@ mod tests {
             Some(SupervisorDropReason::RuntimeUnavailable)
         );
         assert!(response.card.is_none());
+    }
+
+    #[test]
+    fn runtime_unavailable_output_falls_back_to_shell_only_for_verify_events() {
+        // Offline / no-provider must not silently drop the core verify provocation:
+        // verify-stage events fall back to the deterministic Stage-C shell, while
+        // every other event stays unavailable (dropped). P1-21.
+        assert!(matches!(
+            runtime_unavailable_output(SupervisorEvent::VerifyEntered),
+            StageCSupervisorOutput::DomainShell
+        ));
+        assert!(matches!(
+            runtime_unavailable_output(SupervisorEvent::AiClaimedDone),
+            StageCSupervisorOutput::DomainShell
+        ));
+        for event in [
+            SupervisorEvent::DiffReady,
+            SupervisorEvent::ScopeExpansion,
+            SupervisorEvent::PlanDrafted,
+            SupervisorEvent::RetryLoop,
+        ] {
+            assert!(matches!(
+                runtime_unavailable_output(event),
+                StageCSupervisorOutput::RuntimeUnavailable
+            ));
+        }
     }
 
     #[test]

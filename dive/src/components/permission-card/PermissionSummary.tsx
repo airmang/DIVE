@@ -27,6 +27,15 @@ function compactList(items: string[], empty: string): string {
   return `${items.slice(0, 3).join(", ")} +${items.length - 3}`;
 }
 
+// Files the AI wants to write that are NOT in the approved plan's expected
+// targets — the "AI went off-script" signal. Only meaningful when a plan
+// expectation exists; an empty expectation set means we can't judge divergence.
+function divergentFiles(writeFiles: string[], expectedFiles: string[]): string[] {
+  if (expectedFiles.length === 0) return [];
+  const expected = new Set(expectedFiles);
+  return writeFiles.filter((path) => !expected.has(path));
+}
+
 export function PermissionSummary({
   toolName,
   risk,
@@ -39,6 +48,7 @@ export function PermissionSummary({
   const readFiles = uniqueItems(actionContext?.readFiles);
   const writeFiles = uniqueItems(actionContext?.writeFiles);
   const diffPreviewPath = actionContext?.diffPreviewPath?.trim() || null;
+  const unexpectedWriteFiles = divergentFiles(writeFiles, expectedFiles);
   const checkpointLabel =
     actionContext?.checkpointAvailable === true
       ? t("permission_card.summary.checkpoint_available")
@@ -83,6 +93,22 @@ export function PermissionSummary({
               ))}
             </ul>
           ) : null}
+        </section>
+      ) : null}
+
+      {unexpectedWriteFiles.length > 0 ? (
+        <section
+          className="rounded-md border border-danger/40 bg-danger/5 px-3 py-2"
+          data-testid="permission-divergence-warning"
+        >
+          <p className="text-sm font-semibold text-danger">
+            {t("permission_card.summary.divergence_title")}
+          </p>
+          <p className="mt-1 break-words text-fg-muted">
+            {t("permission_card.summary.divergence_body", {
+              paths: compactList(unexpectedWriteFiles, ""),
+            })}
+          </p>
         </section>
       ) : null}
 

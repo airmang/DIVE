@@ -350,6 +350,41 @@ describe("ProvocationCard scaffold modes", () => {
     expect(onMarkIrrelevant).toHaveBeenCalledTimes(1);
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
+
+  it("uses a neutral mark-irrelevant glyph with a tooltip, not a green check (P2-30)", () => {
+    render(
+      <ProvocationCard
+        card={reviewCard()}
+        mode="work"
+        onMarkIrrelevant={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    const button = screen.getByTestId("provocation-mark-irrelevant");
+    // Hover affordance for sighted novices, mirroring the existing aria-label.
+    expect(button.getAttribute("title")).toBe("검토 카드를 관련 없음으로 표시");
+    // The glyph must not read as success/approve (no check icon).
+    const svgClass = button.querySelector("svg")?.getAttribute("class") ?? "";
+    expect(svgClass).not.toContain("check");
+  });
+
+  it("shows the trust-calibration hint only on an ai_self_report_only card (P2-13)", () => {
+    render(
+      <ProvocationCard
+        card={reviewCard({ type: "ai_self_report_only", stage: "verify", title: "확인 필요 카드" })}
+        mode="work"
+      />,
+    );
+    expect(screen.getByTestId("provocation-trust-calibration-hint")).toBeTruthy();
+
+    cleanup();
+
+    render(
+      <ProvocationCard card={reviewCard({ type: "missing_verification_step" })} mode="work" />,
+    );
+    expect(screen.queryByTestId("provocation-trust-calibration-hint")).toBeNull();
+  });
 });
 
 describe("ProvocationCardHost canonical mode visibility", () => {

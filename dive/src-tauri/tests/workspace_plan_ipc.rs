@@ -31,7 +31,7 @@ use dive_lib::ipc::workspace_plan::{
     workspace_prd_draft_get_impl, workspace_prd_draft_save_impl, workspace_prd_get_impl,
     workspace_prd_interview_turn_impl, workspace_prd_save_impl, workspace_prd_status_impl,
     AcceptanceCriterionInput, AppendStepOptions, MultiStepDraftInput, PlanAdjustmentOfferResponse,
-    PlanAdjustmentOfferResponseInput, PlanDraftInput, PrdDraftSaveInput,
+    PlanAdjustmentOfferResponseInput, PlanCritiqueResolution, PlanDraftInput, PrdDraftSaveInput,
     PrdInterviewConversationTurnInput, PrdInterviewTurnInput, PrdSaveInput, RouteDecision,
     StepDraftInput, StepRationaleChallengeInput, StepStateUpdateInput,
 };
@@ -642,7 +642,9 @@ async fn prd_interview_turn_applies_validated_patch_without_creating_version() {
     assert!(system_prompt.contains("gently lead the student"));
     assert!(system_prompt.contains("Do not run a fixed checklist"));
     assert!(system_prompt.contains("Use the same language as the student's answer"));
-    assert!(system_prompt.contains("ready to confirm"));
+    // S-041 reworded the readiness guidance to mirror the real confirm gate: the
+    // model only tells the student it is ready when the focus is ready_to_save.
+    assert!(system_prompt.contains("ready_to_save is the PRD complete enough"));
     let user_prompt = match &requests[0].messages[1] {
         Message::User { content } => content,
         _ => panic!("expected PRD interview user prompt"),
@@ -2296,7 +2298,7 @@ fn approve_exports_artifacts_and_returns_approved_plan() {
     let plan_id = seed_plan(&state, project_id, "draft");
     insert_step(&state, plan_id, "step-001", &[]);
 
-    let approved = workspace_plan_approve_impl(&state, plan_id).unwrap();
+    let approved = workspace_plan_approve_impl(&state, plan_id, None).unwrap();
     assert_eq!(approved.status, "approved");
     assert!(tmp.path().join(".dive/plan.json").exists());
 }
@@ -2425,7 +2427,7 @@ fn plan_activity_records_lifecycle_events_latest_first() {
     let plan_id = seed_plan(&state, project_id, "draft");
     let first = insert_step(&state, plan_id, "step-001", &[]);
 
-    workspace_plan_approve_impl(&state, plan_id).unwrap();
+    workspace_plan_approve_impl(&state, plan_id, None).unwrap();
     workspace_plan_append_step_impl(&state, plan_id, append_step_draft(vec!["step-001".into()]))
         .unwrap();
     roadmap_step_open_impl(&state, first).unwrap();
@@ -2459,6 +2461,56 @@ fn plan_activity_records_lifecycle_events_latest_first() {
     assert_eq!(activity[0].step_title.as_deref(), Some("Step step-001"));
     assert_eq!(activity[0].message, "Step marked done");
     assert_eq!(activity[0].reason, None);
+}
+
+#[test]
+fn plan_approved_event_records_critique_provenance() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "draft");
+    insert_step(&state, plan_id, "step-001", &[]);
+
+    workspace_plan_approve_impl(
+        &state,
+        plan_id,
+        Some(PlanCritiqueResolution {
+            response: "none".into(),
+            note: Some("  목표대로 단계가 다 있는지 확인했어요  ".into()),
+        }),
+    )
+    .unwrap();
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    let approved = events
+        .iter()
+        .find(|event| event.r#type == "plan_approved")
+        .expect("plan_approved event recorded");
+    assert_eq!(approved.payload["critiqueResponse"], json!("none"));
+    // The note is the student's own supervision sentence, trimmed but preserved.
+    assert_eq!(
+        approved.payload["critiqueNote"],
+        json!("목표대로 단계가 다 있는지 확인했어요")
+    );
+}
+
+#[test]
+fn plan_approved_event_has_null_critique_when_absent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "draft");
+    insert_step(&state, plan_id, "step-001", &[]);
+
+    workspace_plan_approve_impl(&state, plan_id, None).unwrap();
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    let approved = events
+        .iter()
+        .find(|event| event.r#type == "plan_approved")
+        .expect("plan_approved event recorded");
+    assert_eq!(approved.payload["critiqueResponse"], json!(null));
+    assert_eq!(approved.payload["critiqueNote"], json!(null));
 }
 
 #[test]
@@ -2630,7 +2682,7 @@ fn current_draft_returns_project_draft_plan_and_steps() {
     assert_eq!(current.0.status, "draft");
     assert_eq!(current.1.len(), steps.len());
 
-    workspace_plan_approve_impl(&state, plan_row.id).unwrap();
+    workspace_plan_approve_impl(&state, plan_row.id, None).unwrap();
     assert!(workspace_plan_current_draft_impl(&state, project_id)
         .unwrap()
         .is_none());
@@ -2680,7 +2732,7 @@ fn generate_draft_refuses_approved_plan_without_replace_but_replaces_with_optin(
     seed_minimal_prd(&state, project_id);
     let (first_plan, _) =
         workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
-    workspace_plan_approve_impl(&state, first_plan.id).unwrap();
+    workspace_plan_approve_impl(&state, first_plan.id, None).unwrap();
 
     // Without opt-in: refuse rather than silently discard the approved plan.
     let mut replacement = draft_input();
@@ -2775,7 +2827,7 @@ fn approve_updates_linked_submitted_interview_status() {
     let (plan_row, _) =
         workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
 
-    let approved = workspace_plan_approve_impl(&state, plan_row.id).unwrap();
+    let approved = workspace_plan_approve_impl(&state, plan_row.id, None).unwrap();
     assert_eq!(approved.status, "approved");
 
     let db = state.db.lock().unwrap();

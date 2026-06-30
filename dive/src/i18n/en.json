@@ -1071,6 +1071,8 @@
       "critique_none": "None — ready to approve",
       "critique_found": "Yes — request changes",
       "critique_found_hint": "Write the missing steps in the \"Request changes\" box on the right to request a revision.",
+      "critique_none_note_placeholder": "In one line, why is this plan good enough?",
+      "critique_none_note_hint": "Write one line (4+ characters) to enable approval.",
       "show_raw_draft": "Show raw draft",
       "hide_raw_draft": "Hide raw draft",
       "show_step_details": "Show details",
@@ -1250,6 +1252,7 @@
     },
     "read_gate": {
       "message": "Before approving, open or scroll the diff, or tick that you read the change.",
+      "message_no_diff": "No preview available — check the file path and action details below before allowing.",
       "confirm_label": "I read the change"
     },
     "summary": {
@@ -1267,7 +1270,9 @@
       "checkpoint_available": "Checkpoint available",
       "checkpoint_unavailable": "No checkpoint yet",
       "checkpoint_unknown": "Unknown",
-      "none": "None"
+      "none": "None",
+      "divergence_title": "About to change files that aren't in the plan",
+      "divergence_body": "{{paths}} · Make sure this change is intended."
     },
     "change_summary": {
       "title": "Plain-language change summary",

@@ -3,6 +3,16 @@ export interface InterviewAnswer {
   answer: string;
 }
 
+/**
+ * The student's resolution of the plan-critique gate at approval time. Logged as
+ * supervision evidence so an engaged approval can be told apart from a blind one.
+ * The note is the student's own one-line reason on the "none" path (P1-14/P1-15).
+ */
+export interface PlanCritiqueResolution {
+  response: "none" | "found";
+  note?: string;
+}
+
 export type ProjectSpecStatus = "draft" | "approved";
 export type AcceptanceCriterionSource =
   | "interview"

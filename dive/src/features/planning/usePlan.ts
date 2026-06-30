@@ -5,6 +5,7 @@ import type {
   ChallengeStepRationaleResult,
   InterviewRow,
   LiveProjectSpecDraft,
+  PlanCritiqueResolution,
   PlanDraftInput,
   PlanGenerationResult,
   PlanAdjustmentReviewRequestDetail,
@@ -455,9 +456,12 @@ export function usePlan(projectId: number | null) {
   );
 
   const approvePlan = useCallback(
-    async (planId: number) => {
+    async (planId: number, critiqueResolution?: PlanCritiqueResolution) => {
       if (!api) throw new Error("Tauri IPC unavailable");
-      const plan = await api.invoke<PlanRow>("workspace_plan_approve", { planId });
+      const plan = await api.invoke<PlanRow>("workspace_plan_approve", {
+        planId,
+        critiqueResolution,
+      });
       await refresh();
       return plan;
     },

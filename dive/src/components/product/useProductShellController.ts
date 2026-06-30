@@ -45,7 +45,11 @@ import {
   type InterviewAnswer,
   type QuickIntakeInput,
 } from "../../features/planning";
-import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
+import type {
+  InterviewRow,
+  PlanCritiqueResolution,
+  PlanGenerationResult,
+} from "../../features/planning";
 import type { ConfirmableRouteDecision } from "./PlanRouteConfirmModal";
 import {
   decodePlanDraftQualityError,
@@ -1816,22 +1820,25 @@ export function useProductShellController() {
     void chat.sendUserMessage(submitPrompt, "interview", false);
   }, [chat, setPlanDraftExpectation, t]);
 
-  const handleApproveGeneratedPlan = useCallback(() => {
-    if (!generatedPlanDraft) return;
-    void (async () => {
-      try {
-        await plan.approvePlan(generatedPlanDraft.plan.id);
-        setGeneratedPlanDraft(null);
-        await planRoadmap.refresh();
-      } catch (err) {
-        toast({
-          variant: "error",
-          title: t("planning.approval.approve_failed_title"),
-          description: err instanceof Error ? err.message : String(err),
-        });
-      }
-    })();
-  }, [generatedPlanDraft, plan, planRoadmap, t, toast]);
+  const handleApproveGeneratedPlan = useCallback(
+    (critiqueResolution?: PlanCritiqueResolution) => {
+      if (!generatedPlanDraft) return;
+      void (async () => {
+        try {
+          await plan.approvePlan(generatedPlanDraft.plan.id, critiqueResolution);
+          setGeneratedPlanDraft(null);
+          await planRoadmap.refresh();
+        } catch (err) {
+          toast({
+            variant: "error",
+            title: t("planning.approval.approve_failed_title"),
+            description: err instanceof Error ? err.message : String(err),
+          });
+        }
+      })();
+    },
+    [generatedPlanDraft, plan, planRoadmap, t, toast],
+  );
 
   const handleRequestPlanRevision = useCallback(
     (feedback: string) => {

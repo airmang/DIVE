@@ -817,7 +817,13 @@ export function StepDetailSlideIn({
     verifyLog?.test_result,
   ]);
   const [provocationCards, setProvocationCards] = useState<ProvocationCard[]>([]);
-  const [handledProvocationCardIds, setHandledProvocationCardIds] = useState<Set<string>>(
+  // A card is "engaged" only when the student actually looked at the artifact
+  // (open diff/preview/run/tests) or recorded a reason — not when they merely
+  // dismiss or mark it irrelevant. Only engagement counts as review evidence, so
+  // dismissing a card no longer fakes the stepper's "Review response" stage as
+  // completed (P2-14). Dismissal visibility + its EventLog record stay owned by
+  // ProvocationCardHost.
+  const [engagedProvocationCardIds, setEngagedProvocationCardIds] = useState<Set<string>>(
     () => new Set(),
   );
 
@@ -867,7 +873,7 @@ export function StepDetailSlideIn({
   }, [diffReadySupervisorRequest, retryLoopSupervisorRequest, supervisorEvaluationRequest]);
   useEffect(() => {
     const currentCardIds = new Set(provocationCards.map((card) => card.id));
-    setHandledProvocationCardIds((current) => {
+    setEngagedProvocationCardIds((current) => {
       const next = new Set([...current].filter((id) => currentCardIds.has(id)));
       return next.size === current.size ? current : next;
     });
@@ -886,7 +892,7 @@ export function StepDetailSlideIn({
   const unexpectedHighRiskFiles = highRiskFilesFromCards(decisionProvocationCards);
   const reviewCardsEvidenced =
     provocationCards.length > 0 &&
-    provocationCards.every((card) => handledProvocationCardIds.has(card.id));
+    provocationCards.every((card) => engagedProvocationCardIds.has(card.id));
   const verificationStatuses = provocationContext
     ? deriveVerificationStatuses(provocationContext)
     : [];
@@ -959,8 +965,8 @@ export function StepDetailSlideIn({
         note: reason?.trim() || null,
       }),
   });
-  const markProvocationCardHandled = (card: ProvocationCard) => {
-    setHandledProvocationCardIds((current) => {
+  const markProvocationCardEngaged = (card: ProvocationCard) => {
+    setEngagedProvocationCardIds((current) => {
       if (current.has(card.id)) return current;
       return new Set(current).add(card.id);
     });
@@ -970,7 +976,10 @@ export function StepDetailSlideIn({
     card: ProvocationCard,
     reason?: string,
   ) => {
-    markProvocationCardHandled(card);
+    // Taking a card action means looking at the artifact (open diff/preview/run/
+    // tests) or recording a reason — real engagement, so it counts as review
+    // evidence. Dismiss / mark-irrelevant don't reach here.
+    markProvocationCardEngaged(card);
     handleProvocationAction(action, card, reason);
   };
   const primaryVerificationAction: VerificationFocusAction | null = step
@@ -1112,7 +1121,6 @@ export function StepDetailSlideIn({
             context={provocationContext ?? undefined}
             mode={provocation?.mode ?? "standard"}
             onAction={handleReviewCardAction}
-            onHandled={markProvocationCardHandled}
           />
         ),
       });

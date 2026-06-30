@@ -541,12 +541,26 @@ pub async fn workspace_plan_current_draft(
     workspace_plan_current_draft_impl(&state, project_id)
 }
 
+/// Student's resolution of the plan-critique gate, threaded from the approval UI
+/// so the approval can be logged as engaged vs blind (Constitution IV). The note
+/// is the student's own one-line reason (the "none" path authored artifact,
+/// P1-14) — supervision evidence, not AI self-report.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanCritiqueResolution {
+    /// "none" (nothing missing — can approve) or "found" (requested changes).
+    pub response: String,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
 #[tauri::command]
 pub async fn workspace_plan_approve(
     state: State<'_, AppState>,
     plan_id: i64,
+    critique_resolution: Option<PlanCritiqueResolution>,
 ) -> Result<PlanRow, String> {
-    workspace_plan_approve_impl(&state, plan_id)
+    workspace_plan_approve_impl(&state, plan_id, critique_resolution)
 }
 
 #[tauri::command]
@@ -2966,7 +2980,11 @@ pub fn workspace_plan_current_draft_impl(
     Ok(Some((plan, steps)))
 }
 
-pub fn workspace_plan_approve_impl(state: &AppState, plan_id: i64) -> Result<PlanRow, String> {
+pub fn workspace_plan_approve_impl(
+    state: &AppState,
+    plan_id: i64,
+    critique_resolution: Option<PlanCritiqueResolution>,
+) -> Result<PlanRow, String> {
     let project_root = state.project_root_required()?;
     {
         let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -3001,16 +3019,60 @@ pub fn workspace_plan_approve_impl(state: &AppState, plan_id: i64) -> Result<Pla
     let plan = plan_dao::get_by_id(db.conn(), plan_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("plan {plan_id} not found after approve"))?;
-    let _ = append_plan_activity(
+    // Record the student's plan-critique response as supervision evidence so the
+    // research ledger can distinguish an engaged approval from a blind one
+    // (Constitution IV). The note is the student's own words, not AI self-report.
+    let critique_response = critique_resolution.as_ref().map(|res| res.response.clone());
+    let critique_note = critique_resolution
+        .as_ref()
+        .and_then(|res| res.note.as_deref())
+        .and_then(bounded_critique_note);
+    let _ = dive_event_log::append_to_conn(
         db.conn(),
-        &plan,
-        None,
         None,
         "plan_approved",
-        "Plan approved",
-        None,
+        json!({
+            "project_id": plan.project_id,
+            "plan_id": plan.id,
+            "message": "Plan approved",
+            "critiqueResponse": critique_response,
+            "critiqueNote": critique_note,
+        }),
     );
     Ok(plan)
+}
+
+/// Bound a student-authored plan-critique note before it enters the exportable
+/// event ledger. Returns `None` for empty/whitespace input.
+fn bounded_critique_note(note: &str) -> Option<String> {
+    const MAX_CHARS: usize = 280;
+    let trimmed = note.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.chars().take(MAX_CHARS).collect())
+}
+
+#[cfg(test)]
+mod critique_note_tests {
+    use super::*;
+
+    #[test]
+    fn bounded_critique_note_trims_and_drops_empty() {
+        assert_eq!(bounded_critique_note("   "), None);
+        assert_eq!(bounded_critique_note(""), None);
+        assert_eq!(
+            bounded_critique_note("  계획대로 단계가 다 있어요  ").as_deref(),
+            Some("계획대로 단계가 다 있어요")
+        );
+    }
+
+    #[test]
+    fn bounded_critique_note_caps_length_by_chars() {
+        let long = "가".repeat(400);
+        let bounded = bounded_critique_note(&long).expect("non-empty note kept");
+        assert_eq!(bounded.chars().count(), 280);
+    }
 }
 
 pub fn workspace_plan_discard_plan_impl(state: &AppState, plan_id: i64) -> Result<(), String> {

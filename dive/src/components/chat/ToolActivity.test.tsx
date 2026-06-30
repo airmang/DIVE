@@ -389,4 +389,54 @@ describe("ToolActivity provocation permission gate", () => {
       screen.getByText("This approval request is no longer active. DIVE did not run the command."),
     ).toBeTruthy();
   });
+
+  it("gates a no-diff Danger action behind the read confirm and avoids diff-pointing copy (P1-17/P1-26)", () => {
+    const approve = vi.fn();
+
+    render(
+      <ToolActivity
+        call={pendingCall({
+          id: "tool-danger",
+          toolName: "delete_file",
+          paramsPreview: "path: src/old.ts",
+          risk: "danger",
+          diffPreview: null,
+          args: { path: "src/old.ts" },
+        })}
+        onApprove={approve}
+        onDeny={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("permission-approval-requirement")).toBeTruthy();
+    const approveButton = screen.getByTestId("card-approve") as HTMLButtonElement;
+    expect(approveButton.disabled).toBe(true);
+    // No diff is on screen, so the gate must not tell the student to open one (P1-26).
+    expect(
+      screen.getByText("미리보기가 없습니다 — 아래 파일 경로와 작업 내용을 확인한 뒤 허용하세요."),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("permission-read-confirm-checkbox"));
+    expect(approveButton.disabled).toBe(false);
+  });
+
+  it("keeps the diff-pointing read-gate copy when a diff is on screen (P1-26)", () => {
+    render(
+      <ToolActivity
+        call={pendingCall({
+          toolName: "edit_file",
+          risk: "warn",
+          diffPreview: { path: "src/App.tsx", before: "old", after: "new" },
+        })}
+        onApprove={vi.fn()}
+        onDeny={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "허용하기 전에 diff를 열거나 스크롤하세요. 또는 변경 내용을 읽었다고 표시하세요.",
+      ),
+    ).toBeTruthy();
+  });
 });
