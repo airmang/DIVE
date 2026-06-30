@@ -955,7 +955,8 @@
       "draft_ready_title": "계획 초안 준비됨",
       "draft_ready_description": "승인하기 전에 생성된 계획을 검토하세요.",
       "draft_failed_title": "계획 초안을 만들 수 없음",
-      "compact_retry_prompt": "이전 계획 JSON 생성이 실패했습니다. 이유: {{reason}}\n목표: {{goal}}\n완전하고 짧은 JSON만 다시 반환하세요. plan_input은 2~6개 steps를 권장하며 최대 8개를 넘기지 마세요. 각 step은 title, summary, instruction_seed, expected_files, acceptance_criteria, verification_type, verification_command를 포함하고 감독 턴 1회 안에 수행 가능한 작은 범위여야 합니다. verification_type은 run, preview, manual, test 중 하나여야 합니다. 정적 프런트엔드나 실행할 명령이 없는 step은 preview 또는 manual을 쓰고 verification_command는 null로 두세요. run 또는 test는 셸 없이 명시적 인자만 쓰는 실제 명령이 있을 때만 사용하세요. 설명 문장이나 Markdown 코드펜스는 쓰지 마세요.",
+      "compact_retry_prompt": "이전 계획 JSON 생성이 실패했습니다. 이유: {{reason}}\n목표: {{goal}}\n완전하고 짧은 JSON만 다시 반환하세요. plan_input은 2~6개 steps를 권장하며 최대 8개를 넘기지 마세요. 각 step은 title, summary, instruction_seed, expected_files, acceptance_criteria, verification_type, verification_command를 포함하고 감독 턴 1회 안에 수행 가능한 작은 범위여야 합니다. verification_type은 run, preview, manual, test 중 하나여야 합니다. 정적 프런트엔드나 실행할 명령이 없는 step은 preview 또는 manual을 쓰고 verification_command는 null로 두세요. run 또는 test는 셸 없이 명시적 인자만 쓰는 실제 명령이 있을 때만 사용하세요. 이전 초안은 완료 기준이 다음을 충분히 다루지 못해 거부됐습니다: {{missing}}. step들의 acceptance_criteria를 추가하거나 고쳐 각 항목을 구체적이고 직접 확인 가능한 완료 기준으로 만드세요. 설명 문장이나 Markdown 코드펜스는 쓰지 마세요.",
+      "compact_retry_missing_fallback": "구체적이고 직접 확인 가능한 완료 기준(숫자·비교·구체적 UI 요소·상태)",
       "pending": {
         "title": "계획을 생성하는 중입니다...",
         "description": "DIVE가 인터뷰 내용을 짧게 검토할 수 있는 계획 초안으로 바꾸고 있습니다."
@@ -1004,6 +1005,7 @@
       },
       "recovery": {
         "retry": "짧은 JSON으로 다시 생성",
+        "edit_prd": "PRD로 돌아가 기준 보강",
         "missing_items_title": "다음 항목을 더 물어봐야 합니다:",
         "hints": "모델 응답이 길면 계획 초안만 짧게 다시 요청하세요.|다시 실패하면 목표 범위를 더 작게 나누세요.",
         "length": {

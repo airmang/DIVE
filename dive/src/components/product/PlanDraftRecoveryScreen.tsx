@@ -1,4 +1,4 @@
-import { AlertTriangle, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, PencilLine, RotateCcw, X } from "lucide-react";
 import { Button } from "../ui/button";
 import { useT } from "../../i18n";
 import type { PlanDraftLlmErrorReason } from "../../features/planning/usePlanInterviewLLM";
@@ -9,6 +9,9 @@ interface Props {
   busy?: boolean;
   onRetry: () => void;
   onDismiss: () => void;
+  /** Route back to PRD authoring so the student can thicken acceptance criteria
+   *  by hand instead of relying on Retry (round-2 S-041 plan-confirm loop escape). */
+  onEditPrd?: () => void;
 }
 
 export function PlanDraftRecoveryScreen({
@@ -17,6 +20,7 @@ export function PlanDraftRecoveryScreen({
   busy,
   onRetry,
   onDismiss,
+  onEditPrd,
 }: Props) {
   const t = useT();
   const missingItems = unresolvedQuestions.map((item) => item.trim()).filter(Boolean);
@@ -71,6 +75,18 @@ export function PlanDraftRecoveryScreen({
             <X className="h-3.5 w-3.5" />
             {t("common.close")}
           </Button>
+          {onEditPrd ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onEditPrd}
+              disabled={busy}
+              data-testid="plan-draft-recovery-edit-prd"
+            >
+              <PencilLine className="h-3.5 w-3.5" />
+              {t("planning.interview.recovery.edit_prd")}
+            </Button>
+          ) : null}
           <Button
             variant="primary"
             size="sm"

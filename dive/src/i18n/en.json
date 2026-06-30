@@ -955,7 +955,8 @@
       "draft_ready_title": "Plan draft ready",
       "draft_ready_description": "Review the generated plan before approving it.",
       "draft_failed_title": "Could not create plan draft",
-      "compact_retry_prompt": "The previous plan JSON generation failed. Reason: {{reason}}\nGoal: {{goal}}\nReturn complete, short JSON only. plan_input should contain 2-6 steps and must never exceed 8. Each step must include title, summary, instruction_seed, expected_files, acceptance_criteria, verification_type, and verification_command, and must be small enough for one supervised turn. verification_type must be one of run, preview, manual, or test. For static front-end or no-runnable-command steps, use preview or manual with verification_command null; use run or test only for a real no-shell command with explicit args. Do not include prose or Markdown fences.",
+      "compact_retry_prompt": "The previous plan JSON generation failed. Reason: {{reason}}\nGoal: {{goal}}\nReturn complete, short JSON only. plan_input should contain 2-6 steps and must never exceed 8. Each step must include title, summary, instruction_seed, expected_files, acceptance_criteria, verification_type, and verification_command, and must be small enough for one supervised turn. verification_type must be one of run, preview, manual, or test. For static front-end or no-runnable-command steps, use preview or manual with verification_command null; use run or test only for a real no-shell command with explicit args. The previous draft was rejected because its acceptance criteria did not fully cover: {{missing}}. Add or rewrite acceptance_criteria across the steps so each is a concrete, independently checkable criterion. Do not include prose or Markdown fences.",
+      "compact_retry_missing_fallback": "concrete, independently checkable acceptance criteria (a number, comparator, named UI element, or state)",
       "pending": {
         "title": "Generating your plan...",
         "description": "DIVE is turning the interview into a short, reviewable plan draft."
@@ -1004,6 +1005,7 @@
       },
       "recovery": {
         "retry": "Regenerate short JSON",
+        "edit_prd": "Go back to the PRD",
         "missing_items_title": "Ask for these missing details:",
         "hints": "If the model response is too long, ask only for a compact plan draft.|If it fails again, split the goal into a smaller scope.",
         "length": {

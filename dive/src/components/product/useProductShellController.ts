@@ -1840,9 +1840,17 @@ export function useProductShellController() {
   const handleRetryPlanDraft = useCallback(() => {
     const interview = activeInterviewRef.current;
     if (!interview || !planDraftFailure) return;
+    // Feed the concrete missing checks into the retry so regeneration makes
+    // progress instead of reproducing the identical rejection (round-2 S-041
+    // plan-confirm loop). The reason slug alone never told the model what to add.
+    const missing = planDraftFailure.unresolvedQuestions
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .join("; ");
     const prompt = t("planning.interview.compact_retry_prompt", {
       goal: interview.goal,
       reason: planDraftFailure.reason,
+      missing: missing || t("planning.interview.compact_retry_missing_fallback"),
     });
     setPlanDraftExpectation(true);
     setPlanDraftFailure(null);
@@ -2053,6 +2061,10 @@ export function useProductShellController() {
               busy: chat.isStreaming,
               onRetry: handleRetryPlanDraft,
               onDismiss: () => setPlanDraftFailure(null),
+              onEditPrd: () => {
+                setPlanDraftFailure(null);
+                handleOpenPrdAuthoring();
+              },
             })
           : shouldRenderPlanDraftPending({
                 planDraftPending,
