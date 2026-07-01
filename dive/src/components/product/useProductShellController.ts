@@ -97,6 +97,16 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
       criterionId: criterion.criterionId,
       text: criterion.text,
     }));
+  // S-047 (010 theme 7): the student's confirmed architecture (form + stack) is
+  // decomposition context — the model decomposes *for* that form/stack rather than
+  // re-choosing one. This is context-only: it shapes the prose, not the plan schema.
+  const architecture = projectSpec.architecture
+    ? {
+        form: projectSpec.architecture.form,
+        formLabel: projectSpec.architecture.formOtherLabel?.trim() || projectSpec.architecture.form,
+        stack: projectSpec.architecture.stack ?? "",
+      }
+    : null;
   const prd = {
     goal: projectSpec.goal,
     intentSummary: projectSpec.intentSummary ?? "",
@@ -104,6 +114,7 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
     nonGoals: projectSpec.nonGoals,
     constraints: projectSpec.constraints,
     acceptanceCriteria: activeCriteria,
+    ...(architecture ? { architecture } : {}),
   };
 
   return [
@@ -116,6 +127,11 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
     "step_kind must be one of feature, refactor, rename, comment, debug. Use refactor/rename only for behavior-preserving move/restructure/name changes; use debug for diagnose-then-fix work.",
     "Every step must link to at least one saved PRD criterion ID through linked_criterion_ids and explain the link in rationale.",
     "Use the saved PRD criterion IDs exactly; do not invent AC IDs.",
+    ...(architecture
+      ? [
+          "The PRD includes the student's confirmed architecture (form + tech stack). Decompose for that form and stack: keep every step, expected_files, and verification consistent with it, and do not switch to a different framework or stack.",
+        ]
+      : []),
     "verification_command must be one no-shell command with explicit args when a command is appropriate, otherwise null with a clear manual verification summary in the step text.",
     "Do not include Markdown fences or prose.",
     "",
@@ -277,7 +293,7 @@ function prdRuntimeSelection(
   };
 }
 
-function draftFromProjectSpec(projectSpec: ProjectSpec): LiveProjectSpecDraft {
+export function draftFromProjectSpec(projectSpec: ProjectSpec): LiveProjectSpecDraft {
   return createLiveProjectSpecDraft(projectSpec.projectId, {
     draftId: `prd-draft-${projectSpec.projectId}`,
     projectSpecId: projectSpec.projectSpecId,
@@ -289,6 +305,10 @@ function draftFromProjectSpec(projectSpec: ProjectSpec): LiveProjectSpecDraft {
     nonGoals: projectSpec.nonGoals,
     constraints: projectSpec.constraints,
     acceptanceCriteria: projectSpec.acceptanceCriteria,
+    // S-047: carry the decided architecture into the editable draft. Without this,
+    // the read-view "Edit" button (which rebuilds the draft here with no backend
+    // refetch) would reset architecture to null and permanently drop it on re-save.
+    architecture: projectSpec.architecture,
     status: "draft",
   });
 }

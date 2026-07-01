@@ -6,12 +6,15 @@ import {
   validateConfirmableProjectSpec,
   applyQuickIntakeToDraft,
   type AcceptanceCriterion,
+  type ArchitectureDecision,
+  type ArchitectureForm,
   type LiveProjectSpecDraft,
   type PrdPatchValidationOutcome,
   type PrdInterviewConversationTurn,
   type QuickIntakeInput,
 } from "../../features/planning";
 import { useT } from "../../i18n";
+import { architectureFormOptions } from "./architectureLabels";
 import {
   ProvocationCardHost,
   type ProvocationAction,
@@ -261,6 +264,8 @@ export function PrdAuthoringBoard({
     [localDraft.spec],
   );
   const criteria = normalizeCriteria(localDraft.spec.acceptanceCriteria);
+  const architecture = localDraft.spec.architecture;
+  const formOptions = useMemo(() => architectureFormOptions(t), [t]);
   // Always offer a trailing empty row so the student can author the 2nd criterion
   // by hand when the AI won't extend it (round-2 P1-30 / S-041 dead-end escape).
   const displayCriteria =
@@ -345,6 +350,31 @@ export function PrdAuthoringBoard({
       .map((line) => line.trim())
       .filter(Boolean);
     updateSpecField(field, lines, fieldPath);
+  };
+
+  // S-047: the student picks the form first, then decides a stack. Both writes
+  // land on localDraft.spec.architecture via the ordinary draft-save path — never
+  // an AI patch — so the shape is a student-confirmed decision, not auto-filled.
+  const setArchitectureForm = (form: ArchitectureForm) => {
+    const prev = localDraft.spec.architecture;
+    const changingForm = !!prev && prev.form !== form;
+    const next: ArchitectureDecision = {
+      form,
+      formOtherLabel: form === "other" ? (prev?.formOtherLabel ?? null) : null,
+      stack: prev?.stack ?? null,
+      rationale: prev?.rationale ?? null,
+      decisionSource: changingForm
+        ? "student_changed"
+        : (prev?.decisionSource ?? "student_confirmed"),
+      decidedInVersion: localDraft.spec.currentVersion ?? 1,
+    };
+    updateSpecField("architecture", next, "architecture");
+  };
+
+  const patchArchitecture = (patch: Partial<ArchitectureDecision>) => {
+    const prev = localDraft.spec.architecture;
+    if (!prev) return;
+    updateSpecField("architecture", { ...prev, ...patch }, "architecture");
   };
 
   const updateCriterion = (index: number, text: string) => {
@@ -684,6 +714,99 @@ export function PrdAuthoringBoard({
                 {t("prd.authoring.add_criterion")}
               </button>
             </div>
+
+            {/* S-047 (010 theme 7): the student decides the architecture — form
+                first, then a stack. The AI proposes both in the interview rail;
+                this is where the student confirms, so it is never auto-filled. */}
+            <div
+              className="flex flex-col gap-2 xl:col-span-2"
+              data-testid="prd-field-architecture"
+              data-changed={includesField(recentlyChangedFields, "architecture") ? "true" : "false"}
+            >
+              <span className="text-xs font-semibold text-fg-muted">
+                {t("prd.fields.architecture")}
+              </span>
+              <span className="text-[11px] font-normal text-fg-subtle">
+                {t("prd.fields.architecture_help")}
+              </span>
+              <div
+                className="flex flex-wrap gap-2"
+                role="group"
+                aria-label={t("prd.fields.architecture")}
+              >
+                {formOptions.map((option) => {
+                  const selected = architecture?.form === option.form;
+                  return (
+                    <button
+                      key={option.form}
+                      type="button"
+                      onClick={() => setArchitectureForm(option.form)}
+                      aria-pressed={selected}
+                      className={cn(
+                        "rounded-md border px-3 py-1.5 text-sm transition-colors",
+                        selected
+                          ? "border-accent bg-accent-subtle font-medium text-fg"
+                          : "border-border bg-bg-panel2 text-fg-muted hover:text-fg",
+                      )}
+                      data-testid={`prd-architecture-form-${option.form}`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {architecture?.form === "other" ? (
+                <input
+                  value={architecture.formOtherLabel ?? ""}
+                  onChange={(event) =>
+                    patchArchitecture({
+                      formOtherLabel: event.target.value.trim() ? event.target.value : null,
+                    })
+                  }
+                  className="rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg"
+                  placeholder={t("prd.authoring.architecture_other_placeholder")}
+                  data-testid="prd-architecture-form-other"
+                  aria-label={t("prd.authoring.architecture_other_placeholder")}
+                />
+              ) : null}
+
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-normal text-fg-subtle">
+                  {t("prd.fields.architecture_stack")}
+                </span>
+                <input
+                  value={architecture?.stack ?? ""}
+                  onChange={(event) =>
+                    patchArchitecture({
+                      stack: event.target.value.trim() ? event.target.value : null,
+                    })
+                  }
+                  disabled={!architecture}
+                  className="rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg disabled:opacity-50"
+                  placeholder={t("prd.authoring.architecture_stack_placeholder")}
+                  data-testid="prd-architecture-stack-input"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-normal text-fg-subtle">
+                  {t("prd.fields.architecture_rationale")}
+                </span>
+                <input
+                  value={architecture?.rationale ?? ""}
+                  onChange={(event) =>
+                    patchArchitecture({
+                      rationale: event.target.value.trim() ? event.target.value : null,
+                    })
+                  }
+                  disabled={!architecture}
+                  className="rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg disabled:opacity-50"
+                  placeholder={t("prd.authoring.architecture_rationale_placeholder")}
+                  data-testid="prd-architecture-rationale-input"
+                />
+              </label>
+            </div>
           </div>
         </main>
       </div>
@@ -720,7 +843,11 @@ export function PrdAuthoringBoard({
                             ? t("prd.authoring.validation_non_goals_required")
                             : code === "insufficient_acceptance_criteria"
                               ? t("prd.authoring.validation_criteria_insufficient")
-                              : t("prd.authoring.validation_criterion_required"),
+                              : code === "missing_architecture_form"
+                                ? t("prd.authoring.validation_architecture_form_required")
+                                : code === "missing_architecture_stack"
+                                  ? t("prd.authoring.validation_architecture_stack_required")
+                                  : t("prd.authoring.validation_criterion_required"),
                 )
                 .join(" / ")}
         </div>

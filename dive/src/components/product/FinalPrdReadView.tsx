@@ -1,7 +1,8 @@
-import { CheckCircle2, Edit3, History, ListChecks, Play } from "lucide-react";
+import { CheckCircle2, Edit3, History, Layers, ListChecks, Play } from "lucide-react";
 import type { ProjectSpec } from "../../features/planning";
 import { useT } from "../../i18n";
 import { Button } from "../ui/button";
+import { architectureFormLabel } from "./architectureLabels";
 
 export interface FinalPrdReadViewProps {
   projectName: string;
@@ -33,6 +34,7 @@ export function FinalPrdReadView({
   const activeCriteria = projectSpec.acceptanceCriteria.filter(
     (criterion) => criterion.status === "active",
   );
+  const architecture = projectSpec.architecture;
 
   return (
     <section
@@ -108,6 +110,28 @@ export function FinalPrdReadView({
               ))}
             </ol>
           </section>
+
+          {architecture ? (
+            <section data-testid="final-prd-architecture">
+              <div className="mb-2 flex items-center gap-2">
+                <Layers className="h-4 w-4 text-accent" aria-hidden />
+                <h3 className="text-sm font-semibold text-fg">{t("prd.architecture.title")}</h3>
+              </div>
+              <dl className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-md border bg-bg-panel2 px-3 py-2 text-sm">
+                <dt className="text-fg-muted">{t("prd.architecture.form_label")}</dt>
+                <dd className="text-fg" data-testid="final-prd-architecture-form">
+                  {architectureFormLabel(t, architecture.form, architecture.formOtherLabel)}
+                </dd>
+                <dt className="text-fg-muted">{t("prd.architecture.stack_label")}</dt>
+                <dd className="text-fg" data-testid="final-prd-architecture-stack">
+                  {architecture.stack?.trim() || t("prd.architecture.empty")}
+                </dd>
+              </dl>
+              {architecture.rationale?.trim() ? (
+                <p className="mt-2 text-sm text-fg-muted">{architecture.rationale}</p>
+              ) : null}
+            </section>
+          ) : null}
         </main>
 
         <aside className="space-y-5">

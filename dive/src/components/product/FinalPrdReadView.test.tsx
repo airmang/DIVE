@@ -33,6 +33,14 @@ function spec(): ProjectSpec {
         retiredInVersion: null,
       },
     ],
+    architecture: {
+      form: "web_app",
+      formOtherLabel: null,
+      stack: "React + Vite",
+      rationale: "Runs in the browser with no install.",
+      decisionSource: "student_confirmed",
+      decidedInVersion: 2,
+    },
     status: "draft",
     createdAt: 1,
     updatedAt: 2,
@@ -70,6 +78,21 @@ describe("FinalPrdReadView", () => {
     expect(screen.getByText("PRD v2")).toBeTruthy();
     expect(screen.getByText("Final read view")).toBeTruthy();
     expect(screen.getByText("No wizard")).toBeTruthy();
+  });
+
+  it("shows the decided architecture form and stack", () => {
+    renderView();
+
+    expect(screen.getByTestId("final-prd-architecture")).toBeTruthy();
+    expect(screen.getByTestId("final-prd-architecture-form").textContent).toBe("Web app");
+    expect(screen.getByTestId("final-prd-architecture-stack").textContent).toBe("React + Vite");
+    expect(screen.getByText("Runs in the browser with no install.")).toBeTruthy();
+  });
+
+  it("omits the architecture block when none is decided", () => {
+    renderView({ projectSpec: { ...spec(), architecture: null } });
+
+    expect(screen.queryByTestId("final-prd-architecture")).toBeNull();
   });
 
   it("does not render authoring-only rail, patch status, validation, or inline controls", () => {

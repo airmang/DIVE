@@ -150,6 +150,11 @@
       "validation_goal_vague": "The goal is too vague — say in one sentence who it's for and what observable result counts as done.",
       "validation_non_goals_required": "List at least one thing that is out of scope (a non-goal).",
       "validation_criteria_insufficient": "Add at least two concrete, checkable done criteria.",
+      "validation_architecture_form_required": "Pick what you're building (the form) first.",
+      "validation_architecture_stack_required": "Decide a tech stack that fits the form.",
+      "architecture_other_placeholder": "Describe the form yourself",
+      "architecture_stack_placeholder": "e.g. React + Vite, Python + Flask",
+      "architecture_rationale_placeholder": "Why this form and stack (optional)",
       "validation_ready": "Ready to confirm the PRD.",
       "intent_check": {
         "title": "Did the AI capture what you meant?",
@@ -180,7 +185,25 @@
       "non_goals": "Non-goals",
       "constraints": "Constraints",
       "acceptance_criteria": "Acceptance criteria",
-      "acceptance_criteria_help": "A condition you can check yourself to know it's done"
+      "acceptance_criteria_help": "A condition you can check yourself to know it's done",
+      "architecture": "What you're building",
+      "architecture_help": "Pick a form first, then decide a tech stack that fits it. The AI proposes both in the conversation on the left; you pick and confirm.",
+      "architecture_stack": "Tech stack",
+      "architecture_rationale": "Why (optional)"
+    },
+    "architecture": {
+      "title": "Form & tech stack",
+      "form_label": "Form",
+      "stack_label": "Tech stack",
+      "empty": "Not decided yet",
+      "form": {
+        "web_app": "Web app",
+        "static_page": "Static page",
+        "cli_tool": "Command-line tool (CLI)",
+        "desktop_app": "Desktop app",
+        "api_service": "API service",
+        "other": "Other"
+      }
     },
     "read_view": {
       "title": "Final PRD",

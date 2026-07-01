@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPrdPlanGenerationPrompt,
+  draftFromProjectSpec,
   restorePrdDraftIfCurrent,
   shouldShowEmptyPlanRail,
   shouldUsePrdReferenceSurface,
@@ -35,6 +36,7 @@ function projectSpec(): ProjectSpec {
         retiredInVersion: 1,
       },
     ],
+    architecture: null,
     status: "draft",
     createdAt: 1,
     updatedAt: 2,
@@ -147,6 +149,56 @@ describe("buildPrdPlanGenerationPrompt", () => {
     expect(prompt).not.toContain("AC-002");
     expect(prompt).toContain("Every step must link to at least one saved PRD criterion ID");
     expect(prompt).toContain("Do not include Markdown fences or prose");
+  });
+
+  it("threads the decided architecture into decomposition context when present", () => {
+    const withArchitecture: ProjectSpec = {
+      ...projectSpec(),
+      architecture: {
+        form: "web_app",
+        formOtherLabel: null,
+        stack: "React + Vite",
+        rationale: null,
+        decisionSource: "student_confirmed",
+        decidedInVersion: 1,
+      },
+    };
+    const prompt = buildPrdPlanGenerationPrompt(withArchitecture);
+
+    expect(prompt).toContain("React + Vite");
+    expect(prompt).toContain("do not switch to a different framework or stack");
+  });
+
+  it("omits the architecture directive when none is decided", () => {
+    const prompt = buildPrdPlanGenerationPrompt(projectSpec());
+    expect(prompt).not.toContain("do not switch to a different framework or stack");
+  });
+});
+
+describe("draftFromProjectSpec", () => {
+  it("carries the decided architecture into the editable draft (edit→reopen)", () => {
+    const saved: ProjectSpec = {
+      ...projectSpec(),
+      architecture: {
+        form: "static_page",
+        formOtherLabel: null,
+        stack: "HTML + CSS",
+        rationale: "No build step keeps it simple.",
+        decisionSource: "student_confirmed",
+        decidedInVersion: 2,
+      },
+    };
+
+    const draft = draftFromProjectSpec(saved);
+
+    // Regression guard: the read-view Edit button rebuilds the draft here with no
+    // backend refetch, so dropping architecture would permanently lose it on save.
+    expect(draft.spec.architecture).toEqual(saved.architecture);
+  });
+
+  it("keeps architecture null when the saved PRD never decided one", () => {
+    const draft = draftFromProjectSpec(projectSpec());
+    expect(draft.spec.architecture).toBeNull();
   });
 });
 

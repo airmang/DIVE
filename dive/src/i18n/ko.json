@@ -150,6 +150,11 @@
       "validation_goal_vague": "목표가 너무 모호합니다 — 누구를 위해, 무엇이 되면 '완료'인지 한 문장으로 적어 주세요.",
       "validation_non_goals_required": "이번에 하지 않을 일(제외 범위)을 최소 1개 적어 주세요.",
       "validation_criteria_insufficient": "구체적이고 확인 가능한 완료 기준을 최소 2개 적어 주세요.",
+      "validation_architecture_form_required": "무엇으로 만들지(형태)를 먼저 골라 주세요.",
+      "validation_architecture_stack_required": "형태에 맞는 기술 스택을 정해 주세요.",
+      "architecture_other_placeholder": "어떤 형태인지 직접 적어 주세요",
+      "architecture_stack_placeholder": "예: React + Vite, Python + Flask",
+      "architecture_rationale_placeholder": "이 형태·스택을 고른 이유 (선택)",
       "validation_ready": "이제 PRD를 확정할 수 있습니다.",
       "intent_check": {
         "title": "AI가 당신의 의도를 제대로 담았나요?",
@@ -180,7 +185,25 @@
       "non_goals": "하지 않을 일",
       "constraints": "제약",
       "acceptance_criteria": "완료 기준",
-      "acceptance_criteria_help": "끝났는지 직접 확인할 수 있는 조건"
+      "acceptance_criteria_help": "끝났는지 직접 확인할 수 있는 조건",
+      "architecture": "무엇으로 만들까",
+      "architecture_help": "형태를 먼저 고르고, 그 형태에 맞는 기술 스택을 정하세요. AI가 왼쪽 대화에서 제안하면 직접 골라 확정합니다.",
+      "architecture_stack": "기술 스택",
+      "architecture_rationale": "선택 이유 (선택)"
+    },
+    "architecture": {
+      "title": "형태 · 기술 스택",
+      "form_label": "형태",
+      "stack_label": "기술 스택",
+      "empty": "아직 정하지 않음",
+      "form": {
+        "web_app": "웹 앱",
+        "static_page": "정적 페이지",
+        "cli_tool": "명령줄 도구(CLI)",
+        "desktop_app": "데스크톱 앱",
+        "api_service": "API 서비스",
+        "other": "기타"
+      }
     },
     "read_view": {
       "title": "최종 PRD",

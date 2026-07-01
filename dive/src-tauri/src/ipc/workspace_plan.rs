@@ -856,7 +856,10 @@ pub fn workspace_prd_save_impl(
     let latest = prd_dao::latest_version(conn, input.project_id).map_err(|e| e.to_string())?;
     let snapshot = project_spec_from_save_input(input, latest.as_ref(), &save_reason)?;
     if !is_confirmable_project_spec(&snapshot) {
-        return Err("minimal PRD requires a goal and at least one acceptance criterion".into());
+        return Err(
+            "PRD confirmation requires a goal, at least one acceptance criterion, and a decided architecture (form and tech stack)"
+                .into(),
+        );
     }
     let previous_version = latest.as_ref().map(|row| row.version);
     let reason = save_reason;
@@ -1141,6 +1144,16 @@ fn project_spec_from_save_input(
         non_goals: compact_unique_strings(input.spec.non_goals),
         constraints: compact_unique_strings(input.spec.constraints),
         acceptance_criteria,
+        // S-047: carry the student's architecture decision onto the saved spec,
+        // normalizing the stack and stamping the version DIVE recorded it at.
+        architecture: input.spec.architecture.map(|mut architecture| {
+            architecture.stack = architecture
+                .stack
+                .map(|stack| stack.trim().to_string())
+                .filter(|stack| !stack.is_empty());
+            architecture.decided_in_version = version;
+            architecture
+        }),
         status: input.spec.status,
         created_at: latest
             .map(|row| row.snapshot.created_at)
@@ -1764,8 +1777,22 @@ fn is_minimal_project_spec(spec: &ProjectSpec) -> bool {
         })
 }
 
+/// S-047 (010 theme 7): an architecture is "decided" once a form is picked AND a
+/// non-empty stack is set (the two-stage bar). Mirrors the draft gate in
+/// `confirmable_draft_gaps` and the TS `validateConfirmableProjectSpec` stack check.
+fn architecture_is_decided(spec: &ProjectSpec) -> bool {
+    spec.architecture
+        .as_ref()
+        .and_then(|arch| arch.stack.as_deref())
+        .is_some_and(|stack| !stack.trim().is_empty())
+}
+
 fn is_confirmable_project_spec(spec: &ProjectSpec) -> bool {
-    is_minimal_project_spec(spec)
+    // Server-side backstop for the confirm/version-commit path: a saved PRD must
+    // clear the minimal bar AND carry a student-decided architecture (form + stack).
+    // The frontend already blocks confirmation earlier; this defends a direct
+    // `workspace_prd_save` call from persisting a half-decided architecture.
+    is_minimal_project_spec(spec) && architecture_is_decided(spec)
 }
 
 fn is_minimal_project_spec_draft(spec: &ProjectSpecDraft) -> bool {
@@ -1891,6 +1918,27 @@ fn confirmable_draft_gaps(spec: &ProjectSpecDraft) -> Vec<ConfirmableGap> {
             focus: "capture_second_observable_done_state: ask for one more concrete, checkable sign that the project works, so there are at least two",
         }),
         _ => {}
+    }
+    // S-047: two-stage architecture decision, last (grounded on the goal/scope
+    // above). The AI proposes <=2 options with plain rationale; the student decides.
+    match spec.architecture.as_ref() {
+        None => gaps.push(ConfirmableGap {
+            label: "architecture form",
+            focus: "propose_architecture_form: recommend up to 2 application forms that fit this goal (web app / static page / CLI tool / desktop app / API service), each with a one-line plain-language reason a beginner understands, then ask the student to pick or change one in the PRD board — never decide for them",
+        }),
+        Some(arch)
+            if arch
+                .stack
+                .as_deref()
+                .map(|stack| stack.trim().is_empty())
+                .unwrap_or(true) =>
+        {
+            gaps.push(ConfirmableGap {
+                label: "tech stack",
+                focus: "propose_architecture_stack: recommend up to 2 concrete tech stacks that fit the chosen application form, each with a one-line beginner reason, then ask the student to pick or change one",
+            })
+        }
+        Some(_) => {}
     }
     gaps
 }
@@ -2033,6 +2081,9 @@ fn load_or_create_prd_draft(
             non_goals: row.snapshot.non_goals.clone(),
             constraints: row.snapshot.constraints.clone(),
             acceptance_criteria: row.snapshot.acceptance_criteria.clone(),
+            // S-047: reopening the board carries the recorded architecture so the
+            // student can change it (pre-S-047 specs deserialize as None).
+            architecture: row.snapshot.architecture.clone(),
             status: row.snapshot.status,
         })
         .unwrap_or_else(|| ProjectSpecDraft {
@@ -2045,6 +2096,7 @@ fn load_or_create_prd_draft(
             non_goals: Vec::new(),
             constraints: Vec::new(),
             acceptance_criteria: Vec::new(),
+            architecture: None,
             status: ProjectSpecStatus::Draft,
         });
     Ok(LiveProjectSpecDraftRow {
@@ -2270,6 +2322,9 @@ impl RawPrdPatchOperation {
             }
             _ => text,
         };
+        // S-047: the AI interview patch never carries an architecture decision — the
+        // architecture is set only through the student's draft-save path (no AI
+        // auto-finalize), so there is no `set_architecture` patch op to build here.
         PrdPatchOperation {
             op,
             value,
@@ -5375,7 +5430,10 @@ fn json_criterion_text(value: &Value) -> Option<String> {
 #[cfg(test)]
 mod prd_interview_prompt_tests {
     use super::*;
-    use crate::db::models::{ProjectSpecDraft, ProjectSpecStatus};
+    use crate::db::models::{
+        ArchitectureDecision, ArchitectureDecisionSource, ArchitectureForm, ProjectSpecDraft,
+        ProjectSpecStatus,
+    };
 
     fn empty_draft() -> LiveProjectSpecDraftRow {
         LiveProjectSpecDraftRow {
@@ -5392,6 +5450,7 @@ mod prd_interview_prompt_tests {
                 non_goals: Vec::new(),
                 constraints: Vec::new(),
                 acceptance_criteria: Vec::new(),
+                architecture: None,
                 status: ProjectSpecStatus::Draft,
             },
             dirty_fields: Vec::new(),
@@ -5482,6 +5541,31 @@ mod prd_interview_prompt_tests {
             });
         }
 
+        // S-047: after the 5 confirmable fields, the interview asks for the
+        // architecture — a draft without one is NOT yet ready to confirm.
+        assert!(prd_interview_next_focus(&draft.spec).starts_with("propose_architecture_form"));
+
+        // Once a form is picked but no stack yet, it asks for the stack next.
+        draft.spec.architecture = Some(ArchitectureDecision {
+            form: ArchitectureForm::WebApp,
+            form_other_label: None,
+            stack: None,
+            rationale: Some("A web app fits a schedule the student opens in a browser".into()),
+            decision_source: ArchitectureDecisionSource::StudentConfirmed,
+            decided_in_version: 1,
+        });
+        assert!(prd_interview_next_focus(&draft.spec).starts_with("propose_architecture_stack"));
+        assert!(missing_confirmable_prd_fields(&draft.spec).contains(&"tech stack"));
+
+        // With both form and stack decided, the draft is ready to confirm.
+        draft.spec.architecture = Some(ArchitectureDecision {
+            form: ArchitectureForm::WebApp,
+            form_other_label: None,
+            stack: Some("React + Vite + TypeScript".into()),
+            rationale: Some("A web app fits a schedule the student opens in a browser".into()),
+            decision_source: ArchitectureDecisionSource::StudentConfirmed,
+            decided_in_version: 1,
+        });
         assert_eq!(
             prd_interview_next_focus(&draft.spec),
             "ready_to_save: the draft is complete enough; point to the PRD confirmation action"

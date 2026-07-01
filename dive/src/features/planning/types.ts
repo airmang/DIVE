@@ -34,6 +34,37 @@ export type AcceptanceCriterionInput = string | AcceptanceCriterion;
 
 export type VerificationType = "run" | "preview" | "manual" | "test";
 
+// S-047 (010 theme 7): a first-class, versioned architecture decision on the PRD.
+// The form is a bounded enum (so "a stack consistent with the form" is checkable
+// and the picker shows a small fixed set, not an open jargon prompt); the stack is
+// free text. `stack` is null in the intermediate two-stage state (form picked,
+// stack not decided yet). LLM proposes, DIVE records, the student decides.
+export type ArchitectureForm =
+  | "web_app"
+  | "static_page"
+  | "cli_tool"
+  | "desktop_app"
+  | "api_service"
+  | "other";
+export type ArchitectureDecisionSource = "student_confirmed" | "student_changed" | "migration";
+export const ARCHITECTURE_FORMS: ArchitectureForm[] = [
+  "web_app",
+  "static_page",
+  "cli_tool",
+  "desktop_app",
+  "api_service",
+  "other",
+];
+
+export interface ArchitectureDecision {
+  form: ArchitectureForm;
+  formOtherLabel?: string | null;
+  stack: string | null;
+  rationale?: string | null;
+  decisionSource: ArchitectureDecisionSource;
+  decidedInVersion: number;
+}
+
 export interface ProjectSpec {
   projectSpecId: string;
   projectId: number;
@@ -44,6 +75,8 @@ export interface ProjectSpec {
   nonGoals: string[];
   constraints: string[];
   acceptanceCriteria: AcceptanceCriterion[];
+  // Null until decided; pre-S-047 PRDs deserialize as null and stay openable.
+  architecture: ArchitectureDecision | null;
   status: ProjectSpecStatus;
   createdAt: number;
   updatedAt: number;

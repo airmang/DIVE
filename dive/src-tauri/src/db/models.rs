@@ -467,6 +467,46 @@ pub struct AcceptanceCriterion {
     pub retired_in_version: Option<i64>,
 }
 
+// S-047 (010 theme 7): a first-class, versioned architecture decision on the PRD.
+// The application form is a bounded enum (so "a stack consistent with the form" is
+// checkable and the UI shows a small fixed set, not an open jargon prompt); the
+// stack is free text (AI-proposed, student-editable). LLM proposes, DIVE records,
+// the student decides (Constitution VI).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArchitectureForm {
+    WebApp,
+    StaticPage,
+    CliTool,
+    DesktopApp,
+    ApiService,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArchitectureDecisionSource {
+    StudentConfirmed,
+    StudentChanged,
+    Migration,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchitectureDecision {
+    // `form` is always set once an architecture exists; `stack` stays `None` in the
+    // intermediate two-stage state (form picked, stack not decided yet).
+    pub form: ArchitectureForm,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_other_label: Option<String>,
+    #[serde(default)]
+    pub stack: Option<String>,
+    #[serde(default)]
+    pub rationale: Option<String>,
+    pub decision_source: ArchitectureDecisionSource,
+    pub decided_in_version: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectSpec {
@@ -479,6 +519,10 @@ pub struct ProjectSpec {
     pub non_goals: Vec<String>,
     pub constraints: Vec<String>,
     pub acceptance_criteria: Vec<AcceptanceCriterion>,
+    // Nullable + serde-default so pre-S-047 PRDs deserialize as `None` and stay
+    // openable; they decide an architecture at their next confirm/edit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub architecture: Option<ArchitectureDecision>,
     pub status: ProjectSpecStatus,
     pub created_at: i64,
     pub updated_at: i64,
@@ -496,6 +540,8 @@ pub struct ProjectSpecDraft {
     pub non_goals: Vec<String>,
     pub constraints: Vec<String>,
     pub acceptance_criteria: Vec<AcceptanceCriterion>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub architecture: Option<ArchitectureDecision>,
     pub status: ProjectSpecStatus,
 }
 

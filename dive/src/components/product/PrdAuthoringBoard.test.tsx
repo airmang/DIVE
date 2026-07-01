@@ -175,7 +175,7 @@ describe("PrdAuthoringBoard", () => {
     expect(headerConfirm).toHaveProperty("disabled", true);
   });
 
-  it("confirms once the PRD is concrete and fully specified", () => {
+  it("confirms once the PRD is concrete and the architecture is decided", () => {
     const props = renderBoard({
       draft: createLiveProjectSpecDraft(42, {
         goal: "Build a PRD-first planning flow for students",
@@ -191,11 +191,30 @@ describe("PrdAuthoringBoard", () => {
 
     const primary = screen.getByTestId("prd-save-create-plan");
     const headerConfirm = screen.getByTestId("prd-confirm-header");
+    // Every prose field is filled, but the architecture form is still undecided,
+    // so confirmation stays blocked (S-047 two-stage gate).
+    expect(primary).toHaveProperty("disabled", true);
+    expect(headerConfirm).toHaveProperty("disabled", true);
+
+    // Pick a form: the stack is still undecided, so confirmation stays blocked.
+    fireEvent.click(screen.getByTestId("prd-architecture-form-web_app"));
+    expect(headerConfirm).toHaveProperty("disabled", true);
+
+    // Decide a stack: the PRD is now confirmable.
+    fireEvent.change(screen.getByTestId("prd-architecture-stack-input"), {
+      target: { value: "React + Vite" },
+    });
     expect(primary).toHaveProperty("disabled", false);
     expect(headerConfirm).toHaveProperty("disabled", false);
 
     fireEvent.click(headerConfirm);
     expect(props.onSavePrdAndCreatePlan).toHaveBeenCalledTimes(1);
+    const savedDraft = vi.mocked(props.onSavePrdAndCreatePlan).mock.calls[0][0];
+    expect(savedDraft.spec.architecture).toMatchObject({
+      form: "web_app",
+      stack: "React + Vite",
+      decisionSource: "student_confirmed",
+    });
   });
 
   it("highlights fields changed by an applied interview-turn patch", () => {
@@ -319,6 +338,14 @@ describe("PrdAuthoringBoard", () => {
           "Saved PRD opens the final read view",
           "Confirm stays disabled until every required field is filled",
         ],
+        architecture: {
+          form: "web_app",
+          formOtherLabel: null,
+          stack: "React + Vite",
+          rationale: null,
+          decisionSource: "student_confirmed",
+          decidedInVersion: 1,
+        },
       }),
     });
 
@@ -346,6 +373,14 @@ describe("PrdAuthoringBoard", () => {
           "Schedules and tasks appear in separate lists",
           "Adding a task shows it in today's list",
         ],
+        architecture: {
+          form: "web_app",
+          formOtherLabel: null,
+          stack: "React + Vite",
+          rationale: null,
+          decisionSource: "student_confirmed",
+          decidedInVersion: 1,
+        },
       }),
       onSubmitAnswer,
       onSavePrdAndCreatePlan,

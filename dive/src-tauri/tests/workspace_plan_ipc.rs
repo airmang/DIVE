@@ -12,7 +12,8 @@ use dive_lib::db::dao::{
     step_session_mapping as mapping, workmap,
 };
 use dive_lib::db::models::{
-    AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus, NewInterview,
+    AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus,
+    ArchitectureDecision, ArchitectureDecisionSource, ArchitectureForm, NewInterview,
     NewLiveProjectSpecDraft, NewPlan, NewProject, NewStep, ObjectionSuggestionStatus,
     PlanMutationType, ProjectSpecDelta, ProjectSpecDraft, ProjectSpecStatus, StepRow,
 };
@@ -394,6 +395,15 @@ fn minimal_prd_draft(project_id: i64) -> ProjectSpecDraft {
         non_goals: vec!["Add-step mutation".into()],
         constraints: vec!["Local-first EventLog".into()],
         acceptance_criteria: vec![prd_criterion("A saved PRD unlocks plan generation")],
+        // S-047: a confirmable save now requires a decided architecture (form + stack).
+        architecture: Some(ArchitectureDecision {
+            form: ArchitectureForm::WebApp,
+            form_other_label: None,
+            stack: Some("React + Vite".into()),
+            rationale: None,
+            decision_source: ArchitectureDecisionSource::StudentConfirmed,
+            decided_in_version: 1,
+        }),
         status: ProjectSpecStatus::Draft,
     }
 }
@@ -439,6 +449,7 @@ fn prd_status_get_and_save_distinguish_missing_draft_and_minimal() {
                     non_goals: vec![],
                     constraints: vec![],
                     acceptance_criteria: vec![],
+                    architecture: None,
                     status: ProjectSpecStatus::Draft,
                 },
                 dirty_fields: vec!["goal".into()],
@@ -525,6 +536,48 @@ fn prd_save_allows_missing_optional_context_fields() {
     assert_eq!(saved.goal, "Build a PRD-backed roadmap");
     assert!(saved.intent_summary.is_none());
     assert!(saved.scope.is_empty());
+}
+
+#[test]
+fn prd_save_rejects_missing_or_half_decided_architecture() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+
+    // No architecture decided at all: the confirm/save backstop rejects it.
+    let mut no_arch = minimal_prd_draft(project_id);
+    no_arch.architecture = None;
+    let err = workspace_prd_save_impl(
+        &state,
+        PrdSaveInput {
+            project_id,
+            spec: no_arch,
+            reason: "interview".into(),
+        },
+    )
+    .unwrap_err();
+    assert!(err.contains("architecture"), "unexpected error: {err}");
+
+    // Form picked but no stack yet (the intermediate two-stage state) is also rejected.
+    let mut form_only = minimal_prd_draft(project_id);
+    form_only.architecture = Some(ArchitectureDecision {
+        form: ArchitectureForm::CliTool,
+        form_other_label: None,
+        stack: None,
+        rationale: None,
+        decision_source: ArchitectureDecisionSource::StudentConfirmed,
+        decided_in_version: 1,
+    });
+    let err = workspace_prd_save_impl(
+        &state,
+        PrdSaveInput {
+            project_id,
+            spec: form_only,
+            reason: "interview".into(),
+        },
+    )
+    .unwrap_err();
+    assert!(err.contains("architecture"), "unexpected error: {err}");
 }
 
 #[test]
