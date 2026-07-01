@@ -74,6 +74,19 @@ describe("ui preferences persistence", () => {
     expect(useUiPreferencesStore.getState().previewOnboardingDismissed).toBe(true);
   });
 
+  it("persists the one-time permission-card primer dismissal through rehydrate", async () => {
+    expect(useUiPreferencesStore.getState().permissionCardPrimerDismissed).toBe(false);
+
+    useUiPreferencesStore.getState().dismissPermissionCardPrimer();
+    const persisted = window.localStorage.getItem(STORAGE_KEY);
+
+    useUiPreferencesStore.setState({ permissionCardPrimerDismissed: false });
+    if (persisted) window.localStorage.setItem(STORAGE_KEY, persisted);
+    await useUiPreferencesStore.persist.rehydrate();
+
+    expect(useUiPreferencesStore.getState().permissionCardPrimerDismissed).toBe(true);
+  });
+
   it("round-trips project preview mode memory and keeps projects independent", async () => {
     useUiPreferencesStore.getState().setProjectPreviewMode(7, {
       kind: "local_url",

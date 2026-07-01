@@ -47,7 +47,8 @@ const PROVIDER_CHOICES: Array<{
     label: "opencode zen",
     hintKey: "onboarding.provider_opencode_zen_hint",
     available: false,
-    unavailableKey: "runtime.capability.reasons.provider_not_pi_capable",
+    // S-045 (P2-21): beginner-facing reason, not the internal "Pi 런타임" jargon.
+    unavailableKey: "onboarding.provider_unavailable_beginner",
   },
   { kind: "codex", label: "Codex", hintKey: "onboarding.provider_codex_hint" },
 ];
@@ -168,8 +169,8 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
               </a>
             ) : null}
             {kind === "opencode_zen" ? (
-              <p className="text-[10px] text-warn" data-testid="onb-opencode-warning">
-                {t("runtime.capability.reasons.provider_not_pi_capable")} (
+              <p className="text-[11px] text-warn" data-testid="onb-opencode-warning">
+                {t("onboarding.opencode_warning")} (
                 <a
                   href="https://opencode.ai/docs/zen/"
                   target="_blank"
@@ -208,6 +209,10 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
                 autoComplete="off"
                 spellCheck={false}
               />
+              {/* S-045 (P1-04): plain-Korean gloss + local-storage reassurance + default nudge. */}
+              <p className="text-xs text-fg-muted" data-testid="onb-api-key-help">
+                {t("onboarding.api_key_help")}
+              </p>
             </div>
           )}
           {error ? (

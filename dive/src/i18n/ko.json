@@ -175,10 +175,12 @@
     "fields": {
       "goal": "목표",
       "intent_summary": "의도 요약",
+      "intent_summary_help": "누가, 왜 쓰는지를 한 문장으로",
       "scope": "범위",
       "non_goals": "하지 않을 일",
       "constraints": "제약",
-      "acceptance_criteria": "수락 기준"
+      "acceptance_criteria": "완료 기준",
+      "acceptance_criteria_help": "끝났는지 직접 확인할 수 있는 조건"
     },
     "read_view": {
       "title": "최종 PRD",
@@ -303,9 +305,11 @@
   },
   "onboarding": {
     "title": "AI 연결하기",
-    "description": "프로젝트 폴더를 선택한 뒤, DIVE가 계획·코딩·검증에 사용할 AI를 연결하세요.",
+    "description": "계획·코딩·검증에 DIVE가 사용할 AI를 연결하세요. 키는 이 컴퓨터에만 저장됩니다.",
     "provider_label": "AI 연결",
     "api_key_label": "API 키",
+    "api_key_help": "API 키 = AI 회사에서 받는 비밀 번호예요. 이 컴퓨터에만 안전하게 저장돼요. 처음이면 Anthropic을 추천해요.",
+    "provider_unavailable_beginner": "DIVE에서 아직 쓸 수 없어요 — Anthropic, OpenAI, 또는 ChatGPT 로그인 중에서 골라 주세요.",
     "connect": "AI 연결",
     "connecting": "연결 중…",
     "skip": "나중에 연결",
@@ -326,8 +330,10 @@
   },
   "new_project": {
     "title": "새 프로젝트",
-    "description": "작업할 폴더를 선택하세요. 선택한 폴더에 `.dive/`가 자동 생성됩니다.",
+    "description": "여기 고른 폴더 안에서 AI가 코드를 만들고, 너는 그걸 확인·승인하게 돼요. 비어 있는 새 폴더를 고르면 가장 안전해요.",
     "folder_label": "프로젝트 폴더",
+    "folder_hint": "비어 있는 새 폴더를 고르세요. AI 작업은 이 폴더 안에서만 일어나고, 언제든 되돌릴 수 있어요.",
+    "folder_root_note": "이 폴더는 개인 문서가 많은 위치예요. AI가 폴더 전체를 다루게 되니, 비어 있는 새 폴더를 권장해요.",
     "name_label": "이름 (선택)",
     "browse": "찾아보기",
     "browse_aria": "폴더 찾아보기",
@@ -527,10 +533,10 @@
   },
   "get_started": {
     "title": "시작하기",
-    "subtitle": "4단계를 끝내면 프로젝트 작업 흐름을 시작할 수 있어요.",
-    "project_title": "프로젝트 열기",
+    "subtitle": "DIVE는 AI가 직접 코딩하고, 당신은 그 결과를 확인·승인하는 감독자가 됩니다. 아래 4단계로 시작하세요.",
+    "project_title": "첫 프로젝트 만들기",
     "project_desc": "DIVE가 작업할 로컬 폴더를 선택하세요.",
-    "project_action": "프로젝트 열기",
+    "project_action": "새 프로젝트 만들기",
     "provider_title": "AI 연결",
     "provider_desc": "대화를 처리할 AI 도우미를 연결하세요.",
     "provider_action": "AI 연결하기",
@@ -1245,6 +1251,15 @@
       "description": "명령 실행이나 삭제처럼 강한 작업입니다. 명시적으로 허용해야만 진행됩니다.",
       "approve": "고위험 작업 허용",
       "diff_ack_label": "변경 내용(diff)을 확인했습니다"
+    },
+    "primer": {
+      "title": "권한은 이렇게 작동해요",
+      "intro": "DIVE가 파일을 바꾸거나 명령을 실행하기 전에 항상 당신에게 물어봐요.",
+      "safe": "초록 = 읽기만 — 자동으로 실행돼요.",
+      "warn": "노랑 = 변경 — 바뀔 내용(diff)을 확인한 뒤 허용해요.",
+      "danger": "빨강 = 삭제·명령 실행 — 당신이 직접 판단해서 허용해요.",
+      "blocked": "정말 파괴적인 명령은 DIVE가 아예 차단해요.",
+      "dismiss_aria": "권한 설명 닫기"
     },
     "actions": {
       "deny": "거부",

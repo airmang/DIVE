@@ -175,10 +175,12 @@
     "fields": {
       "goal": "Goal",
       "intent_summary": "Intent summary",
+      "intent_summary_help": "Who uses it and why, in one sentence",
       "scope": "Scope",
       "non_goals": "Non-goals",
       "constraints": "Constraints",
-      "acceptance_criteria": "Acceptance criteria"
+      "acceptance_criteria": "Acceptance criteria",
+      "acceptance_criteria_help": "A condition you can check yourself to know it's done"
     },
     "read_view": {
       "title": "Final PRD",
@@ -303,9 +305,11 @@
   },
   "onboarding": {
     "title": "Connect your AI assistant",
-    "description": "After choosing a project folder, connect the AI assistant DIVE uses to plan, build, and check work.",
+    "description": "Connect the AI assistant DIVE uses to plan, build, and check work. Keys are stored only on this computer.",
     "provider_label": "AI connection",
     "api_key_label": "API key",
+    "api_key_help": "An API key is a secret password from an AI company. It's stored safely on this computer only. New to this? Anthropic is a good first choice.",
+    "provider_unavailable_beginner": "Not available in DIVE yet — pick Anthropic, OpenAI, or ChatGPT login instead.",
     "connect": "Connect AI",
     "connecting": "Connecting…",
     "skip": "Connect later",
@@ -326,8 +330,10 @@
   },
   "new_project": {
     "title": "New project",
-    "description": "Choose the folder to work in. DIVE will create `.dive/` inside it.",
+    "description": "Inside the folder you pick here, the AI writes code and you review and approve it. An empty new folder is safest.",
     "folder_label": "Project folder",
+    "folder_hint": "Pick an empty new folder. The AI works only inside this folder, and you can always undo changes.",
+    "folder_root_note": "This looks like a folder with your personal files. The AI would work over the whole folder — an empty new folder is recommended.",
     "name_label": "Name (optional)",
     "browse": "Browse",
     "browse_aria": "Browse for folder",
@@ -527,10 +533,10 @@
   },
   "get_started": {
     "title": "Get started",
-    "subtitle": "Finish these 4 steps to start the project workflow.",
-    "project_title": "Open a project",
+    "subtitle": "In DIVE the AI writes the code and you are the supervisor who reviews and approves the results. Start with the 4 steps below.",
+    "project_title": "Create your first project",
     "project_desc": "Pick the local folder DIVE will work in.",
-    "project_action": "Open project",
+    "project_action": "Create new project",
     "provider_title": "Connect AI",
     "provider_desc": "Connect the AI assistant that will handle your chats.",
     "provider_action": "Connect AI",
@@ -1245,6 +1251,15 @@
       "description": "DIVE is asking for a powerful action. It will not run unless you allow it.",
       "approve": "Allow high-risk action",
       "diff_ack_label": "I have reviewed this change (diff)"
+    },
+    "primer": {
+      "title": "How permissions work",
+      "intro": "DIVE always asks you before it changes a file or runs a command.",
+      "safe": "Green = read-only — runs automatically.",
+      "warn": "Yellow = changes — review the diff, then allow.",
+      "danger": "Red = delete or run commands — you judge it and allow.",
+      "blocked": "Truly destructive commands are blocked by DIVE outright.",
+      "dismiss_aria": "Close permission explanation"
     },
     "actions": {
       "deny": "Deny",

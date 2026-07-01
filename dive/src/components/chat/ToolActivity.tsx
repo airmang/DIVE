@@ -26,6 +26,7 @@ import type {
   PermissionCardData,
 } from "../permission-card";
 import { formatRaw } from "../permission-card/explain";
+import { PermissionCardPrimer } from "../permission-card/PermissionCardPrimer";
 import { McpProvenanceBadge } from "../mcp/McpProvenanceBadge";
 import { useT } from "../../i18n";
 import type {
@@ -316,6 +317,7 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
               <span className="font-semibold">↳ {t("tool_call.why_label")}</span> {reasoning.text}
             </p>
           ) : null}
+          <PermissionCardPrimer />
           <PermissionCard
             card={card}
             onApprove={handleApprove}

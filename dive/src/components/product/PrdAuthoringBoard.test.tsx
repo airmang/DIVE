@@ -68,6 +68,13 @@ describe("PrdAuthoringBoard", () => {
     await waitFor(() => expect(screen.getByTestId("chat-runtime-selector")).toBeTruthy());
   });
 
+  it("glosses the jargon PRD field labels for a beginner (P1-11)", () => {
+    renderBoard();
+
+    expect(screen.getByText("Who uses it and why, in one sentence")).toBeTruthy();
+    expect(screen.getByText("A condition you can check yourself to know it's done")).toBeTruthy();
+  });
+
   it("keeps quick intake hidden behind the default-off flag", () => {
     renderBoard({ quickIntakeEnabled: false });
 

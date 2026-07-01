@@ -584,6 +584,10 @@ export function PrdAuthoringBoard({
               <span className="text-xs font-semibold text-fg-muted">
                 {t("prd.fields.intent_summary")}
               </span>
+              {/* S-045 (P1-11): plain-Korean gloss for the jargon label. */}
+              <span className="text-[11px] font-normal text-fg-subtle">
+                {t("prd.fields.intent_summary_help")}
+              </span>
               <textarea
                 value={localDraft.spec.intentSummary ?? ""}
                 onChange={(event) =>
@@ -651,6 +655,10 @@ export function PrdAuthoringBoard({
             >
               <span className="text-xs font-semibold text-fg-muted">
                 {t("prd.fields.acceptance_criteria")}
+              </span>
+              {/* S-045 (P1-11): plain-Korean gloss for the jargon label. */}
+              <span className="text-[11px] font-normal text-fg-subtle">
+                {t("prd.fields.acceptance_criteria_help")}
               </span>
               {displayCriteria.map((criterion, index) => (
                 <label key={criterion.criterionId || index} className="flex items-center gap-2">
