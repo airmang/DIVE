@@ -420,6 +420,56 @@ describe("ToolActivity provocation permission gate", () => {
     expect(approveButton.disabled).toBe(false);
   });
 
+  it("surfaces a contextual recovery button on a failed tool result (P2-19)", () => {
+    const onOpenRecovery = vi.fn();
+    render(
+      <ToolActivity
+        call={pendingCall({
+          status: "approved",
+          toolName: "run_process",
+          diffPreview: null,
+          args: { command: "pnpm", args: ["test"] },
+        })}
+        result={{
+          id: "tr-tool-1",
+          kind: "tool_result",
+          createdAt: 2,
+          toolName: "run_process",
+          success: false,
+          summary: "exit 1 - tests failed",
+        }}
+        provocation={{ enabled: true, mode: "work", onOpenRecovery }}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("tool-failed-open-recovery"));
+    expect(onOpenRecovery).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show the recovery button on a successful result (P2-19)", () => {
+    render(
+      <ToolActivity
+        call={pendingCall({
+          status: "approved",
+          toolName: "run_process",
+          diffPreview: null,
+          args: { command: "pnpm", args: ["test"] },
+        })}
+        result={{
+          id: "tr-tool-1",
+          kind: "tool_result",
+          createdAt: 2,
+          toolName: "run_process",
+          success: true,
+          summary: "exit 0",
+        }}
+        provocation={{ enabled: true, mode: "work", onOpenRecovery: vi.fn() }}
+      />,
+    );
+
+    expect(screen.queryByTestId("tool-failed-open-recovery")).toBeNull();
+  });
+
   it("keeps the diff-pointing read-gate copy when a diff is on screen (P1-26)", () => {
     render(
       <ToolActivity

@@ -1611,6 +1611,23 @@ export function useProductShellController() {
     currentSessionId,
     currentProjectName,
     hasConnectedProvider,
+    // S-046 (P1-01): gate the composer when the supervised runtime is
+    // unavailable even though a provider is connected. Reason + action come
+    // from the concrete runtimeSelection state (message + setupAction).
+    runtimeUnavailable: !isDemoRoute && chat.runtimeSelection?.state === "unavailable",
+    runtimeReason: chat.runtimeSelection?.message,
+    runtimeActionLabel:
+      chat.runtimeSelection?.setupAction === "open_project"
+        ? t("sidebar.new_project")
+        : chat.runtimeSelection?.setupAction === "retry_runtime"
+          ? undefined
+          : t("runtime.capability.setup_action"),
+    runtimeOnAction:
+      chat.runtimeSelection?.setupAction === "open_project"
+        ? handleEmptyStateAction
+        : chat.runtimeSelection?.setupAction === "retry_runtime"
+          ? undefined
+          : openSettingsRoute,
     providerDoneHint: cockpitProviderLabel(providers),
     cardCount: cards.length,
     currentCard,

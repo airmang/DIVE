@@ -310,6 +310,7 @@
     "api_key_label": "API 키",
     "api_key_help": "API 키 = AI 회사에서 받는 비밀 번호예요. 이 컴퓨터에만 안전하게 저장돼요. 처음이면 Anthropic을 추천해요.",
     "provider_unavailable_beginner": "DIVE에서 아직 쓸 수 없어요 — Anthropic, OpenAI, 또는 ChatGPT 로그인 중에서 골라 주세요.",
+    "connect_failed_generic": "AI를 연결하지 못했어요. 키가 전부 복사됐는지 확인하고 다시 시도해 주세요.",
     "connect": "AI 연결",
     "connecting": "연결 중…",
     "skip": "나중에 연결",
@@ -455,6 +456,7 @@
     },
     "input": {
       "placeholder": "메시지를 입력하세요...",
+      "enter_hint": "Enter로 전송 · Shift+Enter로 줄바꿈",
       "aria_label": "메시지 입력",
       "prompt_helper_aria": "프롬프트 도우미",
       "prompt_helper_label": "도우미",
@@ -524,6 +526,7 @@
     "rerouted_title": "미리보기로 전환됨",
     "stale_title": "실행된 명령 없음",
     "why_label": "왜",
+    "failed_recovery_hint": "복구 열기",
     "group_summary": "도구 사용 {{count}}개",
     "group_summary_pending": "승인 대기 중인 도구 {{count}}개",
     "group_summary_running": "실행 중인 도구 {{count}}개",
@@ -720,6 +723,7 @@
       "coach_record_observation": "관찰 증거로 기록",
       "coach_observation_saved": "완료 기준에 연결된 관찰 증거가 기록되었습니다.",
       "coach_observation_needs_criterion": "완료 기준과 관찰 내용을 함께 남겨야 승인 증거가 됩니다.",
+      "coach_no_criteria_hint": "이 단계에는 확인할 완료 기준이 없어서 관찰 기록이 필요하지 않아요. 대신 변경 코드나 미리보기로 결과를 확인하세요.",
       "coach_observation_needs_action": "먼저 프리뷰를 열거나 앱·검사를 직접 실행하세요 — 타이핑만으로는 증거가 아닙니다.",
       "coach_criterion_select": "이 관찰이 확인하는 수용 기준",
       "coach_check_expected": "확인할 결과",
@@ -1209,7 +1213,8 @@
     "open_session": "복구 기능을 사용하려면 프로젝트 세션을 여세요.",
     "unavailable": "지금은 복구 기능을 사용할 수 없습니다:",
     "restore_confirm_title": "이 체크포인트로 되돌릴까요?",
-    "restore_confirm_body": "DIVE가 백엔드에 {{checkpoint}} 복원을 요청합니다. 체크포인트 시스템은 먼저 복원 전 백업을 만들지만, 프로젝트 파일은 변경됩니다.",
+    "restore_confirm_body": "DIVE가 프로젝트 파일을 {{checkpoint}} 시점으로 되돌려요. 되돌리기 전에 지금 상태를 먼저 '복원 직전' 지점으로 저장하니, 이 되돌리기도 다시 되돌릴 수 있어요.",
+    "loading": "복구 지점을 불러오는 중…",
     "restore_files_only_note": "복원은 프로젝트 파일만 되돌립니다. 채팅·플랜·로드맵은 지금 상태 그대로 유지되어, 되돌려진 파일과 더 이상 일치하지 않을 수 있습니다.",
     "restore_consistent_note": "이 체크포인트는 프로젝트 파일과 채팅·플랜·로드맵을 저장된 상태로 함께 복원합니다.",
     "restoring": "복원 중...",
@@ -1641,12 +1646,12 @@
     "auth": {
       "title": "인증 오류",
       "body": "API 키나 로그인 권한을 확인하세요. 원문: {{message}}",
-      "hints": "키가 올바른지 확인하세요.|Settings에서 프로바이더를 다시 연결하세요."
+      "hints": "키가 올바른지 확인하세요.|설정에서 프로바이더를 다시 연결하세요."
     },
     "rate_limit": {
       "title": "요청 한도 초과",
       "body": "프로바이더 요청 한도에 도달했습니다. 원문: {{message}}",
-      "hints": "잠시 기다린 뒤 다시 시도하세요.|Settings에서 다른 모델로 바꾸거나 프로바이더 한도를 확인하세요.|필요하면 더 작은 작업 단위로 나누세요."
+      "hints": "잠시 기다린 뒤 다시 시도하세요.|설정에서 다른 모델로 바꾸거나 프로바이더 한도를 확인하세요.|필요하면 더 작은 작업 단위로 나누세요."
     },
     "network": {
       "title": "네트워크 오류",

@@ -75,6 +75,38 @@ describe("product shell conversation logic", () => {
     ).toBe("stage.action_open_settings");
   });
 
+  it("blocks the composer on an unavailable runtime even with a connected provider (P1-01)", () => {
+    const noop = vi.fn();
+    const blocked = deriveInputBlocked({
+      isDemoRoute: false,
+      currentProjectId: 1,
+      currentSessionId: 1,
+      hasConnectedProvider: true,
+      runtimeUnavailable: true,
+      runtimeReason: "supervised runtime not ready",
+      runtimeActionLabel: "open-settings",
+      runtimeOnAction: noop,
+      onEmptyStateAction: noop,
+      onOpenSettings: noop,
+      t,
+    });
+    expect(blocked?.reason).toBe("supervised runtime not ready");
+    expect(blocked?.actionLabel).toBe("open-settings");
+
+    expect(
+      deriveInputBlocked({
+        isDemoRoute: false,
+        currentProjectId: 1,
+        currentSessionId: 1,
+        hasConnectedProvider: true,
+        runtimeUnavailable: false,
+        onEmptyStateAction: noop,
+        onOpenSettings: noop,
+        t,
+      }),
+    ).toBeNull();
+  });
+
   it("derives composer hints and empty states", () => {
     const noop = vi.fn();
     expect(

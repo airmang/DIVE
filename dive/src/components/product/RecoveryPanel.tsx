@@ -174,6 +174,11 @@ export function RecoveryPanel({
             <p>{formatTime(latest.createdAt, locale)}</p>
             <p>{changedFilesCopy(latest.changedFiles, t)}</p>
           </div>
+        ) : loading ? (
+          // S-046 (P2-40): a transient fetch must not read as "nothing to undo".
+          <p className="mt-2 text-fg-muted" data-testid="recovery-loading">
+            {t("recovery.loading")}
+          </p>
         ) : (
           <p className="mt-2 text-fg-muted">
             {sessionAvailable ? t("recovery.no_checkpoints") : t("recovery.open_session")}

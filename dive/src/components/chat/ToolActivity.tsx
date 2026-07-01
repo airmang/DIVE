@@ -5,6 +5,7 @@ import {
   ChevronDown,
   Eye,
   FileText,
+  LifeBuoy,
   Loader2,
   SquareTerminal,
   Trash2,
@@ -454,6 +455,22 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
             <ChevronDown className="h-3.5 w-3.5 flex-none text-fg-subtle" aria-hidden />
           ) : null}
         </div>
+
+        {/* S-046 (P2-19): surface recovery contextually next to the failed artifact,
+            so a beginner isn't left to discover the passive top-bar badge. */}
+        {result && !result.success && provocation?.onOpenRecovery ? (
+          <div className="pb-1 pl-8">
+            <button
+              type="button"
+              onClick={provocation.onOpenRecovery}
+              className="inline-flex items-center gap-1 rounded-sm text-[11px] font-medium text-accent hover:underline"
+              data-testid="tool-failed-open-recovery"
+            >
+              <LifeBuoy className="h-3 w-3" aria-hidden />
+              {t("tool_call.failed_recovery_hint")}
+            </button>
+          </div>
+        ) : null}
 
         {reasoning ? (
           <p className="px-2 pb-1 pl-8 text-[11px] text-fg-subtle">

@@ -253,83 +253,93 @@ export function VerificationCoachPanel({
         className="mt-3 rounded-sm border border-border/80 bg-bg/70 px-2 py-2 text-xs"
         data-testid="verification-observation-form"
       >
-        {criteria.length > 1 ? (
-          <label className="mb-2 block font-medium text-fg">
-            {t("roadmap.step_detail.coach_criterion_select")}
-            <select
-              className="mt-1 w-full rounded-md border bg-bg px-2 py-1.5 text-xs"
-              value={activeCriterionId}
-              onChange={(event) => {
-                setSelectedCriterionId(event.target.value);
-                // Force a fresh observation per criterion — identical text must
-                // not silently back a second criterion (S-029).
-                setObservationText("");
-              }}
-              data-testid="verification-observation-criterion"
-            >
-              {criteria.map((criterion) => (
-                <option key={criterion.criterionId} value={criterion.criterionId}>
-                  {criterion.text}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-        <label className="block font-medium text-fg">
-          {t("roadmap.step_detail.coach_observation_label")}
-          <textarea
-            className="mt-1 min-h-20 w-full resize-none rounded-md border bg-bg px-2 py-1.5 text-xs text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            value={observationText}
-            onChange={(event) => setObservationText(event.target.value)}
-            placeholder={t("roadmap.step_detail.coach_observation_placeholder")}
-            data-testid="verification-observation-text"
-          />
-        </label>
-        <label className="mt-2 block font-medium text-fg">
-          {t("roadmap.step_detail.coach_observation_kind")}
-          <select
-            className="mt-1 w-full rounded-md border bg-bg px-2 py-1.5 text-xs"
-            value={evidenceKind}
-            onChange={(event) => setEvidenceKind(event.target.value as ObservationEvidenceKind)}
-            data-testid="verification-observation-kind"
-          >
-            {OBSERVATION_KINDS.map((kind) => (
-              <option key={kind} value={kind}>
-                {t(`roadmap.step_detail.coach_kind.${kind}`)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            disabled={!canRecord}
-            onClick={handleRecordObservation}
-            data-testid="verification-observation-record"
-          >
-            {t("roadmap.step_detail.coach_record_observation")}
-          </Button>
-          {savedForCriterion ? (
-            <span
-              className="text-[11px] font-medium text-success"
-              data-testid="verification-observation-saved"
-            >
-              {t("roadmap.step_detail.coach_observation_saved")}
-            </span>
-          ) : !observationActionBacked ? (
-            <span
-              className="text-[11px] text-warn"
-              data-testid="verification-observation-needs-action"
-            >
-              {t("roadmap.step_detail.coach_observation_needs_action")}
-            </span>
-          ) : (
-            <span className="text-[11px] text-fg-muted">
-              {t("roadmap.step_detail.coach_observation_needs_criterion")}
-            </span>
-          )}
-        </div>
+        {criteria.length === 0 ? (
+          // S-046 (P2-32): a step with no checkable criterion can never Record —
+          // don't offer a dead textarea; point to the diff/preview check instead.
+          <p className="text-fg-muted" data-testid="coach-no-criteria">
+            {t("roadmap.step_detail.coach_no_criteria_hint")}
+          </p>
+        ) : (
+          <>
+            {criteria.length > 1 ? (
+              <label className="mb-2 block font-medium text-fg">
+                {t("roadmap.step_detail.coach_criterion_select")}
+                <select
+                  className="mt-1 w-full rounded-md border bg-bg px-2 py-1.5 text-xs"
+                  value={activeCriterionId}
+                  onChange={(event) => {
+                    setSelectedCriterionId(event.target.value);
+                    // Force a fresh observation per criterion — identical text must
+                    // not silently back a second criterion (S-029).
+                    setObservationText("");
+                  }}
+                  data-testid="verification-observation-criterion"
+                >
+                  {criteria.map((criterion) => (
+                    <option key={criterion.criterionId} value={criterion.criterionId}>
+                      {criterion.text}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <label className="block font-medium text-fg">
+              {t("roadmap.step_detail.coach_observation_label")}
+              <textarea
+                className="mt-1 min-h-20 w-full resize-none rounded-md border bg-bg px-2 py-1.5 text-xs text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                value={observationText}
+                onChange={(event) => setObservationText(event.target.value)}
+                placeholder={t("roadmap.step_detail.coach_observation_placeholder")}
+                data-testid="verification-observation-text"
+              />
+            </label>
+            <label className="mt-2 block font-medium text-fg">
+              {t("roadmap.step_detail.coach_observation_kind")}
+              <select
+                className="mt-1 w-full rounded-md border bg-bg px-2 py-1.5 text-xs"
+                value={evidenceKind}
+                onChange={(event) => setEvidenceKind(event.target.value as ObservationEvidenceKind)}
+                data-testid="verification-observation-kind"
+              >
+                {OBSERVATION_KINDS.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {t(`roadmap.step_detail.coach_kind.${kind}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={!canRecord}
+                onClick={handleRecordObservation}
+                data-testid="verification-observation-record"
+              >
+                {t("roadmap.step_detail.coach_record_observation")}
+              </Button>
+              {savedForCriterion ? (
+                <span
+                  className="text-[11px] font-medium text-success"
+                  data-testid="verification-observation-saved"
+                >
+                  {t("roadmap.step_detail.coach_observation_saved")}
+                </span>
+              ) : !observationActionBacked ? (
+                <span
+                  className="text-[11px] text-warn"
+                  data-testid="verification-observation-needs-action"
+                >
+                  {t("roadmap.step_detail.coach_observation_needs_action")}
+                </span>
+              ) : (
+                <span className="text-[11px] text-fg-muted">
+                  {t("roadmap.step_detail.coach_observation_needs_criterion")}
+                </span>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </section>
   );

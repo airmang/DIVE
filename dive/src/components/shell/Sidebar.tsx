@@ -3,6 +3,7 @@ import { Moon, Plus, Sun, Trash2 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
+import { Skeleton } from "../ui/skeleton";
 import { useTheme } from "../../hooks/useTheme";
 import {
   useProjectSessionStore,
@@ -100,7 +101,9 @@ export function Sidebar({ className }: SidebarProps) {
           <Plus className="h-3.5 w-3.5" />
           {t("sidebar.new_project")}
         </Button>
-        {projects.length === 0 ? (
+        {!loaded ? (
+          <SidebarSkeletonRows />
+        ) : projects.length === 0 ? (
           <EmptyLine text={t("sidebar.empty_projects")} />
         ) : (
           <ul className="flex flex-col gap-0.5" data-testid="project-list">
@@ -149,7 +152,9 @@ export function Sidebar({ className }: SidebarProps) {
           {t("sidebar.new_session")}
         </Button>
         {currentProject ? (
-          sessions.length === 0 ? (
+          !loaded ? (
+            <SidebarSkeletonRows />
+          ) : sessions.length === 0 ? (
             <EmptyLine text={t("sidebar.empty_sessions")} />
           ) : (
             <ul className="flex flex-col gap-0.5" data-testid="session-list">
@@ -242,6 +247,18 @@ function SidebarSection({ label, children }: { label: string; children: React.Re
         {label}
       </div>
       {children}
+    </div>
+  );
+}
+
+// S-046 (P1-36): distinguish the initial async load from a genuine empty state,
+// so a returning user never briefly sees "No projects yet" mid-load.
+function SidebarSkeletonRows() {
+  return (
+    <div className="flex flex-col gap-1 px-1 py-0.5" data-testid="sidebar-loading">
+      <Skeleton height="1.75rem" />
+      <Skeleton height="1.75rem" />
+      <Skeleton height="1.75rem" />
     </div>
   );
 }

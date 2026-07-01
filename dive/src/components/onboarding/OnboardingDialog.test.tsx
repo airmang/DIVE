@@ -53,4 +53,26 @@ describe("OnboardingDialog provider setup", () => {
     expect(help.textContent).toContain("API 키 = AI 회사에서");
     expect(help.textContent).toContain("이 컴퓨터에만");
   });
+
+  it("shows classified recovery hints and hides the raw English tail behind a toggle (P1-05/P2-20)", async () => {
+    useProjectSessionStore.setState({
+      connectProvider: vi.fn().mockRejectedValue(new Error("401 Unauthorized invalid x-api-key")),
+      loadAll: vi.fn(),
+    });
+    render(<OnboardingDialog open onOpenChange={vi.fn()} />);
+
+    fireEvent.change(screen.getByTestId("onb-api-key"), { target: { value: "sk-bad" } });
+    fireEvent.click(screen.getByTestId("onb-connect"));
+
+    const errorBox = await screen.findByTestId("onb-error");
+    // Recovery hints render as plain-Korean bullets…
+    expect(screen.getByTestId("onb-error-hints").textContent).toContain(
+      "설정에서 프로바이더를 다시 연결하세요",
+    );
+    // …the raw English is collapsed behind a toggle, not in the primary message.
+    expect(screen.getByTestId("onb-error-detail")).toBeTruthy();
+    const headline = errorBox.querySelector("p");
+    expect(headline?.textContent).not.toContain("원문");
+    expect(headline?.textContent).not.toContain("x-api-key");
+  });
 });
