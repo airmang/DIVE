@@ -172,6 +172,18 @@ Implemented all 11 Theme-5 findings (commit `7cd565e`), rebuilt + reinstalled th
 
 **Conclusion:** S-045 is implementation-complete, fully local-CI-green (frontend format/typecheck/lint/test:unit=442 incl. the new gloss/primer/store tests; no Rust surface), adversarially verified CLEAN (0 constitution/correctness/copy defects; the only finding was 4 self-specified test assertions, now added), and the reachable beginner-vocabulary surfaces are **confirmed rendering correctly on the real app** in ko.
 
+## S-046 — error/recovery legibility, loading states & composer gating (2026-07-01, freshly built `tauri build --bundles app`)
+
+Implemented all 11 Theme-6 findings (commit `f190732`), rebuilt + reinstalled the release `.app` (quit the stale instance first), relaunched on macOS computer-use (ko locale). **Note:** the adversarial verify workflow was interrupted three times by session restarts, so verification was done inline — the P2-19 recovery-button threading was traced end-to-end (controller `onOpenRecovery` → ChatArea → MessageList `provocation={provocation}` → ToolActivity), and every one of the 11 findings has a dedicated unit test (453 frontend tests green).
+
+| Check | Live verdict | Evidence |
+| --- | --- | --- |
+| **P2-02 composer Enter hint** | **CONFIRMED** | Under the message composer: **"Enter로 전송 · Shift+Enter로 줄바꿈"** renders. |
+| **Recovery panel legibility (P1-23/P2-39, P2-40)** | **CONFIRMED** | Opening 복구 shows plain copy ("단계가 잘못되면 안전 지점을 저장하거나 이전 체크포인트로 되돌릴 수 있습니다") with **no 백엔드 jargon**; a project with no checkpoints shows the genuine empty state ("아직 체크포인트가 없습니다"), not a false-empty. The reworded restore-confirm (undoable, no 백엔드) and the fetch-time loading state are unit-tested + baked into the shipped dist. |
+| P1-01 composer gate on dead runtime, P1-05/P2-20 onboarding error hints + collapsed raw, P1-36 sidebar loading skeleton, P2-19 failed-tool 복구 열기 button, P2-32 coach no-criteria hint, P2-17 quickstart reconcile | NOT forced live this session | Require specific runtime states (unavailable runtime / connect failure / mid-load / a live tool failure / a criterion-less step). All locked by 453 unit tests (deriveInputBlocked runtime gate; OnboardingDialog hints+no-raw-tail; Sidebar loading; RecoveryPanel loading+restore-body; ChatInput hint; ToolActivity failed-recovery button; VerificationCoachPanel no-criteria) + en/ko parity, and the S-046 strings are baked into the shipped dist bundle. |
+
+**Conclusion:** S-046 is implementation-complete, fully local-CI-green (frontend format/typecheck/lint/test:unit=453 incl. new gates/loading/error tests; no Rust surface), verified inline (threading traced + full per-finding coverage after the verify workflow was interrupted by session restarts), and the reachable surfaces (composer Enter hint, recovery panel) are **confirmed rendering correctly on the real app** in ko.
+
 ## New observations (not in audit)
 
 - **Wily state-machine — RESOLVED (2026-07-01):** the `draft` → `ready` transition for a freshly `design_stage`d Stage is **`approve_stage`** (then `claim_stage` → `active`, `plan_stage` → phases, `complete_phase` ×N, `complete_stage` → `done`). S-044 was taken `draft`→`ready`→`active`→`planned` this way with phases 1–3 completed live; the earlier round-2 note ("no normal-tool path from draft→ready") was incorrect — `approve_stage` (not exposed in `get_lifecycle_payload_schema`'s payload list, but present as a client tool) is the step. S-041–S-043 can be retro-advanced the same way. (A transient server 502 during S-044's `design_stage` had briefly stalled the auto-promotion, which is what surfaced the manual `approve_stage` need.)
