@@ -243,7 +243,7 @@ export function CheckpointTimeline({
                 {onRestore ? (
                   <button
                     type="button"
-                    className="mt-1 w-full rounded bg-accent px-2 py-1 text-[10px] font-semibold text-fg hover:opacity-90"
+                    className="mt-1 w-full rounded bg-accent px-2 py-1 text-[10px] font-semibold text-accent-fg hover:opacity-90"
                     onClick={() => onRestore(item.id)}
                     data-testid="timeline-restore"
                     data-checkpoint-id={item.id}

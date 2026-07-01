@@ -48,10 +48,11 @@ export function GetStartedChecklist({ model }: GetStartedChecklistProps) {
               data-status={step.status}
               aria-current={step.status === "current" ? "step" : undefined}
               className={cn(
+                // S-044 (P1-24): de-emphasize non-current steps via border/icon
+                // state only — never dim the text layer with container opacity,
+                // which pushed pending/done step copy to ~2:1 (below WCAG AA).
                 "flex items-start gap-3 rounded-md border p-3",
                 step.status === "current" ? "border-accent bg-accent-subtle" : "border-transparent",
-                step.status === "done" && "opacity-70",
-                step.status === "pending" && "opacity-50",
               )}
             >
               <span

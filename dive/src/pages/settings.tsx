@@ -389,6 +389,7 @@ export function SettingsPage() {
                 onChange={(e) => setTutorialEnabled(e.target.checked)}
                 data-testid="settings-tutorial-toggle"
                 className="h-4 w-4"
+                aria-label={t("settings.guided_help_title")}
               />
             </label>
           </div>
@@ -496,7 +497,7 @@ export function SettingsPage() {
                         />
                         {isActive ? (
                           <span
-                            className="rounded-sm bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent"
+                            className="rounded-sm bg-accent px-1.5 py-0.5 text-[11px] font-medium text-accent-fg"
                             data-testid="provider-active-badge"
                           >
                             {t("settings.active_provider")}
@@ -505,12 +506,12 @@ export function SettingsPage() {
                       </div>
                       <div className="text-[11px] text-fg-muted">{t(p.hintKey)}</div>
                       {usesNonDefaultProviderHost(connected) ? (
-                        <div className="mt-1 text-[10px] text-warn" data-testid="base-url-warning">
+                        <div className="mt-1 text-[11px] text-warn" data-testid="base-url-warning">
                           {t("settings.base_url_warning")}
                         </div>
                       ) : null}
                       {p.warning ? (
-                        <div className="mt-1 text-[10px] text-warn" data-testid="provider-warning">
+                        <div className="mt-1 text-[11px] text-warn" data-testid="provider-warning">
                           {t(p.warning.textKey)} (
                           <a
                             href={p.warning.href}

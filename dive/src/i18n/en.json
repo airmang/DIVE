@@ -749,6 +749,7 @@
       "stepper_stage_observe_summary_done": "Criterion-linked observation evidence is recorded.",
       "stepper_stage_review_title": "Review response",
       "stepper_stage_review_summary": "{{count}} needs-review card(s) can be answered.",
+      "stepper_review_eval_pending": "Checking for review cards…",
       "stepper_stage_decision_title": "Decision",
       "stepper_stage_decision_summary_needs_observation": "Approval is enabled only after criterion-linked observation or verification evidence.",
       "stepper_stage_decision_summary_ready": "Criterion-linked observation is present for the approval decision.",
@@ -1660,8 +1661,10 @@
   },
   "topbar": {
     "recovery_trigger_aria": "Open recovery panel",
-    "recovery_trigger_label": "Undo",
+    "recovery_trigger_label": "Recovery",
     "recovery_trigger_count": "{{count}}",
+    "recovery_trigger_count_title": "{{count}} recovery point(s) available",
+    "recovery_trigger_failed_title": "{{count}} item(s) — includes a failed step to recover",
     "project_fallback": "No project",
     "recovery_slide_title": "Recovery & Undo",
     "recovery_slide_close_aria": "Close recovery panel"

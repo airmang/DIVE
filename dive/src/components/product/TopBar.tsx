@@ -47,7 +47,18 @@ export function TopBar({
         <Undo2 />
         {t("topbar.recovery_trigger_label")}
         {displayedCount > 0 && (
-          <Badge variant={hasFailedStep ? "danger" : "default"} className="ml-1">
+          <Badge
+            variant={hasFailedStep ? "danger" : "default"}
+            className="ml-1"
+            // S-044 (P2-37): give the bare number scent and distinguish a
+            // failed step from ordinary checkpoints.
+            title={t(
+              hasFailedStep
+                ? "topbar.recovery_trigger_failed_title"
+                : "topbar.recovery_trigger_count_title",
+              { count: displayedCount },
+            )}
+          >
             {t("topbar.recovery_trigger_count", { count: displayedCount })}
           </Badge>
         )}

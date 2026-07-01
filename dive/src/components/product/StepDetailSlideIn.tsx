@@ -817,6 +817,10 @@ export function StepDetailSlideIn({
     verifyLog?.test_result,
   ]);
   const [provocationCards, setProvocationCards] = useState<ProvocationCard[]>([]);
+  // S-044 (P2-31): deterministic pending flag while the async supervisor eval
+  // is in flight, so the review stage shows a "checking…" status instead of a
+  // silent pop-in that reflows the stepper total under the user.
+  const [supervisorEvalPending, setSupervisorEvalPending] = useState(false);
   // A card is "engaged" only when the student actually looked at the artifact
   // (open diff/preview/run/tests) or recorded a reason — not when they merely
   // dismiss or mark it irrelevant. Only engagement counts as review evidence, so
@@ -837,6 +841,7 @@ export function StepDetailSlideIn({
     const requestKey = JSON.stringify(requests);
     if (requests.length === 0) {
       lastSupervisorEvaluationKeyRef.current = "";
+      setSupervisorEvalPending(false);
       setProvocationCards((current) => (current.length > 0 ? [] : current));
       return () => {
         cancelled = true;
@@ -849,6 +854,7 @@ export function StepDetailSlideIn({
     }
     lastSupervisorEvaluationKeyRef.current = requestKey;
 
+    setSupervisorEvalPending(true);
     setProvocationCards((current) => (current.length > 0 ? [] : current));
     void (async () => {
       for (const request of requests) {
@@ -856,15 +862,20 @@ export function StepDetailSlideIn({
         if (cancelled) return;
         if (response.status === "shown") {
           setProvocationCards([response.card]);
+          setSupervisorEvalPending(false);
           return;
         }
       }
       setProvocationCards((current) => (current.length > 0 ? [] : current));
+      setSupervisorEvalPending(false);
     })().catch((err) => {
       if (import.meta.env.DEV) {
         console.warn("supervisor evaluation failed:", err);
       }
-      if (!cancelled) setProvocationCards((current) => (current.length > 0 ? [] : current));
+      if (!cancelled) {
+        setProvocationCards((current) => (current.length > 0 ? [] : current));
+        setSupervisorEvalPending(false);
+      }
     });
 
     return () => {
@@ -1122,6 +1133,27 @@ export function StepDetailSlideIn({
             mode={provocation?.mode ?? "standard"}
             onAction={handleReviewCardAction}
           />
+        ),
+      });
+    } else if (supervisorEvalPending) {
+      // S-044 (P2-31): reserve the review stage with a deterministic pending
+      // status while the supervisor eval runs, so the stepper total does not
+      // silently jump when a card resolves. Real async status, not a fake card.
+      reviewStages.push({
+        id: "review-card-pending",
+        marker: "3",
+        title: t("roadmap.step_detail.stepper_stage_review_title"),
+        evidenced: false,
+        summary: t("roadmap.step_detail.stepper_review_eval_pending"),
+        content: (
+          <p
+            className="text-xs text-fg-muted"
+            role="status"
+            aria-live="polite"
+            data-testid="review-eval-pending"
+          >
+            {t("roadmap.step_detail.stepper_review_eval_pending")}
+          </p>
         ),
       });
     }

@@ -19,7 +19,8 @@ function actionClass(primary: boolean) {
     "font-mono text-[11px] font-bold uppercase tracking-[0.06em] transition",
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
     primary
-      ? "border-accent-hover bg-accent-hover text-fg hover:bg-accent dark:border-accent dark:bg-accent dark:text-accent-fg dark:hover:bg-accent-hover"
+      ? // S-044: light accent deepened, so use accent-fg (white) on the green fill
+        "border-accent-hover bg-accent-hover text-accent-fg hover:bg-accent dark:border-accent dark:bg-accent dark:hover:bg-accent-hover"
       : "border-border bg-transparent text-fg hover:border-accent/60 hover:text-accent",
     "disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-border disabled:hover:text-fg",
   );

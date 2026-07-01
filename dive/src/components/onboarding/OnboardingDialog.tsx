@@ -150,7 +150,7 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
                   }
                 >
                   <div className="text-sm font-medium text-fg">{p.label}</div>
-                  <div className="text-[10px] text-fg-muted">
+                  <div className="text-xs text-fg-muted">
                     {p.available === false && p.unavailableKey ? t(p.unavailableKey) : t(p.hintKey)}
                   </div>
                 </button>

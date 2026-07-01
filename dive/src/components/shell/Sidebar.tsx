@@ -118,7 +118,7 @@ export function Sidebar({ className }: SidebarProps) {
                   data-active={currentProject?.id === p.id ? "true" : "false"}
                 >
                   <div className="truncate font-medium">{p.name}</div>
-                  <div className="truncate text-[10px] text-fg-muted">{p.path}</div>
+                  <div className="truncate text-xs text-fg-muted">{p.path}</div>
                 </button>
                 <button
                   type="button"
@@ -169,7 +169,7 @@ export function Sidebar({ className }: SidebarProps) {
                   >
                     <div className="truncate">{s.title}</div>
                     {s.status === "archived" ? (
-                      <div className="text-[9px] text-fg-muted">{t("sidebar.archived")}</div>
+                      <div className="text-xs text-fg-muted">{t("sidebar.archived")}</div>
                     ) : null}
                   </button>
                   <button
