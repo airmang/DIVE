@@ -142,6 +142,23 @@ Implemented 15/16 Theme-3 findings (commit `2c94ff9`), rebuilt + reinstalled the
 
 **Conclusion:** S-043 is implementation-complete (15/16; P2-38 deferred), fully local-CI-green (frontend format/typecheck/lint/test:unit=403 incl. the new en/ko parity + classifier tests; Rust fmt/clippy -Dwarnings/test --features dev-mock), and the headline Korean roadmap-rail leak is **confirmed fixed on the real app** in ko.
 
+## S-044 — WCAG AA contrast + a11y semantics (2026-07-01, freshly built `tauri build --bundles app`)
+
+Implemented all 16 Theme-4 findings (commit `935dc5c`), rebuilt + reinstalled the release `.app`, relaunched on macOS computer-use. **Important launch note:** a *stale* DIVE process was already running the pre-S-044 binary (the top-bar showed the old `되돌리기` label); `cp` over `/Applications/DIVE.app` does not reload a running app — quit (`osascript -e 'quit app "DIVE"'`) and relaunch to pick up the new build. After relaunch the label read `복구`, confirming the new binary.
+
+| Check | Live verdict | Evidence |
+| --- | --- | --- |
+| **P2-37 recovery control relabel** | **CONFIRMED** | Top-bar reads **복구 / Recovery** (was `되돌리기`/Undo) in both themes; badge count present with a `title` tooltip. |
+| **P1-35 active-provider badge + warn warning (light)** | **CONFIRMED** | Settings light theme: OpenRouter **사용/Use** badge renders as a solid emerald chip with white text (was a 2.45:1 `bg-accent/15` tint); the opencode-zen "확인된 Pi 런타임 지원이 없습니다 / does not have confirmed Pi runtime support" warning is crisp in the darkened warn — legible in both ko and en. |
+| **P2-29 criterion IDs on white (light)** | **CONFIRMED** | Plan rail in light theme: **AC-001/AC-002/AC-003** render deep-emerald on the white step cards, clearly legible (was 3.22:1 → 5.25:1). |
+| **Status-chip/badge tint composite (light)** | **CONFIRMED** | The **계획 검토 필요** warn badge (`bg-warn/15 text-warn`) is legible on its tint — the badge-composite darkening (warn→121 91 28) works. |
+| **P2-35 sidebar identity micro-text (light)** | **CONFIRMED** | Project paths render at `text-xs` (12px) fg-muted, clearly legible (was 10px). |
+| **Dark fg-muted/fg-subtle raise** | **CONFIRMED** | Dark-theme step descriptions (fg-muted) and the plan rail read crisply. |
+| **P1-33 locale switch → `<html lang>` effect** | **CONFIRMED** | Toggling 언어 ko↔en flips the entire UI *and* the native macOS menu bar (DIVE File Edit View Help), exercising the App locale effect that now also sets `document.documentElement.lang`. |
+| P1-02 why-line, P1-27 diff counts, P1-32 review eyebrow, P2-31 supervisor-eval pending, P2-25 minimap focus halo, P1-24 first-run steps | NOT forced live this session | Require specific runtime states (running agent / on-screen diff / rendered review card / keyboard focus / clean first-run). All locked by the deterministic `contrast.test.ts` (28 pairs, both themes) + `document-lang.test.ts` + the 4-agent adversarial verify workflow (CLEAN), and share the confirmed token/render path above. |
+
+**Conclusion:** S-044 is implementation-complete, fully local-CI-green (frontend format/typecheck/lint/test:unit=433 incl. the new contrast + document-lang tests + en/ko parity; no Rust surface), adversarially verified CLEAN (0 defects), and the headline contrast/semantics fixes are **confirmed rendering correctly on the real app in both light+dark themes and ko+en locales**.
+
 ## New observations (not in audit)
 
-- **Wily state-machine not bootstrapped for round-2 stages** (process, not product): `design_stage` creates a Stage in `draft`; `claim_stage` requires `ready` and `plan_stage` requires `active`, with no normal-tool path from `draft` → `ready`/`active` available for these stages (S-041 was likewise left at `draft` despite being done + live-verified). Round-2 completion is therefore recorded via `add_stage_note` evidence (commit/CI/findings) rather than a `done` status transition. Worth bootstrapping the Stage lifecycle (or documenting the intended transition tool) so S-041–S-048 can reach `done` truthfully.
+- **Wily state-machine — RESOLVED (2026-07-01):** the `draft` → `ready` transition for a freshly `design_stage`d Stage is **`approve_stage`** (then `claim_stage` → `active`, `plan_stage` → phases, `complete_phase` ×N, `complete_stage` → `done`). S-044 was taken `draft`→`ready`→`active`→`planned` this way with phases 1–3 completed live; the earlier round-2 note ("no normal-tool path from draft→ready") was incorrect — `approve_stage` (not exposed in `get_lifecycle_payload_schema`'s payload list, but present as a client tool) is the step. S-041–S-043 can be retro-advanced the same way. (A transient server 502 during S-044's `design_stage` had briefly stalled the auto-promotion, which is what surfaced the manual `approve_stage` need.)
