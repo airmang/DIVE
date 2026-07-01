@@ -159,6 +159,19 @@ Implemented all 16 Theme-4 findings (commit `935dc5c`), rebuilt + reinstalled th
 
 **Conclusion:** S-044 is implementation-complete, fully local-CI-green (frontend format/typecheck/lint/test:unit=433 incl. the new contrast + document-lang tests + en/ko parity; no Rust surface), adversarially verified CLEAN (0 defects), and the headline contrast/semantics fixes are **confirmed rendering correctly on the real app in both light+dark themes and ko+en locales**.
 
+## S-045 — beginner vocabulary & first-run framing (2026-07-01, freshly built `tauri build --bundles app`)
+
+Implemented all 11 Theme-5 findings (commit `7cd565e`), rebuilt + reinstalled the release `.app` (quit the stale instance first, per the S-044 gotcha), relaunched on macOS computer-use (ko locale).
+
+| Check | Live verdict | Evidence |
+| --- | --- | --- |
+| **P1-07 new-empty-folder hint + non-blocking root note** | **CONFIRMED** | New Project dialog shows the folder hint "비어 있는 새 폴더를 고르세요. AI 작업은 이 폴더 안에서만 일어나고, 언제든 되돌릴 수 있어요." Typing `/Users/wilycastle/Desktop` surfaces the non-blocking warn note "이 폴더는 개인 문서가 많은 위치예요…" while **프로젝트 생성 stays enabled** (never gates — Constitution V). |
+| **P2-05/P2-06 create-dialog purpose gloss (no `.dive/`)** | **CONFIRMED** | Dialog description reads "여기 고른 폴더 안에서 AI가 코드를 만들고, 너는 그걸 확인·승인하게 돼요. 비어 있는 새 폴더를 고르면 가장 안전해요." — the `.dive/` dotfolder jargon is gone; supervision framing (확인·승인) present. |
+| **P1-11 PRD field glosses + 완료 기준 relabel** | **CONFIRMED** | Final PRD Read View and the Authoring Board both show **완료 기준** (was 수락 기준); the authoring canvas shows the gloss "누가, 왜 쓰는지를 한 문장으로" under 의도 요약. |
+| P1-04 API-key gloss, P2-04 connect description, P2-21 opencode beginner reason, P2-03 purpose line, P2-07 step labels, P1-19 Safe/Warn/Danger primer, P2-10 quickstart 3-tier | NOT forced live this session | Reachable only via the first-run onboarding flow / a live permission card (agent-run) / a clean first-run checklist. All are locked by 442 unit tests (incl. new `PermissionCardPrimer`, `ui-preferences` primer-flag, `OnboardingDialog` api_key_help, `NewProjectDialog` folder_hint/root-note, `PrdAuthoringBoard` gloss assertions) + en/ko parity + the 4-agent adversarial verify workflow (CLEAN), and all 6 spot-checked strings are baked into the shipped `dist` bundle. |
+
+**Conclusion:** S-045 is implementation-complete, fully local-CI-green (frontend format/typecheck/lint/test:unit=442 incl. the new gloss/primer/store tests; no Rust surface), adversarially verified CLEAN (0 constitution/correctness/copy defects; the only finding was 4 self-specified test assertions, now added), and the reachable beginner-vocabulary surfaces are **confirmed rendering correctly on the real app** in ko.
+
 ## New observations (not in audit)
 
 - **Wily state-machine — RESOLVED (2026-07-01):** the `draft` → `ready` transition for a freshly `design_stage`d Stage is **`approve_stage`** (then `claim_stage` → `active`, `plan_stage` → phases, `complete_phase` ×N, `complete_stage` → `done`). S-044 was taken `draft`→`ready`→`active`→`planned` this way with phases 1–3 completed live; the earlier round-2 note ("no normal-tool path from draft→ready") was incorrect — `approve_stage` (not exposed in `get_lifecycle_payload_schema`'s payload list, but present as a client tool) is the step. S-041–S-043 can be retro-advanced the same way. (A transient server 502 during S-044's `design_stage` had briefly stalled the auto-promotion, which is what surfaced the manual `approve_stage` need.)
