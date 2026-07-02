@@ -3080,7 +3080,12 @@ rl.on("line", (line) => {{
             ),
         );
         let _guard = set_test_sidecar_script_path(script);
-        let _timing = set_test_sidecar_timing(Duration::from_millis(250), Duration::from_secs(60));
+        // turn_timeout comfortably above CI process-spawn + first-heartbeat
+        // latency so at least one heartbeat is reliably observed before the
+        // bound fires (250ms flaked on loaded CI runners); still < the 5s
+        // assertion below and far below the 60s heartbeat-stall timeout, so the
+        // turn is bounded by turn_timeout, not by heartbeat stall.
+        let _timing = set_test_sidecar_timing(Duration::from_secs(2), Duration::from_secs(60));
         let (db, session_id) = create_test_db(project.path());
         let loop_ = make_loop(
             project.path(),
