@@ -1588,6 +1588,10 @@
         "human_confirm": "DIVE shows the result; the human confirms it works, not the AI.",
         "dismiss": "Dismiss preview onboarding"
       },
+      "reused": {
+        "running_server_detected": "Connected to the running preview server.",
+        "previously_started_reused": "Reused the previously started preview server."
+      },
       "reason": {
         "missing_project": "Select a project before opening Preview.",
         "missing_target": "No preview target was provided.",

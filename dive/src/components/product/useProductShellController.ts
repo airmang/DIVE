@@ -82,12 +82,30 @@ import { PrdAuthoringBoard, type PrdPatchFeedback } from "./PrdAuthoringBoard";
 import { FinalPrdReadView } from "./FinalPrdReadView";
 import { fallbackModels } from "../settings/providerModels";
 import { requestProjectRailTab } from "./ProjectRail";
+import type { ArchitectureForm } from "../../features/planning";
 
 export type PrdMode = "authoring" | "read" | null;
 
 interface PendingPrdPlanRequest {
   projectSpec: ProjectSpec;
   interviewAnswers?: InterviewAnswer[];
+}
+
+function planScaffoldingForForm(form: ArchitectureForm): string | null {
+  switch (form) {
+    case "web_app":
+      return "For web_app, steps should cover browser UI screens/components, client state, user interactions, and frontend verification; avoid CLI-only deliverables unless they directly support the web app.";
+    case "static_page":
+      return "For static_page, steps should be static HTML/CSS/JS; avoid server, database, or backend-auth steps.";
+    case "cli_tool":
+      return "For cli_tool, steps should cover command parsing, terminal input/output, files/config if needed, and command verification; avoid DOM, browser page, or UI component steps.";
+    case "desktop_app":
+      return "For desktop_app, steps should cover desktop window/app shell, local UI flows, packaging/runtime integration, and local persistence when needed; avoid API-service-only endpoint steps.";
+    case "api_service":
+      return "For api_service, steps should cover endpoints, request/response schemas, validation, data/storage boundaries, and API tests; avoid UI/DOM/browser-page steps.";
+    case "other":
+      return null;
+  }
 }
 
 export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
@@ -116,6 +134,9 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
     acceptanceCriteria: activeCriteria,
     ...(architecture ? { architecture } : {}),
   };
+  const formScaffolding = projectSpec.architecture
+    ? planScaffoldingForForm(projectSpec.architecture.form)
+    : null;
 
   return [
     "[PRD_PLAN_GENERATION]",
@@ -132,6 +153,7 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
           "The PRD includes the student's confirmed architecture (form + tech stack). Decompose for that form and stack: keep every step, expected_files, and verification consistent with it, and do not switch to a different framework or stack.",
         ]
       : []),
+    ...(formScaffolding ? ["DIVE form-specific step scaffolding:", formScaffolding] : []),
     "verification_command must be one no-shell command with explicit args when a command is appropriate, otherwise null with a clear manual verification summary in the step text.",
     "Do not include Markdown fences or prose.",
     "",

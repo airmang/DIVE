@@ -1,5 +1,7 @@
+import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { useT } from "../../i18n";
+import { loadTauri } from "../../lib/tauri";
 import {
   usePermissionCardPrimerDismissed,
   useUiPreferencesStore,
@@ -7,6 +9,29 @@ import {
 } from "../../stores/ui-preferences";
 import { Button } from "../ui/button";
 import { LearningHint } from "../ui/learning-hint";
+
+type PermissionPrimerVariant = "generic" | "web_fetch";
+
+function logPrimerEvent(eventType: string, variant: PermissionPrimerVariant) {
+  void loadTauri()
+    .then((api) =>
+      api?.invoke("log_ui_event", {
+        sessionId: null,
+        eventType,
+        payload: { variant },
+      }),
+    )
+    .catch(() => {});
+}
+
+function usePrimerShownLog(visible: boolean, variant: PermissionPrimerVariant) {
+  const loggedRef = useRef(false);
+  useEffect(() => {
+    if (!visible || loggedRef.current) return;
+    loggedRef.current = true;
+    logPrimerEvent("permission_primer.shown", variant);
+  }, [variant, visible]);
+}
 
 /**
  * One-time, dismissible primer shown above a permission card the first time the
@@ -20,8 +45,11 @@ export function PermissionCardPrimer() {
   const tutorialEnabled = useUiPreferencesStore((state) => state.tutorialEnabled);
   const dismissed = usePermissionCardPrimerDismissed();
   const dismissPrimer = useUiPreferencesStore((state) => state.dismissPermissionCardPrimer);
+  const visible = tutorialEnabled && !dismissed;
 
-  if (!tutorialEnabled || dismissed) return null;
+  usePrimerShownLog(visible, "generic");
+
+  if (!visible) return null;
 
   return (
     <div data-testid="permission-card-primer">
@@ -51,7 +79,10 @@ export function PermissionCardPrimer() {
             size="icon"
             variant="ghost"
             className="h-7 w-7 shrink-0 text-fg-muted"
-            onClick={dismissPrimer}
+            onClick={() => {
+              logPrimerEvent("permission_primer.dismissed", "generic");
+              dismissPrimer();
+            }}
             aria-label={t("permission_card.primer.dismiss_aria")}
             data-testid="permission-card-primer-dismiss"
           >
@@ -68,8 +99,11 @@ export function WebFetchPermissionCardPrimer() {
   const tutorialEnabled = useUiPreferencesStore((state) => state.tutorialEnabled);
   const dismissed = useWebPermissionCardPrimerDismissed();
   const dismissPrimer = useUiPreferencesStore((state) => state.dismissWebPermissionCardPrimer);
+  const visible = tutorialEnabled && !dismissed;
 
-  if (!tutorialEnabled || dismissed) return null;
+  usePrimerShownLog(visible, "web_fetch");
+
+  if (!visible) return null;
 
   return (
     <div data-testid="web-permission-card-primer">
@@ -84,7 +118,10 @@ export function WebFetchPermissionCardPrimer() {
             size="icon"
             variant="ghost"
             className="h-7 w-7 shrink-0 text-fg-muted"
-            onClick={dismissPrimer}
+            onClick={() => {
+              logPrimerEvent("permission_primer.dismissed", "web_fetch");
+              dismissPrimer();
+            }}
             aria-label={t("permission_card.web_primer.dismiss")}
             data-testid="web-permission-card-primer-dismiss"
           >

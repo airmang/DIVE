@@ -25,6 +25,7 @@ use crate::db::models::{
 };
 use crate::db::now_ms;
 use crate::dive::event_log as dive_event_log;
+use crate::dive::plan_form_consistency::{form_consistency_annotation, PlanFormStep};
 use crate::dive::plan_quality_constants::{
     contains_any, criterion_class_is_covered, data_fetch_keywords, ui_goal_keywords, vague_terms,
     verification_type_from_legacy, MissingCriterionClass, VerificationType, STATE_MARKERS,
@@ -2964,6 +2965,15 @@ pub fn workspace_plan_generate_draft_impl(
     .map_err(|e| e.to_string())?;
 
     let step_count = plan_input.steps.len();
+    let annotation_session_id = latest_session_id_for_project(&tx, interview.project_id);
+    log_form_consistency_annotations(
+        &tx,
+        annotation_session_id,
+        interview.project_id,
+        plan_id,
+        &project_prd,
+        &plan_input.steps,
+    );
     let mut step_criterion_links: Vec<(String, Vec<String>)> = Vec::new();
     for step in plan_input.steps {
         let step_kind = step_kind_for_draft(&step);
@@ -3017,6 +3027,80 @@ pub fn workspace_plan_generate_draft_impl(
         .ok_or_else(|| "plan not found after draft generation".to_string())?;
     let steps = step_dao::list_active_by_plan(conn, plan_id).map_err(|e| e.to_string())?;
     Ok((plan, steps))
+}
+
+fn latest_session_id_for_project(conn: &rusqlite::Connection, project_id: i64) -> Option<i64> {
+    let mut stmt = conn
+        .prepare("SELECT id FROM Session WHERE project_id = ? ORDER BY id DESC LIMIT 1")
+        .ok()?;
+    stmt.query_row([project_id], |row| row.get::<_, i64>(0))
+        .ok()
+}
+
+fn log_form_consistency_annotations(
+    conn: &rusqlite::Connection,
+    session_id: Option<i64>,
+    project_id: i64,
+    plan_id: i64,
+    project_prd: &ProjectSpec,
+    steps: &[StepDraftInput],
+) {
+    let form = project_prd
+        .architecture
+        .as_ref()
+        .map(|architecture| architecture.form);
+    for step in steps {
+        let annotation = form_consistency_annotation(
+            form,
+            PlanFormStep {
+                title: &step.title,
+                summary: &step.summary,
+                instruction_seed: &step.instruction_seed,
+                expected_files: &step.expected_files,
+            },
+        );
+        let Some(reason) = annotation else {
+            continue;
+        };
+        let Some(form) = form else {
+            continue;
+        };
+        let payload = dive_event_log::plan_form_consistency_payload(
+            dive_event_log::PlanFormConsistencyPayloadInput {
+                project_id,
+                plan_id,
+                project_spec_id: &project_prd.project_spec_id,
+                project_spec_version: project_prd.current_version,
+                form: architecture_form_code(form),
+                step_id: &step.step_id,
+                step_title: &step.title,
+                expected_files: &step.expected_files,
+                reason: &reason,
+            },
+        );
+        if let Err(err) = dive_event_log::append_to_conn(
+            conn,
+            session_id,
+            dive_event_log::PLAN_FORM_CONSISTENCY_EVENT,
+            payload,
+        ) {
+            tracing::warn!(
+                error = %crate::telemetry::redact_log_text(&err.to_string()),
+                "failed to append plan form consistency annotation"
+            );
+        }
+    }
+}
+
+fn architecture_form_code(form: crate::db::models::ArchitectureForm) -> &'static str {
+    match form {
+        crate::db::models::ArchitectureForm::WebApp => "web_app",
+        crate::db::models::ArchitectureForm::StaticPage => "static_page",
+        crate::db::models::ArchitectureForm::CliTool => "cli_tool",
+        crate::db::models::ArchitectureForm::DesktopApp => "desktop_app",
+        crate::db::models::ArchitectureForm::ApiService => "api_service",
+        crate::db::models::ArchitectureForm::Other => "other",
+    }
 }
 
 pub fn workspace_plan_current_draft_impl(

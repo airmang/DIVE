@@ -98,6 +98,8 @@ const KNOWN_PREVIEW_REASONS = new Set([
   "unsupported_url",
 ]);
 
+const REUSED_PREVIEW_LOG_CODES = new Set(["running_server_detected", "previously_started_reused"]);
+
 function previewSessionKind(kind: PreviewOpenKind): PreviewSessionKind | undefined {
   return kind === "auto" ? undefined : kind;
 }
@@ -124,6 +126,10 @@ function previewReasonText(
   return reasonCode && KNOWN_PREVIEW_REASONS.has(reasonCode)
     ? t(`slide_in.preview.reason.${reasonCode}`)
     : null;
+}
+
+function previewLogText(line: string, t: (key: string) => string): string {
+  return REUSED_PREVIEW_LOG_CODES.has(line) ? t(`slide_in.preview.reused.${line}`) : line;
 }
 
 export function PreviewTab() {
@@ -203,7 +209,7 @@ export function PreviewTab() {
       pushTerminalLine({ kind: "info", text: `[preview] ${result.commandSummary}` });
     }
     for (const line of result.logs) {
-      pushTerminalLine({ kind: "stdout", text: line });
+      pushTerminalLine({ kind: "stdout", text: previewLogText(line, t) });
     }
     if (result.status !== "ready") {
       const displayMessage = previewReasonText(result.reasonCode, t) ?? result.message;

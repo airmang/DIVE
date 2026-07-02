@@ -70,5 +70,5 @@ The decomposition prompt (Rust) gains the chosen `form`+`stack` as context so ge
 
 ## Resolved decisions (owner 2026-07-01)
 - **Q1 — Form taxonomy = bounded enum** `web_app | static_page | cli_tool | desktop_app | api_service | other` (+ `formOtherLabel` free text for `other`); **stack = free text** (AI-proposed, student-editable).
-- **Q2 — Decomposition = context-only** (pass form+stack as grounding to the decomposition prompt; form-specific step templates / step-vs-form validation are a follow-up).
+- **Q2 — Decomposition = context-only** (pass form+stack as grounding to the decomposition prompt; form-specific step templates / step-vs-form validation are a follow-up). **Follow-up CLOSED in S-049 (2026-07-02)**: `buildPrdPlanGenerationPrompt` now injects a deterministic per-form scaffolding block, and a deterministic non-blocking `plan_form_consistency` check logs form/step contradictions to the EventLog (`plan.form_consistency`) — no user-facing card or gate (Constitution V). See `design-s049.md`.
 - **Q3 — Single Stage S-047** (full cross-language feature: TS + Rust models, validation, interview, UI, i18n, tests in one Stage).

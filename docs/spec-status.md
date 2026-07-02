@@ -78,6 +78,20 @@ landed with local CI green plus a live re-QA pass on the rebuilt release app
 | S-046 | Error/recovery legibility, loading states, composer gating (theme 6) | Done |
 | S-047 | Mandatory student architecture decision in the PRD interview (theme 7, owner-added) | Done |
 | S-048 | Supervised agent web access: DIVE-owned `web_fetch` + Rust egress guard under Constitution III(1.1.0) (theme 8, owner-added) | Done |
+| S-049 | 010 deferred-tail closeout: P2-38 preview-log i18n, `--color-info` AA token, S-047 Q2 form-scaffolding + non-blocking form-consistency EventLog annotation, S-045 primer EventLog | Done |
+
+S-049 closes the four items the S-043/S-044/S-045/S-047 designs explicitly
+deferred to a follow-up: (P2-38) `preview.rs` reuse strings became a
+`ReusedPreviewLogCode` enum localized in `PreviewTab` via `slide_in.preview.reused.*`;
+(a11y) light `--color-info` `56 104 200`→`40 90 180` clears the info/15 badge
+composite at 4.66:1 AA (dark mode untouched), locked by two new `contrast.test`
+cases; (S-047 Q2) `buildPrdPlanGenerationPrompt` injects a deterministic per-form
+scaffolding block and a deterministic non-blocking `plan_form_consistency`
+annotation is logged to the EventLog (`plan.form_consistency`) with no user-facing
+card or gate; (S-045) a prefix-guarded `log_ui_event` IPC records
+`permission_primer.shown`/`.dismissed` (variant `generic|web_fetch`), shown-once.
+The **process-tool plain-GET egress hardening (S-048 decision 6b) is NOT part of
+S-049** — it is tracked separately (below) and worked in its own session.
 
 S-048 security posture: `web_fetch` is the first SSRF-validated egress path —
 resolved-IP denylist including IPv6 embeddings (IPv4-mapped, NAT64, 6to4,

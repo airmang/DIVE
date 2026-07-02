@@ -73,7 +73,7 @@
     --color-success: 15 109 77; /* S-044: darkened to AA for success text on tint chips + diff-add */
     --color-warn: 121 91 28; /* S-044: darkened to AA for warn text on warn/10-15 chips + badges */
     --color-danger: 166 58 58; /* S-044: darkened to AA for danger text on tint chips + diff-del */
-    --color-info: 56 104 200;
+    --color-info: 40 90 180;
 
     --color-ring: 22 163 116;
   }

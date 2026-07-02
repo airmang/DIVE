@@ -1588,6 +1588,10 @@
         "human_confirm": "DIVE는 결과를 보여주고, 작동 여부는 AI가 아니라 사람이 확인합니다.",
         "dismiss": "미리보기 안내 닫기"
       },
+      "reused": {
+        "running_server_detected": "이미 실행 중인 로컬 미리보기 서버에 연결했습니다.",
+        "previously_started_reused": "이전에 시작한 미리보기 서버를 재사용했습니다."
+      },
       "reason": {
         "missing_project": "미리보기를 열 프로젝트를 먼저 선택하세요.",
         "missing_target": "미리볼 대상이 지정되지 않았습니다.",

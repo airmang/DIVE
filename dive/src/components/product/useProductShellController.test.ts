@@ -169,9 +169,29 @@ describe("buildPrdPlanGenerationPrompt", () => {
     expect(prompt).toContain("do not switch to a different framework or stack");
   });
 
+  it("adds deterministic form-specific scaffolding for the decided form", () => {
+    const withArchitecture: ProjectSpec = {
+      ...projectSpec(),
+      architecture: {
+        form: "static_page",
+        formOtherLabel: null,
+        stack: "HTML + CSS + JavaScript",
+        rationale: null,
+        decisionSource: "student_confirmed",
+        decidedInVersion: 1,
+      },
+    };
+    const prompt = buildPrdPlanGenerationPrompt(withArchitecture);
+
+    expect(prompt).toContain("DIVE form-specific step scaffolding:");
+    expect(prompt).toContain("For static_page, steps should be static HTML/CSS/JS");
+    expect(prompt).toContain("avoid server, database, or backend-auth steps");
+  });
+
   it("omits the architecture directive when none is decided", () => {
     const prompt = buildPrdPlanGenerationPrompt(projectSpec());
     expect(prompt).not.toContain("do not switch to a different framework or stack");
+    expect(prompt).not.toContain("DIVE form-specific step scaffolding");
   });
 });
 

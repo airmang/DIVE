@@ -32,6 +32,9 @@ pub const PLAN_ADJUSTMENT_DISMISSED_EVENT: &str = "plan_adjustment_dismissed";
 pub const PLAN_STEP_APPENDED_EVENT: &str = "plan_step_appended";
 pub const PLAN_STEP_CHANGED_EVENT: &str = "plan_step_changed";
 pub const PLAN_STEP_RETIRED_EVENT: &str = "plan_step_retired";
+pub const PLAN_FORM_CONSISTENCY_EVENT: &str = "plan.form_consistency";
+pub const PERMISSION_PRIMER_SHOWN_EVENT: &str = "permission_primer.shown";
+pub const PERMISSION_PRIMER_DISMISSED_EVENT: &str = "permission_primer.dismissed";
 pub const VERIFICATION_COACH_REQUESTED_EVENT: &str = "verification_coach.requested";
 pub const VERIFICATION_COACH_EVALUATED_EVENT: &str = "verification_coach.evaluated";
 pub const VERIFICATION_OBSERVATION_RECORDED_EVENT: &str = "verification_observation.recorded";
@@ -212,6 +215,36 @@ pub fn web_fetch_blocked_payload(
     })
 }
 
+pub struct PlanFormConsistencyPayloadInput<'a> {
+    pub project_id: i64,
+    pub plan_id: i64,
+    pub project_spec_id: &'a str,
+    pub project_spec_version: i64,
+    pub form: &'a str,
+    pub step_id: &'a str,
+    pub step_title: &'a str,
+    pub expected_files: &'a [String],
+    pub reason: &'a str,
+}
+
+pub fn plan_form_consistency_payload(input: PlanFormConsistencyPayloadInput<'_>) -> Value {
+    json!({
+        "project_id": input.project_id,
+        "plan_id": input.plan_id,
+        "project_spec_id": input.project_spec_id,
+        "project_spec_version": input.project_spec_version,
+        "form": input.form,
+        "step_id": input.step_id,
+        "step_title": input.step_title,
+        "expected_files": input.expected_files,
+        "reason": input.reason,
+        "source": "deterministic_step_form_check",
+        "blocking": false,
+        "annotation": true,
+        "createdAt": crate::db::now_ms(),
+    })
+}
+
 pub(crate) fn enrich_agency_payload(event_type: &str, payload: Value) -> Value {
     let Value::Object(mut map) = payload else {
         return payload;
@@ -351,7 +384,9 @@ fn infer_agency_component(event_type: &str, payload: &Value) -> Option<&'static 
         | PRD_PATCH_REJECTED_EVENT
         | PRD_AUTHORED_EVENT
         | PRD_EDITED_EVENT
-        | PRD_VERSION_CREATED_EVENT => return Some("plan"),
+        | PRD_VERSION_CREATED_EVENT
+        | PLAN_FORM_CONSISTENCY_EVENT => return Some("plan"),
+        PERMISSION_PRIMER_SHOWN_EVENT | PERMISSION_PRIMER_DISMISSED_EVENT => return Some("action"),
         "checkpoint_create" | "checkpoint_restore" => return Some("rollback"),
         "verify_start" | "verify_complete" => return Some("verify"),
         "tool_approve" | "tool_call_start" | "tool_call_denied" | "tool_call_blocked"

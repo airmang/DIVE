@@ -104,6 +104,7 @@ pub fn run() {
             ipc::openrouter_revoke_all,
             ipc::openrouter_list_keys,
             ipc::export_session,
+            ipc::log_ui_event,
             ipc::provocation_log_event,
             ipc::provocation_agent_evaluate,
             ipc::verification_coach_generate,

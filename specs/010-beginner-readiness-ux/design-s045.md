@@ -52,5 +52,5 @@ All new keys added to **both** `en.json` and `ko.json`; the S-043 `parity.test.t
 
 ## Out of scope / preserve
 - No quiz/badge/score/deck/lesson-track/separate intro screen; glosses are static field help, the primer is the existing opt-out-able guided-help coachmark (Constitution I/V).
-- The primer intentionally does not add an EventLog IPC (matches the shipped `PreviewOnboardingCoachmark`); EventLog integration is a possible follow-up, not this Stage.
+- The primer intentionally does not add an EventLog IPC (matches the shipped `PreviewOnboardingCoachmark`); EventLog integration is a possible follow-up, not this Stage. **CLOSED in S-049 (2026-07-02)**: a prefix-guarded `log_ui_event` IPC now records `permission_primer.shown` / `permission_primer.dismissed` (variant `generic|web_fetch`), fired shown-once (useRef-guarded) and on dismiss. See `design-s049.md`.
 - Do not hard-gate on non-empty folders (P1-07 note stays non-blocking, Constitution V). Preserve S-041–S-044 behavior. `--color-info` (S-044 deferral) unrelated.

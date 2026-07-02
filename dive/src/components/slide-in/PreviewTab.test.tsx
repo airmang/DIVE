@@ -280,6 +280,28 @@ describe("PreviewTab", () => {
     expect(useSlideInStore.getState().previewSession?.kind).toBe("dev_server");
   });
 
+  it("renders known reused-preview log codes as localized terminal text", async () => {
+    invokeMock.mockResolvedValueOnce(
+      readyPreviewResponse({
+        requestId: "preview-reused",
+        kind: "dev_server",
+        previewUrl: "http://127.0.0.1:5173/",
+        assetFilePath: null,
+        targetLabel: "http://127.0.0.1:5173/",
+        logs: ["running_server_detected"],
+        resolvedAt: 212,
+      }),
+    );
+
+    render(<PreviewTab />);
+    fireEvent.click(screen.getByTestId("preview-auto-connect"));
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("preview_open", expect.anything()));
+    const terminalTexts = useSlideInStore.getState().terminalLines.map((line) => line.text);
+    expect(terminalTexts).toContain("Connected to the running preview server.");
+    expect(terminalTexts).not.toContain("running_server_detected");
+  });
+
   it("opens a loopback URL and rejects external URLs before IPC", async () => {
     invokeMock.mockResolvedValueOnce(
       readyPreviewResponse({

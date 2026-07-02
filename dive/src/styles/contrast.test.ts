@@ -122,6 +122,8 @@ const lightCases: Case[] = [
   },
   { label: "chip success on success/10", fg: "success", bg: ["over", "success", 0.1, "bg-panel"] },
   { label: "badge warn on warn/15", fg: "warn", bg: ["over", "warn", 0.15, "bg-panel"] },
+  { label: "badge info on info/15", fg: "info", bg: ["over", "info", 0.15, "bg-panel"] },
+  { label: "chip info on info/10", fg: "info", bg: ["over", "info", 0.1, "bg-panel"] },
   { label: "badge danger on danger/15", fg: "danger", bg: ["over", "danger", 0.15, "bg-panel"] },
   { label: "chip danger on danger/10", fg: "danger", bg: ["over", "danger", 0.1, "bg-panel"] },
 ];
