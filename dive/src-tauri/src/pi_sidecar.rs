@@ -2329,6 +2329,13 @@ rl.on("line", (line) => {{
             run_mode_permission(AgentRunMode::Plan, false, None, Arc::new(AlwaysApproveHook)),
             None,
         );
+        assert!(
+            !plan_loop
+                .tool_defs_for_external_turn()
+                .iter()
+                .any(|tool| tool.name == "web_fetch"),
+            "Plan mode must not expose web_fetch to Pi"
+        );
         let plan_write = tool_call(
             "plan_write",
             "write_file",
@@ -2362,6 +2369,13 @@ rl.on("line", (line) => {{
                 Arc::new(AlwaysApproveHook),
             ),
             None,
+        );
+        assert!(
+            build_loop
+                .tool_defs_for_external_turn()
+                .iter()
+                .any(|tool| tool.name == "web_fetch"),
+            "Build mode should expose web_fetch to Pi"
         );
         let build_write = tool_call(
             "build_write_blocked",

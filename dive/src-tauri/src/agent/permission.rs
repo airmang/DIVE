@@ -181,6 +181,12 @@ impl AgentRunMode {
         plan_accepted: bool,
         active_step_id: Option<i64>,
     ) -> Option<String> {
+        if tool_name == "web_fetch" && self != Self::Build {
+            return Some(format!(
+                "run mode '{}' blocks web_fetch; web access is available only while building",
+                self.as_str()
+            ));
+        }
         let mutating_tool = matches!(
             tool_name,
             "write_file"
@@ -607,6 +613,31 @@ mod tests {
                 assert!(reason.contains("write_file"));
             }
             other => panic!("expected denial, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn web_fetch_is_denied_outside_build_mode_by_permission_backstop() {
+        for mode in [
+            AgentRunMode::Interview,
+            AgentRunMode::Plan,
+            AgentRunMode::Verify,
+        ] {
+            let hook = RunModePermissionHook::new(mode, Arc::new(AlwaysApproveHook));
+            let decision = hook
+                .intercept(
+                    &call("web_fetch"),
+                    RiskLevel::Danger,
+                    PermissionRequestContext::test(1),
+                )
+                .await;
+            match decision {
+                PermissionDecision::Denied(reason) => {
+                    assert!(reason.contains("web_fetch"));
+                    assert!(reason.contains("building"));
+                }
+                other => panic!("expected denial for {mode:?}, got {other:?}"),
+            }
         }
     }
 

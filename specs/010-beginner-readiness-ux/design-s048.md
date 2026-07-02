@@ -177,3 +177,54 @@ Per the adversarial audit, the guard is defeated if any of these is wrong. Each 
 6. **Process-tool egress hole** — close now (extend `classify_bash_command`) or track as a follow-up.
 7. **Bounds numbers** — recommend 3 MiB / connect 5 s / total 25 s / 3 redirects (audit M4 pinned exact values). Confirm.
 8. **Constitution amendment** — approve III → 1.1.0 ([adr-s048-network-egress.md](adr-s048-network-egress.md)) + confirm the 3 template reviews. **Blocking gate.**
+
+## Implementation validation (2026-07-02)
+
+Implemented in-place under the existing 008 runtime-tool boundary:
+
+- Rust `web_fetch` tool registered as `RiskLevel::Danger`, exposed to Pi only in
+  Build mode, with Plan/Interview/Verify permission backstops.
+- Deterministic `egress_guard` URL/IP checks: HTTPS-only default, credential and
+  dangerous-scheme rejection, non-canonical numeric literal rejection,
+  DNS-resolved IP denylist, mixed-answer fail-closed behavior, and IPv6 embedded
+  IPv4 coverage.
+- Pinned reqwest client path with a custom resolver, `redirect::Policy::none()`,
+  manual redirect loop, 5 s connect/read timeouts, 25 s total deadline, 3 MiB
+  streamed wire cap, `Accept-Encoding: identity`, and no arbitrary headers.
+- EventLog/export rows for `web_fetch.approval_requested`,
+  `web_fetch.result`, and `web_fetch.blocked`; query strings/raw paths and raw
+  response bodies are not persisted.
+- Frontend web-specific permission card and primer copy in ko/en showing host,
+  resolved IP, and unverified AI purpose; the generic delete/command Danger
+  primer is not shown for `web_fetch`.
+- Per-host session reuse opt-in is stored only after explicit approval and
+  suppresses the next card only when scheme/host/port/pinned IP/purpose still
+  match; Rust egress validation and DNS pinning still run on every fetch.
+- No `ExecutionEvidenceSource` web variant was added; `web_fetch` output remains
+  tool input only, with `isEvidence: false` for display/export clarity.
+
+Root adversarial-review hardening (2026-07-02, post-implementation): a 3-lens
+worktree-isolated security review (SSRF, human-agency/evidence, log-hygiene)
+returned zero SSRF and zero redaction findings; two low-severity agency-lens
+items were fixed in place — (1) the model/tool channel now strips
+`resolvedIp` as well as `errorClass` so the internal resolved IP is never
+surfaced to the LLM on a successful fetch (audit L2; the human card/EventLog
+still keep it); (2) the approval-prep DNS resolve is now bounded by a 5 s
+`RESOLVE_TIMEOUT` so a slow/hung authoritative DNS for a model-chosen host
+fails clear instead of stalling the turn outside the fetch deadline.
+
+Validation run:
+
+- `cargo fmt --check`
+- `cargo test web_fetch --lib`
+- `cargo test egress --lib`
+- `cargo test builtins_include_track0_tools_with_expected_risk --lib`
+- `cargo test pi_path_run_mode_gating_preserves_interview_plan_and_build_rules --lib`
+- `cargo test --features dev-mock --test tool_guard`
+- `cargo test --test export_jsonl export_distinguishes_008_runtime_events_and_redacts_outputs`
+- `pnpm typecheck`
+- `pnpm exec vitest run src/components/permission-card/PermissionCard.test.tsx src/i18n/parity.test.ts`
+
+Remaining out of scope per locked decision 6: the pre-existing process-tool
+plain-GET egress gap remains a tracked follow-up; this slice must not claim
+`web_fetch` is the only reachable egress path until that follow-up lands.

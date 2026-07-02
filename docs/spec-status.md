@@ -1,6 +1,6 @@
 # DIVE Spec Status
 
-**Last updated**: 2026-06-18
+**Last updated**: 2026-07-02
 
 This file prevents agents from treating old design notes as active product
 authority. The canonical DIVE v2 source of truth lives in `.specify/` and
@@ -56,6 +56,47 @@ authority. The canonical DIVE v2 source of truth lives in `.specify/` and
 | `specs/008-preview-terminal-runtime-tools/contracts/` | Canonical planning aid | Defines Preview, Project Command routing, Terminal Script, and EventLog/export contracts. |
 | `specs/008-preview-terminal-runtime-tools/quickstart.md` | Canonical planning aid | Defines validation scenarios and commands for 008. |
 | `specs/008-preview-terminal-runtime-tools/checklists/requirements.md` | Canonical planning aid | Validates 008 specification completeness before planning. |
+| `specs/010-beginner-readiness-ux/spec.md` | Canonical | Defines the post-rc.5 round-2 beginner-readiness/UX hardening scope (8 themes → Wily Stages S-041–S-048). |
+| `specs/010-beginner-readiness-ux/design-s041.md` … `design-s048.md` | Canonical planning aids | Per-stage designs for the eight 010 stages. |
+| `specs/010-beginner-readiness-ux/adr-s048-network-egress.md` | Accepted ADR | Constitution 1.0.0→1.1.0 amendment admitting the Rust-validated network-egress capability class (Principle III). |
+
+## 010 Implementation Status
+
+As of 2026-07-02, `specs/010-beginner-readiness-ux/` (post-rc.5 round-2
+beginner-readiness/UX hardening) is implemented by Wily Stages S-041 through
+S-048 on branch `010-beginner-readiness-ux`. Stages S-041 through S-047 each
+landed with local CI green plus a live re-QA pass on the rebuilt release app
+(evidence in `docs/qa/round2-live-qa-run-log.md`).
+
+| Wily Stage | Scope | Status |
+| --- | --- | --- |
+| S-041 | PRD interview honesty/dead-end fix, criterion scaffolding, confirmable-gate routing (theme 1) | Done |
+| S-042 | Anti-automation-bias hardening: offline verify-provocation, high-risk read gate, review-card honesty (theme 2) | Done |
+| S-043 | Korean-parity i18n sweep (theme 3) | Done |
+| S-044 | WCAG AA contrast + a11y semantics (theme 4) | Done |
+| S-045 | Beginner vocabulary & first-run framing, Safe/Warn/Danger primer (theme 5) | Done |
+| S-046 | Error/recovery legibility, loading states, composer gating (theme 6) | Done |
+| S-047 | Mandatory student architecture decision in the PRD interview (theme 7, owner-added) | Done |
+| S-048 | Supervised agent web access: DIVE-owned `web_fetch` + Rust egress guard under Constitution III(1.1.0) (theme 8, owner-added) | Done |
+
+S-048 security posture: `web_fetch` is the first SSRF-validated egress path —
+resolved-IP denylist including IPv6 embeddings (IPv4-mapped, NAT64, 6to4,
+Teredo), DNS-rebind pinning to the exact validated IP, a manual per-hop
+redirect re-validation loop (`redirect::Policy::none()`), 3 MiB on-the-wire /
+5 s connect / 25 s total-deadline bounds with decompression disabled, GET-only
+and https-only, `RiskLevel::Danger` with a web-specific beginner approval card
+(host + resolved IP as the trust anchor, model-authored purpose labeled
+unverified), Build-run-mode-only exposure with a permission backstop, and
+query-string-dropped/hashed-path EventLog export. Web content is agent input,
+never verification evidence: the closed `ExecutionEvidenceSource` set has no
+web variant.
+
+**Tracked follow-up (S-048 locked decision 6b — egress hardening)**: plain
+outbound GET via the process tool (`curl -o … https://x`, permitted by
+`classify_bash_command`) remains un-SSRF-guarded. Per Constitution III(1.1.0)
+it must be tightened or tracked; it is tracked here as an explicit follow-up,
+and `web_fetch` must not be described as the "only sanctioned egress" until
+that tightening lands.
 
 ## 008 Implementation Status
 

@@ -43,6 +43,9 @@ pub const PROJECT_COMMAND_RESULT_EVENT: &str = "project_command.result";
 pub const TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT: &str = "terminal_script.approval_requested";
 pub const TERMINAL_SCRIPT_RESULT_EVENT: &str = "terminal_script.result";
 pub const TOOL_APPROVAL_STALE_EVENT: &str = "tool_approval.stale";
+pub const WEB_FETCH_APPROVAL_REQUESTED_EVENT: &str = "web_fetch.approval_requested";
+pub const WEB_FETCH_RESULT_EVENT: &str = "web_fetch.result";
+pub const WEB_FETCH_BLOCKED_EVENT: &str = "web_fetch.blocked";
 
 static SECRET_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -133,6 +136,79 @@ pub fn terminal_script_result_payload(
         "stderrSummary": full.and_then(|value| value.get("stderr")).and_then(Value::as_str).unwrap_or(""),
         "truncated": full.and_then(|value| value.get("truncated")).and_then(Value::as_bool).unwrap_or(false),
         "resolvedAt": crate::db::now_ms(),
+    })
+}
+
+pub fn web_fetch_approval_requested_payload(
+    tool_call_id: &str,
+    session_id: i64,
+    card_id: Option<i64>,
+    args: &Value,
+) -> Value {
+    let attempt = crate::tools::web_fetch::attempt_log_from_input(args);
+    let approval = args
+        .get("web_fetch_approval")
+        .cloned()
+        .unwrap_or(Value::Null);
+    json!({
+        "toolCallId": tool_call_id,
+        "sessionId": session_id,
+        "cardId": card_id,
+        "url": attempt.url,
+        "purpose": attempt.purpose,
+        "approval": approval,
+        "method": "GET",
+        "requestedAt": crate::db::now_ms(),
+    })
+}
+
+pub fn web_fetch_result_payload(
+    tool_call_id: &str,
+    status: &str,
+    success: bool,
+    summary: &str,
+    full: Option<&Value>,
+) -> Value {
+    let body_snippet_hash = full
+        .and_then(|value| value.get("bodySnippet"))
+        .and_then(Value::as_str)
+        .map(hash_text);
+    json!({
+        "toolCallId": tool_call_id,
+        "status": status,
+        "success": success,
+        "statusCode": full.and_then(|value| value.get("statusCode")).and_then(Value::as_u64),
+        "summary": summary,
+        "host": full.and_then(|value| value.get("host")).and_then(Value::as_str).unwrap_or(""),
+        "resolvedIp": full.and_then(|value| value.get("resolvedIp")).and_then(Value::as_str).unwrap_or(""),
+        "bytesOnWire": full.and_then(|value| value.get("bytesOnWire")).and_then(Value::as_u64).unwrap_or(0),
+        "elapsedMs": full.and_then(|value| value.get("elapsedMs")).and_then(Value::as_u64).unwrap_or(0),
+        "errorClass": full.and_then(|value| value.get("errorClass")).and_then(Value::as_str),
+        "unavailableReason": full.and_then(|value| value.get("unavailableReason")).and_then(Value::as_str),
+        "bodySnippetHash": body_snippet_hash,
+        "bodyPersisted": false,
+        "isEvidence": false,
+        "resolvedAt": crate::db::now_ms(),
+    })
+}
+
+pub fn web_fetch_blocked_payload(
+    tool_call_id: &str,
+    session_id: i64,
+    args: &Value,
+    reason: &crate::tools::egress_guard::EgressBlockReason,
+) -> Value {
+    let attempt = crate::tools::web_fetch::attempt_log_from_input(args);
+    json!({
+        "toolCallId": tool_call_id,
+        "sessionId": session_id,
+        "url": attempt.url,
+        "purpose": attempt.purpose,
+        "status": "blocked",
+        "errorClass": reason.code(),
+        "unavailableReason": reason.unavailable_reason().as_str(),
+        "message": reason.safe_agent_message(),
+        "blockedAt": crate::db::now_ms(),
     })
 }
 

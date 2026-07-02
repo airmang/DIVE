@@ -1280,6 +1280,22 @@
       "approve": "Allow high-risk action",
       "diff_ack_label": "I have reviewed this change (diff)"
     },
+    "web": {
+      "title": "The AI wants to read something on the internet",
+      "frame": "The AI wants to read from the address below. You decide whether to allow it.",
+      "host_label": "Address (website) it will visit",
+      "ip_label": "Where it actually connects",
+      "purpose_label": "Reason the AI gave (for reference, unverified)",
+      "confirm": "I checked this address and allow the AI to read from it",
+      "allow": "Allow reading this address",
+      "deny": "Don't allow",
+      "reuse_optin": "Don't ask again for this address during this task"
+    },
+    "web_primer": {
+      "title": "The AI can look things up online",
+      "body": "The AI can now read needed information from the internet. You approve each address, and DIVE blocks unsafe ones first.",
+      "dismiss": "Got it"
+    },
     "primer": {
       "title": "How permissions work",
       "intro": "DIVE always asks you before it changes a file or runs a command.",
@@ -1450,6 +1466,10 @@
           "title": "Run a Terminal Script",
           "body": "DIVE wants to run shell-style verification. This is separate from Project Command, always high risk, and requires one-shot approval."
         },
+        "web_fetch": {
+          "title": "Read a web page",
+          "body": "DIVE wants to fetch one public web address as reference material for the build. The result is agent input, not verification evidence."
+        },
         "bash": {
           "title": "Run a shell command",
           "body": "DIVE wants to run this through the shell. Shell commands are powerful, so blocked patterns still cannot run even if approved."
@@ -1475,6 +1495,7 @@
         "allow_folder": "Allow the folder",
         "deny_wrong_location": "Deny if the location looks wrong",
         "allow_command": "Allow the command",
+        "allow_web_read": "Allow the web read",
         "deny_ask_purpose": "Deny and ask what it is for",
         "edit_command_first": "Edit the command first",
         "deny_ask_safer_command": "Deny and ask for a safer command",
@@ -1488,6 +1509,13 @@
     "manual_saved": "Checkpoint saved",
     "manual_label": "Manual save",
     "manual_label_with_card": "Manual save — {{title}}"
+  },
+  "web": {
+    "unavailable": {
+      "offline": "You're not connected to the internet. Check your connection and try again.",
+      "timeout": "It took too long to respond, so it stopped. Try again in a moment.",
+      "blocked": "The address the AI tried to visit wasn't safe, so DIVE blocked it. There's nothing you need to fix."
+    }
   },
   "slide_in": {
     "tabs": {

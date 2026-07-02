@@ -16,6 +16,7 @@ type PersistedUiPreferences = Partial<{
   quickIntakeEnabled: boolean;
   previewOnboardingDismissed: boolean;
   permissionCardPrimerDismissed: boolean;
+  webPermissionCardPrimerDismissed: boolean;
   previewModeByProject: Record<number, ProjectPreviewModeMemory>;
 }>;
 
@@ -26,6 +27,7 @@ interface UiPreferencesStore {
   quickIntakeEnabled: boolean;
   previewOnboardingDismissed: boolean;
   permissionCardPrimerDismissed: boolean;
+  webPermissionCardPrimerDismissed: boolean;
   previewModeByProject: Record<number, ProjectPreviewModeMemory>;
   setTutorialEnabled: (enabled: boolean) => void;
   setEnableProvocationCards: (enabled: boolean) => void;
@@ -33,6 +35,7 @@ interface UiPreferencesStore {
   setQuickIntakeEnabled: (enabled: boolean) => void;
   dismissPreviewOnboarding: () => void;
   dismissPermissionCardPrimer: () => void;
+  dismissWebPermissionCardPrimer: () => void;
   setProjectPreviewMode: (projectId: number, entry: ProjectPreviewModeMemory) => void;
 }
 
@@ -79,6 +82,7 @@ function normalizePersistedPreferences(value: unknown): PersistedUiPreferences {
     quickIntakeEnabled: value.quickIntakeEnabled === true,
     previewOnboardingDismissed: value.previewOnboardingDismissed === true,
     permissionCardPrimerDismissed: value.permissionCardPrimerDismissed === true,
+    webPermissionCardPrimerDismissed: value.webPermissionCardPrimerDismissed === true,
     previewModeByProject: normalizePreviewModeByProject(value.previewModeByProject),
   };
 }
@@ -92,6 +96,7 @@ export const useUiPreferencesStore = create<UiPreferencesStore>()(
       quickIntakeEnabled: false,
       previewOnboardingDismissed: false,
       permissionCardPrimerDismissed: false,
+      webPermissionCardPrimerDismissed: false,
       previewModeByProject: {},
       setTutorialEnabled: (tutorialEnabled) => set({ tutorialEnabled }),
       setEnableProvocationCards: (enableProvocationCards) => set({ enableProvocationCards }),
@@ -99,6 +104,7 @@ export const useUiPreferencesStore = create<UiPreferencesStore>()(
       setQuickIntakeEnabled: (quickIntakeEnabled) => set({ quickIntakeEnabled }),
       dismissPreviewOnboarding: () => set({ previewOnboardingDismissed: true }),
       dismissPermissionCardPrimer: () => set({ permissionCardPrimerDismissed: true }),
+      dismissWebPermissionCardPrimer: () => set({ webPermissionCardPrimerDismissed: true }),
       setProjectPreviewMode: (projectId, entry) => {
         if (!Number.isInteger(projectId)) return;
         const normalizedEntry = normalizePreviewModeMemoryEntry(entry);
@@ -145,4 +151,8 @@ export function usePreviewOnboardingDismissed(): boolean {
 
 export function usePermissionCardPrimerDismissed(): boolean {
   return useUiPreferencesStore((state) => state.permissionCardPrimerDismissed);
+}
+
+export function useWebPermissionCardPrimerDismissed(): boolean {
+  return useUiPreferencesStore((state) => state.webPermissionCardPrimerDismissed);
 }

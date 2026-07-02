@@ -3,6 +3,7 @@ import { useT } from "../../i18n";
 import {
   usePermissionCardPrimerDismissed,
   useUiPreferencesStore,
+  useWebPermissionCardPrimerDismissed,
 } from "../../stores/ui-preferences";
 import { Button } from "../ui/button";
 import { LearningHint } from "../ui/learning-hint";
@@ -53,6 +54,39 @@ export function PermissionCardPrimer() {
             onClick={dismissPrimer}
             aria-label={t("permission_card.primer.dismiss_aria")}
             data-testid="permission-card-primer-dismiss"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden />
+          </Button>
+        </div>
+      </LearningHint>
+    </div>
+  );
+}
+
+export function WebFetchPermissionCardPrimer() {
+  const t = useT();
+  const tutorialEnabled = useUiPreferencesStore((state) => state.tutorialEnabled);
+  const dismissed = useWebPermissionCardPrimerDismissed();
+  const dismissPrimer = useUiPreferencesStore((state) => state.dismissWebPermissionCardPrimer);
+
+  if (!tutorialEnabled || dismissed) return null;
+
+  return (
+    <div data-testid="web-permission-card-primer">
+      <LearningHint className="mb-2 rounded-md border border-border bg-bg px-3 py-2 text-left">
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-fg">{t("permission_card.web_primer.title")}</p>
+            <p className="mt-1">{t("permission_card.web_primer.body")}</p>
+          </div>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 shrink-0 text-fg-muted"
+            onClick={dismissPrimer}
+            aria-label={t("permission_card.web_primer.dismiss")}
+            data-testid="web-permission-card-primer-dismiss"
           >
             <X className="h-3.5 w-3.5" aria-hidden />
           </Button>

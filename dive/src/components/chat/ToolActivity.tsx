@@ -5,10 +5,12 @@ import {
   ChevronDown,
   Eye,
   FileText,
+  Globe2,
   LifeBuoy,
   Loader2,
   SquareTerminal,
   Trash2,
+  WifiOff,
   Wrench,
   X,
 } from "lucide-react";
@@ -27,7 +29,10 @@ import type {
   PermissionCardData,
 } from "../permission-card";
 import { formatRaw } from "../permission-card/explain";
-import { PermissionCardPrimer } from "../permission-card/PermissionCardPrimer";
+import {
+  PermissionCardPrimer,
+  WebFetchPermissionCardPrimer,
+} from "../permission-card/PermissionCardPrimer";
 import { McpProvenanceBadge } from "../mcp/McpProvenanceBadge";
 import { useT } from "../../i18n";
 import type {
@@ -208,6 +213,8 @@ function toolIcon(toolName: string): LucideIcon {
     case "bash":
     case "run_process":
       return SquareTerminal;
+    case "web_fetch":
+      return Globe2;
     default:
       return Wrench;
   }
@@ -221,6 +228,34 @@ function runtimeActionLabelKey(action: ToolCallMessageData["runtimeAction"]): st
       return "runtime.actions.project_command";
     case "terminal_script":
       return "runtime.actions.terminal_script";
+    default:
+      return null;
+  }
+}
+
+type WebUnavailableChipKind = "offline" | "timeout" | "blocked";
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function webUnavailableChipKind(
+  call: ToolCallMessageData,
+  result: ToolResultMessageData | undefined,
+): WebUnavailableChipKind | null {
+  if (call.toolName !== "web_fetch" || result === undefined || result.success) return null;
+  const full = objectRecord(result.full);
+  const reason = typeof full?.unavailableReason === "string" ? full.unavailableReason : null;
+  switch (reason) {
+    case "offline":
+      return "offline";
+    case "timeout":
+      return "timeout";
+    case "blocked_target":
+    case "egress_denied":
+      return "blocked";
     default:
       return null;
   }
@@ -318,7 +353,11 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
               <span className="font-semibold">↳ {t("tool_call.why_label")}</span> {reasoning.text}
             </p>
           ) : null}
-          <PermissionCardPrimer />
+          {call.toolName === "web_fetch" ? (
+            <WebFetchPermissionCardPrimer />
+          ) : (
+            <PermissionCardPrimer />
+          )}
           <PermissionCard
             card={card}
             onApprove={handleApprove}
@@ -413,6 +452,8 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
             : t("tool_call.status.approved");
   const runtimeAction = result?.runtimeAction ?? call.runtimeAction;
   const runtimeLabelKey = runtimeActionLabelKey(runtimeAction);
+  const webUnavailableKind = webUnavailableChipKind(call, result);
+  const WebUnavailableIcon = webUnavailableKind === "offline" ? WifiOff : Globe2;
 
   return (
     <article
@@ -455,6 +496,18 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
             <ChevronDown className="h-3.5 w-3.5 flex-none text-fg-subtle" aria-hidden />
           ) : null}
         </div>
+
+        {webUnavailableKind ? (
+          <div className="pb-1 pl-8">
+            <span
+              className="inline-flex max-w-full items-center gap-1 rounded-sm border border-accent/30 bg-accent/10 px-2 py-1 text-[11px] font-medium text-fg"
+              data-testid="web-unavailable-chip"
+            >
+              <WebUnavailableIcon className="h-3 w-3 shrink-0 text-accent" aria-hidden />
+              <span>{t(`web.unavailable.${webUnavailableKind}`)}</span>
+            </span>
+          </div>
+        ) : null}
 
         {/* S-046 (P2-19): surface recovery contextually next to the failed artifact,
             so a beginner isn't left to discover the passive top-bar badge. */}

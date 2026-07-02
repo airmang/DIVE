@@ -7,7 +7,7 @@ use super::{
     delete_file::DeleteFile, edit_file::EditFile, list_dir::ListDir, mkdir::Mkdir,
     multi_replace::MultiReplace, read_file::ReadFile, run_process::RunProcess,
     runtime::PreviewOpen, search_files::SearchFiles, terminal_script::RunTerminalScript,
-    write_file::WriteFile, Tool,
+    web_fetch::WebFetch, write_file::WriteFile, Tool,
 };
 
 /// Registry of built-in tools indexed by name. Tools are `Arc<dyn Tool>` so
@@ -37,6 +37,7 @@ impl ToolRegistry {
         r.register(Arc::new(RunProcess));
         r.register(Arc::new(PreviewOpen));
         r.register(Arc::new(RunTerminalScript));
+        r.register(Arc::new(WebFetch::new()));
         r
     }
 
@@ -56,6 +57,18 @@ impl ToolRegistry {
     pub fn tool_defs(&self) -> Vec<ToolDef> {
         self.tools
             .values()
+            .map(|t| ToolDef {
+                name: t.name().into(),
+                description: t.description().into(),
+                parameters: t.input_schema(),
+            })
+            .collect()
+    }
+
+    pub fn tool_defs_filtered(&self, allow_web_fetch: bool) -> Vec<ToolDef> {
+        self.tools
+            .values()
+            .filter(|tool| allow_web_fetch || tool.name() != "web_fetch")
             .map(|t| ToolDef {
                 name: t.name().into(),
                 description: t.description().into(),
@@ -91,6 +104,7 @@ mod tests {
             ("run_process", RiskLevel::Danger),
             ("preview_open", RiskLevel::Safe),
             ("run_terminal_script", RiskLevel::Danger),
+            ("web_fetch", RiskLevel::Danger),
         ];
         assert_eq!(registry.list().len(), expected.len());
         for (name, risk) in expected {

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { useLocaleStore } from "../../i18n";
 import { useUiPreferencesStore } from "../../stores/ui-preferences";
-import { PermissionCardPrimer } from "./PermissionCardPrimer";
+import { PermissionCardPrimer, WebFetchPermissionCardPrimer } from "./PermissionCardPrimer";
 
 describe("PermissionCardPrimer (P1-19)", () => {
   beforeEach(() => {
@@ -13,6 +13,7 @@ describe("PermissionCardPrimer (P1-19)", () => {
     useUiPreferencesStore.setState({
       tutorialEnabled: true,
       permissionCardPrimerDismissed: false,
+      webPermissionCardPrimerDismissed: false,
     });
   });
 
@@ -50,6 +51,7 @@ describe("PermissionCardPrimer (P1-19)", () => {
       useUiPreferencesStore.setState({
         tutorialEnabled: false,
         permissionCardPrimerDismissed,
+        webPermissionCardPrimerDismissed: false,
       });
 
       render(<PermissionCardPrimer />);
@@ -58,4 +60,29 @@ describe("PermissionCardPrimer (P1-19)", () => {
       expect(screen.queryByTestId("permission-card-primer-dismiss")).toBeNull();
     },
   );
+
+  it("shows the web primer even after the generic permission primer was dismissed", () => {
+    useUiPreferencesStore.setState({
+      permissionCardPrimerDismissed: true,
+      webPermissionCardPrimerDismissed: false,
+    });
+
+    render(<WebFetchPermissionCardPrimer />);
+
+    expect(screen.getByTestId("web-permission-card-primer")).toBeTruthy();
+    expect(screen.getByText("The AI can look things up online")).toBeTruthy();
+  });
+
+  it("dismisses the web primer with its own persisted flag", () => {
+    const { rerender } = render(<WebFetchPermissionCardPrimer />);
+
+    fireEvent.click(screen.getByTestId("web-permission-card-primer-dismiss"));
+
+    expect(useUiPreferencesStore.getState().webPermissionCardPrimerDismissed).toBe(true);
+    expect(useUiPreferencesStore.getState().permissionCardPrimerDismissed).toBe(false);
+    expect(screen.queryByTestId("web-permission-card-primer")).toBeNull();
+
+    rerender(<WebFetchPermissionCardPrimer />);
+    expect(screen.queryByTestId("web-permission-card-primer")).toBeNull();
+  });
 });
