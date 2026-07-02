@@ -355,7 +355,7 @@ function DashboardProjectItem({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-fg">{project.project_name}</div>
-          <div className="truncate text-[10px] text-fg-muted">{project.project_path}</div>
+          <div className="truncate text-xs text-fg-muted">{project.project_path}</div>
         </div>
         <Badge variant={statusVariant(project)} className="shrink-0">
           {statusText}

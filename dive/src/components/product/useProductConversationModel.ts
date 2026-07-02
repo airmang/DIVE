@@ -22,6 +22,10 @@ export function useProductConversationModel(input: {
   currentSessionId: number | null;
   currentProjectName: string | null;
   hasConnectedProvider: boolean;
+  runtimeUnavailable?: boolean;
+  runtimeReason?: string;
+  runtimeActionLabel?: string;
+  runtimeOnAction?: Action;
   providerDoneHint: string | null;
   cardCount: number;
   currentCard: Pick<CardTileData, "state" | "summary"> | null;
@@ -70,6 +74,10 @@ export function useProductConversationModel(input: {
         currentProjectId: input.currentProjectId,
         currentSessionId: input.currentSessionId,
         hasConnectedProvider: input.hasConnectedProvider,
+        runtimeUnavailable: input.runtimeUnavailable,
+        runtimeReason: input.runtimeReason,
+        runtimeActionLabel: input.runtimeActionLabel,
+        runtimeOnAction: input.runtimeOnAction,
         onEmptyStateAction: input.onEmptyStateAction,
         onOpenSettings: input.onOpenSettings,
         t: input.t,
@@ -78,6 +86,10 @@ export function useProductConversationModel(input: {
       input.currentProjectId,
       input.currentSessionId,
       input.hasConnectedProvider,
+      input.runtimeUnavailable,
+      input.runtimeReason,
+      input.runtimeActionLabel,
+      input.runtimeOnAction,
       input.isDemoRoute,
       input.onEmptyStateAction,
       input.onOpenSettings,

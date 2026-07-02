@@ -12,6 +12,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { useProjectSessionStore } from "../../stores/project-session";
 import { isTauriEnv, pickFolder } from "../../lib/tauri-dialog";
+import { classifyProjectCreateError } from "../../lib/error-classify";
 import { useT } from "../../i18n";
 
 interface Props {
@@ -62,7 +63,8 @@ export function NewProjectDialog({ open, onOpenChange }: Props) {
         setPath("");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      // Show a deterministic plain-Korean message, never the raw Rust error (P1-06).
+      setError(t(classifyProjectCreateError(err).bodyKey));
     } finally {
       setSubmitting(false);
     }
@@ -109,8 +111,17 @@ export function NewProjectDialog({ open, onOpenChange }: Props) {
               </Button>
             </div>
             {!browseSupported ? (
-              <p className="text-[10px] text-fg-muted" data-testid="np-browse-unavailable">
+              <p className="text-[11px] text-fg-muted" data-testid="np-browse-unavailable">
                 {t("new_project.browse_unavailable")}
+              </p>
+            ) : null}
+            {/* S-045 (P1-07): recommend a new empty folder; work stays local + reversible. */}
+            <p className="text-xs text-fg-muted" data-testid="np-folder-hint">
+              {t("new_project.folder_hint")}
+            </p>
+            {isLikelyRootFolder(path) ? (
+              <p className="text-[11px] text-warn" data-testid="np-folder-root-note">
+                {t("new_project.folder_root_note")}
               </p>
             ) : null}
           </div>
@@ -157,6 +168,25 @@ export function NewProjectDialog({ open, onOpenChange }: Props) {
 function inferName(path: string): string {
   const parts = path.split(/[\\/]+/).filter(Boolean);
   return parts[parts.length - 1] ?? "project";
+}
+
+/**
+ * Lightweight, non-blocking heuristic: does the path look like the home root or
+ * a common personal folder (Desktop/Documents/Downloads) a beginner shouldn't
+ * scope DIVE over? Never a hard gate (Constitution V) — only surfaces a hint.
+ */
+function isLikelyRootFolder(raw: string): boolean {
+  const trimmed = raw.trim().replace(/[\\/]+$/, "");
+  if (!trimmed) return false;
+  const parts = trimmed.split(/[\\/]+/).filter(Boolean);
+  const last = parts[parts.length - 1]?.toLowerCase();
+  if (last === "desktop" || last === "documents" || last === "downloads") return true;
+  const lower = parts.map((segment) => segment.toLowerCase());
+  const usersIdx = lower.indexOf("users");
+  if (usersIdx >= 0 && parts.length === usersIdx + 2) return true;
+  const homeIdx = lower.indexOf("home");
+  if (homeIdx >= 0 && parts.length === homeIdx + 2) return true;
+  return false;
 }
 
 export default NewProjectDialog;

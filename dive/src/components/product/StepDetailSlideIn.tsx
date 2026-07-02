@@ -817,7 +817,17 @@ export function StepDetailSlideIn({
     verifyLog?.test_result,
   ]);
   const [provocationCards, setProvocationCards] = useState<ProvocationCard[]>([]);
-  const [handledProvocationCardIds, setHandledProvocationCardIds] = useState<Set<string>>(
+  // S-044 (P2-31): deterministic pending flag while the async supervisor eval
+  // is in flight, so the review stage shows a "checking…" status instead of a
+  // silent pop-in that reflows the stepper total under the user.
+  const [supervisorEvalPending, setSupervisorEvalPending] = useState(false);
+  // A card is "engaged" only when the student actually looked at the artifact
+  // (open diff/preview/run/tests) or recorded a reason — not when they merely
+  // dismiss or mark it irrelevant. Only engagement counts as review evidence, so
+  // dismissing a card no longer fakes the stepper's "Review response" stage as
+  // completed (P2-14). Dismissal visibility + its EventLog record stay owned by
+  // ProvocationCardHost.
+  const [engagedProvocationCardIds, setEngagedProvocationCardIds] = useState<Set<string>>(
     () => new Set(),
   );
 
@@ -831,6 +841,7 @@ export function StepDetailSlideIn({
     const requestKey = JSON.stringify(requests);
     if (requests.length === 0) {
       lastSupervisorEvaluationKeyRef.current = "";
+      setSupervisorEvalPending(false);
       setProvocationCards((current) => (current.length > 0 ? [] : current));
       return () => {
         cancelled = true;
@@ -843,6 +854,7 @@ export function StepDetailSlideIn({
     }
     lastSupervisorEvaluationKeyRef.current = requestKey;
 
+    setSupervisorEvalPending(true);
     setProvocationCards((current) => (current.length > 0 ? [] : current));
     void (async () => {
       for (const request of requests) {
@@ -850,15 +862,20 @@ export function StepDetailSlideIn({
         if (cancelled) return;
         if (response.status === "shown") {
           setProvocationCards([response.card]);
+          setSupervisorEvalPending(false);
           return;
         }
       }
       setProvocationCards((current) => (current.length > 0 ? [] : current));
+      setSupervisorEvalPending(false);
     })().catch((err) => {
       if (import.meta.env.DEV) {
         console.warn("supervisor evaluation failed:", err);
       }
-      if (!cancelled) setProvocationCards((current) => (current.length > 0 ? [] : current));
+      if (!cancelled) {
+        setProvocationCards((current) => (current.length > 0 ? [] : current));
+        setSupervisorEvalPending(false);
+      }
     });
 
     return () => {
@@ -867,7 +884,7 @@ export function StepDetailSlideIn({
   }, [diffReadySupervisorRequest, retryLoopSupervisorRequest, supervisorEvaluationRequest]);
   useEffect(() => {
     const currentCardIds = new Set(provocationCards.map((card) => card.id));
-    setHandledProvocationCardIds((current) => {
+    setEngagedProvocationCardIds((current) => {
       const next = new Set([...current].filter((id) => currentCardIds.has(id)));
       return next.size === current.size ? current : next;
     });
@@ -886,7 +903,7 @@ export function StepDetailSlideIn({
   const unexpectedHighRiskFiles = highRiskFilesFromCards(decisionProvocationCards);
   const reviewCardsEvidenced =
     provocationCards.length > 0 &&
-    provocationCards.every((card) => handledProvocationCardIds.has(card.id));
+    provocationCards.every((card) => engagedProvocationCardIds.has(card.id));
   const verificationStatuses = provocationContext
     ? deriveVerificationStatuses(provocationContext)
     : [];
@@ -959,8 +976,8 @@ export function StepDetailSlideIn({
         note: reason?.trim() || null,
       }),
   });
-  const markProvocationCardHandled = (card: ProvocationCard) => {
-    setHandledProvocationCardIds((current) => {
+  const markProvocationCardEngaged = (card: ProvocationCard) => {
+    setEngagedProvocationCardIds((current) => {
       if (current.has(card.id)) return current;
       return new Set(current).add(card.id);
     });
@@ -970,7 +987,10 @@ export function StepDetailSlideIn({
     card: ProvocationCard,
     reason?: string,
   ) => {
-    markProvocationCardHandled(card);
+    // Taking a card action means looking at the artifact (open diff/preview/run/
+    // tests) or recording a reason — real engagement, so it counts as review
+    // evidence. Dismiss / mark-irrelevant don't reach here.
+    markProvocationCardEngaged(card);
     handleProvocationAction(action, card, reason);
   };
   const primaryVerificationAction: VerificationFocusAction | null = step
@@ -1112,8 +1132,28 @@ export function StepDetailSlideIn({
             context={provocationContext ?? undefined}
             mode={provocation?.mode ?? "standard"}
             onAction={handleReviewCardAction}
-            onHandled={markProvocationCardHandled}
           />
+        ),
+      });
+    } else if (supervisorEvalPending) {
+      // S-044 (P2-31): reserve the review stage with a deterministic pending
+      // status while the supervisor eval runs, so the stepper total does not
+      // silently jump when a card resolves. Real async status, not a fake card.
+      reviewStages.push({
+        id: "review-card-pending",
+        marker: "3",
+        title: t("roadmap.step_detail.stepper_stage_review_title"),
+        evidenced: false,
+        summary: t("roadmap.step_detail.stepper_review_eval_pending"),
+        content: (
+          <p
+            className="text-xs text-fg-muted"
+            role="status"
+            aria-live="polite"
+            data-testid="review-eval-pending"
+          >
+            {t("roadmap.step_detail.stepper_review_eval_pending")}
+          </p>
         ),
       });
     }

@@ -128,6 +128,10 @@ export function PlanMiniMap({ steps, currentStepId, onSelectStep }: PlanMiniMapP
                 onSelectStep(point.item.step.id);
               }}
             >
+              {/* S-044 (P2-25): SVG-paintable focus ring — Tailwind ring-*
+                  (box-shadow) does not paint on <g>, so the current node showed
+                  no focus feedback. This halo shows on every focused node. */}
+              <circle className="plan-minimap-focus-halo" cx={point.x} cy={point.y} r="17" />
               <circle
                 cx={point.x}
                 cy={point.y}

@@ -27,6 +27,14 @@ export interface ToolExplanation {
     outputLimit: number | null;
     riskFactors: string[];
   };
+  webFetch?: {
+    url: string;
+    host: string;
+    resolvedIp: string | null;
+    port: number | null;
+    purpose: string | null;
+    queryDropped: boolean;
+  };
   commandWillChangeFiles: "no" | "maybe" | "yes";
   riskLabel: string;
   riskBody: string;
@@ -85,6 +93,31 @@ function terminalScriptDetails(args: ArgsObject): ToolExplanation["terminalScrip
     timeoutSec: numberValue(args, "timeout_sec"),
     outputLimit: numberValue(args, "output_limit"),
     riskFactors,
+  };
+}
+
+function objectValue(args: ArgsObject, key: string): ArgsObject | null {
+  const value = args[key];
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as ArgsObject)
+    : null;
+}
+
+function boolValue(args: ArgsObject, key: string): boolean {
+  return args[key] === true;
+}
+
+function webFetchDetails(args: ArgsObject): ToolExplanation["webFetch"] {
+  const url = stringValue(args, "url");
+  if (!url) return undefined;
+  const approval = objectValue(args, "web_fetch_approval");
+  return {
+    url,
+    host: stringValue(approval ?? {}, "host") ?? url,
+    resolvedIp: stringValue(approval ?? {}, "pinnedIp"),
+    port: numberValue(approval ?? {}, "port"),
+    purpose: stringValue(args, "purpose") ?? stringValue(approval ?? {}, "purpose"),
+    queryDropped: boolValue(approval ?? {}, "queryDropped"),
   };
 }
 
@@ -233,6 +266,18 @@ export function explainTool(
         terminalScript: terminalScriptDetails(objectArgs),
         commandWillChangeFiles: "maybe",
         choices: choices(t, ["allow_command", "deny_ask_safer_command", "edit_command_first"]),
+        patchPreviewExpected: false,
+      };
+    case "web_fetch":
+      return {
+        ...baseRisk,
+        actionTitle: t("permission_card.explain.tools.web_fetch.title"),
+        actionBody: t("permission_card.explain.tools.web_fetch.body"),
+        files: [],
+        command: null,
+        webFetch: webFetchDetails(objectArgs),
+        commandWillChangeFiles: "no",
+        choices: choices(t, ["allow_web_read", "deny_ask_purpose"]),
         patchPreviewExpected: false,
       };
     case "bash":

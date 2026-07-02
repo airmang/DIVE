@@ -191,7 +191,7 @@ export function CodexOAuthDialog({ open, onOpenChange, onConnected, baseAuthUrl 
             </div>
             <div className="flex flex-col gap-2 border-t pt-3">
               <label className="text-xs font-medium">
-                code
+                {t("codex_oauth.code_label")}
                 <Input
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
@@ -202,7 +202,7 @@ export function CodexOAuthDialog({ open, onOpenChange, onConnected, baseAuthUrl 
                 />
               </label>
               <label className="text-xs font-medium">
-                state
+                {t("codex_oauth.state_label")}
                 <Input
                   value={returnedState}
                   onChange={(e) => setReturnedState(e.target.value)}

@@ -410,3 +410,51 @@ describe("PlanDraftApprovalScreen discard confirmation (R8/D-37)", () => {
     expect(props.onDiscard).not.toHaveBeenCalled();
   });
 });
+
+describe("PlanDraftApprovalScreen plan-critique gate (tutorial mode)", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: "ko" });
+    useUiPreferencesStore.setState({ tutorialEnabled: true });
+    invokeMock.mockReset();
+    delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  });
+
+  afterEach(() => cleanup());
+
+  const approveButton = () => screen.getByRole("button", { name: "승인" }) as HTMLButtonElement;
+
+  it("blocks approval until a one-line critique is recorded on the 'none' path (P1-14)", () => {
+    renderScreen();
+    // Unset critique → blocked, no rubber-stamp.
+    expect(approveButton().disabled).toBe(true);
+
+    // "있음 — 변경 요청" keeps it blocked and shows no note field.
+    fireEvent.click(screen.getByTestId("plan-critique-found"));
+    expect(approveButton().disabled).toBe(true);
+    expect(screen.queryByTestId("plan-critique-none-note")).toBeNull();
+
+    // "없음 — 승인 가능" reveals the note field but stays blocked until authored.
+    fireEvent.click(screen.getByTestId("plan-critique-none"));
+    const note = screen.getByTestId("plan-critique-none-note") as HTMLInputElement;
+    expect(approveButton().disabled).toBe(true);
+
+    fireEvent.change(note, { target: { value: "ok" } });
+    expect(approveButton().disabled).toBe(true); // under the 4-char minimum
+
+    fireEvent.change(note, { target: { value: "단계가 충분함" } });
+    expect(approveButton().disabled).toBe(false);
+  });
+
+  it("passes the trimmed critique resolution to onApprove (P1-15)", () => {
+    const props = renderScreen();
+    fireEvent.click(screen.getByTestId("plan-critique-none"));
+    fireEvent.change(screen.getByTestId("plan-critique-none-note"), {
+      target: { value: "  단계가 충분함  " },
+    });
+    fireEvent.click(approveButton());
+    expect(props.onApprove).toHaveBeenCalledWith({
+      response: "none",
+      note: "단계가 충분함",
+    });
+  });
+});

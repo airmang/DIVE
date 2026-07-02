@@ -32,6 +32,9 @@ pub const PLAN_ADJUSTMENT_DISMISSED_EVENT: &str = "plan_adjustment_dismissed";
 pub const PLAN_STEP_APPENDED_EVENT: &str = "plan_step_appended";
 pub const PLAN_STEP_CHANGED_EVENT: &str = "plan_step_changed";
 pub const PLAN_STEP_RETIRED_EVENT: &str = "plan_step_retired";
+pub const PLAN_FORM_CONSISTENCY_EVENT: &str = "plan.form_consistency";
+pub const PERMISSION_PRIMER_SHOWN_EVENT: &str = "permission_primer.shown";
+pub const PERMISSION_PRIMER_DISMISSED_EVENT: &str = "permission_primer.dismissed";
 pub const VERIFICATION_COACH_REQUESTED_EVENT: &str = "verification_coach.requested";
 pub const VERIFICATION_COACH_EVALUATED_EVENT: &str = "verification_coach.evaluated";
 pub const VERIFICATION_OBSERVATION_RECORDED_EVENT: &str = "verification_observation.recorded";
@@ -43,6 +46,9 @@ pub const PROJECT_COMMAND_RESULT_EVENT: &str = "project_command.result";
 pub const TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT: &str = "terminal_script.approval_requested";
 pub const TERMINAL_SCRIPT_RESULT_EVENT: &str = "terminal_script.result";
 pub const TOOL_APPROVAL_STALE_EVENT: &str = "tool_approval.stale";
+pub const WEB_FETCH_APPROVAL_REQUESTED_EVENT: &str = "web_fetch.approval_requested";
+pub const WEB_FETCH_RESULT_EVENT: &str = "web_fetch.result";
+pub const WEB_FETCH_BLOCKED_EVENT: &str = "web_fetch.blocked";
 
 static SECRET_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -133,6 +139,109 @@ pub fn terminal_script_result_payload(
         "stderrSummary": full.and_then(|value| value.get("stderr")).and_then(Value::as_str).unwrap_or(""),
         "truncated": full.and_then(|value| value.get("truncated")).and_then(Value::as_bool).unwrap_or(false),
         "resolvedAt": crate::db::now_ms(),
+    })
+}
+
+pub fn web_fetch_approval_requested_payload(
+    tool_call_id: &str,
+    session_id: i64,
+    card_id: Option<i64>,
+    args: &Value,
+) -> Value {
+    let attempt = crate::tools::web_fetch::attempt_log_from_input(args);
+    let approval = args
+        .get("web_fetch_approval")
+        .cloned()
+        .unwrap_or(Value::Null);
+    json!({
+        "toolCallId": tool_call_id,
+        "sessionId": session_id,
+        "cardId": card_id,
+        "url": attempt.url,
+        "purpose": attempt.purpose,
+        "approval": approval,
+        "method": "GET",
+        "requestedAt": crate::db::now_ms(),
+    })
+}
+
+pub fn web_fetch_result_payload(
+    tool_call_id: &str,
+    status: &str,
+    success: bool,
+    summary: &str,
+    full: Option<&Value>,
+) -> Value {
+    let body_snippet_hash = full
+        .and_then(|value| value.get("bodySnippet"))
+        .and_then(Value::as_str)
+        .map(hash_text);
+    json!({
+        "toolCallId": tool_call_id,
+        "status": status,
+        "success": success,
+        "statusCode": full.and_then(|value| value.get("statusCode")).and_then(Value::as_u64),
+        "summary": summary,
+        "host": full.and_then(|value| value.get("host")).and_then(Value::as_str).unwrap_or(""),
+        "resolvedIp": full.and_then(|value| value.get("resolvedIp")).and_then(Value::as_str).unwrap_or(""),
+        "bytesOnWire": full.and_then(|value| value.get("bytesOnWire")).and_then(Value::as_u64).unwrap_or(0),
+        "elapsedMs": full.and_then(|value| value.get("elapsedMs")).and_then(Value::as_u64).unwrap_or(0),
+        "errorClass": full.and_then(|value| value.get("errorClass")).and_then(Value::as_str),
+        "unavailableReason": full.and_then(|value| value.get("unavailableReason")).and_then(Value::as_str),
+        "bodySnippetHash": body_snippet_hash,
+        "bodyPersisted": false,
+        "isEvidence": false,
+        "resolvedAt": crate::db::now_ms(),
+    })
+}
+
+pub fn web_fetch_blocked_payload(
+    tool_call_id: &str,
+    session_id: i64,
+    args: &Value,
+    reason: &crate::tools::egress_guard::EgressBlockReason,
+) -> Value {
+    let attempt = crate::tools::web_fetch::attempt_log_from_input(args);
+    json!({
+        "toolCallId": tool_call_id,
+        "sessionId": session_id,
+        "url": attempt.url,
+        "purpose": attempt.purpose,
+        "status": "blocked",
+        "errorClass": reason.code(),
+        "unavailableReason": reason.unavailable_reason().as_str(),
+        "message": reason.safe_agent_message(),
+        "blockedAt": crate::db::now_ms(),
+    })
+}
+
+pub struct PlanFormConsistencyPayloadInput<'a> {
+    pub project_id: i64,
+    pub plan_id: i64,
+    pub project_spec_id: &'a str,
+    pub project_spec_version: i64,
+    pub form: &'a str,
+    pub step_id: &'a str,
+    pub step_title: &'a str,
+    pub expected_files: &'a [String],
+    pub reason: &'a str,
+}
+
+pub fn plan_form_consistency_payload(input: PlanFormConsistencyPayloadInput<'_>) -> Value {
+    json!({
+        "project_id": input.project_id,
+        "plan_id": input.plan_id,
+        "project_spec_id": input.project_spec_id,
+        "project_spec_version": input.project_spec_version,
+        "form": input.form,
+        "step_id": input.step_id,
+        "step_title": input.step_title,
+        "expected_files": input.expected_files,
+        "reason": input.reason,
+        "source": "deterministic_step_form_check",
+        "blocking": false,
+        "annotation": true,
+        "createdAt": crate::db::now_ms(),
     })
 }
 
@@ -275,7 +384,9 @@ fn infer_agency_component(event_type: &str, payload: &Value) -> Option<&'static 
         | PRD_PATCH_REJECTED_EVENT
         | PRD_AUTHORED_EVENT
         | PRD_EDITED_EVENT
-        | PRD_VERSION_CREATED_EVENT => return Some("plan"),
+        | PRD_VERSION_CREATED_EVENT
+        | PLAN_FORM_CONSISTENCY_EVENT => return Some("plan"),
+        PERMISSION_PRIMER_SHOWN_EVENT | PERMISSION_PRIMER_DISMISSED_EVENT => return Some("action"),
         "checkpoint_create" | "checkpoint_restore" => return Some("rollback"),
         "verify_start" | "verify_complete" => return Some("verify"),
         "tool_approve" | "tool_call_start" | "tool_call_denied" | "tool_call_blocked"

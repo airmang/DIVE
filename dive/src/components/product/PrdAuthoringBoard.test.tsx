@@ -68,6 +68,13 @@ describe("PrdAuthoringBoard", () => {
     await waitFor(() => expect(screen.getByTestId("chat-runtime-selector")).toBeTruthy());
   });
 
+  it("glosses the jargon PRD field labels for a beginner (P1-11)", () => {
+    renderBoard();
+
+    expect(screen.getByText("Who uses it and why, in one sentence")).toBeTruthy();
+    expect(screen.getByText("A condition you can check yourself to know it's done")).toBeTruthy();
+  });
+
   it("keeps quick intake hidden behind the default-off flag", () => {
     renderBoard({ quickIntakeEnabled: false });
 
@@ -168,7 +175,7 @@ describe("PrdAuthoringBoard", () => {
     expect(headerConfirm).toHaveProperty("disabled", true);
   });
 
-  it("confirms once the PRD is concrete and fully specified", () => {
+  it("confirms once the PRD is concrete and the architecture is decided", () => {
     const props = renderBoard({
       draft: createLiveProjectSpecDraft(42, {
         goal: "Build a PRD-first planning flow for students",
@@ -184,11 +191,30 @@ describe("PrdAuthoringBoard", () => {
 
     const primary = screen.getByTestId("prd-save-create-plan");
     const headerConfirm = screen.getByTestId("prd-confirm-header");
+    // Every prose field is filled, but the architecture form is still undecided,
+    // so confirmation stays blocked (S-047 two-stage gate).
+    expect(primary).toHaveProperty("disabled", true);
+    expect(headerConfirm).toHaveProperty("disabled", true);
+
+    // Pick a form: the stack is still undecided, so confirmation stays blocked.
+    fireEvent.click(screen.getByTestId("prd-architecture-form-web_app"));
+    expect(headerConfirm).toHaveProperty("disabled", true);
+
+    // Decide a stack: the PRD is now confirmable.
+    fireEvent.change(screen.getByTestId("prd-architecture-stack-input"), {
+      target: { value: "React + Vite" },
+    });
     expect(primary).toHaveProperty("disabled", false);
     expect(headerConfirm).toHaveProperty("disabled", false);
 
     fireEvent.click(headerConfirm);
     expect(props.onSavePrdAndCreatePlan).toHaveBeenCalledTimes(1);
+    const savedDraft = vi.mocked(props.onSavePrdAndCreatePlan).mock.calls[0][0];
+    expect(savedDraft.spec.architecture).toMatchObject({
+      form: "web_app",
+      stack: "React + Vite",
+      decisionSource: "student_confirmed",
+    });
   });
 
   it("highlights fields changed by an applied interview-turn patch", () => {
@@ -257,6 +283,50 @@ describe("PrdAuthoringBoard", () => {
     );
   });
 
+  it("offers an Add-criterion button and a trailing empty row for manual authoring", () => {
+    const props = renderBoard({
+      draft: createLiveProjectSpecDraft(42, {
+        goal: "Build a simple to-do list",
+        acceptanceCriteria: ["Adding an item shows it in the list immediately"],
+      }),
+    });
+
+    // The single AI criterion plus a trailing empty row the student can type into.
+    expect(screen.getByTestId("prd-criterion-input-0")).toHaveProperty(
+      "value",
+      "Adding an item shows it in the list immediately",
+    );
+    const trailing = screen.getByTestId("prd-criterion-input-1");
+    expect(trailing).toHaveProperty("value", "");
+    expect(screen.getByTestId("prd-add-criterion")).toBeTruthy();
+
+    // Typing in the trailing row authors a second criterion by hand (P1-30).
+    fireEvent.change(trailing, {
+      target: { value: "Deleting an item removes it from the list" },
+    });
+    const draftCalls = (props.onDraftChange as ReturnType<typeof vi.fn>).mock.calls;
+    const lastDraft = draftCalls[draftCalls.length - 1]?.[0];
+    expect(lastDraft.spec.acceptanceCriteria).toHaveLength(2);
+    expect(lastDraft.spec.acceptanceCriteria[1].text).toBe(
+      "Deleting an item removes it from the list",
+    );
+  });
+
+  it("renders a factual reply on a patch-only turn instead of deleting the bubble (P1-12)", async () => {
+    const onSubmitAnswer = vi.fn().mockResolvedValue({ appliedChange: true });
+    renderBoard({ onSubmitAnswer });
+    const rail = screen.getByTestId("prd-interview-rail");
+
+    fireEvent.change(within(rail).getByTestId("prd-interview-input"), {
+      target: { value: "It should keep items after a refresh" },
+    });
+    fireEvent.click(within(rail).getByTestId("prd-interview-send"));
+
+    await waitFor(() =>
+      expect(screen.getByText("I've folded that into the PRD draft.")).toBeTruthy(),
+    );
+  });
+
   it("shows a non-blocking PRD intent-check card once the PRD is confirmable", () => {
     renderBoard({
       draft: createLiveProjectSpecDraft(42, {
@@ -268,6 +338,14 @@ describe("PrdAuthoringBoard", () => {
           "Saved PRD opens the final read view",
           "Confirm stays disabled until every required field is filled",
         ],
+        architecture: {
+          form: "web_app",
+          formOtherLabel: null,
+          stack: "React + Vite",
+          rationale: null,
+          decisionSource: "student_confirmed",
+          decidedInVersion: 1,
+        },
       }),
     });
 
@@ -295,6 +373,14 @@ describe("PrdAuthoringBoard", () => {
           "Schedules and tasks appear in separate lists",
           "Adding a task shows it in today's list",
         ],
+        architecture: {
+          form: "web_app",
+          formOtherLabel: null,
+          stack: "React + Vite",
+          rationale: null,
+          decisionSource: "student_confirmed",
+          decidedInVersion: 1,
+        },
       }),
       onSubmitAnswer,
       onSavePrdAndCreatePlan,

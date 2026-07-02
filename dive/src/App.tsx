@@ -7,6 +7,7 @@ import {
 } from "./lib/rc1-migration";
 import { resolveDemoRouteValue, type RecognizedDemoRoute } from "./lib/dev-demo";
 import { useLocale } from "./i18n";
+import { applyDocumentLang } from "./lib/document-lang";
 import { syncNativeMenuLocale } from "./lib/menu-events";
 import { useProjectSessionStore } from "./stores/project-session";
 
@@ -115,6 +116,9 @@ function App() {
 
   useEffect(() => {
     void syncNativeMenuLocale(locale);
+    // Keep <html lang> in sync so assistive tech pronounces the UI correctly
+    // when the student switches locale (S-044 / P1-33).
+    applyDocumentLang(locale);
   }, [locale]);
 
   useEffect(() => {

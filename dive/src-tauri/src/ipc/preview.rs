@@ -25,6 +25,21 @@ const SERVER_READY_TIMEOUT: Duration = Duration::from_secs(75);
 const HTTP_PROBE_TIMEOUT: Duration = Duration::from_millis(850);
 const MAX_LOG_LINES: usize = 80;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReusedPreviewLogCode {
+    RunningServerDetected,
+    PreviouslyStartedReused,
+}
+
+impl ReusedPreviewLogCode {
+    fn code(self) -> &'static str {
+        match self {
+            Self::RunningServerDetected => "running_server_detected",
+            Self::PreviouslyStartedReused => "previously_started_reused",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct PreviewProcess {
     pub root: PathBuf,
@@ -679,7 +694,9 @@ async fn preview_start_impl(
             install_ran: false,
             reused: true,
             command: info.dev_command(),
-            logs: vec!["이미 실행 중인 로컬 미리보기 서버에 연결했습니다.".into()],
+            logs: vec![ReusedPreviewLogCode::RunningServerDetected
+                .code()
+                .to_string()],
         });
     }
 
@@ -1041,7 +1058,9 @@ async fn try_reuse_preview(
             install_ran: false,
             reused: true,
             command: info.dev_command(),
-            logs: vec!["이전에 시작한 미리보기 서버를 재사용했습니다.".into()],
+            logs: vec![ReusedPreviewLogCode::PreviouslyStartedReused
+                .code()
+                .to_string()],
         }));
     }
     stop_preview_process(state)?;
@@ -1273,6 +1292,18 @@ mod tests {
         assert_eq!(ports[0], 4555);
         assert!(ports.contains(&5173));
         assert!(ports.contains(&3000));
+    }
+
+    #[test]
+    fn reused_preview_log_codes_are_stable() {
+        assert_eq!(
+            ReusedPreviewLogCode::RunningServerDetected.code(),
+            "running_server_detected"
+        );
+        assert_eq!(
+            ReusedPreviewLogCode::PreviouslyStartedReused.code(),
+            "previously_started_reused"
+        );
     }
 
     #[test]

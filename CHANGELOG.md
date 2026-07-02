@@ -40,6 +40,36 @@ All notable changes to DIVE are documented here. Format: [Keep a Changelog](http
 - Release gate red lights cleared for `verify:production-wire`, `verify:version-sync`, and `format:check`.
 - Phase 10 Gate A rerun is green: frontend typecheck/lint/build/format/production-wire/v4 plus Rust fmt/check/test/clippy and the corrected release mock guard path.
 
+## [1.0.0-rc.6] — 2026-07-02
+
+Round-2 beginner-readiness & UX hardening (spec 010, Wily Stages S-041–S-049): an audit of 78 findings across a 14-dimension beginner rubric, plus two owner-added themes — a mandatory student architecture decision in the PRD interview, and supervised agent web access under a new constitution-governed network-egress capability class.
+
+### Added
+
+- **Supervised agent web access (S-048, 010 theme 8).** A single DIVE-owned, model-visible `web_fetch` tool lets the agent read live docs/API/reference pages during a build. Egress originates in Rust and crosses validate → permission → guard → bounds → logging before any byte leaves the machine: the first SSRF-validated egress path, with a resolved-IP denylist (RFC1918/loopback/link-local/CGNAT/TEST-NET/cloud-metadata, incl. IPv6-embedded IPv4 for mapped/6to4/Teredo/NAT64), DNS-rebind pinning to the exact validated IP, a manual per-hop redirect re-validation loop (`redirect::Policy::none()`), 3 MiB on-the-wire / 5 s connect / 25 s total-deadline bounds with decompression disabled, GET-only and https-only. `RiskLevel::Danger` with a web-specific beginner approval card (host + resolved IP as the trust anchor; the model-authored purpose is labeled unverified), Build-run-mode-only exposure with a permission backstop, a sibling offline/timeout/blocked status chip, and query-string-dropped / hashed-path EventLog export. Web content is agent input, never verification evidence.
+- **Mandatory PRD architecture decision (S-047, 010 theme 7).** The PRD interview now requires a student-owned `ArchitectureDecision` (bounded application form + free-text stack) via a two-stage recommend-then-confirm flow (the AI proposes, the student decides), gating PRD confirmation and grounding decomposition. Decomposition additionally receives per-form scaffolding guidance, and a deterministic, non-blocking form/step-consistency annotation is recorded to the research ledger (S-049).
+- **Beginner vocabulary, first-run framing & a Safe/Warn/Danger permission primer (S-045, 010 theme 5)**, with primer exposure/dismissal now auditable in the local EventLog (S-049).
+
+### Changed
+
+- **Anti-automation-bias hardening (S-042, 010 theme 2):** offline verify-provocation routing, a high-risk read gate, and review-card honesty.
+- **Korean-parity i18n sweep (S-043, 010 theme 3)** including a deep ko/en key-parity test, plus a machine-code contract for preview reuse log lines (S-049).
+- **WCAG AA contrast + semantic a11y (S-044, 010 theme 4):** a deterministic contrast test over the design tokens, with the light `--color-info` token darkened to clear info badges at AA (S-049).
+- **Error/recovery legibility, loading states & composer gating (S-046, 010 theme 6).**
+- **PRD interview honesty & the PRD→plan confirmable gate (S-041, 010 theme 1).**
+
+### Governance
+
+- **Constitution 1.0.0 → 1.1.0 (MINOR).** Principle III gains a tightly-scoped, default-deny **Rust-validated network-egress capability class** (ADR `specs/010-beginner-readiness-ux/adr-s048-network-egress.md`), governing `web_fetch` and binding pre-existing process-tool egress to the same safe-egress policy (tracked follow-up).
+
+### Fixed
+
+- **Restored green CI.** `pi_sidecar::long_pi_turn_with_heartbeats_is_bounded_by_turn_timeout` used a 250 ms turn timeout too tight for loaded CI runners (process spawn + first heartbeat could exceed it, so no heartbeat was observed before the bound fired). Raised to 2 s — still well under the test's 5 s bound and far below the 60 s heartbeat-stall timeout, so the turn stays bounded by turn timeout while heartbeats are reliably observed.
+
+### Verification
+
+- Full local CI green: Rust `cargo fmt --check` + `cargo clippy --all-targets --features dev-mock -D warnings` + `cargo test --all-targets --features dev-mock`; frontend `pnpm format:check` + `pnpm typecheck` + `pnpm lint` + `pnpm test:unit`. S-048's 14 security acceptance criteria are each covered by a passing test, and a 3-lens worktree-isolated adversarial review (SSRF / agency / log-hygiene) returned no SSRF or redaction findings. Live re-QA of the S-048/S-049 surfaces on a rebuilt release app is the remaining follow-up for this build.
+
 ## [1.0.0-rc.5] — 2026-06-25
 
 E2E quality hardening — the supervised verify loop now demands real, per-criterion observation, and the in-app preview can actually exercise the behavior under test (spec 009 themes 2 & 3).

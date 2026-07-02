@@ -47,14 +47,31 @@ const PROVIDER_CHOICES: Array<{
     label: "opencode zen",
     hintKey: "onboarding.provider_opencode_zen_hint",
     available: false,
-    unavailableKey: "runtime.capability.reasons.provider_not_pi_capable",
+    // S-045 (P2-21): beginner-facing reason, not the internal "Pi 런타임" jargon.
+    unavailableKey: "onboarding.provider_unavailable_beginner",
   },
   { kind: "codex", label: "Codex", hintKey: "onboarding.provider_codex_hint" },
 ];
 
-function onboardingErrorMessage(err: unknown, t: ReturnType<typeof useT>) {
+interface OnboardingErrorState {
+  headline: string;
+  hints?: string[];
+  raw?: string;
+  showKeyLink?: boolean;
+}
+
+// S-046 (P1-05/P2-20): render the classified recovery hints as plain-Korean
+// bullets and keep the raw English provider tail behind a collapsed toggle, so
+// the primary onboarding error message is never a bare English string.
+function onboardingError(err: unknown, t: ReturnType<typeof useT>): OnboardingErrorState {
   const classified = classifyError(err);
-  return t(classified.bodyKey, { message: classified.rawMessage });
+  const headline =
+    classified.kind === "unknown" ? t("onboarding.connect_failed_generic") : t(classified.titleKey);
+  const hints = t(classified.hintsKey)
+    .split("|")
+    .map((hint) => hint.trim())
+    .filter((hint) => hint.length > 0);
+  return { headline, hints, raw: classified.rawMessage, showKeyLink: true };
 }
 
 export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
@@ -64,7 +81,7 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
   const [kind, setKind] = useState("anthropic");
   const [apiKey, setApiKey] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<OnboardingErrorState | null>(null);
   const [codexOpen, setCodexOpen] = useState(false);
   const selectedProvider = PROVIDER_CHOICES.find((provider) => provider.kind === kind);
   const providerUnavailable = selectedProvider?.available === false;
@@ -90,13 +107,15 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
 
   const handleConnect = async () => {
     if (providerUnavailable) {
-      setError(
-        t(selectedProvider?.unavailableKey ?? "runtime.capability.reasons.runtime_unavailable"),
-      );
+      setError({
+        headline: t(
+          selectedProvider?.unavailableKey ?? "runtime.capability.reasons.runtime_unavailable",
+        ),
+      });
       return;
     }
     if (!apiKey.trim()) {
-      setError(t("onboarding.api_key_required"));
+      setError({ headline: t("onboarding.api_key_required") });
       return;
     }
     setSubmitting(true);
@@ -106,7 +125,7 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
       onOpenChange(false);
       onConnected?.();
     } catch (err) {
-      setError(onboardingErrorMessage(err, t));
+      setError(onboardingError(err, t));
     } finally {
       setSubmitting(false);
     }
@@ -150,7 +169,7 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
                   }
                 >
                   <div className="text-sm font-medium text-fg">{p.label}</div>
-                  <div className="text-[10px] text-fg-muted">
+                  <div className="text-xs text-fg-muted">
                     {p.available === false && p.unavailableKey ? t(p.unavailableKey) : t(p.hintKey)}
                   </div>
                 </button>
@@ -168,8 +187,8 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
               </a>
             ) : null}
             {kind === "opencode_zen" ? (
-              <p className="text-[10px] text-warn" data-testid="onb-opencode-warning">
-                {t("runtime.capability.reasons.provider_not_pi_capable")} (
+              <p className="text-[11px] text-warn" data-testid="onb-opencode-warning">
+                {t("onboarding.opencode_warning")} (
                 <a
                   href="https://opencode.ai/docs/zen/"
                   target="_blank"
@@ -208,12 +227,47 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
                 autoComplete="off"
                 spellCheck={false}
               />
+              {/* S-045 (P1-04): plain-Korean gloss + local-storage reassurance + default nudge. */}
+              <p className="text-xs text-fg-muted" data-testid="onb-api-key-help">
+                {t("onboarding.api_key_help")}
+              </p>
             </div>
           )}
           {error ? (
-            <p className="text-xs text-danger" role="alert" data-testid="onb-error">
-              {error}
-            </p>
+            <div className="text-xs text-danger" role="alert" data-testid="onb-error">
+              <p className="font-medium">{error.headline}</p>
+              {error.hints && error.hints.length > 0 ? (
+                <ul
+                  className="mt-1 list-inside list-disc space-y-0.5 text-fg-muted"
+                  data-testid="onb-error-hints"
+                >
+                  {error.hints.map((hint, index) => (
+                    <li key={index}>{hint}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {error.showKeyLink && PROVIDER_LINKS[kind] && !providerUnavailable ? (
+                <a
+                  href={PROVIDER_LINKS[kind]}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 inline-block text-accent underline underline-offset-2"
+                  data-testid="onb-error-key-link"
+                >
+                  {t("onboarding.key_link")}
+                </a>
+              ) : null}
+              {error.raw ? (
+                <details className="mt-1" data-testid="onb-error-detail">
+                  <summary className="cursor-pointer text-fg-muted">
+                    {t("onboarding.details")}
+                  </summary>
+                  <p className="mt-1 break-words font-mono text-[10px] text-fg-muted">
+                    {error.raw}
+                  </p>
+                </details>
+              ) : null}
+            </div>
           ) : null}
         </div>
         <DialogFooter>

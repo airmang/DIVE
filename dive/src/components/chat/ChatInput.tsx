@@ -147,6 +147,10 @@ export function ChatInput({
           />
           <AmbiguityUnderlay value={value} locale={locale} onHitsChange={setHits} />
         </div>
+        {/* S-046 (P2-02): make the send/newline contract recognizable before the first mistake. */}
+        <p className="px-1 text-[11px] text-fg-muted" data-testid="chat-input-enter-hint">
+          {t("chat.input.enter_hint")}
+        </p>
         <AmbiguityHintList hits={hits} />
         <div className="flex items-center gap-2">
           <Button

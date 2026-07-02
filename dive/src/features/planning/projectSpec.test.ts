@@ -106,6 +106,7 @@ describe("project spec helpers", () => {
         "missing_scope",
         "missing_non_goals",
         "insufficient_acceptance_criteria",
+        "missing_architecture_form",
       ],
     });
   });
@@ -117,9 +118,60 @@ describe("project spec helpers", () => {
       scope: ["Single-page todo list with add and complete"],
       nonGoals: ["No accounts or login"],
       acceptanceCriteria: ["Can add a task", "Completed tasks show a checkmark"],
+      architecture: {
+        form: "web_app",
+        formOtherLabel: null,
+        stack: "React + Vite",
+        rationale: null,
+        decisionSource: "student_confirmed",
+        decidedInVersion: 1,
+      },
     });
 
     expect(validateConfirmableProjectSpec(draft.spec)).toEqual({
+      valid: true,
+      reasonCodes: [],
+    });
+  });
+
+  it("requires an architecture form, then a stack, before confirming", () => {
+    const draft = createLiveProjectSpecDraft(42, {
+      goal: "Build a focused todo app for students",
+      intentSummary: "Students track daily tasks and see what is still left",
+      scope: ["Single-page todo list with add and complete"],
+      nonGoals: ["No accounts or login"],
+      acceptanceCriteria: ["Can add a task", "Completed tasks show a checkmark"],
+    });
+
+    // No architecture decided yet: the form gap is what blocks confirmation.
+    expect(validateConfirmableProjectSpec(draft.spec)).toEqual({
+      valid: false,
+      reasonCodes: ["missing_architecture_form"],
+    });
+
+    // Form picked but stack still undecided (the intermediate two-stage state).
+    const formOnly = {
+      ...draft.spec,
+      architecture: {
+        form: "web_app" as const,
+        formOtherLabel: null,
+        stack: null,
+        rationale: null,
+        decisionSource: "student_confirmed" as const,
+        decidedInVersion: 1,
+      },
+    };
+    expect(validateConfirmableProjectSpec(formOnly)).toEqual({
+      valid: false,
+      reasonCodes: ["missing_architecture_stack"],
+    });
+
+    // Stack decided: the PRD is now confirmable.
+    const withStack = {
+      ...formOnly,
+      architecture: { ...formOnly.architecture, stack: "React + Vite" },
+    };
+    expect(validateConfirmableProjectSpec(withStack)).toEqual({
       valid: true,
       reasonCodes: [],
     });
@@ -132,6 +184,14 @@ describe("project spec helpers", () => {
       scope: ["Single-page todo list with add and complete"],
       nonGoals: ["No accounts or login"],
       acceptanceCriteria: ["Can add a task", "Completed tasks show a checkmark"],
+      architecture: {
+        form: "web_app",
+        formOtherLabel: null,
+        stack: "React + Vite",
+        rationale: null,
+        decisionSource: "student_confirmed",
+        decidedInVersion: 1,
+      },
     });
 
     expect(validateConfirmableProjectSpec(draft.spec)).toEqual({

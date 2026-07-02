@@ -22,6 +22,14 @@ describe("ChatInput ambiguity hints", () => {
     useProjectSessionStore.setState({ loaded: false, providers: [] });
   });
 
+  it("shows a visible Enter-to-send / Shift+Enter hint (P2-02)", () => {
+    useLocaleStore.setState({ locale: "en" });
+    renderChatInput();
+    const hint = screen.getByTestId("chat-input-enter-hint");
+    expect(hint.textContent).toContain("Enter to send");
+    expect(hint.textContent).toContain("Shift+Enter");
+  });
+
   it("surfaces English vague-input hints under the English locale", () => {
     useLocaleStore.setState({ locale: "en" });
     renderChatInput();

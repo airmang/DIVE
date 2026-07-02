@@ -35,6 +35,8 @@ describe("ui preferences persistence", () => {
       provocationScaffoldMode: "guided",
       quickIntakeEnabled: false,
       previewOnboardingDismissed: false,
+      permissionCardPrimerDismissed: false,
+      webPermissionCardPrimerDismissed: false,
       previewModeByProject: {},
     });
   });
@@ -72,6 +74,36 @@ describe("ui preferences persistence", () => {
     await useUiPreferencesStore.persist.rehydrate();
 
     expect(useUiPreferencesStore.getState().previewOnboardingDismissed).toBe(true);
+  });
+
+  it("persists the one-time permission-card primer dismissal through rehydrate", async () => {
+    expect(useUiPreferencesStore.getState().permissionCardPrimerDismissed).toBe(false);
+
+    useUiPreferencesStore.getState().dismissPermissionCardPrimer();
+    const persisted = window.localStorage.getItem(STORAGE_KEY);
+
+    useUiPreferencesStore.setState({ permissionCardPrimerDismissed: false });
+    if (persisted) window.localStorage.setItem(STORAGE_KEY, persisted);
+    await useUiPreferencesStore.persist.rehydrate();
+
+    expect(useUiPreferencesStore.getState().permissionCardPrimerDismissed).toBe(true);
+  });
+
+  it("persists the one-time web permission-card primer dismissal independently", async () => {
+    expect(useUiPreferencesStore.getState().webPermissionCardPrimerDismissed).toBe(false);
+
+    useUiPreferencesStore.getState().dismissWebPermissionCardPrimer();
+    const persisted = window.localStorage.getItem(STORAGE_KEY);
+
+    useUiPreferencesStore.setState({
+      permissionCardPrimerDismissed: false,
+      webPermissionCardPrimerDismissed: false,
+    });
+    if (persisted) window.localStorage.setItem(STORAGE_KEY, persisted);
+    await useUiPreferencesStore.persist.rehydrate();
+
+    expect(useUiPreferencesStore.getState().permissionCardPrimerDismissed).toBe(false);
+    expect(useUiPreferencesStore.getState().webPermissionCardPrimerDismissed).toBe(true);
   });
 
   it("round-trips project preview mode memory and keeps projects independent", async () => {
@@ -114,6 +146,7 @@ describe("ui preferences persistence", () => {
     expect(useUiPreferencesStore.getState().provocationScaffoldMode).toBe("work");
     expect(useUiPreferencesStore.getState().quickIntakeEnabled).toBe(true);
     expect(useUiPreferencesStore.getState().previewOnboardingDismissed).toBe(false);
+    expect(useUiPreferencesStore.getState().webPermissionCardPrimerDismissed).toBe(false);
     expect(useUiPreferencesStore.getState().previewModeByProject).toEqual({});
   });
 

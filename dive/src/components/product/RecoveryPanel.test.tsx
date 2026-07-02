@@ -40,8 +40,8 @@ describe("RecoveryPanel failure actions", () => {
     const actions = within(screen.getByTestId("failed-step-actions")).getAllByRole("button");
     expect(actions.map((button) => button.textContent)).toEqual([
       "되돌리기 지점 없음",
-      "에러 로그 요약 / 재현 단계",
-      "범위 줄이기 / 계획 조정",
+      "오류 내용 정리 / 다시 해보기",
+      "범위 줄이기 / 계획 고치기",
       "AI에게 다시 고쳐달라고 하기",
     ]);
     expect((actions[0] as HTMLButtonElement).disabled).toBe(true);
@@ -64,6 +64,21 @@ describe("RecoveryPanel failure actions", () => {
     fireEvent.click(screen.getByTestId("restore-confirm-inline-action"));
 
     expect(props.onRestoreCheckpoint).toHaveBeenCalledWith(2);
+  });
+
+  it("shows a loading state instead of a false-empty while checkpoints fetch (P2-40)", () => {
+    renderPanel({ loading: true, checkpoints: [] });
+    expect(screen.getByTestId("recovery-loading")).toBeTruthy();
+  });
+
+  it("describes restore in plain language without backend jargon and states it is undoable (P1-23/P2-39)", () => {
+    renderPanel({
+      checkpoints: [{ id: 2, label: "latest", kind: "manual", createdAt: 20, changedFiles: [] }],
+    });
+    fireEvent.click(screen.getByTestId("failed-step-undo"));
+    const confirm = screen.getByTestId("restore-confirm-inline");
+    expect(confirm.textContent).not.toContain("백엔드");
+    expect(confirm.textContent).toContain("복원 직전");
   });
 
   it("warns that restore reverts files only before confirming (S-032)", () => {

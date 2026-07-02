@@ -435,6 +435,54 @@ fn export_distinguishes_008_runtime_events_and_redacts_outputs() {
             }),
         )
         .unwrap();
+        dive_event_log::append_to_conn(
+            db_guard.conn(),
+            Some(sid),
+            dive_event_log::WEB_FETCH_APPROVAL_REQUESTED_EVENT,
+            dive_event_log::web_fetch_approval_requested_payload(
+                "web-1",
+                sid,
+                Some(10),
+                &json!({
+                    "url": "https://example.com/reset/token-123?code=oauth-secret",
+                    "purpose": "Read public API docs.",
+                    "web_fetch_approval": {
+                        "host": "example.com",
+                        "pinnedIp": "93.184.216.34",
+                        "port": 443,
+                        "scheme": "https",
+                        "pathHash": "pathhash",
+                        "queryDropped": true,
+                        "purpose": "Read public API docs.",
+                        "approvedAt": 6
+                    }
+                }),
+            ),
+        )
+        .unwrap();
+        dive_event_log::append_to_conn(
+            db_guard.conn(),
+            Some(sid),
+            dive_event_log::WEB_FETCH_RESULT_EVENT,
+            dive_event_log::web_fetch_result_payload(
+                "web-1",
+                "completed",
+                true,
+                "web fetch completed",
+                Some(&json!({
+                    "runtimeAction": "web_fetch",
+                    "status": "completed",
+                    "success": true,
+                    "host": "example.com",
+                    "resolvedIp": "93.184.216.34",
+                    "bytesOnWire": 100,
+                    "elapsedMs": 50,
+                    "bodySnippet": "opaque body token secret-body-value",
+                    "isEvidence": false
+                })),
+            ),
+        )
+        .unwrap();
     }
 
     let engine = ExportEngine::new(db);
@@ -460,6 +508,8 @@ fn export_distinguishes_008_runtime_events_and_redacts_outputs() {
         dive_event_log::TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT,
         dive_event_log::TERMINAL_SCRIPT_RESULT_EVENT,
         dive_event_log::TOOL_APPROVAL_STALE_EVENT,
+        dive_event_log::WEB_FETCH_APPROVAL_REQUESTED_EVENT,
+        dive_event_log::WEB_FETCH_RESULT_EVENT,
     ] {
         assert!(
             records
@@ -502,6 +552,9 @@ fn export_distinguishes_008_runtime_events_and_redacts_outputs() {
     assert_eq!(command["payload"]["stdoutSummary"]["redacted"], true);
     assert!(!jsonl.contains("secret_token=abc123"));
     assert!(!jsonl.contains("echo $API_KEY"));
+    assert!(!jsonl.contains("oauth-secret"));
+    assert!(!jsonl.contains("token-123"));
+    assert!(!jsonl.contains("secret-body-value"));
 
     let script_approval = records
         .iter()
@@ -530,6 +583,13 @@ fn export_distinguishes_008_runtime_events_and_redacts_outputs() {
         routing["payload"]["evidenceSummary"]["verificationEvidence"],
         false
     );
+
+    let web_result = records
+        .iter()
+        .find(|record| record["type"] == dive_event_log::WEB_FETCH_RESULT_EVENT)
+        .expect("web fetch result event");
+    assert_eq!(web_result["payload"]["isEvidence"], false);
+    assert_eq!(web_result["payload"]["bodyPersisted"], false);
 }
 
 #[test]

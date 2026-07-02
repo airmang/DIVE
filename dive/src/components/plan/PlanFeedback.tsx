@@ -33,7 +33,7 @@ export function PlanEmpty({ onCreatePlan }: { onCreatePlan?: () => void }) {
         {onCreatePlan ? (
           <button
             type="button"
-            className="mt-4 rounded-md border border-accent-hover bg-accent-hover px-3 py-2 text-xs font-semibold text-fg dark:border-accent dark:bg-accent dark:text-accent-fg"
+            className="mt-4 rounded-md border border-accent-hover bg-accent-hover px-3 py-2 text-xs font-semibold text-accent-fg dark:border-accent dark:bg-accent"
             onClick={onCreatePlan}
             data-testid="plan-empty-cta"
           >

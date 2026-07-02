@@ -3,6 +3,12 @@
     "name": "DIVE",
     "tagline": "Desktop coding agent for beginners"
   },
+  "startup": {
+    "error": {
+      "title": "DIVE initialization failed",
+      "description": "An error occurred while starting the app. If it repeats after restarting, please check the logs."
+    }
+  },
   "common": {
     "cancel": "Cancel",
     "confirm": "Confirm",
@@ -29,6 +35,8 @@
     "start": "Start ChatGPT sign-in",
     "waiting_instructions": "Open the auth page with the button below. Once you finish signing in, DIVE receives the callback automatically and completes the connection. Only if auto-complete doesn't happen, paste the full callback URL from the browser address bar into the code field and click Complete connection.",
     "open_browser": "Open in browser",
+    "code_label": "Verification code (code)",
+    "state_label": "Security value (state)",
     "code_placeholder": "The ?code=… value from the redirect URL",
     "state_placeholder": "The &state=… value from the redirect URL",
     "expected_state": "Expected state:",
@@ -121,8 +129,9 @@
       "assistant_label": "DIVE",
       "student_label": "Me",
       "turn_pending": "Got it. I am folding that into the PRD draft...",
+      "turn_applied": "I've folded that into the PRD draft.",
       "turn_error_retryable": "The model response was unstable for a moment. Your last thought is still here; send it again and I will continue from it.",
-      "answer_placeholder": "Example: Teachers want to quickly see which student submissions are missing",
+      "answer_placeholder": "Type your answer here",
       "answer_send": "Send",
       "goal_placeholder": "The goal will appear here as the conversation clarifies.",
       "intent_placeholder": "The user's intent will be summarized here as it emerges.",
@@ -130,6 +139,7 @@
       "non_goals_placeholder": "Out-of-scope boundaries will appear here when they come up.",
       "constraints_placeholder": "Runtime, UX, classroom, or delivery constraints will be collected here.",
       "criterion_placeholder": "Observable done state from the conversation",
+      "add_criterion": "Add criterion",
       "patch_applied": "That part of the conversation was applied to the PRD draft.",
       "patch_rejected": "That part of the conversation was not applied directly.",
       "patch_held": "Student-edited fields stayed intact; the new suggestion was held separately.",
@@ -140,6 +150,11 @@
       "validation_goal_vague": "The goal is too vague — say in one sentence who it's for and what observable result counts as done.",
       "validation_non_goals_required": "List at least one thing that is out of scope (a non-goal).",
       "validation_criteria_insufficient": "Add at least two concrete, checkable done criteria.",
+      "validation_architecture_form_required": "Pick what you're building (the form) first.",
+      "validation_architecture_stack_required": "Decide a tech stack that fits the form.",
+      "architecture_other_placeholder": "Describe the form yourself",
+      "architecture_stack_placeholder": "e.g. React + Vite, Python + Flask",
+      "architecture_rationale_placeholder": "Why this form and stack (optional)",
       "validation_ready": "Ready to confirm the PRD.",
       "intent_check": {
         "title": "Did the AI capture what you meant?",
@@ -154,6 +169,8 @@
       "save_success_title": "PRD saved",
       "save_success_description": "Use the final PRD view to create the plan from this PRD.",
       "save_failed_title": "Could not save PRD",
+      "quick_intake_incomplete_title": "A little more is needed",
+      "quick_intake_incomplete_description": "To confirm the PRD it needs a goal, intent, scope, what to leave out, and 2 done-state criteria. Finish it in the conversation, then confirm.",
       "confirm_prd": "Confirm PRD",
       "save_draft": "Save draft",
       "save_create_plan": "Confirm PRD",
@@ -163,10 +180,30 @@
     "fields": {
       "goal": "Goal",
       "intent_summary": "Intent summary",
+      "intent_summary_help": "Who uses it and why, in one sentence",
       "scope": "Scope",
       "non_goals": "Non-goals",
       "constraints": "Constraints",
-      "acceptance_criteria": "Acceptance criteria"
+      "acceptance_criteria": "Acceptance criteria",
+      "acceptance_criteria_help": "A condition you can check yourself to know it's done",
+      "architecture": "What you're building",
+      "architecture_help": "Pick a form first, then decide a tech stack that fits it. The AI proposes both in the conversation on the left; you pick and confirm.",
+      "architecture_stack": "Tech stack",
+      "architecture_rationale": "Why (optional)"
+    },
+    "architecture": {
+      "title": "Form & tech stack",
+      "form_label": "Form",
+      "stack_label": "Tech stack",
+      "empty": "Not decided yet",
+      "form": {
+        "web_app": "Web app",
+        "static_page": "Static page",
+        "cli_tool": "Command-line tool (CLI)",
+        "desktop_app": "Desktop app",
+        "api_service": "API service",
+        "other": "Other"
+      }
     },
     "read_view": {
       "title": "Final PRD",
@@ -291,9 +328,12 @@
   },
   "onboarding": {
     "title": "Connect your AI assistant",
-    "description": "After choosing a project folder, connect the AI assistant DIVE uses to plan, build, and check work.",
+    "description": "Connect the AI assistant DIVE uses to plan, build, and check work. Keys are stored only on this computer.",
     "provider_label": "AI connection",
     "api_key_label": "API key",
+    "api_key_help": "An API key is a secret password from an AI company. It's stored safely on this computer only. New to this? Anthropic is a good first choice.",
+    "provider_unavailable_beginner": "Not available in DIVE yet — pick Anthropic, OpenAI, or ChatGPT login instead.",
+    "connect_failed_generic": "Could not connect the AI. Check the key was copied completely and try again.",
     "connect": "Connect AI",
     "connecting": "Connecting…",
     "skip": "Connect later",
@@ -314,8 +354,10 @@
   },
   "new_project": {
     "title": "New project",
-    "description": "Choose the folder to work in. DIVE will create `.dive/` inside it.",
+    "description": "Inside the folder you pick here, the AI writes code and you review and approve it. An empty new folder is safest.",
     "folder_label": "Project folder",
+    "folder_hint": "Pick an empty new folder. The AI works only inside this folder, and you can always undo changes.",
+    "folder_root_note": "This looks like a folder with your personal files. The AI would work over the whole folder — an empty new folder is recommended.",
     "name_label": "Name (optional)",
     "browse": "Browse",
     "browse_aria": "Browse for folder",
@@ -437,6 +479,7 @@
     },
     "input": {
       "placeholder": "Type a message...",
+      "enter_hint": "Enter to send · Shift+Enter for a new line",
       "aria_label": "Message input",
       "prompt_helper_aria": "Prompt helper",
       "prompt_helper_label": "Helper",
@@ -502,10 +545,11 @@
     "blocked_title": "Blocked command — cannot run",
     "blocked_rule": "Block rule:",
     "blocked_pattern": "Pattern:",
-    "blocked_explain": "This command is blocked by the safety policy (§9.2) and cannot run, with or without your approval.",
+    "blocked_explain": "This command is blocked because it's dangerous. It won't run even if you approve — that's for your safety.",
     "rerouted_title": "Opened through Preview instead",
     "stale_title": "No command ran",
     "why_label": "why",
+    "failed_recovery_hint": "Open recovery",
     "group_summary": "{{count}} tool use(s)",
     "group_summary_pending": "{{count}} tool use(s) awaiting approval",
     "group_summary_running": "{{count}} tool use(s) running",
@@ -515,10 +559,10 @@
   },
   "get_started": {
     "title": "Get started",
-    "subtitle": "Finish these 4 steps to start the project workflow.",
-    "project_title": "Open a project",
+    "subtitle": "In DIVE the AI writes the code and you are the supervisor who reviews and approves the results. Start with the 4 steps below.",
+    "project_title": "Create your first project",
     "project_desc": "Pick the local folder DIVE will work in.",
-    "project_action": "Open project",
+    "project_action": "Create new project",
     "provider_title": "Connect AI",
     "provider_desc": "Connect the AI assistant that will handle your chats.",
     "provider_action": "Connect AI",
@@ -687,9 +731,9 @@
       },
       "coach_fallback_title": "Manual verification checklist (offline fallback — not the AI coach)",
       "coach_fallback": {
-        "responsive": "Resize the window to 375px and confirm the columns/layout adapt",
+        "responsive": "Make the window narrow and confirm text and buttons don't overlap",
         "persistence": "Reload the app and confirm the change survives",
-        "accessibility": "Tab through and confirm focus order and ARIA labels",
+        "accessibility": "Confirm you can reach each button in order using only the keyboard",
         "loading": "Force the loading state and confirm the spinner/placeholder",
         "empty": "Force the empty state and confirm the empty message",
         "error": "Force an error and confirm the error message + retry",
@@ -702,6 +746,7 @@
       "coach_record_observation": "Record observation evidence",
       "coach_observation_saved": "Criterion-linked observation evidence is recorded.",
       "coach_observation_needs_criterion": "Record both an acceptance criterion and an observation for approval evidence.",
+      "coach_no_criteria_hint": "This step has no checkable criterion, so a written observation isn't required. Check the result in the diff or preview instead.",
       "coach_observation_needs_action": "Open the preview, run the app, or run the check first — typing alone is not evidence.",
       "coach_criterion_select": "Acceptance criterion this observation covers",
       "coach_check_expected": "Expected observation",
@@ -737,6 +782,7 @@
       "stepper_stage_observe_summary_done": "Criterion-linked observation evidence is recorded.",
       "stepper_stage_review_title": "Review response",
       "stepper_stage_review_summary": "{{count}} needs-review card(s) can be answered.",
+      "stepper_review_eval_pending": "Checking for review cards…",
       "stepper_stage_decision_title": "Decision",
       "stepper_stage_decision_summary_needs_observation": "Approval is enabled only after criterion-linked observation or verification evidence.",
       "stepper_stage_decision_summary_ready": "Criterion-linked observation is present for the approval decision.",
@@ -955,7 +1001,8 @@
       "draft_ready_title": "Plan draft ready",
       "draft_ready_description": "Review the generated plan before approving it.",
       "draft_failed_title": "Could not create plan draft",
-      "compact_retry_prompt": "The previous plan JSON generation failed. Reason: {{reason}}\nGoal: {{goal}}\nReturn complete, short JSON only. plan_input should contain 2-6 steps and must never exceed 8. Each step must include title, summary, instruction_seed, expected_files, acceptance_criteria, verification_type, and verification_command, and must be small enough for one supervised turn. verification_type must be one of run, preview, manual, or test. For static front-end or no-runnable-command steps, use preview or manual with verification_command null; use run or test only for a real no-shell command with explicit args. Do not include prose or Markdown fences.",
+      "compact_retry_prompt": "The previous plan JSON generation failed. Reason: {{reason}}\nGoal: {{goal}}\nReturn complete, short JSON only. plan_input should contain 2-6 steps and must never exceed 8. Each step must include title, summary, instruction_seed, expected_files, acceptance_criteria, verification_type, and verification_command, and must be small enough for one supervised turn. verification_type must be one of run, preview, manual, or test. For static front-end or no-runnable-command steps, use preview or manual with verification_command null; use run or test only for a real no-shell command with explicit args. The previous draft was rejected because its acceptance criteria did not fully cover: {{missing}}. Add or rewrite acceptance_criteria across the steps so each is a concrete, independently checkable criterion. Do not include prose or Markdown fences.",
+      "compact_retry_missing_fallback": "concrete, independently checkable acceptance criteria (a number, comparator, named UI element, or state)",
       "pending": {
         "title": "Generating your plan...",
         "description": "DIVE is turning the interview into a short, reviewable plan draft."
@@ -1004,6 +1051,7 @@
       },
       "recovery": {
         "retry": "Regenerate short JSON",
+        "edit_prd": "Go back to the PRD",
         "missing_items_title": "Ask for these missing details:",
         "hints": "If the model response is too long, ask only for a compact plan draft.|If it fails again, split the goal into a smaller scope.",
         "length": {
@@ -1065,6 +1113,8 @@
       "critique_none": "None — ready to approve",
       "critique_found": "Yes — request changes",
       "critique_found_hint": "Write the missing steps in the \"Request changes\" box on the right to request a revision.",
+      "critique_none_note_placeholder": "In one line, why is this plan good enough?",
+      "critique_none_note_hint": "Write one line (4+ characters) to enable approval.",
       "show_raw_draft": "Show raw draft",
       "hide_raw_draft": "Hide raw draft",
       "show_step_details": "Show details",
@@ -1169,8 +1219,8 @@
     "undo_available": "Undo available",
     "no_undo_yet": "No undo yet",
     "failed_title": "This step needs recovery",
-    "explain_error": "Summarize error / repro steps",
-    "adjust_plan": "Narrow scope / adjust plan",
+    "explain_error": "Sum up the error / how to retry",
+    "adjust_plan": "Narrow scope / fix the plan",
     "retry_ai": "Ask AI to fix again",
     "undo": "Undo",
     "undo_last_change": "Undo last change",
@@ -1186,7 +1236,8 @@
     "open_session": "Open a project session to enable recovery.",
     "unavailable": "Recovery is unavailable right now:",
     "restore_confirm_title": "Restore this checkpoint?",
-    "restore_confirm_body": "DIVE will ask the backend to restore {{checkpoint}}. The checkpoint system creates a pre-restore backup first, but files in your project will change.",
+    "restore_confirm_body": "DIVE will set your project files back to {{checkpoint}}. Your current files are first saved as a 'before-restore' point, so you can undo this restore too.",
+    "loading": "Loading recovery points…",
     "restore_files_only_note": "Restore reverts project files only. Your chat, plan, and roadmap stay as they are now and may no longer match the reverted files.",
     "restore_consistent_note": "This checkpoint restores project files, chat, plan, and roadmap to the saved state.",
     "restoring": "Restoring...",
@@ -1229,6 +1280,31 @@
       "approve": "Allow high-risk action",
       "diff_ack_label": "I have reviewed this change (diff)"
     },
+    "web": {
+      "title": "The AI wants to read something on the internet",
+      "frame": "The AI wants to read from the address below. You decide whether to allow it.",
+      "host_label": "Address (website) it will visit",
+      "ip_label": "Where it actually connects",
+      "purpose_label": "Reason the AI gave (for reference, unverified)",
+      "confirm": "I checked this address and allow the AI to read from it",
+      "allow": "Allow reading this address",
+      "deny": "Don't allow",
+      "reuse_optin": "Don't ask again for this address during this task"
+    },
+    "web_primer": {
+      "title": "The AI can look things up online",
+      "body": "The AI can now read needed information from the internet. You approve each address, and DIVE blocks unsafe ones first.",
+      "dismiss": "Got it"
+    },
+    "primer": {
+      "title": "How permissions work",
+      "intro": "DIVE always asks you before it changes a file or runs a command.",
+      "safe": "Green = read-only — runs automatically.",
+      "warn": "Yellow = changes — review the diff, then allow.",
+      "danger": "Red = delete or run commands — you judge it and allow.",
+      "blocked": "Truly destructive commands are blocked by DIVE outright.",
+      "dismiss_aria": "Close permission explanation"
+    },
     "actions": {
       "deny": "Deny",
       "add_reason": "Add reason",
@@ -1244,6 +1320,7 @@
     },
     "read_gate": {
       "message": "Before approving, open or scroll the diff, or tick that you read the change.",
+      "message_no_diff": "No preview available — check the file path and action details below before allowing.",
       "confirm_label": "I read the change"
     },
     "summary": {
@@ -1261,7 +1338,9 @@
       "checkpoint_available": "Checkpoint available",
       "checkpoint_unavailable": "No checkpoint yet",
       "checkpoint_unknown": "Unknown",
-      "none": "None"
+      "none": "None",
+      "divergence_title": "About to change files that aren't in the plan",
+      "divergence_body": "{{paths}} · Make sure this change is intended."
     },
     "change_summary": {
       "title": "Plain-language change summary",
@@ -1387,6 +1466,10 @@
           "title": "Run a Terminal Script",
           "body": "DIVE wants to run shell-style verification. This is separate from Project Command, always high risk, and requires one-shot approval."
         },
+        "web_fetch": {
+          "title": "Read a web page",
+          "body": "DIVE wants to fetch one public web address as reference material for the build. The result is agent input, not verification evidence."
+        },
         "bash": {
           "title": "Run a shell command",
           "body": "DIVE wants to run this through the shell. Shell commands are powerful, so blocked patterns still cannot run even if approved."
@@ -1412,6 +1495,7 @@
         "allow_folder": "Allow the folder",
         "deny_wrong_location": "Deny if the location looks wrong",
         "allow_command": "Allow the command",
+        "allow_web_read": "Allow the web read",
         "deny_ask_purpose": "Deny and ask what it is for",
         "edit_command_first": "Edit the command first",
         "deny_ask_safer_command": "Deny and ask for a safer command",
@@ -1425,6 +1509,13 @@
     "manual_saved": "Checkpoint saved",
     "manual_label": "Manual save",
     "manual_label_with_card": "Manual save — {{title}}"
+  },
+  "web": {
+    "unavailable": {
+      "offline": "You're not connected to the internet. Check your connection and try again.",
+      "timeout": "It took too long to respond, so it stopped. Try again in a moment.",
+      "blocked": "The address the AI tried to visit wasn't safe, so DIVE blocked it. There's nothing you need to fix."
+    }
   },
   "slide_in": {
     "tabs": {
@@ -1497,6 +1588,10 @@
         "human_confirm": "DIVE shows the result; the human confirms it works, not the AI.",
         "dismiss": "Dismiss preview onboarding"
       },
+      "reused": {
+        "running_server_detected": "Connected to the running preview server.",
+        "previously_started_reused": "Reused the previously started preview server."
+      },
       "reason": {
         "missing_project": "Select a project before opening Preview.",
         "missing_target": "No preview target was provided.",
@@ -1504,7 +1599,10 @@
         "missing_package_json": "This project does not have a package.json, so DIVE could not start a dev server.",
         "missing_dev_or_start_script": "package.json needs a dev or start script before DIVE can start a dev server.",
         "local_url_unreachable": "The local preview URL did not respond.",
-        "dev_server_unavailable": "The dev server is not running, so the preview could not load."
+        "dev_server_unavailable": "The dev server is not running, so the preview could not load.",
+        "unsupported_extension": "Preview only opens .html files inside your project.",
+        "project_escape": "Preview only works with files inside your project folder.",
+        "unsupported_url": "Enter a local preview URL (http://localhost:… format)."
       }
     },
     "terminal": {
@@ -1582,6 +1680,24 @@
     "retry_unavailable_description": "DIVE could not find the last user message to resend."
   },
   "error": {
+    "project_create": {
+      "unsafe_path": {
+        "title": "Can't create a project there",
+        "body": "Projects can't be created in system folders. Make a new folder inside Documents or Desktop and choose it."
+      },
+      "permission": {
+        "title": "No permission for this folder",
+        "body": "You don't have permission to write to this folder. Choose a different one."
+      },
+      "canonicalize": {
+        "title": "Can't find that folder",
+        "body": "This folder path couldn't be read. Check the path and try again."
+      },
+      "generic": {
+        "title": "Couldn't create the project",
+        "body": "Something went wrong while creating the project. Pick the folder again or try again in a moment."
+      }
+    },
     "auth": {
       "title": "Authentication error",
       "body": "Check your API key or login permission. Raw: {{message}}",
@@ -1620,8 +1736,10 @@
   },
   "topbar": {
     "recovery_trigger_aria": "Open recovery panel",
-    "recovery_trigger_label": "Undo",
+    "recovery_trigger_label": "Recovery",
     "recovery_trigger_count": "{{count}}",
+    "recovery_trigger_count_title": "{{count}} recovery point(s) available",
+    "recovery_trigger_failed_title": "{{count}} item(s) — includes a failed step to recover",
     "project_fallback": "No project",
     "recovery_slide_title": "Recovery & Undo",
     "recovery_slide_close_aria": "Close recovery panel"

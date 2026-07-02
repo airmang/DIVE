@@ -117,12 +117,15 @@ fn registry_exposes_008_runtime_tools_with_separate_risk_boundaries() {
     let terminal_script = registry
         .get("run_terminal_script")
         .expect("run_terminal_script registered");
+    let web_fetch = registry.get("web_fetch").expect("web_fetch registered");
 
     assert_eq!(preview.risk_level(), RiskLevel::Safe);
     assert_eq!(project_command.risk_level(), RiskLevel::Danger);
     assert_eq!(terminal_script.risk_level(), RiskLevel::Danger);
+    assert_eq!(web_fetch.risk_level(), RiskLevel::Danger);
     assert!(preview.description().contains("Do not use run_process"));
     assert!(terminal_script.description().contains("one-shot"));
+    assert!(web_fetch.description().contains("SSRF"));
 
     let names = registry
         .tool_defs()
@@ -132,7 +135,15 @@ fn registry_exposes_008_runtime_tools_with_separate_risk_boundaries() {
     assert!(names.iter().any(|name| name == "preview_open"));
     assert!(names.iter().any(|name| name == "run_process"));
     assert!(names.iter().any(|name| name == "run_terminal_script"));
+    assert!(names.iter().any(|name| name == "web_fetch"));
     assert!(!names.iter().any(|name| name == "bash"));
+
+    let non_build_names = registry
+        .tool_defs_filtered(false)
+        .into_iter()
+        .map(|tool| tool.name)
+        .collect::<Vec<_>>();
+    assert!(!non_build_names.iter().any(|name| name == "web_fetch"));
 }
 
 #[test]
@@ -163,9 +174,14 @@ fn runtime_tool_schemas_do_not_add_shell_fallback_to_project_command() {
     let preview_schema = registry.get("preview_open").unwrap().input_schema();
     let command_schema = registry.get("run_process").unwrap().input_schema();
     let script_schema = registry.get("run_terminal_script").unwrap().input_schema();
+    let web_schema = registry.get("web_fetch").unwrap().input_schema();
 
     assert!(preview_schema.to_string().contains("static_file"));
     assert!(script_schema.to_string().contains("script"));
+    assert_eq!(
+        web_schema["required"],
+        serde_json::json!(["url", "purpose"])
+    );
     assert!(
         command_schema
             .get("properties")

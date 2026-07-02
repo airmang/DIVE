@@ -1,5 +1,12 @@
 <!--
 Sync Impact Report
+Version change: 1.0.0 -> 1.1.0 (MINOR): Principle III expanded with a
+Rust-validated network-egress capability class (S-048), which also binds
+pre-existing process-tool egress to the safe-egress policy; templates reviewed:
+plan (updated guidance), spec/tasks (no change). ADR:
+specs/010-beginner-readiness-ux/adr-s048-network-egress.md
+
+Prior report (template -> 1.0.0):
 Version change: template -> 1.0.0
 Modified principles:
 - template PRINCIPLE_1_NAME -> I. Real Project Workflow Only
@@ -66,6 +73,29 @@ Node-side custom tools MUST NOT mutate files or spawn processes directly, and
 no shell fallback may be introduced for Pi compatibility. Unsupported providers
 or missing parity MUST surface as explicit setup or capability states, not as a
 silent legacy fallback.
+
+**Network egress (added 1.1.0).** DIVE MAY expose exactly one DIVE-owned,
+model-visible network-egress tool for the supervised agent. Its egress MUST
+cross Rust-owned validation (safe-egress guard on the DNS-resolved IP, scheme
+allowlist, per-hop redirect re-validation, DNS-rebind pinning of the exact
+validated IP), permission (explicit per-destination allow/deny surface), guard,
+logging, and bounds (connect timeout, total wall-clock deadline, max
+on-the-wire response size) before any byte leaves the machine — the identical
+crossing discipline required for filesystem/process actions. The same
+safe-egress policy MUST also govern any outbound network reachable through the
+process tool: pre-existing plain-`curl`/`wget` GET is not exempt from the SSRF
+denylist and MUST be tightened or filed as a tracked egress-hardening
+follow-up. Pi built-in web/fetch/resource-discovery tools remain disabled;
+Node-side / Pi-side direct egress remains forbidden — the network syscall MUST
+originate in Rust. Egress is default-deny, opt-in per project and per turn,
+least-privilege (GET-only and https-by-default unless a project explicitly opts
+in), and MUST fail to a distinct explicit capability state, never a silent
+hang. Web-fetched content is agent input, never verification evidence (II): it
+MUST NOT satisfy a criterion or pre-approve a step, and the evidence pipeline's
+closed `ExecutionEvidenceSource` set MUST NOT gain a web variant. All egress
+activity MUST be logged local-first and exportable (IV) with
+secrets/tokens/auth headers, full response bodies, and the URL query string
+masked, dropped, or bounded.
 
 Rationale: v2 exists to remove old runtime ambiguity. A single runtime boundary
 makes supervision, tests, packaging, and classroom behavior auditable.
@@ -177,4 +207,4 @@ Every plan and review MUST include a Constitution Check. Any violation must be
 documented with why it is necessary and what simpler compliant alternative was
 rejected. Unjustified violations block implementation.
 
-**Version**: 1.0.0 | **Ratified**: 2026-06-14 | **Last Amended**: 2026-06-14
+**Version**: 1.1.0 | **Ratified**: 2026-06-14 | **Last Amended**: 2026-07-02

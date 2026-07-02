@@ -15,6 +15,8 @@ type PersistedUiPreferences = Partial<{
   provocationScaffoldMode: ScaffoldMode;
   quickIntakeEnabled: boolean;
   previewOnboardingDismissed: boolean;
+  permissionCardPrimerDismissed: boolean;
+  webPermissionCardPrimerDismissed: boolean;
   previewModeByProject: Record<number, ProjectPreviewModeMemory>;
 }>;
 
@@ -24,12 +26,16 @@ interface UiPreferencesStore {
   provocationScaffoldMode: ScaffoldMode;
   quickIntakeEnabled: boolean;
   previewOnboardingDismissed: boolean;
+  permissionCardPrimerDismissed: boolean;
+  webPermissionCardPrimerDismissed: boolean;
   previewModeByProject: Record<number, ProjectPreviewModeMemory>;
   setTutorialEnabled: (enabled: boolean) => void;
   setEnableProvocationCards: (enabled: boolean) => void;
   setProvocationScaffoldMode: (mode: ScaffoldMode) => void;
   setQuickIntakeEnabled: (enabled: boolean) => void;
   dismissPreviewOnboarding: () => void;
+  dismissPermissionCardPrimer: () => void;
+  dismissWebPermissionCardPrimer: () => void;
   setProjectPreviewMode: (projectId: number, entry: ProjectPreviewModeMemory) => void;
 }
 
@@ -75,6 +81,8 @@ function normalizePersistedPreferences(value: unknown): PersistedUiPreferences {
     provocationScaffoldMode: normalizeProvocationScaffoldMode(value.provocationScaffoldMode),
     quickIntakeEnabled: value.quickIntakeEnabled === true,
     previewOnboardingDismissed: value.previewOnboardingDismissed === true,
+    permissionCardPrimerDismissed: value.permissionCardPrimerDismissed === true,
+    webPermissionCardPrimerDismissed: value.webPermissionCardPrimerDismissed === true,
     previewModeByProject: normalizePreviewModeByProject(value.previewModeByProject),
   };
 }
@@ -87,12 +95,16 @@ export const useUiPreferencesStore = create<UiPreferencesStore>()(
       provocationScaffoldMode: "guided",
       quickIntakeEnabled: false,
       previewOnboardingDismissed: false,
+      permissionCardPrimerDismissed: false,
+      webPermissionCardPrimerDismissed: false,
       previewModeByProject: {},
       setTutorialEnabled: (tutorialEnabled) => set({ tutorialEnabled }),
       setEnableProvocationCards: (enableProvocationCards) => set({ enableProvocationCards }),
       setProvocationScaffoldMode: (provocationScaffoldMode) => set({ provocationScaffoldMode }),
       setQuickIntakeEnabled: (quickIntakeEnabled) => set({ quickIntakeEnabled }),
       dismissPreviewOnboarding: () => set({ previewOnboardingDismissed: true }),
+      dismissPermissionCardPrimer: () => set({ permissionCardPrimerDismissed: true }),
+      dismissWebPermissionCardPrimer: () => set({ webPermissionCardPrimerDismissed: true }),
       setProjectPreviewMode: (projectId, entry) => {
         if (!Number.isInteger(projectId)) return;
         const normalizedEntry = normalizePreviewModeMemoryEntry(entry);
@@ -135,4 +147,12 @@ export function useQuickIntakeEnabled(): boolean {
 
 export function usePreviewOnboardingDismissed(): boolean {
   return useUiPreferencesStore((state) => state.previewOnboardingDismissed);
+}
+
+export function usePermissionCardPrimerDismissed(): boolean {
+  return useUiPreferencesStore((state) => state.permissionCardPrimerDismissed);
+}
+
+export function useWebPermissionCardPrimerDismissed(): boolean {
+  return useUiPreferencesStore((state) => state.webPermissionCardPrimerDismissed);
 }

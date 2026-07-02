@@ -42,6 +42,24 @@ describe("PlanDraftRecoveryScreen", () => {
     expect(screen.getByText("오류 상태")).toBeTruthy();
   });
 
+  it("offers a back-to-PRD escape that routes to PRD authoring", () => {
+    useLocaleStore.setState({ locale: "ko" });
+    const onEditPrd = vi.fn();
+
+    render(
+      <PlanDraftRecoveryScreen
+        reason="missing_state_criteria"
+        unresolvedQuestions={["반응형 동작"]}
+        onRetry={vi.fn()}
+        onDismiss={vi.fn()}
+        onEditPrd={onEditPrd}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("plan-draft-recovery-edit-prd"));
+    expect(onEditPrd).toHaveBeenCalledTimes(1);
+  });
+
   it("retry keeps persisted interview answers outside the recovery surface", () => {
     useLocaleStore.setState({ locale: "en" });
     const persistedAnswers = [{ question: "Who is this for?", answer: "Students" }];

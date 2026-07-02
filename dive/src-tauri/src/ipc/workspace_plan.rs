@@ -25,6 +25,7 @@ use crate::db::models::{
 };
 use crate::db::now_ms;
 use crate::dive::event_log as dive_event_log;
+use crate::dive::plan_form_consistency::{form_consistency_annotation, PlanFormStep};
 use crate::dive::plan_quality_constants::{
     contains_any, criterion_class_is_covered, data_fetch_keywords, ui_goal_keywords, vague_terms,
     verification_type_from_legacy, MissingCriterionClass, VerificationType, STATE_MARKERS,
@@ -541,12 +542,26 @@ pub async fn workspace_plan_current_draft(
     workspace_plan_current_draft_impl(&state, project_id)
 }
 
+/// Student's resolution of the plan-critique gate, threaded from the approval UI
+/// so the approval can be logged as engaged vs blind (Constitution IV). The note
+/// is the student's own one-line reason (the "none" path authored artifact,
+/// P1-14) — supervision evidence, not AI self-report.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanCritiqueResolution {
+    /// "none" (nothing missing — can approve) or "found" (requested changes).
+    pub response: String,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
 #[tauri::command]
 pub async fn workspace_plan_approve(
     state: State<'_, AppState>,
     plan_id: i64,
+    critique_resolution: Option<PlanCritiqueResolution>,
 ) -> Result<PlanRow, String> {
-    workspace_plan_approve_impl(&state, plan_id)
+    workspace_plan_approve_impl(&state, plan_id, critique_resolution)
 }
 
 #[tauri::command]
@@ -842,7 +857,10 @@ pub fn workspace_prd_save_impl(
     let latest = prd_dao::latest_version(conn, input.project_id).map_err(|e| e.to_string())?;
     let snapshot = project_spec_from_save_input(input, latest.as_ref(), &save_reason)?;
     if !is_confirmable_project_spec(&snapshot) {
-        return Err("minimal PRD requires a goal and at least one acceptance criterion".into());
+        return Err(
+            "PRD confirmation requires a goal, at least one acceptance criterion, and a decided architecture (form and tech stack)"
+                .into(),
+        );
     }
     let previous_version = latest.as_ref().map(|row| row.version);
     let reason = save_reason;
@@ -1127,6 +1145,16 @@ fn project_spec_from_save_input(
         non_goals: compact_unique_strings(input.spec.non_goals),
         constraints: compact_unique_strings(input.spec.constraints),
         acceptance_criteria,
+        // S-047: carry the student's architecture decision onto the saved spec,
+        // normalizing the stack and stamping the version DIVE recorded it at.
+        architecture: input.spec.architecture.map(|mut architecture| {
+            architecture.stack = architecture
+                .stack
+                .map(|stack| stack.trim().to_string())
+                .filter(|stack| !stack.is_empty());
+            architecture.decided_in_version = version;
+            architecture
+        }),
         status: input.spec.status,
         created_at: latest
             .map(|row| row.snapshot.created_at)
@@ -1750,8 +1778,22 @@ fn is_minimal_project_spec(spec: &ProjectSpec) -> bool {
         })
 }
 
+/// S-047 (010 theme 7): an architecture is "decided" once a form is picked AND a
+/// non-empty stack is set (the two-stage bar). Mirrors the draft gate in
+/// `confirmable_draft_gaps` and the TS `validateConfirmableProjectSpec` stack check.
+fn architecture_is_decided(spec: &ProjectSpec) -> bool {
+    spec.architecture
+        .as_ref()
+        .and_then(|arch| arch.stack.as_deref())
+        .is_some_and(|stack| !stack.trim().is_empty())
+}
+
 fn is_confirmable_project_spec(spec: &ProjectSpec) -> bool {
-    is_minimal_project_spec(spec)
+    // Server-side backstop for the confirm/version-commit path: a saved PRD must
+    // clear the minimal bar AND carry a student-decided architecture (form + stack).
+    // The frontend already blocks confirmation earlier; this defends a direct
+    // `workspace_prd_save` call from persisting a half-decided architecture.
+    is_minimal_project_spec(spec) && architecture_is_decided(spec)
 }
 
 fn is_minimal_project_spec_draft(spec: &ProjectSpecDraft) -> bool {
@@ -1762,8 +1804,148 @@ fn is_minimal_project_spec_draft(spec: &ProjectSpecDraft) -> bool {
         })
 }
 
+// Confirm-gate thresholds mirror the frontend `validateConfirmableProjectSpec`
+// (dive/src/features/planning/projectSpec.ts). The PRD interview readiness signal
+// MUST track these so DIVE never tells the student to confirm while the "PRD 확정"
+// button is disabled (round-2 S-041 / P1-09, P1-10). Lengths are char counts to
+// match the TS validator's string-length semantics.
+const MIN_CONFIRMABLE_GOAL_CHARS: usize = 10;
+const MIN_CONFIRMABLE_INTENT_CHARS: usize = 8;
+const MIN_CONFIRMABLE_LIST_ITEM_CHARS: usize = 4;
+const MIN_CONFIRMABLE_CRITERION_CHARS: usize = 6;
+const MIN_CONFIRMABLE_ACCEPTANCE_CRITERIA: usize = 2;
+const VAGUE_GOAL_TERMS: &[&str] = &[
+    "대충",
+    "적당히",
+    "알아서",
+    "아무거나",
+    "뭔가",
+    "그냥 만들",
+    "그냥 해",
+    "something",
+    "whatever",
+    "anything",
+];
+
+struct ConfirmableGap {
+    /// Short field name for `missing_confirmable_prd_fields`.
+    label: &'static str,
+    /// One-field interview focus instruction for `prd_interview_next_focus`.
+    focus: &'static str,
+}
+
+fn goal_is_vague(goal: &str) -> bool {
+    let trimmed = goal.trim();
+    let len = trimmed.chars().count();
+    if len < MIN_CONFIRMABLE_GOAL_CHARS {
+        return true;
+    }
+    if len < 24 {
+        let lower = trimmed.to_lowercase();
+        if VAGUE_GOAL_TERMS
+            .iter()
+            .any(|term| lower.contains(&term.to_lowercase()))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn substantive_list_count(values: &[String], min_chars: usize) -> usize {
+    values
+        .iter()
+        .filter(|value| value.trim().chars().count() >= min_chars)
+        .count()
+}
+
+fn substantive_active_criteria_count(criteria: &[AcceptanceCriterion]) -> usize {
+    criteria
+        .iter()
+        .filter(|criterion| {
+            criterion.status == AcceptanceCriterionStatus::Active
+                && criterion.text.trim().chars().count() >= MIN_CONFIRMABLE_CRITERION_CHARS
+        })
+        .count()
+}
+
+/// Ordered gaps between the draft and the confirmable bar. Empty == confirmable.
+/// Mirrors `validateConfirmableProjectSpec` (non-vague goal + intent + >=1 scope +
+/// >=1 non-goal + >=2 substantive criteria); constraints stay optional there too.
+fn confirmable_draft_gaps(spec: &ProjectSpecDraft) -> Vec<ConfirmableGap> {
+    let mut gaps = Vec::new();
+    let goal = spec.goal.trim();
+    if goal.is_empty() {
+        gaps.push(ConfirmableGap {
+            label: "goal",
+            focus: "clarify_goal_in_plain_language: ask who needs this, in what situation, and what problem it should solve",
+        });
+    } else if goal_is_vague(goal) {
+        gaps.push(ConfirmableGap {
+            label: "specific goal",
+            focus: "sharpen_goal: the goal is too short or vague — ask one plain question so it names who it is for and what it should concretely do",
+        });
+    }
+    let intent_len = spec
+        .intent_summary
+        .as_deref()
+        .map(|value| value.trim().chars().count())
+        .unwrap_or(0);
+    if intent_len < MIN_CONFIRMABLE_INTENT_CHARS {
+        gaps.push(ConfirmableGap {
+            label: "intent summary",
+            focus: "capture_intent_summary: ask in one plain question who will use this and why, so it can be summarized in one sentence",
+        });
+    }
+    if substantive_list_count(&spec.scope, MIN_CONFIRMABLE_LIST_ITEM_CHARS) < 1 {
+        gaps.push(ConfirmableGap {
+            label: "in-scope item",
+            focus: "capture_scope: ask what the first version should include — one concrete thing it must do",
+        });
+    }
+    if substantive_list_count(&spec.non_goals, MIN_CONFIRMABLE_LIST_ITEM_CHARS) < 1 {
+        gaps.push(ConfirmableGap {
+            label: "non-goal",
+            focus: "capture_non_goal: ask what the first version should NOT include or do — one thing to leave out for now",
+        });
+    }
+    match substantive_active_criteria_count(&spec.acceptance_criteria) {
+        0 => gaps.push(ConfirmableGap {
+            label: "observable done state",
+            focus: "capture_observable_done_state: ask what the student would see when the project is working",
+        }),
+        count if count < MIN_CONFIRMABLE_ACCEPTANCE_CRITERIA => gaps.push(ConfirmableGap {
+            label: "second observable done state",
+            focus: "capture_second_observable_done_state: ask for one more concrete, checkable sign that the project works, so there are at least two",
+        }),
+        _ => {}
+    }
+    // S-047: two-stage architecture decision, last (grounded on the goal/scope
+    // above). The AI proposes <=2 options with plain rationale; the student decides.
+    match spec.architecture.as_ref() {
+        None => gaps.push(ConfirmableGap {
+            label: "architecture form",
+            focus: "propose_architecture_form: recommend up to 2 application forms that fit this goal (web app / static page / CLI tool / desktop app / API service), each with a one-line plain-language reason a beginner understands, then ask the student to pick or change one in the PRD board — never decide for them",
+        }),
+        Some(arch)
+            if arch
+                .stack
+                .as_deref()
+                .map(|stack| stack.trim().is_empty())
+                .unwrap_or(true) =>
+        {
+            gaps.push(ConfirmableGap {
+                label: "tech stack",
+                focus: "propose_architecture_stack: recommend up to 2 concrete tech stacks that fit the chosen application form, each with a one-line beginner reason, then ask the student to pick or change one",
+            })
+        }
+        Some(_) => {}
+    }
+    gaps
+}
+
 fn is_confirmable_project_spec_draft(spec: &ProjectSpecDraft) -> bool {
-    is_minimal_project_spec_draft(spec)
+    confirmable_draft_gaps(spec).is_empty()
 }
 
 fn allocate_acceptance_criterion_id(criteria: &[AcceptanceCriterion]) -> String {
@@ -1900,6 +2082,9 @@ fn load_or_create_prd_draft(
             non_goals: row.snapshot.non_goals.clone(),
             constraints: row.snapshot.constraints.clone(),
             acceptance_criteria: row.snapshot.acceptance_criteria.clone(),
+            // S-047: reopening the board carries the recorded architecture so the
+            // student can change it (pre-S-047 specs deserialize as None).
+            architecture: row.snapshot.architecture.clone(),
             status: row.snapshot.status,
         })
         .unwrap_or_else(|| ProjectSpecDraft {
@@ -1912,6 +2097,7 @@ fn load_or_create_prd_draft(
             non_goals: Vec::new(),
             constraints: Vec::new(),
             acceptance_criteria: Vec::new(),
+            architecture: None,
             status: ProjectSpecStatus::Draft,
         });
     Ok(LiveProjectSpecDraftRow {
@@ -2028,8 +2214,8 @@ fn build_prd_interview_system_prompt() -> String {
         "Do not ask jargon questions like 'what are the acceptance criteria?' or 'what is the scope?'. Ask about visible outcomes, first version, users, constraints, or what can wait.",
         "assistantMessage should briefly reflect what you captured, explain the next useful angle, then continue warmly.",
         "Prefer concrete user outcomes and observable done states over PRD jargon.",
-        "A PRD is complete enough when it has a goal and at least one observable done state. Capture intended user/use context, first-version scope, constraints, or exclusions when they surface, but do not make them prerequisites.",
-        "When the draft is complete enough, stop asking required questions; tell the student it is ready to confirm.",
+        "The user message includes a 'Suggested next interview focus' computed from the real confirm gate. Follow it: while it names a missing field, ask exactly one concrete, plain-language question to draw that out — who it is for and why, what the first version should include, what to leave out for now, and concrete observable signs it works — never as jargon, a checklist, or field names.",
+        "Only when the focus is ready_to_save is the PRD complete enough. Until then, do NOT tell the student it is ready or to confirm. When it is ready, stop asking required questions and tell the student it is ready, pointing them to the \"PRD 확정\" / \"Confirm PRD\" button by that exact name.",
         "Return a short conversational assistantMessage and an optional JSON patch.",
         "The patch may only use these operation names: set_goal, set_intent_summary, append_scope, append_non_goal, append_constraint, append_acceptance_criterion, revise_acceptance_criterion_text.",
         "Each patch operation object MUST use the key \"op\" for the operation name; do not use \"operation\".",
@@ -2050,7 +2236,7 @@ fn build_prd_interview_user_prompt(
     let next_focus = prd_interview_next_focus(&draft.spec);
     let conversation = format_prd_interview_conversation(conversation);
     format!(
-        "Current live PRD draft JSON:\n{draft_json}\n\nMissing fields required before PRD confirmation, if any: {missing_confirmable}\n\nSuggested next interview focus: {next_focus}\n\nRecent interview conversation, oldest to newest:\n{conversation}\n\nLatest student answer:\n{answer}\n\nReturn the conversational response plus optional PrdPatch JSON. Use the recent conversation as evidence when the live draft has not caught up yet. Do not repeat a question that the student has already answered in the conversation. If the answer is vague, still capture any likely goal, user, first-version boundary, constraint, or observable done state that is grounded in the answer. If the suggested focus is ready_to_save, say the PRD has enough information to confirm and point the student to the PRD confirmation action instead of asking a new required question, offering another wording pass, or asking whether to save."
+        "Current live PRD draft JSON:\n{draft_json}\n\nMissing fields required before PRD confirmation, if any: {missing_confirmable}\n\nSuggested next interview focus: {next_focus}\n\nRecent interview conversation, oldest to newest:\n{conversation}\n\nLatest student answer:\n{answer}\n\nReturn the conversational response plus optional PrdPatch JSON. Use the recent conversation as evidence when the live draft has not caught up yet. Do not repeat a question that the student has already answered in the conversation. If the answer is vague, still capture any likely goal, user, first-version boundary, constraint, or observable done state that is grounded in the answer. If the suggested focus is ready_to_save, say the PRD has enough information to confirm and point the student to the \"PRD 확정\" / \"Confirm PRD\" button instead of asking a new required question, offering another wording pass, or asking whether to save. If the suggested focus names a missing field, ask one concrete plain-language question for that field and do not tell the student it is ready to confirm yet."
     )
 }
 
@@ -2079,38 +2265,18 @@ fn format_prd_interview_conversation(conversation: &[PrdInterviewConversationTur
 }
 
 fn missing_confirmable_prd_fields(spec: &ProjectSpecDraft) -> Vec<&'static str> {
-    let mut fields = Vec::new();
-    if spec.goal.trim().is_empty() {
-        fields.push("goal");
+    let gaps = confirmable_draft_gaps(spec);
+    if gaps.is_empty() {
+        return vec!["none"];
     }
-    if spec
-        .acceptance_criteria
-        .iter()
-        .all(|criterion| criterion.text.trim().is_empty())
-    {
-        fields.push("observable done state");
-    }
-    if fields.is_empty() {
-        fields.push("none");
-    }
-    fields
+    gaps.into_iter().map(|gap| gap.label).collect()
 }
 
 fn prd_interview_next_focus(spec: &ProjectSpecDraft) -> &'static str {
-    if spec.goal.trim().is_empty() {
-        return "clarify_goal_in_plain_language: ask who needs this, in what situation, and what problem it should solve";
+    match confirmable_draft_gaps(spec).first() {
+        Some(gap) => gap.focus,
+        None => "ready_to_save: the draft is complete enough; point to the PRD confirmation action",
     }
-    if spec
-        .acceptance_criteria
-        .iter()
-        .all(|criterion| criterion.text.trim().is_empty())
-    {
-        return "capture_observable_done_state: ask what the student would see when the project is working";
-    }
-    if !is_confirmable_project_spec_draft(spec) {
-        return "tighten_confirmation_fields: ask one short question about the missing confirmation field";
-    }
-    "ready_to_save: the draft is complete enough; point to the PRD confirmation action"
 }
 
 #[derive(Debug, Deserialize)]
@@ -2157,6 +2323,9 @@ impl RawPrdPatchOperation {
             }
             _ => text,
         };
+        // S-047: the AI interview patch never carries an architecture decision — the
+        // architecture is set only through the student's draft-save path (no AI
+        // auto-finalize), so there is no `set_architecture` patch op to build here.
         PrdPatchOperation {
             op,
             value,
@@ -2796,6 +2965,15 @@ pub fn workspace_plan_generate_draft_impl(
     .map_err(|e| e.to_string())?;
 
     let step_count = plan_input.steps.len();
+    let annotation_session_id = latest_session_id_for_project(&tx, interview.project_id);
+    log_form_consistency_annotations(
+        &tx,
+        annotation_session_id,
+        interview.project_id,
+        plan_id,
+        &project_prd,
+        &plan_input.steps,
+    );
     let mut step_criterion_links: Vec<(String, Vec<String>)> = Vec::new();
     for step in plan_input.steps {
         let step_kind = step_kind_for_draft(&step);
@@ -2851,6 +3029,80 @@ pub fn workspace_plan_generate_draft_impl(
     Ok((plan, steps))
 }
 
+fn latest_session_id_for_project(conn: &rusqlite::Connection, project_id: i64) -> Option<i64> {
+    let mut stmt = conn
+        .prepare("SELECT id FROM Session WHERE project_id = ? ORDER BY id DESC LIMIT 1")
+        .ok()?;
+    stmt.query_row([project_id], |row| row.get::<_, i64>(0))
+        .ok()
+}
+
+fn log_form_consistency_annotations(
+    conn: &rusqlite::Connection,
+    session_id: Option<i64>,
+    project_id: i64,
+    plan_id: i64,
+    project_prd: &ProjectSpec,
+    steps: &[StepDraftInput],
+) {
+    let form = project_prd
+        .architecture
+        .as_ref()
+        .map(|architecture| architecture.form);
+    for step in steps {
+        let annotation = form_consistency_annotation(
+            form,
+            PlanFormStep {
+                title: &step.title,
+                summary: &step.summary,
+                instruction_seed: &step.instruction_seed,
+                expected_files: &step.expected_files,
+            },
+        );
+        let Some(reason) = annotation else {
+            continue;
+        };
+        let Some(form) = form else {
+            continue;
+        };
+        let payload = dive_event_log::plan_form_consistency_payload(
+            dive_event_log::PlanFormConsistencyPayloadInput {
+                project_id,
+                plan_id,
+                project_spec_id: &project_prd.project_spec_id,
+                project_spec_version: project_prd.current_version,
+                form: architecture_form_code(form),
+                step_id: &step.step_id,
+                step_title: &step.title,
+                expected_files: &step.expected_files,
+                reason: &reason,
+            },
+        );
+        if let Err(err) = dive_event_log::append_to_conn(
+            conn,
+            session_id,
+            dive_event_log::PLAN_FORM_CONSISTENCY_EVENT,
+            payload,
+        ) {
+            tracing::warn!(
+                error = %crate::telemetry::redact_log_text(&err.to_string()),
+                "failed to append plan form consistency annotation"
+            );
+        }
+    }
+}
+
+fn architecture_form_code(form: crate::db::models::ArchitectureForm) -> &'static str {
+    match form {
+        crate::db::models::ArchitectureForm::WebApp => "web_app",
+        crate::db::models::ArchitectureForm::StaticPage => "static_page",
+        crate::db::models::ArchitectureForm::CliTool => "cli_tool",
+        crate::db::models::ArchitectureForm::DesktopApp => "desktop_app",
+        crate::db::models::ArchitectureForm::ApiService => "api_service",
+        crate::db::models::ArchitectureForm::Other => "other",
+    }
+}
+
 pub fn workspace_plan_current_draft_impl(
     state: &AppState,
     project_id: i64,
@@ -2867,7 +3119,11 @@ pub fn workspace_plan_current_draft_impl(
     Ok(Some((plan, steps)))
 }
 
-pub fn workspace_plan_approve_impl(state: &AppState, plan_id: i64) -> Result<PlanRow, String> {
+pub fn workspace_plan_approve_impl(
+    state: &AppState,
+    plan_id: i64,
+    critique_resolution: Option<PlanCritiqueResolution>,
+) -> Result<PlanRow, String> {
     let project_root = state.project_root_required()?;
     {
         let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -2902,16 +3158,60 @@ pub fn workspace_plan_approve_impl(state: &AppState, plan_id: i64) -> Result<Pla
     let plan = plan_dao::get_by_id(db.conn(), plan_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("plan {plan_id} not found after approve"))?;
-    let _ = append_plan_activity(
+    // Record the student's plan-critique response as supervision evidence so the
+    // research ledger can distinguish an engaged approval from a blind one
+    // (Constitution IV). The note is the student's own words, not AI self-report.
+    let critique_response = critique_resolution.as_ref().map(|res| res.response.clone());
+    let critique_note = critique_resolution
+        .as_ref()
+        .and_then(|res| res.note.as_deref())
+        .and_then(bounded_critique_note);
+    let _ = dive_event_log::append_to_conn(
         db.conn(),
-        &plan,
-        None,
         None,
         "plan_approved",
-        "Plan approved",
-        None,
+        json!({
+            "project_id": plan.project_id,
+            "plan_id": plan.id,
+            "message": "Plan approved",
+            "critiqueResponse": critique_response,
+            "critiqueNote": critique_note,
+        }),
     );
     Ok(plan)
+}
+
+/// Bound a student-authored plan-critique note before it enters the exportable
+/// event ledger. Returns `None` for empty/whitespace input.
+fn bounded_critique_note(note: &str) -> Option<String> {
+    const MAX_CHARS: usize = 280;
+    let trimmed = note.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.chars().take(MAX_CHARS).collect())
+}
+
+#[cfg(test)]
+mod critique_note_tests {
+    use super::*;
+
+    #[test]
+    fn bounded_critique_note_trims_and_drops_empty() {
+        assert_eq!(bounded_critique_note("   "), None);
+        assert_eq!(bounded_critique_note(""), None);
+        assert_eq!(
+            bounded_critique_note("  계획대로 단계가 다 있어요  ").as_deref(),
+            Some("계획대로 단계가 다 있어요")
+        );
+    }
+
+    #[test]
+    fn bounded_critique_note_caps_length_by_chars() {
+        let long = "가".repeat(400);
+        let bounded = bounded_critique_note(&long).expect("non-empty note kept");
+        assert_eq!(bounded.chars().count(), 280);
+    }
 }
 
 pub fn workspace_plan_discard_plan_impl(state: &AppState, plan_id: i64) -> Result<(), String> {
@@ -5214,7 +5514,10 @@ fn json_criterion_text(value: &Value) -> Option<String> {
 #[cfg(test)]
 mod prd_interview_prompt_tests {
     use super::*;
-    use crate::db::models::{ProjectSpecDraft, ProjectSpecStatus};
+    use crate::db::models::{
+        ArchitectureDecision, ArchitectureDecisionSource, ArchitectureForm, ProjectSpecDraft,
+        ProjectSpecStatus,
+    };
 
     fn empty_draft() -> LiveProjectSpecDraftRow {
         LiveProjectSpecDraftRow {
@@ -5231,6 +5534,7 @@ mod prd_interview_prompt_tests {
                 non_goals: Vec::new(),
                 constraints: Vec::new(),
                 acceptance_criteria: Vec::new(),
+                architecture: None,
                 status: ProjectSpecStatus::Draft,
             },
             dirty_fields: Vec::new(),
@@ -5265,7 +5569,12 @@ mod prd_interview_prompt_tests {
     }
 
     #[test]
-    fn prd_interview_ready_focus_does_not_require_optional_scope_or_constraints() {
+    fn prd_interview_not_ready_until_confirmable_bar_met() {
+        // Goal + a single criterion is NOT enough: the real confirm gate
+        // (validateConfirmableProjectSpec) also needs intent, >=1 scope, >=1
+        // non-goal, and a second criterion. The interview readiness signal must
+        // mirror that so DIVE does not tell the student to confirm while the
+        // button is disabled (round-2 S-041 / P1-09, P1-10).
         let mut draft = empty_draft();
         draft.spec.goal = "Build a personal schedule app".into();
         draft.spec.acceptance_criteria.push(AcceptanceCriterion {
@@ -5277,15 +5586,78 @@ mod prd_interview_prompt_tests {
             retired_in_version: None,
         });
 
+        assert_ne!(
+            prd_interview_next_focus(&draft.spec),
+            "ready_to_save: the draft is complete enough; point to the PRD confirmation action"
+        );
+        // The interview asks for the next genuinely-missing field, one at a time.
+        assert!(prd_interview_next_focus(&draft.spec).starts_with("capture_intent_summary"));
+        let missing = missing_confirmable_prd_fields(&draft.spec);
+        assert!(missing.contains(&"intent summary"));
+        assert!(missing.contains(&"in-scope item"));
+        assert!(missing.contains(&"non-goal"));
+        assert!(missing.contains(&"second observable done state"));
+        assert!(!missing.contains(&"none"));
+    }
+
+    #[test]
+    fn prd_interview_ready_only_when_confirmable_bar_met() {
+        let mut draft = empty_draft();
+        draft.spec.goal = "Build a personal schedule app for students".into();
+        draft.spec.intent_summary =
+            Some("A student tracks classes and homework in one place".into());
+        draft.spec.scope = vec!["Add and remove schedule items".into()];
+        draft.spec.non_goals = vec!["No account or login in the first version".into()];
+        for (idx, text) in [
+            "Schedules and tasks appear in separate lists",
+            "Adding an item shows it immediately in the list",
+        ]
+        .iter()
+        .enumerate()
+        {
+            draft.spec.acceptance_criteria.push(AcceptanceCriterion {
+                criterion_id: format!("AC-{:03}", idx + 1),
+                text: (*text).into(),
+                source: AcceptanceCriterionSource::Interview,
+                status: AcceptanceCriterionStatus::Active,
+                created_in_version: 1,
+                retired_in_version: None,
+            });
+        }
+
+        // S-047: after the 5 confirmable fields, the interview asks for the
+        // architecture — a draft without one is NOT yet ready to confirm.
+        assert!(prd_interview_next_focus(&draft.spec).starts_with("propose_architecture_form"));
+
+        // Once a form is picked but no stack yet, it asks for the stack next.
+        draft.spec.architecture = Some(ArchitectureDecision {
+            form: ArchitectureForm::WebApp,
+            form_other_label: None,
+            stack: None,
+            rationale: Some("A web app fits a schedule the student opens in a browser".into()),
+            decision_source: ArchitectureDecisionSource::StudentConfirmed,
+            decided_in_version: 1,
+        });
+        assert!(prd_interview_next_focus(&draft.spec).starts_with("propose_architecture_stack"));
+        assert!(missing_confirmable_prd_fields(&draft.spec).contains(&"tech stack"));
+
+        // With both form and stack decided, the draft is ready to confirm.
+        draft.spec.architecture = Some(ArchitectureDecision {
+            form: ArchitectureForm::WebApp,
+            form_other_label: None,
+            stack: Some("React + Vite + TypeScript".into()),
+            rationale: Some("A web app fits a schedule the student opens in a browser".into()),
+            decision_source: ArchitectureDecisionSource::StudentConfirmed,
+            decided_in_version: 1,
+        });
         assert_eq!(
             prd_interview_next_focus(&draft.spec),
             "ready_to_save: the draft is complete enough; point to the PRD confirmation action"
         );
-
+        // Constraints remain optional (validateConfirmableProjectSpec ignores them).
         let prompt = build_prd_interview_user_prompt(&draft, &[], "이 정도면 충분해");
         assert!(prompt.contains("Missing fields required before PRD confirmation, if any: none"));
         assert!(prompt.contains("instead of asking a new required question"));
-        assert!(prompt.contains("or asking whether to save"));
     }
 }
 

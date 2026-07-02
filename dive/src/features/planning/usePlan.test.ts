@@ -39,6 +39,7 @@ function savedSpec(): ProjectSpec {
         retiredInVersion: null,
       },
     ],
+    architecture: null,
     status: "draft",
     createdAt: 1,
     updatedAt: 2,

@@ -15,16 +15,17 @@ use dive_lib::db::models::{CardState, NewCard, NewProject, NewSession};
 use dive_lib::Database;
 use dive_lib::{
     ChatEvent, ChatRequest, FinishReason, LlmProvider, Message, MockProvider, ModelInfo,
-    ProviderError,
+    ProviderError, ToolCall,
 };
 use futures::stream::{self, BoxStream};
 use futures::StreamExt;
+use serde_json::{json, Value};
 
 use dive_lib::agent::{
     AgentError, AgentEvent, AgentLoop, AgentRunMode, AlwaysApproveHook, AlwaysDenyHook,
     AwaitUserHook, PendingApprovals, PermissionDecision, StepContext,
 };
-use dive_lib::tools::{ToolContext, ToolRegistry};
+use dive_lib::tools::{RiskLevel, Tool, ToolContext, ToolError, ToolOutput, ToolRegistry};
 
 fn fresh_env() -> (
     Arc<Mutex<Database>>,
@@ -129,6 +130,72 @@ fn build_loop(
         .model("mock-model")
         .cancel(Arc::new(AtomicBool::new(false)))
         .max_iterations(5)
+        .build()
+        .unwrap()
+}
+
+struct FailingWebFetchTool;
+
+#[async_trait]
+impl Tool for FailingWebFetchTool {
+    fn name(&self) -> &str {
+        "web_fetch"
+    }
+
+    fn description(&self) -> &str {
+        "test web fetch"
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "url": { "type": "string" },
+                "purpose": { "type": "string" }
+            },
+            "required": ["url", "purpose"]
+        })
+    }
+
+    fn risk_level(&self) -> RiskLevel {
+        RiskLevel::Danger
+    }
+
+    async fn run(&self, _input: Value, _ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
+        Ok(ToolOutput::failure(
+            "web fetch blocked by safety policy",
+            json!({
+                "runtimeAction": "web_fetch",
+                "status": "blocked",
+                "success": false,
+                "summary": "web fetch blocked by safety policy",
+                "errorClass": "denied_resolved_ip",
+                "unavailableReason": "blocked_target",
+                "isEvidence": false
+            }),
+        ))
+    }
+}
+
+fn loop_with_failing_web_fetch(
+    db: Arc<Mutex<Database>>,
+    project_root: &std::path::Path,
+    provider: Arc<MockProvider>,
+    session_id: i64,
+) -> AgentLoop {
+    let mut registry = ToolRegistry::new();
+    registry.register(Arc::new(FailingWebFetchTool));
+    AgentLoop::builder()
+        .provider(provider)
+        .registry(Arc::new(registry))
+        .permission(Arc::new(AlwaysApproveHook))
+        .db(db)
+        .tool_ctx(ToolContext::new(project_root, session_id))
+        .model("mock-model")
+        .cancel(Arc::new(AtomicBool::new(false)))
+        .run_mode(AgentRunMode::Build)
+        .plan_accepted(true)
+        .max_iterations(3)
         .build()
         .unwrap()
 }
@@ -329,6 +396,87 @@ async fn scenario_b_tool_call_then_followup() {
     assert!(kinds.contains(&"tool_approve"));
     assert!(kinds.contains(&"tool_result"));
     assert!(kinds.contains(&"tool_complete"));
+}
+
+#[tokio::test]
+async fn web_fetch_tool_result_sent_to_model_omits_error_class() {
+    let (db, _db_file, root, sid) = fresh_env();
+    let mock = Arc::new(MockProvider::new(vec![
+        vec![
+            ChatEvent::ToolCallStart {
+                id: "web-1".into(),
+                name: "web_fetch".into(),
+            },
+            ChatEvent::ToolCallDelta {
+                id: "web-1".into(),
+                arguments_delta: r#"{"url":"https://93.184.216.34/","purpose":"Read docs."}"#
+                    .into(),
+            },
+            ChatEvent::ToolCallEnd { id: "web-1".into() },
+            ChatEvent::Done {
+                finish_reason: FinishReason::ToolCalls,
+            },
+        ],
+        vec![ChatEvent::Done {
+            finish_reason: FinishReason::Stop,
+        }],
+    ]));
+    let loop_ = loop_with_failing_web_fetch(db, root.path(), mock.clone(), sid);
+
+    let mut events = Vec::new();
+    loop_
+        .run(sid, "look this up", &mut |event| events.push(event))
+        .await
+        .unwrap();
+
+    let tool_event_full = events
+        .iter()
+        .find_map(|event| match event {
+            AgentEvent::ToolResult { full, .. } => Some(full),
+            _ => None,
+        })
+        .expect("tool result event");
+    assert_eq!(tool_event_full["errorClass"], "denied_resolved_ip");
+
+    let requests = mock.requests_snapshot();
+    assert_eq!(requests.len(), 2);
+    let model_tool_content = requests[1]
+        .messages
+        .iter()
+        .find_map(|message| match message {
+            Message::Tool {
+                content,
+                tool_call_id,
+            } if tool_call_id == "web-1" => Some(content),
+            _ => None,
+        })
+        .expect("second provider request should include tool content");
+    assert!(!model_tool_content.contains("errorClass"));
+    assert!(!model_tool_content.contains("denied_resolved_ip"));
+    assert!(model_tool_content.contains("blocked_target"));
+}
+
+#[tokio::test]
+async fn supervised_web_fetch_result_content_omits_error_class() {
+    let (db, _db_file, root, sid) = fresh_env();
+    let mock = Arc::new(MockProvider::new(Vec::new()));
+    let loop_ = loop_with_failing_web_fetch(db, root.path(), mock, sid);
+    let tc = ToolCall {
+        id: "web-supervised-1".into(),
+        name: "web_fetch".into(),
+        arguments: r#"{"url":"https://93.184.216.34/","purpose":"Read docs."}"#.into(),
+    };
+
+    let mut events = Vec::new();
+    let result = loop_
+        .execute_supervised_tool_call(sid, &tc, &mut |event| events.push(event))
+        .await
+        .unwrap();
+
+    assert_eq!(result.full["errorClass"], "denied_resolved_ip");
+    assert!(!result.content.contains("errorClass"));
+    assert!(!result.content.contains("denied_resolved_ip"));
+    assert!(result.content.contains("blocked_target"));
 }
 
 #[tokio::test]

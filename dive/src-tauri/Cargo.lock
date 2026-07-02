@@ -807,7 +807,7 @@ dependencies = [
 
 [[package]]
 name = "dive"
-version = "1.0.0-rc.5"
+version = "1.0.0-rc.6"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -815,6 +815,7 @@ dependencies = [
  "eventsource-stream",
  "futures",
  "git2",
+ "ipnet",
  "keyring",
  "once_cell",
  "rand 0.8.6",

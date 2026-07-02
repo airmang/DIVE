@@ -75,3 +75,40 @@ export function classifyError(input: unknown): ClassifiedError {
     rawMessage: raw,
   };
 }
+
+export type ProjectCreateErrorKind = "unsafe_path" | "permission" | "canonicalize" | "generic";
+
+export interface ClassifiedProjectCreateError {
+  kind: ProjectCreateErrorKind;
+  titleKey: string;
+  bodyKey: string;
+  rawMessage: string;
+}
+
+/**
+ * Map the raw Rust `project_create` errors (project.rs) to a deterministic,
+ * localizable kind so a beginner sees plain Korean instead of an English Rust
+ * string (P1-06). Always resolves to a kind (`generic` fallback) so the UI never
+ * shows the raw message.
+ */
+export function classifyProjectCreateError(input: unknown): ClassifiedProjectCreateError {
+  const lower = rawMessage(input).toLowerCase();
+  let kind: ProjectCreateErrorKind = "generic";
+  if (lower.includes("unsafe project path") || lower.includes("must be absolute")) {
+    kind = "unsafe_path";
+  } else if (lower.includes("permission") || lower.includes("denied") || lower.includes("eacces")) {
+    kind = "permission";
+  } else if (
+    lower.includes("canonicalize") ||
+    lower.includes("no such file") ||
+    lower.includes("not found")
+  ) {
+    kind = "canonicalize";
+  }
+  return {
+    kind,
+    titleKey: `error.project_create.${kind}.title`,
+    bodyKey: `error.project_create.${kind}.body`,
+    rawMessage: rawMessage(input),
+  };
+}

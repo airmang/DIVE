@@ -300,7 +300,7 @@ impl EvidenceRef {
             id: "diff.reviewed".to_string(),
             source: EvidenceSource::Diff,
             kind: EvidenceKind::DiffReview,
-            label: "Diff 확인".to_string(),
+            label: "변경 내용 확인".to_string(),
             value_summary: json!({ "kind": "enum", "value": "reviewed" }),
             verification_evidence: false,
         }
@@ -349,7 +349,7 @@ impl EvidenceRef {
             id: "verify.test_result".to_string(),
             source: EvidenceSource::Verification,
             kind: EvidenceKind::TestResult,
-            label: "Test result".to_string(),
+            label: "테스트 결과".to_string(),
             value_summary: json!({ "kind": "enum", "value": value }),
             verification_evidence: result == TestResult::Pass,
         }
@@ -1319,7 +1319,8 @@ fn localized_evidence_label(fallback: &str, locale_english: bool) -> String {
     }
     let english = match fallback {
         "AI 완료 주장" => "AI completion claim",
-        "Diff 확인" => "Diff reviewed",
+        "변경 내용 확인" => "Diff reviewed",
+        "테스트 결과" => "Test result",
         "프리뷰 확인" => "Preview observed",
         "앱 실행 확인" => "App launch verified",
         "수동 확인" => "Manual check",

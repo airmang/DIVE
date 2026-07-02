@@ -60,6 +60,7 @@ function project(): PlanDashboardProject {
           retiredInVersion: null,
         },
       ],
+      architecture: null,
       status: "draft",
       createdAt: 1,
       updatedAt: 2,

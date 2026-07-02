@@ -6,6 +6,7 @@
 pub mod context;
 pub mod delete_file;
 pub mod edit_file;
+pub mod egress_guard;
 pub mod fs_guard;
 pub mod guard;
 pub mod list_dir;
@@ -17,6 +18,7 @@ pub mod run_process;
 pub mod runtime;
 pub mod search_files;
 pub mod terminal_script;
+pub mod web_fetch;
 pub mod write_file;
 
 use async_trait::async_trait;
@@ -28,6 +30,7 @@ pub use context::ToolContext;
 pub use fs_guard::FsGuard;
 pub use guard::{assess_file_write_secrets, classify_bash_command, BlockReason};
 pub use registry::ToolRegistry;
+pub use web_fetch::WebFetch;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -80,6 +83,8 @@ pub enum ToolError {
     PathDenied(String),
     #[error("blocked: {} ({})", .0.rule, .0.pattern)]
     Blocked(BlockReason),
+    #[error("egress blocked: {}", .0.code())]
+    EgressBlocked(egress_guard::EgressBlockReason),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
     #[error("json: {0}")]
@@ -167,6 +172,22 @@ pub fn params_preview(tool_name: &str, args: &Value) -> String {
             .and_then(|v| v.as_str())
             .map(|script| format!("script: \"{}\"", truncate_utf8(script, 77, "...")))
             .unwrap_or_else(|| "script: \"\"".to_string()),
+        "web_fetch" => {
+            let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
+            let parts = egress_guard::safe_url_log_parts(url);
+            if parts.host.is_empty() {
+                "url: [invalid]".to_string()
+            } else {
+                let port = parts
+                    .port
+                    .map(|port| format!(":{port}"))
+                    .unwrap_or_default();
+                format!(
+                    "url: \"{}://{}{}#path-{}\"",
+                    parts.scheme, parts.host, port, parts.path_hash
+                )
+            }
+        }
         _ => {
             let s = args.to_string();
             truncate_utf8(&s, 77, "...")

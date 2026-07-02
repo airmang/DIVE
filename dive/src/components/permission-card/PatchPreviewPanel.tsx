@@ -2,6 +2,7 @@ import { useState } from "react";
 import { FileDiff } from "lucide-react";
 import { useT } from "../../i18n";
 import { DiffViewer } from "./DiffViewer";
+import { ApprovalWarningCallouts } from "./ApprovalWarningCallouts";
 import type { DiffPreviewData, PermissionApprovalWarnings, PermissionChangeSummary } from "./types";
 
 interface Props {
@@ -25,8 +26,12 @@ export function PatchPreviewPanel({
   const [explanationOpen, setExplanationOpen] = useState(false);
   const multiDiffs = diffPreviews && diffPreviews.length > 0 ? diffPreviews : null;
   const hasDiff = diff !== null || multiDiffs !== null;
+  // The secret / whole-file callout must surface even with no diff to scroll —
+  // it's the only concrete danger signal on the highest-stakes approvals (P1-25).
+  const hasWarningCallout =
+    approvalWarnings?.secretFlagged === true || approvalWarnings?.wholeFileOverwrite != null;
 
-  if (!hasDiff && !expected) return null;
+  if (!hasDiff && !expected && !hasWarningCallout) return null;
 
   return (
     <section className="rounded-md border bg-bg-panel2/40 p-3" data-testid="patch-preview-panel">
@@ -90,6 +95,10 @@ export function PatchPreviewPanel({
             </div>
           ) : null}
         </>
+      ) : hasWarningCallout ? (
+        <div className="overflow-hidden rounded-md border" data-testid="patch-preview-callouts">
+          <ApprovalWarningCallouts approvalWarnings={approvalWarnings} />
+        </div>
       ) : null}
     </section>
   );

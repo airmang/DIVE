@@ -47,7 +47,7 @@ export function RuntimeBadge({ className, selection = null }: RuntimeBadgeProps)
       data-testid="runtime-badge"
       className={cn(
         "inline-flex items-center gap-1 rounded-sm border px-2 py-0.5",
-        "text-[10px] font-semibold uppercase tracking-wide",
+        "text-[11px] font-semibold uppercase tracking-wide",
         isUnavailable
           ? "border-warn/50 bg-warn/10 text-warn"
           : "border-accent/40 bg-accent-subtle text-accent",

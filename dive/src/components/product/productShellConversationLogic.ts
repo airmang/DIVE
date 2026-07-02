@@ -75,6 +75,13 @@ export function deriveInputBlocked(input: {
   currentProjectId: number | null;
   currentSessionId: number | null;
   hasConnectedProvider: boolean;
+  // S-046 (P1-01): a provider can be connected while the supervised runtime is
+  // still unavailable (not Pi-capable, missing credentials, no project root,
+  // transient). Gate the composer on that too, using the concrete runtime state.
+  runtimeUnavailable?: boolean;
+  runtimeReason?: string;
+  runtimeActionLabel?: string;
+  runtimeOnAction?: Action;
   onEmptyStateAction: Action;
   onOpenSettings: Action;
   t: Translate;
@@ -91,6 +98,13 @@ export function deriveInputBlocked(input: {
       reason: input.t("stage.gate_no_provider"),
       actionLabel: input.t("stage.action_open_settings"),
       onAction: input.onOpenSettings,
+    };
+  }
+  if (!input.isDemoRoute && input.runtimeUnavailable) {
+    return {
+      reason: input.runtimeReason ?? input.t("runtime.capability.unavailable_message"),
+      actionLabel: input.runtimeActionLabel,
+      onAction: input.runtimeOnAction,
     };
   }
   if (!input.isDemoRoute && input.currentSessionId === null) {

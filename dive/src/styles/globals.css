@@ -34,8 +34,8 @@
     --color-border: 29 38 47;
 
     --color-fg: 215 224 232;
-    --color-fg-muted: 111 125 138;
-    --color-fg-subtle: 79 90 102; /* derived: hint-level fg */
+    --color-fg-muted: 137 149 161; /* S-044: raised for WCAG AA on load-bearing text */
+    --color-fg-subtle: 128 138 149; /* S-044: raised to AA (was hint-level, used for load-bearing text) */
 
     --color-accent: 58 214 160; /* mint */
     --color-accent-hover: 90 224 178; /* lightened */
@@ -62,18 +62,18 @@
 
     --color-fg: 24 32 36;
     --color-fg-muted: 90 104 112;
-    --color-fg-subtle: 130 144 152;
+    --color-fg-subtle: 100 111 117; /* S-044: darkened to AA for load-bearing text */
 
-    --color-accent: 22 163 116; /* mint, darkened for light bg */
-    --color-accent-hover: 30 178 128;
-    --color-accent-active: 17 140 100;
+    --color-accent: 15 114 81; /* S-044: mint deepened to emerald — AA text on white/tint + white-on-accent buttons */
+    --color-accent-hover: 46 132 103; /* S-044: white-safe hover */
+    --color-accent-active: 13 96 68; /* S-044: white-safe active */
     --color-accent-subtle: 218 240 232;
     --color-accent-fg: 255 255 255;
 
-    --color-success: 22 163 116;
-    --color-warn: 176 132 40;
-    --color-danger: 200 70 70;
-    --color-info: 56 104 200;
+    --color-success: 15 109 77; /* S-044: darkened to AA for success text on tint chips + diff-add */
+    --color-warn: 121 91 28; /* S-044: darkened to AA for warn text on warn/10-15 chips + badges */
+    --color-danger: 166 58 58; /* S-044: darkened to AA for danger text on tint chips + diff-del */
+    --color-info: 40 90 180;
 
     --color-ring: 22 163 116;
   }
@@ -143,8 +143,18 @@
       rgb(var(--color-bg));
   }
 
-  .plan-minimap-node:focus-visible circle {
-    stroke-width: 3;
+  /* S-044 (P2-25): keyboard-focus indicator for minimap SVG nodes. The old
+     rule bumped stroke-width to 3, but the current node is already 3, so it
+     produced no visible change on focus. A dedicated halo <circle> gives every
+     node — including the current step — a distinct, paint-order focus ring. */
+  .plan-minimap-focus-halo {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 2;
+  }
+
+  .plan-minimap-node:focus-visible .plan-minimap-focus-halo {
+    stroke: rgb(var(--color-ring));
   }
 
   @keyframes plan-node-pulse {

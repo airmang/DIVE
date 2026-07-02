@@ -12,10 +12,12 @@ use dive_lib::db::dao::{
     step_session_mapping as mapping, workmap,
 };
 use dive_lib::db::models::{
-    AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus, NewInterview,
+    AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus,
+    ArchitectureDecision, ArchitectureDecisionSource, ArchitectureForm, NewInterview,
     NewLiveProjectSpecDraft, NewPlan, NewProject, NewStep, ObjectionSuggestionStatus,
     PlanMutationType, ProjectSpecDelta, ProjectSpecDraft, ProjectSpecStatus, StepRow,
 };
+use dive_lib::export::{ExportEngine, ExportOptions};
 use dive_lib::ipc::workspace_plan::{
     roadmap_step_open_impl, roadmap_step_update_state_impl, workspace_plan_activity_impl,
     workspace_plan_append_step_impl, workspace_plan_append_step_with_options_impl,
@@ -31,7 +33,7 @@ use dive_lib::ipc::workspace_plan::{
     workspace_prd_draft_get_impl, workspace_prd_draft_save_impl, workspace_prd_get_impl,
     workspace_prd_interview_turn_impl, workspace_prd_save_impl, workspace_prd_status_impl,
     AcceptanceCriterionInput, AppendStepOptions, MultiStepDraftInput, PlanAdjustmentOfferResponse,
-    PlanAdjustmentOfferResponseInput, PlanDraftInput, PrdDraftSaveInput,
+    PlanAdjustmentOfferResponseInput, PlanCritiqueResolution, PlanDraftInput, PrdDraftSaveInput,
     PrdInterviewConversationTurnInput, PrdInterviewTurnInput, PrdSaveInput, RouteDecision,
     StepDraftInput, StepRationaleChallengeInput, StepStateUpdateInput,
 };
@@ -242,6 +244,20 @@ fn seed_project_named(state: &AppState, name: &str, path: &str) -> i64 {
     .unwrap()
 }
 
+fn seed_session(state: &AppState, project_id: i64) -> i64 {
+    let db = state.db.lock().unwrap();
+    session::insert(
+        db.conn(),
+        &dive_lib::db::models::NewSession {
+            project_id,
+            title: "Plan session".into(),
+            ended_at: None,
+            status: "active".into(),
+        },
+    )
+    .unwrap()
+}
+
 fn seed_plan(state: &AppState, project_id: i64, status: &str) -> i64 {
     let db = state.db.lock().unwrap();
     plan::insert(
@@ -394,6 +410,15 @@ fn minimal_prd_draft(project_id: i64) -> ProjectSpecDraft {
         non_goals: vec!["Add-step mutation".into()],
         constraints: vec!["Local-first EventLog".into()],
         acceptance_criteria: vec![prd_criterion("A saved PRD unlocks plan generation")],
+        // S-047: a confirmable save now requires a decided architecture (form + stack).
+        architecture: Some(ArchitectureDecision {
+            form: ArchitectureForm::WebApp,
+            form_other_label: None,
+            stack: Some("React + Vite".into()),
+            rationale: None,
+            decision_source: ArchitectureDecisionSource::StudentConfirmed,
+            decided_in_version: 1,
+        }),
         status: ProjectSpecStatus::Draft,
     }
 }
@@ -404,6 +429,27 @@ fn seed_minimal_prd(state: &AppState, project_id: i64) {
         PrdSaveInput {
             project_id,
             spec: minimal_prd_draft(project_id),
+            reason: "interview".into(),
+        },
+    )
+    .unwrap();
+}
+
+fn seed_minimal_prd_with_form(state: &AppState, project_id: i64, form: ArchitectureForm) {
+    let mut draft = minimal_prd_draft(project_id);
+    draft.architecture = Some(ArchitectureDecision {
+        form,
+        form_other_label: None,
+        stack: Some("Confirmed stack".into()),
+        rationale: None,
+        decision_source: ArchitectureDecisionSource::StudentConfirmed,
+        decided_in_version: 1,
+    });
+    workspace_prd_save_impl(
+        state,
+        PrdSaveInput {
+            project_id,
+            spec: draft,
             reason: "interview".into(),
         },
     )
@@ -439,6 +485,7 @@ fn prd_status_get_and_save_distinguish_missing_draft_and_minimal() {
                     non_goals: vec![],
                     constraints: vec![],
                     acceptance_criteria: vec![],
+                    architecture: None,
                     status: ProjectSpecStatus::Draft,
                 },
                 dirty_fields: vec!["goal".into()],
@@ -525,6 +572,48 @@ fn prd_save_allows_missing_optional_context_fields() {
     assert_eq!(saved.goal, "Build a PRD-backed roadmap");
     assert!(saved.intent_summary.is_none());
     assert!(saved.scope.is_empty());
+}
+
+#[test]
+fn prd_save_rejects_missing_or_half_decided_architecture() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+
+    // No architecture decided at all: the confirm/save backstop rejects it.
+    let mut no_arch = minimal_prd_draft(project_id);
+    no_arch.architecture = None;
+    let err = workspace_prd_save_impl(
+        &state,
+        PrdSaveInput {
+            project_id,
+            spec: no_arch,
+            reason: "interview".into(),
+        },
+    )
+    .unwrap_err();
+    assert!(err.contains("architecture"), "unexpected error: {err}");
+
+    // Form picked but no stack yet (the intermediate two-stage state) is also rejected.
+    let mut form_only = minimal_prd_draft(project_id);
+    form_only.architecture = Some(ArchitectureDecision {
+        form: ArchitectureForm::CliTool,
+        form_other_label: None,
+        stack: None,
+        rationale: None,
+        decision_source: ArchitectureDecisionSource::StudentConfirmed,
+        decided_in_version: 1,
+    });
+    let err = workspace_prd_save_impl(
+        &state,
+        PrdSaveInput {
+            project_id,
+            spec: form_only,
+            reason: "interview".into(),
+        },
+    )
+    .unwrap_err();
+    assert!(err.contains("architecture"), "unexpected error: {err}");
 }
 
 #[test]
@@ -642,7 +731,9 @@ async fn prd_interview_turn_applies_validated_patch_without_creating_version() {
     assert!(system_prompt.contains("gently lead the student"));
     assert!(system_prompt.contains("Do not run a fixed checklist"));
     assert!(system_prompt.contains("Use the same language as the student's answer"));
-    assert!(system_prompt.contains("ready to confirm"));
+    // S-041 reworded the readiness guidance to mirror the real confirm gate: the
+    // model only tells the student it is ready when the focus is ready_to_save.
+    assert!(system_prompt.contains("ready_to_save is the PRD complete enough"));
     let user_prompt = match &requests[0].messages[1] {
         Message::User { content } => content,
         _ => panic!("expected PRD interview user prompt"),
@@ -939,6 +1030,53 @@ fn generate_draft_accepts_legacy_criteria_with_step_links_and_rationale() {
         generated.payload["criterion_coverage"]["step_links"][0]["linked_criterion_ids"],
         json!(["AC-001"])
     );
+}
+
+#[test]
+fn generate_draft_logs_form_consistency_annotation_without_blocking() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let session_id = seed_session(&state, project_id);
+    seed_minimal_prd_with_form(&state, project_id, ArchitectureForm::CliTool);
+    let interview =
+        workspace_plan_start_interview_impl(&state, project_id, "Build a roadmap".into()).unwrap();
+    let submitted =
+        workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
+            .unwrap();
+    let mut input = draft_input();
+    input.steps.truncate(1);
+    input.steps[0].title = "Build browser UI".into();
+    input.steps[0].summary = "Create a DOM page for the browser.".into();
+    input.steps[0].instruction_seed = "Implement a React component with a button.".into();
+    input.steps[0].expected_files = vec!["src/App.tsx".into()];
+    input.steps[0].verification_command = None;
+    input.steps[0].verification_type = Some("manual".into());
+
+    let (plan, steps) =
+        workspace_plan_generate_draft_impl(&state, submitted.id, input, false).unwrap();
+
+    assert_eq!(steps.len(), 1);
+    let db = state.db.lock().unwrap();
+    let events = event_log::list(db.conn()).unwrap();
+    let annotation = events
+        .iter()
+        .find(|event| event.r#type == dive_lib::dive::event_log::PLAN_FORM_CONSISTENCY_EVENT)
+        .expect("form consistency annotation should be logged");
+    assert_eq!(annotation.session_id, Some(session_id));
+    assert_eq!(annotation.payload["project_id"], json!(project_id));
+    assert_eq!(annotation.payload["plan_id"], json!(plan.id));
+    assert_eq!(annotation.payload["form"], json!("cli_tool"));
+    assert_eq!(annotation.payload["step_id"], json!("step-001"));
+    assert_eq!(annotation.payload["blocking"], json!(false));
+    assert_eq!(annotation.payload["annotation"], json!(true));
+    drop(db);
+
+    let exported = ExportEngine::new(state.db.clone())
+        .export_session_with_salt(session_id, &ExportOptions::default(), "test-salt")
+        .unwrap();
+    assert!(exported.contains("\"type\":\"plan.form_consistency\""));
+    assert!(exported.contains("\"blocking\":false"));
 }
 
 #[test]
@@ -2296,7 +2434,7 @@ fn approve_exports_artifacts_and_returns_approved_plan() {
     let plan_id = seed_plan(&state, project_id, "draft");
     insert_step(&state, plan_id, "step-001", &[]);
 
-    let approved = workspace_plan_approve_impl(&state, plan_id).unwrap();
+    let approved = workspace_plan_approve_impl(&state, plan_id, None).unwrap();
     assert_eq!(approved.status, "approved");
     assert!(tmp.path().join(".dive/plan.json").exists());
 }
@@ -2425,7 +2563,7 @@ fn plan_activity_records_lifecycle_events_latest_first() {
     let plan_id = seed_plan(&state, project_id, "draft");
     let first = insert_step(&state, plan_id, "step-001", &[]);
 
-    workspace_plan_approve_impl(&state, plan_id).unwrap();
+    workspace_plan_approve_impl(&state, plan_id, None).unwrap();
     workspace_plan_append_step_impl(&state, plan_id, append_step_draft(vec!["step-001".into()]))
         .unwrap();
     roadmap_step_open_impl(&state, first).unwrap();
@@ -2459,6 +2597,56 @@ fn plan_activity_records_lifecycle_events_latest_first() {
     assert_eq!(activity[0].step_title.as_deref(), Some("Step step-001"));
     assert_eq!(activity[0].message, "Step marked done");
     assert_eq!(activity[0].reason, None);
+}
+
+#[test]
+fn plan_approved_event_records_critique_provenance() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "draft");
+    insert_step(&state, plan_id, "step-001", &[]);
+
+    workspace_plan_approve_impl(
+        &state,
+        plan_id,
+        Some(PlanCritiqueResolution {
+            response: "none".into(),
+            note: Some("  목표대로 단계가 다 있는지 확인했어요  ".into()),
+        }),
+    )
+    .unwrap();
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    let approved = events
+        .iter()
+        .find(|event| event.r#type == "plan_approved")
+        .expect("plan_approved event recorded");
+    assert_eq!(approved.payload["critiqueResponse"], json!("none"));
+    // The note is the student's own supervision sentence, trimmed but preserved.
+    assert_eq!(
+        approved.payload["critiqueNote"],
+        json!("목표대로 단계가 다 있는지 확인했어요")
+    );
+}
+
+#[test]
+fn plan_approved_event_has_null_critique_when_absent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let plan_id = seed_plan(&state, project_id, "draft");
+    insert_step(&state, plan_id, "step-001", &[]);
+
+    workspace_plan_approve_impl(&state, plan_id, None).unwrap();
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    let approved = events
+        .iter()
+        .find(|event| event.r#type == "plan_approved")
+        .expect("plan_approved event recorded");
+    assert_eq!(approved.payload["critiqueResponse"], json!(null));
+    assert_eq!(approved.payload["critiqueNote"], json!(null));
 }
 
 #[test]
@@ -2630,7 +2818,7 @@ fn current_draft_returns_project_draft_plan_and_steps() {
     assert_eq!(current.0.status, "draft");
     assert_eq!(current.1.len(), steps.len());
 
-    workspace_plan_approve_impl(&state, plan_row.id).unwrap();
+    workspace_plan_approve_impl(&state, plan_row.id, None).unwrap();
     assert!(workspace_plan_current_draft_impl(&state, project_id)
         .unwrap()
         .is_none());
@@ -2680,7 +2868,7 @@ fn generate_draft_refuses_approved_plan_without_replace_but_replaces_with_optin(
     seed_minimal_prd(&state, project_id);
     let (first_plan, _) =
         workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
-    workspace_plan_approve_impl(&state, first_plan.id).unwrap();
+    workspace_plan_approve_impl(&state, first_plan.id, None).unwrap();
 
     // Without opt-in: refuse rather than silently discard the approved plan.
     let mut replacement = draft_input();
@@ -2775,7 +2963,7 @@ fn approve_updates_linked_submitted_interview_status() {
     let (plan_row, _) =
         workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
 
-    let approved = workspace_plan_approve_impl(&state, plan_row.id).unwrap();
+    let approved = workspace_plan_approve_impl(&state, plan_row.id, None).unwrap();
     assert_eq!(approved.status, "approved");
 
     let db = state.db.lock().unwrap();

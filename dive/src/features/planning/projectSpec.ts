@@ -16,7 +16,13 @@ export type ConfirmableProjectSpecReasonCode =
   | "missing_intent_summary"
   | "missing_scope"
   | "missing_non_goals"
-  | "insufficient_acceptance_criteria";
+  | "insufficient_acceptance_criteria"
+  // S-047 (010 theme 7): architecture is a two-stage decision — the student picks
+  // a form first, then decides a stack. Both are part of the confirmable bar so a
+  // PRD cannot be saved with the shape left implicit. Mirrors the Rust
+  // confirmable_draft_gaps() ordering (form gap, then stack gap).
+  | "missing_architecture_form"
+  | "missing_architecture_stack";
 
 export interface MinimalProjectSpecValidation {
   valid: boolean;
@@ -291,6 +297,7 @@ export function createLiveProjectSpecDraft(
     acceptanceCriteria: adaptAcceptanceCriteria(overrides.acceptanceCriteria ?? [], {
       version: overrides.currentVersion ?? DEFAULT_PROJECT_SPEC_VERSION,
     }),
+    architecture: overrides.architecture ?? null,
     status: overrides.status ?? "draft",
   };
 
@@ -372,7 +379,7 @@ function substantiveActiveCriteriaCount(criteria: AcceptanceCriterion[]): number
 export function validateConfirmableProjectSpec(
   spec: Pick<
     ProjectSpecDraft,
-    "goal" | "intentSummary" | "scope" | "nonGoals" | "acceptanceCriteria"
+    "goal" | "intentSummary" | "scope" | "nonGoals" | "acceptanceCriteria" | "architecture"
   >,
 ): ConfirmableProjectSpecValidation {
   const reasonCodes: ConfirmableProjectSpecReasonCode[] = [];
@@ -398,6 +405,15 @@ export function validateConfirmableProjectSpec(
 
   if (substantiveActiveCriteriaCount(spec.acceptanceCriteria) < MIN_ACCEPTANCE_CRITERIA) {
     reasonCodes.push("insufficient_acceptance_criteria");
+  }
+
+  // Two-stage architecture gate (mirrors Rust confirmable_draft_gaps): a null
+  // architecture still needs a form; a decided form still needs a stack.
+  const architecture = spec.architecture ?? null;
+  if (!architecture) {
+    reasonCodes.push("missing_architecture_form");
+  } else if (!isSubstantiveText(architecture.stack, 1)) {
+    reasonCodes.push("missing_architecture_stack");
   }
 
   return {

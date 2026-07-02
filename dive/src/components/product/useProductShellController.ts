@@ -35,6 +35,7 @@ import {
   createLiveProjectSpecDraft,
   requestPlanAddStepDraft,
   quickIntakeInterviewAnswers,
+  validateConfirmableProjectSpec,
   usePlan,
   usePlanRouter,
   type LiveProjectSpecDraft,
@@ -44,7 +45,11 @@ import {
   type InterviewAnswer,
   type QuickIntakeInput,
 } from "../../features/planning";
-import type { InterviewRow, PlanGenerationResult } from "../../features/planning";
+import type {
+  InterviewRow,
+  PlanCritiqueResolution,
+  PlanGenerationResult,
+} from "../../features/planning";
 import type { ConfirmableRouteDecision } from "./PlanRouteConfirmModal";
 import {
   decodePlanDraftQualityError,
@@ -77,12 +82,30 @@ import { PrdAuthoringBoard, type PrdPatchFeedback } from "./PrdAuthoringBoard";
 import { FinalPrdReadView } from "./FinalPrdReadView";
 import { fallbackModels } from "../settings/providerModels";
 import { requestProjectRailTab } from "./ProjectRail";
+import type { ArchitectureForm } from "../../features/planning";
 
 export type PrdMode = "authoring" | "read" | null;
 
 interface PendingPrdPlanRequest {
   projectSpec: ProjectSpec;
   interviewAnswers?: InterviewAnswer[];
+}
+
+function planScaffoldingForForm(form: ArchitectureForm): string | null {
+  switch (form) {
+    case "web_app":
+      return "For web_app, steps should cover browser UI screens/components, client state, user interactions, and frontend verification; avoid CLI-only deliverables unless they directly support the web app.";
+    case "static_page":
+      return "For static_page, steps should be static HTML/CSS/JS; avoid server, database, or backend-auth steps.";
+    case "cli_tool":
+      return "For cli_tool, steps should cover command parsing, terminal input/output, files/config if needed, and command verification; avoid DOM, browser page, or UI component steps.";
+    case "desktop_app":
+      return "For desktop_app, steps should cover desktop window/app shell, local UI flows, packaging/runtime integration, and local persistence when needed; avoid API-service-only endpoint steps.";
+    case "api_service":
+      return "For api_service, steps should cover endpoints, request/response schemas, validation, data/storage boundaries, and API tests; avoid UI/DOM/browser-page steps.";
+    case "other":
+      return null;
+  }
 }
 
 export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
@@ -92,6 +115,16 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
       criterionId: criterion.criterionId,
       text: criterion.text,
     }));
+  // S-047 (010 theme 7): the student's confirmed architecture (form + stack) is
+  // decomposition context — the model decomposes *for* that form/stack rather than
+  // re-choosing one. This is context-only: it shapes the prose, not the plan schema.
+  const architecture = projectSpec.architecture
+    ? {
+        form: projectSpec.architecture.form,
+        formLabel: projectSpec.architecture.formOtherLabel?.trim() || projectSpec.architecture.form,
+        stack: projectSpec.architecture.stack ?? "",
+      }
+    : null;
   const prd = {
     goal: projectSpec.goal,
     intentSummary: projectSpec.intentSummary ?? "",
@@ -99,7 +132,11 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
     nonGoals: projectSpec.nonGoals,
     constraints: projectSpec.constraints,
     acceptanceCriteria: activeCriteria,
+    ...(architecture ? { architecture } : {}),
   };
+  const formScaffolding = projectSpec.architecture
+    ? planScaffoldingForForm(projectSpec.architecture.form)
+    : null;
 
   return [
     "[PRD_PLAN_GENERATION]",
@@ -111,6 +148,12 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
     "step_kind must be one of feature, refactor, rename, comment, debug. Use refactor/rename only for behavior-preserving move/restructure/name changes; use debug for diagnose-then-fix work.",
     "Every step must link to at least one saved PRD criterion ID through linked_criterion_ids and explain the link in rationale.",
     "Use the saved PRD criterion IDs exactly; do not invent AC IDs.",
+    ...(architecture
+      ? [
+          "The PRD includes the student's confirmed architecture (form + tech stack). Decompose for that form and stack: keep every step, expected_files, and verification consistent with it, and do not switch to a different framework or stack.",
+        ]
+      : []),
+    ...(formScaffolding ? ["DIVE form-specific step scaffolding:", formScaffolding] : []),
     "verification_command must be one no-shell command with explicit args when a command is appropriate, otherwise null with a clear manual verification summary in the step text.",
     "Do not include Markdown fences or prose.",
     "",
@@ -272,7 +315,7 @@ function prdRuntimeSelection(
   };
 }
 
-function draftFromProjectSpec(projectSpec: ProjectSpec): LiveProjectSpecDraft {
+export function draftFromProjectSpec(projectSpec: ProjectSpec): LiveProjectSpecDraft {
   return createLiveProjectSpecDraft(projectSpec.projectId, {
     draftId: `prd-draft-${projectSpec.projectId}`,
     projectSpecId: projectSpec.projectSpecId,
@@ -284,6 +327,10 @@ function draftFromProjectSpec(projectSpec: ProjectSpec): LiveProjectSpecDraft {
     nonGoals: projectSpec.nonGoals,
     constraints: projectSpec.constraints,
     acceptanceCriteria: projectSpec.acceptanceCriteria,
+    // S-047: carry the decided architecture into the editable draft. Without this,
+    // the read-view "Edit" button (which rebuilds the draft here with no backend
+    // refetch) would reset architecture to null and permanently drop it on re-save.
+    architecture: projectSpec.architecture,
     status: "draft",
   });
 }
@@ -1352,6 +1399,7 @@ export function useProductShellController() {
           });
           return {
             assistantMessage: result.assistantMessage,
+            appliedChange: (result.appliedFieldPaths?.length ?? 0) > 0,
           };
         })
         .catch((err) => {
@@ -1526,6 +1574,17 @@ export function useProductShellController() {
         openSettingsRoute();
         return;
       }
+      // QuickIntake must clear the SAME confirmable gate as the interview path —
+      // do not fast-path a vacuous PRD straight to save (round-2 P1-13). The
+      // student's answers are already on the live draft, so keep them on the board.
+      if (!validateConfirmableProjectSpec(draft.spec).valid) {
+        toast({
+          variant: "error",
+          title: t("prd.authoring.quick_intake_incomplete_title"),
+          description: t("prd.authoring.quick_intake_incomplete_description"),
+        });
+        return;
+      }
       const interviewAnswers = quickIntakeInterviewAnswers(input);
       setPrdBusy(true);
       void plan
@@ -1594,6 +1653,23 @@ export function useProductShellController() {
     currentSessionId,
     currentProjectName,
     hasConnectedProvider,
+    // S-046 (P1-01): gate the composer when the supervised runtime is
+    // unavailable even though a provider is connected. Reason + action come
+    // from the concrete runtimeSelection state (message + setupAction).
+    runtimeUnavailable: !isDemoRoute && chat.runtimeSelection?.state === "unavailable",
+    runtimeReason: chat.runtimeSelection?.message,
+    runtimeActionLabel:
+      chat.runtimeSelection?.setupAction === "open_project"
+        ? t("sidebar.new_project")
+        : chat.runtimeSelection?.setupAction === "retry_runtime"
+          ? undefined
+          : t("runtime.capability.setup_action"),
+    runtimeOnAction:
+      chat.runtimeSelection?.setupAction === "open_project"
+        ? handleEmptyStateAction
+        : chat.runtimeSelection?.setupAction === "retry_runtime"
+          ? undefined
+          : openSettingsRoute,
     providerDoneHint: cockpitProviderLabel(providers),
     cardCount: cards.length,
     currentCard,
@@ -1803,22 +1879,25 @@ export function useProductShellController() {
     void chat.sendUserMessage(submitPrompt, "interview", false);
   }, [chat, setPlanDraftExpectation, t]);
 
-  const handleApproveGeneratedPlan = useCallback(() => {
-    if (!generatedPlanDraft) return;
-    void (async () => {
-      try {
-        await plan.approvePlan(generatedPlanDraft.plan.id);
-        setGeneratedPlanDraft(null);
-        await planRoadmap.refresh();
-      } catch (err) {
-        toast({
-          variant: "error",
-          title: t("planning.approval.approve_failed_title"),
-          description: err instanceof Error ? err.message : String(err),
-        });
-      }
-    })();
-  }, [generatedPlanDraft, plan, planRoadmap, t, toast]);
+  const handleApproveGeneratedPlan = useCallback(
+    (critiqueResolution?: PlanCritiqueResolution) => {
+      if (!generatedPlanDraft) return;
+      void (async () => {
+        try {
+          await plan.approvePlan(generatedPlanDraft.plan.id, critiqueResolution);
+          setGeneratedPlanDraft(null);
+          await planRoadmap.refresh();
+        } catch (err) {
+          toast({
+            variant: "error",
+            title: t("planning.approval.approve_failed_title"),
+            description: err instanceof Error ? err.message : String(err),
+          });
+        }
+      })();
+    },
+    [generatedPlanDraft, plan, planRoadmap, t, toast],
+  );
 
   const handleRequestPlanRevision = useCallback(
     (feedback: string) => {
@@ -1840,9 +1919,17 @@ export function useProductShellController() {
   const handleRetryPlanDraft = useCallback(() => {
     const interview = activeInterviewRef.current;
     if (!interview || !planDraftFailure) return;
+    // Feed the concrete missing checks into the retry so regeneration makes
+    // progress instead of reproducing the identical rejection (round-2 S-041
+    // plan-confirm loop). The reason slug alone never told the model what to add.
+    const missing = planDraftFailure.unresolvedQuestions
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .join("; ");
     const prompt = t("planning.interview.compact_retry_prompt", {
       goal: interview.goal,
       reason: planDraftFailure.reason,
+      missing: missing || t("planning.interview.compact_retry_missing_fallback"),
     });
     setPlanDraftExpectation(true);
     setPlanDraftFailure(null);
@@ -2053,6 +2140,10 @@ export function useProductShellController() {
               busy: chat.isStreaming,
               onRetry: handleRetryPlanDraft,
               onDismiss: () => setPlanDraftFailure(null),
+              onEditPrd: () => {
+                setPlanDraftFailure(null);
+                handleOpenPrdAuthoring();
+              },
             })
           : shouldRenderPlanDraftPending({
                 planDraftPending,

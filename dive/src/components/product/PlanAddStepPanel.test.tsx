@@ -45,6 +45,7 @@ function projectSpec(overrides: Partial<ProjectSpec> = {}): ProjectSpec {
         retiredInVersion: null,
       },
     ],
+    architecture: null,
     status: "approved",
     createdAt: 1,
     updatedAt: 2,

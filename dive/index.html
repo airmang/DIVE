@@ -22,6 +22,18 @@
         } catch (_) {
           document.documentElement.classList.add("dark");
         }
+        // S-044 (P1-33): make first paint's <html lang> match the persisted
+        // locale so assistive tech does not mispronounce before React mounts.
+        try {
+          var storedLocale = localStorage.getItem("dive:locale");
+          var locale = "ko";
+          if (storedLocale) {
+            var parsed = JSON.parse(storedLocale);
+            var value = parsed && parsed.state && parsed.state.locale;
+            if (value === "ko" || value === "en") locale = value;
+          }
+          document.documentElement.lang = locale;
+        } catch (_) {}
       })();
     </script>
   </head>

@@ -27,6 +27,7 @@ mod state;
 #[cfg(test)]
 mod tests;
 pub mod timeline;
+mod ui_events;
 mod verification_coach;
 pub mod workmap;
 pub mod workspace_plan;
@@ -47,6 +48,7 @@ pub use provocation_agent::*;
 pub use session::*;
 pub use state::*;
 pub use timeline::*;
+pub use ui_events::*;
 pub use verification_coach::*;
 pub use workmap::*;
 pub use workspace_plan::*;

@@ -5,9 +5,12 @@ import {
   ChevronDown,
   Eye,
   FileText,
+  Globe2,
+  LifeBuoy,
   Loader2,
   SquareTerminal,
   Trash2,
+  WifiOff,
   Wrench,
   X,
 } from "lucide-react";
@@ -26,6 +29,10 @@ import type {
   PermissionCardData,
 } from "../permission-card";
 import { formatRaw } from "../permission-card/explain";
+import {
+  PermissionCardPrimer,
+  WebFetchPermissionCardPrimer,
+} from "../permission-card/PermissionCardPrimer";
 import { McpProvenanceBadge } from "../mcp/McpProvenanceBadge";
 import { useT } from "../../i18n";
 import type {
@@ -133,19 +140,33 @@ function actionContextForCall(
   };
 }
 
+function callHasDiff(call: ToolCallMessageData): boolean {
+  return (
+    (call.diffPreview !== null && call.diffPreview !== undefined) ||
+    (call.diffPreviews?.length ?? 0) > 0
+  );
+}
+
 function requiresReadGate(call: ToolCallMessageData): boolean {
-  // Read gate fires for any pending non-Safe file write/edit batch, or whenever
-  // the backend flagged a secret — independent of whether a diff preview is
-  // available. When no diff exists the cards fall back to a checkbox-only confirm,
-  // so the riskiest writes can never be rubber-stamped (read_file / Safe stay
-  // auto-approved).
+  // Read gate fires for any pending non-Safe file write/edit batch, whenever the
+  // backend flagged a secret, or for a Danger-tier delete/shell action that has
+  // no diff to scroll — independent of whether a diff preview is available. When
+  // no diff exists the cards fall back to a checkbox-only confirm, so the riskiest
+  // actions (delete a file, run a process/shell script) can never be one-click
+  // rubber-stamped (read_file / Safe stay auto-approved).
   if (call.status !== "pending" || call.risk === "safe") return false;
   const isWriteOrEdit =
     call.toolName === "write_file" ||
     call.toolName === "edit_file" ||
     call.toolName === "multi_replace";
   const secretFlagged = call.approvalWarnings?.secretFlagged === true;
-  return isWriteOrEdit || secretFlagged;
+  const noDiffDangerAction =
+    call.risk === "danger" &&
+    !callHasDiff(call) &&
+    (call.toolName === "delete_file" ||
+      call.toolName === "run_process" ||
+      call.toolName === "run_terminal_script");
+  return isWriteOrEdit || secretFlagged || noDiffDangerAction;
 }
 
 function warningKinds(warnings: PermissionApprovalWarnings | null | undefined): string[] {
@@ -192,6 +213,8 @@ function toolIcon(toolName: string): LucideIcon {
     case "bash":
     case "run_process":
       return SquareTerminal;
+    case "web_fetch":
+      return Globe2;
     default:
       return Wrench;
   }
@@ -205,6 +228,34 @@ function runtimeActionLabelKey(action: ToolCallMessageData["runtimeAction"]): st
       return "runtime.actions.project_command";
     case "terminal_script":
       return "runtime.actions.terminal_script";
+    default:
+      return null;
+  }
+}
+
+type WebUnavailableChipKind = "offline" | "timeout" | "blocked";
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function webUnavailableChipKind(
+  call: ToolCallMessageData,
+  result: ToolResultMessageData | undefined,
+): WebUnavailableChipKind | null {
+  if (call.toolName !== "web_fetch" || result === undefined || result.success) return null;
+  const full = objectRecord(result.full);
+  const reason = typeof full?.unavailableReason === "string" ? full.unavailableReason : null;
+  switch (reason) {
+    case "offline":
+      return "offline";
+    case "timeout":
+      return "timeout";
+    case "blocked_target":
+    case "egress_denied":
+      return "blocked";
     default:
       return null;
   }
@@ -245,11 +296,17 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
   const readGateRequired = requiresReadGate(call);
   const diffViewed = diffViewedByToolCallId[call.id] === true;
   const readConfirmed = readConfirmedByToolCallId[call.id] === true;
+  // Don't tell the student to "open or scroll the diff" when no diff is on screen
+  // (delete/shell actions, or a secret write with no preview); point at the
+  // concrete file path / action details that ARE shown instead.
+  const readGateHasDiff = callHasDiff(call);
   const approvalRequirement = readGateRequired
     ? {
         required: true,
         satisfied: diffViewed || readConfirmed,
-        message: t("permission_card.read_gate.message"),
+        message: readGateHasDiff
+          ? t("permission_card.read_gate.message")
+          : t("permission_card.read_gate.message_no_diff"),
         confirmLabel: t("permission_card.read_gate.confirm_label"),
         confirmed: readConfirmed,
         onConfirmChange: (confirmed: boolean) => setReadConfirmed(call.id, confirmed),
@@ -296,6 +353,11 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
               <span className="font-semibold">↳ {t("tool_call.why_label")}</span> {reasoning.text}
             </p>
           ) : null}
+          {call.toolName === "web_fetch" ? (
+            <WebFetchPermissionCardPrimer />
+          ) : (
+            <PermissionCardPrimer />
+          )}
           <PermissionCard
             card={card}
             onApprove={handleApprove}
@@ -390,6 +452,8 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
             : t("tool_call.status.approved");
   const runtimeAction = result?.runtimeAction ?? call.runtimeAction;
   const runtimeLabelKey = runtimeActionLabelKey(runtimeAction);
+  const webUnavailableKind = webUnavailableChipKind(call, result);
+  const WebUnavailableIcon = webUnavailableKind === "offline" ? WifiOff : Globe2;
 
   return (
     <article
@@ -432,6 +496,34 @@ function ToolActivityImpl({ call, reasoning, result, onApprove, onDeny, provocat
             <ChevronDown className="h-3.5 w-3.5 flex-none text-fg-subtle" aria-hidden />
           ) : null}
         </div>
+
+        {webUnavailableKind ? (
+          <div className="pb-1 pl-8">
+            <span
+              className="inline-flex max-w-full items-center gap-1 rounded-sm border border-accent/30 bg-accent/10 px-2 py-1 text-[11px] font-medium text-fg"
+              data-testid="web-unavailable-chip"
+            >
+              <WebUnavailableIcon className="h-3 w-3 shrink-0 text-accent" aria-hidden />
+              <span>{t(`web.unavailable.${webUnavailableKind}`)}</span>
+            </span>
+          </div>
+        ) : null}
+
+        {/* S-046 (P2-19): surface recovery contextually next to the failed artifact,
+            so a beginner isn't left to discover the passive top-bar badge. */}
+        {result && !result.success && provocation?.onOpenRecovery ? (
+          <div className="pb-1 pl-8">
+            <button
+              type="button"
+              onClick={provocation.onOpenRecovery}
+              className="inline-flex items-center gap-1 rounded-sm text-[11px] font-medium text-accent hover:underline"
+              data-testid="tool-failed-open-recovery"
+            >
+              <LifeBuoy className="h-3 w-3" aria-hidden />
+              {t("tool_call.failed_recovery_hint")}
+            </button>
+          </div>
+        ) : null}
 
         {reasoning ? (
           <p className="px-2 pb-1 pl-8 text-[11px] text-fg-subtle">

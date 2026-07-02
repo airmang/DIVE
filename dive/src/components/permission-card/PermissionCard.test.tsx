@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
 import { PermissionCard } from "./PermissionCard";
@@ -93,6 +93,52 @@ describe("PermissionCard supervision presentation", () => {
     );
     expect(screen.getByTestId("terminal-script-one-shot").textContent).toContain(
       "never reused automatically",
+    );
+  });
+
+  it("renders web_fetch as a web-specific permission card with resolved IP and confirm gate", () => {
+    const onApprove = vi.fn();
+    render(
+      <PermissionCard
+        card={permissionCard({
+          toolName: "web_fetch",
+          risk: "danger",
+          paramsPreview: 'url: "https://example.com#path-abcd"',
+          args: {
+            url: "https://example.com/docs?token=secret",
+            purpose: "Read the current API docs.",
+            web_fetch_approval: {
+              host: "example.com",
+              pinnedIp: "93.184.216.34",
+              port: 443,
+              scheme: "https",
+              pathHash: "abcd",
+              queryDropped: true,
+              purpose: "Read the current API docs.",
+              approvedAt: 1,
+            },
+          },
+          actionContext: undefined,
+        })}
+        onApprove={onApprove}
+        onDeny={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("AI가 인터넷에서 정보를 읽으려고 해요")).toBeTruthy();
+    expect(screen.getByTestId("web-fetch-host").textContent).toBe("example.com");
+    expect(screen.getByTestId("web-fetch-ip").textContent).toBe("93.184.216.34");
+    expect(screen.getByTestId("web-fetch-purpose").textContent).toContain("Read the current");
+
+    const approve = screen.getByRole("button", { name: "이 주소 읽기 허용" });
+    expect((approve as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("web-fetch-confirm-checkbox"));
+    fireEvent.click(screen.getByTestId("web-fetch-reuse-checkbox"));
+    fireEvent.click(approve);
+
+    expect(onApprove).toHaveBeenCalledWith(
+      "tool-1",
+      expect.objectContaining({ reuse_for_session: true }),
     );
   });
 });
