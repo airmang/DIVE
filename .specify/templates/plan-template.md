@@ -48,7 +48,10 @@ The plan MUST answer each DIVE v2 gate:
   review card, approval prompt, supervisor output, or verification decision.
 - **Pi-only runtime**: Confirm the feature does not introduce legacy runtime
   fallback, provider fallback routing, Node-side execution, Pi built-ins, Pi
-  resource discovery, or shell fallback.
+  resource discovery, or shell fallback. If the feature performs network
+  egress, cite the III(1.1.0) egress clause and the safe-egress
+  guard/permission/bounds/logging evidence, AND state how pre-existing
+  process-tool egress (`classify_bash_command` plain GET allowance) is handled.
 - **Local ledger**: Define EventLog/export records for every supervision,
   approval, verification, or supervisor-agent behavior changed by this feature.
 - **Low-friction supervision**: State why any added friction is warranted by
