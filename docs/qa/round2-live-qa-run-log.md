@@ -199,3 +199,58 @@ Implemented the full cross-language feature (Rust `ArchitectureDecision` + two-s
 ## New observations (not in audit)
 
 - **Wily state-machine — RESOLVED (2026-07-01):** the `draft` → `ready` transition for a freshly `design_stage`d Stage is **`approve_stage`** (then `claim_stage` → `active`, `plan_stage` → phases, `complete_phase` ×N, `complete_stage` → `done`). S-044 was taken `draft`→`ready`→`active`→`planned` this way with phases 1–3 completed live; the earlier round-2 note ("no normal-tool path from draft→ready") was incorrect — `approve_stage` (not exposed in `get_lifecycle_payload_schema`'s payload list, but present as a client tool) is the step. S-041–S-043 can be retro-advanced the same way. (A transient server 502 during S-044's `design_stage` had briefly stalled the auto-promotion, which is what surfaced the manual `approve_stage` need.)
+
+## rc.6 full-release live QA (2026-07-03, freshly built `tauri build --bundles app`)
+
+Ran the rc.6 delta live-QA on the rebuilt release app (macOS computer-use, ko, OpenRouter Claude Sonnet 4.6). The pass uncovered — and fixed — a **critical, silent release blocker**, then live-confirmed the security-critical S-048 web surface.
+
+### 🛑 P0 (fixed live) — supervised build agent produced empty turns since rc.5
+
+**Symptom:** every Build-step turn returned an **empty** assistant message with **zero tool calls** — the agent did no work. Masqueraded as "변경 파일 0개" (misread by prior round-2 re-QA as "file already existed"; in fact the agent never ran). No sidecar sessions exist for 06-30/07-01, so round-2's S-041–S-047 "live re-QA" never actually exercised step execution.
+
+**Root cause (binary bisection):** `multi_replace`'s tool `input_schema` carried a **top-level `anyOf`** combinator (`anyOf:[{required:[paths]},{required:[path_glob]}]`). Anthropic's tool-use API rejects a root-level JSON-Schema combinator in a tool's `input_schema` and returns an **empty completion**; one bad tool poisons the whole toolset. Since `multi_replace` is always in the Build set, every Build turn went empty. Introduced with `multi_replace` in **S-039 (009 theme 11)** → present at rc.5 and rc.6.
+
+Diagnostic method (reusable): tee-wrap `/Applications/DIVE.app/Contents/MacOS/dive-pi-sidecar` to capture the exact stdin `run` message DIVE sends, replay it through the real binary, and bisect the 12-tool set. Provider/model/tool-schema all worked in isolation (direct OpenRouter `PONG` + a `web_fetch` tool_call); only the full DIVE toolset went empty. Bisect: base2 ✅ → +HALFA(incl web_fetch) ✅ → +HALFB ❌ → +multi_replace ❌ → multi_replace **without** `anyOf` ✅ → full 12 tools with `anyOf` stripped ✅.
+
+**Fix:** dropped the redundant top-level `anyOf` from `multi_replace::input_schema` (the paths|path_glob rule is enforced at runtime + stated in field descriptions); added `builtin_tool_schemas_have_no_top_level_combinators` in `tools/registry.rs` (fails if any built-in ships a root-level anyOf/oneOf/allOf/not). Rebuilt + **live-verified: the agent now executes** — the same prompt that returned empty pre-fix now drives a `web_fetch` Danger card.
+
+### G1 — S-048 web_fetch end-to-end (CONFIRMED live)
+
+| Check | Verdict |
+| --- | --- |
+| Danger card renders (never auto-approves) | ✅ host `example.com` + resolved IP `104.20.23.154` trust anchor |
+| Model purpose labeled unverified | ✅ "(참고용, 확인되지 않음)" |
+| Read-gate | ✅ Allow blocked until "이 주소를 확인했고…" ticked |
+| Session-reuse opt-in default-off | ✅ |
+| Permission primer | ✅ EventLog `permission_primer.shown variant=web_fetch` |
+| Log hygiene | ✅ `isEvidence:false`, body snippet-hashed, `bodyPersisted:false` |
+| Agent honesty on block | ✅ refuses to present the known h1 as fact ("not verified by this tool call") |
+| Successful fetch (post-P2-2 fix) | ✅ `web_fetch.result success:true HTTP 200 · 559 bytes`, agent reports fetched `<h1>Example Domain</h1>` |
+
+### SEC-P2-2 (confirmed live, then FIXED) — web_fetch failed on multi-A CDN hosts
+
+The first example.com fetch was blocked with `errorClass:resolved_ip_changed_at_fetch` — the audit's predicted defect, reproduced live. The fetch-time pin required `ips[0]` to equal the approved IP; example.com (multi-A Cloudflare) returned the set in a different order → spurious block. **web_fetch was unusable on virtually any CDN host.** No security hole (fail-closed).
+
+**Fix:** `web_fetch.rs` fetch-time hop-0 now matches the approved IP by **set membership** (`resolved_ips.contains(&approval.pinned_ip)`) not `ips[0]` order, and connects to that exact approved IP. Rebind protection preserved: `validate_resolved_target` still fail-closes on ANY internal IP in the fresh set. New unit test `fetch_pin_matches_approved_ip_by_membership_not_order` (reorder passes; rotation-away + host/port mismatch still block); existing `run_blocks_when_resolved_ip_differs_from_approved_card_ip` still green. **Live-verified:** same example.com fetch now `success:true HTTP 200`.
+
+### G2 — Danger delete_file read-gate (CONFIRMED live)
+
+Agent proposed `delete_file` on a scratch file → **파일 삭제 [높은 위험]** card with the **P1-18 divergence line** ("계획에 없던 파일을 바꾸려고 합니다 · scratch-delete-me.txt"), "미리보기가 없습니다" notice, and a **변경 내용을 읽었습니다** read-gate checkbox. **고위험 작업 허용 blocked until the checkbox is ticked** (P1-17 confirmed). Ticked → approved → file deleted (verified on disk). Minor: the checkbox copy is generic ("변경 내용을 읽었습니다") rather than a delete-specific phrase.
+
+### Also confirmed live on rc.6
+- **G5 / S-047 two-stage architecture gate**: PRD board shows 무엇으로 만들까 + 6 bounded form buttons; picking 웹 앱 flips the confirm-gate hint from "형태를 먼저 골라 주세요" → "형태에 맞는 기술 스택을 정해 주세요" (form→stack progression, previously blocked by Hancom focus-theft — resolved this session by killing the auto-relaunching Hancom).
+- **G4 (partial)**: New Project dialog gloss ("여기 고른 폴더 안에서 AI가 코드를 만들고, 너는 그걸 확인·승인하게 돼요…", no `.dive/` jargon) + folder hint ("비어 있는 새 폴더를 고르세요…").
+- **S-043** Korean roadmap rail (준비됨/막힘/막은 단계), **S-044** 복구 relabel, **S-046** Enter hint, **S-042** honest verify chips.
+- Persisting minor: D13 runtime status English clause "provider is eligible for supervised Pi runtime" still leaks on the ko runtime line.
+
+### Fixes staged (uncommitted), CI green
+`multi_replace.rs` + `registry.rs` (P0 agent fix) and `web_fetch.rs` (SEC-P2-2) — full local Rust CI green (fmt/clippy -Dwarnings/test --all-targets --features dev-mock; new guards pass), rebuilt app live-verified. **rc.6 remains untagged pending these fixes landing.**
+
+### Not yet run (follow-up)
+- **G3** offline verify-provocation (step at Verify + changed files + forced runtime-unavailable).
+- **G4** fresh onboarding (needs a clean no-provider DB).
+- **G6** preview reuse-log i18n (the permission-primer half is already confirmed via EventLog).
+- Live SSRF internal-IP block probe (guard is unit-tested + adversarially clean; the block machinery was seen firing live via the P2-2 case).
+
+### Env harness note
+The **auto-relaunching Hancom Office HWP** (parent = launchd; likely re-opened by the active hwpx MCP plugin) repeatedly stole frontmost focus — mitigated by `pkill -9` before each UI batch + `open_application "DIVE"` to re-focus (per-action frontmost gate makes that sufficient). The **Notification/Control-Center click-catcher** also recurred; cleared with a system-level Escape (`osascript … key code 53`) when no PRD input was focused.
