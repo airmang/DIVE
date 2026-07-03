@@ -1,10 +1,12 @@
 # DIVE Spec Status
 
-**Last updated**: 2026-07-02
+**Last updated**: 2026-07-03
 
 This file prevents agents from treating old design notes as active product
 authority. The canonical DIVE v2 source of truth lives in `.specify/` and
-`specs/`.
+`specs/`. Superseded design docs, legacy root specs, and pre-spec-kit plans
+were relocated to `docs/archive/` in the 2026-07-03 doc cleanup (see the
+archived-status sections below).
 
 ## Canonical Active Specs
 
@@ -240,58 +242,33 @@ onboarding step. The only fix was a S-015 test-harness configuration change:
 MockProvider integration test targets now declare `required-features =
 ["dev-mock"]` in `dive/src-tauri/Cargo.toml`.
 
-## Root Legacy Specs
+## Root Legacy Specs (archived)
+
+Relocated to `docs/archive/legacy-specs/` in the 2026-07-03 doc cleanup. Kept
+for rationale archaeology only; do not implement v2 behavior directly from them.
 
 | Path | Status | Notes |
 | --- | --- | --- |
-| `DIVE_SPEC.md` | Historical reference | Earlier broad product spec. Do not implement v2 behavior directly from it. |
-| `DIVE_DECISIONS.md` | Historical ADR ledger | Keep for rationale archaeology. Active v2 conflicts are resolved by spec-kit decisions. |
-| `DIVE_PLAN.md` | Historical reference | Not active for v2 planning. |
+| `docs/archive/legacy-specs/DIVE_SPEC.md` | Historical reference | Earlier broad product spec (still cited as the §2.3 palette / §10.3 serde-contract source in code comments). |
+| `docs/archive/legacy-specs/DIVE_PLAN.md` | Historical reference | Legacy Track-0 / rc.1→rc.2 migration plan. Not active for v2 planning. |
+| `DIVE_DECISIONS.md` | Historical ADR ledger | Kept at repo root. Active v2 conflicts are resolved by spec-kit decisions. |
 
-## Superseded Superpowers Specs
+## Superseded Superpowers Specs & Plans (archived)
 
-These files may contain useful context, but they are not active implementation
-authority unless an active spec explicitly incorporates a specific section.
+All pre-spec-kit "superpowers" design specs and plans were moved to
+`docs/archive/superpowers/{specs,plans}/` in the 2026-07-03 doc cleanup. They
+are implementation history and design archaeology only — never active task
+lists or implementation authority. If any conflicts with `.specify/` or
+`specs/`, the canonical spec wins. `docs/spec-status.md` and `AGENTS.md` govern.
 
-| Path | Status | Canonical replacement or use |
-| --- | --- | --- |
-| `docs/superpowers/specs/2026-05-30-dive-frontend-stage-removal-design.md` | Superseded | Historical only. |
-| `docs/superpowers/specs/2026-05-30-dive-honest-verification-design.md` | Superseded | Evidence principles incorporated into constitution and active specs. |
-| `docs/superpowers/specs/2026-05-30-dive-judgmental-approval-design.md` | Superseded | Historical only; active review-card behavior governed by specs/002. |
-| `docs/superpowers/specs/2026-05-30-dive-supervision-mental-model-decision-design.md` | Historical reference | May inform research framing only. |
-| `docs/superpowers/specs/2026-05-30-dive-supervision-metrics-design.md` | Historical reference | May inform export analysis only after active spec approval. |
-| `docs/superpowers/specs/2026-05-30-dive-trust-calibration-steering-design.md` | Superseded | Active supervision constraints are in constitution/specs/002. |
-| `docs/superpowers/specs/2026-06-04-dive-large-project-runtime-pi-embed-design.md` | Historical implementation context | Pi context only; v2 runtime authority is constitution/specs/001. |
-| `docs/superpowers/specs/2026-06-05-dive-plan-surface-redesign-design.md` | Historical UI context | Existing UI/UX baseline only; not active redesign authority. |
-| `docs/superpowers/specs/2026-06-07-dive-unified-get-started-design.md` | Historical UI context | Not active v2 implementation authority. |
-| `docs/superpowers/specs/2026-06-08-dive-console-design-language-design.md` | Historical UI context | May inform visual consistency only if active spec references it. |
-| `docs/superpowers/specs/2026-06-14-provocation-agent-design.md` | Promoted/superseded | Promoted into `specs/002-provocation-supervisor-agent/spec.md`; do not implement directly from this file. |
-| `docs/superpowers/specs/2026-06-14-provocation-quality-reframe-design.md` | Voice seed only | May provide few-shot tone examples for SupervisorAgent; no static fallback behavior. |
+Two files carry a specific active relationship worth noting:
 
-## Superseded Superpowers Plans
-
-These plans are implementation history. They must not be used as active task
-lists for v2.
-
-| Path | Status | Notes |
-| --- | --- | --- |
-| `docs/superpowers/plans/2026-05-11-phase-10-computer-use-qa.md` | Historical | Not active. |
-| `docs/superpowers/plans/2026-05-11-phase-10-kickoff-hardening.md` | Historical | Not active. |
-| `docs/superpowers/plans/2026-05-30-dive-frontend-stage-removal.md` | Superseded | Not active. |
-| `docs/superpowers/plans/2026-05-30-dive-honest-verification.md` | Superseded | Evidence principles retained in active specs. |
-| `docs/superpowers/plans/2026-05-30-dive-judgmental-approval.md` | Superseded | Not active for v2 review-card implementation. |
-| `docs/superpowers/plans/2026-05-30-dive-plan-first-unification.md` | Historical | Not active. |
-| `docs/superpowers/plans/2026-05-30-dive-supervision-metrics.md` | Historical | Research context only. |
-| `docs/superpowers/plans/2026-05-30-dive-trust-calibration-steering.md` | Superseded | Not active. |
-| `docs/superpowers/plans/2026-06-04-dive-demo-pilot-truth-hardening.md` | Historical | Not active. |
-| `docs/superpowers/plans/2026-06-04-dive-large-project-runtime-pi-embed.md` | Historical implementation context | Do not override v2 Pi-only direction. |
-| `docs/superpowers/plans/2026-06-07-dive-unified-get-started.md` | Historical | Not active. |
-| `docs/superpowers/plans/2026-06-08-console-design-language.md` | Historical UI context | Not active unless referenced by a new UI spec. |
-| `docs/superpowers/plans/2026-06-08-dive-pi-default-runtime-flip.md` | Superseded for v2 runtime policy | Contains old legacy-fallback plan; v2 policy is no user-visible legacy fallback. |
-| `docs/superpowers/plans/2026-06-13-dive-human-agency-alignment.md` | Historical reference | Not active. |
-| `docs/superpowers/plans/2026-06-13-dive-provocation-cards-remediation.md` | Superseded | Replaced by specs/002. |
-| `docs/superpowers/plans/2026-06-13-dive-provocation-redesign.md` | Superseded | Replaced by specs/002. |
-| `docs/superpowers/plans/2026-06-13-dive-s009-provocation-card-followups.md` | Superseded | Replaced by specs/002. |
+- `docs/archive/superpowers/specs/2026-06-14-provocation-agent-design.md` was
+  **promoted** into `specs/002-provocation-supervisor-agent/spec.md`; treat
+  specs/002 as authority and this file as historical background only.
+- `docs/archive/superpowers/specs/2026-06-14-provocation-quality-reframe-design.md`
+  is a **voice seed** — it may provide few-shot tone examples for the
+  SupervisorAgent, but implies no static fallback behavior.
 
 ## Rule For Agents
 

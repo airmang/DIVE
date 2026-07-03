@@ -622,5 +622,5 @@ evidence separation.
 - Existing `ProvocationCardHost` UI behavior remains the first rendering target.
 - Existing `provocation_log_event` and EventLog/export paths can be extended
   rather than replaced.
-- The older `docs/superpowers/specs/2026-06-14-provocation-agent-design.md`
+- The older `docs/archive/superpowers/specs/2026-06-14-provocation-agent-design.md`
   is historical background after this spec is accepted.
