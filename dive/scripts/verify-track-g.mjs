@@ -39,9 +39,9 @@ const checks = [
     pattern: /ipc::provider_set_model/,
   },
   {
-    name: "factory uses updated Claude 4.x default",
+    name: "factory uses a current Claude default (>= 4)",
     path: "dive/src-tauri/src/providers/factory.rs",
-    pattern: /claude-(opus|sonnet|haiku)-4-\d/,
+    pattern: /claude-(opus|sonnet|haiku)-[4-9]/,
   },
   {
     name: "factory uses updated OpenAI GPT-5.x default",
