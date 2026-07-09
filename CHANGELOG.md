@@ -6,6 +6,24 @@ All notable changes to DIVE are documented here. Format: [Keep a Changelog](http
 
 _대기 중인 미출시 변경 사항 없음._
 
+## [1.0.0-rc.7] — 2026-07-09
+
+Live provider model catalog + Claude Sonnet 5. New upstream models now surface in the model selector without a DIVE code change or rebuild.
+
+### Added
+
+- **Live OpenRouter model catalog.** The provider model selector fetches OpenRouter's `/models` catalog live (`LlmProvider::fetch_models`), so newly released upstream models appear automatically; the curated static list remains the offline fallback. Results are ordered recommended-families-first (Anthropic/OpenAI/Google) then alphabetically — nothing is hidden — and the settings selector gains a search box once the list grows past a small threshold. This fetch is an app-owned provider connection (same trust boundary as `health_check`/`chat`, Rust-originated) and stays **outside** the S-048 supervised-agent network-egress capability class; no new ADR required.
+
+### Changed
+
+- **Claude Sonnet 4.6 → Sonnet 5** across the OpenRouter and native Anthropic catalogs, the Anthropic default model, and the frontend fallbacks/labels.
+- **OpenRouter model normalization/validation relaxed** to accept any well-formed `vendor/model` slug rather than only the static list, so a live-catalog model is no longer silently reset to the default or rejected; OpenRouter enforces availability at call time. Malformed free text still falls back to the default.
+
+### Verification
+
+- Full local CI green: Rust `cargo fmt` + `cargo clippy --features dev-mock -D warnings` + `cargo test --features dev-mock` (634 lib tests + provider integration, incl. new wiremock live-fetch, curation, and slug-validation tests); frontend `pnpm format:check` + `pnpm typecheck` + `pnpm lint` + `pnpm test:unit` (incl. a new settings-selector search test).
+- Live in-app confirmation with a real OpenRouter key is pending on the rebuilt app.
+
 ## [1.0.0-rc.6] — 2026-07-02
 
 Round-2 beginner-readiness & UX hardening (spec 010, Wily Stages S-041–S-049): an audit of 78 findings across a 14-dimension beginner rubric, plus two owner-added themes — a mandatory student architecture decision in the PRD interview, and supervised agent web access under a new constitution-governed network-egress capability class.
