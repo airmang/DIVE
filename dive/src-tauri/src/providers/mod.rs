@@ -35,7 +35,23 @@ pub use types::{
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
     fn id(&self) -> &str;
+
+    /// Static, always-available model catalog. Used as the offline fallback
+    /// when a live catalog is unavailable, and as the source of curated
+    /// defaults.
     fn list_models(&self) -> Vec<ModelInfo>;
+
+    /// Attempt to fetch a live model catalog from the provider's own API.
+    ///
+    /// Returns `None` when the provider has no live catalog (callers then use
+    /// [`LlmProvider::list_models`]). Implementations MUST NOT surface network
+    /// errors as `Some(empty)` — on any failure they log and return `None` so
+    /// the caller falls back to the static list. This lets new upstream models
+    /// appear without a code change or rebuild.
+    async fn fetch_models(&self) -> Option<Vec<ModelInfo>> {
+        None
+    }
+
     async fn chat(&self, req: ChatRequest) -> Result<BoxStream<'static, ChatEvent>, ProviderError>;
     async fn refresh_auth(&mut self) -> Result<(), ProviderError>;
 }

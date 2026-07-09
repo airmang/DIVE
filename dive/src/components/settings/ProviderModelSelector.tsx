@@ -31,6 +31,7 @@ export function ProviderModelSelector({
 }: Props) {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [selected, setSelected] = useState(selectedModel ?? "");
+  const [filter, setFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const loadAll = useProjectSessionStore((s) => s.loadAll);
@@ -73,6 +74,29 @@ export function ProviderModelSelector({
     setSelected(options[0]?.id ?? "");
   }, [options, selected]);
 
+  // The live catalog (e.g. OpenRouter) can be long; show a search box past a
+  // small threshold so beginners are not faced with a wall of options.
+  const showFilter = options.length > 8;
+
+  const visibleOptions = useMemo(() => {
+    const query = filter.trim().toLowerCase();
+    if (!query) return options;
+    return options.filter(
+      (model) =>
+        model.id.toLowerCase().includes(query) || model.display_name.toLowerCase().includes(query),
+    );
+  }, [options, filter]);
+
+  // Keep the currently-selected model rendered even when it is filtered out, so
+  // the native <select> never shows a blank value.
+  const renderedOptions = useMemo(() => {
+    if (!selected || visibleOptions.some((model) => model.id === selected)) {
+      return visibleOptions;
+    }
+    const current = options.find((model) => model.id === selected);
+    return current ? [current, ...visibleOptions] : visibleOptions;
+  }, [visibleOptions, options, selected]);
+
   const handleChange = async (modelId: string) => {
     setSelected(modelId);
     setSaving(true);
@@ -112,22 +136,38 @@ export function ProviderModelSelector({
       >
         {t("settings.model_label")}
       </label>
-      <select
-        id={`model-${providerKind}-${providerId}`}
-        value={selected}
-        onChange={(e) => void handleChange(e.target.value)}
-        disabled={saving}
-        aria-label={t("settings.model_select_aria")}
-        className="w-full min-w-0 rounded-md border bg-bg px-2 py-1 text-sm"
-        data-testid="provider-model-select"
-        data-provider-kind={providerKind}
-      >
-        {options.map((model) => (
-          <option key={model.id} value={model.id}>
-            {model.display_name}
-          </option>
-        ))}
-      </select>
+      <div className="min-w-0">
+        {showFilter ? (
+          <input
+            type="text"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder={t("settings.model_filter_placeholder")}
+            aria-label={t("settings.model_filter_placeholder")}
+            className="mb-1 w-full min-w-0 rounded-md border bg-bg px-2 py-1 text-xs"
+            data-testid="provider-model-filter"
+          />
+        ) : null}
+        <select
+          id={`model-${providerKind}-${providerId}`}
+          value={selected}
+          onChange={(e) => void handleChange(e.target.value)}
+          disabled={saving}
+          aria-label={t("settings.model_select_aria")}
+          className="w-full min-w-0 rounded-md border bg-bg px-2 py-1 text-sm"
+          data-testid="provider-model-select"
+          data-provider-kind={providerKind}
+        >
+          {renderedOptions.map((model) => (
+            <option key={model.id} value={model.id}>
+              {model.display_name}
+            </option>
+          ))}
+        </select>
+        {showFilter && visibleOptions.length === 0 ? (
+          <p className="mt-1 text-[10px] text-fg-muted">{t("settings.model_filter_no_match")}</p>
+        ) : null}
+      </div>
       {saving ? (
         <span className="col-start-2 text-[10px] text-fg-muted">{t("settings.model_saving")}</span>
       ) : null}

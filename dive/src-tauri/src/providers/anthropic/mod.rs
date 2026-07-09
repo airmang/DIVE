@@ -36,7 +36,7 @@ impl LlmProvider for AnthropicProvider {
     fn list_models(&self) -> Vec<ModelInfo> {
         [
             ("claude-opus-4-7", "Claude Opus 4.7"),
-            ("claude-sonnet-4-6", "Claude Sonnet 4.6"),
+            ("claude-sonnet-5", "Claude Sonnet 5"),
             ("claude-haiku-4-5-20251001", "Claude Haiku 4.5"),
             ("claude-opus-4-5-20251101", "Claude Opus 4.5"),
             ("claude-sonnet-4-5-20250929", "Claude Sonnet 4.5"),

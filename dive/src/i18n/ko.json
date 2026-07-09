@@ -428,6 +428,8 @@
     "model_saved_title": "모델 설정 저장됨",
     "model_saved_description": "다음 요청부터 선택한 모델이 적용됩니다.",
     "model_save_failed_title": "모델 설정 저장 실패",
+    "model_filter_placeholder": "모델 검색…",
+    "model_filter_no_match": "검색과 일치하는 모델이 없습니다",
     "safety_eyebrow": "안전",
     "safety_title": "안전",
     "safety_description": "DIVE는 파일 변경, 명령 실행, 되돌리기 전에 먼저 확인을 요청합니다.",

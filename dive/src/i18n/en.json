@@ -428,6 +428,8 @@
     "model_saved_title": "Model setting saved",
     "model_saved_description": "The selected model will be used from the next request.",
     "model_save_failed_title": "Failed to save model setting",
+    "model_filter_placeholder": "Search models…",
+    "model_filter_no_match": "No models match your search",
     "safety_eyebrow": "Safety",
     "safety_title": "Safety",
     "safety_description": "DIVE asks before changing files, running commands, or undoing work.",
