@@ -138,8 +138,8 @@ if (files.length === 0) {
     .sort((a, b) => b.bytes - a.bytes)[0];
   check("initial app chunk exists", Boolean(initial));
   check(
-    "initial app chunk is below previous 534KB baseline",
-    initial ? initial.bytes < 520 * 1024 : false,
+    "initial app chunk is below 500 KiB (512000 bytes)",
+    initial ? initial.bytes < 500 * 1024 : false,
     initial ? `${Math.round(initial.bytes / 1024)}KB` : "",
   );
   check(
