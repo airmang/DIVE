@@ -3044,7 +3044,12 @@ pub fn workspace_plan_generate_draft_impl(
         return Err("minimal PRD is required before generating a plan draft".into());
     }
     let project_prd = project_prd.expect("minimal PRD checked above");
-    validate_criterion_quality(&interview.goal, &plan_input).map_err(|e| e.to_string())?;
+    let quality_report =
+        validate_criterion_quality(&interview.goal, &plan_input).map_err(|e| e.to_string())?;
+    // S-050 P3 wires these into the EventLog as `plan.criterion_quality_advisory`;
+    // P1 only enforces the blocking gate and counts them so the accepted draft
+    // still proceeds without acting on the advisories yet.
+    let _advisory_count = quality_report.advisories.len();
     for step in &mut plan_input.steps {
         sanitize_step_verification(step);
     }
@@ -4903,10 +4908,30 @@ impl std::fmt::Display for CriterionQualityError {
     }
 }
 
+/// S-050 D1: the accepted draft's non-blocking findings. Advisories are
+/// surfaced to the EventLog by a later phase (P3); P1 only computes and
+/// discards them at the call site.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CriterionQualityReport {
+    advisories: Vec<CriterionQualityAdvisory>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CriterionQualityAdvisory {
+    code: &'static str,
+    criterion_preview: String,
+    step_ref: Option<String>,
+}
+
+/// S-050 D1: blocking is now bundle/step-level rather than a per-criterion
+/// veto. A non-junk criterion that merely lacks an observable marker no
+/// longer blocks by itself — it only blocks if it leaves the whole plan, or
+/// one of its steps, with zero marker-bearing criteria; otherwise it is
+/// returned as an advisory on the accepted report.
 fn validate_criterion_quality(
     goal: &str,
     plan_input: &PlanDraftInput,
-) -> Result<(), CriterionQualityError> {
+) -> Result<CriterionQualityReport, CriterionQualityError> {
     let criteria = collect_acceptance_criterion_texts(plan_input);
     if criteria.is_empty() {
         return Err(CriterionQualityError::new(
@@ -4922,18 +4947,9 @@ fn validate_criterion_quality(
                 "Rewrite acceptance criterion with a concrete observable result: \"{}\"",
                 compact_preview(criterion)
             ));
-            continue;
-        }
-        if criterion_is_pure_vague_filler(criterion) {
+        } else if criterion_is_pure_vague_filler(criterion) {
             criterion_issues.push(format!(
                 "Replace vague acceptance criterion with a concrete observable result: \"{}\"",
-                compact_preview(criterion)
-            ));
-            continue;
-        }
-        if !criterion_has_observable_marker(criterion) {
-            criterion_issues.push(format!(
-                "Add an independently checkable marker such as a number, comparator, named UI element, or state: \"{}\"",
                 compact_preview(criterion)
             ));
         }
@@ -4945,19 +4961,59 @@ fn validate_criterion_quality(
         ));
     }
 
+    if !criteria
+        .iter()
+        .any(|criterion| criterion_has_observable_marker(criterion))
+    {
+        return Err(CriterionQualityError::new(
+            CriterionQualityErrorReason::VagueCriteria,
+            vec![
+                "Add at least one acceptance criterion with an independently checkable marker such as a number, comparator, named UI element, or state.".into(),
+            ],
+        ));
+    }
+
+    for (index, step) in plan_input.steps.iter().enumerate() {
+        let step_has_marker = step
+            .acceptance_criteria
+            .iter()
+            .filter_map(criterion_input_text)
+            .any(|criterion| criterion_has_observable_marker(&criterion));
+        if !step_has_marker {
+            return Err(CriterionQualityError::new(
+                CriterionQualityErrorReason::VagueCriteria,
+                vec![format!(
+                    "Step \"{}\" has no independently checkable acceptance criterion; add one with a number, comparator, named UI element, or state.",
+                    step_display_name(step, index)
+                )],
+            ));
+        }
+    }
+
     let locale_is_en = text_prefers_english(goal);
     let goal_text = normalize_quality_text(&format!("{goal}\n{}", plan_input.goal));
     let criteria_text = normalize_quality_text(&criteria.join("\n"));
     let mut missing = Vec::new();
+    let mut advisories = Vec::new();
 
     if contains_any(&goal_text, ui_goal_keywords()) {
+        if !criterion_class_is_covered(&criteria_text, MissingCriterionClass::Responsive) {
+            missing.push(
+                MissingCriterionClass::Responsive
+                    .label(locale_is_en)
+                    .to_string(),
+            );
+        }
         for class in [
-            MissingCriterionClass::Responsive,
             MissingCriterionClass::Persistence,
             MissingCriterionClass::Accessibility,
         ] {
             if !criterion_class_is_covered(&criteria_text, class) {
-                missing.push(class.label(locale_is_en).to_string());
+                advisories.push(CriterionQualityAdvisory {
+                    code: "missing_state_class_advisory",
+                    criterion_preview: class.as_str().to_string(),
+                    step_ref: None,
+                });
             }
         }
     }
@@ -4974,14 +5030,57 @@ fn validate_criterion_quality(
         }
     }
 
-    if missing.is_empty() {
-        Ok(())
-    } else {
-        Err(CriterionQualityError::new(
+    if !missing.is_empty() {
+        return Err(CriterionQualityError::new(
             CriterionQualityErrorReason::MissingStateCriteria,
             missing,
-        ))
+        ));
     }
+
+    advisories.extend(marker_less_criterion_advisories(plan_input));
+
+    Ok(CriterionQualityReport { advisories })
+}
+
+fn step_display_name(step: &StepDraftInput, index: usize) -> String {
+    let title = step.title.trim();
+    if title.is_empty() {
+        format!("Step {}", index + 1)
+    } else {
+        title.to_string()
+    }
+}
+
+/// S-050 D1: non-junk criteria that lack an observable marker, collected once
+/// the blocking checks above have all passed. Global-level and per-step
+/// criteria are walked separately so each advisory can carry its step_ref.
+fn marker_less_criterion_advisories(plan_input: &PlanDraftInput) -> Vec<CriterionQualityAdvisory> {
+    let mut advisories = Vec::new();
+    for criterion in &plan_input.acceptance_criteria {
+        if let Some(text) = criterion_input_text(criterion) {
+            if !criterion_has_observable_marker(&text) {
+                advisories.push(CriterionQualityAdvisory {
+                    code: "criterion_no_marker",
+                    criterion_preview: compact_preview(&text),
+                    step_ref: None,
+                });
+            }
+        }
+    }
+    for (index, step) in plan_input.steps.iter().enumerate() {
+        for criterion in &step.acceptance_criteria {
+            if let Some(text) = criterion_input_text(criterion) {
+                if !criterion_has_observable_marker(&text) {
+                    advisories.push(CriterionQualityAdvisory {
+                        code: "criterion_no_marker",
+                        criterion_preview: compact_preview(&text),
+                        step_ref: Some(step_display_name(step, index)),
+                    });
+                }
+            }
+        }
+    }
+    advisories
 }
 
 fn collect_acceptance_criterion_texts(plan_input: &PlanDraftInput) -> Vec<String> {
@@ -5054,6 +5153,12 @@ fn has_meaningful_numeric_marker(value: &str) -> bool {
         if token.chars().any(|ch| ch.is_ascii_alphabetic()) {
             return true;
         }
+        // Korean counters attach directly to the digit with no separator
+        // (e.g. "3개"), so the digit and the counter land in the same
+        // alphanumeric token — credit it without needing a neighbor lookup.
+        if token.chars().any(is_hangul_char) {
+            return true;
+        }
         let previous = index
             .checked_sub(1)
             .and_then(|previous| tokens.get(previous))
@@ -5064,6 +5169,10 @@ fn has_meaningful_numeric_marker(value: &str) -> bool {
             .chain(next)
             .any(|context| NUMERIC_CONTEXT_MARKERS.contains(&context))
     })
+}
+
+fn is_hangul_char(ch: char) -> bool {
+    matches!(ch as u32, 0xAC00..=0xD7AF | 0x1100..=0x11FF | 0x3130..=0x318F)
 }
 
 fn text_prefers_english(value: &str) -> bool {
@@ -5133,6 +5242,13 @@ const NUMERIC_CONTEXT_MARKERS: &[&str] = &[
     "warnings",
     "true",
     "false",
+    "개",
+    "번",
+    "항목",
+    "줄",
+    "자",
+    "초",
+    "분",
 ];
 
 const COMPARATOR_MARKERS: &[&str] = &[
@@ -5988,6 +6104,28 @@ mod criterion_quality_tests {
         }
     }
 
+    /// Builds a plan from caller-supplied steps with no duplicate global-level
+    /// criteria, so per-step / advisory counts in a test aren't doubled by
+    /// `plan_with_criteria`'s global+step duplication.
+    fn plan_with_steps(goal: &str, steps: Vec<StepDraftInput>) -> PlanDraftInput {
+        PlanDraftInput {
+            goal: goal.into(),
+            intent_summary: "Deliver a focused, checkable slice.".into(),
+            scope: vec!["Focused slice".into()],
+            non_goals: vec!["No extra features".into()],
+            constraints: vec!["Keep existing architecture".into()],
+            acceptance_criteria: Vec::new(),
+            steps,
+        }
+    }
+
+    fn named_step_with_criteria(title: &str, step_id: &str, criteria: &[&str]) -> StepDraftInput {
+        let mut step = step_with_criteria(criteria);
+        step.title = title.into();
+        step.step_id = step_id.into();
+        step
+    }
+
     #[test]
     fn upload_goal_does_not_match_load_inside_word() {
         let plan = plan_with_criteria(
@@ -6053,26 +6191,72 @@ mod criterion_quality_tests {
             .any(|item| item.contains("make it nice in 2 ways")));
     }
 
+    // S-050 D2: `ui_goal_keywords` narrowed to explicit responsive/mobile
+    // signals, so this now requires the goal to say "responsive" rather than
+    // just being page-ish. Persistence/accessibility are covered here too,
+    // so the only blocking item is the missing Responsive class.
     #[test]
-    fn ui_goal_missing_responsive_criteria_is_blocked() {
+    fn responsive_goal_missing_responsive_criteria_is_blocked() {
         let plan = plan_with_criteria(
-            "Build the settings page",
+            "Build a responsive settings page",
             &[
                 "The saved theme choice survives reload and remains visible after refresh.",
                 "Keyboard focus reaches the Save button and ARIA label describes the action.",
             ],
         );
 
-        let err = validate_criterion_quality("Build the settings page", &plan).unwrap_err();
+        let err =
+            validate_criterion_quality("Build a responsive settings page", &plan).unwrap_err();
 
         assert_eq!(
             err.reason,
             CriterionQualityErrorReason::MissingStateCriteria
         );
-        assert!(err
-            .unresolved_questions
+        assert_eq!(
+            err.unresolved_questions,
+            vec!["responsive behavior".to_string()]
+        );
+    }
+
+    // S-050 D2: a generic UI noun (버튼/화면/페이지) is no longer a signal at
+    // all — no responsive/persistence/accessibility check, blocking or
+    // advisory, is performed.
+    #[test]
+    fn generic_ui_nouns_no_longer_trigger_responsive_requirement() {
+        let plan = plan_with_criteria(
+            "화면에 버튼이 있는 할 일 페이지",
+            &["버튼을 클릭하면 할 일이 목록에 추가된다"],
+        );
+
+        assert!(validate_criterion_quality("화면에 버튼이 있는 할 일 페이지", &plan).is_ok());
+    }
+
+    // S-050 D1/D2: persistence/accessibility no longer block a responsive-
+    // signaled goal — they surface as `missing_state_class_advisory` items on
+    // the accepted report instead.
+    #[test]
+    fn responsive_goal_missing_persistence_and_accessibility_yields_advisories_not_block() {
+        let plan = plan_with_criteria(
+            "responsive 모바일 dashboard",
+            &["The 3-column grid collapses to 1 column at 390px width."],
+        );
+
+        let report = validate_criterion_quality("responsive 모바일 dashboard", &plan)
+            .expect("responsive class is covered, so persistence/accessibility must not block");
+
+        assert_eq!(report.advisories.len(), 2);
+        assert!(report
+            .advisories
             .iter()
-            .any(|item| item == "responsive behavior"));
+            .all(|advisory| advisory.code == "missing_state_class_advisory"));
+        assert!(report
+            .advisories
+            .iter()
+            .any(|advisory| advisory.criterion_preview == "persistence"));
+        assert!(report
+            .advisories
+            .iter()
+            .any(|advisory| advisory.criterion_preview == "accessibility"));
     }
 
     #[test]
@@ -6179,6 +6363,150 @@ mod criterion_quality_tests {
             validate_criterion_quality("Build a responsive page that fetches API data", &plan)
                 .is_ok()
         );
+    }
+
+    // S-050 acceptance mapping #1: the exact QA journey that failed to
+    // converge (static-checklist PRD, 클릭/취소선/개수 style criteria) now
+    // passes the re-tuned gate.
+    #[test]
+    fn qa_repro_korean_static_checklist_plan_passes() {
+        let plan = plan_with_criteria(
+            "정적 체크리스트 앱",
+            &[
+                "완료한 항목을 클릭하면 취소선이 표시된다",
+                "할 일 3개를 추가하면 목록에 3개 항목이 보인다",
+            ],
+        );
+
+        let report = validate_criterion_quality("정적 체크리스트 앱", &plan)
+            .expect("static checklist criteria should pass the re-tuned gate");
+        let _ = report.advisories; // may be non-empty; the gate no longer vetoes on it
+    }
+
+    // S-050 D3: a Korean counter attaches directly to its digit with no
+    // separator ("3개"), so the digit+Hangul token itself must earn credit.
+    #[test]
+    fn korean_digit_counter_earns_numeric_credit() {
+        assert!(criterion_has_observable_marker(
+            "할 일 3개를 추가하면 목록에 나타난다"
+        ));
+    }
+
+    #[test]
+    fn empty_criteria_set_still_blocks() {
+        let plan = plan_with_criteria("Build a small utility", &[]);
+
+        let err = validate_criterion_quality("Build a small utility", &plan).unwrap_err();
+
+        assert_eq!(err.reason, CriterionQualityErrorReason::VagueCriteria);
+    }
+
+    #[test]
+    fn all_junk_criterion_still_blocks() {
+        let plan = plan_with_criteria("작은 계산기 만들기", &["적당히 잘"]);
+
+        let err = validate_criterion_quality("작은 계산기 만들기", &plan).unwrap_err();
+
+        assert_eq!(err.reason, CriterionQualityErrorReason::VagueCriteria);
+    }
+
+    // S-050 D1(c): a plan where no criterion anywhere carries an observable
+    // marker is still unverifiable and must still block.
+    #[test]
+    fn plan_with_no_marker_anywhere_blocks() {
+        let plan = plan_with_criteria(
+            "Build a small utility",
+            &["The utility follows the existing project code style."],
+        );
+
+        let err = validate_criterion_quality("Build a small utility", &plan).unwrap_err();
+
+        assert_eq!(err.reason, CriterionQualityErrorReason::VagueCriteria);
+    }
+
+    // S-050 D1(d): one step with zero marker-bearing criteria blocks even
+    // though a sibling step is fine — and the message names that step.
+    #[test]
+    fn step_missing_marker_blocks_naming_that_step() {
+        let good_step = named_step_with_criteria(
+            "Add item to list",
+            "step-001",
+            &["Clicking Add appends a new item to the list."],
+        );
+        let mut unverifiable_step = named_step_with_criteria(
+            "Polish the styling",
+            "step-002",
+            &["The styling follows the existing project conventions."],
+        );
+        unverifiable_step.position = 2;
+
+        let plan = plan_with_steps("Build a small utility", vec![good_step, unverifiable_step]);
+
+        let err = validate_criterion_quality("Build a small utility", &plan).unwrap_err();
+
+        assert_eq!(err.reason, CriterionQualityErrorReason::VagueCriteria);
+        assert!(err
+            .unresolved_questions
+            .iter()
+            .any(|item| item.contains("Polish the styling")));
+    }
+
+    // S-050 D2/D3: a clearly-signaled Korean data-fetch goal missing
+    // loading/empty/error still blocks (narrowed keywords still catch it).
+    #[test]
+    fn korean_data_fetch_goal_missing_states_blocks() {
+        let plan = plan_with_criteria(
+            "api에서 데이터를 불러온다",
+            &["불러온 데이터 3개를 표시한다"],
+        );
+
+        let err = validate_criterion_quality("api에서 데이터를 불러온다", &plan).unwrap_err();
+
+        assert_eq!(
+            err.reason,
+            CriterionQualityErrorReason::MissingStateCriteria
+        );
+        assert!(err
+            .unresolved_questions
+            .iter()
+            .any(|item| item == "로딩 상태"));
+        assert!(err
+            .unresolved_questions
+            .iter()
+            .any(|item| item == "빈 상태"));
+        assert!(err
+            .unresolved_questions
+            .iter()
+            .any(|item| item == "오류 상태"));
+    }
+
+    // S-050 acceptance mapping / D1: a non-junk marker-less criterion no
+    // longer blocks by itself when the plan and its step are each otherwise
+    // verifiable — it is collected as a single advisory instead.
+    #[test]
+    fn advisory_collection_returns_single_marker_less_advisory() {
+        let step = named_step_with_criteria(
+            "Print confirmations",
+            "step-001",
+            &[
+                "Clicking the button prints 5 confirmations to the console.",
+                "The utility follows the existing project code style.",
+            ],
+        );
+        let plan = plan_with_steps("Build a small utility", vec![step]);
+
+        let report = validate_criterion_quality("Build a small utility", &plan)
+            .expect("one marker-less non-junk criterion should not block");
+
+        assert_eq!(report.advisories.len(), 1);
+        assert_eq!(report.advisories[0].code, "criterion_no_marker");
+        assert_eq!(
+            report.advisories[0].step_ref.as_deref(),
+            Some("Print confirmations")
+        );
+        assert!(report.advisories[0]
+            .criterion_preview
+            .contains("follows the existing project code style"));
     }
 }
 
