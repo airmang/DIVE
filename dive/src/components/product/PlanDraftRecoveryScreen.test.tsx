@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
+import type { PlanDraftQualityIssue } from "../../features/planning/usePlanInterviewLLM";
 import { PlanDraftRecoveryScreen } from "./PlanDraftRecoveryScreen";
 
 describe("PlanDraftRecoveryScreen", () => {
@@ -82,5 +83,66 @@ describe("PlanDraftRecoveryScreen", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("interview-input")).toBeNull();
     expect(persistedAnswers).toEqual(originalAnswers);
+  });
+
+  // S-050 D4: when the backend attaches machine-coded issues, the screen
+  // renders localized issue lines + a self-passing examples block instead of
+  // the raw English unresolvedQuestions prose.
+  it("renders localized issue lines and self-passing examples when issues are present", () => {
+    useLocaleStore.setState({ locale: "en" });
+    const issues: PlanDraftQualityIssue[] = [
+      { code: "missing_state_class", missingClass: "responsive" },
+    ];
+
+    render(
+      <PlanDraftRecoveryScreen
+        reason="missing_state_criteria"
+        unresolvedQuestions={["responsive behavior"]}
+        issues={issues}
+        onRetry={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Missing acceptance criteria for responsive behavior.")).toBeTruthy();
+    expect(screen.getByText("Examples that pass")).toBeTruthy();
+    expect(
+      screen.getByText("The 3-column grid collapses to 1 column at 390px width."),
+    ).toBeTruthy();
+    // The raw unresolvedQuestions prose is not rendered once issues take over.
+    expect(screen.queryByText("responsive behavior")).toBeNull();
+  });
+
+  it("falls back to raw unresolvedQuestions and no examples block when issues is absent", () => {
+    useLocaleStore.setState({ locale: "en" });
+
+    render(
+      <PlanDraftRecoveryScreen
+        reason="missing_state_criteria"
+        unresolvedQuestions={["responsive behavior"]}
+        onRetry={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("responsive behavior")).toBeTruthy();
+    expect(screen.queryByTestId("plan-draft-recovery-examples")).toBeNull();
+  });
+
+  it("falls back to raw unresolvedQuestions when issues is an empty array", () => {
+    useLocaleStore.setState({ locale: "en" });
+
+    render(
+      <PlanDraftRecoveryScreen
+        reason="missing_state_criteria"
+        unresolvedQuestions={["responsive behavior"]}
+        issues={[]}
+        onRetry={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("responsive behavior")).toBeTruthy();
+    expect(screen.queryByTestId("plan-draft-recovery-examples")).toBeNull();
   });
 });

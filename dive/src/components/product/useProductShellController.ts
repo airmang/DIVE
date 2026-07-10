@@ -53,9 +53,12 @@ import type {
 } from "../../features/planning";
 import type { ConfirmableRouteDecision } from "./PlanRouteConfirmModal";
 import {
+  buildIssueLines,
+  collectRecoveryExamples,
   decodePlanDraftQualityError,
   usePlanInterviewLLM,
   type PlanDraftLlmErrorReason,
+  type PlanDraftQualityIssue,
 } from "../../features/planning/usePlanInterviewLLM";
 import { useChatSession } from "../../hooks/useChatSession";
 import { refreshMenuRecents, useMenuEvents } from "../../lib/menu-events";
@@ -379,6 +382,7 @@ export function useProductShellController() {
   const [planDraftFailure, setPlanDraftFailure] = useState<{
     reason: PlanDraftLlmErrorReason;
     unresolvedQuestions: string[];
+    issues?: PlanDraftQualityIssue[];
   } | null>(null);
   const [prdMode, setPrdMode] = useState<PrdMode>(null);
   const [prdDraft, setPrdDraft] = useState<LiveProjectSpecDraft | null>(null);
@@ -748,6 +752,7 @@ export function useProductShellController() {
             setPlanDraftFailure({
               reason: qualityError.reason,
               unresolvedQuestions,
+              issues: qualityError.issues,
             });
             setActiveInterview((current) =>
               current
@@ -784,6 +789,7 @@ export function useProductShellController() {
       setPlanDraftFailure({
         reason: error.reason,
         unresolvedQuestions: error.unresolvedQuestions ?? [],
+        issues: error.issues,
       });
       setActiveInterview((current) =>
         current
@@ -1933,14 +1939,27 @@ export function useProductShellController() {
     // Feed the concrete missing checks into the retry so regeneration makes
     // progress instead of reproducing the identical rejection (round-2 S-041
     // plan-confirm loop). The reason slug alone never told the model what to add.
-    const missing = planDraftFailure.unresolvedQuestions
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .join("; ");
+    // S-050 D4: when the backend attached machine-coded issues, build the
+    // missing-checks line from the same localized copy the recovery screen
+    // shows, and append self-passing examples so regeneration has a target.
+    const issues = planDraftFailure.issues ?? [];
+    const missing =
+      issues.length > 0
+        ? buildIssueLines(issues, t).join("; ")
+        : planDraftFailure.unresolvedQuestions
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .join("; ");
+    const recoveryExamples = issues.length > 0 ? collectRecoveryExamples(issues, t) : [];
+    const examples =
+      recoveryExamples.length > 0
+        ? t("planning.interview.compact_retry_examples", { list: recoveryExamples.join("; ") })
+        : "";
     const prompt = t("planning.interview.compact_retry_prompt", {
       goal: interview.goal,
       reason: planDraftFailure.reason,
       missing: missing || t("planning.interview.compact_retry_missing_fallback"),
+      examples,
     });
     setPlanDraftExpectation(true);
     setPlanDraftFailure(null);
@@ -2151,6 +2170,7 @@ export function useProductShellController() {
           ? createElement(PlanDraftRecoveryScreen, {
               reason: planDraftFailure.reason,
               unresolvedQuestions: planDraftFailure.unresolvedQuestions,
+              issues: planDraftFailure.issues,
               busy: chat.isStreaming,
               onRetry: handleRetryPlanDraft,
               onDismiss: () => setPlanDraftFailure(null),

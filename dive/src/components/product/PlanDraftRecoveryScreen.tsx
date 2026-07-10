@@ -1,11 +1,22 @@
 import { AlertTriangle, PencilLine, RotateCcw, X } from "lucide-react";
 import { Button } from "../ui/button";
 import { useT } from "../../i18n";
-import type { PlanDraftLlmErrorReason } from "../../features/planning/usePlanInterviewLLM";
+import type {
+  PlanDraftLlmErrorReason,
+  PlanDraftQualityIssue,
+} from "../../features/planning/usePlanInterviewLLM";
+import {
+  buildIssueLines,
+  collectRecoveryExamples,
+} from "../../features/planning/usePlanInterviewLLM";
 
 interface Props {
   reason: PlanDraftLlmErrorReason;
   unresolvedQuestions?: string[];
+  /** S-050 D4: machine-coded issues from the backend gate. When present and
+   *  non-empty, these drive the rendered recovery copy (localized in the app
+   *  locale) instead of the raw English `unresolvedQuestions` prose. */
+  issues?: PlanDraftQualityIssue[];
   busy?: boolean;
   onRetry: () => void;
   onDismiss: () => void;
@@ -17,13 +28,19 @@ interface Props {
 export function PlanDraftRecoveryScreen({
   reason,
   unresolvedQuestions = [],
+  issues = [],
   busy,
   onRetry,
   onDismiss,
   onEditPrd,
 }: Props) {
   const t = useT();
-  const missingItems = unresolvedQuestions.map((item) => item.trim()).filter(Boolean);
+  const hasIssues = issues.length > 0;
+  const issueLines = hasIssues ? buildIssueLines(issues, t) : [];
+  const recoveryExamples = hasIssues ? collectRecoveryExamples(issues, t) : [];
+  const missingItems = hasIssues
+    ? issueLines
+    : unresolvedQuestions.map((item) => item.trim()).filter(Boolean);
   return (
     <div
       className="flex h-full min-h-0 flex-col items-center justify-center bg-bg px-6 py-8"
@@ -49,6 +66,18 @@ export function PlanDraftRecoveryScreen({
                 <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-fg-muted">
                   {missingItems.map((item, index) => (
                     <li key={`${item}-${index}`}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {recoveryExamples.length > 0 ? (
+              <div className="mt-3" data-testid="plan-draft-recovery-examples">
+                <p className="text-xs font-semibold text-fg">
+                  {t("planning.interview.recovery.examples_title")}
+                </p>
+                <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-fg-muted">
+                  {recoveryExamples.map((example, index) => (
+                    <li key={`${example}-${index}`}>{example}</li>
                   ))}
                 </ul>
               </div>

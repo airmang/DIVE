@@ -1005,8 +1005,9 @@
       "draft_ready_title": "계획 초안 준비됨",
       "draft_ready_description": "승인하기 전에 생성된 계획을 검토하세요.",
       "draft_failed_title": "계획 초안을 만들 수 없음",
-      "compact_retry_prompt": "이전 계획 JSON 생성이 실패했습니다. 이유: {{reason}}\n목표: {{goal}}\n완전하고 짧은 JSON만 다시 반환하세요. plan_input은 2~6개 steps를 권장하며 최대 8개를 넘기지 마세요. 각 step은 title, summary, instruction_seed, expected_files, acceptance_criteria, verification_type, verification_command를 포함하고 감독 턴 1회 안에 수행 가능한 작은 범위여야 합니다. verification_type은 run, preview, manual, test 중 하나여야 합니다. 정적 프런트엔드나 실행할 명령이 없는 step은 preview 또는 manual을 쓰고 verification_command는 null로 두세요. run 또는 test는 셸 없이 명시적 인자만 쓰는 실제 명령이 있을 때만 사용하세요. 이전 초안은 완료 기준이 다음을 충분히 다루지 못해 거부됐습니다: {{missing}}. step들의 acceptance_criteria를 추가하거나 고쳐 각 항목을 구체적이고 직접 확인 가능한 완료 기준으로 만드세요. 설명 문장이나 Markdown 코드펜스는 쓰지 마세요.",
+      "compact_retry_prompt": "이전 계획 JSON 생성이 실패했습니다. 이유: {{reason}}\n목표: {{goal}}\n완전하고 짧은 JSON만 다시 반환하세요. plan_input은 2~6개 steps를 권장하며 최대 8개를 넘기지 마세요. 각 step은 title, summary, instruction_seed, expected_files, acceptance_criteria, verification_type, verification_command를 포함하고 감독 턴 1회 안에 수행 가능한 작은 범위여야 합니다. verification_type은 run, preview, manual, test 중 하나여야 합니다. 정적 프런트엔드나 실행할 명령이 없는 step은 preview 또는 manual을 쓰고 verification_command는 null로 두세요. run 또는 test는 셸 없이 명시적 인자만 쓰는 실제 명령이 있을 때만 사용하세요. 이전 초안은 완료 기준이 다음을 충분히 다루지 못해 거부됐습니다: {{missing}}. step들의 acceptance_criteria를 추가하거나 고쳐 각 항목을 구체적이고 직접 확인 가능한 완료 기준으로 만드세요. 설명 문장이나 Markdown 코드펜스는 쓰지 마세요.{{examples}}",
       "compact_retry_missing_fallback": "구체적이고 직접 확인 가능한 완료 기준(숫자·비교·구체적 UI 요소·상태)",
+      "compact_retry_examples": " 다음은 이미 통과하는 완료 기준 예시입니다: {{list}}",
       "pending": {
         "title": "계획을 생성하는 중입니다...",
         "description": "DIVE가 인터뷰 내용을 짧게 검토할 수 있는 계획 초안으로 바꾸고 있습니다."
@@ -1077,6 +1078,33 @@
         "missing_state_criteria": {
           "title": "완료 기준에 필요한 상태가 빠졌습니다",
           "description": "목표에 맞는 UI 또는 데이터 불러오기 상태 기준이 부족해서, 검토 전에 DIVE가 이 계획을 막았습니다."
+        },
+        "issue": {
+          "criteria_empty": "완료 기준이 비어 있습니다. 독립적으로 확인 가능한 완료 기준을 최소 1개 추가하세요.",
+          "criterion_too_short": "완료 기준이 너무 짧습니다: \"{{preview}}\"",
+          "criterion_vague_filler": "완료 기준이 모호합니다: \"{{preview}}\"",
+          "plan_no_marker": "계획 전체에 독립적으로 확인 가능한 완료 기준이 없습니다.",
+          "step_unverifiable": "\"{{step}}\" 단계에 확인 가능한 완료 기준이 없습니다.",
+          "missing_state_class": "{{class}} 관련 완료 기준이 빠졌습니다."
+        },
+        "class": {
+          "responsive": "반응형 동작",
+          "persistence": "새로고침 후 유지",
+          "accessibility": "키보드/ARIA 접근성",
+          "loading": "로딩 상태",
+          "empty": "빈 상태",
+          "error": "오류 상태"
+        },
+        "examples_title": "통과하는 예시",
+        "examples": {
+          "marker_click": "완료한 항목을 클릭하면 취소선이 표시된다",
+          "marker_count": "할 일 3개를 추가하면 목록에 3개 항목이 보인다",
+          "class_responsive": "화면 너비가 768px 미만이면 그리드가 3열에서 1열로 바뀐다",
+          "class_persistence": "저장된 테마 설정이 새로고침 후에도 유지된다",
+          "class_accessibility": "키보드로 저장 버튼에 포커스가 이동하고 ARIA 레이블이 읽힌다",
+          "class_loading": "데이터를 불러오는 동안 로딩 스피너가 표시된다",
+          "class_empty": "목록이 비어 있으면 빈 상태 안내 문구가 표시된다",
+          "class_error": "요청이 실패하면 오류 메시지와 재시도 버튼이 표시된다"
         }
       }
     },

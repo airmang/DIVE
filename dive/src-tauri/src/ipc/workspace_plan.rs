@@ -4869,17 +4869,76 @@ impl CriterionQualityErrorReason {
     }
 }
 
+/// S-050 D4: machine-coded issue attached to a `CriterionQualityError`. One
+/// issue per Err-site finding (e.g. one per junk criterion, one per missing
+/// class) so the frontend can render localized, code-driven recovery copy
+/// instead of parsing the English `unresolved_questions` prose.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct CriterionQualityIssue {
+    code: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    preview: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    step_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    missing_class: Option<&'static str>,
+}
+
+impl CriterionQualityIssue {
+    fn code(code: &'static str) -> Self {
+        Self {
+            code,
+            preview: None,
+            step_ref: None,
+            missing_class: None,
+        }
+    }
+
+    fn with_preview(code: &'static str, preview: String) -> Self {
+        Self {
+            code,
+            preview: Some(preview),
+            step_ref: None,
+            missing_class: None,
+        }
+    }
+
+    fn with_step_ref(code: &'static str, step_ref: String) -> Self {
+        Self {
+            code,
+            preview: None,
+            step_ref: Some(step_ref),
+            missing_class: None,
+        }
+    }
+
+    fn with_missing_class(code: &'static str, missing_class: &'static str) -> Self {
+        Self {
+            code,
+            preview: None,
+            step_ref: None,
+            missing_class: Some(missing_class),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CriterionQualityError {
     reason: CriterionQualityErrorReason,
     unresolved_questions: Vec<String>,
+    issues: Vec<CriterionQualityIssue>,
 }
 
 impl CriterionQualityError {
-    fn new(reason: CriterionQualityErrorReason, unresolved_questions: Vec<String>) -> Self {
+    fn new(
+        reason: CriterionQualityErrorReason,
+        unresolved_questions: Vec<String>,
+        issues: Vec<CriterionQualityIssue>,
+    ) -> Self {
         Self {
             reason,
             unresolved_questions,
+            issues,
         }
     }
 }
@@ -4891,16 +4950,18 @@ impl std::fmt::Display for CriterionQualityError {
             code: &'static str,
             reason: &'static str,
             unresolved_questions: &'a [String],
+            issues: &'a [CriterionQualityIssue],
         }
 
         let payload = Payload {
             code: "plan_draft_quality",
             reason: self.reason.as_str(),
             unresolved_questions: &self.unresolved_questions,
+            issues: &self.issues,
         };
         let encoded = serde_json::to_string(&payload).unwrap_or_else(|_| {
             format!(
-                "{{\"code\":\"plan_draft_quality\",\"reason\":\"{}\",\"unresolved_questions\":[]}}",
+                "{{\"code\":\"plan_draft_quality\",\"reason\":\"{}\",\"unresolved_questions\":[],\"issues\":[]}}",
                 self.reason.as_str()
             )
         });
@@ -4937,20 +4998,30 @@ fn validate_criterion_quality(
         return Err(CriterionQualityError::new(
             CriterionQualityErrorReason::VagueCriteria,
             vec!["Add at least one independently checkable acceptance criterion.".into()],
+            vec![CriterionQualityIssue::code("criteria_empty")],
         ));
     }
 
     let mut criterion_issues = Vec::new();
+    let mut criterion_issue_codes = Vec::new();
     for criterion in &criteria {
         if criterion_substantive_len(criterion) < 8 {
             criterion_issues.push(format!(
                 "Rewrite acceptance criterion with a concrete observable result: \"{}\"",
                 compact_preview(criterion)
             ));
+            criterion_issue_codes.push(CriterionQualityIssue::with_preview(
+                "criterion_too_short",
+                compact_preview(criterion),
+            ));
         } else if criterion_is_pure_vague_filler(criterion) {
             criterion_issues.push(format!(
                 "Replace vague acceptance criterion with a concrete observable result: \"{}\"",
                 compact_preview(criterion)
+            ));
+            criterion_issue_codes.push(CriterionQualityIssue::with_preview(
+                "criterion_vague_filler",
+                compact_preview(criterion),
             ));
         }
     }
@@ -4958,6 +5029,7 @@ fn validate_criterion_quality(
         return Err(CriterionQualityError::new(
             CriterionQualityErrorReason::VagueCriteria,
             criterion_issues,
+            criterion_issue_codes,
         ));
     }
 
@@ -4970,6 +5042,7 @@ fn validate_criterion_quality(
             vec![
                 "Add at least one acceptance criterion with an independently checkable marker such as a number, comparator, named UI element, or state.".into(),
             ],
+            vec![CriterionQualityIssue::code("plan_no_marker")],
         ));
     }
 
@@ -4980,11 +5053,16 @@ fn validate_criterion_quality(
             .filter_map(criterion_input_text)
             .any(|criterion| criterion_has_observable_marker(&criterion));
         if !step_has_marker {
+            let step_ref = step_display_name(step, index);
             return Err(CriterionQualityError::new(
                 CriterionQualityErrorReason::VagueCriteria,
                 vec![format!(
                     "Step \"{}\" has no independently checkable acceptance criterion; add one with a number, comparator, named UI element, or state.",
-                    step_display_name(step, index)
+                    step_ref
+                )],
+                vec![CriterionQualityIssue::with_step_ref(
+                    "step_unverifiable",
+                    step_ref,
                 )],
             ));
         }
@@ -4994,6 +5072,7 @@ fn validate_criterion_quality(
     let goal_text = normalize_quality_text(&format!("{goal}\n{}", plan_input.goal));
     let criteria_text = normalize_quality_text(&criteria.join("\n"));
     let mut missing = Vec::new();
+    let mut missing_issues = Vec::new();
     let mut advisories = Vec::new();
 
     if contains_any(&goal_text, ui_goal_keywords()) {
@@ -5003,6 +5082,10 @@ fn validate_criterion_quality(
                     .label(locale_is_en)
                     .to_string(),
             );
+            missing_issues.push(CriterionQualityIssue::with_missing_class(
+                "missing_state_class",
+                MissingCriterionClass::Responsive.as_str(),
+            ));
         }
         for class in [
             MissingCriterionClass::Persistence,
@@ -5026,6 +5109,10 @@ fn validate_criterion_quality(
         ] {
             if !criterion_class_is_covered(&criteria_text, class) {
                 missing.push(class.label(locale_is_en).to_string());
+                missing_issues.push(CriterionQualityIssue::with_missing_class(
+                    "missing_state_class",
+                    class.as_str(),
+                ));
             }
         }
     }
@@ -5034,6 +5121,7 @@ fn validate_criterion_quality(
         return Err(CriterionQualityError::new(
             CriterionQualityErrorReason::MissingStateCriteria,
             missing,
+            missing_issues,
         ));
     }
 
@@ -6507,6 +6595,94 @@ mod criterion_quality_tests {
         assert!(report.advisories[0]
             .criterion_preview
             .contains("follows the existing project code style"));
+    }
+
+    /// S-050 D4 acceptance mapping item 2: the recovery-screen copy editors
+    /// touch is `dive/src/i18n/{ko,en}.json`, not this file — but every string
+    /// under `planning.interview.recovery.examples.*` is a promise that it
+    /// self-passes the same validator it is meant to unblock a student from.
+    /// This test reads both locale files at their real repo path and enforces
+    /// that promise so a future copy edit can't silently break it.
+    #[test]
+    fn recovery_examples_locales_self_pass_the_validator() {
+        for locale_file in ["ko.json", "en.json"] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../src/i18n")
+                .join(locale_file);
+            let raw = std::fs::read_to_string(&path)
+                .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+            let json: serde_json::Value = serde_json::from_str(&raw)
+                .unwrap_or_else(|err| panic!("failed to parse {}: {err}", path.display()));
+            let examples = json
+                .pointer("/planning/interview/recovery/examples")
+                .and_then(|value| value.as_object())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "{locale_file} is missing planning.interview.recovery.examples \
+                         (the self-passing recovery example lock)"
+                    )
+                });
+            assert!(
+                examples.len() >= 8,
+                "{locale_file} planning.interview.recovery.examples must keep at least 8 \
+                 entries (found {}); this set is the self-pass regression lock",
+                examples.len()
+            );
+
+            let mut marker_examples: Vec<String> = Vec::new();
+            for (key, value) in examples {
+                let text = value
+                    .as_str()
+                    .unwrap_or_else(|| panic!("{locale_file} examples.{key} must be a string"));
+                assert!(
+                    !text.trim().is_empty(),
+                    "{locale_file} examples.{key} must not be empty"
+                );
+                assert!(
+                    criterion_has_observable_marker(text),
+                    "{locale_file} examples.{key} = \"{text}\" must self-pass \
+                     criterion_has_observable_marker"
+                );
+
+                if let Some(class_name) = key.strip_prefix("class_") {
+                    let class = match class_name {
+                        "responsive" => MissingCriterionClass::Responsive,
+                        "persistence" => MissingCriterionClass::Persistence,
+                        "accessibility" => MissingCriterionClass::Accessibility,
+                        "loading" => MissingCriterionClass::Loading,
+                        "empty" => MissingCriterionClass::Empty,
+                        "error" => MissingCriterionClass::Error,
+                        other => panic!(
+                            "{locale_file} examples.{key} has unrecognized class name \"{other}\""
+                        ),
+                    };
+                    assert!(
+                        criterion_class_is_covered(&text.to_lowercase(), class),
+                        "{locale_file} examples.{key} = \"{text}\" must satisfy \
+                         criterion_class_is_covered for {class:?}"
+                    );
+                }
+
+                if key == "marker_click" || key == "marker_count" {
+                    marker_examples.push(text.to_string());
+                }
+            }
+
+            assert_eq!(
+                marker_examples.len(),
+                2,
+                "{locale_file} must define both examples.marker_click and examples.marker_count"
+            );
+            let plan = plan_with_criteria(
+                "Beginner todo list app",
+                &[marker_examples[0].as_str(), marker_examples[1].as_str()],
+            );
+            assert!(
+                validate_criterion_quality("Beginner todo list app", &plan).is_ok(),
+                "{locale_file} marker examples assembled into a minimal one-step plan must \
+                 pass validate_criterion_quality"
+            );
+        }
     }
 }
 
