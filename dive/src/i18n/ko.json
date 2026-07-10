@@ -196,6 +196,8 @@
       "form_label": "형태",
       "stack_label": "기술 스택",
       "empty": "아직 정하지 않음",
+      "proposals_heading_form": "AI 추천 형태 — 눌러서 선택하세요",
+      "proposals_heading_stack": "AI 추천 스택 — 눌러서 선택하세요",
       "form": {
         "web_app": "웹 앱",
         "static_page": "정적 페이지",

@@ -38,6 +38,7 @@ import {
   validateConfirmableProjectSpec,
   usePlan,
   usePlanRouter,
+  type ArchitectureProposals,
   type LiveProjectSpecDraft,
   type PrdInterviewConversationTurn,
   type ProjectSpec,
@@ -383,6 +384,12 @@ export function useProductShellController() {
   const [prdDraft, setPrdDraft] = useState<LiveProjectSpecDraft | null>(null);
   const [currentProjectSpec, setCurrentProjectSpec] = useState<ProjectSpec | null>(null);
   const [prdPatchFeedback, setPrdPatchFeedback] = useState<PrdPatchFeedback | null>(null);
+  // S-047: the AI's architecture option cards for the current two-stage focus,
+  // carried out of the latest interview turn so the board can render them. The
+  // student's card click (not this state) is what authors the decision.
+  const [architectureProposals, setArchitectureProposals] = useState<ArchitectureProposals | null>(
+    null,
+  );
   const [prdBusy, setPrdBusy] = useState(false);
   const [pendingPrdPlanRequest, setPendingPrdPlanRequest] = useState<PendingPrdPlanRequest | null>(
     null,
@@ -1397,6 +1404,8 @@ export function useProductShellController() {
             appliedFieldPaths: result.appliedFieldPaths,
             rejectedReasons: result.rejectedReasons,
           });
+          // S-047: surface (or clear) the AI's architecture cards for this turn.
+          setArchitectureProposals(result.architectureProposals ?? null);
           return {
             assistantMessage: result.assistantMessage,
             appliedChange: (result.appliedFieldPaths?.length ?? 0) > 0,
@@ -1442,6 +1451,7 @@ export function useProductShellController() {
           setCurrentProjectSpec(saved);
           setPrdDraft(null);
           setPrdPatchFeedback(null);
+          setArchitectureProposals(null);
           setPrdMode("read");
           toast({
             variant: "success",
@@ -1593,6 +1603,7 @@ export function useProductShellController() {
           setCurrentProjectSpec(saved);
           setPrdDraft(null);
           setPrdPatchFeedback(null);
+          setArchitectureProposals(null);
           setPrdMode("read");
           toast({
             variant: "success",
@@ -1963,6 +1974,7 @@ export function useProductShellController() {
         busy: prdBusy,
         recentlyChangedFields: prdPatchFeedback?.appliedFieldPaths ?? [],
         patchFeedback: prdPatchFeedback,
+        architectureProposals,
         quickIntakeEnabled,
         onDraftChange: handlePrdDraftChange,
         onSubmitAnswer: handleSubmitPrdAnswer,
@@ -1980,6 +1992,7 @@ export function useProductShellController() {
         onEdit: () => {
           setPrdDraft(draftFromProjectSpec(currentProjectSpec));
           setPrdPatchFeedback(null);
+          setArchitectureProposals(null);
           setPrdMode("authoring");
         },
         onCreatePlan: handleCreatePlanFromRail,
@@ -1987,6 +2000,7 @@ export function useProductShellController() {
     }
     return null;
   }, [
+    architectureProposals,
     currentProjectName,
     currentProjectPath,
     currentProjectSpec,

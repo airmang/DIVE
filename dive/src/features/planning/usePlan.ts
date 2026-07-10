@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type {
   AppendPlanStepInput,
+  ArchitectureProposals,
   ChallengeStepRationaleInput,
   ChallengeStepRationaleResult,
   InterviewRow,
@@ -117,6 +118,10 @@ export interface PrdInterviewTurnResult {
   appliedFieldPaths: string[];
   rejectedReasons: string[];
   liveDraft: LiveProjectSpecDraft;
+  // S-047: AI architecture recommendations for the current two-stage focus, or
+  // absent when the turn is not on an architecture focus. Rust omits the key
+  // entirely when there is nothing to propose, so this is optional.
+  architectureProposals?: ArchitectureProposals | null;
 }
 
 function normalizeGeneratedDraft(value: unknown): PlanGenerationResult {

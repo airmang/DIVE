@@ -8,13 +8,14 @@ import {
   type AcceptanceCriterion,
   type ArchitectureDecision,
   type ArchitectureForm,
+  type ArchitectureProposals,
   type LiveProjectSpecDraft,
   type PrdPatchValidationOutcome,
   type PrdInterviewConversationTurn,
   type QuickIntakeInput,
 } from "../../features/planning";
 import { useT } from "../../i18n";
-import { architectureFormOptions } from "./architectureLabels";
+import { architectureFormLabel, architectureFormOptions } from "./architectureLabels";
 import {
   ProvocationCardHost,
   type ProvocationAction,
@@ -61,6 +62,8 @@ export interface PrdAuthoringBoardProps {
   busy?: boolean;
   recentlyChangedFields?: string[];
   patchFeedback?: PrdPatchFeedback | null;
+  // S-047: the AI's architecture option cards for the current two-stage focus.
+  architectureProposals?: ArchitectureProposals | null;
   quickIntakeEnabled?: boolean;
   onDraftChange: (draft: LiveProjectSpecDraft) => void;
   onSubmitAnswer: (
@@ -216,6 +219,7 @@ export function PrdAuthoringBoard({
   busy = false,
   recentlyChangedFields = [],
   patchFeedback = null,
+  architectureProposals = null,
   quickIntakeEnabled = false,
   onDraftChange,
   onSubmitAnswer,
@@ -266,6 +270,16 @@ export function PrdAuthoringBoard({
   const criteria = normalizeCriteria(localDraft.spec.acceptanceCriteria);
   const architecture = localDraft.spec.architecture;
   const formOptions = useMemo(() => architectureFormOptions(t), [t]);
+  // S-047: the AI's recommend-then-confirm cards for the current two-stage
+  // focus. Form cards show only until a form is picked; stack cards show only
+  // once a form exists and no stack is chosen yet, so a decided field never
+  // keeps stale cards. The student's click authors the decision.
+  const formProposals =
+    architectureProposals?.kind === "form" && !architecture ? architectureProposals.options : [];
+  const stackProposals =
+    architectureProposals?.kind === "stack" && architecture && !(architecture.stack ?? "").trim()
+      ? architectureProposals.options
+      : [];
   // Always offer a trailing empty row so the student can author the 2nd criterion
   // by hand when the AI won't extend it (round-2 P1-30 / S-041 dead-end escape).
   const displayCriteria =
@@ -729,6 +743,33 @@ export function PrdAuthoringBoard({
               <span className="text-[11px] font-normal text-fg-subtle">
                 {t("prd.fields.architecture_help")}
               </span>
+              {/* S-047: the AI's recommended forms as selectable cards (recommend-
+                  then-confirm). The click below is the student's decision. */}
+              {formProposals.length > 0 ? (
+                <div className="flex flex-col gap-2" data-testid="prd-architecture-form-proposals">
+                  <span className="text-[11px] font-normal text-fg-subtle">
+                    {t("prd.architecture.proposals_heading_form")}
+                  </span>
+                  {formProposals.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setArchitectureForm(option.value as ArchitectureForm)}
+                      className="flex flex-col gap-0.5 rounded-md border border-border bg-bg-panel2 px-3 py-2 text-left text-sm transition-colors hover:border-accent hover:bg-accent-subtle"
+                      data-testid={`prd-architecture-form-proposal-${option.value}`}
+                    >
+                      <span className="font-medium text-fg">
+                        {architectureFormLabel(t, option.value as ArchitectureForm)}
+                      </span>
+                      {option.rationale ? (
+                        <span className="text-[11px] font-normal text-fg-subtle">
+                          {option.rationale}
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               <div
                 className="flex flex-wrap gap-2"
                 role="group"
@@ -769,6 +810,32 @@ export function PrdAuthoringBoard({
                   data-testid="prd-architecture-form-other"
                   aria-label={t("prd.authoring.architecture_other_placeholder")}
                 />
+              ) : null}
+
+              {/* S-047: the AI's recommended stacks as selectable cards. The
+                  click fills the stack field the student can still edit below. */}
+              {stackProposals.length > 0 ? (
+                <div className="flex flex-col gap-2" data-testid="prd-architecture-stack-proposals">
+                  <span className="text-[11px] font-normal text-fg-subtle">
+                    {t("prd.architecture.proposals_heading_stack")}
+                  </span>
+                  {stackProposals.map((option, index) => (
+                    <button
+                      key={`${option.value}-${index}`}
+                      type="button"
+                      onClick={() => patchArchitecture({ stack: option.value })}
+                      className="flex flex-col gap-0.5 rounded-md border border-border bg-bg-panel2 px-3 py-2 text-left text-sm transition-colors hover:border-accent hover:bg-accent-subtle"
+                      data-testid={`prd-architecture-stack-proposal-${index}`}
+                    >
+                      <span className="font-medium text-fg">{option.value}</span>
+                      {option.rationale ? (
+                        <span className="text-[11px] font-normal text-fg-subtle">
+                          {option.rationale}
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
               ) : null}
 
               <label className="flex flex-col gap-1">

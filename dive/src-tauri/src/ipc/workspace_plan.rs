@@ -124,6 +124,34 @@ pub struct PrdInterviewTurnOutput {
     pub applied_field_paths: Vec<String>,
     pub rejected_reasons: Vec<String>,
     pub live_draft: LiveProjectSpecDraftRow,
+    // S-047 (010 theme 7): the AI's architecture recommendation for the current
+    // two-stage focus (form, then stack), surfaced to the board as selectable
+    // option cards. This is NOT an applied patch — the architecture is authored
+    // only by the student's click (recommend-then-confirm), preserving agency.
+    // `None` when the interview is not on an architecture focus or the AI made no
+    // usable proposal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub architecture_proposals: Option<ArchitectureProposals>,
+}
+
+/// A single AI-recommended architecture option (one form or one stack) with a
+/// one-line beginner rationale. Rendered as a selectable card in the board.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchitectureProposalOption {
+    /// For `kind == "form"`, a valid `ArchitectureForm` value (e.g. `web_app`).
+    /// For `kind == "stack"`, free-text stack wording (e.g. `React + Vite`).
+    pub value: String,
+    pub rationale: String,
+}
+
+/// The AI's ≤2 architecture recommendations for the current two-stage focus.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchitectureProposals {
+    /// `"form"` or `"stack"` — the two-stage focus these options answer.
+    pub kind: String,
+    pub options: Vec<ArchitectureProposalOption>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -977,6 +1005,13 @@ pub async fn workspace_prd_interview_turn_impl(
         .filter(|message| !message.trim().is_empty())
         .unwrap_or_default();
     let patch = parsed.patch;
+    // S-047: only surface the AI's architecture cards when the draft is actually
+    // on that focus (the model was asked to answer it). Architecture is not
+    // patchable, so the base draft's focus is authoritative here.
+    let expected_proposal_kind = expected_architecture_proposal_kind(&base_draft.spec);
+    let architecture_proposals = parsed
+        .proposals
+        .filter(|proposals| Some(proposals.kind.as_str()) == expected_proposal_kind);
 
     let mut output = PrdInterviewTurnOutput {
         turn_id: turn_id.clone(),
@@ -986,6 +1021,7 @@ pub async fn workspace_prd_interview_turn_impl(
         applied_field_paths: Vec::new(),
         rejected_reasons: Vec::new(),
         live_draft: base_draft,
+        architecture_proposals,
     };
 
     let mut db = state.db.lock().map_err(|e| e.to_string())?;
@@ -2221,7 +2257,12 @@ fn build_prd_interview_system_prompt() -> String {
         "Each patch operation object MUST use the key \"op\" for the operation name; do not use \"operation\".",
         "For append_acceptance_criterion and revise_acceptance_criterion_text, put the criterion wording in \"text\".",
         "Do not invent IDs for new criteria; DIVE assigns AC IDs.",
-        "Use concise JSON with shape {\"assistantMessage\":\"...\",\"patch\":{\"operations\":[...],\"rationale\":\"...\"}}.",
+        "Never put the architecture (form or tech stack) in the patch — the student decides it by clicking a card, not you.",
+        "When the suggested next focus is propose_architecture_form or propose_architecture_stack, ALSO return a \"proposals\" object recommending up to 2 options for that focus, each with a one-line beginner reason, and still ask the student to pick or change one in assistantMessage.",
+        "For propose_architecture_form, use \"proposals\":{\"kind\":\"form\",\"options\":[{\"value\":\"<one of: web_app, static_page, cli_tool, desktop_app, api_service, other>\",\"rationale\":\"...\"}]}.",
+        "For propose_architecture_stack, use \"proposals\":{\"kind\":\"stack\",\"options\":[{\"value\":\"<concise stack, e.g. React + Vite>\",\"rationale\":\"...\"}]}. Only recommend stacks that fit the already chosen form.",
+        "Omit \"proposals\" entirely on any other focus.",
+        "Use concise JSON with shape {\"assistantMessage\":\"...\",\"patch\":{\"operations\":[...],\"rationale\":\"...\"},\"proposals\":{\"kind\":\"...\",\"options\":[...]}}. Include only the keys you are using.",
     ]
     .join("\n")
 }
@@ -2284,6 +2325,86 @@ fn prd_interview_next_focus(spec: &ProjectSpecDraft) -> &'static str {
 struct RawPrdTurnResponse {
     assistant_message: Option<String>,
     patch: Option<RawPrdPatch>,
+    // S-047: optional architecture recommendation surface (form/stack). Never a
+    // patch — the architecture is applied only by the student's card click.
+    proposals: Option<RawPrdProposals>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawPrdProposals {
+    kind: Option<String>,
+    #[serde(default)]
+    options: Vec<RawPrdProposalOption>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawPrdProposalOption {
+    value: Option<String>,
+    rationale: Option<String>,
+}
+
+impl RawPrdProposals {
+    /// Shape-validate the AI's raw proposals: keep only `form`/`stack` kinds,
+    /// drop options with an empty value, coerce `form` values to the bounded
+    /// `ArchitectureForm` enum (dropping unknown forms), trim wording, and cap
+    /// at two options. Returns `None` when nothing usable remains. The
+    /// current-focus gate is applied separately by the caller.
+    fn into_sanitized(self) -> Option<ArchitectureProposals> {
+        let kind = match self.kind.as_deref().map(str::trim) {
+            Some("form") => "form",
+            Some("stack") => "stack",
+            _ => return None,
+        };
+        let options: Vec<ArchitectureProposalOption> = self
+            .options
+            .into_iter()
+            .filter_map(|option| {
+                let value = option.value?.trim().to_string();
+                if value.is_empty() {
+                    return None;
+                }
+                if kind == "form" && !is_valid_architecture_form_value(&value) {
+                    return None;
+                }
+                let rationale = option
+                    .rationale
+                    .map(|r| r.trim().to_string())
+                    .unwrap_or_default();
+                Some(ArchitectureProposalOption { value, rationale })
+            })
+            .take(2)
+            .collect();
+        if options.is_empty() {
+            return None;
+        }
+        Some(ArchitectureProposals {
+            kind: kind.to_string(),
+            options,
+        })
+    }
+}
+
+/// True when `value` is one of the bounded `ArchitectureForm` snake_case values,
+/// so an AI form recommendation maps onto a card the student can actually pick.
+fn is_valid_architecture_form_value(value: &str) -> bool {
+    matches!(
+        value,
+        "web_app" | "static_page" | "cli_tool" | "desktop_app" | "api_service" | "other"
+    )
+}
+
+/// The architecture focus the current draft is on, if any: `Some("form")` when
+/// the next confirm gap is the architecture form, `Some("stack")` when it is the
+/// tech stack, else `None`. Used to gate AI proposals to the deterministic focus
+/// the model was asked to answer, so stale/off-focus cards never surface.
+fn expected_architecture_proposal_kind(spec: &ProjectSpecDraft) -> Option<&'static str> {
+    match confirmable_draft_gaps(spec).first() {
+        Some(gap) if gap.focus.starts_with("propose_architecture_form") => Some("form"),
+        Some(gap) if gap.focus.starts_with("propose_architecture_stack") => Some("stack"),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -2355,6 +2476,7 @@ fn parse_prd_turn_response(raw: &str, turn_id: &str) -> ParsedPrdTurn {
         return ParsedPrdTurn {
             assistant_message: clean_prd_assistant_message(raw),
             patch: None,
+            proposals: None,
         };
     };
     if let Ok(response) = serde_json::from_str::<RawPrdTurnResponse>(json_text) {
@@ -2363,23 +2485,27 @@ fn parse_prd_turn_response(raw: &str, turn_id: &str) -> ParsedPrdTurn {
                 clean_prd_assistant_message(&strip_prd_json_payloads(&message))
             }),
             patch: response.patch.map(|patch| patch.into_prd_patch(turn_id)),
+            proposals: response.proposals.and_then(RawPrdProposals::into_sanitized),
         };
     }
     if let Ok(patch) = serde_json::from_str::<RawPrdPatch>(json_text) {
         return ParsedPrdTurn {
             assistant_message: clean_prd_assistant_message(&raw.replace(json_text, "")),
             patch: Some(patch.into_prd_patch(turn_id)),
+            proposals: None,
         };
     }
     ParsedPrdTurn {
         assistant_message: clean_prd_assistant_message(&strip_prd_json_payloads(raw)),
         patch: None,
+        proposals: None,
     }
 }
 
 struct ParsedPrdTurn {
     assistant_message: Option<String>,
     patch: Option<PrdPatch>,
+    proposals: Option<ArchitectureProposals>,
 }
 
 fn extract_prd_turn_json_candidate(raw: &str) -> Option<&str> {
@@ -5658,6 +5784,166 @@ mod prd_interview_prompt_tests {
         let prompt = build_prd_interview_user_prompt(&draft, &[], "이 정도면 충분해");
         assert!(prompt.contains("Missing fields required before PRD confirmation, if any: none"));
         assert!(prompt.contains("instead of asking a new required question"));
+    }
+
+    /// A draft that has cleared the five confirmable fields, so the interview is
+    /// on the architecture-form focus (S-047 stage one).
+    fn draft_on_form_focus() -> LiveProjectSpecDraftRow {
+        let mut draft = empty_draft();
+        draft.spec.goal = "Build a personal schedule app for students".into();
+        draft.spec.intent_summary =
+            Some("A student tracks classes and homework in one place".into());
+        draft.spec.scope = vec!["Add and remove schedule items".into()];
+        draft.spec.non_goals = vec!["No account or login in the first version".into()];
+        for (idx, text) in [
+            "Schedules and tasks appear in separate lists",
+            "Adding an item shows it immediately in the list",
+        ]
+        .iter()
+        .enumerate()
+        {
+            draft.spec.acceptance_criteria.push(AcceptanceCriterion {
+                criterion_id: format!("AC-{:03}", idx + 1),
+                text: (*text).into(),
+                source: AcceptanceCriterionSource::Interview,
+                status: AcceptanceCriterionStatus::Active,
+                created_in_version: 1,
+                retired_in_version: None,
+            });
+        }
+        draft
+    }
+
+    #[test]
+    fn expected_proposal_kind_tracks_two_stage_focus() {
+        // No architecture yet -> stage one (form).
+        let mut draft = draft_on_form_focus();
+        assert_eq!(
+            expected_architecture_proposal_kind(&draft.spec),
+            Some("form")
+        );
+
+        // Form picked, no stack -> stage two (stack).
+        draft.spec.architecture = Some(ArchitectureDecision {
+            form: ArchitectureForm::WebApp,
+            form_other_label: None,
+            stack: None,
+            rationale: None,
+            decision_source: ArchitectureDecisionSource::StudentConfirmed,
+            decided_in_version: 1,
+        });
+        assert_eq!(
+            expected_architecture_proposal_kind(&draft.spec),
+            Some("stack")
+        );
+
+        // Both decided -> no architecture focus, so no cards.
+        draft.spec.architecture = Some(ArchitectureDecision {
+            form: ArchitectureForm::WebApp,
+            form_other_label: None,
+            stack: Some("React + Vite".into()),
+            rationale: None,
+            decision_source: ArchitectureDecisionSource::StudentConfirmed,
+            decided_in_version: 1,
+        });
+        assert_eq!(expected_architecture_proposal_kind(&draft.spec), None);
+
+        // A draft still missing earlier fields is not on an architecture focus.
+        assert_eq!(
+            expected_architecture_proposal_kind(&empty_draft().spec),
+            None
+        );
+    }
+
+    #[test]
+    fn sanitize_form_proposals_keeps_valid_forms_and_caps_two() {
+        let raw = RawPrdProposals {
+            kind: Some("form".into()),
+            options: vec![
+                RawPrdProposalOption {
+                    value: Some("  web_app ".into()),
+                    rationale: Some(" Opens in a browser ".into()),
+                },
+                RawPrdProposalOption {
+                    // Unknown form value is dropped, not coerced.
+                    value: Some("mobile_app".into()),
+                    rationale: Some("n/a".into()),
+                },
+                RawPrdProposalOption {
+                    value: Some("static_page".into()),
+                    rationale: None,
+                },
+                RawPrdProposalOption {
+                    value: Some("cli_tool".into()),
+                    rationale: Some("would be third".into()),
+                },
+            ],
+        };
+        let sanitized = raw.into_sanitized().expect("valid form options remain");
+        assert_eq!(sanitized.kind, "form");
+        assert_eq!(sanitized.options.len(), 2);
+        assert_eq!(sanitized.options[0].value, "web_app");
+        assert_eq!(sanitized.options[0].rationale, "Opens in a browser");
+        assert_eq!(sanitized.options[1].value, "static_page");
+        assert_eq!(sanitized.options[1].rationale, "");
+    }
+
+    #[test]
+    fn sanitize_stack_proposals_keep_free_text() {
+        let raw = RawPrdProposals {
+            kind: Some("stack".into()),
+            options: vec![
+                RawPrdProposalOption {
+                    value: Some("React + Vite".into()),
+                    rationale: Some("Beginner-friendly".into()),
+                },
+                RawPrdProposalOption {
+                    value: Some("   ".into()),
+                    rationale: Some("blank value dropped".into()),
+                },
+            ],
+        };
+        let sanitized = raw.into_sanitized().expect("stack option remains");
+        assert_eq!(sanitized.kind, "stack");
+        assert_eq!(sanitized.options.len(), 1);
+        assert_eq!(sanitized.options[0].value, "React + Vite");
+    }
+
+    #[test]
+    fn sanitize_rejects_unknown_kind_and_empty_options() {
+        assert!(RawPrdProposals {
+            kind: Some("architecture".into()),
+            options: vec![RawPrdProposalOption {
+                value: Some("web_app".into()),
+                rationale: None,
+            }],
+        }
+        .into_sanitized()
+        .is_none());
+
+        assert!(RawPrdProposals {
+            kind: Some("form".into()),
+            options: vec![RawPrdProposalOption {
+                value: Some("mobile_app".into()),
+                rationale: None,
+            }],
+        }
+        .into_sanitized()
+        .is_none());
+    }
+
+    #[test]
+    fn parse_turn_response_extracts_proposals_alongside_message() {
+        let raw = r#"{"assistantMessage":"어떤 형태가 좋을까요?","proposals":{"kind":"form","options":[{"value":"web_app","rationale":"브라우저에서 열려요"},{"value":"static_page","rationale":"간단한 안내 페이지면 충분해요"}]}}"#;
+        let parsed = parse_prd_turn_response(raw, "turn-1");
+        let proposals = parsed.proposals.expect("proposals parsed");
+        assert_eq!(proposals.kind, "form");
+        assert_eq!(proposals.options.len(), 2);
+        // The proposals JSON must not leak into the shown assistant message.
+        let message = parsed.assistant_message.unwrap_or_default();
+        assert!(message.contains("어떤 형태가 좋을까요?"));
+        assert!(!message.contains("proposals"));
+        assert!(!message.contains("web_app"));
     }
 }
 

@@ -196,6 +196,8 @@
       "form_label": "Form",
       "stack_label": "Tech stack",
       "empty": "Not decided yet",
+      "proposals_heading_form": "AI-recommended forms — tap to pick",
+      "proposals_heading_stack": "AI-recommended stacks — tap to pick",
       "form": {
         "web_app": "Web app",
         "static_page": "Static page",
