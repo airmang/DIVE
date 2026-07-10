@@ -6,6 +6,23 @@ All notable changes to DIVE are documented here. Format: [Keep a Changelog](http
 
 _대기 중인 미출시 변경 사항 없음._
 
+## [1.0.0-rc.8] — 2026-07-10
+
+Completes the S-047 two-stage architecture interview: the AI's form/stack recommendation now reaches the PRD board as selectable cards instead of chat-only prose.
+
+### Fixed
+
+- **PRD architecture recommendation now reflects into the board (S-047).** The two-stage architecture interview (form → stack) was only half wired: the AI proposed forms and stacks in chat, but the board offered only fixed form buttons and a blank free-text stack field, so the recommendation never carried over — architecture was the one PRD section the conversation could not fill. The interview turn now emits a structured `proposals` object that DIVE shape-validates and gates to the current two-stage focus, and the board renders it as selectable option cards with each option's rationale.
+
+### Changed
+
+- **Recommend-then-confirm option cards.** A card click authors the decision through the existing student-edit path (`setArchitectureForm` / `patchArchitecture`); the AI still authors no architecture (no `set_architecture` patch op — Constitution VI preserved). Cards clear once the matching field is decided.
+
+### Verification
+
+- Full local CI green: Rust `cargo fmt` + `cargo clippy --features dev-mock -D warnings` + `cargo test --features dev-mock` (639 lib tests, incl. new proposal sanitize/focus-gate/parse tests); frontend `pnpm format:check` + `pnpm typecheck` + `pnpm lint` + `pnpm test` (480 tests, incl. new board render-and-pick specs and i18n parity).
+- Live in-app confirmation of the AI emitting proposals is pending on the rebuilt app (macOS aarch64 preview build).
+
 ## [1.0.0-rc.7] — 2026-07-09
 
 Live provider model catalog + Claude Sonnet 5. New upstream models now surface in the model selector without a DIVE code change or rebuild.
