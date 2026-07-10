@@ -314,12 +314,7 @@ pub async fn provider_list_models_impl(
 ) -> Result<Vec<ModelInfoDto>, String> {
     let snap = state.runtime_snapshot();
     if snap.config_id == Some(provider_id) {
-        return Ok(snap
-            .provider
-            .list_models()
-            .into_iter()
-            .map(Into::into)
-            .collect());
+        return Ok(models_live_or_static(snap.provider.as_ref()).await);
     }
 
     let row = {
@@ -328,10 +323,28 @@ pub async fn provider_list_models_impl(
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("provider not found: {provider_id}"))?
     };
+
+    // When the provider is connected (has stored credentials), build it so we
+    // can try its live catalog; if it is not connected, or building fails, use
+    // the static list. runtime_for_row already loads keys and handles codex.
+    if let Ok(runtime) = runtime_for_row(&row, state.keyring.as_ref()) {
+        return Ok(models_live_or_static(runtime.provider.as_ref()).await);
+    }
+
     Ok(crate::providers::models_for_kind(&row.kind)
         .into_iter()
         .map(Into::into)
         .collect())
+}
+
+/// Prefer a provider's live catalog (e.g. OpenRouter's `/models`) and fall back
+/// to its static curated list when no live catalog is available.
+async fn models_live_or_static(provider: &dyn crate::providers::LlmProvider) -> Vec<ModelInfoDto> {
+    let models = match provider.fetch_models().await {
+        Some(live) => live,
+        None => provider.list_models(),
+    };
+    models.into_iter().map(Into::into).collect()
 }
 
 #[tauri::command]

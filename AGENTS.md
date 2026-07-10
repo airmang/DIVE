@@ -13,8 +13,8 @@ the following files as the active source of truth, in this order:
 5. Active decision logs under `specs/*/decisions.md`
 6. Active plans/tasks generated under the same `specs/*/` feature directory
 
-Historical specs and plans under `docs/superpowers/specs/` and
-`docs/superpowers/plans/` are NOT active implementation authority. They may be
+Historical specs and plans under `docs/archive/superpowers/specs/` and
+`docs/archive/superpowers/plans/` are NOT active implementation authority. They may be
 used only as historical background when explicitly referenced by an active
 spec-kit document or when the user asks for archaeology. If a historical doc
 conflicts with `.specify/` or `specs/`, the spec-kit document wins.

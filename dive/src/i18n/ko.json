@@ -196,6 +196,8 @@
       "form_label": "형태",
       "stack_label": "기술 스택",
       "empty": "아직 정하지 않음",
+      "proposals_heading_form": "AI 추천 형태 — 눌러서 선택하세요",
+      "proposals_heading_stack": "AI 추천 스택 — 눌러서 선택하세요",
       "form": {
         "web_app": "웹 앱",
         "static_page": "정적 페이지",
@@ -428,6 +430,8 @@
     "model_saved_title": "모델 설정 저장됨",
     "model_saved_description": "다음 요청부터 선택한 모델이 적용됩니다.",
     "model_save_failed_title": "모델 설정 저장 실패",
+    "model_filter_placeholder": "모델 검색…",
+    "model_filter_no_match": "검색과 일치하는 모델이 없습니다",
     "safety_eyebrow": "안전",
     "safety_title": "안전",
     "safety_description": "DIVE는 파일 변경, 명령 실행, 되돌리기 전에 먼저 확인을 요청합니다.",

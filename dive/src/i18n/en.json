@@ -196,6 +196,8 @@
       "form_label": "Form",
       "stack_label": "Tech stack",
       "empty": "Not decided yet",
+      "proposals_heading_form": "AI-recommended forms — tap to pick",
+      "proposals_heading_stack": "AI-recommended stacks — tap to pick",
       "form": {
         "web_app": "Web app",
         "static_page": "Static page",
@@ -428,6 +430,8 @@
     "model_saved_title": "Model setting saved",
     "model_saved_description": "The selected model will be used from the next request.",
     "model_save_failed_title": "Failed to save model setting",
+    "model_filter_placeholder": "Search models…",
+    "model_filter_no_match": "No models match your search",
     "safety_eyebrow": "Safety",
     "safety_title": "Safety",
     "safety_description": "DIVE asks before changing files, running commands, or undoing work.",

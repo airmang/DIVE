@@ -7,7 +7,7 @@ pub fn default_model_for_kind(kind: &str) -> &'static str {
     match kind {
         // Cost-aware v4 defaults: flagship models stay available in the selector,
         // but default to the general-purpose tier for first-run affordability.
-        "anthropic" => "claude-sonnet-4-6",
+        "anthropic" => "claude-sonnet-5",
         "openai" => "gpt-5.4",
         "openrouter" => "openai/gpt-5.4-mini",
         "opencode-zen" | "opencode_zen" => "big-pickle",
@@ -41,6 +41,13 @@ pub fn normalize_model_for_kind(kind: &str, selected: Option<&str>) -> String {
         if models.is_empty() || models.iter().any(|candidate| candidate.id == model) {
             return model.to_owned();
         }
+        // OpenRouter serves an open, live-fetched catalog, so the static list is
+        // only an offline fallback. Any well-formed `provider/model` slug is
+        // legitimate even when absent from that list — accept it rather than
+        // silently resetting the user's choice to the default.
+        if accepts_open_catalog_slug(kind, model) {
+            return model.to_owned();
+        }
     }
     default_model_for_kind(kind).to_owned()
 }
@@ -70,9 +77,37 @@ pub fn validate_model_for_kind(kind: &str, model: &str) -> Result<(), ProviderEr
         return Ok(());
     }
 
+    // OpenRouter's live catalog outgrows the static fallback list; accept any
+    // well-formed slug and let OpenRouter reject unknown models at call time.
+    if accepts_open_catalog_slug(kind, trimmed) {
+        return Ok(());
+    }
+
     Err(ProviderError::InvalidConfig(format!(
         "지원하지 않는 AI 모델입니다: {trimmed}. Settings에서 연결된 AI의 사용 가능한 모델로 전환한 뒤 다시 시도하세요."
     )))
+}
+
+/// Whether `model` is acceptable for `kind` purely on the basis of an open,
+/// live-fetched catalog (currently only OpenRouter). Actual availability is
+/// enforced by the provider at call time.
+fn accepts_open_catalog_slug(kind: &str, model: &str) -> bool {
+    kind == "openrouter" && is_well_formed_openrouter_slug(model)
+}
+
+/// A well-formed OpenRouter slug is `vendor/model` with both halves non-empty
+/// and no whitespace or control characters. This deliberately avoids a fixed
+/// character allowlist: model IDs only ever arrive from the live catalog or the
+/// static list, so the goal is to reject obvious garbage (free text, bare names,
+/// leading/trailing slashes) without clobbering a legitimately-formatted future
+/// slug whose punctuation we did not anticipate.
+fn is_well_formed_openrouter_slug(model: &str) -> bool {
+    let Some((vendor, name)) = model.split_once('/') else {
+        return false;
+    };
+    !vendor.is_empty()
+        && !name.is_empty()
+        && !model.chars().any(|c| c.is_whitespace() || c.is_control())
 }
 
 pub fn build_provider(
@@ -241,7 +276,7 @@ mod tests {
 
     #[test]
     fn default_models_cover_supported_kinds() {
-        assert_eq!(default_model_for_kind("anthropic"), "claude-sonnet-4-6");
+        assert_eq!(default_model_for_kind("anthropic"), "claude-sonnet-5");
         assert_eq!(default_model_for_kind("openai"), "gpt-5.4");
         assert_eq!(default_model_for_kind("openrouter"), "openai/gpt-5.4-mini");
         assert_eq!(default_model_for_kind("opencode_zen"), "big-pickle");
@@ -274,13 +309,13 @@ mod tests {
             vec![
                 "openai/gpt-5.4-mini",
                 "openai/gpt-5.4",
-                "anthropic/claude-sonnet-4.6",
+                "anthropic/claude-sonnet-5",
                 "google/gemini-3-flash-preview",
                 "deepseek/deepseek-v4-flash",
             ]
         );
         assert!(ids.iter().all(|id| id.contains('/')));
-        assert!(ids.iter().any(|id| id == "anthropic/claude-sonnet-4.6"));
+        assert!(ids.iter().any(|id| id == "anthropic/claude-sonnet-5"));
         assert!(!ids.iter().any(|id| id == "openai/gpt-5.5-codex"));
     }
 
@@ -294,10 +329,36 @@ mod tests {
             normalize_model_for_kind("openai", Some("gpt-5.5-codex")),
             "gpt-5.5"
         );
+        // The codex-suffix alias still folds to its base slug; under the open
+        // OpenRouter catalog that well-formed slug is kept (not reset to the
+        // default) and OpenRouter enforces availability at call time.
         assert_eq!(
             normalize_model_for_kind("openrouter", Some("openai/gpt-5.5-codex")),
+            "openai/gpt-5.5"
+        );
+    }
+
+    #[test]
+    fn openrouter_accepts_live_catalog_slug_absent_from_static_list() {
+        // A model only present in OpenRouter's live catalog must survive
+        // normalization and validation instead of being reset or rejected.
+        assert_eq!(
+            normalize_model_for_kind("openrouter", Some("moonshotai/kimi-k2")),
+            "moonshotai/kimi-k2"
+        );
+        assert!(validate_model_for_kind("openrouter", "moonshotai/kimi-k2").is_ok());
+    }
+
+    #[test]
+    fn openrouter_rejects_malformed_slug_and_falls_back() {
+        // Free text without a vendor/model shape is not a valid slug: normalize
+        // falls back to the default and validate errors with the Settings CTA.
+        assert_eq!(
+            normalize_model_for_kind("openrouter", Some("not a model")),
             "openai/gpt-5.4-mini"
         );
+        let err = validate_model_for_kind("openrouter", "not a model").unwrap_err();
+        assert!(matches!(err, ProviderError::InvalidConfig(_)));
     }
 
     #[test]

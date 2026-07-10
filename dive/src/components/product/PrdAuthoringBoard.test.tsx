@@ -217,6 +217,68 @@ describe("PrdAuthoringBoard", () => {
     });
   });
 
+  it("renders AI form proposals as cards and lets the student pick one (S-047)", () => {
+    renderBoard({
+      draft: createLiveProjectSpecDraft(42, {
+        goal: "Build a personal schedule app for students",
+      }),
+      architectureProposals: {
+        kind: "form",
+        options: [
+          { value: "web_app", rationale: "Opens in a browser, easy to share" },
+          { value: "static_page", rationale: "Simplest if it is just information" },
+        ],
+      },
+    });
+
+    const cards = screen.getByTestId("prd-architecture-form-proposals");
+    expect(within(cards).getByText("Opens in a browser, easy to share")).toBeTruthy();
+    // The stack field stays disabled until a form is picked.
+    expect(screen.getByTestId("prd-architecture-stack-input")).toHaveProperty("disabled", true);
+
+    // Picking the recommended form is the student's own decision.
+    fireEvent.click(screen.getByTestId("prd-architecture-form-proposal-web_app"));
+    expect(screen.getByTestId("prd-architecture-form-web_app").getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(screen.getByTestId("prd-architecture-stack-input")).toHaveProperty("disabled", false);
+    // A decided form clears its recommendation cards (no stale options linger).
+    expect(screen.queryByTestId("prd-architecture-form-proposals")).toBeNull();
+  });
+
+  it("renders AI stack proposals as cards and fills the stack on pick (S-047)", () => {
+    renderBoard({
+      draft: createLiveProjectSpecDraft(42, {
+        goal: "Build a personal schedule app for students",
+        architecture: {
+          form: "web_app",
+          formOtherLabel: null,
+          stack: null,
+          rationale: null,
+          decisionSource: "student_confirmed",
+          decidedInVersion: 1,
+        },
+      }),
+      architectureProposals: {
+        kind: "stack",
+        options: [{ value: "React + Vite", rationale: "Beginner-friendly web stack" }],
+      },
+    });
+
+    // Form cards do not show once the form is decided.
+    expect(screen.queryByTestId("prd-architecture-form-proposals")).toBeNull();
+    const cards = screen.getByTestId("prd-architecture-stack-proposals");
+    expect(within(cards).getByText("React + Vite")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("prd-architecture-stack-proposal-0"));
+    expect(screen.getByTestId("prd-architecture-stack-input")).toHaveProperty(
+      "value",
+      "React + Vite",
+    );
+    // The chosen stack clears the recommendation cards.
+    expect(screen.queryByTestId("prd-architecture-stack-proposals")).toBeNull();
+  });
+
   it("highlights fields changed by an applied interview-turn patch", () => {
     renderBoard({
       draft: createLiveProjectSpecDraft(42, {

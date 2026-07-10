@@ -55,6 +55,86 @@ impl OpenAiProvider {
             .with_id("opencode_zen")
             .with_models(opencode_zen_models())
     }
+
+    /// GET `{base_url}/models` and map OpenRouter's catalog into [`ModelInfo`].
+    /// The result is curated (recommended families first, then alphabetical) so
+    /// beginners see a sensible order even though the full live catalog is
+    /// returned.
+    async fn fetch_openrouter_catalog(&self) -> Result<Vec<ModelInfo>, ProviderError> {
+        let url = format!("{}/models", self.base_url);
+        let response = self
+            .http
+            .get(&url)
+            .bearer_auth(&self.api_key)
+            .send()
+            .await?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(ProviderError::Api {
+                status: status.as_u16(),
+                body: response.text().await.unwrap_or_default(),
+            });
+        }
+        let body: Value = response.json().await?;
+        Ok(curate_openrouter_models(parse_openrouter_catalog(&body)))
+    }
+}
+
+/// Extract `{ "data": [ { "id", "name" } ] }` into `(id, display_name)` pairs,
+/// skipping entries without a usable id. Falls back to the id for the display
+/// name when `name` is absent.
+fn parse_openrouter_catalog(body: &Value) -> Vec<ModelInfo> {
+    let Some(data) = body.get("data").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    data.iter()
+        .filter_map(|entry| {
+            let id = entry.get("id").and_then(Value::as_str)?.trim();
+            if id.is_empty() {
+                return None;
+            }
+            let display_name = entry
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .unwrap_or(id)
+                .to_string();
+            Some(ModelInfo {
+                id: id.to_string(),
+                display_name,
+            })
+        })
+        .collect()
+}
+
+/// Curate the live catalog for a beginner-friendly selector: de-duplicate by id,
+/// float recommended families to the top in a fixed order, then sort the
+/// remainder by display name. Nothing is hidden — ordering only.
+fn curate_openrouter_models(mut models: Vec<ModelInfo>) -> Vec<ModelInfo> {
+    // Recommended provider prefixes, in the order beginners should see them.
+    const RECOMMENDED: &[&str] = &["anthropic/", "openai/", "google/"];
+
+    let mut seen = std::collections::HashSet::new();
+    models.retain(|model| seen.insert(model.id.clone()));
+
+    let rank = |id: &str| -> usize {
+        RECOMMENDED
+            .iter()
+            .position(|prefix| id.starts_with(prefix))
+            .unwrap_or(RECOMMENDED.len())
+    };
+    models.sort_by(|a, b| {
+        rank(&a.id)
+            .cmp(&rank(&b.id))
+            .then_with(|| {
+                a.display_name
+                    .to_lowercase()
+                    .cmp(&b.display_name.to_lowercase())
+            })
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    models
 }
 
 #[async_trait]
@@ -65,6 +145,33 @@ impl LlmProvider for OpenAiProvider {
 
     fn list_models(&self) -> Vec<ModelInfo> {
         self.models.clone()
+    }
+
+    /// OpenRouter exposes a public `/models` catalog; fetching it live means new
+    /// upstream models appear in the selector without a DIVE code change. Only
+    /// OpenRouter is fetched live — every other OpenAI-compatible backend keeps
+    /// its curated static list (returns `None` here). Any failure (offline, auth,
+    /// malformed body) logs and returns `None` so the caller falls back to the
+    /// static list.
+    async fn fetch_models(&self) -> Option<Vec<ModelInfo>> {
+        if self.id != "openrouter" {
+            return None;
+        }
+        match self.fetch_openrouter_catalog().await {
+            Ok(models) if !models.is_empty() => Some(models),
+            Ok(_) => {
+                tracing::warn!(provider = %self.id, "live model catalog empty; using static fallback");
+                None
+            }
+            Err(err) => {
+                tracing::warn!(
+                    provider = %self.id,
+                    error = %crate::telemetry::redact_log_text(&err.to_string()),
+                    "live model catalog fetch failed; using static fallback"
+                );
+                None
+            }
+        }
     }
 
     async fn chat(&self, req: ChatRequest) -> Result<BoxStream<'static, ChatEvent>, ProviderError> {
@@ -232,10 +339,7 @@ fn openrouter_models() -> Vec<ModelInfo> {
     models_from_pairs(&[
         ("openai/gpt-5.4-mini", "OpenAI - GPT-5.4 Mini"),
         ("openai/gpt-5.4", "OpenAI - GPT-5.4"),
-        (
-            "anthropic/claude-sonnet-4.6",
-            "Anthropic - Claude Sonnet 4.6",
-        ),
+        ("anthropic/claude-sonnet-5", "Anthropic - Claude Sonnet 5"),
         (
             "google/gemini-3-flash-preview",
             "Google - Gemini 3 Flash Preview",
@@ -281,6 +385,111 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["big-pickle", "minimax-m2.5-free", "hy3-preview-free"]
         );
+    }
+
+    #[test]
+    fn parses_openrouter_catalog_and_falls_back_to_id_for_missing_name() {
+        let body = serde_json::json!({
+            "data": [
+                { "id": "anthropic/claude-sonnet-5", "name": "Anthropic: Claude Sonnet 5" },
+                { "id": "moonshotai/kimi-k2" },
+                { "id": "  ", "name": "blank id skipped" },
+                { "name": "no id skipped" }
+            ]
+        });
+        let models = parse_openrouter_catalog(&body);
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "anthropic/claude-sonnet-5");
+        assert_eq!(models[0].display_name, "Anthropic: Claude Sonnet 5");
+        // Missing name falls back to the id.
+        assert_eq!(models[1].display_name, "moonshotai/kimi-k2");
+    }
+
+    #[test]
+    fn curates_recommended_families_first_then_alphabetical() {
+        let models = curate_openrouter_models(vec![
+            ModelInfo {
+                id: "zzz/model".into(),
+                display_name: "Zzz".into(),
+            },
+            ModelInfo {
+                id: "openai/gpt-5.4".into(),
+                display_name: "OpenAI GPT-5.4".into(),
+            },
+            ModelInfo {
+                id: "anthropic/claude-sonnet-5".into(),
+                display_name: "Claude Sonnet 5".into(),
+            },
+            ModelInfo {
+                id: "anthropic/claude-sonnet-5".into(),
+                display_name: "dup".into(),
+            },
+            ModelInfo {
+                id: "google/gemini-3".into(),
+                display_name: "Gemini 3".into(),
+            },
+        ]);
+        let ids: Vec<_> = models.into_iter().map(|m| m.id).collect();
+        // De-duplicated, recommended families (anthropic, openai, google) first,
+        // non-recommended ("zzz/") last.
+        assert_eq!(
+            ids,
+            vec![
+                "anthropic/claude-sonnet-5",
+                "openai/gpt-5.4",
+                "google/gemini-3",
+                "zzz/model",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_models_returns_live_catalog_for_openrouter() {
+        use wiremock::matchers::{bearer_token, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .and(bearer_token("sk-test"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [
+                    { "id": "moonshotai/kimi-k2", "name": "MoonshotAI: Kimi K2" },
+                    { "id": "anthropic/claude-sonnet-5", "name": "Anthropic: Claude Sonnet 5" }
+                ]
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = OpenAiProvider::openrouter("sk-test".into()).with_base_url(server.uri());
+        let models = provider.fetch_models().await.expect("live catalog");
+        // Recommended (anthropic) floats above the non-recommended vendor.
+        assert_eq!(models[0].id, "anthropic/claude-sonnet-5");
+        assert!(models.iter().any(|m| m.id == "moonshotai/kimi-k2"));
+    }
+
+    #[tokio::test]
+    async fn fetch_models_falls_back_to_none_on_http_error() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("boom"))
+            .mount(&server)
+            .await;
+
+        let provider = OpenAiProvider::openrouter("sk-test".into()).with_base_url(server.uri());
+        assert!(provider.fetch_models().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn fetch_models_is_none_for_non_openrouter_backends() {
+        // Only OpenRouter is fetched live; other OpenAI-compatible backends keep
+        // their static list and never hit the network here.
+        let provider = OpenAiProvider::opencode_zen("sk-test".into());
+        assert!(provider.fetch_models().await.is_none());
     }
 
     #[test]

@@ -4,41 +4,42 @@ All notable changes to DIVE are documented here. Format: [Keep a Changelog](http
 
 ## [Unreleased]
 
-### Added
+_대기 중인 미출시 변경 사항 없음._
 
-- Phase 9 / v0.3 plan-first workspace flow:
-  - End-to-end plan-first path: project entry → Socratic interview → plan draft + mermaid approval → Roadmap (Step DAG) → per-step execution. v0.2's bottom workmap strip is absorbed into the right Roadmap panel.
-  - SQLite v7 migration adds four entities — `Interview`, `Plan`, `Step`, `StepSessionMapping` — plus indexes; the existing `Card` / `Workmap` / `Session` / `Message` / `Checkpoint` / `EventLog` tables are unchanged (ADR-081).
-  - At plan approval time, portable artifacts are exported under `.dive/plan.json`, `.dive/plan.md`, and `.dive/flow.mmd`; SQLite remains the runtime source of truth and wins on conflict (ADR-080).
-  - Tauri IPC commands for the Plan/Interview lifecycle: `workspace_plan_status`, `workspace_plan_start_interview`, `workspace_plan_save_interview_answer`, `workspace_plan_submit_interview`, `workspace_plan_generate_draft`, `workspace_plan_approve`, `workspace_plan_discard_plan`, `workspace_plan_list_steps`, `workspace_plan_step_mappings`.
-  - Tauri IPC commands for Step DAG operations: `roadmap_step_open`, `roadmap_step_update_state`.
-  - 3-pane product shell grid (sidebar · chat · Roadmap right panel) with new components: `SocraticInterviewPanel`, `PlanDraftApprovalScreen`, `MermaidDiagram`, `RoadmapGraph`. `PlanDraftInlineActions` is removed in favor of the dedicated approval screen.
-  - Frontend hooks: `usePlan`, `usePlanInterviewLLM`, `usePlanRoadmap` derive Step status (planned / blocked / ready / in_progress / review / done / shipped) from `Step` rows merged with `StepSessionMapping` rows.
-  - `chat_send` accepts `step_id`, `run_mode` (Interview / Plan / Build), and `plan_accepted`; `RunModePermissionHook` gates mutating tools so only `run_mode = Build` with an approved plan and a valid step can mutate (ADR-083).
-  - `Step` ↔ `Card` is an optional 1:1 mapping via `StepSessionMapping`; opening a ready step creates the mapping and seeds the implementation session (ADR-082).
-  - ADRs added: ADR-080 (SQLite as runtime SoT, `.dive/*` as approval-time export), ADR-081 (Card unchanged, plan metadata in new `Step` table), ADR-082 (`Step` ↔ `Card` optional 1:1 via `StepSessionMapping`), ADR-083 (Interview → Plan → Step → Card 4-layer split with run_mode gates).
-  - `mermaid` ^11.12.1 added to `dive/package.json` for plan flow diagram preview.
-  - 2026-05-10 close-out verification on local: `cargo fmt --check`, `cargo clippy --all-targets --features dev-mock -D warnings`, `cargo test --features dev-mock --all-targets` (all 0 failed), `pnpm typecheck`, `pnpm lint --max-warnings 0`, `pnpm build` — all clean. See `docs/internal/DIVE_NEXT.md` for evidence.
-- DIVE v4 productization polish: native project/menu entry points, Tauri folder picker, tutorial mode, provider model selector, and per-track verification scripts.
-- Static provider model lists and persisted `selected_model` storage for connected providers.
-- `pnpm verify:v4` aggregate gate covering Tracks A-G; Track H live model refresh remains a follow-up.
-- Productization blocker closure from `dive-snazzy-lighthouse.md`: release gates green, beginner reasoning/retrospective flow, research ablation settings, and anonymized retrospective analysis tooling.
-- Phase 10 release hardening: MCP product UI hidden for v1 with guarded IPC inputs, provider custom endpoints restricted to HTTPS or localhost development URLs, project create/delete path policy hardened, and rollback documentation added.
+## [1.0.0-rc.8] — 2026-07-10
 
-### Changed
-
-- Provider onboarding and Settings copy now use product-oriented tone.
-- Language and theme controls moved into Settings > General; sidebar duplicate controls removed.
-- Demo pages remain available in development but are excluded from production bundles with DEV-only lazy imports.
-- Default chat model hint copy is generic and no longer embeds concrete model IDs.
-- Bundle descriptions now use product language without the internal D/I/V/E research framing, and the production chat surface no longer shows dead disabled controls.
-- GitHub Release publishing is now release-owner-approved `workflow_dispatch` only; `release-gate.yml` requires `release_owner` evidence and uploads the smoke-tested x64/ARM64 NSIS artifacts, while `release.yml` requires a release owner plus a numeric `release-gate.yml` run id, validates the same-commit release-gate run and its x64/ARM64 smoke JSON evidence, creates the draft tag at the workflow commit SHA, and publishes the tested installers with `DIVE-release-evidence`.
+Completes the S-047 two-stage architecture interview: the AI's form/stack recommendation now reaches the PRD board as selectable cards instead of chat-only prose.
 
 ### Fixed
 
-- Recent project ordering now remains deterministic when multiple updates occur in the same millisecond.
-- Release gate red lights cleared for `verify:production-wire`, `verify:version-sync`, and `format:check`.
-- Phase 10 Gate A rerun is green: frontend typecheck/lint/build/format/production-wire/v4 plus Rust fmt/check/test/clippy and the corrected release mock guard path.
+- **PRD architecture recommendation now reflects into the board (S-047).** The two-stage architecture interview (form → stack) was only half wired: the AI proposed forms and stacks in chat, but the board offered only fixed form buttons and a blank free-text stack field, so the recommendation never carried over — architecture was the one PRD section the conversation could not fill. The interview turn now emits a structured `proposals` object that DIVE shape-validates and gates to the current two-stage focus, and the board renders it as selectable option cards with each option's rationale.
+
+### Changed
+
+- **Recommend-then-confirm option cards.** A card click authors the decision through the existing student-edit path (`setArchitectureForm` / `patchArchitecture`); the AI still authors no architecture (no `set_architecture` patch op — Constitution VI preserved). Cards clear once the matching field is decided.
+
+### Verification
+
+- Full local CI green: Rust `cargo fmt` + `cargo clippy --features dev-mock -D warnings` + `cargo test --features dev-mock` (639 lib tests, incl. new proposal sanitize/focus-gate/parse tests); frontend `pnpm format:check` + `pnpm typecheck` + `pnpm lint` + `pnpm test` (480 tests, incl. new board render-and-pick specs and i18n parity).
+- Live in-app confirmation of the AI emitting proposals is pending on the rebuilt app (macOS aarch64 preview build).
+
+## [1.0.0-rc.7] — 2026-07-09
+
+Live provider model catalog + Claude Sonnet 5. New upstream models now surface in the model selector without a DIVE code change or rebuild.
+
+### Added
+
+- **Live OpenRouter model catalog.** The provider model selector fetches OpenRouter's `/models` catalog live (`LlmProvider::fetch_models`), so newly released upstream models appear automatically; the curated static list remains the offline fallback. Results are ordered recommended-families-first (Anthropic/OpenAI/Google) then alphabetically — nothing is hidden — and the settings selector gains a search box once the list grows past a small threshold. This fetch is an app-owned provider connection (same trust boundary as `health_check`/`chat`, Rust-originated) and stays **outside** the S-048 supervised-agent network-egress capability class; no new ADR required.
+
+### Changed
+
+- **Claude Sonnet 4.6 → Sonnet 5** across the OpenRouter and native Anthropic catalogs, the Anthropic default model, and the frontend fallbacks/labels.
+- **OpenRouter model normalization/validation relaxed** to accept any well-formed `vendor/model` slug rather than only the static list, so a live-catalog model is no longer silently reset to the default or rejected; OpenRouter enforces availability at call time. Malformed free text still falls back to the default.
+
+### Verification
+
+- Full local CI green: Rust `cargo fmt` + `cargo clippy --features dev-mock -D warnings` + `cargo test --features dev-mock` (634 lib tests + provider integration, incl. new wiremock live-fetch, curation, and slug-validation tests); frontend `pnpm format:check` + `pnpm typecheck` + `pnpm lint` + `pnpm test:unit` (incl. a new settings-selector search test).
+- Live in-app confirmation with a real OpenRouter key is pending on the rebuilt app.
 
 ## [1.0.0-rc.6] — 2026-07-02
 
@@ -65,10 +66,13 @@ Round-2 beginner-readiness & UX hardening (spec 010, Wily Stages S-041–S-049):
 ### Fixed
 
 - **Restored green CI.** `pi_sidecar::long_pi_turn_with_heartbeats_is_bounded_by_turn_timeout` used a 250 ms turn timeout too tight for loaded CI runners (process spawn + first heartbeat could exceed it, so no heartbeat was observed before the bound fired). Raised to 2 s — still well under the test's 5 s bound and far below the 60 s heartbeat-stall timeout, so the turn stays bounded by turn timeout while heartbeats are reliably observed.
+- **Restored supervised build-agent execution (P0, regressed since rc.5).** `multi_replace`'s tool `input_schema` carried a top-level `anyOf` combinator; Anthropic's tool-use API rejects a root-level schema combinator and returns an empty completion, so one offending tool poisoned the entire Build toolset and every supervised turn produced no text and no tool calls (the agent silently did nothing). Removed the redundant top-level `anyOf` (the paths-or-path_glob requirement is enforced at runtime and documented in the field descriptions) and added a `ToolRegistry` guard that fails if any built-in tool ships a root-level `anyOf`/`oneOf`/`allOf`/`not`. Live-verified on a rebuilt app: the agent executes, renders permission cards, and completes tool calls.
+- **`web_fetch` no longer spuriously fails on multi-A / CDN hosts (SEC-P2-2).** The fetch-time DNS-rebind check required the freshly resolved `ips[0]` to equal the approved IP, so ordinary round-robin hosts (e.g. Cloudflare-fronted `example.com`) that returned the same addresses in a different order were blocked as `resolved_ip_changed_at_fetch`. The check now matches the user-approved IP by set membership and connects to that exact IP; rebind protection is unchanged (`validate_resolved_target` still fail-closes on any internal IP in the fresh resolution). Live-verified: `example.com` fetches HTTP 200.
 
 ### Verification
 
-- Full local CI green: Rust `cargo fmt --check` + `cargo clippy --all-targets --features dev-mock -D warnings` + `cargo test --all-targets --features dev-mock`; frontend `pnpm format:check` + `pnpm typecheck` + `pnpm lint` + `pnpm test:unit`. S-048's 14 security acceptance criteria are each covered by a passing test, and a 3-lens worktree-isolated adversarial review (SSRF / agency / log-hygiene) returned no SSRF or redaction findings. Live re-QA of the S-048/S-049 surfaces on a rebuilt release app is the remaining follow-up for this build.
+- Full local CI green: Rust `cargo fmt --check` + `cargo clippy --all-targets --features dev-mock -D warnings` + `cargo test --all-targets --features dev-mock`; frontend `pnpm format:check` + `pnpm typecheck` + `pnpm lint` + `pnpm test:unit`. S-048's 14 security acceptance criteria are each covered by a passing test, and a 3-lens worktree-isolated adversarial review (SSRF / agency / log-hygiene) returned no SSRF or redaction findings.
+- Live re-QA of the S-048/S-049 surfaces on a rebuilt release app is **complete** and surfaced the two P0/SEC fixes above. Confirmed live: supervised agent execution restored; `web_fetch` Danger card (host + resolved IP trust anchor, unverified purpose, read-gate, session-reuse default-off, sanitized EventLog) + successful HTTP 200 fetch; `delete_file` Danger read-gate + plan-divergence line; the S-047 two-stage architecture gate; and the Codex-OAuth / AI-connection onboarding surfaces. Evidence: `docs/qa/round2-live-qa-run-log.md` (rc.6 section).
 
 ## [1.0.0-rc.5] — 2026-06-25
 
@@ -106,8 +110,43 @@ First MVP build of the Sarkar "AI as provocateur" supervision layer working end 
 
 ## [1.0.0-rc.3] — 2026-06-22
 
+이 릴리스는 rc.2 이후 누적된 plan-first 워크플로(v0.3), v4 생산화, Phase 10 하드닝을 함께 출시했습니다.
+
+### Added
+
+- Phase 9 / v0.3 plan-first workspace flow:
+  - End-to-end plan-first path: project entry → Socratic interview → plan draft + mermaid approval → Roadmap (Step DAG) → per-step execution. v0.2's bottom workmap strip is absorbed into the right Roadmap panel.
+  - SQLite v7 migration adds four entities — `Interview`, `Plan`, `Step`, `StepSessionMapping` — plus indexes; the existing `Card` / `Workmap` / `Session` / `Message` / `Checkpoint` / `EventLog` tables are unchanged (ADR-081).
+  - At plan approval time, portable artifacts are exported under `.dive/plan.json`, `.dive/plan.md`, and `.dive/flow.mmd`; SQLite remains the runtime source of truth and wins on conflict (ADR-080).
+  - Tauri IPC commands for the Plan/Interview lifecycle: `workspace_plan_status`, `workspace_plan_start_interview`, `workspace_plan_save_interview_answer`, `workspace_plan_submit_interview`, `workspace_plan_generate_draft`, `workspace_plan_approve`, `workspace_plan_discard_plan`, `workspace_plan_list_steps`, `workspace_plan_step_mappings`.
+  - Tauri IPC commands for Step DAG operations: `roadmap_step_open`, `roadmap_step_update_state`.
+  - 3-pane product shell grid (sidebar · chat · Roadmap right panel) with new components: `SocraticInterviewPanel`, `PlanDraftApprovalScreen`, `MermaidDiagram`, `RoadmapGraph`. `PlanDraftInlineActions` is removed in favor of the dedicated approval screen.
+  - Frontend hooks: `usePlan`, `usePlanInterviewLLM`, `usePlanRoadmap` derive Step status (planned / blocked / ready / in_progress / review / done / shipped) from `Step` rows merged with `StepSessionMapping` rows.
+  - `chat_send` accepts `step_id`, `run_mode` (Interview / Plan / Build), and `plan_accepted`; `RunModePermissionHook` gates mutating tools so only `run_mode = Build` with an approved plan and a valid step can mutate (ADR-083).
+  - `Step` ↔ `Card` is an optional 1:1 mapping via `StepSessionMapping`; opening a ready step creates the mapping and seeds the implementation session (ADR-082).
+  - ADRs added: ADR-080 (SQLite as runtime SoT, `.dive/*` as approval-time export), ADR-081 (Card unchanged, plan metadata in new `Step` table), ADR-082 (`Step` ↔ `Card` optional 1:1 via `StepSessionMapping`), ADR-083 (Interview → Plan → Step → Card 4-layer split with run_mode gates).
+  - `mermaid` ^11.12.1 added to `dive/package.json` for plan flow diagram preview.
+  - 2026-05-10 close-out verification on local: `cargo fmt --check`, `cargo clippy --all-targets --features dev-mock -D warnings`, `cargo test --features dev-mock --all-targets` (all 0 failed), `pnpm typecheck`, `pnpm lint --max-warnings 0`, `pnpm build` — all clean. See `docs/internal/DIVE_NEXT.md` for evidence.
+- DIVE v4 productization polish: native project/menu entry points, Tauri folder picker, tutorial mode, provider model selector, and per-track verification scripts.
+- Static provider model lists and persisted `selected_model` storage for connected providers.
+- `pnpm verify:v4` aggregate gate covering Tracks A-G; Track H live model refresh remains a follow-up.
+- Productization blocker closure from `dive-snazzy-lighthouse.md`: release gates green, beginner reasoning/retrospective flow, research ablation settings, and anonymized retrospective analysis tooling.
+- Phase 10 release hardening: MCP product UI hidden for v1 with guarded IPC inputs, provider custom endpoints restricted to HTTPS or localhost development URLs, project create/delete path policy hardened, and rollback documentation added.
+
+### Changed
+
+- Provider onboarding and Settings copy now use product-oriented tone.
+- Language and theme controls moved into Settings > General; sidebar duplicate controls removed.
+- Demo pages remain available in development but are excluded from production bundles with DEV-only lazy imports.
+- Default chat model hint copy is generic and no longer embeds concrete model IDs.
+- Bundle descriptions now use product language without the internal D/I/V/E research framing, and the production chat surface no longer shows dead disabled controls.
+- GitHub Release publishing is now release-owner-approved `workflow_dispatch` only; `release-gate.yml` requires `release_owner` evidence and uploads the smoke-tested x64/ARM64 NSIS artifacts, while `release.yml` requires a release owner plus a numeric `release-gate.yml` run id, validates the same-commit release-gate run and its x64/ARM64 smoke JSON evidence, creates the draft tag at the workflow commit SHA, and publishes the tested installers with `DIVE-release-evidence`.
+
 ### Fixed
 
+- Recent project ordering now remains deterministic when multiple updates occur in the same millisecond.
+- Release gate red lights cleared for `verify:production-wire`, `verify:version-sync`, and `format:check`.
+- Phase 10 Gate A rerun is green: frontend typecheck/lint/build/format/production-wire/v4 plus Rust fmt/check/test/clippy and the corrected release mock guard path.
 - Windows AI calls no longer open a visible terminal window for the Pi sidecar process.
 - Verification review "Request changes" now sends the required revision note instead of failing with `note required when outcome is not 'approved'`.
 
@@ -187,7 +226,7 @@ Production `AppState`가 `dev_mock()`에 와이어드되어 NSIS 빌드가 실 �
 
 ### 참고
 
-- 상세 분석 및 복구 계획: `DIVE_PLAN.md` §0 (진단) + §0-13 (rc.1 → rc.2 마이그레이션)
+- 상세 분석 및 복구 계획: `docs/archive/legacy-specs/DIVE_PLAN.md` §0 (진단) + §0-13 (rc.1 → rc.2 마이그레이션)
 - 참조 ADR: ADR-052 (rc.1 yank 절차 + 마이그레이션)
 - 협력 교사 공지 필수: 트랙 C 2회차 진입 전 이메일 또는 매뉴얼 섹션
 

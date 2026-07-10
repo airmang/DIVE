@@ -18,7 +18,7 @@ export const MODEL_LABELS: Record<string, string> = {
   "gpt-5.2": "GPT-5.2",
   "openai/gpt-5.4-mini": "GPT-5.4 Mini",
   "openai/gpt-5.4": "GPT-5.4",
-  "anthropic/claude-sonnet-4.6": "Claude Sonnet 4.6",
+  "anthropic/claude-sonnet-5": "Claude Sonnet 5",
   "google/gemini-3-flash-preview": "Gemini 3 Flash Preview",
   "deepseek/deepseek-v4-flash": "DeepSeek V4 Flash",
 };

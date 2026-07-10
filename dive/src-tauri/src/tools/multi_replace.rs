@@ -93,11 +93,11 @@ impl Tool for MultiReplace {
                 "paths": {
                     "type": "array",
                     "items": { "type": "string" },
-                    "description": "Explicit relative target files"
+                    "description": "Explicit relative target files. Provide either `paths` or `path_glob` (at least one)."
                 },
                 "path_glob": {
                     "type": "string",
-                    "description": "Relative glob for target files, excluding vendor/build directories"
+                    "description": "Relative glob for target files, excluding vendor/build directories. Provide either `paths` or `path_glob` (at least one)."
                 },
                 "occurrence": {
                     "type": "string",
@@ -105,12 +105,15 @@ impl Tool for MultiReplace {
                     "default": "all"
                 }
             },
-            "required": ["find", "replace"],
-            "anyOf": [
-                { "required": ["paths"] },
-                { "required": ["path_glob"] }
-            ]
+            "required": ["find", "replace"]
         })
+        // NOTE: no top-level `anyOf`/`oneOf`/`allOf` combinator here. Anthropic's
+        // tool-use API rejects a root-level schema combinator in a tool's
+        // input_schema and responds with an EMPTY completion (no text, no tool
+        // calls), which silently disables the whole supervised turn. The
+        // "provide paths OR path_glob" requirement is documented above and
+        // enforced at runtime (see `collect_requested_paths` / the
+        // "matched 0 target files" failure below).
     }
 
     fn risk_level(&self) -> RiskLevel {

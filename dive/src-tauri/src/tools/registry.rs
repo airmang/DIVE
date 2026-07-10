@@ -114,4 +114,30 @@ mod tests {
             assert_eq!(tool.risk_level(), risk, "risk mismatch for {name}");
         }
     }
+
+    /// Anthropic's tool-use API rejects a top-level JSON Schema combinator
+    /// (`anyOf`/`oneOf`/`allOf`/`not`) in a tool's `input_schema` and answers
+    /// with an EMPTY completion — no text, no tool calls — which silently
+    /// disables the entire supervised Pi build turn. A single offending tool
+    /// poisons the whole tool set. Guard every built-in schema against this
+    /// class of bug (regressed once via `multi_replace`'s `anyOf`).
+    #[test]
+    fn builtin_tool_schemas_have_no_top_level_combinators() {
+        for def in ToolRegistry::with_builtins().tool_defs() {
+            let obj = def
+                .parameters
+                .as_object()
+                .unwrap_or_else(|| panic!("{} input_schema must be a JSON object", def.name));
+            for combinator in ["anyOf", "oneOf", "allOf", "not"] {
+                assert!(
+                    !obj.contains_key(combinator),
+                    "tool `{}` input_schema has a top-level `{}`; Anthropic tool-use \
+                     rejects root-level combinators and returns an empty turn. Express \
+                     the constraint in property descriptions + runtime validation instead.",
+                    def.name,
+                    combinator,
+                );
+            }
+        }
+    }
 }

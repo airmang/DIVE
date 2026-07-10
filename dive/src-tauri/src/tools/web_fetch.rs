@@ -47,6 +47,26 @@ pub struct WebFetchApproval {
     pub approved_at: i64,
 }
 
+/// A DNS rebind is detected (and the fetch must re-prompt) when the freshly
+/// resolved target no longer matches the user-approved host/port, or when the
+/// exact IP the user approved is no longer among the resolved addresses.
+///
+/// Membership — not `ips[0]` ordering — is what matters: `validate_resolved_target`
+/// has already fail-closed on any internal address in `ips`, so an approved IP that
+/// is still present is still a validated public address, and ordinary multi-A /
+/// round-robin CDN hosts (Cloudflare, Akamai, …) must not spuriously re-prompt just
+/// because DNS returned the same addresses in a different order (SEC-P2-2).
+fn fetch_pin_rebind_detected(
+    approval: &WebFetchApproval,
+    resolved_host: &str,
+    resolved_port: u16,
+    resolved_ips: &[IpAddr],
+) -> bool {
+    approval.host != resolved_host
+        || approval.port != resolved_port
+        || !resolved_ips.contains(&approval.pinned_ip)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebFetchAttemptLog {
@@ -403,18 +423,26 @@ impl WebFetch {
             let target = classify_egress_url(&current_url, self.config.policy)?;
             let ips = self.resolver.resolve(&target).await?;
             let validated = if hop == 0 {
-                let validated = validate_resolved_target(&target, &ips)?;
-                if approval.host != validated.host
-                    || approval.port != validated.port
-                    || approval.pinned_ip != validated.pinned_ip
-                {
+                // validate_resolved_target fail-closes if ANY freshly resolved IP is
+                // internal — that is the real DNS-rebind protection. We then require the
+                // user-approved IP to still be a MEMBER of the resolved set (not that it
+                // is ips[0]) and pin the connection to that exact approved IP. Matching by
+                // membership rather than order stops ordinary multi-A / round-robin CDN
+                // hosts (Cloudflare, Akamai, …) from spuriously re-prompting when DNS
+                // returns the same addresses in a different order (SEC-P2-2). If the
+                // approved IP has left the set the host has genuinely rotated → re-prompt.
+                let fetch_time = validate_resolved_target(&target, &ips)?;
+                if fetch_pin_rebind_detected(approval, &fetch_time.host, fetch_time.port, &ips) {
                     return Err(EgressBlockReason::ResolvedIpChangedAtFetch {
-                        host: validated.host,
+                        host: fetch_time.host,
                         approved_ip: approval.pinned_ip,
-                        resolved_ip: validated.pinned_ip,
+                        resolved_ip: fetch_time.pinned_ip,
                     });
                 }
-                validated
+                ValidatedTarget {
+                    pinned_ip: approval.pinned_ip,
+                    ..fetch_time
+                }
             } else {
                 validate_redirect_target(hop, &target, &ips)?
             };
@@ -698,6 +726,50 @@ mod tests {
         assert!(!out.success);
         assert_eq!(out.full["errorClass"], "resolved_ip_changed_at_fetch");
         assert_eq!(out.full["isEvidence"], false);
+    }
+
+    #[test]
+    fn fetch_pin_matches_approved_ip_by_membership_not_order() {
+        let approved = IpAddr::V4(std::net::Ipv4Addr::new(93, 184, 216, 34));
+        let sibling = IpAddr::V4(std::net::Ipv4Addr::new(93, 184, 216, 35));
+        let approval = WebFetchApproval {
+            host: "example.com".to_string(),
+            pinned_ip: approved,
+            port: 443,
+            scheme: "https".to_string(),
+            path_hash: "abcd".to_string(),
+            query_dropped: false,
+            purpose: "Read docs.".to_string(),
+            approved_at: 1,
+        };
+        // Multi-A / round-robin: same addresses, different order, approved IP still
+        // present -> NOT a rebind (SEC-P2-2 fix: no spurious re-prompt).
+        assert!(!fetch_pin_rebind_detected(
+            &approval,
+            "example.com",
+            443,
+            &[sibling, approved]
+        ));
+        // Approved IP no longer resolves for the host -> genuine rotation -> re-prompt.
+        assert!(fetch_pin_rebind_detected(
+            &approval,
+            "example.com",
+            443,
+            &[sibling]
+        ));
+        // Host or port mismatch -> re-prompt.
+        assert!(fetch_pin_rebind_detected(
+            &approval,
+            "evil.example",
+            443,
+            &[approved]
+        ));
+        assert!(fetch_pin_rebind_detected(
+            &approval,
+            "example.com",
+            8443,
+            &[approved]
+        ));
     }
 
     #[tokio::test]

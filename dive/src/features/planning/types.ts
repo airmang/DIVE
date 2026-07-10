@@ -65,6 +65,20 @@ export interface ArchitectureDecision {
   decidedInVersion: number;
 }
 
+// S-047 (010 theme 7): the AI's recommend-then-confirm architecture options for
+// the current two-stage focus. `value` is an `ArchitectureForm` when
+// `kind === "form"`, otherwise free-text stack wording. Surfaced as selectable
+// cards; the student's click is what authors the decision (never an AI patch).
+export interface ArchitectureProposalOption {
+  value: string;
+  rationale: string;
+}
+
+export interface ArchitectureProposals {
+  kind: "form" | "stack";
+  options: ArchitectureProposalOption[];
+}
+
 export interface ProjectSpec {
   projectSpecId: string;
   projectId: number;
