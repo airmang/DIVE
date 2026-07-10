@@ -62,6 +62,10 @@ pub struct NewProject {
     pub model_default: Option<String>,
 }
 
+fn default_project_status() -> String {
+    "active".to_string()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectRow {
     pub id: i64,
@@ -69,6 +73,10 @@ pub struct ProjectRow {
     pub path: String,
     pub provider_default: Option<String>,
     pub model_default: Option<String>,
+    // S-056 D4: 'active' | 'archived'. Old payloads predating this column
+    // (mirrors StepRow.status, migration_v13/v18) deserialize as active.
+    #[serde(default = "default_project_status")]
+    pub status: String,
     pub created_at: i64,
     pub updated_at: i64,
 }

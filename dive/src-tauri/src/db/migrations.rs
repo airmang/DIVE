@@ -22,9 +22,10 @@ const MIGRATIONS: &[(i64, MigrationFn)] = &[
     (15, migration_v15),
     (16, migration_v16),
     (17, migration_v17),
+    (18, migration_v18),
 ];
 
-pub const LATEST_SCHEMA_VERSION: i64 = 17;
+pub const LATEST_SCHEMA_VERSION: i64 = 18;
 
 pub fn migrate(conn: &mut Connection) -> Result<(), DbError> {
     migrate_with_migrations(conn, MIGRATIONS)
@@ -416,6 +417,24 @@ fn migration_v17(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     if exists == 0 {
         tx.execute_batch(
             "ALTER TABLE LiveProjectSpecDraft ADD COLUMN field_provenance TEXT NOT NULL DEFAULT '{}'",
+        )?;
+    }
+    Ok(())
+}
+
+/// S-056 D4 — add `Project.status` so projects can be archived (soft-hidden,
+/// never deleted) mirroring `Session.status` (schema.rs `CREATE_SESSION`,
+/// migration_v1). Guarded ADD COLUMN; existing rows backfill to 'active' via
+/// the DEFAULT, same technique as migration_v13's `Step.status`.
+fn migration_v18(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    let exists: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('Project') WHERE name = 'status'",
+        [],
+        |row| row.get(0),
+    )?;
+    if exists == 0 {
+        tx.execute_batch(
+            "ALTER TABLE Project ADD COLUMN status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','archived'))",
         )?;
     }
     Ok(())
@@ -1092,6 +1111,88 @@ mod tests {
             )
             .unwrap();
         assert_eq!(backfilled, "{}");
+    }
+
+    #[test]
+    fn migration_v18_adds_project_status_column_defaulting_active() {
+        let (db, _tmp) = fresh_db();
+        let column_default: String = db
+            .conn()
+            .query_row(
+                "SELECT dflt_value FROM pragma_table_info('Project') WHERE name = 'status'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(column_default, "'active'");
+
+        let (project_id, _session_id) = seed_project_session(db.conn());
+        let status: String = db
+            .conn()
+            .query_row(
+                "SELECT status FROM Project WHERE id = ?",
+                [project_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, "active");
+    }
+
+    #[test]
+    fn migration_v18_upgrades_existing_db_without_status_column() {
+        // schema::CREATE_PROJECT was updated in place to include `status` (so a
+        // fresh DB gets it via migration_v1 directly, matching the
+        // `step_kind`/migration_v15 and `field_provenance`/migration_v17
+        // pattern) — so slicing MIGRATIONS no longer reproduces a pre-v18 DB.
+        // Instead: run a fresh DB, then drop/recreate Project in its pre-v18
+        // shape, and apply migration_v18 directly.
+        let (mut db, _tmp) = fresh_db();
+        db.conn()
+            .execute_batch(
+                "DROP TABLE Project;
+                 CREATE TABLE Project (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    path TEXT NOT NULL UNIQUE,
+                    provider_default TEXT,
+                    model_default TEXT,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                 );",
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO Project(id, name, path, created_at, updated_at) VALUES (1, 'p', '/tmp/p', 0, 0)",
+                [],
+            )
+            .unwrap();
+        let exists: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('Project') WHERE name = 'status'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(exists, 0);
+
+        let tx = db.conn_mut().transaction().unwrap();
+        super::migration_v18(&tx).unwrap();
+        tx.commit().unwrap();
+
+        let backfilled: String = db
+            .conn()
+            .query_row("SELECT status FROM Project WHERE id = 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(backfilled, "active");
+
+        // Idempotent: re-running the guarded ADD COLUMN is a no-op.
+        let tx = db.conn_mut().transaction().unwrap();
+        super::migration_v18(&tx).unwrap();
+        tx.commit().unwrap();
     }
 
     #[test]

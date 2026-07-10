@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS Project (
     path TEXT NOT NULL UNIQUE,
     provider_default TEXT,
     model_default TEXT,
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','archived')),
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 )";

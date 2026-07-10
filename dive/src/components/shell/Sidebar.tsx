@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Moon, Plus, Sun, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, ChevronRight, Moon, Plus, Sun, Trash2 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
@@ -28,10 +28,17 @@ export function Sidebar({ className }: SidebarProps) {
   const themeSwitchLabel =
     theme === "dark" ? t("sidebar.theme_to_light") : t("sidebar.theme_to_dark");
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  const [archivedOpen, setArchivedOpen] = useState(false);
 
   const loaded = useProjectSessionStore((s) => s.loaded);
   const loadAll = useProjectSessionStore((s) => s.loadAll);
   const projects = useProjectSessionStore((s) => s.projects);
+  // Plain derivation off the already-subscribed `projects` array, not a
+  // Zustand selector — a selector returning a fresh `.filter()` array every
+  // call breaks useSyncExternalStore's snapshot-equality check and loops (see
+  // why selectActiveSessions is exported but never consumed via the hook).
+  const activeProjects = projects.filter((p) => p.status !== "archived");
+  const archivedProjects = projects.filter((p) => p.status === "archived");
   const sessions = useProjectSessionStore((s) => s.sessions);
   const currentProject = useProjectSessionStore(selectCurrentProject);
   const currentSessionId = useProjectSessionStore((s) => s.currentSessionId);
@@ -39,6 +46,8 @@ export function Sidebar({ className }: SidebarProps) {
   const providers = useProjectSessionStore((s) => s.providers);
   const selectProject = useProjectSessionStore((s) => s.selectProject);
   const deleteProject = useProjectSessionStore((s) => s.deleteProject);
+  const archiveProject = useProjectSessionStore((s) => s.archiveProject);
+  const unarchiveProject = useProjectSessionStore((s) => s.unarchiveProject);
   const createSession = useProjectSessionStore((s) => s.createSession);
   const selectSession = useProjectSessionStore((s) => s.selectSession);
   const deleteSession = useProjectSessionStore((s) => s.deleteSession);
@@ -56,6 +65,15 @@ export function Sidebar({ className }: SidebarProps) {
     const ok = window.confirm(t("sidebar.delete_project_confirm"));
     if (!ok) return;
     await deleteProject(id, false);
+  };
+
+  // S-056 D4: archiving is reversible (unlike delete), so no confirm dialog.
+  const handleArchiveProject = async (id: number) => {
+    await archiveProject(id);
+  };
+
+  const handleUnarchiveProject = async (id: number) => {
+    await unarchiveProject(id);
   };
 
   const handleDeleteSession = async (id: number) => {
@@ -107,7 +125,7 @@ export function Sidebar({ className }: SidebarProps) {
           <EmptyLine text={t("sidebar.empty_projects")} />
         ) : (
           <ul className="flex flex-col gap-0.5" data-testid="project-list">
-            {projects.map((p) => (
+            {activeProjects.map((p) => (
               <li key={p.id} className="flex items-center gap-1">
                 <button
                   type="button"
@@ -125,6 +143,16 @@ export function Sidebar({ className }: SidebarProps) {
                 </button>
                 <button
                   type="button"
+                  onClick={() => void handleArchiveProject(p.id)}
+                  className="rounded p-1 text-fg-muted hover:bg-bg-panel2 hover:text-accent"
+                  aria-label={t("sidebar.archive_project_title", { name: p.name })}
+                  data-testid="project-archive"
+                  data-project-id={p.id}
+                >
+                  <Archive className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
                   onClick={() => void handleDeleteProject(p.id)}
                   className="rounded p-1 text-fg-muted hover:bg-bg-panel2 hover:text-danger"
                   aria-label={t("sidebar.delete_project_title", { name: p.name })}
@@ -137,6 +165,70 @@ export function Sidebar({ className }: SidebarProps) {
             ))}
           </ul>
         )}
+        {archivedProjects.length > 0 ? (
+          <div className="flex flex-col gap-1">
+            <button
+              type="button"
+              onClick={() => setArchivedOpen((open) => !open)}
+              className="flex items-center gap-1 px-1 py-1 text-xs font-medium text-fg-muted hover:text-fg"
+              aria-expanded={archivedOpen}
+              aria-controls="sidebar-archived-projects"
+              data-testid="archived-projects-toggle"
+            >
+              <ChevronRight
+                className={cn("h-3 w-3 transition-transform", archivedOpen && "rotate-90")}
+              />
+              {t("sidebar.section_archived_projects", { count: archivedProjects.length })}
+            </button>
+            {archivedOpen ? (
+              <ul
+                id="sidebar-archived-projects"
+                className="flex flex-col gap-0.5"
+                data-testid="archived-project-list"
+              >
+                {archivedProjects.map((p) => (
+                  <li key={p.id} className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => void selectProject(p.id)}
+                      className={cn(
+                        "flex-1 rounded-md px-3 py-1.5 text-left text-sm text-fg opacity-60 hover:bg-bg-panel2",
+                        currentProject?.id === p.id && "bg-accent-subtle text-fg",
+                      )}
+                      data-testid="archived-project-item"
+                      data-project-id={p.id}
+                      data-active={currentProject?.id === p.id ? "true" : "false"}
+                    >
+                      <div className="truncate font-medium">{p.name}</div>
+                      <div className="truncate text-xs text-fg-muted">{p.path}</div>
+                      <div className="text-xs text-fg-muted">{t("sidebar.archived")}</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleUnarchiveProject(p.id)}
+                      className="rounded p-1 text-fg-muted hover:bg-bg-panel2 hover:text-accent"
+                      aria-label={t("sidebar.unarchive_project_title", { name: p.name })}
+                      data-testid="project-unarchive"
+                      data-project-id={p.id}
+                    >
+                      <ArchiveRestore className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteProject(p.id)}
+                      className="rounded p-1 text-fg-muted hover:bg-bg-panel2 hover:text-danger"
+                      aria-label={t("sidebar.delete_project_title", { name: p.name })}
+                      data-testid="project-delete"
+                      data-project-id={p.id}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
       </SidebarSection>
 
       <SidebarSection label={t("sidebar.section_sessions")}>

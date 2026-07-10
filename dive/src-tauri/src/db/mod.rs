@@ -206,6 +206,12 @@ pub(crate) mod tests {
         let path = dir.path().join("dive.db");
         {
             let conn = rusqlite::Connection::open(&path).unwrap();
+            // A real DB whose schema_version is already 1 ran migration_v1, so
+            // it has a Project table. migration_v18 (Project.status) is the
+            // first migration to ALTER Project directly, so this fixture must
+            // include it — earlier migrations only ever referenced Project via
+            // FK, which SQLite doesn't validate at CREATE TABLE time.
+            conn.execute_batch(schema::CREATE_PROJECT).unwrap();
             conn.execute_batch(schema::CREATE_WORKMAP).unwrap();
             conn.execute_batch(schema::CREATE_CARD).unwrap();
             conn.execute(

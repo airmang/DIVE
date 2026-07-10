@@ -285,6 +285,30 @@ pub async fn project_delete(
     project_delete_impl(&state, project_id, delete_folder)
 }
 
+fn project_archive_impl(state: &AppState, project_id: i64, status: &str) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    project_dao::get_by_id(db.conn(), project_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("project {project_id} not found"))?;
+    project_dao::set_status(db.conn(), project_id, status).map_err(|e| e.to_string())
+}
+
+// S-056 D4: mirrors `session_archive`'s shape (existence check, void success,
+// plain-String error) but does not emit an EventLog event. Unlike Session,
+// EventLog.session_id has no project-level equivalent column, and no existing
+// Project command (create/open/select/delete) logs to EventLog at all today
+// — adding project-scoped event logging would mean extending the EventLog
+// schema itself, out of scope for this stage.
+#[tauri::command]
+pub async fn project_archive(state: State<'_, AppState>, project_id: i64) -> Result<(), String> {
+    project_archive_impl(&state, project_id, "archived")
+}
+
+#[tauri::command]
+pub async fn project_unarchive(state: State<'_, AppState>, project_id: i64) -> Result<(), String> {
+    project_archive_impl(&state, project_id, "active")
+}
+
 /// Fetch recent projects for native menu rendering.
 pub fn fetch_recent_projects_for_menu<R: tauri::Runtime>(
     app: &AppHandle<R>,
@@ -445,6 +469,39 @@ mod tests {
         assert!(err.contains("unsafe project path"), "{err}");
         let db = state.db.lock().unwrap();
         assert!(project_dao::get_by_id(db.conn(), id).unwrap().is_some());
+    }
+
+    #[test]
+    fn project_archive_and_unarchive_round_trip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = mk_state(&tmp);
+        let root = tmp.path().join("proj-archive");
+        std::fs::create_dir_all(&root).unwrap();
+        let row = insert_project(&state, "proj-archive".into(), &root).unwrap();
+        assert_eq!(row.status, "active");
+
+        project_archive_impl(&state, row.id, "archived").unwrap();
+        let archived = {
+            let db = state.db.lock().unwrap();
+            project_dao::get_by_id(db.conn(), row.id).unwrap().unwrap()
+        };
+        assert_eq!(archived.status, "archived");
+        assert_eq!(archived.name, "proj-archive");
+
+        project_archive_impl(&state, row.id, "active").unwrap();
+        let restored = {
+            let db = state.db.lock().unwrap();
+            project_dao::get_by_id(db.conn(), row.id).unwrap().unwrap()
+        };
+        assert_eq!(restored.status, "active");
+    }
+
+    #[test]
+    fn project_archive_missing_project_errors() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = mk_state(&tmp);
+        let err = project_archive_impl(&state, 404, "archived").unwrap_err();
+        assert!(err.contains("not found"), "{err}");
     }
 
     fn root_path_for_test() -> String {
