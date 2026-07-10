@@ -31,6 +31,7 @@ export function useProductConversationModel(input: {
   currentCard: Pick<CardTileData, "state" | "summary"> | null;
   allVerified: boolean;
   messages: ChatMessage[];
+  messagesLoading: boolean;
   generatedPlanDraftPresent: boolean;
   planStatus: WorkspacePlanStatus | null;
   prdStatus?: WorkspacePrdReadiness | null;
@@ -112,10 +113,19 @@ export function useProductConversationModel(input: {
       deriveEmptyState({
         currentProjectId: input.currentProjectId,
         currentSessionId: input.currentSessionId,
+        messages: input.messages,
+        messagesLoading: input.messagesLoading,
         onEmptyStateAction: input.onEmptyStateAction,
         t: input.t,
       }),
-    [input.currentProjectId, input.currentSessionId, input.onEmptyStateAction, input.t],
+    [
+      input.currentProjectId,
+      input.currentSessionId,
+      input.messages,
+      input.messagesLoading,
+      input.onEmptyStateAction,
+      input.t,
+    ],
   );
 
   const getStarted = useMemo(

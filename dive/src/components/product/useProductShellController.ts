@@ -1755,6 +1755,7 @@ export function useProductShellController() {
     currentCard,
     allVerified,
     messages: chat.messages,
+    messagesLoading: chat.loadingHistory,
     generatedPlanDraftPresent: generatedPlanDraft !== null,
     planStatus: plan.status,
     prdStatus: prdReadiness,

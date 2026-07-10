@@ -550,12 +550,12 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
     expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("decision-gate-reasons").textContent).toContain("1/2");
 
-    // Observe the second criterion.
+    // Observe the second criterion: uncheck c1, check c2 (S-056 explicit
+    // multi-criterion checklist replaces the old single-select dropdown).
     openStepperStage("observe");
     await screen.findByTestId("verification-coach-guide");
-    fireEvent.change(screen.getByTestId("verification-observation-criterion"), {
-      target: { value: "c2" },
-    });
+    fireEvent.click(screen.getByTestId("verification-observation-criterion-c1"));
+    fireEvent.click(screen.getByTestId("verification-observation-criterion-c2"));
     fireEvent.change(screen.getByTestId("verification-observation-text"), {
       target: { value: "Pas로 검색하면 Pasta Bake가 부분 일치로 나오는 것을 확인함" },
     });
@@ -567,6 +567,50 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
     );
 
     // Both criteria now observed — approval is unblocked.
+    openDecisionStage();
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("clears N linked criteria from a single observation explicitly linked to all of them (S-056 D3)", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+    const step = reviewStep({
+      linkedCriteria: [
+        { criterionId: "c1", text: "대소문자 무시 검색" },
+        { criterionId: "c2", text: "부분 일치 검색" },
+      ],
+    });
+
+    renderStepDetail({ step });
+
+    fireEvent.click(screen.getByTestId("step-detail-primary-verification-action"));
+    openStepperStage("observe");
+    await screen.findByTestId("verification-coach-guide");
+
+    // Blocked before any observation is recorded.
+    openDecisionStage();
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
+
+    // Explicitly link ONE observation to BOTH criteria via "apply to all",
+    // then record it once.
+    openStepperStage("observe");
+    await screen.findByTestId("verification-coach-guide");
+    fireEvent.click(screen.getByTestId("verification-observation-select-all"));
+    fireEvent.change(screen.getByTestId("verification-observation-text"), {
+      target: { value: "대문자 Pasta와 Pas 부분 검색 모두 정상 동작하는 것을 확인함" },
+    });
+    fireEvent.click(screen.getByTestId("verification-observation-record"));
+    await screen.findByTestId("verification-observation-saved");
+
+    expect(observationMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ criterionIds: ["c1", "c2"] }),
+    );
+
+    // A single multi-criterion observation clears both gates at once —
+    // approval unblocks without a second recording.
     openDecisionStage();
     expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(false);
   });

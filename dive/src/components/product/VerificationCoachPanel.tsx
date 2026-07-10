@@ -88,11 +88,29 @@ export function VerificationCoachPanel({
   const [nonce, setNonce] = useState(0);
   const [observationText, setObservationText] = useState("");
   const [evidenceKind, setEvidenceKind] = useState<ObservationEvidenceKind>("manual_observation");
-  const [selectedCriterionId, setSelectedCriterionId] = useState("");
+  // S-056 (P2-04): the checked set of criteria this observation links to.
+  // Lazy-initialized to the step's first criterion so the S-029 single-bind
+  // default renders on the very first paint (no flash of an empty checklist).
+  const [selectedCriterionIds, setSelectedCriterionIds] = useState<string[]>(() => {
+    const first = request?.step.acceptanceCriteria.find(
+      (criterion) => criterion.criterionId.trim().length > 0,
+    );
+    return first ? [first.criterionId] : [];
+  });
   const [recording, setRecording] = useState(false);
   const requestRef = useRef<VerificationCoachGenerateRequest | null>(null);
   requestRef.current = request;
   const requestKey = useMemo(() => automaticGenerationKey(request), [request]);
+
+  // Re-seed the default selection (first criterion only) whenever the step
+  // changes — mirrors the guide-regeneration effect below so switching steps
+  // never leaves a stale cross-step selection checked.
+  useEffect(() => {
+    const first = requestRef.current?.step.acceptanceCriteria.find(
+      (criterion) => criterion.criterionId.trim().length > 0,
+    );
+    setSelectedCriterionIds(first ? [first.criterionId] : []);
+  }, [requestKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -156,26 +174,40 @@ export function VerificationCoachPanel({
             hintKey: COACH_FALLBACK_HINT_KEYS[firstClass] ?? COACH_FALLBACK_HINT_KEYS.generic,
           };
         });
-  // Each observation binds to ONE criterion (S-029): one observation must not
-  // clear every linked criterion collectively. Default to the first criterion.
-  const activeCriterionId =
-    selectedCriterionId && criteria.some((c) => c.criterionId === selectedCriterionId)
-      ? selectedCriterionId
-      : (criteria[0]?.criterionId ?? "");
-  const recordCriterionIds = activeCriterionId ? [activeCriterionId] : [];
+  // S-056 (P2-04): an observation can now name several criteria explicitly.
+  // Default is still the single first criterion (S-029 posture preserved —
+  // linking beyond that is an explicit student act, never an auto-select-all
+  // default). Filtered against the live criteria list so a stale id left over
+  // from a prior step can never leak into what gets recorded.
+  const recordCriterionIds = selectedCriterionIds.filter((id) =>
+    criteria.some((criterion) => criterion.criterionId === id),
+  );
+  const allCriteriaSelected = criteria.length > 0 && recordCriterionIds.length === criteria.length;
   const observationSubstantive = observationText.trim().length >= MIN_OBSERVATION_LENGTH;
   const canRecord =
     recordCriterionIds.length > 0 &&
     observationSubstantive &&
     observationActionBacked &&
     !recording;
-  const savedForCriterion =
-    (observation?.criterionIds.includes(activeCriterionId) ?? false) ||
-    request.evidence.priorObservations.some(
-      (prior) =>
-        prior.criterionIds.includes(activeCriterionId) &&
-        prior.observationText.trim().length >= MIN_OBSERVATION_LENGTH,
+  const priorSavedCriterionIds = new Set([
+    ...(observation?.criterionIds ?? []),
+    ...request.evidence.priorObservations
+      .filter((prior) => prior.observationText.trim().length >= MIN_OBSERVATION_LENGTH)
+      .flatMap((prior) => prior.criterionIds),
+  ]);
+  // "Saved" now means every currently-checked criterion already has evidence —
+  // the multi-select generalization of the old single-criterion check.
+  const allSelectedAlreadySaved =
+    recordCriterionIds.length > 0 &&
+    recordCriterionIds.every((id) => priorSavedCriterionIds.has(id));
+
+  const toggleCriterionSelection = (criterionId: string) => {
+    setSelectedCriterionIds((current) =>
+      current.includes(criterionId)
+        ? current.filter((id) => id !== criterionId)
+        : [...current, criterionId],
     );
+  };
 
   const handleRecordObservation = () => {
     if (!canRecord) return;
@@ -262,26 +294,48 @@ export function VerificationCoachPanel({
         ) : (
           <>
             {criteria.length > 1 ? (
-              <label className="mb-2 block font-medium text-fg">
-                {t("roadmap.step_detail.coach_criterion_select")}
-                <select
-                  className="mt-1 w-full rounded-md border bg-bg px-2 py-1.5 text-xs"
-                  value={activeCriterionId}
-                  onChange={(event) => {
-                    setSelectedCriterionId(event.target.value);
-                    // Force a fresh observation per criterion — identical text must
-                    // not silently back a second criterion (S-029).
-                    setObservationText("");
-                  }}
-                  data-testid="verification-observation-criterion"
-                >
+              <div className="mb-2" data-testid="verification-observation-criteria">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium text-fg">
+                    {t("roadmap.step_detail.coach_criterion_select")}
+                  </span>
+                  <button
+                    type="button"
+                    className="text-[11px] font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:no-underline"
+                    disabled={allCriteriaSelected}
+                    onClick={() =>
+                      setSelectedCriterionIds(criteria.map((criterion) => criterion.criterionId))
+                    }
+                    data-testid="verification-observation-select-all"
+                  >
+                    {t("roadmap.step_detail.coach_criterion_select_all")}
+                  </button>
+                </div>
+                <ul className="mt-1 space-y-1.5">
                   {criteria.map((criterion) => (
-                    <option key={criterion.criterionId} value={criterion.criterionId}>
-                      {criterion.text}
-                    </option>
+                    <li key={criterion.criterionId}>
+                      <label className="flex items-start gap-2 font-normal text-fg">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={recordCriterionIds.includes(criterion.criterionId)}
+                          onChange={() => toggleCriterionSelection(criterion.criterionId)}
+                          data-testid={`verification-observation-criterion-${criterion.criterionId}`}
+                        />
+                        <span>{criterion.text}</span>
+                      </label>
+                    </li>
                   ))}
-                </select>
-              </label>
+                </ul>
+                {recordCriterionIds.length === 0 ? (
+                  <p
+                    className="mt-1 text-[11px] text-warn"
+                    data-testid="verification-observation-criteria-empty-hint"
+                  >
+                    {t("roadmap.step_detail.coach_criterion_select_empty_hint")}
+                  </p>
+                ) : null}
+              </div>
             ) : null}
             <label className="block font-medium text-fg">
               {t("roadmap.step_detail.coach_observation_label")}
@@ -318,7 +372,7 @@ export function VerificationCoachPanel({
               >
                 {t("roadmap.step_detail.coach_record_observation")}
               </Button>
-              {savedForCriterion ? (
+              {allSelectedAlreadySaved ? (
                 <span
                   className="text-[11px] font-medium text-success"
                   data-testid="verification-observation-saved"

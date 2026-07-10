@@ -499,6 +499,8 @@
     "result_label": "결과 확인",
     "empty_default_title": "세션을 시작해 대화를 시작하세요",
     "empty_default_description": "목표를 입력하거나 로드맵 단계를 선택하세요",
+    "empty_session_starting_title": "세션이 시작됐어요",
+    "empty_session_starting_description": "아직 대화가 없어요. 아래 입력창에 첫 메시지를 보내면 바로 시작됩니다.",
     "empty_hint": "사이드바에서 + 새 세션을 눌러 시작하세요",
     "hint_dismiss_aria": "힌트 닫기",
     "history_loading_aria": "대화 기록 불러오는 중",
@@ -789,6 +791,8 @@
       "coach_no_criteria_hint": "이 단계에는 확인할 완료 기준이 없어서 관찰 기록이 필요하지 않아요. 대신 변경 코드나 미리보기로 결과를 확인하세요.",
       "coach_observation_needs_action": "먼저 프리뷰를 열거나 앱·검사를 직접 실행하세요 — 타이핑만으로는 증거가 아닙니다.",
       "coach_criterion_select": "이 관찰이 확인하는 수용 기준",
+      "coach_criterion_select_all": "이번 관찰을 관련 기준 모두에 적용",
+      "coach_criterion_select_empty_hint": "기록하려면 관련 기준을 하나 이상 선택하세요.",
       "coach_check_expected": "확인할 결과",
       "coach_prompt_title": "관찰 기록에 포함할 것",
       "coach_kind": {
