@@ -83,9 +83,12 @@ export const PlanStep = forwardRef<HTMLDivElement, PlanStepProps>(function PlanS
   };
 
   // Row text mirrors the row's primary action so the whole row reads as
-  // clickable — not just the small right-side button. Blocked steps stay
-  // non-interactive (no safe open path that wouldn't bypass the lock).
-  const rowActionable = Boolean(actions) && item.status !== "blocked";
+  // clickable — not just the small right-side button. Dependency-locked
+  // steps (no mapping) stay non-interactive (no safe open path that
+  // wouldn't bypass the lock). A rate-limit-blocked step (mapping with a
+  // session, see PlanStepActions) is actionable — clicking resumes it.
+  const dependencyLocked = item.status === "blocked" && (item.mapping?.session_id ?? null) === null;
+  const rowActionable = Boolean(actions) && !dependencyLocked;
   const activate = () => {
     if (!rowActionable || busy) return;
     if (item.status === "ready") void run();

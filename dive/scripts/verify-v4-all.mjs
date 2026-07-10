@@ -28,6 +28,28 @@ try {
   failed++;
 }
 
+// S-054/D4: these three verifiers were manual-only, which is how target
+// drift went unnoticed. Chaining them here makes them release-gating via
+// release-gate.yml and build.yml, which already invoke this script.
+const followUpVerifiers = [
+  ["Audit Fixes", "scripts/verify-audit-fixes.mjs"],
+  ["Quality Follow-up", "scripts/verify-quality-followup.mjs"],
+  ["Route-Chat Cancel Quality", "scripts/verify-route-chat-cancel-quality.mjs"],
+];
+
+for (const [label, script] of followUpVerifiers) {
+  console.log(`\n=== Verifying ${label} ===`);
+  try {
+    execSync(`node ${script}`, {
+      cwd: new URL("..", import.meta.url),
+      stdio: "inherit",
+    });
+  } catch {
+    console.error(`[FAIL] ${label} verification failed`);
+    failed++;
+  }
+}
+
 if (failed > 0) {
   console.error(`\n${failed} track(s) failed`);
   process.exit(1);

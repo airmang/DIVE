@@ -1013,6 +1013,8 @@
     "actions": {
       "start": "Start",
       "resume": "Resume",
+      "resume_blocked": "Resume after limit clears",
+      "resume_blocked_hint": "Paused by a provider rate limit. Switch models or wait for the limit to clear, then resume.",
       "open_review": "Open review",
       "review_plan": "Review plan",
       "open": "Open",

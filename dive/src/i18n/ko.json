@@ -1013,6 +1013,8 @@
     "actions": {
       "start": "시작",
       "resume": "이어하기",
+      "resume_blocked": "차단 해제 후 재개",
+      "resume_blocked_hint": "프로바이더 요청 한도로 멈췄습니다. 모델을 바꾸거나 한도가 풀리면 재개할 수 있습니다.",
       "open_review": "검토 열기",
       "review_plan": "계획 검토",
       "open": "열기",

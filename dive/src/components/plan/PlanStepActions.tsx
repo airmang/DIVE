@@ -96,6 +96,27 @@ export function PlanStepActions({
     );
   }
 
+  // S-054/D2: "blocked" is overloaded — a mapped step with a session hit a
+  // recoverable provider error (rate limit) and can resume; a step with no
+  // mapping is dependency-locked and falls through to the disabled button
+  // below.
+  if (item.status === "blocked" && sessionId !== null) {
+    return (
+      <button
+        type="button"
+        className={actionClass(true)}
+        onClick={(event) => runAction(event, () => onResume(sessionId))}
+        disabled={busy}
+        title={t("plan_view.actions.resume_blocked_hint")}
+        data-testid="plan-step-action"
+        data-action="resume-blocked"
+      >
+        <RotateCw className="h-3.5 w-3.5" aria-hidden />
+        {label ?? t("plan_view.actions.resume_blocked")}
+      </button>
+    );
+  }
+
   if (item.status === "done" || item.status === "shipped") {
     return (
       <button

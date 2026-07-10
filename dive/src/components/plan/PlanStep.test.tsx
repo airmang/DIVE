@@ -129,9 +129,41 @@ describe("PlanStep — row click affordance (U-2)", () => {
     expect(actions.onOpenStep).toHaveBeenCalledWith(3, expect.objectContaining({ focus: true }));
   });
 
-  it("does not expose a clickable row for a blocked (locked) step", () => {
+  it("does not expose a clickable row for a dependency-locked step (no mapping)", () => {
     renderStep(makeStep(7, "S-007", "blocked", ["S-005"]), makeActions());
     expect(screen.queryByTestId("plan-step-open")).toBeNull();
+  });
+
+  it("exposes a clickable row for a rate-limit-blocked step (mapping with a session) and resumes it", () => {
+    const row: PlanStepRow = {
+      id: 9,
+      plan_id: 1,
+      step_id: "S-009",
+      title: "S-009 title",
+      summary: "S-009 summary",
+      instruction_seed: null,
+      expected_files: null,
+      acceptance_criteria: null,
+      verification_kind: null,
+      verification_command: null,
+      verification_manual_check: null,
+      dependencies: [],
+      parallel_group: null,
+      position: 9,
+      created_at: 1,
+      updated_at: 1,
+    };
+    const item: PlanRoadmapStep = {
+      step: row,
+      mapping: { ...mappingFor(row, "blocked"), card_id: null },
+      status: "blocked",
+      blockedDependencies: [],
+      parallelBucket: null,
+    };
+    const actions = makeActions();
+    renderStep(item, actions);
+    fireEvent.click(screen.getByTestId("plan-step-open"));
+    expect(actions.onOpenSession).toHaveBeenCalledWith(1009);
   });
 });
 
