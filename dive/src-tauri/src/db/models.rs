@@ -306,6 +306,11 @@ pub enum PrdPatchValidationOutcome {
     Applied,
     Rejected,
     HeldForStudent,
+    /// S-053 D1: the model turn produced no JSON at all, or JSON that decodes
+    /// as neither the patch-envelope nor the bare-patch shape. Distinct from
+    /// `None`, which is a genuine net-zero (the model answered but proposed no
+    /// change, or a well-formed patch whose operations applied to nothing).
+    NotStructured,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -586,15 +591,30 @@ pub struct PrdPatch {
     pub source_turn_id: String,
 }
 
+// S-053 D1: durable per-turn PRD interview record. Written for EVERY interview
+// turn — applied, rejected, held, benign none, and (new) not_structured alike
+// — so a structuring failure keeps the student's answer instead of dropping it
+// server-side, and the turn is reproducible for a "다시 구조화" retry. Local-DB
+// only; not part of any export path.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct InterviewTurn {
-    pub turn_id: String,
+pub struct NewInterviewTurn {
     pub draft_id: String,
-    pub student_answer_summary: String,
-    pub assistant_response_summary: String,
-    pub patch_id: Option<String>,
-    pub validation_outcome: PrdPatchValidationOutcome,
+    pub turn_id: String,
+    pub student_answer: String,
+    pub outcome: PrdPatchValidationOutcome,
+    pub parse_failure_kind: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InterviewTurnRow {
+    pub id: i64,
+    pub draft_id: String,
+    pub turn_id: String,
+    pub student_answer: String,
+    pub outcome: PrdPatchValidationOutcome,
+    pub parse_failure_kind: Option<String>,
     pub created_at: i64,
 }
 
@@ -945,4 +965,55 @@ pub struct StepSessionMappingRow {
     pub user_decision: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PrdPatchValidationOutcome;
+
+    // S-053 D1: `not_structured` is additive to the wire representation — the
+    // new variant serializes to the expected snake_case string, and every
+    // pre-existing outcome string still deserializes (old EventLog rows and
+    // exports must stay readable).
+    #[test]
+    fn prd_patch_validation_outcome_not_structured_serializes_to_snake_case() {
+        let value = serde_json::to_value(PrdPatchValidationOutcome::NotStructured).unwrap();
+        assert_eq!(value, serde_json::json!("not_structured"));
+    }
+
+    #[test]
+    fn prd_patch_validation_outcome_round_trips_all_variants() {
+        let cases = [
+            (PrdPatchValidationOutcome::None, "none"),
+            (PrdPatchValidationOutcome::Applied, "applied"),
+            (PrdPatchValidationOutcome::Rejected, "rejected"),
+            (
+                PrdPatchValidationOutcome::HeldForStudent,
+                "held_for_student",
+            ),
+            (PrdPatchValidationOutcome::NotStructured, "not_structured"),
+        ];
+        for (variant, wire) in cases {
+            assert_eq!(
+                serde_json::to_value(variant).unwrap(),
+                serde_json::json!(wire)
+            );
+            let parsed: PrdPatchValidationOutcome =
+                serde_json::from_value(serde_json::json!(wire)).unwrap();
+            assert_eq!(parsed, variant);
+        }
+    }
+
+    #[test]
+    fn prd_patch_validation_outcome_deserializes_pre_s053_strings() {
+        // Old rows/snapshots never wrote `not_structured` — confirm they still
+        // deserialize now that the enum has a fifth variant.
+        for wire in ["none", "applied", "rejected", "held_for_student"] {
+            assert!(
+                serde_json::from_value::<PrdPatchValidationOutcome>(serde_json::json!(wire))
+                    .is_ok(),
+                "expected {wire:?} to still deserialize"
+            );
+        }
+    }
 }

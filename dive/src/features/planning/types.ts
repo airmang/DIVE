@@ -115,7 +115,16 @@ export interface LiveProjectSpecDraft {
   updatedAt: number;
 }
 
-export type PrdPatchValidationOutcome = "none" | "applied" | "rejected" | "held_for_student";
+// "not_structured" (S-053 D1): the model turn produced no JSON at all, or
+// JSON that decodes as neither the patch-envelope nor the bare-patch shape.
+// Distinct from "none", which is a turn that structured fine but genuinely
+// proposed no change. Rendering (retry affordance, honest copy) is P2 scope.
+export type PrdPatchValidationOutcome =
+  | "none"
+  | "applied"
+  | "rejected"
+  | "held_for_student"
+  | "not_structured";
 
 export interface InterviewTurn {
   turnId: string;

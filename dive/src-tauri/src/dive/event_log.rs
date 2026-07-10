@@ -22,6 +22,10 @@ pub const RUNTIME_MODEL_NOT_FOUND_EVENT: &str = "runtime.model_not_found";
 pub const PRD_PATCH_PROPOSED_EVENT: &str = "prd_patch_proposed";
 pub const PRD_PATCH_APPLIED_EVENT: &str = "prd_patch_applied";
 pub const PRD_PATCH_REJECTED_EVENT: &str = "prd_patch_rejected";
+/// S-053 D1: a structuring failure (no JSON in the model turn, or JSON that
+/// decodes as neither response shape) — previously silent, closing the audit
+/// hole where the exact turn a supervision-research log needs left no trace.
+pub const PRD_PATCH_UNSTRUCTURED_EVENT: &str = "prd_patch_unstructured";
 pub const PRD_AUTHORED_EVENT: &str = "prd_authored";
 pub const PRD_EDITED_EVENT: &str = "prd_edited";
 pub const PRD_VERSION_CREATED_EVENT: &str = "prd_version_created";
@@ -414,6 +418,7 @@ fn infer_agency_component(event_type: &str, payload: &Value) -> Option<&'static 
         PRD_PATCH_PROPOSED_EVENT
         | PRD_PATCH_APPLIED_EVENT
         | PRD_PATCH_REJECTED_EVENT
+        | PRD_PATCH_UNSTRUCTURED_EVENT
         | PRD_AUTHORED_EVENT
         | PRD_EDITED_EVENT
         | PRD_VERSION_CREATED_EVENT
@@ -984,6 +989,7 @@ fn infer_evidence_summary(event_type: &str, payload: &Value) -> Option<Value> {
                 "patchProposed": event_type == PRD_PATCH_PROPOSED_EVENT,
                 "patchApplied": event_type == PRD_PATCH_APPLIED_EVENT,
                 "patchRejected": event_type == PRD_PATCH_REJECTED_EVENT,
+                "patchUnstructured": event_type == PRD_PATCH_UNSTRUCTURED_EVENT,
                 "versionCreated": event_type == PRD_VERSION_CREATED_EVENT,
             }));
         }
@@ -1316,6 +1322,34 @@ pub fn prd_patch_rejected_payload(
         "patch_id": patch_id.into(),
         "reason_codes": reason_codes,
         "held_for_student": held_for_student,
+    }))
+}
+
+/// S-053 D1: fired when a PRD interview turn produced no usable patch because
+/// the model's response failed to structure (no JSON at all, or JSON that
+/// decodes as neither the patch-envelope nor the bare-patch shape) — distinct
+/// from a turn that structured fine but proposed no change. No raw answer
+/// text or raw model response text here, matching the redaction posture of
+/// the other PRD_PATCH_* events; the student's answer is persisted separately
+/// in the local-only InterviewTurn table, not the exported EventLog.
+#[allow(clippy::too_many_arguments)]
+pub fn prd_patch_unstructured_payload(
+    project_id: i64,
+    project_spec_id: impl Into<String>,
+    draft_id: impl Into<String>,
+    turn_id: impl Into<String>,
+    parse_failure_kind: impl Into<String>,
+    provider: impl Into<String>,
+    model: impl Into<String>,
+) -> Value {
+    redact_value(&json!({
+        "project_id": project_id,
+        "project_spec_id": project_spec_id.into(),
+        "draft_id": draft_id.into(),
+        "turn_id": turn_id.into(),
+        "parse_failure_kind": parse_failure_kind.into(),
+        "provider": provider.into(),
+        "model": model.into(),
     }))
 }
 

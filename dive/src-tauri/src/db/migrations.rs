@@ -20,9 +20,10 @@ const MIGRATIONS: &[(i64, MigrationFn)] = &[
     (13, migration_v13),
     (14, migration_v14),
     (15, migration_v15),
+    (16, migration_v16),
 ];
 
-pub const LATEST_SCHEMA_VERSION: i64 = 15;
+pub const LATEST_SCHEMA_VERSION: i64 = 16;
 
 pub fn migrate(conn: &mut Connection) -> Result<(), DbError> {
     migrate_with_migrations(conn, MIGRATIONS)
@@ -385,6 +386,17 @@ fn migration_v15(tx: &Transaction<'_>) -> rusqlite::Result<()> {
         tx.execute_batch(
             "ALTER TABLE Step ADD COLUMN step_kind TEXT NOT NULL DEFAULT 'feature' CHECK(step_kind IN ('feature','refactor','rename','comment','debug'))",
         )?;
+    }
+    Ok(())
+}
+
+/// S-053 D1 — durable per-turn PRD interview record, including structuring
+/// failures (the model turn produced no usable JSON) that previously left no
+/// trace: the audit hole this table closes. Purely additive; local-DB only.
+fn migration_v16(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    tx.execute_batch(schema::CREATE_INTERVIEW_TURN)?;
+    for index in schema::CREATE_V16_INDEXES {
+        tx.execute_batch(index)?;
     }
     Ok(())
 }
@@ -899,6 +911,69 @@ mod tests {
             )
             .unwrap();
         assert_eq!(indexes, 4);
+    }
+
+    #[test]
+    fn migration_v16_creates_interview_turn_table() {
+        let (db, _tmp) = fresh_db();
+        let tables: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'InterviewTurn'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 1);
+
+        let indexes: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_interview_turn_draft'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(indexes, 1);
+
+        db.conn()
+            .execute(
+                "INSERT INTO InterviewTurn(draft_id, turn_id, student_answer, outcome, parse_failure_kind, created_at) VALUES ('draft-1', 'turn-1', 'a focus timer', 'not_structured', 'no_json', 0)",
+                [],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn migration_v16_upgrades_existing_db_without_interview_turn_table() {
+        // Reproduce a pre-S-053 DB (schema_version stops at 15, no InterviewTurn
+        // table) and prove the upgrade path creates it without touching earlier
+        // tables.
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        {
+            let mut conn = rusqlite::Connection::open(tmp.path()).unwrap();
+            migrations::migrate_with_migrations(&mut conn, &super::MIGRATIONS[..15]).unwrap();
+            let exists: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'InterviewTurn'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(exists, 0);
+        }
+
+        let mut db = Database::open(tmp.path()).unwrap();
+        db.migrate().unwrap();
+        let exists: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'InterviewTurn'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(exists, 1);
     }
 
     #[test]

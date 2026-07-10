@@ -9,18 +9,18 @@ use serde_json::{json, Value};
 use tauri::State;
 
 use crate::db::dao::{
-    card as card_dao, event_log as event_log_dao, interview as interview_dao, plan as plan_dao,
-    plan_mutation as plan_mutation_dao, prd as prd_dao, project as project_dao,
-    session as session_dao, step as step_dao, step_session_mapping as mapping_dao,
-    workmap as workmap_dao,
+    card as card_dao, event_log as event_log_dao, interview as interview_dao,
+    interview_turn as interview_turn_dao, plan as plan_dao, plan_mutation as plan_mutation_dao,
+    prd as prd_dao, project as project_dao, session as session_dao, step as step_dao,
+    step_session_mapping as mapping_dao, workmap as workmap_dao,
 };
 use crate::db::models::{
     AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus, CardState,
-    EventLogRow, InterviewRow, LiveProjectSpecDraftRow, NewCard, NewInterview,
+    EventLogRow, InterviewRow, LiveProjectSpecDraftRow, NewCard, NewInterview, NewInterviewTurn,
     NewLiveProjectSpecDraft, NewObjection, NewPlan, NewPlanMutation, NewProjectSpecVersion,
     NewSession, NewStep, NewStepSessionMapping, NewWorkmap, ObjectionSuggestionStatus,
-    PlanMutationType, PlanRow, PrdPatch, PrdPatchOperation, ProjectRow, ProjectSpec,
-    ProjectSpecDelta, ProjectSpecDraft, ProjectSpecStatus, ProjectSpecVersionRow,
+    PlanMutationType, PlanRow, PrdPatch, PrdPatchOperation, PrdPatchValidationOutcome, ProjectRow,
+    ProjectSpec, ProjectSpecDelta, ProjectSpecDraft, ProjectSpecStatus, ProjectSpecVersionRow,
     ScopeExpansionAssessment, StepKind, StepRow, StepSessionMappingRow,
 };
 use crate::db::now_ms;
@@ -971,6 +971,21 @@ pub fn workspace_prd_save_impl(
     Ok(snapshot)
 }
 
+/// Maps the stringly-typed `validation_outcome` this module has always used on
+/// the wire (`PrdInterviewTurnOutput.validation_outcome`, `AppliedPrdPatch`)
+/// onto the typed `PrdPatchValidationOutcome` enum for the `InterviewTurn`
+/// row. Infallible by construction: every value this module ever assigns to
+/// `validation_outcome` is one of these five literals.
+fn prd_validation_outcome_enum(value: &str) -> PrdPatchValidationOutcome {
+    match value {
+        "applied" => PrdPatchValidationOutcome::Applied,
+        "rejected" => PrdPatchValidationOutcome::Rejected,
+        "held_for_student" => PrdPatchValidationOutcome::HeldForStudent,
+        "not_structured" => PrdPatchValidationOutcome::NotStructured,
+        _ => PrdPatchValidationOutcome::None,
+    }
+}
+
 pub async fn workspace_prd_interview_turn_impl(
     state: &AppState,
     input: PrdInterviewTurnInput,
@@ -1000,6 +1015,7 @@ pub async fn workspace_prd_interview_turn_impl(
     .await?;
     let turn_id = format!("prd-turn-{}", now_ms());
     let parsed = parse_prd_turn_response(&raw, &turn_id);
+    let parse_failure_kind = parsed.parse_failure_kind;
     let assistant_message = parsed
         .assistant_message
         .filter(|message| !message.trim().is_empty())
@@ -1027,6 +1043,7 @@ pub async fn workspace_prd_interview_turn_impl(
     let mut db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.conn_mut();
     let current_draft = load_or_create_prd_draft(conn, input.project_id, &input.draft_id)?;
+    let mut turn_parse_failure_kind: Option<String> = None;
     if let Some(patch) = patch {
         let operation_kinds = patch
             .operations
@@ -1065,7 +1082,7 @@ pub async fn workspace_prd_interview_turn_impl(
                     input.project_id,
                     project_spec_id_for_draft(&applied.draft),
                     applied.draft.draft_id.clone(),
-                    turn_id,
+                    turn_id.clone(),
                     patch.patch_id,
                     applied.applied_field_paths,
                     applied.criterion_ids_assigned,
@@ -1084,7 +1101,7 @@ pub async fn workspace_prd_interview_turn_impl(
                     input.project_id,
                     project_spec_id_for_draft(&applied.draft),
                     applied.draft.draft_id,
-                    turn_id,
+                    turn_id.clone(),
                     patch.patch_id,
                     applied.rejected_reasons,
                     applied.validation_outcome == "held_for_student",
@@ -1093,8 +1110,47 @@ pub async fn workspace_prd_interview_turn_impl(
             .map_err(|e| e.to_string())?;
         }
     } else {
+        // S-053 D1: `patch: None` used to leave the default "none" outcome
+        // unconditionally — the same status as a benign net-zero patch, and no
+        // EventLog event fired at all. A structuring failure (no JSON, or JSON
+        // that decodes as neither response shape) now gets its own outcome and
+        // an auditable event; a turn that structured fine but genuinely
+        // proposed nothing (no `patch` key in the parsed response) still stays
+        // "none".
+        if let Some(kind) = parse_failure_kind {
+            output.validation_outcome = "not_structured".into();
+            turn_parse_failure_kind = Some(kind.to_string());
+            dive_event_log::append_to_conn(
+                conn,
+                None,
+                dive_event_log::PRD_PATCH_UNSTRUCTURED_EVENT,
+                dive_event_log::prd_patch_unstructured_payload(
+                    input.project_id,
+                    project_spec_id_for_draft(&current_draft),
+                    current_draft.draft_id.clone(),
+                    turn_id.clone(),
+                    kind,
+                    input.provider.clone(),
+                    input.model.clone(),
+                ),
+            )
+            .map_err(|e| e.to_string())?;
+        }
         persist_live_prd_draft(conn, &output.live_draft)?;
     }
+
+    interview_turn_dao::insert(
+        conn,
+        &NewInterviewTurn {
+            draft_id: output.live_draft.draft_id.clone(),
+            turn_id,
+            student_answer: input.answer,
+            outcome: prd_validation_outcome_enum(&output.validation_outcome),
+            parse_failure_kind: turn_parse_failure_kind,
+        },
+    )
+    .map_err(|e| e.to_string())?;
+
     Ok(output)
 }
 
@@ -2471,12 +2527,19 @@ impl RawPrdPatch {
     }
 }
 
+/// S-053 D1: on a `patch: None` result, the two ways parsing can fail are kept
+/// distinct via `parse_failure_kind` — `no_json` (no JSON object found at
+/// all) vs `undecodable_json` (a JSON object was found but decodes as neither
+/// `RawPrdTurnResponse` nor the bare `RawPrdPatch` shape). `None` here means
+/// the model's response DID structure successfully (it just had nothing to
+/// patch), which the caller must not treat as a structuring failure.
 fn parse_prd_turn_response(raw: &str, turn_id: &str) -> ParsedPrdTurn {
     let Some(json_text) = extract_prd_turn_json_candidate(raw) else {
         return ParsedPrdTurn {
             assistant_message: clean_prd_assistant_message(raw),
             patch: None,
             proposals: None,
+            parse_failure_kind: Some("no_json"),
         };
     };
     if let Ok(response) = serde_json::from_str::<RawPrdTurnResponse>(json_text) {
@@ -2486,6 +2549,7 @@ fn parse_prd_turn_response(raw: &str, turn_id: &str) -> ParsedPrdTurn {
             }),
             patch: response.patch.map(|patch| patch.into_prd_patch(turn_id)),
             proposals: response.proposals.and_then(RawPrdProposals::into_sanitized),
+            parse_failure_kind: None,
         };
     }
     if let Ok(patch) = serde_json::from_str::<RawPrdPatch>(json_text) {
@@ -2493,12 +2557,14 @@ fn parse_prd_turn_response(raw: &str, turn_id: &str) -> ParsedPrdTurn {
             assistant_message: clean_prd_assistant_message(&raw.replace(json_text, "")),
             patch: Some(patch.into_prd_patch(turn_id)),
             proposals: None,
+            parse_failure_kind: None,
         };
     }
     ParsedPrdTurn {
         assistant_message: clean_prd_assistant_message(&strip_prd_json_payloads(raw)),
         patch: None,
         proposals: None,
+        parse_failure_kind: Some("undecodable_json"),
     }
 }
 
@@ -2506,6 +2572,7 @@ struct ParsedPrdTurn {
     assistant_message: Option<String>,
     patch: Option<PrdPatch>,
     proposals: Option<ArchitectureProposals>,
+    parse_failure_kind: Option<&'static str>,
 }
 
 fn extract_prd_turn_json_candidate(raw: &str) -> Option<&str> {
@@ -6187,6 +6254,45 @@ mod prd_interview_prompt_tests {
         assert!(message.contains("어떤 형태가 좋을까요?"));
         assert!(!message.contains("proposals"));
         assert!(!message.contains("web_app"));
+        assert_eq!(parsed.parse_failure_kind, None);
+    }
+
+    // S-053 D1: the two structuring-failure kinds `parse_prd_turn_response`
+    // must distinguish, plus the genuine-"none" path that must NOT be
+    // misclassified as either.
+
+    #[test]
+    fn parse_turn_response_flags_no_json_when_raw_has_no_json_object() {
+        let raw = "이 질문에 대해 조금 더 설명해 주시겠어요?";
+        let parsed = parse_prd_turn_response(raw, "turn-1");
+        assert!(parsed.patch.is_none());
+        assert_eq!(parsed.parse_failure_kind, Some("no_json"));
+    }
+
+    #[test]
+    fn parse_turn_response_flags_undecodable_json_when_neither_shape_matches() {
+        // A single top-level JSON object: the "patch" key is present (so the
+        // RawPrdTurnResponse deserialize doesn't just skip it as unknown) but
+        // its value has the wrong shape (a string, not an operations object),
+        // so it fails RawPrdTurnResponse; and there's no top-level
+        // "operations" key, so it also fails the bare RawPrdPatch shape. The
+        // nested "operations" substring makes it eligible for the fallback
+        // candidate selection in `extract_prd_turn_json_candidate`.
+        let raw = r#"{"assistantMessage":"제가 응답 구조를 잘못 만들었어요.","patch":{"operations":"oops"}}"#;
+        let parsed = parse_prd_turn_response(raw, "turn-1");
+        assert!(parsed.patch.is_none());
+        assert_eq!(parsed.parse_failure_kind, Some("undecodable_json"));
+    }
+
+    #[test]
+    fn parse_turn_response_leaves_genuine_none_unflagged() {
+        // A well-formed RawPrdTurnResponse with no `patch` key at all: the
+        // model answered but proposed no change. This must NOT be flagged as
+        // a parse failure.
+        let raw = r#"{"assistantMessage":"이 부분은 다음에 더 알려주시겠어요?"}"#;
+        let parsed = parse_prd_turn_response(raw, "turn-1");
+        assert!(parsed.patch.is_none());
+        assert_eq!(parsed.parse_failure_kind, None);
     }
 }
 

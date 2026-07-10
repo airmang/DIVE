@@ -8,14 +8,15 @@ use async_trait::async_trait;
 use dive_lib::auth::InMemoryKeyring;
 use dive_lib::checkpoint::CheckpointEngine;
 use dive_lib::db::dao::{
-    card, event_log, interview, plan, plan_mutation, prd, project, session, step,
+    card, event_log, interview, interview_turn, plan, plan_mutation, prd, project, session, step,
     step_session_mapping as mapping, workmap,
 };
 use dive_lib::db::models::{
     AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus,
     ArchitectureDecision, ArchitectureDecisionSource, ArchitectureForm, NewInterview,
     NewLiveProjectSpecDraft, NewPlan, NewProject, NewStep, ObjectionSuggestionStatus,
-    PlanMutationType, ProjectSpecDelta, ProjectSpecDraft, ProjectSpecStatus, StepRow,
+    PlanMutationType, PrdPatchValidationOutcome, ProjectSpecDelta, ProjectSpecDraft,
+    ProjectSpecStatus, StepRow,
 };
 use dive_lib::export::{ExportEngine, ExportOptions};
 use dive_lib::ipc::workspace_plan::{
@@ -902,6 +903,238 @@ async fn prd_interview_turn_accepts_operation_alias_without_leaking_patch_json()
     assert_eq!(
         turn.live_draft.spec.acceptance_criteria[0].text,
         "사용자가 일정 등록 화면에서 제목, 날짜, 시간, 간단한 메모를 입력해 일정을 저장할 수 있다."
+    );
+}
+
+// S-053 D1: a structuring failure (no JSON at all, or JSON that decodes as
+// neither response shape) gets a distinct `not_structured` outcome, an
+// auditable `prd_patch_unstructured` EventLog event, and a durable
+// InterviewTurn row — closing the audit hole where the exact turn a
+// supervision-research log needs to capture previously left no trace at all.
+
+#[tokio::test]
+async fn prd_interview_turn_flags_no_json_response_as_not_structured() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta("이 질문에 대해 조금 더 설명해 주시겠어요?".into()),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+
+    let turn = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-unstructured".into(),
+            answer: "음, 잘 모르겠어요, 그냥 뭔가 만들고 싶어요".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(turn.validation_outcome, "not_structured");
+    assert!(turn.patch.is_none());
+    assert!(turn.applied_field_paths.is_empty());
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    let unstructured = events
+        .iter()
+        .find(|event| event.r#type == "prd_patch_unstructured")
+        .expect("prd_patch_unstructured event logged");
+    assert_eq!(unstructured.payload["project_id"], project_id);
+    assert_eq!(unstructured.payload["draft_id"], "draft-unstructured");
+    assert_eq!(unstructured.payload["turn_id"], turn.turn_id);
+    assert_eq!(unstructured.payload["parse_failure_kind"], "no_json");
+    assert_eq!(unstructured.payload["provider"], "mock");
+    assert_eq!(unstructured.payload["model"], "mock-model");
+    // No raw answer text or raw model response text in the EventLog payload.
+    assert!(unstructured.payload.get("answer").is_none());
+    assert!(unstructured.payload.get("raw").is_none());
+    assert_eq!(unstructured.payload["agencyComponent"], "plan");
+    // No PROPOSED/APPLIED/REJECTED events for a turn that never structured.
+    assert!(!events
+        .iter()
+        .any(|event| event.r#type == "prd_patch_proposed"));
+
+    let turns =
+        interview_turn::list_by_draft(state.db.lock().unwrap().conn(), "draft-unstructured")
+            .unwrap();
+    assert_eq!(turns.len(), 1);
+    assert_eq!(turns[0].turn_id, turn.turn_id);
+    assert_eq!(
+        turns[0].student_answer,
+        "음, 잘 모르겠어요, 그냥 뭔가 만들고 싶어요"
+    );
+    assert_eq!(turns[0].outcome, PrdPatchValidationOutcome::NotStructured);
+    assert_eq!(turns[0].parse_failure_kind.as_deref(), Some("no_json"));
+}
+
+#[tokio::test]
+async fn prd_interview_turn_flags_undecodable_json_response_as_not_structured() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(
+                r#"{"assistantMessage":"제가 응답 구조를 잘못 만들었어요.","patch":{"operations":"oops"}}"#
+                    .into(),
+            ),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+
+    let turn = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-undecodable".into(),
+            answer: "Students need a way to track their reading list".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(turn.validation_outcome, "not_structured");
+    assert!(turn.patch.is_none());
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    let unstructured = events
+        .iter()
+        .find(|event| event.r#type == "prd_patch_unstructured")
+        .expect("prd_patch_unstructured event logged");
+    assert_eq!(
+        unstructured.payload["parse_failure_kind"],
+        "undecodable_json"
+    );
+
+    let turns = interview_turn::list_by_draft(state.db.lock().unwrap().conn(), "draft-undecodable")
+        .unwrap();
+    assert_eq!(turns.len(), 1);
+    assert_eq!(turns[0].outcome, PrdPatchValidationOutcome::NotStructured);
+    assert_eq!(
+        turns[0].parse_failure_kind.as_deref(),
+        Some("undecodable_json")
+    );
+    assert_eq!(
+        turns[0].student_answer,
+        "Students need a way to track their reading list"
+    );
+}
+
+#[tokio::test]
+async fn prd_interview_turn_leaves_genuine_none_turn_unflagged() {
+    // The model answered (valid RawPrdTurnResponse shape) but proposed no
+    // patch at all — a genuine net-zero turn, not a structuring failure. Must
+    // stay "none" with no parse_failure_kind and no unstructured event, while
+    // still getting a durable InterviewTurn row (S-053: every turn, not just
+    // ones that changed something).
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(
+                r#"{"assistantMessage":"이 부분은 다음에 더 알려주시겠어요?"}"#.into(),
+            ),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+
+    let turn = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-genuine-none".into(),
+            answer: "I'm not sure yet".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(turn.validation_outcome, "none");
+    assert!(turn.patch.is_none());
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    assert!(!events
+        .iter()
+        .any(|event| event.r#type == "prd_patch_unstructured"));
+
+    let turns =
+        interview_turn::list_by_draft(state.db.lock().unwrap().conn(), "draft-genuine-none")
+            .unwrap();
+    assert_eq!(turns.len(), 1);
+    assert_eq!(turns[0].outcome, PrdPatchValidationOutcome::None);
+    assert_eq!(turns[0].parse_failure_kind, None);
+    assert_eq!(turns[0].student_answer, "I'm not sure yet");
+}
+
+#[tokio::test]
+async fn prd_interview_turn_applied_patch_also_writes_interview_turn_row() {
+    // S-053 D1: the InterviewTurn table is written for EVERY outcome,
+    // including "applied" — not just failure turns.
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(
+                r#"{"assistantMessage":"목표를 반영했어요.","patch":{"operations":[{"op":"set_goal","value":"Build a focus timer"}],"rationale":"목표를 추출했습니다."}}"#
+                    .into(),
+            ),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+
+    let turn = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-applied-row".into(),
+            answer: "A focus timer that shows a countdown".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(turn.validation_outcome, "applied");
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    assert!(!events
+        .iter()
+        .any(|event| event.r#type == "prd_patch_unstructured"));
+
+    let turns = interview_turn::list_by_draft(state.db.lock().unwrap().conn(), "draft-applied-row")
+        .unwrap();
+    assert_eq!(turns.len(), 1);
+    assert_eq!(turns[0].outcome, PrdPatchValidationOutcome::Applied);
+    assert_eq!(turns[0].parse_failure_kind, None);
+    assert_eq!(
+        turns[0].student_answer,
+        "A focus timer that shows a countdown"
     );
 }
 

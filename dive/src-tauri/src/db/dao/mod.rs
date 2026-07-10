@@ -2,6 +2,7 @@ pub mod card;
 pub mod checkpoint;
 pub mod event_log;
 pub mod interview;
+pub mod interview_turn;
 pub mod message;
 pub mod plan;
 pub mod plan_mutation;
