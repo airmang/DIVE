@@ -1436,25 +1436,38 @@ fn generate_draft_logs_criterion_quality_advisories_for_marker_less_criteria() {
         })
         .collect();
 
-    assert_eq!(advisories.len(), 2);
+    // S-056 D2: `draft_input()`'s two steps both link AC-001 with the
+    // identical criterion text "A saved PRD unlocks plan generation", so a
+    // third advisory (`step_criterion_duplicate`) now rides alongside the
+    // two `criterion_no_marker` ones this test adds.
+    assert_eq!(advisories.len(), 3);
     for advisory in &advisories {
         assert_eq!(advisory.session_id, Some(session_id));
         assert_eq!(advisory.payload["project_id"], json!(project_id));
         assert_eq!(advisory.payload["plan_id"], json!(plan.id));
-        assert_eq!(advisory.payload["code"], json!("criterion_no_marker"));
         assert_eq!(advisory.payload["blocking"], json!(false));
         assert_eq!(advisory.payload["annotation"], json!(true));
         assert_eq!(advisory.payload["agencyComponent"], json!("plan"));
     }
-    assert!(advisories.iter().any(|advisory| {
+    let marker_less_advisories: Vec<_> = advisories
+        .iter()
+        .filter(|advisory| advisory.payload["code"] == json!("criterion_no_marker"))
+        .collect();
+    assert_eq!(marker_less_advisories.len(), 2);
+    assert!(marker_less_advisories.iter().any(|advisory| {
         advisory.payload["step_ref"] == json!("Create schema")
             && advisory.payload["criterion_preview"]
                 == json!("The schema follows the existing project code style.")
     }));
-    assert!(advisories.iter().any(|advisory| {
+    assert!(marker_less_advisories.iter().any(|advisory| {
         advisory.payload["step_ref"] == json!("Export artifacts")
             && advisory.payload["criterion_preview"]
                 == json!("The export step follows the existing project code style.")
+    }));
+    assert!(advisories.iter().any(|advisory| {
+        advisory.payload["code"] == json!("step_criterion_duplicate")
+            && advisory.payload["step_ref"] == json!("Export artifacts")
+            && advisory.payload["criterion_preview"] == json!("A saved PRD unlocks plan generation")
     }));
     drop(db);
 
@@ -1465,9 +1478,13 @@ fn generate_draft_logs_criterion_quality_advisories_for_marker_less_criteria() {
 }
 
 // S-050 P3: a draft where every criterion carries an observable marker (the
-// default `draft_input()` fixture) logs zero advisory events.
+// default `draft_input()` fixture) logs zero `criterion_no_marker` advisory
+// events. S-056 D2: that same fixture links AC-001 with the identical
+// criterion text on both of its steps, so it now also logs exactly one
+// `step_criterion_duplicate` advisory — the cross-step check working as
+// designed, not a marker-quality finding.
 #[test]
-fn generate_draft_logs_zero_criterion_quality_advisories_when_all_criteria_carry_markers() {
+fn generate_draft_logs_zero_marker_less_advisories_when_all_criteria_carry_markers() {
     let tmp = tempfile::tempdir().unwrap();
     let state = mk_state(&tmp);
     let project_id = seed_project(&state);
@@ -1485,13 +1502,22 @@ fn generate_draft_logs_zero_criterion_quality_advisories_when_all_criteria_carry
 
     let db = state.db.lock().unwrap();
     let events = event_log::list(db.conn()).unwrap();
-    let advisory_count = events
+    let advisories: Vec<_> = events
         .iter()
         .filter(|event| {
             event.r#type == dive_lib::dive::event_log::PLAN_CRITERION_QUALITY_ADVISORY_EVENT
         })
-        .count();
-    assert_eq!(advisory_count, 0);
+        .collect();
+
+    assert_eq!(advisories.len(), 1);
+    assert!(!advisories
+        .iter()
+        .any(|advisory| advisory.payload["code"] == json!("criterion_no_marker")));
+    assert!(advisories.iter().any(|advisory| {
+        advisory.payload["code"] == json!("step_criterion_duplicate")
+            && advisory.payload["step_ref"] == json!("Export artifacts")
+            && advisory.payload["criterion_preview"] == json!("A saved PRD unlocks plan generation")
+    }));
 }
 
 // S-050 P3: a blocked draft (junk criterion trips the P1 gate before the
@@ -1524,6 +1550,78 @@ fn generate_draft_blocked_by_junk_criterion_logs_no_advisory_events() {
         })
         .count();
     assert_eq!(advisory_count, 0);
+}
+
+// S-056 D2: the two new cross-step advisories (`step_expected_file_overlap`,
+// `step_criterion_duplicate`) reach the EventLog as
+// `plan.criterion_quality_advisory` annotations for an accepted draft,
+// exactly like the S-050 P3 marker-less advisories above.
+#[test]
+fn generate_draft_logs_step_overlap_advisories_for_accepted_draft() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let session_id = seed_session(&state, project_id);
+    seed_minimal_prd(&state, project_id);
+    let interview =
+        workspace_plan_start_interview_impl(&state, project_id, "Build a roadmap".into()).unwrap();
+    let submitted =
+        workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
+            .unwrap();
+
+    let mut input = draft_input();
+    // draft_input()'s two steps already share the identical AC-001 criterion
+    // text (exercises step_criterion_duplicate); additionally overlap their
+    // expected_files, differing only in case/whitespace, to exercise
+    // step_expected_file_overlap in the same accepted draft.
+    input.steps[0].expected_files = vec!["src/shared.ts".into()];
+    input.steps[1].expected_files = vec!["  SRC/Shared.ts  ".into()];
+
+    let (plan, steps) =
+        workspace_plan_generate_draft_impl(&state, submitted.id, input, false).unwrap();
+    assert_eq!(steps.len(), 2);
+
+    let db = state.db.lock().unwrap();
+    let events = event_log::list(db.conn()).unwrap();
+    let advisories: Vec<_> = events
+        .iter()
+        .filter(|event| {
+            event.r#type == dive_lib::dive::event_log::PLAN_CRITERION_QUALITY_ADVISORY_EVENT
+        })
+        .collect();
+
+    for advisory in &advisories {
+        assert_eq!(advisory.session_id, Some(session_id));
+        assert_eq!(advisory.payload["project_id"], json!(project_id));
+        assert_eq!(advisory.payload["plan_id"], json!(plan.id));
+        assert_eq!(advisory.payload["blocking"], json!(false));
+        assert_eq!(advisory.payload["annotation"], json!(true));
+        assert_eq!(advisory.payload["agencyComponent"], json!("plan"));
+    }
+    assert!(advisories.iter().any(|advisory| {
+        advisory.payload["code"] == json!("step_criterion_duplicate")
+            && advisory.payload["step_ref"] == json!("Export artifacts")
+            && advisory.payload["criterion_preview"] == json!("A saved PRD unlocks plan generation")
+    }));
+    assert!(advisories.iter().any(|advisory| {
+        advisory.payload["code"] == json!("step_expected_file_overlap")
+            && advisory.payload["step_ref"] == json!("Export artifacts")
+            && advisory.payload["criterion_preview"] == json!("src/shared.ts")
+    }));
+    drop(db);
+
+    let exported = ExportEngine::new(state.db.clone())
+        .export_session_with_salt(session_id, &ExportOptions::default(), "test-salt")
+        .unwrap();
+    // The export anonymizer hashes the `code`/path-shaped `criterion_preview`
+    // fields (same as every other event payload), so — matching the S-050 P3
+    // export assertion above — this only checks that both advisory events
+    // (not just one) reached the exported JSONL, not their redacted content.
+    let advisory_line_count = exported
+        .lines()
+        .filter(|line| line.contains("\"type\":\"plan.criterion_quality_advisory\""))
+        .count();
+    assert_eq!(advisory_line_count, 2);
 }
 
 #[test]

@@ -5266,6 +5266,7 @@ fn validate_criterion_quality(
     }
 
     advisories.extend(marker_less_criterion_advisories(plan_input));
+    advisories.extend(step_overlap_advisories(plan_input));
 
     Ok(CriterionQualityReport { advisories })
 }
@@ -5309,6 +5310,102 @@ fn marker_less_criterion_advisories(plan_input: &PlanDraftInput) -> Vec<Criterio
         }
     }
     advisories
+}
+
+/// S-056 D2 (011 theme 7 / P2-03): two deterministic cross-step advisories,
+/// per D-011-01's hard constraint that this check is advisory-first and can
+/// never block a plan. Neither sub-check below touches an `Err` path — both
+/// only ever push onto the accepted report's `advisories` vec.
+fn step_overlap_advisories(plan_input: &PlanDraftInput) -> Vec<CriterionQualityAdvisory> {
+    let mut advisories = step_expected_file_overlap_advisories(plan_input);
+    advisories.extend(step_criterion_duplicate_advisories(plan_input));
+    advisories
+}
+
+/// `step_expected_file_overlap`: the same `expected_files` entry (trimmed,
+/// lowercased, backslashes normalized to forward slashes) is claimed by two
+/// or more steps. Emits one advisory per duplicated path — not per pair —
+/// naming the highest-index ("later") step that claims it.
+fn step_expected_file_overlap_advisories(
+    plan_input: &PlanDraftInput,
+) -> Vec<CriterionQualityAdvisory> {
+    let mut steps_by_path: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (index, step) in plan_input.steps.iter().enumerate() {
+        let mut seen_in_step = HashSet::new();
+        for raw in &step.expected_files {
+            let normalized = normalize_expected_file_path(raw);
+            if normalized.is_empty() || !seen_in_step.insert(normalized.clone()) {
+                continue;
+            }
+            steps_by_path.entry(normalized).or_default().push(index);
+        }
+    }
+
+    steps_by_path
+        .into_iter()
+        .filter(|(_, indices)| indices.len() >= 2)
+        .map(|(path, indices)| {
+            let last_index = *indices.iter().max().expect("checked len >= 2");
+            CriterionQualityAdvisory {
+                code: "step_expected_file_overlap",
+                criterion_preview: compact_preview(&path),
+                step_ref: Some(step_display_name(&plan_input.steps[last_index], last_index)),
+            }
+        })
+        .collect()
+}
+
+fn normalize_expected_file_path(value: &str) -> String {
+    value.trim().to_lowercase().replace('\\', "/")
+}
+
+/// `step_criterion_duplicate`: an acceptance criterion — normalized via the
+/// existing `normalize_quality_text` plus whitespace collapse, exact match
+/// only, no fuzzy scoring (D-011-01: false-positive risk near zero for
+/// legitimate multi-touch steps) — shows up in two or more *different*
+/// steps. A criterion repeated twice within the *same* step is ordinary step
+/// authoring, not cross-step overlap, so it never trips this code.
+fn step_criterion_duplicate_advisories(
+    plan_input: &PlanDraftInput,
+) -> Vec<CriterionQualityAdvisory> {
+    let mut steps_by_text: BTreeMap<String, Vec<(usize, String)>> = BTreeMap::new();
+    for (index, step) in plan_input.steps.iter().enumerate() {
+        let mut seen_in_step = HashSet::new();
+        for criterion in &step.acceptance_criteria {
+            let Some(text) = criterion_input_text(criterion) else {
+                continue;
+            };
+            let normalized = normalized_criterion_text(&text);
+            if normalized.is_empty() || !seen_in_step.insert(normalized.clone()) {
+                continue;
+            }
+            steps_by_text
+                .entry(normalized)
+                .or_default()
+                .push((index, text));
+        }
+    }
+
+    steps_by_text
+        .into_values()
+        .filter(|occurrences| occurrences.len() >= 2)
+        .map(|mut occurrences| {
+            occurrences.sort_by_key(|(index, _)| *index);
+            let (last_index, text) = occurrences.pop().expect("checked len >= 2");
+            CriterionQualityAdvisory {
+                code: "step_criterion_duplicate",
+                criterion_preview: compact_preview(&text),
+                step_ref: Some(step_display_name(&plan_input.steps[last_index], last_index)),
+            }
+        })
+        .collect()
+}
+
+fn normalized_criterion_text(value: &str) -> String {
+    normalize_quality_text(value)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn collect_acceptance_criterion_texts(plan_input: &PlanDraftInput) -> Vec<String> {
@@ -6862,6 +6959,203 @@ mod criterion_quality_tests {
                 "{locale_file} marker examples assembled into a minimal one-step plan must \
                  pass validate_criterion_quality"
             );
+        }
+    }
+
+    /// S-056 D2 self-pass lock: the two cross-step advisories must never
+    /// fire on legitimate multi-touch plans and must fire exactly once,
+    /// naming the later step, on genuine overlap.
+    mod step_overlap_advisory_tests {
+        use super::*;
+
+        // (a) The S-050 QA-repro plan shape (single step, two distinct
+        // Korean criteria) must stay overlap-clean.
+        #[test]
+        fn qa_repro_plan_produces_zero_overlap_advisories() {
+            let plan = plan_with_criteria(
+                "정적 체크리스트 앱",
+                &[
+                    "완료한 항목을 클릭하면 취소선이 표시된다",
+                    "할 일 3개를 추가하면 목록에 3개 항목이 보인다",
+                ],
+            );
+
+            assert!(step_overlap_advisories(&plan).is_empty());
+
+            let report = validate_criterion_quality("정적 체크리스트 앱", &plan)
+                .expect("qa-repro fixture must still pass the gate");
+            assert!(!report.advisories.iter().any(|advisory| {
+                advisory.code == "step_expected_file_overlap"
+                    || advisory.code == "step_criterion_duplicate"
+            }));
+        }
+
+        // (b) The recovery-example strings are deliberately distinct texts;
+        // assembling one per step must not trip step_criterion_duplicate,
+        // which would mean normalization is over-matching.
+        #[test]
+        fn recovery_example_locale_criteria_produce_zero_duplicate_advisories() {
+            for locale_file in ["ko.json", "en.json"] {
+                let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../src/i18n")
+                    .join(locale_file);
+                let raw = std::fs::read_to_string(&path)
+                    .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+                let json: serde_json::Value = serde_json::from_str(&raw)
+                    .unwrap_or_else(|err| panic!("failed to parse {}: {err}", path.display()));
+                let examples = json
+                    .pointer("/planning/interview/recovery/examples")
+                    .and_then(|value| value.as_object())
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "{locale_file} is missing planning.interview.recovery.examples \
+                             (the self-passing recovery example lock)"
+                        )
+                    });
+
+                let steps: Vec<StepDraftInput> = examples
+                    .iter()
+                    .enumerate()
+                    .map(|(index, (key, value))| {
+                        let text = value.as_str().unwrap_or_else(|| {
+                            panic!("{locale_file} examples.{key} must be a string")
+                        });
+                        named_step_with_criteria(key.as_str(), &format!("step-{index:03}"), &[text])
+                    })
+                    .collect();
+                let plan = plan_with_steps("Assemble recovery examples", steps);
+
+                assert!(
+                    step_criterion_duplicate_advisories(&plan).is_empty(),
+                    "{locale_file} recovery examples are meant to be textually distinct; \
+                     assembling them one per step must not trip step_criterion_duplicate"
+                );
+            }
+        }
+
+        // (c) The same expected_files path, differing only in case/whitespace,
+        // claimed by two steps yields exactly one advisory naming the later step.
+        #[test]
+        fn duplicated_expected_file_across_steps_emits_one_overlap_advisory() {
+            let mut step_a = named_step_with_criteria(
+                "Create schema",
+                "step-001",
+                &["Clicking Save adds a new record to the list."],
+            );
+            step_a.expected_files = vec!["src/schema.ts".into()];
+
+            let mut step_b = named_step_with_criteria(
+                "Wire API",
+                "step-002",
+                &["Refreshing the page keeps the list visible."],
+            );
+            step_b.position = 2;
+            step_b.expected_files = vec!["  SRC/Schema.ts  ".into()];
+
+            let plan = plan_with_steps("Build a small utility", vec![step_a, step_b]);
+
+            let advisories = step_expected_file_overlap_advisories(&plan);
+            assert_eq!(advisories.len(), 1);
+            assert_eq!(advisories[0].code, "step_expected_file_overlap");
+            assert_eq!(advisories[0].step_ref.as_deref(), Some("Wire API"));
+            assert_eq!(advisories[0].criterion_preview, "src/schema.ts");
+
+            let report = validate_criterion_quality("Build a small utility", &plan)
+                .expect("expected_files overlap must never block plan validation");
+            assert!(report.advisories.iter().any(|advisory| {
+                advisory.code == "step_expected_file_overlap"
+                    && advisory.step_ref.as_deref() == Some("Wire API")
+            }));
+        }
+
+        // (d) The same acceptance criterion text in two different steps
+        // yields exactly one advisory naming the later step.
+        #[test]
+        fn duplicated_criterion_across_steps_emits_one_duplicate_advisory() {
+            let mut step_a = named_step_with_criteria(
+                "Create schema",
+                "step-001",
+                &["Clicking Save adds a new record to the list."],
+            );
+            step_a.expected_files = vec!["src/schema.ts".into()];
+
+            let mut step_b = named_step_with_criteria(
+                "Export artifacts",
+                "step-002",
+                &["Clicking Save adds a new record to the list."],
+            );
+            step_b.position = 2;
+            step_b.expected_files = vec!["src/export.ts".into()];
+
+            let plan = plan_with_steps("Build a small utility", vec![step_a, step_b]);
+
+            let advisories = step_criterion_duplicate_advisories(&plan);
+            assert_eq!(advisories.len(), 1);
+            assert_eq!(advisories[0].code, "step_criterion_duplicate");
+            assert_eq!(advisories[0].step_ref.as_deref(), Some("Export artifacts"));
+            assert_eq!(
+                advisories[0].criterion_preview,
+                "Clicking Save adds a new record to the list."
+            );
+            assert!(step_expected_file_overlap_advisories(&plan).is_empty());
+
+            let report = validate_criterion_quality("Build a small utility", &plan)
+                .expect("duplicated criteria must never block plan validation");
+            assert!(report.advisories.iter().any(|advisory| {
+                advisory.code == "step_criterion_duplicate"
+                    && advisory.step_ref.as_deref() == Some("Export artifacts")
+            }));
+        }
+
+        // (e) A criterion repeated twice within the SAME step is ordinary
+        // step authoring, not cross-step overlap — must not fire the code.
+        #[test]
+        fn duplicated_criterion_within_one_step_does_not_emit_cross_step_code() {
+            let step = named_step_with_criteria(
+                "Create schema",
+                "step-001",
+                &[
+                    "Clicking Save writes 3 records to the schema file.",
+                    "Clicking Save writes 3 records to the schema file.",
+                ],
+            );
+
+            let plan = plan_with_steps("Build a small utility", vec![step]);
+
+            assert!(step_criterion_duplicate_advisories(&plan).is_empty());
+        }
+
+        // (f) A plan overlapping on both files and criteria at once must
+        // still validate Ok — overlap is advisory-only, per D-011-01.
+        #[test]
+        fn overlapping_files_and_criteria_never_block_plan_validation() {
+            let mut step_a = named_step_with_criteria(
+                "Create schema",
+                "step-001",
+                &["Clicking Save adds a new record to the list."],
+            );
+            step_a.expected_files = vec!["src/schema.ts".into()];
+
+            let mut step_b = named_step_with_criteria(
+                "Export artifacts",
+                "step-002",
+                &["Clicking Save adds a new record to the list."],
+            );
+            step_b.position = 2;
+            step_b.expected_files = vec!["src/schema.ts".into()];
+
+            let plan = plan_with_steps("Build a small utility", vec![step_a, step_b]);
+
+            let report = validate_criterion_quality("Build a small utility", &plan)
+                .expect("overlapping files and duplicated criteria must never turn Ok into Err");
+            assert!(report
+                .advisories
+                .iter()
+                .any(|advisory| advisory.code == "step_expected_file_overlap"));
+            assert!(report
+                .advisories
+                .iter()
+                .any(|advisory| advisory.code == "step_criterion_duplicate"));
         }
     }
 }
