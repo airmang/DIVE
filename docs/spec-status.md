@@ -75,14 +75,17 @@ is S-057: clean app-data new-project → 3-step completion, 3 consecutive runs,
 
 | Wily Stage | Scope | Status |
 | --- | --- | --- |
-| S-050 | Plan-quality gate re-tuning + recovery-example self-pass regression lock (P0-01, absorbs P2-05 plan-recovery Korean copy) | Registered |
-| S-051 | Provider+model Pi executability preflight, unsupported-model surfacing, error un-swallowing (P0-02, absorbs P2-02 curation) | Registered |
-| S-052 | Post-success false stall-timeout removal — per-run terminal state, no timer re-arm (P1-01) | Registered |
-| S-053 | PRD interview patch-failure transparency + field-level provenance (P1-02, P1-03) | Registered |
-| S-054 | Release-gate restoration: 5 failing verifier items, initial chunk < 500 KiB, QA app-data isolation (P1-04) | Registered |
-| S-055 | Windows installed-app demo readiness — NSIS smoke, first run, demo conditions (P1-05, demo-critical) | Registered |
-| S-056 | Demo UX polish: empty-state split, step-overlap validation (post-S-050, self-pass locked), multi-criterion evidence linking, sidebar decluttering (P2) | Registered |
-| S-057 | GO-judgment exit gate + presentation fallback package (recording, run-of-show, failure contingencies) | Registered |
+| S-050 | Plan-quality gate re-tuning + recovery-example self-pass regression lock (P0-01, absorbs P2-05 plan-recovery Korean copy) | Code landed (P1-P3); live re-QA pending |
+| S-051 | Provider+model Pi executability preflight, unsupported-model surfacing, error un-swallowing, pi-ai 0.80.6 bump + factory-default registry CI gate (P0-02, absorbs P2-02 curation) | Code landed (P1-P3); live re-QA pending |
+| S-052 | Post-success false stall-timeout removal — per-run terminal state, no timer re-arm (P1-01) | Code landed (P1); live re-QA pending |
+| S-053 | PRD interview patch-failure transparency (not_structured + interview_turns audit trail) + field-level provenance (P1-02, P1-03) | Code landed (P1-P3); live re-QA pending |
+| S-054 | Release-gate restoration: verifier repoints + rate-limit resume affordance, initial chunk 549→374 KB (< 500 KiB), verifiers joined the verify:v4 CI chain; QA app-data isolation confirmed pre-existing (P1-04) | Code landed (P1-P2); all three verifiers pass |
+| S-055 | Windows installed-app demo readiness — NSIS smoke, first run, demo conditions (P1-05, demo-critical) | Pending Windows runner/hardware (release gate now green) |
+| S-056 | Demo UX polish: session-starting empty state, cross-step overlap advisories (advisory-first, self-pass locked), multi-criterion evidence linking, project archive (P2) | Code landed (P1-P3); live re-QA pending |
+| S-057 | GO-judgment exit gate + presentation fallback package (recording, run-of-show, failure contingencies) | Fallback package doc prepared; GO gate pending live QA |
+
+Live re-QA for the landed stages is batched into one computer-use session:
+`docs/qa/011-live-qa/tier1-combined-run-order.md` (journeys A–F).
 
 ## 010 Implementation Status
 
