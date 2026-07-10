@@ -1,7 +1,17 @@
 #!/usr/bin/env node
 import readline from "node:readline";
 
-import { getModel, getModels, getProviders, Type } from "@earendil-works/pi-ai";
+import { Type } from "@earendil-works/pi-ai";
+// pi-ai 0.80 moved the static generated-catalog readers off the root entrypoint
+// (the old getModel/getModels/getProviders free functions were removed) onto
+// `providers/all`, non-deprecated, same generic signatures. Aliased back to the
+// old names so the rest of this file — and S-051 D1's "wraps the package's
+// existing getProviders()/getModels() exports" contract — is unchanged.
+import {
+  getBuiltinModel as getModel,
+  getBuiltinModels as getModels,
+  getBuiltinProviders as getProviders,
+} from "@earendil-works/pi-ai/providers/all";
 import {
   AuthStorage,
   createAgentSession,

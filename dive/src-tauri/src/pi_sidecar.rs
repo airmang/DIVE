@@ -1499,6 +1499,59 @@ function ready(message) {
         );
     }
 
+    // S-051 D4: factory-default CI gate. Advertised defaults/fallbacks must never
+    // outrun what the pinned pi-ai registry can actually execute (the rc.7
+    // `claude-sonnet-5` gap this stage exists to fix and lock shut). Defaults are
+    // pulled from the live factory functions — never a hand-copied string list —
+    // so a future default bump that outruns the pinned registry fails this test
+    // instead of shipping. Scoped to the provider kinds Pi actually drives
+    // (`pi_provider_descriptor` returns `Some`); kinds with no Pi execution path
+    // (opencode_zen, custom-openai) make no Pi-executability claim to gate.
+    #[tokio::test]
+    async fn factory_defaults_and_curated_fallbacks_resolve_in_pinned_pi_registry() {
+        let _serial = fake_sidecar_test_lock();
+
+        let providers = model_registry::query_model_registry()
+            .await
+            .expect("real pi sidecar answers list_models");
+
+        for kind in ["anthropic", "openai", "openrouter", "codex"] {
+            let provider_kind = crate::ipc::provider_runtime::ProviderKind::parse(kind);
+            let Some(descriptor) = parity::pi_provider_descriptor(provider_kind) else {
+                panic!(
+                    "DIVE provider kind `{kind}` is expected to be Pi-eligible (used in the \
+                     anthropic/openai/openrouter/codex allowlist) but pi_provider_descriptor \
+                     returned None; update this test's kind list if that allowlist changed"
+                );
+            };
+            let pi_provider_id = descriptor.pi_provider_id;
+            let resolved = providers.get(pi_provider_id).unwrap_or_else(|| {
+                panic!(
+                    "pinned pi-ai registry has no `{pi_provider_id}` provider at all \
+                     (DIVE kind `{kind}`); registry drift or provider id mismatch"
+                )
+            });
+
+            let default_model = crate::providers::factory::default_model_for_kind(kind);
+            assert!(
+                resolved.contains(default_model),
+                "factory default `{kind}`/`{default_model}` (pi provider `{pi_provider_id}`) \
+                 does not resolve in the pinned pi-ai registry — the advertised default has \
+                 outrun the bundled sidecar's registry (S-051 D4)"
+            );
+
+            for curated in crate::providers::factory::models_for_kind(kind) {
+                assert!(
+                    resolved.contains(&curated.id),
+                    "curated fallback `{kind}`/`{}` (pi provider `{pi_provider_id}`) does not \
+                     resolve in the pinned pi-ai registry — the curated catalog has outrun the \
+                     bundled sidecar's registry (S-051 D4)",
+                    curated.id
+                );
+            }
+        }
+    }
+
     #[tokio::test]
     async fn pi_model_registry_cache_answers_true_and_false_after_successful_load() {
         let _serial = fake_sidecar_test_lock();

@@ -4,7 +4,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { getModel } from "@earendil-works/pi-ai";
+// pi-ai 0.80 moved the static catalog reader off the root entrypoint; see
+// src/index.mjs for the same alias.
+import { getBuiltinModel as getModel } from "@earendil-works/pi-ai/providers/all";
 import {
   AuthStorage,
   createAgentSession,
