@@ -33,6 +33,7 @@ pub const PLAN_STEP_APPENDED_EVENT: &str = "plan_step_appended";
 pub const PLAN_STEP_CHANGED_EVENT: &str = "plan_step_changed";
 pub const PLAN_STEP_RETIRED_EVENT: &str = "plan_step_retired";
 pub const PLAN_FORM_CONSISTENCY_EVENT: &str = "plan.form_consistency";
+pub const PLAN_CRITERION_QUALITY_ADVISORY_EVENT: &str = "plan.criterion_quality_advisory";
 pub const PERMISSION_PRIMER_SHOWN_EVENT: &str = "permission_primer.shown";
 pub const PERMISSION_PRIMER_DISMISSED_EVENT: &str = "permission_primer.dismissed";
 pub const VERIFICATION_COACH_REQUESTED_EVENT: &str = "verification_coach.requested";
@@ -245,6 +246,35 @@ pub fn plan_form_consistency_payload(input: PlanFormConsistencyPayloadInput<'_>)
     })
 }
 
+pub struct PlanCriterionQualityAdvisoryPayloadInput<'a> {
+    pub project_id: i64,
+    pub plan_id: i64,
+    pub code: &'a str,
+    pub criterion_preview: Option<&'a str>,
+    pub step_ref: Option<&'a str>,
+}
+
+/// S-050 D1/P3: non-blocking advisory annotation for an accepted plan draft
+/// (`plan.criterion_quality_advisory`), following the `plan.form_consistency`
+/// precedent above. `criterion_preview` is expected to already be truncated
+/// by the caller's `compact_preview` (96 chars) — this builder does not
+/// re-truncate, matching the privacy posture of the other plan events.
+pub fn plan_criterion_quality_advisory_payload(
+    input: PlanCriterionQualityAdvisoryPayloadInput<'_>,
+) -> Value {
+    json!({
+        "project_id": input.project_id,
+        "plan_id": input.plan_id,
+        "code": input.code,
+        "criterion_preview": input.criterion_preview,
+        "step_ref": input.step_ref,
+        "source": "deterministic_criterion_quality_check",
+        "blocking": false,
+        "annotation": true,
+        "createdAt": crate::db::now_ms(),
+    })
+}
+
 pub(crate) fn enrich_agency_payload(event_type: &str, payload: Value) -> Value {
     let Value::Object(mut map) = payload else {
         return payload;
@@ -385,7 +415,8 @@ fn infer_agency_component(event_type: &str, payload: &Value) -> Option<&'static 
         | PRD_AUTHORED_EVENT
         | PRD_EDITED_EVENT
         | PRD_VERSION_CREATED_EVENT
-        | PLAN_FORM_CONSISTENCY_EVENT => return Some("plan"),
+        | PLAN_FORM_CONSISTENCY_EVENT
+        | PLAN_CRITERION_QUALITY_ADVISORY_EVENT => return Some("plan"),
         PERMISSION_PRIMER_SHOWN_EVENT | PERMISSION_PRIMER_DISMISSED_EVENT => return Some("action"),
         "checkpoint_create" | "checkpoint_restore" => return Some("rollback"),
         "verify_start" | "verify_complete" => return Some("verify"),
@@ -1609,6 +1640,44 @@ mod tests {
         );
         assert_eq!(applied["criterion_ids_assigned"][0], "AC-001");
         assert_eq!(applied["student_edited_fields_respected"][0], "constraints");
+    }
+
+    #[test]
+    fn plan_criterion_quality_advisory_payload_builder_shape() {
+        let payload =
+            plan_criterion_quality_advisory_payload(PlanCriterionQualityAdvisoryPayloadInput {
+                project_id: 7,
+                plan_id: 42,
+                code: "criterion_no_marker",
+                criterion_preview: Some("The export step follows the existing project code style."),
+                step_ref: Some("Export artifacts"),
+            });
+
+        assert_eq!(payload["project_id"], json!(7));
+        assert_eq!(payload["plan_id"], json!(42));
+        assert_eq!(payload["code"], json!("criterion_no_marker"));
+        assert_eq!(
+            payload["criterion_preview"],
+            json!("The export step follows the existing project code style.")
+        );
+        assert_eq!(payload["step_ref"], json!("Export artifacts"));
+        assert_eq!(
+            payload["source"],
+            json!("deterministic_criterion_quality_check")
+        );
+        assert_eq!(payload["blocking"], json!(false));
+        assert_eq!(payload["annotation"], json!(true));
+        assert!(payload["createdAt"].is_i64());
+
+        let missing_class =
+            plan_criterion_quality_advisory_payload(PlanCriterionQualityAdvisoryPayloadInput {
+                project_id: 7,
+                plan_id: 42,
+                code: "missing_state_class_advisory",
+                criterion_preview: Some("persistence"),
+                step_ref: None,
+            });
+        assert_eq!(missing_class["step_ref"], Value::Null);
     }
 
     #[test]

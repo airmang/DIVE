@@ -3046,10 +3046,6 @@ pub fn workspace_plan_generate_draft_impl(
     let project_prd = project_prd.expect("minimal PRD checked above");
     let quality_report =
         validate_criterion_quality(&interview.goal, &plan_input).map_err(|e| e.to_string())?;
-    // S-050 P3 wires these into the EventLog as `plan.criterion_quality_advisory`;
-    // P1 only enforces the blocking gate and counts them so the accepted draft
-    // still proceeds without acting on the advisories yet.
-    let _advisory_count = quality_report.advisories.len();
     for step in &mut plan_input.steps {
         sanitize_step_verification(step);
     }
@@ -3104,6 +3100,13 @@ pub fn workspace_plan_generate_draft_impl(
         plan_id,
         &project_prd,
         &plan_input.steps,
+    );
+    log_criterion_quality_advisories(
+        &tx,
+        annotation_session_id,
+        interview.project_id,
+        plan_id,
+        &quality_report.advisories,
     );
     let mut step_criterion_links: Vec<(String, Vec<String>)> = Vec::new();
     for step in plan_input.steps {
@@ -3218,6 +3221,42 @@ fn log_form_consistency_annotations(
             tracing::warn!(
                 error = %crate::telemetry::redact_log_text(&err.to_string()),
                 "failed to append plan form consistency annotation"
+            );
+        }
+    }
+}
+
+/// S-050 D1/P3: logs the accepted draft's non-blocking criterion-quality
+/// findings as `plan.criterion_quality_advisory` annotations, mirroring
+/// `log_form_consistency_annotations` above (S-049 precedent). Called inside
+/// the same transaction as the plan/step insert so a rolled-back draft never
+/// leaves advisory rows behind.
+fn log_criterion_quality_advisories(
+    conn: &rusqlite::Connection,
+    session_id: Option<i64>,
+    project_id: i64,
+    plan_id: i64,
+    advisories: &[CriterionQualityAdvisory],
+) {
+    for advisory in advisories {
+        let payload = dive_event_log::plan_criterion_quality_advisory_payload(
+            dive_event_log::PlanCriterionQualityAdvisoryPayloadInput {
+                project_id,
+                plan_id,
+                code: advisory.code,
+                criterion_preview: Some(advisory.criterion_preview.as_str()),
+                step_ref: advisory.step_ref.as_deref(),
+            },
+        );
+        if let Err(err) = dive_event_log::append_to_conn(
+            conn,
+            session_id,
+            dive_event_log::PLAN_CRITERION_QUALITY_ADVISORY_EVENT,
+            payload,
+        ) {
+            tracing::warn!(
+                error = %crate::telemetry::redact_log_text(&err.to_string()),
+                "failed to append criterion quality advisory annotation"
             );
         }
     }
@@ -4969,9 +5008,9 @@ impl std::fmt::Display for CriterionQualityError {
     }
 }
 
-/// S-050 D1: the accepted draft's non-blocking findings. Advisories are
-/// surfaced to the EventLog by a later phase (P3); P1 only computes and
-/// discards them at the call site.
+/// S-050 D1: the accepted draft's non-blocking findings. Surfaced to the
+/// EventLog as `plan.criterion_quality_advisory` annotations by
+/// `log_criterion_quality_advisories`, once the draft is persisted (P3).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CriterionQualityReport {
     advisories: Vec<CriterionQualityAdvisory>,

@@ -1079,6 +1079,137 @@ fn generate_draft_logs_form_consistency_annotation_without_blocking() {
     assert!(exported.contains("\"blocking\":false"));
 }
 
+// S-050 P3: marker-less non-junk criteria on an accepted draft are logged as
+// `plan.criterion_quality_advisory` annotations, one per advisory, mirroring
+// the form-consistency precedent above.
+#[test]
+fn generate_draft_logs_criterion_quality_advisories_for_marker_less_criteria() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let session_id = seed_session(&state, project_id);
+    seed_minimal_prd(&state, project_id);
+    let interview =
+        workspace_plan_start_interview_impl(&state, project_id, "Build a roadmap".into()).unwrap();
+    let submitted =
+        workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
+            .unwrap();
+
+    let mut input = draft_input();
+    input.steps[0]
+        .acceptance_criteria
+        .push(AcceptanceCriterionInput::Text(
+            "The schema follows the existing project code style.".into(),
+        ));
+    input.steps[1]
+        .acceptance_criteria
+        .push(AcceptanceCriterionInput::Text(
+            "The export step follows the existing project code style.".into(),
+        ));
+
+    let (plan, steps) =
+        workspace_plan_generate_draft_impl(&state, submitted.id, input, false).unwrap();
+    assert_eq!(steps.len(), 2);
+
+    let db = state.db.lock().unwrap();
+    let events = event_log::list(db.conn()).unwrap();
+    let advisories: Vec<_> = events
+        .iter()
+        .filter(|event| {
+            event.r#type == dive_lib::dive::event_log::PLAN_CRITERION_QUALITY_ADVISORY_EVENT
+        })
+        .collect();
+
+    assert_eq!(advisories.len(), 2);
+    for advisory in &advisories {
+        assert_eq!(advisory.session_id, Some(session_id));
+        assert_eq!(advisory.payload["project_id"], json!(project_id));
+        assert_eq!(advisory.payload["plan_id"], json!(plan.id));
+        assert_eq!(advisory.payload["code"], json!("criterion_no_marker"));
+        assert_eq!(advisory.payload["blocking"], json!(false));
+        assert_eq!(advisory.payload["annotation"], json!(true));
+        assert_eq!(advisory.payload["agencyComponent"], json!("plan"));
+    }
+    assert!(advisories.iter().any(|advisory| {
+        advisory.payload["step_ref"] == json!("Create schema")
+            && advisory.payload["criterion_preview"]
+                == json!("The schema follows the existing project code style.")
+    }));
+    assert!(advisories.iter().any(|advisory| {
+        advisory.payload["step_ref"] == json!("Export artifacts")
+            && advisory.payload["criterion_preview"]
+                == json!("The export step follows the existing project code style.")
+    }));
+    drop(db);
+
+    let exported = ExportEngine::new(state.db.clone())
+        .export_session_with_salt(session_id, &ExportOptions::default(), "test-salt")
+        .unwrap();
+    assert!(exported.contains("\"type\":\"plan.criterion_quality_advisory\""));
+}
+
+// S-050 P3: a draft where every criterion carries an observable marker (the
+// default `draft_input()` fixture) logs zero advisory events.
+#[test]
+fn generate_draft_logs_zero_criterion_quality_advisories_when_all_criteria_carry_markers() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    seed_session(&state, project_id);
+    seed_minimal_prd(&state, project_id);
+    let interview =
+        workspace_plan_start_interview_impl(&state, project_id, "Build a roadmap".into()).unwrap();
+    let submitted =
+        workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
+            .unwrap();
+
+    let (_plan, steps) =
+        workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
+    assert_eq!(steps.len(), 2);
+
+    let db = state.db.lock().unwrap();
+    let events = event_log::list(db.conn()).unwrap();
+    let advisory_count = events
+        .iter()
+        .filter(|event| {
+            event.r#type == dive_lib::dive::event_log::PLAN_CRITERION_QUALITY_ADVISORY_EVENT
+        })
+        .count();
+    assert_eq!(advisory_count, 0);
+}
+
+// S-050 P3: a blocked draft (junk criterion trips the P1 gate before the
+// draft is ever persisted) must not log any advisory events.
+#[test]
+fn generate_draft_blocked_by_junk_criterion_logs_no_advisory_events() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    seed_session(&state, project_id);
+    seed_minimal_prd(&state, project_id);
+    let interview =
+        workspace_plan_start_interview_impl(&state, project_id, "Build a roadmap".into()).unwrap();
+    let submitted =
+        workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
+            .unwrap();
+
+    let mut input = draft_input();
+    input.acceptance_criteria = vec![AcceptanceCriterionInput::Text("적당히 잘".into())];
+
+    let result = workspace_plan_generate_draft_impl(&state, submitted.id, input, false);
+    assert!(result.is_err());
+
+    let db = state.db.lock().unwrap();
+    let events = event_log::list(db.conn()).unwrap();
+    let advisory_count = events
+        .iter()
+        .filter(|event| {
+            event.r#type == dive_lib::dive::event_log::PLAN_CRITERION_QUALITY_ADVISORY_EVENT
+        })
+        .count();
+    assert_eq!(advisory_count, 0);
+}
+
 #[test]
 fn challenging_step_rationale_offers_plan_adjustment_without_blocking_start() {
     let tmp = tempfile::tempdir().unwrap();
