@@ -2,11 +2,32 @@ import { describe, expect, it } from "vitest";
 import {
   buildPrdPlanGenerationPrompt,
   draftFromProjectSpec,
+  modelNotFoundToastArgs,
   restorePrdDraftIfCurrent,
+  runtimeSetupActionLabel,
   shouldShowEmptyPlanRail,
   shouldUsePrdReferenceSurface,
 } from "./useProductShellController";
 import { createLiveProjectSpecDraft, type ProjectSpec } from "../../features/planning";
+
+// Mirrors en.json's key→copy for the keys these functions touch, so
+// assertions read like real UI copy instead of raw i18n keys.
+function fakeTranslate(key: string, values?: Record<string, string | number>): string {
+  const table: Record<string, string> = {
+    "sidebar.new_project": "New project",
+    "runtime.capability.setup_action": "Open provider setup",
+    "runtime.capability.switch_model_action": "Switch to a compatible model",
+    "runtime.model_not_found.toast_title": "This model can't run",
+    "runtime.model_not_found.toast_description":
+      "{{provider}}/{{model}} is not supported by the supervised Pi runtime.",
+  };
+  const template = table[key] ?? key;
+  if (!values) return template;
+  return Object.entries(values).reduce(
+    (out, [name, value]) => out.split(`{{${name}}}`).join(String(value)),
+    template,
+  );
+}
 
 function projectSpec(): ProjectSpec {
   return {
@@ -301,5 +322,57 @@ describe("restorePrdDraftIfCurrent", () => {
         requestedDraftUpdatedAt: 100,
       }),
     ).toBeNull();
+  });
+});
+
+// S-051 P2 D2.2/D3: the runtime-unavailable CTA label + the run-time
+// model-not-found toast copy.
+describe("runtimeSetupActionLabel", () => {
+  it("labels open_project with the new-project action", () => {
+    expect(runtimeSetupActionLabel("open_project", fakeTranslate)).toBe("New project");
+  });
+
+  it("hides the button for the interim retry_runtime action", () => {
+    expect(runtimeSetupActionLabel("retry_runtime", fakeTranslate)).toBeUndefined();
+  });
+
+  it("gives switch_model a dedicated compatible-model label (S-051 D2 point 2)", () => {
+    expect(runtimeSetupActionLabel("switch_model", fakeTranslate)).toBe(
+      "Switch to a compatible model",
+    );
+  });
+
+  it("falls back to the generic open-provider-setup label for other/unset actions", () => {
+    expect(runtimeSetupActionLabel("configure_provider", fakeTranslate)).toBe(
+      "Open provider setup",
+    );
+    expect(runtimeSetupActionLabel(null, fakeTranslate)).toBe("Open provider setup");
+    expect(runtimeSetupActionLabel(undefined, fakeTranslate)).toBe("Open provider setup");
+  });
+});
+
+describe("modelNotFoundToastArgs", () => {
+  it("returns null when there is no chat error", () => {
+    expect(modelNotFoundToastArgs(null, fakeTranslate)).toBeNull();
+    expect(modelNotFoundToastArgs(undefined, fakeTranslate)).toBeNull();
+  });
+
+  it("returns null for an unrelated chat error (does not misfire)", () => {
+    expect(
+      modelNotFoundToastArgs("pi sidecar error: rate limit exceeded", fakeTranslate),
+    ).toBeNull();
+  });
+
+  it("names the provider/model and points at the switch action for a sidecar model-not-found error", () => {
+    const args = modelNotFoundToastArgs(
+      "pi sidecar error: model not found: openrouter/anthropic/claude-sonnet-5",
+      fakeTranslate,
+    );
+    expect(args).toEqual({
+      title: "This model can't run",
+      description:
+        "openrouter/anthropic/claude-sonnet-5 is not supported by the supervised Pi runtime.",
+      actionLabel: "Switch to a compatible model",
+    });
   });
 });

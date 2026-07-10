@@ -365,6 +365,10 @@ pub enum RuntimeSetupAction {
     AddCredentials,
     OpenProject,
     RetryRuntime,
+    /// Switch to a Pi-executable model for the current provider (S-051 D2
+    /// point 2). Navigates to provider/model settings; never auto-mutates
+    /// the saved model — the student picks and confirms.
+    SwitchModel,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,6 +1,8 @@
 export interface ModelInfo {
   id: string;
   display_name: string;
+  /** S-051 D2 point 1: pi-ai registry executability. `null`/`undefined` = unknown, no marking (fail open). */
+  pi_executable?: boolean | null;
 }
 
 export function fallbackModels(providerKind: string): ModelInfo[] {

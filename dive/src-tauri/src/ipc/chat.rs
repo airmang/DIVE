@@ -110,6 +110,22 @@ pub(super) fn safest_run_mode(backend: AgentRunMode, requested: AgentRunMode) ->
     }
 }
 
+/// S-051 D3: detects the pinned pi-ai package's own error template
+/// (`model not found: ${provider}/${modelId}`, `pi-sidecar/src/index.mjs:166`)
+/// inside a `chat_send` failure message. `run_supervised_turn`
+/// (`pi_sidecar.rs`) wraps that string unmodified as
+/// `pi sidecar error: {message}`, so the template survives to here even
+/// though preflight (`select_runtime_at`) already let the turn start —
+/// registry drift or a future race. Returns `(pi_provider_id, model_id)`.
+fn parse_sidecar_model_not_found(message: &str) -> Option<(String, String)> {
+    static MODEL_NOT_FOUND_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"model not found: ([^/\s]+)/(.+)$")
+            .expect("sidecar model-not-found regex")
+    });
+    let captures = MODEL_NOT_FOUND_RE.captures(message)?;
+    Some((captures[1].to_string(), captures[2].trim().to_string()))
+}
+
 fn runtime_unavailable_reason_code(reason: RuntimeUnavailableReason) -> &'static str {
     match reason {
         RuntimeUnavailableReason::ProviderNotConfigured => "provider_not_configured",
@@ -129,6 +145,7 @@ fn runtime_setup_action_code(action: RuntimeSetupAction) -> &'static str {
         RuntimeSetupAction::AddCredentials => "add_credentials",
         RuntimeSetupAction::OpenProject => "open_project",
         RuntimeSetupAction::RetryRuntime => "retry_runtime",
+        RuntimeSetupAction::SwitchModel => "switch_model",
     }
 }
 
@@ -187,8 +204,8 @@ fn provider_not_pi_capable_capability(
 
 /// S-051 D2 point 2: the pinned pi-ai registry the sidecar resolves against
 /// answered that this provider+model pair is not executable. `setup_action`
-/// is the existing generic `RetryRuntime` for now — a dedicated "switch to a
-/// compatible model" action/CTA is P2 scope (design doc D2 point 2).
+/// is `SwitchModel` (P2) — the runtime-unavailable UI renders it as a
+/// one-click CTA to provider/model settings instead of the generic retry.
 fn model_not_executable_capability(
     kind: &ProviderKind,
     model: Option<&str>,
@@ -203,7 +220,7 @@ fn model_not_executable_capability(
             model.unwrap_or("(unset)"),
             kind.as_str()
         ),
-        Some(RuntimeSetupAction::RetryRuntime),
+        Some(RuntimeSetupAction::SwitchModel),
         recorded_at,
     )
 }
@@ -767,6 +784,19 @@ pub async fn chat_send(
                     }
                 }
             }
+            if let Some((provider, model)) = parse_sidecar_model_not_found(&message) {
+                let _ = log_event(
+                    &state,
+                    Some(session_id),
+                    dive_event_log::RUNTIME_MODEL_NOT_FOUND_EVENT,
+                    dive_event_log::runtime_model_not_found_payload(
+                        provider,
+                        model,
+                        "sidecar_run",
+                        &message,
+                    ),
+                );
+            }
             if let Some(step_id) = active_step_id {
                 let _ = mark_step_blocked_after_recoverable_error(&state, step_id, &message);
             }
@@ -1284,5 +1314,54 @@ mod tests {
         );
         assert!(context.linked_criterion_ids.is_empty());
         assert_eq!(context.rationale, None);
+    }
+
+    // S-051 D3: run-time sidecar model-not-found detection.
+    #[test]
+    fn parse_sidecar_model_not_found_extracts_openrouter_slug_model() {
+        let message = "pi sidecar error: model not found: openrouter/anthropic/claude-sonnet-5";
+        let (provider, model) = parse_sidecar_model_not_found(message).expect("should match");
+        assert_eq!(provider, "openrouter");
+        assert_eq!(model, "anthropic/claude-sonnet-5");
+    }
+
+    #[test]
+    fn parse_sidecar_model_not_found_extracts_native_provider_model() {
+        let message = "pi sidecar error: model not found: anthropic/claude-sonnet-5";
+        let (provider, model) = parse_sidecar_model_not_found(message).expect("should match");
+        assert_eq!(provider, "anthropic");
+        assert_eq!(model, "claude-sonnet-5");
+    }
+
+    #[test]
+    fn parse_sidecar_model_not_found_ignores_unrelated_errors() {
+        assert_eq!(
+            parse_sidecar_model_not_found("pi sidecar error: rate limit exceeded"),
+            None
+        );
+    }
+
+    // S-051 D2 point 2: the blocked model_not_executable capability carries
+    // the switch-model CTA (P2), not the interim RetryRuntime from P1.
+    #[test]
+    fn model_not_executable_capability_uses_switch_model_setup_action() {
+        let capability =
+            model_not_executable_capability(&ProviderKind::Anthropic, Some("claude-sonnet-5"), 1);
+        assert_eq!(
+            capability.setup_action,
+            Some(RuntimeSetupAction::SwitchModel)
+        );
+        assert_eq!(
+            capability.reason_code,
+            Some(RuntimeUnavailableReason::ModelNotExecutable)
+        );
+    }
+
+    #[test]
+    fn runtime_setup_action_code_covers_switch_model() {
+        assert_eq!(
+            runtime_setup_action_code(RuntimeSetupAction::SwitchModel),
+            "switch_model"
+        );
     }
 }

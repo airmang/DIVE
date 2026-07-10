@@ -432,6 +432,11 @@
     "model_save_failed_title": "모델 설정 저장 실패",
     "model_filter_placeholder": "모델 검색…",
     "model_filter_no_match": "검색과 일치하는 모델이 없습니다",
+    "model_group_pi_verified": "Pi 검증됨",
+    "model_group_other": "전체 카탈로그",
+    "model_pi_unsupported_marker": "(Pi 미지원)",
+    "model_pi_unsupported_hint": "이 모델은 감독 실행을 지원하지 않습니다. 대신 {{model}}을(를) 사용해 보세요.",
+    "model_pi_unsupported_hint_generic": "이 모델은 DIVE의 감독 Pi 런타임에서 실행할 수 없습니다.",
     "safety_eyebrow": "안전",
     "safety_title": "안전",
     "safety_description": "DIVE는 파일 변경, 명령 실행, 되돌리기 전에 먼저 확인을 요청합니다.",
@@ -523,6 +528,7 @@
       "unavailable_message": "감독 Pi 실행이 준비될 때까지 이 작업을 시작할 수 없습니다.",
       "unavailable_tooltip": "{{message}} 제공자: {{provider}}, 모델: {{model}}.",
       "setup_action": "제공자 설정 열기",
+      "switch_model_action": "호환 모델로 전환",
       "reasons": {
         "provider_not_configured": "설정된 AI provider가 없습니다.",
         "provider_not_pi_capable": "이 provider는 확인된 Pi 런타임 지원이 없습니다.",
@@ -532,6 +538,10 @@
         "runtime_unavailable": "감독 런타임을 사용할 수 없습니다.",
         "model_not_executable": "이 모델은 DIVE의 감독 Pi 런타임에서 사용할 수 없습니다."
       }
+    },
+    "model_not_found": {
+      "toast_title": "이 모델은 실행할 수 없습니다",
+      "toast_description": "{{provider}}/{{model}}은(는) 감독 Pi 런타임에서 지원되지 않습니다."
     }
   },
   "tool_call": {

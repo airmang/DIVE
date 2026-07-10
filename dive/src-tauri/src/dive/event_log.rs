@@ -18,6 +18,7 @@ use crate::tools::guard::assess_terminal_script;
 
 pub const SUPERVISOR_EVALUATED_EVENT: &str = "provocation.supervisor_evaluated";
 pub const RUNTIME_CAPABILITY_EVALUATED_EVENT: &str = "runtime.capability_evaluated";
+pub const RUNTIME_MODEL_NOT_FOUND_EVENT: &str = "runtime.model_not_found";
 pub const PRD_PATCH_PROPOSED_EVENT: &str = "prd_patch_proposed";
 pub const PRD_PATCH_APPLIED_EVENT: &str = "prd_patch_applied";
 pub const PRD_PATCH_REJECTED_EVENT: &str = "prd_patch_rejected";
@@ -398,6 +399,7 @@ fn infer_agency_component(event_type: &str, payload: &Value) -> Option<&'static 
         }
         RUNTIME_CAPABILITY_EVALUATED_EVENT
         | RUNTIME_ROUTING_DECISION_EVENT
+        | RUNTIME_MODEL_NOT_FOUND_EVENT
         | PROJECT_COMMAND_RESULT_EVENT
         | TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT
         | TERMINAL_SCRIPT_RESULT_EVENT
@@ -573,6 +575,7 @@ fn infer_agency_state(event_type: &str, payload: &Value) -> Option<&'static str>
                 _ => None,
             };
         }
+        RUNTIME_MODEL_NOT_FOUND_EVENT => return Some("runtime_unavailable"),
         PREVIEW_OPEN_REQUESTED_EVENT => return Some("verification_needed"),
         PREVIEW_OPEN_RESULT_EVENT => {
             return match string_field(payload, "status") {
@@ -1073,6 +1076,13 @@ fn infer_decision(event_type: &str, payload: &Value) -> Option<Value> {
                 "reasonCode": payload.get("reasonCode").cloned().unwrap_or(Value::Null),
             }));
         }
+        RUNTIME_MODEL_NOT_FOUND_EVENT => {
+            return Some(json!({
+                "kind": "runtime_model_not_found",
+                "provider": payload.get("provider").cloned().unwrap_or(Value::Null),
+                "model": payload.get("model").cloned().unwrap_or(Value::Null),
+            }));
+        }
         PREVIEW_OPEN_REQUESTED_EVENT => return Some(json!({ "kind": "preview_requested" })),
         PREVIEW_OPEN_RESULT_EVENT => {
             return Some(json!({
@@ -1189,6 +1199,28 @@ pub fn runtime_capability_evaluated_payload(
         "setup_action": setup_action,
         "message": message.into(),
         "created_at": created_at,
+    }))
+}
+
+/// S-051 D3: the sidecar rejected a `run` turn with its own `model not
+/// found: ${provider}/${modelId}` error (`pi-sidecar/src/index.mjs:166`)
+/// even though the preflight (`runtime.capability_evaluated`) let the turn
+/// start — registry drift or a future race. Deterministic and kept distinct
+/// from the preflight verdict so QA can audit run-time occurrences
+/// separately (does not duplicate `runtime_capability_evaluated_payload`,
+/// which already covers the preflight `model_not_executable` reason code).
+pub fn runtime_model_not_found_payload(
+    provider: impl Into<String>,
+    model: impl Into<String>,
+    source: impl Into<String>,
+    message: impl Into<String>,
+) -> Value {
+    redact_value(&json!({
+        "provider": provider.into(),
+        "model": model.into(),
+        "source": source.into(),
+        "message": message.into(),
+        "created_at": crate::db::now_ms(),
     }))
 }
 
@@ -1605,6 +1637,28 @@ mod tests {
         assert!(!encoded.contains("secret-token-123"));
         assert!(!encoded.contains("hunter2"));
         assert!(encoded.contains("[REDACTED_SECRET]"));
+    }
+
+    #[test]
+    fn runtime_model_not_found_payload_carries_provider_model_source_and_redacts() {
+        let payload = runtime_model_not_found_payload(
+            "openrouter",
+            "anthropic/claude-sonnet-5",
+            "sidecar_run",
+            "pi sidecar error: model not found: openrouter/anthropic/claude-sonnet-5 api_key=sk-leak",
+        );
+        assert_eq!(payload["provider"], "openrouter");
+        assert_eq!(payload["model"], "anthropic/claude-sonnet-5");
+        assert_eq!(payload["source"], "sidecar_run");
+        assert!(!payload.to_string().contains("sk-leak"));
+        assert!(payload.to_string().contains("[REDACTED_SECRET]"));
+
+        let enriched = enrich_agency_payload(RUNTIME_MODEL_NOT_FOUND_EVENT, payload);
+        assert_eq!(enriched["agencyComponent"], "action");
+        assert_eq!(enriched["agencyState"], "runtime_unavailable");
+        assert_eq!(enriched["decision"]["kind"], "runtime_model_not_found");
+        assert_eq!(enriched["decision"]["provider"], "openrouter");
+        assert_eq!(enriched["decision"]["model"], "anthropic/claude-sonnet-5");
     }
 
     #[test]

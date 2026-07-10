@@ -88,6 +88,14 @@ pub struct ProviderConfigSummary {
 pub struct ModelInfoDto {
     pub id: String,
     pub display_name: String,
+    /// S-051 D2 point 1: whether the pinned pi-ai registry the bundled
+    /// sidecar resolves against can execute this model. `Some(true)`/
+    /// `Some(false)` come from a live registry answer; `None` means the
+    /// provider has no confirmed Pi mapping or the registry cache hasn't
+    /// answered yet — always fail open (no marking), never treat `None` as
+    /// unsupported. See `PiModelRegistryCache::executable`.
+    #[serde(default)]
+    pub pi_executable: Option<bool>,
 }
 
 impl From<ModelInfo> for ModelInfoDto {
@@ -95,8 +103,30 @@ impl From<ModelInfo> for ModelInfoDto {
         Self {
             id: model.id,
             display_name: model.display_name,
+            pi_executable: None,
         }
     }
+}
+
+/// S-051 D2 point 1: annotate each catalog entry with the pinned pi-ai
+/// registry's executability answer. Leaves every `pi_executable` as `None`
+/// (no marking, fail open) when the provider has no confirmed Pi mapping —
+/// this never removes or reorders models, only adds the annotation.
+async fn annotate_pi_executable(
+    state: &AppState,
+    kind: ProviderKind,
+    mut models: Vec<ModelInfoDto>,
+) -> Vec<ModelInfoDto> {
+    let Some(descriptor) = crate::pi_sidecar::parity::pi_provider_descriptor(kind) else {
+        return models;
+    };
+    for model in &mut models {
+        model.pi_executable = state
+            .pi_model_registry
+            .executable(descriptor.pi_provider_id, &model.id)
+            .await;
+    }
+    models
 }
 
 #[tauri::command]
@@ -314,7 +344,8 @@ pub async fn provider_list_models_impl(
 ) -> Result<Vec<ModelInfoDto>, String> {
     let snap = state.runtime_snapshot();
     if snap.config_id == Some(provider_id) {
-        return Ok(models_live_or_static(snap.provider.as_ref()).await);
+        let models = models_live_or_static(snap.provider.as_ref()).await;
+        return Ok(annotate_pi_executable(state, snap.kind.clone(), models).await);
     }
 
     let row = {
@@ -328,13 +359,15 @@ pub async fn provider_list_models_impl(
     // can try its live catalog; if it is not connected, or building fails, use
     // the static list. runtime_for_row already loads keys and handles codex.
     if let Ok(runtime) = runtime_for_row(&row, state.keyring.as_ref()) {
-        return Ok(models_live_or_static(runtime.provider.as_ref()).await);
+        let models = models_live_or_static(runtime.provider.as_ref()).await;
+        return Ok(annotate_pi_executable(state, ProviderKind::parse(&row.kind), models).await);
     }
 
-    Ok(crate::providers::models_for_kind(&row.kind)
+    let models: Vec<ModelInfoDto> = crate::providers::models_for_kind(&row.kind)
         .into_iter()
         .map(Into::into)
-        .collect())
+        .collect();
+    Ok(annotate_pi_executable(state, ProviderKind::parse(&row.kind), models).await)
 }
 
 /// Prefer a provider's live catalog (e.g. OpenRouter's `/models`) and fall back
@@ -1176,5 +1209,78 @@ mod tests {
         assert!(provider_dao::list(db.conn()).unwrap().is_empty());
         drop(db);
         assert!(state.runtime_snapshot().config_id.is_none());
+    }
+
+    // S-051 D2 point 1: provider_list_models' pi_executable annotation.
+    fn state_with_preloaded_registry(
+        providers: std::collections::HashMap<String, std::collections::HashSet<String>>,
+    ) -> AppState {
+        let mut state = mk_state();
+        state.pi_model_registry = Arc::new(
+            crate::pi_sidecar::PiModelRegistryCache::preloaded_for_test(providers),
+        );
+        state
+    }
+
+    #[tokio::test]
+    async fn provider_list_models_marks_pi_executable_true_from_preloaded_registry() {
+        let state = state_with_preloaded_registry(std::collections::HashMap::from([(
+            "anthropic".to_string(),
+            std::collections::HashSet::from(["mock-model".to_string()]),
+        )]));
+        state
+            .swap_runtime(ProviderRuntime::new(
+                Some(1),
+                ProviderKind::Anthropic,
+                "mock-model".into(),
+                Arc::new(MockProvider::new(Vec::new())),
+            ))
+            .unwrap();
+
+        let models = provider_list_models_impl(&state, 1).await.unwrap();
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "mock-model");
+        assert_eq!(models[0].pi_executable, Some(true));
+    }
+
+    #[tokio::test]
+    async fn provider_list_models_marks_pi_executable_false_when_registry_lacks_model() {
+        let state = state_with_preloaded_registry(std::collections::HashMap::from([(
+            "anthropic".to_string(),
+            std::collections::HashSet::from(["claude-sonnet-4-6".to_string()]),
+        )]));
+        state
+            .swap_runtime(ProviderRuntime::new(
+                Some(1),
+                ProviderKind::Anthropic,
+                "mock-model".into(),
+                Arc::new(MockProvider::new(Vec::new())),
+            ))
+            .unwrap();
+
+        let models = provider_list_models_impl(&state, 1).await.unwrap();
+        assert_eq!(models[0].pi_executable, Some(false));
+    }
+
+    #[tokio::test]
+    async fn provider_list_models_leaves_pi_executable_null_for_provider_without_pi_mapping() {
+        // OpencodeZen has no confirmed Pi mapping (pi_sidecar::parity) — the
+        // annotation must fail open (None, no marking) regardless of what
+        // the registry contains, and must not touch the registry cache.
+        let state = state_with_preloaded_registry(std::collections::HashMap::from([(
+            "anthropic".to_string(),
+            std::collections::HashSet::from(["mock-model".to_string()]),
+        )]));
+        state
+            .swap_runtime(ProviderRuntime::new(
+                Some(1),
+                ProviderKind::OpencodeZen,
+                "mock-model".into(),
+                Arc::new(MockProvider::new(Vec::new())),
+            ))
+            .unwrap();
+
+        let models = provider_list_models_impl(&state, 1).await.unwrap();
+        assert_eq!(models[0].pi_executable, None);
     }
 }

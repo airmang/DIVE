@@ -432,6 +432,11 @@
     "model_save_failed_title": "Failed to save model setting",
     "model_filter_placeholder": "Search models…",
     "model_filter_no_match": "No models match your search",
+    "model_group_pi_verified": "Pi verified",
+    "model_group_other": "Full catalog",
+    "model_pi_unsupported_marker": "(Pi unsupported)",
+    "model_pi_unsupported_hint": "This model can't run supervised. Try {{model}} instead.",
+    "model_pi_unsupported_hint_generic": "This model can't run supervised in DIVE's Pi runtime.",
     "safety_eyebrow": "Safety",
     "safety_title": "Safety",
     "safety_description": "DIVE asks before changing files, running commands, or undoing work.",
@@ -523,6 +528,7 @@
       "unavailable_message": "DIVE cannot start this turn until supervised Pi execution is available.",
       "unavailable_tooltip": "{{message}} Provider: {{provider}}, model: {{model}}.",
       "setup_action": "Open provider setup",
+      "switch_model_action": "Switch to a compatible model",
       "reasons": {
         "provider_not_configured": "No AI provider is configured.",
         "provider_not_pi_capable": "This provider does not have confirmed Pi runtime support.",
@@ -532,6 +538,10 @@
         "runtime_unavailable": "The supervised runtime is unavailable.",
         "model_not_executable": "This model is not available in DIVE's supervised Pi runtime."
       }
+    },
+    "model_not_found": {
+      "toast_title": "This model can't run",
+      "toast_description": "{{provider}}/{{model}} is not supported by the supervised Pi runtime."
     }
   },
   "tool_call": {

@@ -327,6 +327,26 @@ mod runtime_capability_tests {
         assert_eq!(value["recordedAt"], json!(42));
     }
 
+    // S-051 D2 point 2 / P2: the model_not_executable capability's wire
+    // contract carries the switch-model CTA, not the interim P1 retry.
+    #[test]
+    fn runtime_capability_state_serializes_model_not_executable_with_switch_model_action() {
+        let state = RuntimeCapabilityState {
+            state: RuntimeCapabilityStatus::Unavailable,
+            provider_kind: "anthropic".into(),
+            model: Some("claude-sonnet-5".into()),
+            reason_code: Some(RuntimeUnavailableReason::ModelNotExecutable),
+            message: "blocked".into(),
+            setup_action: Some(RuntimeSetupAction::SwitchModel),
+            recorded_at: 44,
+        };
+
+        let value = serde_json::to_value(state).unwrap();
+
+        assert_eq!(value["reasonCode"], json!("model_not_executable"));
+        assert_eq!(value["setupAction"], json!("switch_model"));
+    }
+
     #[test]
     fn runtime_capability_state_serializes_all_unavailable_reason_codes() {
         let cases = [

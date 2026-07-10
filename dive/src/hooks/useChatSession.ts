@@ -193,7 +193,8 @@ export type RuntimeSetupAction =
   | "choose_supported_provider"
   | "add_credentials"
   | "open_project"
-  | "retry_runtime";
+  | "retry_runtime"
+  | "switch_model";
 
 export interface RuntimeSelection {
   state: RuntimeSelectionState;

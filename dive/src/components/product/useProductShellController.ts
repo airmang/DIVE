@@ -25,6 +25,7 @@ import {
   type ProviderSummary,
 } from "../../stores/project-session";
 import { cockpitProviderLabel } from "../../lib/provider-format";
+import { matchSidecarModelNotFoundError } from "../../lib/error-classify";
 import { useToast } from "../toast/toast-context";
 import { getCardStateMeta } from "../workmap/card-state-meta";
 import { useT } from "../../i18n";
@@ -163,6 +164,53 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
     "",
     `Saved PRD JSON:\n${JSON.stringify(prd)}`,
   ].join("\n");
+}
+
+type Translate = (key: string, values?: Record<string, string | number>) => string;
+
+// S-051 D2 point 2 / P2: the composer's runtime-unavailable CTA label per
+// `RuntimeSetupAction`. `open_project`/`retry_runtime` keep their existing
+// special-cased behavior (retry has no button); `switch_model` gets a
+// dedicated label pointing the student at provider/model settings instead
+// of the generic "open provider setup" copy.
+export function runtimeSetupActionLabel(
+  setupAction: string | null | undefined,
+  t: Translate,
+): string | undefined {
+  if (setupAction === "open_project") return t("sidebar.new_project");
+  if (setupAction === "retry_runtime") return undefined;
+  if (setupAction === "switch_model") return t("runtime.capability.switch_model_action");
+  return t("runtime.capability.setup_action");
+}
+
+export interface ModelNotFoundToastArgs {
+  title: string;
+  description: string;
+  actionLabel: string;
+}
+
+/**
+ * S-051 D3: decides whether a chat error is the sidecar's own run-time
+ * `model not found` failure and, if so, what a toast surfacing it should
+ * say. Pure so the detection/copy logic is unit-testable without mounting
+ * the shell controller — see `matchSidecarModelNotFoundError` for the
+ * detection regex.
+ */
+export function modelNotFoundToastArgs(
+  errorMessage: string | null | undefined,
+  t: Translate,
+): ModelNotFoundToastArgs | null {
+  if (!errorMessage) return null;
+  const match = matchSidecarModelNotFoundError(errorMessage);
+  if (!match) return null;
+  return {
+    title: t("runtime.model_not_found.toast_title"),
+    description: t("runtime.model_not_found.toast_description", {
+      provider: match.provider,
+      model: match.model,
+    }),
+    actionLabel: t("runtime.capability.switch_model_action"),
+  };
 }
 
 export function shouldShowEmptyPlanRail(input: {
@@ -1317,6 +1365,22 @@ export function useProductShellController() {
     }
   }, [autoSurfaceVerify, chat.isStreaming]);
 
+  // S-051 D3: a preflight-missed sidecar `model not found` failure (registry
+  // drift, or a run-time race) lands in `chat.error` as a raw IPC rejection
+  // string — today that surfaces only inside the chat transcript, which is
+  // silent when the student is looking at the PRD screen (P0-02 QA
+  // observation). Name the model and offer the switch action wherever they
+  // are instead of relying on transcript visibility.
+  const lastHandledModelNotFoundErrorRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!chat.error) return;
+    if (lastHandledModelNotFoundErrorRef.current === chat.error) return;
+    const args = modelNotFoundToastArgs(chat.error, t);
+    if (!args) return;
+    lastHandledModelNotFoundErrorRef.current = chat.error;
+    toast({ variant: "error", ...args, onAction: openSettingsRoute });
+  }, [chat.error, openSettingsRoute, t, toast]);
+
   const handleEmptyStateAction = useCallback(() => {
     if (currentProjectId === null) {
       dialogs.setNewProjectOpen(true);
@@ -1675,12 +1739,7 @@ export function useProductShellController() {
     // from the concrete runtimeSelection state (message + setupAction).
     runtimeUnavailable: !isDemoRoute && chat.runtimeSelection?.state === "unavailable",
     runtimeReason: chat.runtimeSelection?.message,
-    runtimeActionLabel:
-      chat.runtimeSelection?.setupAction === "open_project"
-        ? t("sidebar.new_project")
-        : chat.runtimeSelection?.setupAction === "retry_runtime"
-          ? undefined
-          : t("runtime.capability.setup_action"),
+    runtimeActionLabel: runtimeSetupActionLabel(chat.runtimeSelection?.setupAction, t),
     runtimeOnAction:
       chat.runtimeSelection?.setupAction === "open_project"
         ? handleEmptyStateAction
