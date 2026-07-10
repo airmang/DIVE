@@ -383,6 +383,10 @@ export function draftFromProjectSpec(projectSpec: ProjectSpec): LiveProjectSpecD
     // the read-view "Edit" button (which rebuilds the draft here with no backend
     // refetch) would reset architecture to null and permanently drop it on re-save.
     architecture: projectSpec.architecture,
+    // S-053 D3: same reasoning for provenance — reopening a confirmed PRD for
+    // editing via this client-only rebuild must not reset the intent-check
+    // card to the legacy-empty-map "AI summarized this" fallback.
+    fieldProvenance: projectSpec.fieldProvenance,
     status: "draft",
   });
 }

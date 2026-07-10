@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef};
 use rusqlite::ToSql;
 use serde::{Deserialize, Serialize};
@@ -285,6 +287,30 @@ pub enum AcceptanceCriterionSource {
     Migration,
 }
 
+// S-053 D3: per-field provenance for the five scalar/list PRD fields (goal,
+// intentSummary, scope, nonGoals, constraints) that previously carried no
+// authorship record at all — the gap that let a fully hand-typed PRD still
+// show the "AI가 대화를 정리한 요약" intent-check framing. `AcceptanceCriterion`
+// already has its own `source` (per-criterion) and `ArchitectureDecision` its
+// own `decision_source` (StudentConfirmed/StudentChanged) — both richer than a
+// single enum value, so this map intentionally does NOT duplicate provenance
+// for `acceptanceCriteria` or `architecture`; the intent-check card reuses
+// those existing enums for those two fields instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProvenanceSource {
+    /// The student typed or edited this field directly.
+    Student,
+    /// An AI-proposed patch applied this field during an interview turn.
+    AiPatch,
+    /// The student accepted an AI-recommended option card for this field
+    /// (currently unused by any scalar-field write path — architecture's
+    /// recommend-then-confirm cards write `architecture`, which is out of
+    /// this map's scope — kept for parity with the design's provenance
+    /// vocabulary and to leave room for a future scalar-field proposal UI).
+    AiSuggestionAccepted,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AcceptanceCriterionStatus {
@@ -535,6 +561,12 @@ pub struct ProjectSpec {
     // openable; they decide an architecture at their next confirm/edit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub architecture: Option<ArchitectureDecision>,
+    // S-053 D3: carried over from the live draft at confirm time. serde-default
+    // (pattern: `architecture` above) so pre-S-053 snapshot JSON blobs — frozen
+    // in ProjectSpecVersion.snapshot before this field existed — still
+    // deserialize as an empty map instead of failing to load.
+    #[serde(default)]
+    pub field_provenance: BTreeMap<String, ProvenanceSource>,
     pub status: ProjectSpecStatus,
     pub created_at: i64,
     pub updated_at: i64,
@@ -567,6 +599,8 @@ pub struct LiveProjectSpecDraft {
     pub dirty_fields: Vec<String>,
     pub student_edited_fields: Vec<String>,
     pub last_patch_id: Option<String>,
+    #[serde(default)]
+    pub field_provenance: BTreeMap<String, ProvenanceSource>,
     pub updated_at: i64,
 }
 
@@ -714,6 +748,10 @@ pub struct NewLiveProjectSpecDraft {
     pub dirty_fields: Vec<String>,
     pub student_edited_fields: Vec<String>,
     pub last_patch_id: Option<String>,
+    // S-053 D3: serde-default so an older client's cached/serialized draft JSON
+    // (predating this field) still deserializes over IPC.
+    #[serde(default)]
+    pub field_provenance: BTreeMap<String, ProvenanceSource>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -726,6 +764,8 @@ pub struct LiveProjectSpecDraftRow {
     pub dirty_fields: Vec<String>,
     pub student_edited_fields: Vec<String>,
     pub last_patch_id: Option<String>,
+    #[serde(default)]
+    pub field_provenance: BTreeMap<String, ProvenanceSource>,
     pub updated_at: i64,
 }
 
@@ -969,7 +1009,10 @@ pub struct StepSessionMappingRow {
 
 #[cfg(test)]
 mod tests {
-    use super::PrdPatchValidationOutcome;
+    use super::{
+        LiveProjectSpecDraftRow, PrdPatchValidationOutcome, ProjectSpec, ProjectSpecStatus,
+        ProvenanceSource,
+    };
 
     // S-053 D1: `not_structured` is additive to the wire representation — the
     // new variant serializes to the expected snake_case string, and every
@@ -1015,5 +1058,104 @@ mod tests {
                 "expected {wire:?} to still deserialize"
             );
         }
+    }
+
+    // S-053 D3: field_provenance is additive to two wire representations — a
+    // ProjectSpecVersion.snapshot JSON blob frozen before this field existed,
+    // and a LiveProjectSpecDraft row/IPC payload from before this field
+    // existed. Both must still deserialize (as an empty map) rather than fail.
+    fn pre_s053_project_spec_json() -> serde_json::Value {
+        serde_json::json!({
+            "projectSpecId": "prd-1",
+            "projectId": 1,
+            "currentVersion": 1,
+            "goal": "Build a focus timer",
+            "intentSummary": "Students track Pomodoro sessions",
+            "scope": ["Countdown timer"],
+            "nonGoals": ["Account system"],
+            "constraints": [],
+            "acceptanceCriteria": [],
+            "status": "draft",
+            "createdAt": 100,
+            "updatedAt": 200
+        })
+    }
+
+    #[test]
+    fn project_spec_deserializes_pre_s053_snapshot_without_field_provenance() {
+        let spec: ProjectSpec = serde_json::from_value(pre_s053_project_spec_json())
+            .expect("pre-S-053 ProjectSpec snapshot JSON must still deserialize");
+        assert!(spec.field_provenance.is_empty());
+        assert_eq!(spec.status, ProjectSpecStatus::Draft);
+    }
+
+    #[test]
+    fn project_spec_field_provenance_round_trips_through_json() {
+        let mut spec_json = pre_s053_project_spec_json();
+        spec_json["fieldProvenance"] = serde_json::json!({
+            "goal": "student",
+            "scope": "ai_patch",
+        });
+        let spec: ProjectSpec = serde_json::from_value(spec_json).unwrap();
+        assert_eq!(
+            spec.field_provenance.get("goal"),
+            Some(&ProvenanceSource::Student)
+        );
+        assert_eq!(
+            spec.field_provenance.get("scope"),
+            Some(&ProvenanceSource::AiPatch)
+        );
+
+        let round_tripped = serde_json::to_value(&spec).unwrap();
+        assert_eq!(round_tripped["fieldProvenance"]["goal"], "student");
+        assert_eq!(round_tripped["fieldProvenance"]["scope"], "ai_patch");
+    }
+
+    #[test]
+    fn provenance_source_serializes_to_snake_case() {
+        for (variant, wire) in [
+            (ProvenanceSource::Student, "student"),
+            (ProvenanceSource::AiPatch, "ai_patch"),
+            (
+                ProvenanceSource::AiSuggestionAccepted,
+                "ai_suggestion_accepted",
+            ),
+        ] {
+            assert_eq!(
+                serde_json::to_value(variant).unwrap(),
+                serde_json::json!(wire)
+            );
+            let parsed: ProvenanceSource = serde_json::from_value(serde_json::json!(wire)).unwrap();
+            assert_eq!(parsed, variant);
+        }
+    }
+
+    #[test]
+    fn live_project_spec_draft_row_deserializes_pre_s053_payload_without_field_provenance() {
+        let draft_json = serde_json::json!({
+            "draftId": "prd-draft-1",
+            "projectId": 1,
+            "baseVersion": null,
+            "spec": {
+                "projectSpecId": "prd-1",
+                "projectId": 1,
+                "currentVersion": null,
+                "goal": "Build a focus timer",
+                "intentSummary": null,
+                "scope": [],
+                "nonGoals": [],
+                "constraints": [],
+                "acceptanceCriteria": [],
+                "status": "draft"
+            },
+            "dirtyFields": ["goal"],
+            "studentEditedFields": ["goal"],
+            "lastPatchId": null,
+            "updatedAt": 100
+        });
+
+        let draft: LiveProjectSpecDraftRow = serde_json::from_value(draft_json)
+            .expect("pre-S-053 draft payload (no fieldProvenance key) must still deserialize");
+        assert!(draft.field_provenance.is_empty());
     }
 }

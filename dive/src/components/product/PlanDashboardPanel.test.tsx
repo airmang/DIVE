@@ -61,6 +61,7 @@ function project(): PlanDashboardProject {
         },
       ],
       architecture: null,
+      fieldProvenance: {},
       status: "draft",
       createdAt: 1,
       updatedAt: 2,

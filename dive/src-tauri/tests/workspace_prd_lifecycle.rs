@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use dive_lib::db::dao::{plan, plan_mutation, prd, project, step};
 use dive_lib::db::migrations;
 use dive_lib::db::models::{
@@ -5,7 +7,7 @@ use dive_lib::db::models::{
     NewLiveProjectSpecDraft, NewObjection, NewPlan, NewPlanMutation, NewProject,
     NewProjectSpecVersion, NewStep, ObjectionSuggestionStatus, PlanAdjustmentOfferKind,
     PlanAdjustmentOfferStatus, PlanMutationType, ProjectSpec, ProjectSpecDelta, ProjectSpecDraft,
-    ProjectSpecStatus, ScopeExpansionAssessment,
+    ProjectSpecStatus, ProvenanceSource, ScopeExpansionAssessment,
 };
 use dive_lib::ipc::workspace_plan::{
     assess_scope_expansion_for_append, AcceptanceCriterionInput, StepDraftInput,
@@ -85,6 +87,7 @@ fn project_spec(project_id: i64) -> ProjectSpec {
         constraints: vec!["Rust/Tauri boundary is source of truth".into()],
         acceptance_criteria: vec![criterion("AC-001", "PRD versions roundtrip")],
         architecture: None,
+        field_provenance: BTreeMap::new(),
         status: ProjectSpecStatus::Draft,
         created_at: 100,
         updated_at: 200,
@@ -208,6 +211,7 @@ fn prd_version_and_draft_roundtrip() {
             dirty_fields: vec!["goal".into()],
             student_edited_fields: vec!["goal".into()],
             last_patch_id: Some("patch-1".into()),
+            field_provenance: BTreeMap::from([("goal".to_string(), ProvenanceSource::Student)]),
         },
     )
     .unwrap();
@@ -216,6 +220,12 @@ fn prd_version_and_draft_roundtrip() {
     assert_eq!(draft.spec.goal, "Edited goal");
     assert_eq!(draft.dirty_fields, vec!["goal"]);
     assert_eq!(draft.last_patch_id.as_deref(), Some("patch-1"));
+    // S-053 D3: field_provenance round-trips through the DAO (JSON column) same
+    // as dirty_fields/student_edited_fields.
+    assert_eq!(
+        draft.field_provenance.get("goal"),
+        Some(&ProvenanceSource::Student)
+    );
 }
 
 #[test]

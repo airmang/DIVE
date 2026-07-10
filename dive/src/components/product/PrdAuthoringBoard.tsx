@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   allocateCriterionId,
   markDraftStudentEdited,
+  prdIntentCheckFraming,
+  studentAuthoredFieldPaths,
   validateConfirmableProjectSpec,
   applyQuickIntakeToDraft,
   type AcceptanceCriterion,
@@ -10,8 +12,10 @@ import {
   type ArchitectureForm,
   type ArchitectureProposals,
   type LiveProjectSpecDraft,
+  type PrdIntentCheckFraming,
   type PrdPatchValidationOutcome,
   type PrdInterviewConversationTurn,
+  type ProvenanceSource,
   type QuickIntakeInput,
 } from "../../features/planning";
 import { useT } from "../../i18n";
@@ -208,6 +212,63 @@ function rejectedReasonKey(code: string): string {
   return `prd.authoring.rejected_reasons.${known ? code : "unknown"}`;
 }
 
+// S-053 D3: maps a field_provenance root key to its existing field-label i18n
+// key (prd.fields.*), so the mixed intent-check framing can name student-
+// written fields without a second, provenance-specific label set.
+const PRD_PROVENANCE_FIELD_LABEL_KEYS: Record<string, string> = {
+  goal: "prd.fields.goal",
+  intentSummary: "prd.fields.intent_summary",
+  scope: "prd.fields.scope",
+  nonGoals: "prd.fields.non_goals",
+  constraints: "prd.fields.constraints",
+};
+
+interface PrdIntentCheckCopy {
+  title: string;
+  prompt: string;
+  message: string;
+  guided: string;
+}
+
+// S-053 D3: the intent-check card no longer assumes "AI summarized this" —
+// the framing (computed from field_provenance in prdIntentCheckFraming) picks
+// among three copy sets. `ai` also covers the legacy-empty-map fallback
+// (documented in prdIntentCheckFraming itself), so it intentionally reuses
+// the pre-existing keys unchanged.
+function prdIntentCheckCopy(
+  t: (key: string, params?: Record<string, string | number>) => string,
+  framing: PrdIntentCheckFraming,
+  fieldProvenance: Record<string, ProvenanceSource>,
+): PrdIntentCheckCopy {
+  if (framing === "student") {
+    return {
+      title: t("prd.authoring.intent_check.student.title"),
+      prompt: t("prd.authoring.intent_check.student.prompt"),
+      message: t("prd.authoring.intent_check.student.message"),
+      guided: t("prd.authoring.intent_check.student.guided"),
+    };
+  }
+  if (framing === "mixed") {
+    const fields = studentAuthoredFieldPaths(fieldProvenance)
+      .map((field) => PRD_PROVENANCE_FIELD_LABEL_KEYS[field])
+      .filter((key): key is string => Boolean(key))
+      .map((key) => t(key))
+      .join(", ");
+    return {
+      title: t("prd.authoring.intent_check.mixed.title"),
+      prompt: t("prd.authoring.intent_check.mixed.prompt", { fields }),
+      message: t("prd.authoring.intent_check.mixed.message"),
+      guided: t("prd.authoring.intent_check.mixed.guided"),
+    };
+  }
+  return {
+    title: t("prd.authoring.intent_check.title"),
+    prompt: t("prd.authoring.intent_check.prompt"),
+    message: t("prd.authoring.intent_check.message"),
+    guided: t("prd.authoring.intent_check.guided"),
+  };
+}
+
 // eslint-disable-next-line react-refresh/only-export-components
 export function isPrdCompletionIntent(text: string): boolean {
   const normalized = text
@@ -334,6 +395,14 @@ export function PrdAuthoringBoard({
   // Non-blocking reflective provocation: once the PRD is confirmable, prompt the
   // supervisor to compare the AI's summary against their real intent before
   // confirming. The field gate already blocks vague PRDs; this is the nudge on top.
+  // S-053 D3: which of the three honest framings applies, derived from the
+  // draft's field_provenance — never from validation.valid alone (the P1-03
+  // bug this replaces: a fully hand-typed PRD used to get the same "AI
+  // summarized this" copy as an AI-drafted one).
+  const intentCheckFraming = useMemo(
+    () => prdIntentCheckFraming(localDraft.fieldProvenance),
+    [localDraft.fieldProvenance],
+  );
   const intentCheckCard = useMemo(() => {
     if (!validation.valid) return null;
     const context: ProvocationContext = {
@@ -343,15 +412,20 @@ export function PrdAuthoringBoard({
       featureId: localDraft.projectId,
       goalText: localDraft.spec.goal,
     };
+    const copy = prdIntentCheckCopy(t, intentCheckFraming, localDraft.fieldProvenance);
     return buildPrdIntentCheckCard(context, {
-      title: t("prd.authoring.intent_check.title"),
-      prompt: t("prd.authoring.intent_check.prompt"),
-      message: t("prd.authoring.intent_check.message"),
-      guided: t("prd.authoring.intent_check.guided"),
+      ...copy,
       refineLabel: t("prd.authoring.intent_check.refine"),
       evidenceLabel: t("prd.authoring.intent_check.evidence_goal"),
     });
-  }, [validation.valid, localDraft.projectId, localDraft.spec.goal, t]);
+  }, [
+    validation.valid,
+    localDraft.projectId,
+    localDraft.spec.goal,
+    localDraft.fieldProvenance,
+    intentCheckFraming,
+    t,
+  ]);
 
   const handleIntentCheckAction = (action: ProvocationAction) => {
     if (action.id === "refine") {

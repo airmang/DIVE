@@ -175,7 +175,19 @@
         "message": "Confirming isn't accepting the AI's summary — it's checking it against your own intent.",
         "guided": "Tell apart the AI's summary from what you actually intended.",
         "refine": "Refine it",
-        "evidence_goal": "Goal"
+        "evidence_goal": "Goal",
+        "student": {
+          "title": "You wrote this PRD yourself",
+          "prompt": "This PRD isn't an AI summary — you wrote every part of it. Before confirming, read it once more and check nothing is missing.",
+          "message": "Even content you wrote yourself is worth checking against your own intent before confirming.",
+          "guided": "Check that the goal and acceptance criteria actually match what you want."
+        },
+        "mixed": {
+          "title": "You and the AI shaped this PRD together",
+          "prompt": "The AI summarized part of this PRD, and you wrote the rest yourself: {{fields}}. Check that every part matches your real intent.",
+          "message": "Review the AI-summarized parts and the parts you wrote separately.",
+          "guided": "Check the AI's summary and your own writing each on their own terms."
+        }
       },
       "turn_failed_title": "PRD interview turn failed",
       "turn_failed_retryable_description": "The AI provider is temporarily unstable. Send the same thought again and DIVE will continue shaping the PRD.",

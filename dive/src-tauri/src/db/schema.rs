@@ -237,6 +237,7 @@ CREATE TABLE IF NOT EXISTS LiveProjectSpecDraft (
     dirty_fields TEXT NOT NULL DEFAULT '[]',
     student_edited_fields TEXT NOT NULL DEFAULT '[]',
     last_patch_id TEXT,
+    field_provenance TEXT NOT NULL DEFAULT '{}',
     updated_at INTEGER NOT NULL,
     UNIQUE(project_id)
 )";

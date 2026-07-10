@@ -58,6 +58,7 @@ function projectSpec(): ProjectSpec {
       },
     ],
     architecture: null,
+    fieldProvenance: {},
     status: "draft",
     createdAt: 1,
     updatedAt: 2,

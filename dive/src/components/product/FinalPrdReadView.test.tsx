@@ -41,6 +41,7 @@ function spec(): ProjectSpec {
       decisionSource: "student_confirmed",
       decidedInVersion: 2,
     },
+    fieldProvenance: {},
     status: "draft",
     createdAt: 1,
     updatedAt: 2,

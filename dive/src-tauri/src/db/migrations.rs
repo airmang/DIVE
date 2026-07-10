@@ -21,9 +21,10 @@ const MIGRATIONS: &[(i64, MigrationFn)] = &[
     (14, migration_v14),
     (15, migration_v15),
     (16, migration_v16),
+    (17, migration_v17),
 ];
 
-pub const LATEST_SCHEMA_VERSION: i64 = 16;
+pub const LATEST_SCHEMA_VERSION: i64 = 17;
 
 pub fn migrate(conn: &mut Connection) -> Result<(), DbError> {
     migrate_with_migrations(conn, MIGRATIONS)
@@ -397,6 +398,25 @@ fn migration_v16(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     tx.execute_batch(schema::CREATE_INTERVIEW_TURN)?;
     for index in schema::CREATE_V16_INDEXES {
         tx.execute_batch(index)?;
+    }
+    Ok(())
+}
+
+/// S-053 D3 — per-field provenance (student | ai_patch | ai_suggestion_accepted)
+/// for the five scalar/list PRD fields, closing the gap where a fully
+/// hand-typed PRD still showed the "AI summarized this" intent-check framing.
+/// Purely additive; local-DB-only column (mirrors `dirty_fields` /
+/// `student_edited_fields`, not exported raw beyond the whole-row artifact).
+fn migration_v17(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    let exists: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('LiveProjectSpecDraft') WHERE name = 'field_provenance'",
+        [],
+        |row| row.get(0),
+    )?;
+    if exists == 0 {
+        tx.execute_batch(
+            "ALTER TABLE LiveProjectSpecDraft ADD COLUMN field_provenance TEXT NOT NULL DEFAULT '{}'",
+        )?;
     }
     Ok(())
 }
@@ -974,6 +994,104 @@ mod tests {
             )
             .unwrap();
         assert_eq!(exists, 1);
+    }
+
+    #[test]
+    fn migration_v17_adds_field_provenance_column() {
+        let (db, _tmp) = fresh_db();
+        let column_default: String = db
+            .conn()
+            .query_row(
+                "SELECT dflt_value FROM pragma_table_info('LiveProjectSpecDraft') WHERE name = 'field_provenance'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(column_default, "'{}'");
+
+        db.conn()
+            .execute(
+                "INSERT INTO Project(id, name, path, created_at, updated_at) VALUES (1, 'p', '/tmp/p', 0, 0)",
+                [],
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO LiveProjectSpecDraft(draft_id, project_id, spec, updated_at) VALUES ('draft-1', 1, '{}', 0)",
+                [],
+            )
+            .unwrap();
+        let stored: String = db
+            .conn()
+            .query_row(
+                "SELECT field_provenance FROM LiveProjectSpecDraft WHERE draft_id = 'draft-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, "{}");
+    }
+
+    #[test]
+    fn migration_v17_upgrades_existing_db_without_field_provenance_column() {
+        // schema::CREATE_LIVE_PROJECT_SPEC_DRAFT was updated in place to include
+        // field_provenance (so a fresh DB gets it via migration_v11 directly,
+        // matching the `step_kind`/migration_v15 pattern) — so slicing
+        // MIGRATIONS[..16] no longer reproduces a pre-v17 DB. Instead: run a
+        // fresh DB, then drop/recreate the table in its pre-v17 shape, and
+        // apply migration_v17 directly.
+        let (mut db, _tmp) = fresh_db();
+        db.conn()
+            .execute_batch(
+                "DROP TABLE LiveProjectSpecDraft;
+                 CREATE TABLE LiveProjectSpecDraft (
+                    draft_id TEXT PRIMARY KEY,
+                    project_id INTEGER NOT NULL REFERENCES Project(id) ON DELETE CASCADE,
+                    base_version INTEGER,
+                    spec TEXT NOT NULL,
+                    dirty_fields TEXT NOT NULL DEFAULT '[]',
+                    student_edited_fields TEXT NOT NULL DEFAULT '[]',
+                    last_patch_id TEXT,
+                    updated_at INTEGER NOT NULL,
+                    UNIQUE(project_id)
+                 );",
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO Project(id, name, path, created_at, updated_at) VALUES (1, 'p', '/tmp/p', 0, 0)",
+                [],
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO LiveProjectSpecDraft(draft_id, project_id, spec, updated_at) VALUES ('draft-1', 1, '{}', 0)",
+                [],
+            )
+            .unwrap();
+        let exists: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('LiveProjectSpecDraft') WHERE name = 'field_provenance'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(exists, 0);
+
+        let tx = db.conn_mut().transaction().unwrap();
+        super::migration_v17(&tx).unwrap();
+        tx.commit().unwrap();
+
+        let backfilled: String = db
+            .conn()
+            .query_row(
+                "SELECT field_provenance FROM LiveProjectSpecDraft WHERE draft_id = 'draft-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(backfilled, "{}");
     }
 
     #[test]

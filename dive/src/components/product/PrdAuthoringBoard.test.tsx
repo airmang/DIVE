@@ -530,6 +530,74 @@ describe("PrdAuthoringBoard", () => {
     expect(screen.queryByTestId("prd-intent-check")).toBeNull();
   });
 
+  // S-053 D3: the intent-check card's framing follows draft.fieldProvenance,
+  // not validation.valid alone — a fully hand-typed PRD must not claim "AI
+  // summarized this" (P1-03).
+  describe("intent-check card provenance framing (S-053 D3)", () => {
+    function confirmableDraft(fieldProvenance: Record<string, "student" | "ai_patch">) {
+      return createLiveProjectSpecDraft(42, {
+        goal: "Build a PRD-first planning flow for students",
+        intentSummary: "Students see and confirm the PRD before any plan is made",
+        scope: ["Single PRD authoring board with a live draft"],
+        nonGoals: ["No automatic plan generation without confirmation"],
+        acceptanceCriteria: [
+          "Saved PRD opens the final read view",
+          "Confirm stays disabled until every required field is filled",
+        ],
+        architecture: {
+          form: "web_app",
+          formOtherLabel: null,
+          stack: "React + Vite",
+          rationale: null,
+          decisionSource: "student_confirmed",
+          decidedInVersion: 1,
+        },
+        fieldProvenance,
+      });
+    }
+
+    it("shows the legacy AI-summary framing when field_provenance is empty (pre-existing drafts)", () => {
+      renderBoard({ draft: confirmableDraft({}) });
+
+      expect(screen.getByText("Did the AI capture what you meant?")).toBeTruthy();
+    });
+
+    it("shows the same AI-summary framing when every stamped field is ai_patch", () => {
+      renderBoard({
+        draft: confirmableDraft({ goal: "ai_patch", intentSummary: "ai_patch" }),
+      });
+
+      expect(screen.getByText("Did the AI capture what you meant?")).toBeTruthy();
+    });
+
+    it("shows a neutral student-authored framing with no AI attribution when every field is student", () => {
+      renderBoard({
+        draft: confirmableDraft({
+          goal: "student",
+          intentSummary: "student",
+          scope: "student",
+          nonGoals: "student",
+        }),
+      });
+
+      expect(screen.getByText("You wrote this PRD yourself")).toBeTruthy();
+      expect(screen.queryByText("Did the AI capture what you meant?")).toBeNull();
+    });
+
+    it("names the student-written fields in the mixed framing", () => {
+      renderBoard({
+        draft: confirmableDraft({ goal: "student", scope: "ai_patch" }),
+      });
+
+      expect(screen.getByText("You and the AI shaped this PRD together")).toBeTruthy();
+      expect(
+        screen.getByText(
+          "The AI summarized part of this PRD, and you wrote the rest yourself: Goal. Check that every part matches your real intent.",
+        ),
+      ).toBeTruthy();
+    });
+  });
+
   it("confirms instead of calling the LLM when a ready PRD receives a completion intent", () => {
     const onSubmitAnswer = vi.fn();
     const onSavePrdAndCreatePlan = vi.fn();

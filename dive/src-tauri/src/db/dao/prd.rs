@@ -36,7 +36,8 @@ fn map_draft_row(row: &rusqlite::Row<'_>) -> Result<LiveProjectSpecDraftRow, DbE
         dirty_fields: serde_json::from_value(parse_json(row.get(4)?)?)?,
         student_edited_fields: serde_json::from_value(parse_json(row.get(5)?)?)?,
         last_patch_id: row.get(6)?,
-        updated_at: row.get(7)?,
+        field_provenance: serde_json::from_value(parse_json(row.get(7)?)?)?,
+        updated_at: row.get(8)?,
     })
 }
 
@@ -95,9 +96,10 @@ pub fn upsert_draft(conn: &Connection, row: &NewLiveProjectSpecDraft) -> Result<
     let spec = json_to_string(&serde_json::to_value(&row.spec)?)?;
     let dirty_fields = json_to_string(&serde_json::to_value(&row.dirty_fields)?)?;
     let student_edited_fields = json_to_string(&serde_json::to_value(&row.student_edited_fields)?)?;
+    let field_provenance = json_to_string(&serde_json::to_value(&row.field_provenance)?)?;
     conn.execute(
-        "INSERT INTO LiveProjectSpecDraft(draft_id, project_id, base_version, spec, dirty_fields, student_edited_fields, last_patch_id, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        "INSERT INTO LiveProjectSpecDraft(draft_id, project_id, base_version, spec, dirty_fields, student_edited_fields, last_patch_id, field_provenance, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(project_id) DO UPDATE SET
              draft_id = excluded.draft_id,
              base_version = excluded.base_version,
@@ -105,6 +107,7 @@ pub fn upsert_draft(conn: &Connection, row: &NewLiveProjectSpecDraft) -> Result<
              dirty_fields = excluded.dirty_fields,
              student_edited_fields = excluded.student_edited_fields,
              last_patch_id = excluded.last_patch_id,
+             field_provenance = excluded.field_provenance,
              updated_at = excluded.updated_at",
         params![
             row.draft_id,
@@ -114,6 +117,7 @@ pub fn upsert_draft(conn: &Connection, row: &NewLiveProjectSpecDraft) -> Result<
             dirty_fields,
             student_edited_fields,
             row.last_patch_id,
+            field_provenance,
             now_ms(),
         ],
     )?;
@@ -126,7 +130,7 @@ pub fn get_draft(
 ) -> Result<Option<LiveProjectSpecDraftRow>, DbError> {
     Ok(conn
         .query_row(
-            "SELECT draft_id, project_id, base_version, spec, dirty_fields, student_edited_fields, last_patch_id, updated_at FROM LiveProjectSpecDraft WHERE project_id = ?",
+            "SELECT draft_id, project_id, base_version, spec, dirty_fields, student_edited_fields, last_patch_id, field_provenance, updated_at FROM LiveProjectSpecDraft WHERE project_id = ?",
             [project_id],
             query_draft_row,
         )

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -16,7 +17,7 @@ use dive_lib::db::models::{
     ArchitectureDecision, ArchitectureDecisionSource, ArchitectureForm, NewInterview,
     NewLiveProjectSpecDraft, NewPlan, NewProject, NewStep, ObjectionSuggestionStatus,
     PlanMutationType, PrdPatchValidationOutcome, ProjectSpecDelta, ProjectSpecDraft,
-    ProjectSpecStatus, StepRow,
+    ProjectSpecStatus, ProvenanceSource, StepRow,
 };
 use dive_lib::export::{ExportEngine, ExportOptions};
 use dive_lib::ipc::workspace_plan::{
@@ -492,6 +493,7 @@ fn prd_status_get_and_save_distinguish_missing_draft_and_minimal() {
                 dirty_fields: vec!["goal".into()],
                 student_edited_fields: vec!["goal".into()],
                 last_patch_id: None,
+                field_provenance: BTreeMap::new(),
             },
         )
         .unwrap();
@@ -631,6 +633,11 @@ fn prd_draft_get_and_save_restore_unsaved_authoring_state() {
     draft.spec.acceptance_criteria = vec![prd_criterion("Teacher can see who has not submitted")];
     draft.dirty_fields = vec!["goal".into(), "acceptanceCriteria".into()];
     draft.student_edited_fields = vec!["goal".into()];
+    // S-053 D3: the TS-side stamp (markDraftStudentEdited) round-trips through
+    // this same draft-save IPC call — simulated here at the Rust level.
+    draft
+        .field_provenance
+        .insert("goal".to_string(), ProvenanceSource::Student);
 
     let saved = workspace_prd_draft_save_impl(
         &state,
@@ -653,6 +660,58 @@ fn prd_draft_get_and_save_restore_unsaved_authoring_state() {
     assert_eq!(
         restored.spec.acceptance_criteria[0].text,
         "Teacher can see who has not submitted"
+    );
+    assert_eq!(
+        restored.field_provenance.get("goal"),
+        Some(&ProvenanceSource::Student)
+    );
+}
+
+#[test]
+fn prd_save_carries_draft_field_provenance_onto_confirmed_snapshot() {
+    // S-053 D3: field_provenance lives on the outer LiveProjectSpecDraft, not on
+    // the `spec` PrdSaveInput sends — workspace_prd_save_impl must look up the
+    // persisted draft row itself for the confirmed ProjectSpec to carry it.
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+
+    let mut draft = workspace_prd_draft_get_impl(&state, project_id, None).unwrap();
+    draft.spec = minimal_prd_draft(project_id);
+    draft
+        .field_provenance
+        .insert("goal".to_string(), ProvenanceSource::Student);
+    draft
+        .field_provenance
+        .insert("scope".to_string(), ProvenanceSource::AiPatch);
+    workspace_prd_draft_save_impl(&state, PrdDraftSaveInput { project_id, draft }).unwrap();
+
+    let saved = workspace_prd_save_impl(
+        &state,
+        PrdSaveInput {
+            project_id,
+            spec: minimal_prd_draft(project_id),
+            reason: "interview".into(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        saved.field_provenance.get("goal"),
+        Some(&ProvenanceSource::Student)
+    );
+    assert_eq!(
+        saved.field_provenance.get("scope"),
+        Some(&ProvenanceSource::AiPatch)
+    );
+
+    // Confirming deletes the live draft; reopening the confirmed PRD for
+    // further editing carries the recorded provenance forward (load_or_create,
+    // pattern: `architecture`) instead of resetting to the legacy-empty map.
+    let reopened = workspace_prd_draft_get_impl(&state, project_id, None).unwrap();
+    assert_eq!(
+        reopened.field_provenance.get("goal"),
+        Some(&ProvenanceSource::Student)
     );
 }
 
@@ -716,6 +775,17 @@ async fn prd_interview_turn_applies_validated_patch_without_creating_version() {
         turn.live_draft.spec.acceptance_criteria[0].criterion_id,
         "AC-001"
     );
+    // S-053 D3: the applied scalar field is stamped ai_patch; acceptanceCriteria
+    // keeps its own per-criterion `source` and is deliberately NOT duplicated
+    // into this map.
+    assert_eq!(
+        turn.live_draft.field_provenance.get("goal"),
+        Some(&ProvenanceSource::AiPatch)
+    );
+    assert!(!turn
+        .live_draft
+        .field_provenance
+        .contains_key("acceptanceCriteria"));
     assert_eq!(
         prd::latest_version(state.db.lock().unwrap().conn(), project_id)
             .unwrap()
@@ -818,6 +888,19 @@ async fn prd_interview_turn_applies_text_aliases_for_prd_fields() {
         turn.live_draft.spec.acceptance_criteria[0].text,
         "Urgent assignments appear at the top"
     );
+    // S-053 D3: every applied scalar field is stamped ai_patch (not just the
+    // first one), and acceptanceCriteria is still excluded from the map.
+    for field in ["goal", "intentSummary", "scope", "constraints"] {
+        assert_eq!(
+            turn.live_draft.field_provenance.get(field),
+            Some(&ProvenanceSource::AiPatch),
+            "expected {field} to be stamped ai_patch"
+        );
+    }
+    assert!(!turn
+        .live_draft
+        .field_provenance
+        .contains_key("acceptanceCriteria"));
 }
 
 #[tokio::test]

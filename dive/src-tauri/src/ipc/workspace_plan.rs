@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,7 +21,7 @@ use crate::db::models::{
     NewSession, NewStep, NewStepSessionMapping, NewWorkmap, ObjectionSuggestionStatus,
     PlanMutationType, PlanRow, PrdPatch, PrdPatchOperation, PrdPatchValidationOutcome, ProjectRow,
     ProjectSpec, ProjectSpecDelta, ProjectSpecDraft, ProjectSpecStatus, ProjectSpecVersionRow,
-    ScopeExpansionAssessment, StepKind, StepRow, StepSessionMappingRow,
+    ProvenanceSource, ScopeExpansionAssessment, StepKind, StepRow, StepSessionMappingRow,
 };
 use crate::db::now_ms;
 use crate::dive::event_log as dive_event_log;
@@ -883,7 +883,15 @@ pub fn workspace_prd_save_impl(
         .ok_or_else(|| format!("project {} not found", input.project_id))?;
     let save_reason = normalize_prd_save_reason(&input.reason);
     let latest = prd_dao::latest_version(conn, input.project_id).map_err(|e| e.to_string())?;
-    let snapshot = project_spec_from_save_input(input, latest.as_ref(), &save_reason)?;
+    // S-053 D3: the confirmed field_provenance comes from the persisted live
+    // draft, not the wire `PrdSaveInput` (see project_spec_from_save_input doc
+    // comment). Looked up before `input` moves into that call.
+    let draft_field_provenance = prd_dao::get_draft(conn, input.project_id)
+        .map_err(|e| e.to_string())?
+        .map(|row| row.field_provenance)
+        .unwrap_or_default();
+    let snapshot =
+        project_spec_from_save_input(input, latest.as_ref(), &save_reason, draft_field_provenance)?;
     if !is_confirmable_project_spec(&snapshot) {
         return Err(
             "PRD confirmation requires a goal, at least one acceptance criterion, and a decided architecture (form and tech stack)"
@@ -1206,6 +1214,13 @@ fn project_spec_from_save_input(
     input: PrdSaveInput,
     latest: Option<&ProjectSpecVersionRow>,
     reason: &str,
+    // S-053 D3: the live draft's field_provenance is NOT part of `PrdSaveInput`
+    // (it lives on the outer LiveProjectSpecDraft, sibling to dirty_fields —
+    // never on the `spec` the client sends here). The caller looks up the
+    // persisted draft row for this project and passes its map through so it
+    // survives onto the confirmed snapshot without widening the save wire
+    // shape.
+    field_provenance: BTreeMap<String, ProvenanceSource>,
 ) -> Result<ProjectSpec, String> {
     let now = now_ms();
     let version = latest.map(|row| row.version + 1).unwrap_or(1);
@@ -1247,6 +1262,7 @@ fn project_spec_from_save_input(
             architecture.decided_in_version = version;
             architecture
         }),
+        field_provenance,
         status: input.spec.status,
         created_at: latest
             .map(|row| row.snapshot.created_at)
@@ -2192,6 +2208,14 @@ fn load_or_create_prd_draft(
             architecture: None,
             status: ProjectSpecStatus::Draft,
         });
+    // S-053 D3: reopening a previously-confirmed PRD carries its recorded
+    // provenance forward (pattern: `architecture` above) so the intent-check
+    // card stays honest across edit sessions instead of resetting to the
+    // legacy-empty-map fallback every time a student reopens their PRD.
+    let field_provenance = latest
+        .as_ref()
+        .map(|row| row.snapshot.field_provenance.clone())
+        .unwrap_or_default();
     Ok(LiveProjectSpecDraftRow {
         draft_id: if draft_id.trim().is_empty() {
             format!("prd-draft-{project_id}")
@@ -2204,6 +2228,7 @@ fn load_or_create_prd_draft(
         dirty_fields: Vec::new(),
         student_edited_fields: Vec::new(),
         last_patch_id: None,
+        field_provenance,
         updated_at: now,
     })
 }
@@ -2222,6 +2247,7 @@ fn persist_live_prd_draft(
             dirty_fields: draft.dirty_fields.clone(),
             student_edited_fields: draft.student_edited_fields.clone(),
             last_patch_id: draft.last_patch_id.clone(),
+            field_provenance: draft.field_provenance.clone(),
         },
     )
     .map_err(|e| e.to_string())
@@ -2798,7 +2824,15 @@ fn apply_prd_patch_to_draft(
     }
 
     for field in &applied_field_paths {
-        push_unique(&mut next.dirty_fields, field_path_root(field));
+        let root = field_path_root(field);
+        // S-053 D3: only the five scalar/list fields carry provenance here —
+        // acceptanceCriteria keeps its own per-criterion `source` and is
+        // deliberately excluded (see ProvenanceSource doc comment).
+        if root != "acceptanceCriteria" {
+            next.field_provenance
+                .insert(root.clone(), ProvenanceSource::AiPatch);
+        }
+        push_unique(&mut next.dirty_fields, root);
     }
 
     let validation_outcome = if !held_field_paths.is_empty() {
@@ -5976,6 +6010,7 @@ mod prd_interview_prompt_tests {
             dirty_fields: Vec::new(),
             student_edited_fields: Vec::new(),
             last_patch_id: None,
+            field_provenance: BTreeMap::new(),
             updated_at: 1,
         }
     }

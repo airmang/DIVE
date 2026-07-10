@@ -4,10 +4,27 @@ import type {
   AcceptanceCriterionSource,
   LiveProjectSpecDraft,
   ProjectSpecDraft,
+  ProvenanceSource,
 } from "./types";
 
 export const DEFAULT_PROJECT_SPEC_VERSION = 1;
 export const ACCEPTANCE_CRITERION_ID_PREFIX = "AC";
+
+// S-053 D3: the only field paths markDraftStudentEdited stamps into
+// fieldProvenance. acceptanceCriteria (own per-criterion `source`) and
+// architecture (own `decisionSource`) are deliberately excluded — see the
+// ProvenanceSource doc comment in types.ts for the boundary.
+const PROVENANCE_TRACKED_FIELDS = new Set([
+  "goal",
+  "intentSummary",
+  "scope",
+  "nonGoals",
+  "constraints",
+]);
+
+function fieldPathRoot(path: string): string {
+  return path.split(".")[0] ?? path;
+}
 
 export type MinimalProjectSpecReasonCode = "missing_goal" | "missing_acceptance_criterion";
 export type ConfirmableProjectSpecReasonCode =
@@ -49,6 +66,7 @@ interface CreateLiveProjectSpecDraftOverrides extends Omit<
   dirtyFields?: string[];
   studentEditedFields?: string[];
   lastPatchId?: string | null;
+  fieldProvenance?: Record<string, ProvenanceSource>;
   updatedAt?: number;
 }
 
@@ -309,6 +327,7 @@ export function createLiveProjectSpecDraft(
     dirtyFields: compactUnique(overrides.dirtyFields ?? []),
     studentEditedFields: compactUnique(overrides.studentEditedFields ?? []),
     lastPatchId: overrides.lastPatchId ?? null,
+    fieldProvenance: overrides.fieldProvenance ?? {},
     updatedAt: now,
   };
 }
@@ -427,12 +446,60 @@ export function markDraftStudentEdited(
   fieldPaths: string[],
 ): LiveProjectSpecDraft {
   const normalized = compactUnique(fieldPaths);
+  // S-053 D3: stamp `student` provenance for the tracked scalar/list fields
+  // this edit touched. acceptanceCriteria and architecture edits also flow
+  // through here (PrdAuthoringBoard.updateDraft is the single write path) but
+  // are intentionally NOT stamped into this map — see PROVENANCE_TRACKED_FIELDS.
+  const fieldProvenance = { ...draft.fieldProvenance };
+  for (const path of normalized) {
+    const root = fieldPathRoot(path);
+    if (PROVENANCE_TRACKED_FIELDS.has(root)) {
+      fieldProvenance[root] = "student";
+    }
+  }
   return {
     ...draft,
     dirtyFields: compactUnique([...draft.dirtyFields, ...normalized]),
     studentEditedFields: compactUnique([...draft.studentEditedFields, ...normalized]),
+    fieldProvenance,
     updatedAt: Date.now(),
   };
+}
+
+// S-053 D3: which of the three intent-check framings applies, derived purely
+// from the draft's field_provenance map (never the LLM). Field paths outside
+// PROVENANCE_TRACKED_FIELDS never appear as keys, so this only ever looks at
+// the five scalar/list fields.
+export type PrdIntentCheckFraming = "ai" | "student" | "mixed";
+
+export function prdIntentCheckFraming(
+  fieldProvenance: Record<string, ProvenanceSource> | undefined,
+): PrdIntentCheckFraming {
+  const sources = Object.values(fieldProvenance ?? {});
+  // Legacy fallback (design D3): a draft that predates this field, or one
+  // authored entirely through a future untracked write path, has an empty
+  // map. (Quick Intake is NOT such a path — applyQuickIntakeToDraft routes
+  // through markDraftStudentEdited and stamps `student`.) Reuse the existing
+  // "AI summarized this" framing unchanged rather than invent a fourth copy
+  // variant for a case indistinguishable from the legacy one.
+  if (sources.length === 0) return "ai";
+  const allStudent = sources.every((source) => source === "student");
+  if (allStudent) return "student";
+  const allAi = sources.every(
+    (source) => source === "ai_patch" || source === "ai_suggestion_accepted",
+  );
+  if (allAi) return "ai";
+  return "mixed";
+}
+
+/** Field paths (map keys) the student wrote by hand — used to name them in the
+ *  mixed intent-check framing. */
+export function studentAuthoredFieldPaths(
+  fieldProvenance: Record<string, ProvenanceSource> | undefined,
+): string[] {
+  return Object.entries(fieldProvenance ?? {})
+    .filter(([, source]) => source === "student")
+    .map(([field]) => field);
 }
 
 export function appendDraftDirtyFields(
