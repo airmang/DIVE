@@ -61,6 +61,28 @@ archived-status sections below).
 | `specs/010-beginner-readiness-ux/spec.md` | Canonical | Defines the post-rc.5 round-2 beginner-readiness/UX hardening scope (8 themes → Wily Stages S-041–S-048). |
 | `specs/010-beginner-readiness-ux/design-s041.md` … `design-s048.md` | Canonical planning aids | Per-stage designs for the eight 010 stages. |
 | `specs/010-beginner-readiness-ux/adr-s048-network-egress.md` | Accepted ADR | Constitution 1.0.0→1.1.0 amendment admitting the Rust-validated network-egress capability class (Principle III). |
+| `specs/011-conference-demo-readiness/spec.md` | Canonical | Defines the round-3 conference-demo-readiness scope (8 themes → Wily Stages S-050–S-057) from the 2026-07-10 QA NO-GO verdict, targeting the 2026-08-14 presentation (Windows demo machine). |
+
+## 011 Implementation Status
+
+As of 2026-07-10, `specs/011-conference-demo-readiness/` (conference demo
+readiness, round 3) is approved and in progress on branch
+`011-conference-demo-readiness`, implemented by Wily Stages S-050 through
+S-057. Input evidence is `docs/qa/conference-readiness-2026-07-10/report.md`
+(2 P0 / 5 P1 / 6 P2; unscripted new-user live demo NO-GO). The round exit gate
+is S-057: clean app-data new-project → 3-step completion, 3 consecutive runs,
+0 false errors, on macOS and the installed Windows demo build.
+
+| Wily Stage | Scope | Status |
+| --- | --- | --- |
+| S-050 | Plan-quality gate re-tuning + recovery-example self-pass regression lock (P0-01, absorbs P2-05 plan-recovery Korean copy) | Registered |
+| S-051 | Provider+model Pi executability preflight, unsupported-model surfacing, error un-swallowing (P0-02, absorbs P2-02 curation) | Registered |
+| S-052 | Post-success false stall-timeout removal — per-run terminal state, no timer re-arm (P1-01) | Registered |
+| S-053 | PRD interview patch-failure transparency + field-level provenance (P1-02, P1-03) | Registered |
+| S-054 | Release-gate restoration: 5 failing verifier items, initial chunk < 500 KiB, QA app-data isolation (P1-04) | Registered |
+| S-055 | Windows installed-app demo readiness — NSIS smoke, first run, demo conditions (P1-05, demo-critical) | Registered |
+| S-056 | Demo UX polish: empty-state split, step-overlap validation (post-S-050, self-pass locked), multi-criterion evidence linking, sidebar decluttering (P2) | Registered |
+| S-057 | GO-judgment exit gate + presentation fallback package (recording, run-of-show, failure contingencies) | Registered |
 
 ## 010 Implementation Status
 
