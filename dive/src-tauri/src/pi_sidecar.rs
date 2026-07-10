@@ -20,6 +20,7 @@ use crate::providers::{FinishReason, Message as ProviderMessage, ToolCall, ToolD
 
 mod command;
 mod credential;
+mod model_registry;
 mod protocol;
 mod runtime_state;
 mod transport;
@@ -33,6 +34,7 @@ use credential::{
     decode_jwt_exp_ms, default_expiry_ms, file_mode_string, now_epoch_ms,
     prepare_runtime_credential, write_codex_auth_file, TempAuthDir,
 };
+pub use model_registry::PiModelRegistryCache;
 #[cfg(test)]
 use parity::CredentialMode;
 use parity::PiProviderDescriptor;
@@ -318,6 +320,9 @@ pub async fn run_codex_smoke(
                 SidecarEvent::Error { message } => {
                     return Err(format!("pi sidecar error: {message}"));
                 }
+                SidecarEvent::ListModelsResult { .. } => {
+                    return Err("unexpected list_models_result during a run turn".to_string());
+                }
             }
         }
         Ok::<(), String>(())
@@ -482,6 +487,9 @@ pub async fn run_supervisor_turn(
                 }
                 SidecarEvent::Error { message } => {
                     return Err(format!("pi sidecar error: {message}"));
+                }
+                SidecarEvent::ListModelsResult { .. } => {
+                    return Err("unexpected list_models_result during a run turn".to_string());
                 }
             }
         }
@@ -880,6 +888,9 @@ async fn run_supervised_turn_inner(
                 }
                 SidecarEvent::Error { message } => {
                     return Err(format!("pi sidecar error: {message}"));
+                }
+                SidecarEvent::ListModelsResult { .. } => {
+                    return Err("unexpected list_models_result during a run turn".to_string());
                 }
             }
         }
@@ -1449,6 +1460,123 @@ function ready(message) {
             Some(value) => std::env::set_var(KEY, value),
             None => std::env::remove_var(KEY),
         }
+    }
+
+    // S-051 D1/D2 point 2: sidecar `list_models` handshake + Rust cache.
+
+    #[tokio::test]
+    async fn list_models_end_to_end_against_real_sidecar_resolves_pinned_registry() {
+        // No `set_test_sidecar_script_path` override here — this deliberately
+        // exercises the REAL production dive/pi-sidecar/src/main.mjs (via
+        // `resolve_sidecar_command`'s dev fallback) so the protocol addition
+        // to index.mjs is covered end-to-end, not just against a fake stub.
+        // `list_models` is a pure local registry lookup (no credentials, no
+        // network egress — S-051 D1), so this is safe and deterministic to
+        // run in CI. Still serialized: a concurrent test's script-path
+        // override must not leak into this one.
+        let _serial = fake_sidecar_test_lock();
+
+        let providers = model_registry::query_model_registry()
+            .await
+            .expect("real pi sidecar answers list_models");
+
+        assert!(
+            providers.contains_key("anthropic"),
+            "expected pinned registry to know about the anthropic provider"
+        );
+        assert!(
+            providers.contains_key("openrouter"),
+            "expected pinned registry to know about the openrouter provider"
+        );
+        let anthropic_models = &providers["anthropic"];
+        assert!(
+            !anthropic_models.is_empty(),
+            "anthropic provider should resolve at least one model"
+        );
+        assert!(
+            anthropic_models.iter().all(|id| !id.is_empty()),
+            "every resolved model id should be a non-empty string"
+        );
+    }
+
+    #[tokio::test]
+    async fn pi_model_registry_cache_answers_true_and_false_after_successful_load() {
+        let _serial = fake_sidecar_test_lock();
+        let scripts = tempfile::tempdir().unwrap();
+        let script = write_fake_sidecar(
+            scripts.path(),
+            "list-models-fake.mjs",
+            &format!(
+                r#"{}
+rl.on("line", (line) => {{
+  const message = JSON.parse(line);
+  if (message.type === "list_models") {{
+    emit({{
+      type: "list_models_result",
+      providers: {{
+        anthropic: ["claude-sonnet-4-6"],
+        openrouter: ["anthropic/claude-sonnet-4-6"]
+      }}
+    }});
+    rl.close();
+    return;
+  }}
+  emit({{ type: "error", message: `unknown message type: ${{message.type}}` }});
+}});
+"#,
+                fake_sidecar_prelude()
+            ),
+        );
+        let _guard = set_test_sidecar_script_path(script);
+
+        let cache = PiModelRegistryCache::new();
+        assert_eq!(
+            cache.executable("anthropic", "claude-sonnet-4-6").await,
+            Some(true)
+        );
+        assert_eq!(
+            cache.executable("anthropic", "claude-sonnet-5").await,
+            Some(false)
+        );
+        // Second call must not re-spawn the sidecar: the cache is loaded once
+        // per process lifetime (see PiModelRegistryCache doc comment).
+        assert_eq!(
+            cache
+                .executable("openrouter", "anthropic/claude-sonnet-4-6")
+                .await,
+            Some(true)
+        );
+    }
+
+    #[tokio::test]
+    async fn pi_model_registry_cache_fails_open_when_sidecar_does_not_understand_list_models() {
+        // Models an old/stale bundled sidecar build that predates the
+        // `list_models` protocol addition: it falls through to the existing
+        // "unknown message type" error, exactly like production index.mjs
+        // does for any message it doesn't recognize.
+        let _serial = fake_sidecar_test_lock();
+        let scripts = tempfile::tempdir().unwrap();
+        let script = write_fake_sidecar(
+            scripts.path(),
+            "old-sidecar-fake.mjs",
+            &format!(
+                r#"{}
+rl.on("line", (line) => {{
+  const message = JSON.parse(line);
+  emit({{ type: "error", message: `unknown message type: ${{message.type}}` }});
+}});
+"#,
+                fake_sidecar_prelude()
+            ),
+        );
+        let _guard = set_test_sidecar_script_path(script);
+
+        let cache = PiModelRegistryCache::new();
+        assert_eq!(
+            cache.executable("anthropic", "claude-sonnet-5").await,
+            None,
+            "unanswerable registry must fail open, not block capability"
+        );
     }
 
     #[test]

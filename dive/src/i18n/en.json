@@ -529,7 +529,8 @@
         "legacy_requested": "A saved old-runtime request is not available for v2 work.",
         "missing_credentials": "Provider credentials are missing or unavailable.",
         "missing_project_root": "Select a project before starting work.",
-        "runtime_unavailable": "The supervised runtime is unavailable."
+        "runtime_unavailable": "The supervised runtime is unavailable.",
+        "model_not_executable": "This model is not available in DIVE's supervised Pi runtime."
       }
     }
   },

@@ -529,7 +529,8 @@
         "legacy_requested": "저장된 이전 런타임 요청은 v2 작업에서 사용할 수 없습니다.",
         "missing_credentials": "Provider 인증 정보가 없거나 사용할 수 없습니다.",
         "missing_project_root": "작업을 시작하기 전에 프로젝트를 선택하세요.",
-        "runtime_unavailable": "감독 런타임을 사용할 수 없습니다."
+        "runtime_unavailable": "감독 런타임을 사용할 수 없습니다.",
+        "model_not_executable": "이 모델은 DIVE의 감독 Pi 런타임에서 사용할 수 없습니다."
       }
     }
   },

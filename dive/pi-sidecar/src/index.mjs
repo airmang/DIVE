@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import readline from "node:readline";
 
-import { getModel, Type } from "@earendil-works/pi-ai";
+import { getModel, getModels, getProviders, Type } from "@earendil-works/pi-ai";
 import {
   AuthStorage,
   createAgentSession,
@@ -248,6 +248,21 @@ export async function handleRun(message) {
   }
 }
 
+// Wraps the pinned pi-ai package's own getProviders()/getModels() exports —
+// the ONLY source of executability truth (S-051 D1). No DIVE-side model list
+// is maintained here; this is a pure local snapshot of what the exact pi-ai
+// version bundled with this sidecar can resolve. No network calls.
+export function buildModelRegistrySnapshot() {
+  const providers = {};
+  for (const provider of getProviders()) {
+    providers[provider] = getModels(provider)
+      .map((model) => model.id)
+      .filter(Boolean)
+      .sort();
+  }
+  return providers;
+}
+
 export async function handleTurnCancel(message) {
   const run = activeRun;
   if (!run) return;
@@ -291,6 +306,19 @@ export function startProtocol(input = process.stdin) {
       handleRun(message).finally(() => {
         rl.close();
       });
+      return;
+    }
+
+    if (message.type === "list_models") {
+      // One-shot handshake query: answer and close, like `run` does — this
+      // message never starts a turn, so there is nothing else to wait for.
+      try {
+        emit({ type: "list_models_result", providers: buildModelRegistrySnapshot() });
+      } catch (error) {
+        emit({ type: "error", message: `list_models failed: ${redactError(error)}` });
+      } finally {
+        rl.close();
+      }
       return;
     }
 

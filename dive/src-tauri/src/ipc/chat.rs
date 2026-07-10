@@ -118,6 +118,7 @@ fn runtime_unavailable_reason_code(reason: RuntimeUnavailableReason) -> &'static
         RuntimeUnavailableReason::MissingCredentials => "missing_credentials",
         RuntimeUnavailableReason::MissingProjectRoot => "missing_project_root",
         RuntimeUnavailableReason::RuntimeUnavailable => "runtime_unavailable",
+        RuntimeUnavailableReason::ModelNotExecutable => "model_not_executable",
     }
 }
 
@@ -184,16 +185,66 @@ fn provider_not_pi_capable_capability(
     )
 }
 
+/// S-051 D2 point 2: the pinned pi-ai registry the sidecar resolves against
+/// answered that this provider+model pair is not executable. `setup_action`
+/// is the existing generic `RetryRuntime` for now — a dedicated "switch to a
+/// compatible model" action/CTA is P2 scope (design doc D2 point 2).
+fn model_not_executable_capability(
+    kind: &ProviderKind,
+    model: Option<&str>,
+    recorded_at: i64,
+) -> RuntimeCapabilityState {
+    unavailable_runtime_capability(
+        kind,
+        model,
+        RuntimeUnavailableReason::ModelNotExecutable,
+        format!(
+            "Model {} is not available in the supervised Pi runtime for provider {}.",
+            model.unwrap_or("(unset)"),
+            kind.as_str()
+        ),
+        Some(RuntimeSetupAction::RetryRuntime),
+        recorded_at,
+    )
+}
+
+/// `model_executable` is the cached pi-ai registry answer for this
+/// provider+model (`Some(false)` blocks, `Some(true)`/`None` proceed — fail
+/// open when the registry is unknown, S-051 D2 point 2).
+fn pi_ready_or_model_blocked(
+    kind: &ProviderKind,
+    model: Option<&str>,
+    recorded_at: i64,
+    model_executable: Option<bool>,
+) -> RuntimeChoice {
+    if model_executable == Some(false) {
+        RuntimeChoice::Blocked {
+            capability: model_not_executable_capability(kind, model, recorded_at),
+        }
+    } else {
+        RuntimeChoice::Pi {
+            capability: ready_runtime_capability(kind, model, recorded_at),
+        }
+    }
+}
+
 /// `env_override` is `std::env::var("DIVE_RUNTIME").ok()` at the call site
 /// (passed in so this is unit-testable). V2 user work never selects the legacy
 /// loop: unsupported providers or legacy overrides become blocked capability
 /// states before a turn can start.
+///
+/// `model_executable` is the cached Pi model-registry answer for
+/// `(kind, model)` (S-051 D2 point 2) — `Some(false)` blocks with
+/// `model_not_executable`, `Some(true)`/`None` proceed as before (fail open
+/// when the registry is unknown). The caller resolves this ahead of time
+/// (from `AppState.pi_model_registry`) so this function stays pure/sync.
 pub(super) fn select_runtime_at(
     kind: ProviderKind,
     model: Option<&str>,
     has_provider_config: bool,
     env_override: Option<&str>,
     recorded_at: i64,
+    model_executable: Option<bool>,
 ) -> RuntimeChoice {
     match env_override {
         Some("legacy") => RuntimeChoice::Blocked {
@@ -209,9 +260,7 @@ pub(super) fn select_runtime_at(
         Some("pi") => {
             if crate::pi_sidecar::parity::pi_provider_descriptor(kind.clone()).is_some() {
                 if has_provider_config {
-                    RuntimeChoice::Pi {
-                        capability: ready_runtime_capability(&kind, model, recorded_at),
-                    }
+                    pi_ready_or_model_blocked(&kind, model, recorded_at, model_executable)
                 } else {
                     RuntimeChoice::Blocked {
                         capability: unavailable_runtime_capability(
@@ -237,9 +286,7 @@ pub(super) fn select_runtime_at(
         _ => {
             if crate::pi_sidecar::parity::pi_provider_descriptor(kind.clone()).is_some() {
                 if has_provider_config {
-                    RuntimeChoice::Pi {
-                        capability: ready_runtime_capability(&kind, model, recorded_at),
-                    }
+                    pi_ready_or_model_blocked(&kind, model, recorded_at, model_executable)
                 } else {
                     RuntimeChoice::Blocked {
                         capability: unavailable_runtime_capability(
@@ -262,7 +309,7 @@ pub(super) fn select_runtime_at(
 }
 
 pub(super) fn select_runtime(kind: ProviderKind, env_override: Option<&str>) -> RuntimeChoice {
-    select_runtime_at(kind, None, true, env_override, now_ms())
+    select_runtime_at(kind, None, true, env_override, now_ms(), None)
 }
 
 fn runtime_selection_reason() -> String {
@@ -425,12 +472,23 @@ async fn evaluate_chat_runtime_gate(
         return Err(missing_provider_runtime_capability(state, recorded_at));
     }
 
+    let model_executable =
+        match crate::pi_sidecar::parity::pi_provider_descriptor(snap.kind.clone()) {
+            Some(descriptor) => {
+                state
+                    .pi_model_registry
+                    .executable(descriptor.pi_provider_id, &snap.model)
+                    .await
+            }
+            None => None,
+        };
     let runtime_choice = select_runtime_at(
         snap.kind.clone(),
         Some(&snap.model),
         snap.config_id.is_some(),
         env_override,
         recorded_at,
+        model_executable,
     );
     tracing::info!(
         provider = ?snap.kind,

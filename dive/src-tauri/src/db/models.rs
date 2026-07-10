@@ -352,6 +352,9 @@ pub enum RuntimeUnavailableReason {
     MissingCredentials,
     MissingProjectRoot,
     RuntimeUnavailable,
+    /// The configured provider+model pair is not in the pinned pi-ai
+    /// registry the bundled sidecar resolves against (S-051 D1/D2).
+    ModelNotExecutable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
