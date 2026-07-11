@@ -6,6 +6,73 @@ All notable changes to DIVE are documented here. Format: [Keep a Changelog](http
 
 _대기 중인 미출시 변경 사항 없음._
 
+## [1.0.0-rc.9] — 2026-07-11
+
+Conference demo readiness (round 3, spec 011). The 2026-07-10 comprehensive QA's
+NO-GO verdict for an unscripted new-user live demo is now **GO on macOS**: three
+consecutive clean-app-data journeys (new project → PRD one-shot structuring →
+architecture → plan approval → 3 supervised steps → 90 s observation) passed with
+zero false errors on the very model that failed the original QA
+(`docs/qa/011-live-qa/s057-go-run-log.md`).
+
+### Fixed
+
+- **Plan-quality gate no longer blocks reasonable novice plans (P0-01, S-050).**
+  Bundle/step-level verifiability replaces the per-criterion veto; generic UI-noun
+  goal classifiers narrowed; Korean numeric/verification markers recognized;
+  machine-coded recovery issues render in the app locale with self-passing
+  examples (regression-locked against the validator); retry prompts carry the
+  examples. Live-found integration fix: PRD criterion-ID references ("AC-001")
+  echoed into `acceptance_criteria` now resolve to the criterion text before
+  validation.
+- **Advertised models are executable (P0-02, S-051).** The pinned pi-ai registry
+  is the single executability truth: sidecar `list_models` + app-lifetime cache +
+  `model_not_executable` capability with a switch-model CTA; "Pi 검증됨"/"Pi
+  미지원" selector grouping; sidecar `model not found` failures surface as a
+  toast instead of a silent PRD bounce. pi-ai bumped 0.79.10→0.80.6 (root
+  catalog API removal absorbed via `providers/all`) so `claude-sonnet-5` runs
+  natively and via OpenRouter; a CI gate keeps factory defaults inside the
+  registry forever.
+- **No more false stall timeouts after success (P1-01, S-052).** Per-run
+  terminal latch + stable per-run error id dedupe; live-found integration fix:
+  the supervised Pi path now emits the terminal `done` event (it never had —
+  only the legacy loop did).
+- **PRD interview failures are honest and recoverable (P1-02, S-053).**
+  `not_structured` outcome distinct from policy rejection and net-zero; "다시
+  구조화" retry; every turn audited in the new `interview_turns` table +
+  `prd_patch_unstructured` events (closed audit hole). Live-found fixes: hard
+  single-JSON output contract, `max_tokens` 900→8000, and a deterministic
+  in-turn retry so one detailed answer structures reliably across models.
+- **Human PRD editing is no longer exported as AI summarization (P1-03, S-053).**
+  Field-level provenance (student / ai_patch) on drafts and confirmed
+  snapshots; the intent-check card now shows AI-summarized / student-authored /
+  mixed framings (mixed names the student-written fields).
+- **Release gate restored (P1-04, S-054).** Four verifier false-negatives
+  repointed (targets had become re-export shells); rate-limit-blocked steps get
+  a resume affordance; initial chunk 549 KB→374 KB (locale-data split + a real
+  vendor-chunk matcher bug fixed); the three follow-up verifiers now run in CI
+  via `verify:v4`.
+
+### Added
+
+- Demo UX polish (S-056): honest "세션이 시작됐어요" empty state; explicit
+  multi-criterion observation linking ("이번 관찰을 관련 기준 모두에 적용",
+  S-029 evidence gates preserved); cross-step overlap advisories (non-blocking,
+  self-pass locked); project archive with a collapsed "보관됨" sidebar section.
+- Presentation fallback package + GO-judgment procedure
+  (`docs/qa/011-live-qa/s057-fallback-package.md`).
+
+### Verification
+
+- Full local CI green (Rust fmt/clippy/`--all-targets --features dev-mock`;
+  frontend format/typecheck/lint/558 unit tests; `verify:v4` chain incl. the
+  three restored verifiers).
+- Live QA: three rounds on the rebuilt release app + GO gate 3/3 PASS
+  (`docs/qa/011-live-qa/tier1-run-log.md`). Live QA surfaced and closed five
+  integration defects unit tests could not see.
+- Windows: CI x64 NSIS installed-app smoke 13/13 PASS (run 29131250191);
+  real-hardware demo-condition pass tracked for rehearsal.
+
 ## [1.0.0-rc.8] — 2026-07-10
 
 Completes the S-047 two-stage architecture interview: the AI's form/stack recommendation now reaches the PRD board as selectable cards instead of chat-only prose.
