@@ -2385,6 +2385,13 @@ fn build_prd_interview_system_prompt() -> String {
         "For propose_architecture_stack, use \"proposals\":{\"kind\":\"stack\",\"options\":[{\"value\":\"<concise stack, e.g. React + Vite>\",\"rationale\":\"...\"}]}. Only recommend stacks that fit the already chosen form.",
         "Omit \"proposals\" entirely on any other focus.",
         "Use concise JSON with shape {\"assistantMessage\":\"...\",\"patch\":{\"operations\":[...],\"rationale\":\"...\"},\"proposals\":{\"kind\":\"...\",\"options\":[...]}}. Include only the keys you are using.",
+        // 011 live-QA fix (tier1-run-log 2026-07-11 저니 C): without an
+        // explicit whole-response contract, some models (observed with
+        // claude-sonnet-5) reply in plain prose — no JSON at all — so no
+        // patch can ever be extracted and every detailed answer dies as
+        // `not_structured`/`no_json`. Same lesson as the review-card schema
+        // fix: name the exact output envelope, always.
+        "CRITICAL OUTPUT CONTRACT: your ENTIRE reply must be exactly one JSON object and nothing else — no prose before or after it, no Markdown code fences. The conversational reply always goes inside the assistantMessage field, never outside the JSON. Even when you have no patch or proposals this turn, still reply with {\"assistantMessage\":\"...\"}.",
     ]
     .join("\n")
 }
@@ -2399,7 +2406,7 @@ fn build_prd_interview_user_prompt(
     let next_focus = prd_interview_next_focus(&draft.spec);
     let conversation = format_prd_interview_conversation(conversation);
     format!(
-        "Current live PRD draft JSON:\n{draft_json}\n\nMissing fields required before PRD confirmation, if any: {missing_confirmable}\n\nSuggested next interview focus: {next_focus}\n\nRecent interview conversation, oldest to newest:\n{conversation}\n\nLatest student answer:\n{answer}\n\nReturn the conversational response plus optional PrdPatch JSON. Use the recent conversation as evidence when the live draft has not caught up yet. Do not repeat a question that the student has already answered in the conversation. If the answer is vague, still capture any likely goal, user, first-version boundary, constraint, or observable done state that is grounded in the answer. If the suggested focus is ready_to_save, say the PRD has enough information to confirm and point the student to the \"PRD 확정\" / \"Confirm PRD\" button instead of asking a new required question, offering another wording pass, or asking whether to save. If the suggested focus names a missing field, ask one concrete plain-language question for that field and do not tell the student it is ready to confirm yet."
+        "Current live PRD draft JSON:\n{draft_json}\n\nMissing fields required before PRD confirmation, if any: {missing_confirmable}\n\nSuggested next interview focus: {next_focus}\n\nRecent interview conversation, oldest to newest:\n{conversation}\n\nLatest student answer:\n{answer}\n\nReply with exactly one JSON object per the system-prompt output contract (assistantMessage inside the JSON; optional patch/proposals keys). Use the recent conversation as evidence when the live draft has not caught up yet. Do not repeat a question that the student has already answered in the conversation. If the answer is vague, still capture any likely goal, user, first-version boundary, constraint, or observable done state that is grounded in the answer. If the suggested focus is ready_to_save, say the PRD has enough information to confirm and point the student to the \"PRD 확정\" / \"Confirm PRD\" button instead of asking a new required question, offering another wording pass, or asking whether to save. If the suggested focus names a missing field, ask one concrete plain-language question for that field and do not tell the student it is ready to confirm yet."
     )
 }
 
