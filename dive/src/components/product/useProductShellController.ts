@@ -25,6 +25,7 @@ import {
   type ProviderSummary,
 } from "../../stores/project-session";
 import { cockpitProviderLabel } from "../../lib/provider-format";
+import { matchSidecarModelNotFoundError } from "../../lib/error-classify";
 import { useToast } from "../toast/toast-context";
 import { getCardStateMeta } from "../workmap/card-state-meta";
 import { useT } from "../../i18n";
@@ -53,9 +54,12 @@ import type {
 } from "../../features/planning";
 import type { ConfirmableRouteDecision } from "./PlanRouteConfirmModal";
 import {
+  buildIssueLines,
+  collectRecoveryExamples,
   decodePlanDraftQualityError,
   usePlanInterviewLLM,
   type PlanDraftLlmErrorReason,
+  type PlanDraftQualityIssue,
 } from "../../features/planning/usePlanInterviewLLM";
 import { useChatSession } from "../../hooks/useChatSession";
 import { refreshMenuRecents, useMenuEvents } from "../../lib/menu-events";
@@ -149,6 +153,7 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
     "step_kind must be one of feature, refactor, rename, comment, debug. Use refactor/rename only for behavior-preserving move/restructure/name changes; use debug for diagnose-then-fix work.",
     "Every step must link to at least one saved PRD criterion ID through linked_criterion_ids and explain the link in rationale.",
     "Use the saved PRD criterion IDs exactly; do not invent AC IDs.",
+    "acceptance_criteria entries must be full observable criterion sentences (copy the PRD criterion text or write a new concrete sentence); never put bare criterion IDs like AC-001 in acceptance_criteria — IDs belong only in linked_criterion_ids.",
     ...(architecture
       ? [
           "The PRD includes the student's confirmed architecture (form + tech stack). Decompose for that form and stack: keep every step, expected_files, and verification consistent with it, and do not switch to a different framework or stack.",
@@ -160,6 +165,53 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
     "",
     `Saved PRD JSON:\n${JSON.stringify(prd)}`,
   ].join("\n");
+}
+
+type Translate = (key: string, values?: Record<string, string | number>) => string;
+
+// S-051 D2 point 2 / P2: the composer's runtime-unavailable CTA label per
+// `RuntimeSetupAction`. `open_project`/`retry_runtime` keep their existing
+// special-cased behavior (retry has no button); `switch_model` gets a
+// dedicated label pointing the student at provider/model settings instead
+// of the generic "open provider setup" copy.
+export function runtimeSetupActionLabel(
+  setupAction: string | null | undefined,
+  t: Translate,
+): string | undefined {
+  if (setupAction === "open_project") return t("sidebar.new_project");
+  if (setupAction === "retry_runtime") return undefined;
+  if (setupAction === "switch_model") return t("runtime.capability.switch_model_action");
+  return t("runtime.capability.setup_action");
+}
+
+export interface ModelNotFoundToastArgs {
+  title: string;
+  description: string;
+  actionLabel: string;
+}
+
+/**
+ * S-051 D3: decides whether a chat error is the sidecar's own run-time
+ * `model not found` failure and, if so, what a toast surfacing it should
+ * say. Pure so the detection/copy logic is unit-testable without mounting
+ * the shell controller — see `matchSidecarModelNotFoundError` for the
+ * detection regex.
+ */
+export function modelNotFoundToastArgs(
+  errorMessage: string | null | undefined,
+  t: Translate,
+): ModelNotFoundToastArgs | null {
+  if (!errorMessage) return null;
+  const match = matchSidecarModelNotFoundError(errorMessage);
+  if (!match) return null;
+  return {
+    title: t("runtime.model_not_found.toast_title"),
+    description: t("runtime.model_not_found.toast_description", {
+      provider: match.provider,
+      model: match.model,
+    }),
+    actionLabel: t("runtime.capability.switch_model_action"),
+  };
 }
 
 export function shouldShowEmptyPlanRail(input: {
@@ -332,6 +384,10 @@ export function draftFromProjectSpec(projectSpec: ProjectSpec): LiveProjectSpecD
     // the read-view "Edit" button (which rebuilds the draft here with no backend
     // refetch) would reset architecture to null and permanently drop it on re-save.
     architecture: projectSpec.architecture,
+    // S-053 D3: same reasoning for provenance — reopening a confirmed PRD for
+    // editing via this client-only rebuild must not reset the intent-check
+    // card to the legacy-empty-map "AI summarized this" fallback.
+    fieldProvenance: projectSpec.fieldProvenance,
     status: "draft",
   });
 }
@@ -379,6 +435,7 @@ export function useProductShellController() {
   const [planDraftFailure, setPlanDraftFailure] = useState<{
     reason: PlanDraftLlmErrorReason;
     unresolvedQuestions: string[];
+    issues?: PlanDraftQualityIssue[];
   } | null>(null);
   const [prdMode, setPrdMode] = useState<PrdMode>(null);
   const [prdDraft, setPrdDraft] = useState<LiveProjectSpecDraft | null>(null);
@@ -748,6 +805,7 @@ export function useProductShellController() {
             setPlanDraftFailure({
               reason: qualityError.reason,
               unresolvedQuestions,
+              issues: qualityError.issues,
             });
             setActiveInterview((current) =>
               current
@@ -784,6 +842,7 @@ export function useProductShellController() {
       setPlanDraftFailure({
         reason: error.reason,
         unresolvedQuestions: error.unresolvedQuestions ?? [],
+        issues: error.issues,
       });
       setActiveInterview((current) =>
         current
@@ -1311,6 +1370,22 @@ export function useProductShellController() {
     }
   }, [autoSurfaceVerify, chat.isStreaming]);
 
+  // S-051 D3: a preflight-missed sidecar `model not found` failure (registry
+  // drift, or a run-time race) lands in `chat.error` as a raw IPC rejection
+  // string — today that surfaces only inside the chat transcript, which is
+  // silent when the student is looking at the PRD screen (P0-02 QA
+  // observation). Name the model and offer the switch action wherever they
+  // are instead of relying on transcript visibility.
+  const lastHandledModelNotFoundErrorRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!chat.error) return;
+    if (lastHandledModelNotFoundErrorRef.current === chat.error) return;
+    const args = modelNotFoundToastArgs(chat.error, t);
+    if (!args) return;
+    lastHandledModelNotFoundErrorRef.current = chat.error;
+    toast({ variant: "error", ...args, onAction: openSettingsRoute });
+  }, [chat.error, openSettingsRoute, t, toast]);
+
   const handleEmptyStateAction = useCallback(() => {
     if (currentProjectId === null) {
       dialogs.setNewProjectOpen(true);
@@ -1669,12 +1744,7 @@ export function useProductShellController() {
     // from the concrete runtimeSelection state (message + setupAction).
     runtimeUnavailable: !isDemoRoute && chat.runtimeSelection?.state === "unavailable",
     runtimeReason: chat.runtimeSelection?.message,
-    runtimeActionLabel:
-      chat.runtimeSelection?.setupAction === "open_project"
-        ? t("sidebar.new_project")
-        : chat.runtimeSelection?.setupAction === "retry_runtime"
-          ? undefined
-          : t("runtime.capability.setup_action"),
+    runtimeActionLabel: runtimeSetupActionLabel(chat.runtimeSelection?.setupAction, t),
     runtimeOnAction:
       chat.runtimeSelection?.setupAction === "open_project"
         ? handleEmptyStateAction
@@ -1686,6 +1756,7 @@ export function useProductShellController() {
     currentCard,
     allVerified,
     messages: chat.messages,
+    messagesLoading: chat.loadingHistory,
     generatedPlanDraftPresent: generatedPlanDraft !== null,
     planStatus: plan.status,
     prdStatus: prdReadiness,
@@ -1933,14 +2004,27 @@ export function useProductShellController() {
     // Feed the concrete missing checks into the retry so regeneration makes
     // progress instead of reproducing the identical rejection (round-2 S-041
     // plan-confirm loop). The reason slug alone never told the model what to add.
-    const missing = planDraftFailure.unresolvedQuestions
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .join("; ");
+    // S-050 D4: when the backend attached machine-coded issues, build the
+    // missing-checks line from the same localized copy the recovery screen
+    // shows, and append self-passing examples so regeneration has a target.
+    const issues = planDraftFailure.issues ?? [];
+    const missing =
+      issues.length > 0
+        ? buildIssueLines(issues, t).join("; ")
+        : planDraftFailure.unresolvedQuestions
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .join("; ");
+    const recoveryExamples = issues.length > 0 ? collectRecoveryExamples(issues, t) : [];
+    const examples =
+      recoveryExamples.length > 0
+        ? t("planning.interview.compact_retry_examples", { list: recoveryExamples.join("; ") })
+        : "";
     const prompt = t("planning.interview.compact_retry_prompt", {
       goal: interview.goal,
       reason: planDraftFailure.reason,
       missing: missing || t("planning.interview.compact_retry_missing_fallback"),
+      examples,
     });
     setPlanDraftExpectation(true);
     setPlanDraftFailure(null);
@@ -2151,6 +2235,7 @@ export function useProductShellController() {
           ? createElement(PlanDraftRecoveryScreen, {
               reason: planDraftFailure.reason,
               unresolvedQuestions: planDraftFailure.unresolvedQuestions,
+              issues: planDraftFailure.issues,
               busy: chat.isStreaming,
               onRetry: handleRetryPlanDraft,
               onDismiss: () => setPlanDraftFailure(null),

@@ -112,3 +112,26 @@ export function classifyProjectCreateError(input: unknown): ClassifiedProjectCre
     rawMessage: rawMessage(input),
   };
 }
+
+export interface SidecarModelNotFoundMatch {
+  provider: string;
+  model: string;
+}
+
+const SIDECAR_MODEL_NOT_FOUND_RE = /model not found: ([^/\s]+)\/(.+)$/;
+
+/**
+ * Detects the pinned pi-ai sidecar's own error template — `model not found:
+ * ${provider}/${modelId}` (`dive/pi-sidecar/src/index.mjs:166`) — inside a
+ * chat error message. `run_supervised_turn` (`pi_sidecar.rs`) wraps that
+ * string unmodified as `pi sidecar error: {message}`, so it survives to the
+ * frontend as a `chat_send` failure even though preflight already let the
+ * turn start (registry drift or a future race, S-051 D3). Used to surface a
+ * named cause + switch-model CTA instead of a generic/silent failure.
+ */
+export function matchSidecarModelNotFoundError(input: unknown): SidecarModelNotFoundMatch | null {
+  const raw = rawMessage(input);
+  const match = SIDECAR_MODEL_NOT_FOUND_RE.exec(raw);
+  if (!match) return null;
+  return { provider: match[1], model: match[2].trim() };
+}

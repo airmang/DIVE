@@ -477,4 +477,393 @@ describe("useChatSession runtime event reducer", () => {
     });
     expect(result.current.messages.some((message) => message.kind === "error")).toBe(true);
   });
+
+  it("does not surface an error card for a straggler after done (S-052 D1)", async () => {
+    const { result } = renderHook(() => useChatSession(42));
+
+    await waitFor(() => expect(result.current.loadingHistory).toBe(false));
+    const handler = tauriMocks.listeners.get("chat://event/42");
+    if (!handler) throw new Error("expected chat event listener");
+
+    vi.useFakeTimers();
+
+    act(() => {
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "assistant_start",
+            id: "assistant-1",
+            created_at: 100,
+          } satisfies Extract<AgentEvent, { type: "assistant_start" }>,
+        },
+      });
+    });
+    act(() => {
+      handler({
+        payload: {
+          session_id: 42,
+          event: { type: "done", reason: "completed" } satisfies Extract<
+            AgentEvent,
+            { type: "done" }
+          >,
+        },
+      });
+    });
+
+    expect(result.current.isStreaming).toBe(false);
+
+    act(() => {
+      vi.advanceTimersByTime(45_001);
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "agent_progress",
+            kind: "heartbeat",
+            message: "Pi runtime heartbeat received.",
+            created_at: 200,
+          } satisfies Extract<AgentEvent, { type: "agent_progress" }>,
+        },
+      });
+    });
+
+    expect(result.current.messages.filter((message) => message.kind === "error")).toHaveLength(0);
+    expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("stays free of error cards across two stragglers 45s+ apart after done (S-052 D1)", async () => {
+    const { result } = renderHook(() => useChatSession(42));
+
+    await waitFor(() => expect(result.current.loadingHistory).toBe(false));
+    const handler = tauriMocks.listeners.get("chat://event/42");
+    if (!handler) throw new Error("expected chat event listener");
+
+    vi.useFakeTimers();
+
+    act(() => {
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "assistant_start",
+            id: "assistant-1",
+            created_at: 100,
+          } satisfies Extract<AgentEvent, { type: "assistant_start" }>,
+        },
+      });
+    });
+    act(() => {
+      handler({
+        payload: {
+          session_id: 42,
+          event: { type: "done", reason: "completed" } satisfies Extract<
+            AgentEvent,
+            { type: "done" }
+          >,
+        },
+      });
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(45_001);
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "tool_result",
+            call_id: "stale-tool",
+            success: true,
+            summary: "late straggler result",
+            full: {},
+          } satisfies Extract<AgentEvent, { type: "tool_result" }>,
+        },
+      });
+    });
+    act(() => {
+      vi.advanceTimersByTime(45_001);
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "agent_progress",
+            kind: "heartbeat",
+            message: "Pi runtime heartbeat received.",
+            created_at: 300,
+          } satisfies Extract<AgentEvent, { type: "agent_progress" }>,
+        },
+      });
+    });
+
+    expect(result.current.messages.filter((message) => message.kind === "error")).toHaveLength(0);
+  });
+
+  it("fires exactly one stall card for 45s of true silence mid-run (S-052 D1)", async () => {
+    const { result } = renderHook(() => useChatSession(42));
+
+    await waitFor(() => expect(result.current.loadingHistory).toBe(false));
+    const handler = tauriMocks.listeners.get("chat://event/42");
+    if (!handler) throw new Error("expected chat event listener");
+
+    vi.useFakeTimers();
+
+    act(() => {
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "assistant_start",
+            id: "assistant-1",
+            created_at: 100,
+          } satisfies Extract<AgentEvent, { type: "assistant_start" }>,
+        },
+      });
+    });
+
+    // Two heartbeats keep the run alive without ever clearing it to done.
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "agent_progress",
+            kind: "heartbeat",
+            message: "Pi runtime heartbeat received.",
+            created_at: 101,
+          } satisfies Extract<AgentEvent, { type: "agent_progress" }>,
+        },
+      });
+    });
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "agent_progress",
+            kind: "heartbeat",
+            message: "Pi runtime heartbeat received.",
+            created_at: 102,
+          } satisfies Extract<AgentEvent, { type: "agent_progress" }>,
+        },
+      });
+    });
+
+    expect(result.current.messages.filter((message) => message.kind === "error")).toHaveLength(0);
+
+    act(() => {
+      vi.advanceTimersByTime(45_001);
+    });
+
+    expect(result.current.messages.filter((message) => message.kind === "error")).toHaveLength(1);
+  });
+
+  it("resets the latch for a new run and dedupes a repeat fire within the same run (S-052 D1/D3)", async () => {
+    const { result } = renderHook(() => useChatSession(42));
+
+    await waitFor(() => expect(result.current.loadingHistory).toBe(false));
+    const handler = tauriMocks.listeners.get("chat://event/42");
+    if (!handler) throw new Error("expected chat event listener");
+
+    vi.useFakeTimers();
+
+    // Run 1: starts and ends cleanly.
+    act(() => {
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "assistant_start",
+            id: "assistant-1",
+            created_at: 100,
+          } satisfies Extract<AgentEvent, { type: "assistant_start" }>,
+        },
+      });
+    });
+    act(() => {
+      handler({
+        payload: {
+          session_id: 42,
+          event: { type: "done", reason: "completed" } satisfies Extract<
+            AgentEvent,
+            { type: "done" }
+          >,
+        },
+      });
+    });
+
+    // Run 2 begins after the latch — a backend-initiated turn with no sendUserMessage.
+    act(() => {
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "assistant_start",
+            id: "assistant-2",
+            created_at: 200,
+          } satisfies Extract<AgentEvent, { type: "assistant_start" }>,
+        },
+      });
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(45_001);
+    });
+
+    const firstFireErrors = result.current.messages.filter((message) => message.kind === "error");
+    expect(firstFireErrors).toHaveLength(1);
+    expect(firstFireErrors[0]?.id).toBe("stall-2");
+
+    // Another straggler in the same (still non-terminal) run re-arms the timer; a
+    // second fire must dedupe onto the same stable id, not add a second card.
+    act(() => {
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "agent_progress",
+            kind: "heartbeat",
+            message: "Pi runtime heartbeat received.",
+            created_at: 201,
+          } satisfies Extract<AgentEvent, { type: "agent_progress" }>,
+        },
+      });
+    });
+    act(() => {
+      vi.advanceTimersByTime(45_001);
+    });
+
+    const secondFireErrors = result.current.messages.filter((message) => message.kind === "error");
+    expect(secondFireErrors).toHaveLength(1);
+    expect(secondFireErrors[0]?.id).toBe("stall-2");
+  });
+
+  it("leaves isStreaming false when agent_progress arrives after done (S-052 D2)", () => {
+    const doneState = reduceChatSessionState(initialState(), {
+      type: "done",
+      reason: "completed",
+    });
+    expect(doneState.isStreaming).toBe(false);
+
+    const next = reduceChatSessionState(
+      doneState,
+      {
+        type: "agent_progress",
+        kind: "heartbeat",
+        message: "Pi runtime heartbeat received.",
+        created_at: 999,
+      },
+      /* runTerminal */ true,
+    );
+
+    expect(next.isStreaming).toBe(false);
+    expect(next).toBe(doneState);
+  });
+
+  it("clears the stall timer on tool_call_denied and tool_call_blocked (S-052 D1)", async () => {
+    const { result } = renderHook(() => useChatSession(42));
+
+    await waitFor(() => expect(result.current.loadingHistory).toBe(false));
+    const handler = tauriMocks.listeners.get("chat://event/42");
+    if (!handler) throw new Error("expected chat event listener");
+
+    vi.useFakeTimers();
+
+    act(() => {
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "tool_call_start",
+            id: "tool-1",
+            tool: "run_process",
+            params_preview: "command: pnpm test",
+            risk: "danger",
+            args: { command: "pnpm", args: ["test"] },
+          } satisfies Extract<AgentEvent, { type: "tool_call_start" }>,
+        },
+      });
+    });
+    // Arms the timer, so tool_call_denied clearing it below is a real assertion.
+    act(() => {
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "reasoning",
+            id: "reason-1",
+            text: "considering the request",
+            tool_call_id: "tool-1",
+            created_at: 100,
+          } satisfies Extract<AgentEvent, { type: "reasoning" }>,
+        },
+      });
+    });
+    act(() => {
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "tool_call_denied",
+            id: "tool-1",
+            reason: "user declined",
+          } satisfies Extract<AgentEvent, { type: "tool_call_denied" }>,
+        },
+      });
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(45_001);
+    });
+    expect(result.current.messages.filter((message) => message.kind === "error")).toHaveLength(0);
+
+    act(() => {
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "tool_call_start",
+            id: "tool-2",
+            tool: "run_process",
+            params_preview: "command: rm -rf /",
+            risk: "danger",
+            args: { command: "rm", args: ["-rf", "/"] },
+          } satisfies Extract<AgentEvent, { type: "tool_call_start" }>,
+        },
+      });
+    });
+    // Arms the timer again, so tool_call_blocked clearing it below is a real assertion.
+    act(() => {
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "reasoning",
+            id: "reason-2",
+            text: "considering the request",
+            tool_call_id: "tool-2",
+            created_at: 200,
+          } satisfies Extract<AgentEvent, { type: "reasoning" }>,
+        },
+      });
+    });
+    act(() => {
+      handler({
+        payload: {
+          session_id: 42,
+          event: {
+            type: "tool_call_blocked",
+            id: "tool-2",
+            reason: { rule: "no-rm-rf", pattern: "rm -rf /" },
+          } satisfies Extract<AgentEvent, { type: "tool_call_blocked" }>,
+        },
+      });
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(45_001);
+    });
+    expect(result.current.messages.filter((message) => message.kind === "error")).toHaveLength(0);
+  });
 });

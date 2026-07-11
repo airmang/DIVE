@@ -21,6 +21,14 @@ export type AcceptanceCriterionSource =
   | "migration";
 export type AcceptanceCriterionStatus = "active" | "retired";
 
+// S-053 D3: per-field authorship for the five scalar/list PRD fields (goal,
+// intentSummary, scope, nonGoals, constraints). `AcceptanceCriterion.source`
+// and `ArchitectureDecision.decisionSource` already carry their own (richer)
+// provenance, so those two fields are deliberately never keyed into this map
+// — see the field_provenance doc comment in db/models.rs for the same
+// boundary on the Rust side.
+export type ProvenanceSource = "student" | "ai_patch" | "ai_suggestion_accepted";
+
 export interface AcceptanceCriterion {
   criterionId: string;
   text: string;
@@ -91,14 +99,20 @@ export interface ProjectSpec {
   acceptanceCriteria: AcceptanceCriterion[];
   // Null until decided; pre-S-047 PRDs deserialize as null and stay openable.
   architecture: ArchitectureDecision | null;
+  // S-053 D3: carried from the live draft at confirm time; empty on pre-S-053
+  // snapshots.
+  fieldProvenance: Record<string, ProvenanceSource>;
   status: ProjectSpecStatus;
   createdAt: number;
   updatedAt: number;
 }
 
+// fieldProvenance is omitted here too: it lives on the outer LiveProjectSpecDraft
+// (sibling to dirtyFields/studentEditedFields), never on `spec` — matches the
+// Rust ProjectSpecDraft, which has no field_provenance of its own.
 export type ProjectSpecDraft = Omit<
   ProjectSpec,
-  "projectSpecId" | "currentVersion" | "createdAt" | "updatedAt"
+  "projectSpecId" | "currentVersion" | "createdAt" | "updatedAt" | "fieldProvenance"
 > & {
   projectSpecId?: string;
   currentVersion?: number;
@@ -112,10 +126,20 @@ export interface LiveProjectSpecDraft {
   dirtyFields: string[];
   studentEditedFields: string[];
   lastPatchId: string | null;
+  fieldProvenance: Record<string, ProvenanceSource>;
   updatedAt: number;
 }
 
-export type PrdPatchValidationOutcome = "none" | "applied" | "rejected" | "held_for_student";
+// "not_structured" (S-053 D1): the model turn produced no JSON at all, or
+// JSON that decodes as neither the patch-envelope nor the bare-patch shape.
+// Distinct from "none", which is a turn that structured fine but genuinely
+// proposed no change. Rendering (retry affordance, honest copy) is P2 scope.
+export type PrdPatchValidationOutcome =
+  | "none"
+  | "applied"
+  | "rejected"
+  | "held_for_student"
+  | "not_structured";
 
 export interface InterviewTurn {
   turnId: string;

@@ -109,6 +109,9 @@ pub struct AppState {
     pub cancels: Arc<Mutex<HashMap<i64, Arc<AtomicBool>>>>,
     pub route_cancels: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     pub keyring: Arc<dyn Keyring>,
+    /// Cached pi-ai model registry, queried from the sidecar once per app run
+    /// (S-051 D1). See `crate::pi_sidecar::PiModelRegistryCache` doc comment.
+    pub pi_model_registry: Arc<crate::pi_sidecar::PiModelRegistryCache>,
 }
 
 impl AppState {
@@ -142,6 +145,7 @@ impl AppState {
             cancels: Arc::new(Mutex::new(HashMap::new())),
             route_cancels: Arc::new(Mutex::new(HashMap::new())),
             keyring: Arc::new(OsKeyring::new()),
+            pi_model_registry: Arc::new(crate::pi_sidecar::PiModelRegistryCache::new()),
         }
     }
 
@@ -197,6 +201,7 @@ impl AppState {
             cancels: Arc::new(Mutex::new(HashMap::new())),
             route_cancels: Arc::new(Mutex::new(HashMap::new())),
             keyring,
+            pi_model_registry: Arc::new(crate::pi_sidecar::PiModelRegistryCache::new()),
         }
     }
 

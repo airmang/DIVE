@@ -324,6 +324,114 @@ describe("PrdAuthoringBoard", () => {
     );
   });
 
+  it("renders the honest net-zero framing for a genuine none outcome (S-053 D2)", () => {
+    renderBoard({
+      patchFeedback: {
+        validationOutcome: "none",
+        appliedFieldPaths: [],
+        rejectedReasons: [],
+      },
+    });
+
+    expect(screen.getByTestId("prd-patch-feedback").dataset.outcome).toBe("none");
+    expect(
+      screen.getByText("That answer did not change anything in the PRD this time."),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("prd-restructure-retry")).toBeNull();
+  });
+
+  it("renders the actual rejection reasons for a policy-rejected patch (S-053 D2)", () => {
+    renderBoard({
+      patchFeedback: {
+        validationOutcome: "rejected",
+        appliedFieldPaths: [],
+        rejectedReasons: ["too_many_operations", "secret_like_text"],
+      },
+    });
+
+    const feedback = screen.getByTestId("prd-patch-feedback");
+    expect(feedback.dataset.outcome).toBe("rejected");
+    expect(screen.getByTestId("prd-rejected-reason-too_many_operations")).toBeTruthy();
+    expect(screen.getByTestId("prd-rejected-reason-secret_like_text")).toBeTruthy();
+    expect(within(feedback).getByText("Too many changes were proposed at once.")).toBeTruthy();
+    expect(
+      within(feedback).getByText("The text looked like it might contain a password or key."),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("prd-restructure-retry")).toBeNull();
+  });
+
+  it("falls back to an honest unknown-reason line for an unmapped rejection code (S-053 D2)", () => {
+    renderBoard({
+      patchFeedback: {
+        validationOutcome: "rejected",
+        appliedFieldPaths: [],
+        rejectedReasons: ["some_future_reason_code"],
+      },
+    });
+
+    expect(screen.getByTestId("prd-rejected-reason-some_future_reason_code")).toBeTruthy();
+    expect(screen.getByText("It was not applied for another reason.")).toBeTruthy();
+  });
+
+  it(
+    "shows a not_structured retry that re-sends the same answer + context without a " +
+      "duplicate student bubble, and disables while busy (S-053 D2)",
+    async () => {
+      const onSubmitAnswer = vi.fn().mockResolvedValue({ assistantMessage: "raw model text" });
+      const baseProps: Parameters<typeof PrdAuthoringBoard>[0] = {
+        projectName: "DIVE",
+        projectPath: "/tmp/dive",
+        prdState: "draft",
+        draft: createLiveProjectSpecDraft(42),
+        busy: false,
+        recentlyChangedFields: [],
+        patchFeedback: null,
+        onDraftChange: vi.fn(),
+        onSubmitAnswer,
+        onSaveDraft: vi.fn(),
+        onSavePrdAndCreatePlan: vi.fn(),
+        onOpenHistory: vi.fn(),
+      };
+      const { rerender } = render(<PrdAuthoringBoard {...baseProps} />);
+      const rail = screen.getByTestId("prd-interview-rail");
+      const answerText = "It should let students undo an accidental delete.";
+
+      fireEvent.change(within(rail).getByTestId("prd-interview-input"), {
+        target: { value: answerText },
+      });
+      fireEvent.click(within(rail).getByTestId("prd-interview-send"));
+
+      await waitFor(() => expect(onSubmitAnswer).toHaveBeenCalledTimes(1));
+      const [firstAnswer, firstContext] = onSubmitAnswer.mock.calls[0] as [string, unknown];
+      expect(firstAnswer).toBe(answerText);
+
+      // The parent (useProductShellController) reflects the turn result back as
+      // a patchFeedback prop update — simulate that.
+      const notStructuredFeedback = {
+        validationOutcome: "not_structured" as const,
+        appliedFieldPaths: [],
+        rejectedReasons: [],
+      };
+      rerender(<PrdAuthoringBoard {...baseProps} patchFeedback={notStructuredFeedback} />);
+
+      expect(screen.getByTestId("prd-patch-feedback").dataset.outcome).toBe("not_structured");
+      const retryButton = screen.getByTestId("prd-restructure-retry");
+      expect(retryButton).toBeTruthy();
+
+      fireEvent.click(retryButton);
+
+      await waitFor(() => expect(onSubmitAnswer).toHaveBeenCalledTimes(2));
+      // Same answer, same conversation context as the original attempt — not a
+      // fresh context that would now include the model's own unstructured reply.
+      expect(onSubmitAnswer.mock.calls[1]).toEqual([firstAnswer, firstContext]);
+      // No duplicate student bubble: the answer appears exactly once.
+      expect(screen.getAllByText(answerText)).toHaveLength(1);
+
+      rerender(<PrdAuthoringBoard {...baseProps} busy patchFeedback={notStructuredFeedback} />);
+      expect(screen.getByTestId("prd-restructure-retry")).toHaveProperty("disabled", true);
+    },
+  );
+
   it("submits short interview answers from the rail", () => {
     const props = renderBoard();
     const rail = screen.getByTestId("prd-interview-rail");
@@ -420,6 +528,74 @@ describe("PrdAuthoringBoard", () => {
   it("hides the PRD intent-check card while the PRD is not yet confirmable", () => {
     renderBoard();
     expect(screen.queryByTestId("prd-intent-check")).toBeNull();
+  });
+
+  // S-053 D3: the intent-check card's framing follows draft.fieldProvenance,
+  // not validation.valid alone — a fully hand-typed PRD must not claim "AI
+  // summarized this" (P1-03).
+  describe("intent-check card provenance framing (S-053 D3)", () => {
+    function confirmableDraft(fieldProvenance: Record<string, "student" | "ai_patch">) {
+      return createLiveProjectSpecDraft(42, {
+        goal: "Build a PRD-first planning flow for students",
+        intentSummary: "Students see and confirm the PRD before any plan is made",
+        scope: ["Single PRD authoring board with a live draft"],
+        nonGoals: ["No automatic plan generation without confirmation"],
+        acceptanceCriteria: [
+          "Saved PRD opens the final read view",
+          "Confirm stays disabled until every required field is filled",
+        ],
+        architecture: {
+          form: "web_app",
+          formOtherLabel: null,
+          stack: "React + Vite",
+          rationale: null,
+          decisionSource: "student_confirmed",
+          decidedInVersion: 1,
+        },
+        fieldProvenance,
+      });
+    }
+
+    it("shows the legacy AI-summary framing when field_provenance is empty (pre-existing drafts)", () => {
+      renderBoard({ draft: confirmableDraft({}) });
+
+      expect(screen.getByText("Did the AI capture what you meant?")).toBeTruthy();
+    });
+
+    it("shows the same AI-summary framing when every stamped field is ai_patch", () => {
+      renderBoard({
+        draft: confirmableDraft({ goal: "ai_patch", intentSummary: "ai_patch" }),
+      });
+
+      expect(screen.getByText("Did the AI capture what you meant?")).toBeTruthy();
+    });
+
+    it("shows a neutral student-authored framing with no AI attribution when every field is student", () => {
+      renderBoard({
+        draft: confirmableDraft({
+          goal: "student",
+          intentSummary: "student",
+          scope: "student",
+          nonGoals: "student",
+        }),
+      });
+
+      expect(screen.getByText("You wrote this PRD yourself")).toBeTruthy();
+      expect(screen.queryByText("Did the AI capture what you meant?")).toBeNull();
+    });
+
+    it("names the student-written fields in the mixed framing", () => {
+      renderBoard({
+        draft: confirmableDraft({ goal: "student", scope: "ai_patch" }),
+      });
+
+      expect(screen.getByText("You and the AI shaped this PRD together")).toBeTruthy();
+      expect(
+        screen.getByText(
+          "The AI summarized part of this PRD, and you wrote the rest yourself: Goal. Check that every part matches your real intent.",
+        ),
+      ).toBeTruthy();
+    });
   });
 
   it("confirms instead of calling the LLM when a ready PRD receives a completion intent", () => {

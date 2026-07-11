@@ -46,6 +46,7 @@ function projectSpec(overrides: Partial<ProjectSpec> = {}): ProjectSpec {
       },
     ],
     architecture: null,
+    fieldProvenance: {},
     status: "approved",
     createdAt: 1,
     updatedAt: 2,

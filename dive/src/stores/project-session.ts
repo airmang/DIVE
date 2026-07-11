@@ -9,6 +9,7 @@ export interface ProjectRow {
   path: string;
   provider_default: string | null;
   model_default: string | null;
+  status: string;
   created_at: number;
   updated_at: number;
 }
@@ -130,6 +131,17 @@ function preferredSessionId(sessions: SessionRow[], storedSessionId: number): nu
   return active?.id ?? null;
 }
 
+// S-056 D4: mirrors preferredSessionId, but only for the cold-start default
+// (loadAll below) — it skips archived projects so reopening the app doesn't
+// land on one. Explicitly opening an archived project (selectProject) is not
+// gated by this: archived projects still open normally when clicked.
+function preferredProjectId(projects: ProjectRow[], storedProjectId: number): number | null {
+  const stored = projects.find((project) => project.id === storedProjectId);
+  if (stored && stored.status !== "archived") return stored.id;
+  const active = projects.find((project) => project.status !== "archived");
+  return active?.id ?? null;
+}
+
 interface State {
   isTauri: boolean;
   loaded: boolean;
@@ -143,6 +155,8 @@ interface State {
   createProject: (name: string, path: string) => Promise<ProjectRow | null>;
   openProject: (path: string) => Promise<ProjectRow | null>;
   deleteProject: (projectId: number, deleteFolder?: boolean) => Promise<void>;
+  archiveProject: (projectId: number) => Promise<void>;
+  unarchiveProject: (projectId: number) => Promise<void>;
   selectProject: (projectId: number | null) => Promise<void>;
   createSession: (projectId: number, title?: string) => Promise<SessionRow | null>;
   selectSession: (sessionId: number | null) => void;
@@ -201,9 +215,7 @@ export const useProjectSessionStore = create<State>((set, get) => ({
         ]);
         const storedProjectId = Number(window.localStorage.getItem(CURRENT_PROJECT_KEY) ?? "");
         const storedSessionId = Number(window.localStorage.getItem(CURRENT_SESSION_KEY) ?? "");
-        const currentProjectId = projects.find((p) => p.id === storedProjectId)
-          ? storedProjectId
-          : (projects[0]?.id ?? null);
+        const currentProjectId = preferredProjectId(projects, storedProjectId);
         let orderedProjects = projects;
         let sessions: SessionRow[] = [];
         if (currentProjectId !== null) {
@@ -275,9 +287,7 @@ export const useProjectSessionStore = create<State>((set, get) => ({
       typeof window !== "undefined"
         ? Number(window.localStorage.getItem(CURRENT_SESSION_KEY) ?? "")
         : 0;
-    const currentProjectId = mock.projects.find((p) => p.id === storedProjectId)
-      ? storedProjectId
-      : (mock.projects[0]?.id ?? null);
+    const currentProjectId = preferredProjectId(mock.projects, storedProjectId);
     const projectSessions = mock.sessions.filter((s) => s.project_id === currentProjectId);
     const currentSessionId = preferredSessionId(projectSessions, storedSessionId);
     set({
@@ -308,6 +318,7 @@ export const useProjectSessionStore = create<State>((set, get) => ({
             path,
             provider_default: null,
             model_default: null,
+            status: "active",
             created_at: now,
             updated_at: now,
           };
@@ -355,6 +366,7 @@ export const useProjectSessionStore = create<State>((set, get) => ({
             path,
             provider_default: null,
             model_default: null,
+            status: "active",
             created_at: now,
             updated_at: now,
           };
@@ -423,6 +435,48 @@ export const useProjectSessionStore = create<State>((set, get) => ({
         await get().selectProject(projects[0].id);
       }
       await refreshMenuRecents();
+    }),
+
+  // S-056 D4: unlike archiveSession (which nulls currentSessionId when the
+  // archived session was current), archiving the currently open project
+  // keeps it open — no auto-switch. Only its `status` changes; the workspace
+  // stays exactly where it was.
+  archiveProject: async (projectId) =>
+    runStoreAction(set, async () => {
+      const api = await loadTauri();
+      await withTauriOrDemoMock<void>(
+        api,
+        () => api!.invoke<void>("project_archive", { projectId }),
+        () => {
+          const mock = loadMock();
+          mock.projects = mock.projects.map((p) =>
+            p.id === projectId ? { ...p, status: "archived" } : p,
+          );
+          saveMock(mock);
+        },
+      );
+      set((s) => ({
+        projects: s.projects.map((p) => (p.id === projectId ? { ...p, status: "archived" } : p)),
+      }));
+    }),
+
+  unarchiveProject: async (projectId) =>
+    runStoreAction(set, async () => {
+      const api = await loadTauri();
+      await withTauriOrDemoMock<void>(
+        api,
+        () => api!.invoke<void>("project_unarchive", { projectId }),
+        () => {
+          const mock = loadMock();
+          mock.projects = mock.projects.map((p) =>
+            p.id === projectId ? { ...p, status: "active" } : p,
+          );
+          saveMock(mock);
+        },
+      );
+      set((s) => ({
+        projects: s.projects.map((p) => (p.id === projectId ? { ...p, status: "active" } : p)),
+      }));
     }),
 
   selectProject: async (projectId) => {
@@ -690,6 +744,12 @@ export const useProjectSessionStore = create<State>((set, get) => ({
 
 export const selectActiveSessions = (state: State): SessionRow[] =>
   state.sessions.filter((s) => s.status !== "archived");
+
+export const selectActiveProjects = (state: State): ProjectRow[] =>
+  state.projects.filter((p) => p.status !== "archived");
+
+export const selectArchivedProjects = (state: State): ProjectRow[] =>
+  state.projects.filter((p) => p.status === "archived");
 
 export const selectCurrentProject = (state: State): ProjectRow | null => {
   if (state.currentProjectId === null) return null;

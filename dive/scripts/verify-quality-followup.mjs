@@ -43,7 +43,7 @@ const productShellLayout = read("src/components/product/ProductShellLayout.tsx")
 const controller = read("src/components/product/useProductShellController.ts");
 const agentLoop = read("src-tauri/src/agent/mod.rs");
 const agentLoopTest = read("src-tauri/tests/agent_loop.rs");
-const ipc = read("src-tauri/src/ipc/mod.rs");
+const ipc = read("src-tauri/src/ipc/state.rs");
 const telemetry = read("src-tauri/src/telemetry.rs");
 const releaseSmoke = read("scripts/release-gate-smoke.mjs");
 const releaseGate = read("../.github/workflows/release-gate.yml");
@@ -138,8 +138,8 @@ if (files.length === 0) {
     .sort((a, b) => b.bytes - a.bytes)[0];
   check("initial app chunk exists", Boolean(initial));
   check(
-    "initial app chunk is below previous 534KB baseline",
-    initial ? initial.bytes < 520 * 1024 : false,
+    "initial app chunk is below 500 KiB (512000 bytes)",
+    initial ? initial.bytes < 500 * 1024 : false,
     initial ? `${Math.round(initial.bytes / 1024)}KB` : "",
   );
   check(

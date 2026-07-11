@@ -1,9 +1,12 @@
+use std::collections::BTreeMap;
+
 use dive_lib::db::dao::{plan, plan_mutation, prd, project, step};
 use dive_lib::db::models::{
     AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus,
     NewLiveProjectSpecDraft, NewObjection, NewPlan, NewPlanMutation, NewProject,
     NewProjectSpecVersion, NewStep, ObjectionSuggestionStatus, PlanMutationType, ProjectSpec,
-    ProjectSpecDelta, ProjectSpecDraft, ProjectSpecStatus, ScopeExpansionAssessment,
+    ProjectSpecDelta, ProjectSpecDraft, ProjectSpecStatus, ProvenanceSource,
+    ScopeExpansionAssessment,
 };
 use dive_lib::Database;
 use serde_json::Value;
@@ -100,6 +103,7 @@ fn artifact_project_spec(project_id: i64) -> ProjectSpec {
         constraints: vec!["SQLite remains runtime source of truth".into()],
         acceptance_criteria: vec![artifact_criterion("AC-001", "exports plan artifacts")],
         architecture: None,
+        field_provenance: BTreeMap::from([("goal".to_string(), ProvenanceSource::Student)]),
         status: ProjectSpecStatus::Draft,
         created_at: 100,
         updated_at: 200,
@@ -317,6 +321,7 @@ fn approving_plan_exports_prd_lifecycle_foundation() {
             dirty_fields: vec!["goal".into()],
             student_edited_fields: vec!["goal".into()],
             last_patch_id: Some("patch-1".into()),
+            field_provenance: BTreeMap::from([("goal".to_string(), ProvenanceSource::Student)]),
         },
     )
     .unwrap();
@@ -376,6 +381,17 @@ fn approving_plan_exports_prd_lifecycle_foundation() {
     assert_eq!(
         artifact["liveProjectSpecDraft"]["draftId"],
         format!("draft-{}", plan_row.project_id)
+    );
+    // S-053 D3: field_provenance rides along with the whole-struct ProjectSpec /
+    // LiveProjectSpecDraftRow embeds (serde does this automatically) — additive
+    // only, every pre-existing key above stays present and unchanged.
+    assert_eq!(
+        artifact["projectSpec"]["fieldProvenance"]["goal"],
+        "student"
+    );
+    assert_eq!(
+        artifact["liveProjectSpecDraft"]["fieldProvenance"]["goal"],
+        "student"
     );
     assert_eq!(artifact["planMutations"][0]["mutationId"], "mut-001");
     assert_eq!(artifact["objections"][0]["objectionId"], "obj-001");

@@ -120,10 +120,58 @@ describe("product shell conversation logic", () => {
       deriveEmptyState({
         currentProjectId: 1,
         currentSessionId: null,
+        messages: [],
+        messagesLoading: false,
         onEmptyStateAction: noop,
         t,
       })?.title,
     ).toBe("chat.empty_no_session_title");
+  });
+
+  it("shows an honest 'session starting' state for an active, empty, non-loading session (S-056 D1)", () => {
+    const noop = vi.fn();
+    const state = deriveEmptyState({
+      currentProjectId: 1,
+      currentSessionId: 7,
+      messages: [],
+      messagesLoading: false,
+      onEmptyStateAction: noop,
+      t,
+    });
+    expect(state?.title).toBe("chat.empty_session_starting_title");
+    expect(state?.description).toBe("chat.empty_session_starting_description");
+    // No CTA: the composer itself is the call to action, not a sidebar button.
+    expect(state?.actionLabel).toBeUndefined();
+    expect(state?.onAction).toBeUndefined();
+  });
+
+  it("defers to loading (no empty-state copy) while an active session's history is still loading (S-056 D1)", () => {
+    const noop = vi.fn();
+    expect(
+      deriveEmptyState({
+        currentProjectId: 1,
+        currentSessionId: 7,
+        messages: [],
+        messagesLoading: true,
+        onEmptyStateAction: noop,
+        t,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("shows no empty-state copy once the active session has messages (S-056 D1)", () => {
+    const noop = vi.fn();
+    const messages: ChatMessage[] = [{ id: "u", kind: "user", createdAt: 1, content: "hello" }];
+    expect(
+      deriveEmptyState({
+        currentProjectId: 1,
+        currentSessionId: 7,
+        messages,
+        messagesLoading: false,
+        onEmptyStateAction: noop,
+        t,
+      }),
+    ).toBeUndefined();
   });
 
   it("offers an explicit review action while a card is waiting for verification judgment", () => {

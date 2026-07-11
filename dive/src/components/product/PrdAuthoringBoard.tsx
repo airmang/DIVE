@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   allocateCriterionId,
   markDraftStudentEdited,
+  prdIntentCheckFraming,
+  studentAuthoredFieldPaths,
   validateConfirmableProjectSpec,
   applyQuickIntakeToDraft,
   type AcceptanceCriterion,
@@ -10,8 +12,10 @@ import {
   type ArchitectureForm,
   type ArchitectureProposals,
   type LiveProjectSpecDraft,
+  type PrdIntentCheckFraming,
   type PrdPatchValidationOutcome,
   type PrdInterviewConversationTurn,
+  type ProvenanceSource,
   type QuickIntakeInput,
 } from "../../features/planning";
 import { useT } from "../../i18n";
@@ -188,6 +192,83 @@ function prdConversationContext(turns: PrdConversationTurn[]): PrdInterviewConve
     .map((turn) => ({ role: turn.role, text: turn.text.trim() }));
 }
 
+// S-053 D2: the six patch-rejection reason codes `validate_prd_patch_for_draft`
+// (workspace_plan.rs) can emit, plus the one `apply_prd_patch_to_draft` uses for
+// a held-for-student conflict (surfaced separately via `patch_held`, kept here
+// only so an unexpected code never falls through silently). `unknown` is the
+// fallback for any future additive code this UI has not been taught yet.
+const PRD_REJECTED_REASON_CODES = [
+  "too_many_operations",
+  "unsupported_operation",
+  "missing_text",
+  "text_too_large",
+  "secret_like_text",
+  "criterion_not_found",
+  "student_edit_conflict",
+] as const;
+
+function rejectedReasonKey(code: string): string {
+  const known = (PRD_REJECTED_REASON_CODES as readonly string[]).includes(code);
+  return `prd.authoring.rejected_reasons.${known ? code : "unknown"}`;
+}
+
+// S-053 D3: maps a field_provenance root key to its existing field-label i18n
+// key (prd.fields.*), so the mixed intent-check framing can name student-
+// written fields without a second, provenance-specific label set.
+const PRD_PROVENANCE_FIELD_LABEL_KEYS: Record<string, string> = {
+  goal: "prd.fields.goal",
+  intentSummary: "prd.fields.intent_summary",
+  scope: "prd.fields.scope",
+  nonGoals: "prd.fields.non_goals",
+  constraints: "prd.fields.constraints",
+};
+
+interface PrdIntentCheckCopy {
+  title: string;
+  prompt: string;
+  message: string;
+  guided: string;
+}
+
+// S-053 D3: the intent-check card no longer assumes "AI summarized this" —
+// the framing (computed from field_provenance in prdIntentCheckFraming) picks
+// among three copy sets. `ai` also covers the legacy-empty-map fallback
+// (documented in prdIntentCheckFraming itself), so it intentionally reuses
+// the pre-existing keys unchanged.
+function prdIntentCheckCopy(
+  t: (key: string, params?: Record<string, string | number>) => string,
+  framing: PrdIntentCheckFraming,
+  fieldProvenance: Record<string, ProvenanceSource>,
+): PrdIntentCheckCopy {
+  if (framing === "student") {
+    return {
+      title: t("prd.authoring.intent_check.student.title"),
+      prompt: t("prd.authoring.intent_check.student.prompt"),
+      message: t("prd.authoring.intent_check.student.message"),
+      guided: t("prd.authoring.intent_check.student.guided"),
+    };
+  }
+  if (framing === "mixed") {
+    const fields = studentAuthoredFieldPaths(fieldProvenance)
+      .map((field) => PRD_PROVENANCE_FIELD_LABEL_KEYS[field])
+      .filter((key): key is string => Boolean(key))
+      .map((key) => t(key))
+      .join(", ");
+    return {
+      title: t("prd.authoring.intent_check.mixed.title"),
+      prompt: t("prd.authoring.intent_check.mixed.prompt", { fields }),
+      message: t("prd.authoring.intent_check.mixed.message"),
+      guided: t("prd.authoring.intent_check.mixed.guided"),
+    };
+  }
+  return {
+    title: t("prd.authoring.intent_check.title"),
+    prompt: t("prd.authoring.intent_check.prompt"),
+    message: t("prd.authoring.intent_check.message"),
+    guided: t("prd.authoring.intent_check.guided"),
+  };
+}
+
 // eslint-disable-next-line react-refresh/only-export-components
 export function isPrdCompletionIntent(text: string): boolean {
   const normalized = text
@@ -234,6 +315,14 @@ export function PrdAuthoringBoard({
   const [submittingAnswer, setSubmittingAnswer] = useState(false);
   const submittingAnswerRef = useRef(false);
   const interviewInputRef = useRef<HTMLTextAreaElement>(null);
+  // S-053 D2: the exact (answer, context) pair behind the last real interview
+  // turn (not the completion-intent shortcut), so a 다시 구조화 retry re-sends
+  // precisely what was sent the first time instead of a recomputed context that
+  // would now include the model's own unstructured reply.
+  const lastStructuringAttemptRef = useRef<{
+    answer: string;
+    context: PrdInterviewConversationTurn[];
+  } | null>(null);
   const [conversationStorageKey, setConversationStorageKey] = useState(() =>
     conversationStorageKeyForDraft(draft),
   );
@@ -306,6 +395,14 @@ export function PrdAuthoringBoard({
   // Non-blocking reflective provocation: once the PRD is confirmable, prompt the
   // supervisor to compare the AI's summary against their real intent before
   // confirming. The field gate already blocks vague PRDs; this is the nudge on top.
+  // S-053 D3: which of the three honest framings applies, derived from the
+  // draft's field_provenance — never from validation.valid alone (the P1-03
+  // bug this replaces: a fully hand-typed PRD used to get the same "AI
+  // summarized this" copy as an AI-drafted one).
+  const intentCheckFraming = useMemo(
+    () => prdIntentCheckFraming(localDraft.fieldProvenance),
+    [localDraft.fieldProvenance],
+  );
   const intentCheckCard = useMemo(() => {
     if (!validation.valid) return null;
     const context: ProvocationContext = {
@@ -315,15 +412,20 @@ export function PrdAuthoringBoard({
       featureId: localDraft.projectId,
       goalText: localDraft.spec.goal,
     };
+    const copy = prdIntentCheckCopy(t, intentCheckFraming, localDraft.fieldProvenance);
     return buildPrdIntentCheckCard(context, {
-      title: t("prd.authoring.intent_check.title"),
-      prompt: t("prd.authoring.intent_check.prompt"),
-      message: t("prd.authoring.intent_check.message"),
-      guided: t("prd.authoring.intent_check.guided"),
+      ...copy,
       refineLabel: t("prd.authoring.intent_check.refine"),
       evidenceLabel: t("prd.authoring.intent_check.evidence_goal"),
     });
-  }, [validation.valid, localDraft.projectId, localDraft.spec.goal, t]);
+  }, [
+    validation.valid,
+    localDraft.projectId,
+    localDraft.spec.goal,
+    localDraft.fieldProvenance,
+    intentCheckFraming,
+    t,
+  ]);
 
   const handleIntentCheckAction = (action: ProvocationAction) => {
     if (action.id === "refine") {
@@ -410,34 +512,14 @@ export function PrdAuthoringBoard({
     onQuickIntakeSubmit?.(next, input);
   };
 
-  const submitAnswer = async () => {
-    const trimmed = answer.trim();
-    if (!trimmed || isAnswerBusy || submittingAnswerRef.current) return;
-    if (canConfirmPrd && isPrdCompletionIntent(trimmed)) {
-      const stamp = Date.now();
-      setConversationTurns((turns) => [
-        ...turns,
-        {
-          id: `student-${stamp}`,
-          role: "student",
-          text: trimmed,
-        },
-      ]);
-      setAnswer("");
-      confirmPrd();
-      return;
-    }
+  // Shared tail of a real interview turn (first submission or a 다시 구조화
+  // retry): appends a pending assistant bubble, calls onSubmitAnswer, and
+  // resolves that bubble the same way regardless of which caller started it.
+  const runInterviewTurn = async (answerText: string, context: PrdInterviewConversationTurn[]) => {
     submittingAnswerRef.current = true;
-    const stamp = Date.now();
-    const pendingId = `assistant-${stamp}`;
-    const studentTurn: PrdConversationTurn = {
-      id: `student-${stamp}`,
-      role: "student",
-      text: trimmed,
-    };
+    const pendingId = `assistant-${Date.now()}`;
     setConversationTurns((turns) => [
       ...turns,
-      studentTurn,
       {
         id: pendingId,
         role: "assistant",
@@ -445,13 +527,9 @@ export function PrdAuthoringBoard({
         state: "pending",
       },
     ]);
-    setAnswer("");
     setSubmittingAnswer(true);
     try {
-      const result = await onSubmitAnswer(
-        trimmed,
-        prdConversationContext([...conversationTurns, studentTurn]),
-      );
+      const result = await onSubmitAnswer(answerText, context);
       const assistantText = result?.assistantMessage?.trim();
       // On a patch-only turn (no assistant prose) DIVE still changed the draft;
       // render a factual reply instead of deleting the bubble (P1-12 dead-air).
@@ -476,6 +554,46 @@ export function PrdAuthoringBoard({
       submittingAnswerRef.current = false;
       setSubmittingAnswer(false);
     }
+  };
+
+  const submitAnswer = async () => {
+    const trimmed = answer.trim();
+    if (!trimmed || isAnswerBusy || submittingAnswerRef.current) return;
+    if (canConfirmPrd && isPrdCompletionIntent(trimmed)) {
+      const stamp = Date.now();
+      setConversationTurns((turns) => [
+        ...turns,
+        {
+          id: `student-${stamp}`,
+          role: "student",
+          text: trimmed,
+        },
+      ]);
+      setAnswer("");
+      confirmPrd();
+      return;
+    }
+    const studentTurn: PrdConversationTurn = {
+      id: `student-${Date.now()}`,
+      role: "student",
+      text: trimmed,
+    };
+    setConversationTurns((turns) => [...turns, studentTurn]);
+    setAnswer("");
+    const context = prdConversationContext([...conversationTurns, studentTurn]);
+    lastStructuringAttemptRef.current = { answer: trimmed, context };
+    await runInterviewTurn(trimmed, context);
+  };
+
+  // S-053 D2: 다시 구조화 — re-sends the same student answer through the same
+  // onSubmitAnswer path with the exact context captured at the original
+  // attempt. No new student bubble is appended (it is already in the
+  // transcript); only a fresh assistant bubble tracks this attempt, so the
+  // student sees DIVE retry rather than a duplicated question.
+  const retryStructuring = async () => {
+    const attempt = lastStructuringAttemptRef.current;
+    if (!attempt || isAnswerBusy || submittingAnswerRef.current) return;
+    await runInterviewTurn(attempt.answer, attempt.context);
   };
 
   const stateLabel =
@@ -594,16 +712,47 @@ export function PrdAuthoringBoard({
                 patchFeedback.validationOutcome === "rejected" && "border-warn/40 bg-warn/10",
                 patchFeedback.validationOutcome === "held_for_student" &&
                   "border-accent/40 bg-accent-subtle",
+                patchFeedback.validationOutcome === "not_structured" && "border-info/40 bg-info/10",
+                patchFeedback.validationOutcome === "none" && "border-border bg-bg-panel2",
               )}
               data-testid="prd-patch-feedback"
               data-outcome={patchFeedback.validationOutcome}
               role="status"
             >
-              {patchFeedback.validationOutcome === "applied"
-                ? t("prd.authoring.patch_applied")
-                : patchFeedback.validationOutcome === "held_for_student"
-                  ? t("prd.authoring.patch_held")
-                  : t("prd.authoring.patch_rejected")}
+              {patchFeedback.validationOutcome === "applied" ? (
+                t("prd.authoring.patch_applied")
+              ) : patchFeedback.validationOutcome === "held_for_student" ? (
+                t("prd.authoring.patch_held")
+              ) : patchFeedback.validationOutcome === "not_structured" ? (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>{t("prd.authoring.patch_not_structured")}</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void retryStructuring()}
+                    disabled={isAnswerBusy}
+                    data-testid="prd-restructure-retry"
+                  >
+                    {t("prd.authoring.patch_not_structured_retry")}
+                  </Button>
+                </div>
+              ) : patchFeedback.validationOutcome === "rejected" ? (
+                <div className="flex flex-col gap-1">
+                  <span>{t("prd.authoring.patch_rejected")}</span>
+                  {patchFeedback.rejectedReasons.length > 0 ? (
+                    <ul className="list-disc space-y-0.5 pl-4" data-testid="prd-rejected-reasons">
+                      {patchFeedback.rejectedReasons.map((code, index) => (
+                        <li key={`${code}-${index}`} data-testid={`prd-rejected-reason-${code}`}>
+                          {t(rejectedReasonKey(code))}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : (
+                t("prd.authoring.patch_none")
+              )}
             </div>
           ) : null}
 

@@ -72,6 +72,74 @@ describe("ChatArea PRD surface", () => {
     expect(screen.getByTestId("chat-input-textarea")).toBeTruthy();
   });
 
+  it("shows the honest session-starting copy for an active, empty, non-loading session (S-056 D1)", () => {
+    render(
+      <ChatArea
+        messages={[]}
+        messagesLoading={false}
+        onSendMessage={vi.fn()}
+        emptyState={{
+          title: "Session started",
+          description: "No messages yet — send your first message below to get going.",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Session started")).toBeTruthy();
+    expect(
+      screen.getByText("No messages yet — send your first message below to get going."),
+    ).toBeTruthy();
+    // No CTA (the composer is the call to action) and no misleading
+    // "click + New session" nudge, since a session already exists.
+    expect(screen.queryByTestId("chat-empty-cta")).toBeNull();
+    expect(screen.queryByTestId("learning-hint")).toBeNull();
+    expect(screen.getByTestId("chat-input-textarea")).toBeTruthy();
+  });
+
+  it("keeps showing the history skeleton while loading even when session-starting emptyState is present", () => {
+    render(
+      <ChatArea
+        messages={[]}
+        messagesLoading={true}
+        onSendMessage={vi.fn()}
+        emptyState={{
+          title: "Session started",
+          description: "No messages yet — send your first message below to get going.",
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("chat-history-skeleton")).toBeTruthy();
+    expect(screen.queryByText("Session started")).toBeNull();
+  });
+
+  it("keeps the legacy no-session fallback (with CTA, no misleading hint) unchanged", () => {
+    const onAction = vi.fn();
+    render(
+      <ChatArea
+        messages={[]}
+        messagesLoading={false}
+        onSendMessage={vi.fn()}
+        emptyState={{
+          title: "Start a work session",
+          description: "Describe a goal so DIVE can draft a plan and roadmap.",
+          actionLabel: "New session",
+          onAction,
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("chat-empty-cta")).toBeTruthy();
+    expect(screen.queryByTestId("learning-hint")).toBeNull();
+  });
+
+  it("shows the generic sidebar hint only for the true unhandled empty state (no emptyState prop)", () => {
+    render(<ChatArea messages={[]} messagesLoading={false} onSendMessage={vi.fn()} />);
+
+    expect(screen.getByText("Start a session to begin chatting")).toBeTruthy();
+    expect(screen.getByTestId("learning-hint")).toBeTruthy();
+  });
+
   it("inserts a suggested step prompt without sending until the user submits", () => {
     const onSendMessage = vi.fn();
     render(

@@ -138,6 +138,8 @@ export function deriveComposerHint(input: {
 export function deriveEmptyState(input: {
   currentProjectId: number | null;
   currentSessionId: number | null;
+  messages: ChatMessage[];
+  messagesLoading: boolean;
   onEmptyStateAction: Action;
   t: Translate;
 }): { title: string; description: string; actionLabel?: string; onAction?: Action } | undefined {
@@ -155,6 +157,17 @@ export function deriveEmptyState(input: {
       description: input.t("chat.empty_no_session_description"),
       actionLabel: input.t("sidebar.new_session"),
       onAction: input.onEmptyStateAction,
+    };
+  }
+  // S-056 (P2-01): a session can be active with no messages yet (freshly
+  // created, or between clearing and a first turn). The old fallback here
+  // ("Start a session...") was dishonest — the session already exists, only
+  // the first message is missing. No actionLabel/onAction: the composer
+  // itself is the call to action, not a sidebar button.
+  if (!input.messagesLoading && input.messages.length === 0) {
+    return {
+      title: input.t("chat.empty_session_starting_title"),
+      description: input.t("chat.empty_session_starting_description"),
     };
   }
   return undefined;

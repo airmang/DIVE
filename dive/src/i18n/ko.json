@@ -143,6 +143,19 @@
       "patch_applied": "방금 대화가 PRD 초안에 반영되었습니다.",
       "patch_rejected": "방금 대화는 PRD 초안에 바로 반영하지 않았습니다.",
       "patch_held": "직접 고친 필드는 유지하고, 새 제안만 따로 보관했습니다.",
+      "patch_not_structured": "방금 답변을 PRD 항목으로 구조화하지 못했어요. 답변 내용은 사라지지 않았으니, 다시 구조화를 눌러 이어가 주세요.",
+      "patch_not_structured_retry": "다시 구조화",
+      "patch_none": "이번 답변에서는 PRD를 바꿀 내용이 없었어요.",
+      "rejected_reasons": {
+        "too_many_operations": "한 번에 반영하기엔 변경 사항이 너무 많았어요.",
+        "unsupported_operation": "지원하지 않는 방식의 수정이 포함되어 있었어요.",
+        "missing_text": "반영할 내용이 비어 있었어요.",
+        "text_too_large": "반영할 내용이 너무 길었어요.",
+        "secret_like_text": "비밀번호나 키처럼 보이는 내용이 포함되어 있었어요.",
+        "criterion_not_found": "수정하려는 완료 기준을 찾을 수 없었어요.",
+        "student_edit_conflict": "직접 수정한 필드와 충돌했어요.",
+        "unknown": "다른 이유로 반영하지 못했어요."
+      },
       "validation_goal_required": "목표가 아직 비어 있습니다.",
       "validation_intent_required": "의도 요약이 아직 비어 있습니다.",
       "validation_scope_required": "범위가 아직 비어 있습니다.",
@@ -162,7 +175,19 @@
         "message": "확정은 AI 요약을 그대로 받는 게 아니라, 당신의 의도와 대조하는 단계입니다.",
         "guided": "AI의 요약과 당신의 실제 의도를 구분하세요.",
         "refine": "더 다듬기",
-        "evidence_goal": "목표"
+        "evidence_goal": "목표",
+        "student": {
+          "title": "직접 작성한 PRD입니다",
+          "prompt": "이 PRD는 AI 요약이 아니라 당신이 직접 쓴 내용입니다. 확정하기 전에 다시 한 번 읽고 빠진 부분은 없는지 확인하세요.",
+          "message": "직접 쓴 내용이라도, 확정 전에 스스로 점검하는 습관이 중요합니다.",
+          "guided": "목표와 완료 기준이 실제로 원하는 것과 일치하는지 확인하세요."
+        },
+        "mixed": {
+          "title": "AI와 함께 정리한 PRD입니다",
+          "prompt": "이 PRD는 AI와 당신이 함께 작성했습니다. 다음 항목은 당신이 직접 썼습니다: {{fields}}. 모든 항목이 실제 의도와 맞는지 확인하세요.",
+          "message": "AI가 정리한 부분과 직접 쓴 부분을 구분해서 검토하세요.",
+          "guided": "AI 요약과 직접 작성한 내용을 각각 점검하세요."
+        }
       },
       "turn_failed_title": "PRD 인터뷰 처리 실패",
       "turn_failed_retryable_description": "AI 제공자가 잠시 불안정합니다. 같은 말을 다시 보내면 DIVE가 이어서 PRD를 정리합니다.",
@@ -288,6 +313,9 @@
     "empty_sessions": "세션이 없습니다",
     "select_project_first": "프로젝트를 선택하세요",
     "archived": "보관됨",
+    "section_archived_projects": "보관됨 ({{count}})",
+    "archive_project_title": "프로젝트 {{name}} 보관",
+    "unarchive_project_title": "프로젝트 {{name}} 보관 해제",
     "delete_project_title": "프로젝트 {{name}} 삭제",
     "delete_session_title": "세션 {{title}} 삭제",
     "delete_project_confirm": "프로젝트를 삭제할까요? 폴더의 .dive/ 디렉터리만 지워집니다. (코드는 보존)",
@@ -432,6 +460,11 @@
     "model_save_failed_title": "모델 설정 저장 실패",
     "model_filter_placeholder": "모델 검색…",
     "model_filter_no_match": "검색과 일치하는 모델이 없습니다",
+    "model_group_pi_verified": "Pi 검증됨",
+    "model_group_other": "전체 카탈로그",
+    "model_pi_unsupported_marker": "(Pi 미지원)",
+    "model_pi_unsupported_hint": "이 모델은 감독 실행을 지원하지 않습니다. 대신 {{model}}을(를) 사용해 보세요.",
+    "model_pi_unsupported_hint_generic": "이 모델은 DIVE의 감독 Pi 런타임에서 실행할 수 없습니다.",
     "safety_eyebrow": "안전",
     "safety_title": "안전",
     "safety_description": "DIVE는 파일 변경, 명령 실행, 되돌리기 전에 먼저 확인을 요청합니다.",
@@ -469,6 +502,8 @@
     "result_label": "결과 확인",
     "empty_default_title": "세션을 시작해 대화를 시작하세요",
     "empty_default_description": "목표를 입력하거나 로드맵 단계를 선택하세요",
+    "empty_session_starting_title": "세션이 시작됐어요",
+    "empty_session_starting_description": "아직 대화가 없어요. 아래 입력창에 첫 메시지를 보내면 바로 시작됩니다.",
     "empty_hint": "사이드바에서 + 새 세션을 눌러 시작하세요",
     "hint_dismiss_aria": "힌트 닫기",
     "history_loading_aria": "대화 기록 불러오는 중",
@@ -523,14 +558,20 @@
       "unavailable_message": "감독 Pi 실행이 준비될 때까지 이 작업을 시작할 수 없습니다.",
       "unavailable_tooltip": "{{message}} 제공자: {{provider}}, 모델: {{model}}.",
       "setup_action": "제공자 설정 열기",
+      "switch_model_action": "호환 모델로 전환",
       "reasons": {
         "provider_not_configured": "설정된 AI provider가 없습니다.",
         "provider_not_pi_capable": "이 provider는 확인된 Pi 런타임 지원이 없습니다.",
         "legacy_requested": "저장된 이전 런타임 요청은 v2 작업에서 사용할 수 없습니다.",
         "missing_credentials": "Provider 인증 정보가 없거나 사용할 수 없습니다.",
         "missing_project_root": "작업을 시작하기 전에 프로젝트를 선택하세요.",
-        "runtime_unavailable": "감독 런타임을 사용할 수 없습니다."
+        "runtime_unavailable": "감독 런타임을 사용할 수 없습니다.",
+        "model_not_executable": "이 모델은 DIVE의 감독 Pi 런타임에서 사용할 수 없습니다."
       }
+    },
+    "model_not_found": {
+      "toast_title": "이 모델은 실행할 수 없습니다",
+      "toast_description": "{{provider}}/{{model}}은(는) 감독 Pi 런타임에서 지원되지 않습니다."
     }
   },
   "tool_call": {
@@ -753,6 +794,8 @@
       "coach_no_criteria_hint": "이 단계에는 확인할 완료 기준이 없어서 관찰 기록이 필요하지 않아요. 대신 변경 코드나 미리보기로 결과를 확인하세요.",
       "coach_observation_needs_action": "먼저 프리뷰를 열거나 앱·검사를 직접 실행하세요 — 타이핑만으로는 증거가 아닙니다.",
       "coach_criterion_select": "이 관찰이 확인하는 수용 기준",
+      "coach_criterion_select_all": "이번 관찰을 관련 기준 모두에 적용",
+      "coach_criterion_select_empty_hint": "기록하려면 관련 기준을 하나 이상 선택하세요.",
       "coach_check_expected": "확인할 결과",
       "coach_prompt_title": "관찰 기록에 포함할 것",
       "coach_kind": {
@@ -977,6 +1020,8 @@
     "actions": {
       "start": "시작",
       "resume": "이어하기",
+      "resume_blocked": "차단 해제 후 재개",
+      "resume_blocked_hint": "프로바이더 요청 한도로 멈췄습니다. 모델을 바꾸거나 한도가 풀리면 재개할 수 있습니다.",
       "open_review": "검토 열기",
       "review_plan": "계획 검토",
       "open": "열기",
@@ -1005,8 +1050,9 @@
       "draft_ready_title": "계획 초안 준비됨",
       "draft_ready_description": "승인하기 전에 생성된 계획을 검토하세요.",
       "draft_failed_title": "계획 초안을 만들 수 없음",
-      "compact_retry_prompt": "이전 계획 JSON 생성이 실패했습니다. 이유: {{reason}}\n목표: {{goal}}\n완전하고 짧은 JSON만 다시 반환하세요. plan_input은 2~6개 steps를 권장하며 최대 8개를 넘기지 마세요. 각 step은 title, summary, instruction_seed, expected_files, acceptance_criteria, verification_type, verification_command를 포함하고 감독 턴 1회 안에 수행 가능한 작은 범위여야 합니다. verification_type은 run, preview, manual, test 중 하나여야 합니다. 정적 프런트엔드나 실행할 명령이 없는 step은 preview 또는 manual을 쓰고 verification_command는 null로 두세요. run 또는 test는 셸 없이 명시적 인자만 쓰는 실제 명령이 있을 때만 사용하세요. 이전 초안은 완료 기준이 다음을 충분히 다루지 못해 거부됐습니다: {{missing}}. step들의 acceptance_criteria를 추가하거나 고쳐 각 항목을 구체적이고 직접 확인 가능한 완료 기준으로 만드세요. 설명 문장이나 Markdown 코드펜스는 쓰지 마세요.",
+      "compact_retry_prompt": "이전 계획 JSON 생성이 실패했습니다. 이유: {{reason}}\n목표: {{goal}}\n완전하고 짧은 JSON만 다시 반환하세요. plan_input은 2~6개 steps를 권장하며 최대 8개를 넘기지 마세요. 각 step은 title, summary, instruction_seed, expected_files, acceptance_criteria, verification_type, verification_command를 포함하고 감독 턴 1회 안에 수행 가능한 작은 범위여야 합니다. verification_type은 run, preview, manual, test 중 하나여야 합니다. 정적 프런트엔드나 실행할 명령이 없는 step은 preview 또는 manual을 쓰고 verification_command는 null로 두세요. run 또는 test는 셸 없이 명시적 인자만 쓰는 실제 명령이 있을 때만 사용하세요. 이전 초안은 완료 기준이 다음을 충분히 다루지 못해 거부됐습니다: {{missing}}. step들의 acceptance_criteria를 추가하거나 고쳐 각 항목을 구체적이고 직접 확인 가능한 완료 기준으로 만드세요. 설명 문장이나 Markdown 코드펜스는 쓰지 마세요.{{examples}}",
       "compact_retry_missing_fallback": "구체적이고 직접 확인 가능한 완료 기준(숫자·비교·구체적 UI 요소·상태)",
+      "compact_retry_examples": " 다음은 이미 통과하는 완료 기준 예시입니다: {{list}}",
       "pending": {
         "title": "계획을 생성하는 중입니다...",
         "description": "DIVE가 인터뷰 내용을 짧게 검토할 수 있는 계획 초안으로 바꾸고 있습니다."
@@ -1077,6 +1123,33 @@
         "missing_state_criteria": {
           "title": "완료 기준에 필요한 상태가 빠졌습니다",
           "description": "목표에 맞는 UI 또는 데이터 불러오기 상태 기준이 부족해서, 검토 전에 DIVE가 이 계획을 막았습니다."
+        },
+        "issue": {
+          "criteria_empty": "완료 기준이 비어 있습니다. 독립적으로 확인 가능한 완료 기준을 최소 1개 추가하세요.",
+          "criterion_too_short": "완료 기준이 너무 짧습니다: \"{{preview}}\"",
+          "criterion_vague_filler": "완료 기준이 모호합니다: \"{{preview}}\"",
+          "plan_no_marker": "계획 전체에 독립적으로 확인 가능한 완료 기준이 없습니다.",
+          "step_unverifiable": "\"{{step}}\" 단계에 확인 가능한 완료 기준이 없습니다.",
+          "missing_state_class": "{{class}} 관련 완료 기준이 빠졌습니다."
+        },
+        "class": {
+          "responsive": "반응형 동작",
+          "persistence": "새로고침 후 유지",
+          "accessibility": "키보드/ARIA 접근성",
+          "loading": "로딩 상태",
+          "empty": "빈 상태",
+          "error": "오류 상태"
+        },
+        "examples_title": "통과하는 예시",
+        "examples": {
+          "marker_click": "완료한 항목을 클릭하면 취소선이 표시된다",
+          "marker_count": "할 일 3개를 추가하면 목록에 3개 항목이 보인다",
+          "class_responsive": "화면 너비가 768px 미만이면 그리드가 3열에서 1열로 바뀐다",
+          "class_persistence": "저장된 테마 설정이 새로고침 후에도 유지된다",
+          "class_accessibility": "키보드로 저장 버튼에 포커스가 이동하고 ARIA 레이블이 읽힌다",
+          "class_loading": "데이터를 불러오는 동안 로딩 스피너가 표시된다",
+          "class_empty": "목록이 비어 있으면 빈 상태 안내 문구가 표시된다",
+          "class_error": "요청이 실패하면 오류 메시지와 재시도 버튼이 표시된다"
         }
       }
     },

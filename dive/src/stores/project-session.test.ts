@@ -37,13 +37,14 @@ function installTauriInternals() {
   });
 }
 
-function project(id: number, name: string): ProjectRow {
+function project(id: number, name: string, status = "active"): ProjectRow {
   return {
     id,
     name,
     path: `/projects/${name}`,
     provider_default: null,
     model_default: null,
+    status,
     created_at: id * 100,
     updated_at: id * 100,
   };
@@ -199,5 +200,97 @@ describe("project-session store", () => {
     });
     expect(window.localStorage.getItem(CURRENT_PROJECT_KEY)).toBeNull();
     expect(window.localStorage.getItem(CURRENT_SESSION_KEY)).toBeNull();
+  });
+
+  it("archives the currently open project without switching away from it", async () => {
+    const activeProject = project(1, "current");
+    const otherProject = project(2, "other");
+
+    useProjectSessionStore.setState({
+      isTauri: true,
+      loaded: true,
+      projects: [activeProject, otherProject],
+      sessions: [session(10, 1)],
+      currentProjectId: 1,
+      currentSessionId: 10,
+    });
+
+    mocks.invoke.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "project_archive") {
+        expect(args).toEqual({ projectId: 1 });
+        return undefined;
+      }
+      throw new Error(`unexpected invoke: ${cmd}`);
+    });
+
+    await useProjectSessionStore.getState().archiveProject(1);
+
+    expect(mocks.invoke).toHaveBeenCalledWith("project_archive", { projectId: 1 });
+    const state = useProjectSessionStore.getState();
+    // Deliberate deviation from archiveSession (which nulls currentSessionId
+    // when the archived session was current): the archived project stays
+    // open, and its session/currentSessionId are untouched — no auto-switch.
+    expect(state.currentProjectId).toBe(1);
+    expect(state.currentSessionId).toBe(10);
+    expect(state.projects.find((p) => p.id === 1)?.status).toBe("archived");
+    expect(state.projects.find((p) => p.id === 2)?.status).toBe("active");
+  });
+
+  it("unarchiveProject restores a project's status to active", async () => {
+    const archivedProject = project(1, "shelved", "archived");
+
+    useProjectSessionStore.setState({
+      isTauri: true,
+      loaded: true,
+      projects: [archivedProject],
+      sessions: [],
+      currentProjectId: null,
+      currentSessionId: null,
+    });
+
+    mocks.invoke.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "project_unarchive") {
+        expect(args).toEqual({ projectId: 1 });
+        return undefined;
+      }
+      throw new Error(`unexpected invoke: ${cmd}`);
+    });
+
+    await useProjectSessionStore.getState().unarchiveProject(1);
+
+    expect(mocks.invoke).toHaveBeenCalledWith("project_unarchive", { projectId: 1 });
+    expect(useProjectSessionStore.getState().projects[0].status).toBe("active");
+  });
+
+  it("skips an archived stored project on startup and lands on the first active one", async () => {
+    const archivedProject = project(1, "archived-one", "archived");
+    const activeProject = project(2, "active-two");
+    const providers: ProviderSummary[] = [];
+
+    window.localStorage.setItem(CURRENT_PROJECT_KEY, "1");
+
+    mocks.invoke.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "project_list") return [archivedProject, activeProject];
+      if (cmd === "provider_list") return providers;
+      if (cmd === "project_select") {
+        expect(args).toEqual({ projectId: 2 });
+        return activeProject;
+      }
+      if (cmd === "session_list") {
+        expect(args).toEqual({ projectId: 2 });
+        return [];
+      }
+      throw new Error(`unexpected invoke: ${cmd}`);
+    });
+
+    await useProjectSessionStore.getState().loadAll();
+
+    expect(mocks.invoke.mock.calls.map(([cmd]) => cmd)).toEqual([
+      "project_list",
+      "provider_list",
+      "project_select",
+      "session_list",
+    ]);
+    expect(useProjectSessionStore.getState().currentProjectId).toBe(2);
   });
 });

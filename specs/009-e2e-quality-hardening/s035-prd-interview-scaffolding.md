@@ -1,5 +1,14 @@
 # S-035 — PRD / Socratic interview friction & weak criterion scaffolding (009 theme 7) — stage spec/plan
 
+> **Re-tuned by 011 S-050 (2026-07-10).** The concreteness gate this stage
+> introduced blocked all new-project plan generation in the conference-readiness
+> QA (P0-01). Its calibration — per-criterion veto, generic UI-noun goal
+> classifiers, English-only numeric-marker contexts and recovery prose — was
+> re-tuned to bundle/step-level verifiability with localized self-passing
+> recovery examples. See `specs/011-conference-demo-readiness/decisions.md`
+> D-011-01 and `design-s050.md`. The block-and-re-ask intent and the data-fetch
+> loading/empty/error pedagogy remain in force.
+
 **Wily Stage**: S-035 (`STG-5ad54e1456d5`, project `dive-2`). Status `draft` →
 claimed by root. **Scope**: `dive/src/**` (planning/interview UI) +
 `dive/src-tauri/src/{dive,ipc,workspace_plan,db}/**` (interview prompt, draft

@@ -130,6 +130,7 @@ mod select_runtime_tests {
             true,
             None,
             123,
+            None,
         ));
     }
 
@@ -140,7 +141,14 @@ mod select_runtime_tests {
             ProviderKind::Anthropic,
             ProviderKind::OpenRouter,
         ] {
-            ready(select_runtime_at(kind, Some("model"), true, None, 123));
+            ready(select_runtime_at(
+                kind,
+                Some("model"),
+                true,
+                None,
+                123,
+                None,
+            ));
         }
     }
 
@@ -153,6 +161,7 @@ mod select_runtime_tests {
                 true,
                 None,
                 123,
+                None,
             )),
             RuntimeUnavailableReason::ProviderNotPiCapable
         );
@@ -167,6 +176,7 @@ mod select_runtime_tests {
                 true,
                 Some("legacy"),
                 123,
+                None,
             )),
             RuntimeUnavailableReason::LegacyRequested
         );
@@ -180,6 +190,7 @@ mod select_runtime_tests {
             true,
             Some("pi"),
             123,
+            None,
         ));
     }
 
@@ -192,6 +203,7 @@ mod select_runtime_tests {
                 true,
                 Some("pi"),
                 123,
+                None,
             )),
             RuntimeUnavailableReason::ProviderNotPiCapable
         );
@@ -206,6 +218,83 @@ mod select_runtime_tests {
                 false,
                 None,
                 123,
+                None,
+            )),
+            RuntimeUnavailableReason::MissingCredentials
+        );
+    }
+
+    // S-051 D2 point 2: the model dimension of the capability check.
+    #[test]
+    fn model_executable_false_blocks_with_model_not_executable() {
+        assert_eq!(
+            blocked_reason(select_runtime_at(
+                ProviderKind::Anthropic,
+                Some("claude-sonnet-5"),
+                true,
+                None,
+                123,
+                Some(false),
+            )),
+            RuntimeUnavailableReason::ModelNotExecutable
+        );
+    }
+
+    #[test]
+    fn model_executable_true_is_ready() {
+        ready(select_runtime_at(
+            ProviderKind::Anthropic,
+            Some("claude-sonnet-4-6"),
+            true,
+            None,
+            123,
+            Some(true),
+        ));
+    }
+
+    #[test]
+    fn model_executable_unknown_fails_open_to_ready() {
+        // Registry not (yet) loaded, or the sidecar could not answer — must
+        // NOT regress capability. See PiModelRegistryCache doc comment.
+        ready(select_runtime_at(
+            ProviderKind::Anthropic,
+            Some("claude-sonnet-5"),
+            true,
+            None,
+            123,
+            None,
+        ));
+    }
+
+    #[test]
+    fn model_executable_false_is_ignored_for_ineligible_provider() {
+        // The model dimension only applies once a provider is otherwise
+        // Pi-eligible; an unmapped provider stays ProviderNotPiCapable.
+        assert_eq!(
+            blocked_reason(select_runtime_at(
+                ProviderKind::OpencodeZen,
+                Some("zen-model"),
+                true,
+                None,
+                123,
+                Some(false),
+            )),
+            RuntimeUnavailableReason::ProviderNotPiCapable
+        );
+    }
+
+    #[test]
+    fn model_executable_false_is_ignored_when_credentials_missing() {
+        // MissingCredentials must still win over the model dimension —
+        // select_runtime_at checks provider config before model.
+        assert_eq!(
+            blocked_reason(select_runtime_at(
+                ProviderKind::Anthropic,
+                Some("claude-sonnet-5"),
+                false,
+                None,
+                123,
+                Some(false),
             )),
             RuntimeUnavailableReason::MissingCredentials
         );
@@ -238,6 +327,26 @@ mod runtime_capability_tests {
         assert_eq!(value["recordedAt"], json!(42));
     }
 
+    // S-051 D2 point 2 / P2: the model_not_executable capability's wire
+    // contract carries the switch-model CTA, not the interim P1 retry.
+    #[test]
+    fn runtime_capability_state_serializes_model_not_executable_with_switch_model_action() {
+        let state = RuntimeCapabilityState {
+            state: RuntimeCapabilityStatus::Unavailable,
+            provider_kind: "anthropic".into(),
+            model: Some("claude-sonnet-5".into()),
+            reason_code: Some(RuntimeUnavailableReason::ModelNotExecutable),
+            message: "blocked".into(),
+            setup_action: Some(RuntimeSetupAction::SwitchModel),
+            recorded_at: 44,
+        };
+
+        let value = serde_json::to_value(state).unwrap();
+
+        assert_eq!(value["reasonCode"], json!("model_not_executable"));
+        assert_eq!(value["setupAction"], json!("switch_model"));
+    }
+
     #[test]
     fn runtime_capability_state_serializes_all_unavailable_reason_codes() {
         let cases = [
@@ -264,6 +373,10 @@ mod runtime_capability_tests {
             (
                 RuntimeUnavailableReason::RuntimeUnavailable,
                 "runtime_unavailable",
+            ),
+            (
+                RuntimeUnavailableReason::ModelNotExecutable,
+                "model_not_executable",
             ),
         ];
 

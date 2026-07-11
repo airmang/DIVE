@@ -115,6 +115,8 @@ pub fn run() {
             ipc::project_open,
             ipc::project_select,
             ipc::project_delete,
+            ipc::project_archive,
+            ipc::project_unarchive,
             ipc::session_create,
             ipc::session_list,
             ipc::session_rename,

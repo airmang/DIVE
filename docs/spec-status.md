@@ -61,6 +61,34 @@ archived-status sections below).
 | `specs/010-beginner-readiness-ux/spec.md` | Canonical | Defines the post-rc.5 round-2 beginner-readiness/UX hardening scope (8 themes → Wily Stages S-041–S-048). |
 | `specs/010-beginner-readiness-ux/design-s041.md` … `design-s048.md` | Canonical planning aids | Per-stage designs for the eight 010 stages. |
 | `specs/010-beginner-readiness-ux/adr-s048-network-egress.md` | Accepted ADR | Constitution 1.0.0→1.1.0 amendment admitting the Rust-validated network-egress capability class (Principle III). |
+| `specs/011-conference-demo-readiness/spec.md` | Canonical | Defines the round-3 conference-demo-readiness scope (8 themes → Wily Stages S-050–S-057) from the 2026-07-10 QA NO-GO verdict, targeting the 2026-08-14 presentation (Windows demo machine). |
+
+## 011 Implementation Status
+
+As of 2026-07-10, `specs/011-conference-demo-readiness/` (conference demo
+readiness, round 3) is approved and in progress on branch
+`011-conference-demo-readiness`, implemented by Wily Stages S-050 through
+S-057. Input evidence is `docs/qa/conference-readiness-2026-07-10/report.md`
+(2 P0 / 5 P1 / 6 P2; unscripted new-user live demo NO-GO). The round exit gate
+is S-057: clean app-data new-project → 3-step completion, 3 consecutive runs,
+0 false errors, on macOS and the installed Windows demo build.
+
+| Wily Stage | Scope | Status |
+| --- | --- | --- |
+| S-050 | Plan-quality gate re-tuning + recovery-example self-pass lock + live-found criterion-ID resolution hotfix (P0-01) | Done (live QA PASS) |
+| S-051 | Pi executability preflight + selector marking + pi-ai 0.80.6 bump + factory-default registry CI gate (P0-02) | Done (live QA PASS — Sonnet 5 executes) |
+| S-052 | False stall-timeout removal: per-run terminal latch + live-found done-emission integration fix (P1-01) | Done (live QA PASS — 127 s post-approval, zero errors) |
+| S-053 | PRD transparency (not_structured + interview_turns audit trail + 다시 구조화) + field provenance + live-found output-contract/max_tokens fixes (P1-02/03) | Done (live QA PASS — one-shot structuring + mixed provenance) |
+| S-054 | Release-gate restoration: verifier repoints, rate-limit resume, chunk 549→374 KB, verifiers joined verify:v4 CI chain (P1-04) | Done (all verifiers green) |
+| S-055 | Windows installed-app demo readiness (P1-05, demo-critical) | CI x64 installed smoke 13/13 PASS (run 29131250191); real-hardware demo-condition pass remains (rehearsal) |
+| S-056 | Demo UX polish: session-starting state, overlap advisories, multi-criterion linking, project archive (P2) | Done (live QA PASS) |
+| S-057 | GO-judgment exit gate + presentation fallback package | **macOS GO achieved** — clean app-data E2E 3/3 PASS, zero false errors (`s057-go-run-log.md`; report verdict updated). Remaining: Windows real-hardware demo-condition pass at rehearsal + recording/fallback checklist |
+
+Live QA evidence: `docs/qa/011-live-qa/tier1-run-log.md` (initial run + three
+re-QA rounds). Live QA surfaced and closed four integration defects unit
+tests could not see: criterion-ID echo, missing supervised-path `done`
+emission, interview prompt output contract, and interview max_tokens
+truncation.
 
 ## 010 Implementation Status
 

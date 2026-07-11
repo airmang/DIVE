@@ -12,11 +12,30 @@ export default defineConfig(async () => ({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (!id.includes("node_modules")) return undefined;
-          if (id.includes("react") || id.includes("scheduler")) return "vendor-react";
-          if (id.includes("@radix-ui")) return "vendor-radix";
-          if (id.includes("lucide-react")) return "vendor-icons";
-          if (id.includes("@tauri-apps")) return "vendor-tauri";
+          const normalized = id.replace(/\\/g, "/");
+          // Locale JSON (src/i18n/{ko,en}.json) is statically imported by every
+          // route, so it stays in the eagerly-loaded module graph either way —
+          // this only relocates it out of index-*.js into its own chunk file
+          // (same mechanism as the vendor-* splits below: a real ES `import`
+          // between chunks, resolved before index.js's top level runs, so
+          // resources.ko/en are populated exactly as synchronously as before).
+          if (/\/src\/i18n\/(ko|en)\.json$/.test(normalized)) return "locale-data";
+          const marker = "node_modules/";
+          const lastIdx = normalized.lastIndexOf(marker);
+          if (lastIdx === -1) return undefined;
+          // Resolve through pnpm's `.pnpm/<pkg>@<version>_<peers>/node_modules/<pkg>`
+          // store layout to the real package name — matching on the raw id
+          // substring is unsafe because the pnpm hash segment (and peer-dep
+          // suffixes like `_react@18.3.1`) can contain unrelated package names
+          // as substrings (e.g. "lucide-react" and "@radix-ui/react-dialog"
+          // both contain "react", so a naive `id.includes("react")` check
+          // swallows them into vendor-react before their own branch runs).
+          const rest = normalized.slice(lastIdx + marker.length);
+          const pkg = rest.match(/^(@[^/]+\/[^/]+|[^/]+)/)?.[1] ?? "";
+          if (pkg === "lucide-react") return "vendor-icons";
+          if (pkg === "react" || pkg === "react-dom" || pkg === "scheduler") return "vendor-react";
+          if (pkg.startsWith("@radix-ui/")) return "vendor-radix";
+          if (pkg.startsWith("@tauri-apps/")) return "vendor-tauri";
           return "vendor";
         },
       },

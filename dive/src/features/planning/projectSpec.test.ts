@@ -5,6 +5,8 @@ import {
   allocateCriterionId,
   createLiveProjectSpecDraft,
   markDraftStudentEdited,
+  prdIntentCheckFraming,
+  studentAuthoredFieldPaths,
   validateMinimalProjectSpec,
   validateConfirmableProjectSpec,
 } from "./projectSpec";
@@ -212,5 +214,86 @@ describe("project spec helpers", () => {
     expect(edited.dirtyFields).toEqual(["goal", "scope"]);
     expect(edited.studentEditedFields).toEqual(["goal", "scope"]);
     expect(edited.updatedAt).toBeGreaterThanOrEqual(draft.updatedAt);
+  });
+
+  it("stamps student provenance on the five scalar/list fields only (S-053 D3)", () => {
+    const draft = createLiveProjectSpecDraft(7, { draftId: "draft-prd-7" });
+
+    const edited = markDraftStudentEdited(draft, [
+      "goal",
+      "intentSummary",
+      "scope",
+      "nonGoals",
+      "constraints",
+      // acceptanceCriteria has its own per-criterion `source`; architecture has
+      // its own `decisionSource` — both are excluded from this map by design.
+      "acceptanceCriteria",
+      "architecture",
+    ]);
+
+    expect(edited.fieldProvenance).toEqual({
+      goal: "student",
+      intentSummary: "student",
+      scope: "student",
+      nonGoals: "student",
+      constraints: "student",
+    });
+  });
+
+  it("re-stamps a field student on a later edit, overriding any prior source", () => {
+    const draft = createLiveProjectSpecDraft(7, {
+      draftId: "draft-prd-7",
+      fieldProvenance: { goal: "ai_patch" },
+    });
+
+    const edited = markDraftStudentEdited(draft, ["goal"]);
+
+    expect(edited.fieldProvenance.goal).toBe("student");
+  });
+
+  it("stamps a nested acceptance-criterion field path by its root, not the full path", () => {
+    const draft = createLiveProjectSpecDraft(7, { draftId: "draft-prd-7" });
+
+    const edited = markDraftStudentEdited(draft, ["acceptanceCriteria.AC-001.text"]);
+
+    // The root ("acceptanceCriteria") is excluded from the map, same as the
+    // bare "acceptanceCriteria" path.
+    expect(edited.fieldProvenance).toEqual({});
+  });
+});
+
+describe("prdIntentCheckFraming", () => {
+  it("falls back to the legacy 'ai' framing when the map is empty", () => {
+    expect(prdIntentCheckFraming(undefined)).toBe("ai");
+    expect(prdIntentCheckFraming({})).toBe("ai");
+  });
+
+  it("returns 'ai' when every stamped field is ai_patch or ai_suggestion_accepted", () => {
+    expect(prdIntentCheckFraming({ goal: "ai_patch", scope: "ai_suggestion_accepted" })).toBe("ai");
+  });
+
+  it("returns 'student' when every stamped field is student", () => {
+    expect(prdIntentCheckFraming({ goal: "student", scope: "student" })).toBe("student");
+  });
+
+  it("returns 'mixed' when sources disagree", () => {
+    expect(prdIntentCheckFraming({ goal: "student", scope: "ai_patch" })).toBe("mixed");
+  });
+});
+
+describe("studentAuthoredFieldPaths", () => {
+  it("returns only the fields stamped student, in map order", () => {
+    expect(
+      studentAuthoredFieldPaths({
+        goal: "student",
+        scope: "ai_patch",
+        constraints: "student",
+      }),
+    ).toEqual(["goal", "constraints"]);
+  });
+
+  it("returns an empty list for an empty or undefined map", () => {
+    expect(studentAuthoredFieldPaths(undefined)).toEqual([]);
+    expect(studentAuthoredFieldPaths({})).toEqual([]);
   });
 });

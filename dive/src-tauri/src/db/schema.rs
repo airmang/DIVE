@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS Project (
     path TEXT NOT NULL UNIQUE,
     provider_default TEXT,
     model_default TEXT,
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','archived')),
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 )";
@@ -237,6 +238,7 @@ CREATE TABLE IF NOT EXISTS LiveProjectSpecDraft (
     dirty_fields TEXT NOT NULL DEFAULT '[]',
     student_edited_fields TEXT NOT NULL DEFAULT '[]',
     last_patch_id TEXT,
+    field_provenance TEXT NOT NULL DEFAULT '{}',
     updated_at INTEGER NOT NULL,
     UNIQUE(project_id)
 )";
@@ -274,4 +276,25 @@ pub const CREATE_V11_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_live_prd_draft_project ON LiveProjectSpecDraft(project_id)",
     "CREATE INDEX IF NOT EXISTS idx_plan_mutation_plan ON PlanMutation(plan_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_objection_plan ON Objection(plan_id, created_at)",
+];
+
+// S-053 D1: durable per-turn PRD interview record (student answer + outcome +
+// parse-failure kind), including structuring failures that previously left no
+// trace at all. `draft_id` is not FK-constrained: LiveProjectSpecDraft is
+// upserted per project (its draft_id can be replaced on conflict), so a hard
+// FK would risk breaking on that upsert; a plain indexed column is enough for
+// the append-only turn history this table exists to keep.
+pub const CREATE_INTERVIEW_TURN: &str = "
+CREATE TABLE IF NOT EXISTS InterviewTurn (
+    id INTEGER PRIMARY KEY,
+    draft_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    student_answer TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    parse_failure_kind TEXT,
+    created_at INTEGER NOT NULL
+)";
+
+pub const CREATE_V16_INDEXES: &[&str] = &[
+    "CREATE INDEX IF NOT EXISTS idx_interview_turn_draft ON InterviewTurn(draft_id, created_at)",
 ];

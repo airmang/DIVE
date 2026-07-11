@@ -203,14 +203,16 @@ export type RuntimeUnavailableReason =
   | "legacy_requested"
   | "missing_credentials"
   | "missing_project_root"
-  | "runtime_unavailable";
+  | "runtime_unavailable"
+  | "model_not_executable";
 
 export type RuntimeSetupAction =
   | "configure_provider"
   | "choose_supported_provider"
   | "add_credentials"
   | "open_project"
-  | "retry_runtime";
+  | "retry_runtime"
+  | "switch_model";
 
 export interface RuntimeCapabilityState {
   state: RuntimeCapabilityStatus;

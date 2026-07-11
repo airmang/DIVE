@@ -338,7 +338,11 @@ export function ChatArea({
                   <p className="text-sm text-fg-muted">
                     {emptyState?.description ?? t("chat.empty_default_description")}
                   </p>
-                  {!emptyState?.actionLabel ? (
+                  {/* Generic "click + New session" nudge only applies to the true
+                      unhandled/no-guidance fallback (emptyState undefined) — every
+                      derived empty state (no project, no session, session starting)
+                      already carries its own accurate copy above. */}
+                  {!emptyState ? (
                     <LearningHint className="text-sm">{t("chat.empty_hint")}</LearningHint>
                   ) : null}
                   {emptyState?.actionLabel && emptyState.onAction ? (

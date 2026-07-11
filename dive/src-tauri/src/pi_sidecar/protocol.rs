@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::Deserialize;
 
 use crate::agent::AgentEvent;
@@ -39,6 +41,12 @@ pub(super) enum SidecarEvent {
         #[allow(dead_code)]
         ts: Option<u64>,
     },
+    /// Response to a `list_models` handshake query (S-051 D1): a snapshot of
+    /// the pinned pi-ai registry, keyed by pi-ai provider id. This is the only
+    /// place executable-model truth is read from — never re-hardcoded.
+    ListModelsResult {
+        providers: HashMap<String, Vec<String>>,
+    },
 }
 
 pub(super) fn map_sidecar_delta_event(
@@ -67,6 +75,7 @@ pub(super) fn sidecar_event_name(event: &SidecarEvent) -> &'static str {
         SidecarEvent::TurnSucceeded { .. } => "turn_succeeded",
         SidecarEvent::Error { .. } => "error",
         SidecarEvent::Heartbeat { .. } => "heartbeat",
+        SidecarEvent::ListModelsResult { .. } => "list_models_result",
     }
 }
 

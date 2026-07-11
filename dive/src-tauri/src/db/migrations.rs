@@ -20,9 +20,12 @@ const MIGRATIONS: &[(i64, MigrationFn)] = &[
     (13, migration_v13),
     (14, migration_v14),
     (15, migration_v15),
+    (16, migration_v16),
+    (17, migration_v17),
+    (18, migration_v18),
 ];
 
-pub const LATEST_SCHEMA_VERSION: i64 = 15;
+pub const LATEST_SCHEMA_VERSION: i64 = 18;
 
 pub fn migrate(conn: &mut Connection) -> Result<(), DbError> {
     migrate_with_migrations(conn, MIGRATIONS)
@@ -384,6 +387,54 @@ fn migration_v15(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     if exists == 0 {
         tx.execute_batch(
             "ALTER TABLE Step ADD COLUMN step_kind TEXT NOT NULL DEFAULT 'feature' CHECK(step_kind IN ('feature','refactor','rename','comment','debug'))",
+        )?;
+    }
+    Ok(())
+}
+
+/// S-053 D1 — durable per-turn PRD interview record, including structuring
+/// failures (the model turn produced no usable JSON) that previously left no
+/// trace: the audit hole this table closes. Purely additive; local-DB only.
+fn migration_v16(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    tx.execute_batch(schema::CREATE_INTERVIEW_TURN)?;
+    for index in schema::CREATE_V16_INDEXES {
+        tx.execute_batch(index)?;
+    }
+    Ok(())
+}
+
+/// S-053 D3 — per-field provenance (student | ai_patch | ai_suggestion_accepted)
+/// for the five scalar/list PRD fields, closing the gap where a fully
+/// hand-typed PRD still showed the "AI summarized this" intent-check framing.
+/// Purely additive; local-DB-only column (mirrors `dirty_fields` /
+/// `student_edited_fields`, not exported raw beyond the whole-row artifact).
+fn migration_v17(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    let exists: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('LiveProjectSpecDraft') WHERE name = 'field_provenance'",
+        [],
+        |row| row.get(0),
+    )?;
+    if exists == 0 {
+        tx.execute_batch(
+            "ALTER TABLE LiveProjectSpecDraft ADD COLUMN field_provenance TEXT NOT NULL DEFAULT '{}'",
+        )?;
+    }
+    Ok(())
+}
+
+/// S-056 D4 — add `Project.status` so projects can be archived (soft-hidden,
+/// never deleted) mirroring `Session.status` (schema.rs `CREATE_SESSION`,
+/// migration_v1). Guarded ADD COLUMN; existing rows backfill to 'active' via
+/// the DEFAULT, same technique as migration_v13's `Step.status`.
+fn migration_v18(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    let exists: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('Project') WHERE name = 'status'",
+        [],
+        |row| row.get(0),
+    )?;
+    if exists == 0 {
+        tx.execute_batch(
+            "ALTER TABLE Project ADD COLUMN status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','archived'))",
         )?;
     }
     Ok(())
@@ -899,6 +950,249 @@ mod tests {
             )
             .unwrap();
         assert_eq!(indexes, 4);
+    }
+
+    #[test]
+    fn migration_v16_creates_interview_turn_table() {
+        let (db, _tmp) = fresh_db();
+        let tables: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'InterviewTurn'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 1);
+
+        let indexes: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_interview_turn_draft'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(indexes, 1);
+
+        db.conn()
+            .execute(
+                "INSERT INTO InterviewTurn(draft_id, turn_id, student_answer, outcome, parse_failure_kind, created_at) VALUES ('draft-1', 'turn-1', 'a focus timer', 'not_structured', 'no_json', 0)",
+                [],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn migration_v16_upgrades_existing_db_without_interview_turn_table() {
+        // Reproduce a pre-S-053 DB (schema_version stops at 15, no InterviewTurn
+        // table) and prove the upgrade path creates it without touching earlier
+        // tables.
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        {
+            let mut conn = rusqlite::Connection::open(tmp.path()).unwrap();
+            migrations::migrate_with_migrations(&mut conn, &super::MIGRATIONS[..15]).unwrap();
+            let exists: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'InterviewTurn'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(exists, 0);
+        }
+
+        let mut db = Database::open(tmp.path()).unwrap();
+        db.migrate().unwrap();
+        let exists: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'InterviewTurn'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(exists, 1);
+    }
+
+    #[test]
+    fn migration_v17_adds_field_provenance_column() {
+        let (db, _tmp) = fresh_db();
+        let column_default: String = db
+            .conn()
+            .query_row(
+                "SELECT dflt_value FROM pragma_table_info('LiveProjectSpecDraft') WHERE name = 'field_provenance'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(column_default, "'{}'");
+
+        db.conn()
+            .execute(
+                "INSERT INTO Project(id, name, path, created_at, updated_at) VALUES (1, 'p', '/tmp/p', 0, 0)",
+                [],
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO LiveProjectSpecDraft(draft_id, project_id, spec, updated_at) VALUES ('draft-1', 1, '{}', 0)",
+                [],
+            )
+            .unwrap();
+        let stored: String = db
+            .conn()
+            .query_row(
+                "SELECT field_provenance FROM LiveProjectSpecDraft WHERE draft_id = 'draft-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, "{}");
+    }
+
+    #[test]
+    fn migration_v17_upgrades_existing_db_without_field_provenance_column() {
+        // schema::CREATE_LIVE_PROJECT_SPEC_DRAFT was updated in place to include
+        // field_provenance (so a fresh DB gets it via migration_v11 directly,
+        // matching the `step_kind`/migration_v15 pattern) — so slicing
+        // MIGRATIONS[..16] no longer reproduces a pre-v17 DB. Instead: run a
+        // fresh DB, then drop/recreate the table in its pre-v17 shape, and
+        // apply migration_v17 directly.
+        let (mut db, _tmp) = fresh_db();
+        db.conn()
+            .execute_batch(
+                "DROP TABLE LiveProjectSpecDraft;
+                 CREATE TABLE LiveProjectSpecDraft (
+                    draft_id TEXT PRIMARY KEY,
+                    project_id INTEGER NOT NULL REFERENCES Project(id) ON DELETE CASCADE,
+                    base_version INTEGER,
+                    spec TEXT NOT NULL,
+                    dirty_fields TEXT NOT NULL DEFAULT '[]',
+                    student_edited_fields TEXT NOT NULL DEFAULT '[]',
+                    last_patch_id TEXT,
+                    updated_at INTEGER NOT NULL,
+                    UNIQUE(project_id)
+                 );",
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO Project(id, name, path, created_at, updated_at) VALUES (1, 'p', '/tmp/p', 0, 0)",
+                [],
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO LiveProjectSpecDraft(draft_id, project_id, spec, updated_at) VALUES ('draft-1', 1, '{}', 0)",
+                [],
+            )
+            .unwrap();
+        let exists: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('LiveProjectSpecDraft') WHERE name = 'field_provenance'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(exists, 0);
+
+        let tx = db.conn_mut().transaction().unwrap();
+        super::migration_v17(&tx).unwrap();
+        tx.commit().unwrap();
+
+        let backfilled: String = db
+            .conn()
+            .query_row(
+                "SELECT field_provenance FROM LiveProjectSpecDraft WHERE draft_id = 'draft-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(backfilled, "{}");
+    }
+
+    #[test]
+    fn migration_v18_adds_project_status_column_defaulting_active() {
+        let (db, _tmp) = fresh_db();
+        let column_default: String = db
+            .conn()
+            .query_row(
+                "SELECT dflt_value FROM pragma_table_info('Project') WHERE name = 'status'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(column_default, "'active'");
+
+        let (project_id, _session_id) = seed_project_session(db.conn());
+        let status: String = db
+            .conn()
+            .query_row(
+                "SELECT status FROM Project WHERE id = ?",
+                [project_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, "active");
+    }
+
+    #[test]
+    fn migration_v18_upgrades_existing_db_without_status_column() {
+        // schema::CREATE_PROJECT was updated in place to include `status` (so a
+        // fresh DB gets it via migration_v1 directly, matching the
+        // `step_kind`/migration_v15 and `field_provenance`/migration_v17
+        // pattern) — so slicing MIGRATIONS no longer reproduces a pre-v18 DB.
+        // Instead: run a fresh DB, then drop/recreate Project in its pre-v18
+        // shape, and apply migration_v18 directly.
+        let (mut db, _tmp) = fresh_db();
+        db.conn()
+            .execute_batch(
+                "DROP TABLE Project;
+                 CREATE TABLE Project (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    path TEXT NOT NULL UNIQUE,
+                    provider_default TEXT,
+                    model_default TEXT,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                 );",
+            )
+            .unwrap();
+        db.conn()
+            .execute(
+                "INSERT INTO Project(id, name, path, created_at, updated_at) VALUES (1, 'p', '/tmp/p', 0, 0)",
+                [],
+            )
+            .unwrap();
+        let exists: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('Project') WHERE name = 'status'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(exists, 0);
+
+        let tx = db.conn_mut().transaction().unwrap();
+        super::migration_v18(&tx).unwrap();
+        tx.commit().unwrap();
+
+        let backfilled: String = db
+            .conn()
+            .query_row("SELECT status FROM Project WHERE id = 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(backfilled, "active");
+
+        // Idempotent: re-running the guarded ADD COLUMN is a no-op.
+        let tx = db.conn_mut().transaction().unwrap();
+        super::migration_v18(&tx).unwrap();
+        tx.commit().unwrap();
     }
 
     #[test]

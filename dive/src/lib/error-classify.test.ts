@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyProjectCreateError } from "./error-classify";
+import { classifyProjectCreateError, matchSidecarModelNotFoundError } from "./error-classify";
 
 describe("classifyProjectCreateError (P1-06)", () => {
   it("maps an unsafe/non-absolute project path", () => {
@@ -36,5 +36,34 @@ describe("classifyProjectCreateError (P1-06)", () => {
       expect(classified.bodyKey.startsWith("error.project_create.")).toBe(true);
       expect(classified.bodyKey.endsWith(".body")).toBe(true);
     }
+  });
+});
+
+// S-051 D3: run-time sidecar model-not-found detection.
+describe("matchSidecarModelNotFoundError", () => {
+  it("extracts the OpenRouter provider and slug-with-slash model", () => {
+    const match = matchSidecarModelNotFoundError(
+      "pi sidecar error: model not found: openrouter/anthropic/claude-sonnet-5",
+    );
+    expect(match).toEqual({ provider: "openrouter", model: "anthropic/claude-sonnet-5" });
+  });
+
+  it("extracts the native Anthropic provider and model", () => {
+    const match = matchSidecarModelNotFoundError(
+      "pi sidecar error: model not found: anthropic/claude-sonnet-5",
+    );
+    expect(match).toEqual({ provider: "anthropic", model: "claude-sonnet-5" });
+  });
+
+  it("accepts an Error instance carrying the message", () => {
+    const match = matchSidecarModelNotFoundError(
+      new Error("pi sidecar error: model not found: openai-codex/gpt-5.4"),
+    );
+    expect(match).toEqual({ provider: "openai-codex", model: "gpt-5.4" });
+  });
+
+  it("returns null for unrelated errors", () => {
+    expect(matchSidecarModelNotFoundError("pi sidecar error: rate limit exceeded")).toBeNull();
+    expect(matchSidecarModelNotFoundError("network timeout")).toBeNull();
   });
 });

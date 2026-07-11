@@ -185,14 +185,16 @@ export type RuntimeUnavailableReason =
   | "legacy_requested"
   | "missing_credentials"
   | "missing_project_root"
-  | "runtime_unavailable";
+  | "runtime_unavailable"
+  | "model_not_executable";
 
 export type RuntimeSetupAction =
   | "configure_provider"
   | "choose_supported_provider"
   | "add_credentials"
   | "open_project"
-  | "retry_runtime";
+  | "retry_runtime"
+  | "switch_model";
 
 export interface RuntimeSelection {
   state: RuntimeSelectionState;
@@ -509,12 +511,35 @@ function appendRuntimeEvidenceToSlideIn(evidence: ExecutionEvidenceData) {
   });
 }
 
+/**
+ * Events that begin a fresh run when the previous run is latched terminal
+ * (backend-initiated supervisor/verify turns arrive on the same channel
+ * without going through `sendUserMessage`).
+ */
+const RUN_START_EVENT_TYPES = new Set<AgentEvent["type"]>([
+  "assistant_start",
+  "tool_call_start",
+  "user_message",
+]);
+
+/** Events that clear the stall timer without arming a new wait. */
+const STALL_CLEAR_EVENT_TYPES = new Set<AgentEvent["type"]>([
+  "assistant_end",
+  "tool_call_start",
+  "tool_call_approved",
+  "tool_call_denied",
+  "tool_call_blocked",
+]);
+
 export function useChatSession(
   sessionId: number | null,
   onAgentEvent?: (event: AgentEvent) => void,
   beforeSendUserMessage?: BeforeSendUserMessage,
 ) {
   const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const runIdRef = useRef(0);
+  /** True when no run is currently in flight (initial, or since the last `done`/`error`). */
+  const runTerminalRef = useRef(true);
   const [state, setState] = useState<ChatSessionState>({
     messages: [],
     isStreaming: false,
@@ -543,9 +568,16 @@ export function useChatSession(
     }
   }, []);
 
-  const appendErrorMessage = useCallback((message: string, retryable = true) => {
+  /** Bumps run identity and clears the terminal latch — called at the start of every run. */
+  const startNewRun = useCallback(() => {
+    runIdRef.current += 1;
+    runTerminalRef.current = false;
+    return runIdRef.current;
+  }, []);
+
+  const appendErrorMessage = useCallback((message: string, retryable = true, id?: string) => {
     const m: ErrorMessageData = {
-      id: `err-${Date.now()}`,
+      id: id ?? `err-${Date.now()}`,
       kind: "error",
       createdAt: Date.now(),
       message,
@@ -553,7 +585,7 @@ export function useChatSession(
     };
     setState((s) => ({
       ...s,
-      messages: [...s.messages, m],
+      messages: mergeMessagesById(s.messages, [m]),
       isStreaming: false,
       error: message,
       runStartedAt: null,
@@ -589,8 +621,15 @@ export function useChatSession(
 
   const armStallTimer = useCallback(() => {
     clearStallTimer();
+    const armedRunId = runIdRef.current;
     stallTimerRef.current = setTimeout(() => {
-      appendErrorMessage(translate(useLocaleStore.getState().locale, "chat.stall_timeout"), true);
+      stallTimerRef.current = null;
+      if (runIdRef.current !== armedRunId || runTerminalRef.current) return;
+      appendErrorMessage(
+        translate(useLocaleStore.getState().locale, "chat.stall_timeout"),
+        true,
+        `stall-${armedRunId}`,
+      );
     }, 45000);
   }, [appendErrorMessage, clearStallTimer]);
 
@@ -615,6 +654,7 @@ export function useChatSession(
     let historyLoaded = false;
     const bufferedEvents: AgentEvent[] = [];
     clearStallTimer();
+    runTerminalRef.current = true;
     setState({
       messages: [],
       isStreaming: false,
@@ -717,16 +757,20 @@ export function useChatSession(
             exitCode: payload.exitCode ?? null,
           });
         }
-        if (
-          payload.type === "done" ||
-          payload.type === "error" ||
-          payload.type === "assistant_end" ||
-          payload.type === "tool_call_start" ||
-          payload.type === "tool_call_approved"
-        ) {
+        if (payload.type === "done" || payload.type === "error") {
+          runTerminalRef.current = true;
           clearStallTimer();
         } else {
-          armStallTimer();
+          if (runTerminalRef.current && RUN_START_EVENT_TYPES.has(payload.type)) {
+            startNewRun();
+          }
+          if (runTerminalRef.current) {
+            // Straggler from a run that already ended — must not resurrect the timer.
+          } else if (STALL_CLEAR_EVENT_TYPES.has(payload.type)) {
+            clearStallTimer();
+          } else {
+            armStallTimer();
+          }
         }
         onAgentEventRef.current?.(payload);
       };
@@ -739,7 +783,8 @@ export function useChatSession(
             return;
           }
           applyEventSideEffects(payload);
-          setState((prev) => reduceChatSessionState(prev, payload));
+          const runTerminal = runTerminalRef.current;
+          setState((prev) => reduceChatSessionState(prev, payload, runTerminal));
         });
         const [history, pending] = await Promise.all([
           api.invoke<ChatMessage[]>("message_list", { sessionId }),
@@ -750,6 +795,7 @@ export function useChatSession(
         const pendingMessages = pending.map(pendingToolCallToMessage);
         const replayEvents = bufferedEvents.splice(0);
         replayEvents.forEach(applyEventSideEffects);
+        const replayRunTerminal = runTerminalRef.current;
         setState((s) => {
           let next: ChatSessionState = {
             ...s,
@@ -762,7 +808,7 @@ export function useChatSession(
             loadingHistory: false,
           };
           for (const event of replayEvents) {
-            next = reduceChatSessionState(next, event);
+            next = reduceChatSessionState(next, event, replayRunTerminal);
           }
           return next;
         });
@@ -782,7 +828,7 @@ export function useChatSession(
       clearStallTimer();
       if (unsub) unsub();
     };
-  }, [armStallTimer, clearStallTimer, sessionId]);
+  }, [armStallTimer, clearStallTimer, sessionId, startNewRun]);
 
   const sendUserMessage = useCallback(
     async (
@@ -811,6 +857,7 @@ export function useChatSession(
       });
       if (shouldSend === false) return;
       lastRetryableIntentRef.current = { text, runMode, planAccepted, stepId };
+      startNewRun();
       armStallTimer();
       setState((s) => ({
         ...s,
@@ -842,7 +889,14 @@ export function useChatSession(
         await refreshPendingApprovals().catch(() => {});
       }
     },
-    [appendErrorMessage, armStallTimer, clearStallTimer, refreshPendingApprovals, sessionId],
+    [
+      appendErrorMessage,
+      armStallTimer,
+      clearStallTimer,
+      refreshPendingApprovals,
+      sessionId,
+      startNewRun,
+    ],
   );
 
   const retryLastUserMessage = useCallback(() => {
@@ -1119,7 +1173,18 @@ function runtimeSystemMessage(selection: RuntimeSelection): string {
   return `${label}: ${selection.message} · ${selection.provider}/${selection.model}`;
 }
 
-export function reduceChatSessionState(prev: ChatSessionState, evt: AgentEvent): ChatSessionState {
+/**
+ * `runTerminal` mirrors the hook's per-run terminal latch (see `runTerminalRef` in
+ * `useChatSession`): true once `done`/`error` has fired for the current run and no
+ * later run-start event has arrived yet. Callers outside the hook may omit it — it
+ * only affects the `agent_progress` case, which otherwise would let a straggler
+ * heartbeat resurrect `isStreaming` after the run has already ended (S-052 D2).
+ */
+export function reduceChatSessionState(
+  prev: ChatSessionState,
+  evt: AgentEvent,
+  runTerminal = false,
+): ChatSessionState {
   switch (evt.type) {
     case "user_message": {
       const m: UserMessageData = {
@@ -1429,6 +1494,7 @@ export function reduceChatSessionState(prev: ChatSessionState, evt: AgentEvent):
       return { ...prev, messages: mergeMessagesById(messages, [stale]) };
     }
     case "agent_progress": {
+      if (runTerminal) return prev;
       return {
         ...prev,
         isStreaming: true,

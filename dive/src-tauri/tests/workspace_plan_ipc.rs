@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -8,14 +9,15 @@ use async_trait::async_trait;
 use dive_lib::auth::InMemoryKeyring;
 use dive_lib::checkpoint::CheckpointEngine;
 use dive_lib::db::dao::{
-    card, event_log, interview, plan, plan_mutation, prd, project, session, step,
+    card, event_log, interview, interview_turn, plan, plan_mutation, prd, project, session, step,
     step_session_mapping as mapping, workmap,
 };
 use dive_lib::db::models::{
     AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus,
     ArchitectureDecision, ArchitectureDecisionSource, ArchitectureForm, NewInterview,
     NewLiveProjectSpecDraft, NewPlan, NewProject, NewStep, ObjectionSuggestionStatus,
-    PlanMutationType, ProjectSpecDelta, ProjectSpecDraft, ProjectSpecStatus, StepRow,
+    PlanMutationType, PrdPatchValidationOutcome, ProjectSpecDelta, ProjectSpecDraft,
+    ProjectSpecStatus, ProvenanceSource, StepRow,
 };
 use dive_lib::export::{ExportEngine, ExportOptions};
 use dive_lib::ipc::workspace_plan::{
@@ -491,6 +493,7 @@ fn prd_status_get_and_save_distinguish_missing_draft_and_minimal() {
                 dirty_fields: vec!["goal".into()],
                 student_edited_fields: vec!["goal".into()],
                 last_patch_id: None,
+                field_provenance: BTreeMap::new(),
             },
         )
         .unwrap();
@@ -630,6 +633,11 @@ fn prd_draft_get_and_save_restore_unsaved_authoring_state() {
     draft.spec.acceptance_criteria = vec![prd_criterion("Teacher can see who has not submitted")];
     draft.dirty_fields = vec!["goal".into(), "acceptanceCriteria".into()];
     draft.student_edited_fields = vec!["goal".into()];
+    // S-053 D3: the TS-side stamp (markDraftStudentEdited) round-trips through
+    // this same draft-save IPC call — simulated here at the Rust level.
+    draft
+        .field_provenance
+        .insert("goal".to_string(), ProvenanceSource::Student);
 
     let saved = workspace_prd_draft_save_impl(
         &state,
@@ -652,6 +660,58 @@ fn prd_draft_get_and_save_restore_unsaved_authoring_state() {
     assert_eq!(
         restored.spec.acceptance_criteria[0].text,
         "Teacher can see who has not submitted"
+    );
+    assert_eq!(
+        restored.field_provenance.get("goal"),
+        Some(&ProvenanceSource::Student)
+    );
+}
+
+#[test]
+fn prd_save_carries_draft_field_provenance_onto_confirmed_snapshot() {
+    // S-053 D3: field_provenance lives on the outer LiveProjectSpecDraft, not on
+    // the `spec` PrdSaveInput sends — workspace_prd_save_impl must look up the
+    // persisted draft row itself for the confirmed ProjectSpec to carry it.
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+
+    let mut draft = workspace_prd_draft_get_impl(&state, project_id, None).unwrap();
+    draft.spec = minimal_prd_draft(project_id);
+    draft
+        .field_provenance
+        .insert("goal".to_string(), ProvenanceSource::Student);
+    draft
+        .field_provenance
+        .insert("scope".to_string(), ProvenanceSource::AiPatch);
+    workspace_prd_draft_save_impl(&state, PrdDraftSaveInput { project_id, draft }).unwrap();
+
+    let saved = workspace_prd_save_impl(
+        &state,
+        PrdSaveInput {
+            project_id,
+            spec: minimal_prd_draft(project_id),
+            reason: "interview".into(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        saved.field_provenance.get("goal"),
+        Some(&ProvenanceSource::Student)
+    );
+    assert_eq!(
+        saved.field_provenance.get("scope"),
+        Some(&ProvenanceSource::AiPatch)
+    );
+
+    // Confirming deletes the live draft; reopening the confirmed PRD for
+    // further editing carries the recorded provenance forward (load_or_create,
+    // pattern: `architecture`) instead of resetting to the legacy-empty map.
+    let reopened = workspace_prd_draft_get_impl(&state, project_id, None).unwrap();
+    assert_eq!(
+        reopened.field_provenance.get("goal"),
+        Some(&ProvenanceSource::Student)
     );
 }
 
@@ -715,6 +775,17 @@ async fn prd_interview_turn_applies_validated_patch_without_creating_version() {
         turn.live_draft.spec.acceptance_criteria[0].criterion_id,
         "AC-001"
     );
+    // S-053 D3: the applied scalar field is stamped ai_patch; acceptanceCriteria
+    // keeps its own per-criterion `source` and is deliberately NOT duplicated
+    // into this map.
+    assert_eq!(
+        turn.live_draft.field_provenance.get("goal"),
+        Some(&ProvenanceSource::AiPatch)
+    );
+    assert!(!turn
+        .live_draft
+        .field_provenance
+        .contains_key("acceptanceCriteria"));
     assert_eq!(
         prd::latest_version(state.db.lock().unwrap().conn(), project_id)
             .unwrap()
@@ -817,6 +888,19 @@ async fn prd_interview_turn_applies_text_aliases_for_prd_fields() {
         turn.live_draft.spec.acceptance_criteria[0].text,
         "Urgent assignments appear at the top"
     );
+    // S-053 D3: every applied scalar field is stamped ai_patch (not just the
+    // first one), and acceptanceCriteria is still excluded from the map.
+    for field in ["goal", "intentSummary", "scope", "constraints"] {
+        assert_eq!(
+            turn.live_draft.field_provenance.get(field),
+            Some(&ProvenanceSource::AiPatch),
+            "expected {field} to be stamped ai_patch"
+        );
+    }
+    assert!(!turn
+        .live_draft
+        .field_provenance
+        .contains_key("acceptanceCriteria"));
 }
 
 #[tokio::test]
@@ -902,6 +986,331 @@ async fn prd_interview_turn_accepts_operation_alias_without_leaking_patch_json()
     assert_eq!(
         turn.live_draft.spec.acceptance_criteria[0].text,
         "사용자가 일정 등록 화면에서 제목, 날짜, 시간, 간단한 메모를 입력해 일정을 저장할 수 있다."
+    );
+}
+
+// S-053 D1: a structuring failure (no JSON at all, or JSON that decodes as
+// neither response shape) gets a distinct `not_structured` outcome, an
+// auditable `prd_patch_unstructured` EventLog event, and a durable
+// InterviewTurn row — closing the audit hole where the exact turn a
+// supervision-research log needs to capture previously left no trace at all.
+
+#[tokio::test]
+async fn prd_interview_turn_flags_no_json_response_as_not_structured() {
+    let tmp = tempfile::tempdir().unwrap();
+    // S-057: a structuring failure triggers ONE deterministic in-turn retry —
+    // script both attempts failing so the final outcome is not_structured
+    // with the combined flake history.
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![
+            vec![
+                ChatEvent::TextDelta("이 질문에 대해 조금 더 설명해 주시겠어요?".into()),
+                ChatEvent::Done {
+                    finish_reason: FinishReason::Stop,
+                },
+            ],
+            vec![
+                ChatEvent::TextDelta("여전히 프로즈로만 답합니다.".into()),
+                ChatEvent::Done {
+                    finish_reason: FinishReason::Stop,
+                },
+            ],
+        ],
+    );
+    let project_id = seed_project(&state);
+
+    let turn = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-unstructured".into(),
+            answer: "음, 잘 모르겠어요, 그냥 뭔가 만들고 싶어요".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(turn.validation_outcome, "not_structured");
+    assert!(turn.patch.is_none());
+    assert!(turn.applied_field_paths.is_empty());
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    let unstructured = events
+        .iter()
+        .find(|event| event.r#type == "prd_patch_unstructured")
+        .expect("prd_patch_unstructured event logged");
+    assert_eq!(unstructured.payload["project_id"], project_id);
+    assert_eq!(unstructured.payload["draft_id"], "draft-unstructured");
+    assert_eq!(unstructured.payload["turn_id"], turn.turn_id);
+    assert_eq!(
+        unstructured.payload["parse_failure_kind"],
+        "no_json:retry_no_json"
+    );
+    assert_eq!(unstructured.payload["provider"], "mock");
+    assert_eq!(unstructured.payload["model"], "mock-model");
+    // No raw answer text or raw model response text in the EventLog payload.
+    assert!(unstructured.payload.get("answer").is_none());
+    assert!(unstructured.payload.get("raw").is_none());
+    assert_eq!(unstructured.payload["agencyComponent"], "plan");
+    // No PROPOSED/APPLIED/REJECTED events for a turn that never structured.
+    assert!(!events
+        .iter()
+        .any(|event| event.r#type == "prd_patch_proposed"));
+
+    let turns =
+        interview_turn::list_by_draft(state.db.lock().unwrap().conn(), "draft-unstructured")
+            .unwrap();
+    assert_eq!(turns.len(), 1);
+    assert_eq!(turns[0].turn_id, turn.turn_id);
+    assert_eq!(
+        turns[0].student_answer,
+        "음, 잘 모르겠어요, 그냥 뭔가 만들고 싶어요"
+    );
+    assert_eq!(turns[0].outcome, PrdPatchValidationOutcome::NotStructured);
+    assert_eq!(
+        turns[0].parse_failure_kind.as_deref(),
+        Some("no_json:retry_no_json")
+    );
+}
+
+#[tokio::test]
+async fn prd_interview_turn_flags_undecodable_json_response_as_not_structured() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![
+            vec![
+                ChatEvent::TextDelta(
+                    r#"{"assistantMessage":"제가 응답 구조를 잘못 만들었어요.","patch":{"operations":"oops"}}"#
+                        .into(),
+                ),
+                ChatEvent::Done {
+                    finish_reason: FinishReason::Stop,
+                },
+            ],
+            vec![
+                ChatEvent::TextDelta(
+                    r#"{"assistantMessage":"또 잘못 만들었어요.","patch":{"operations":"oops"}}"#
+                        .into(),
+                ),
+                ChatEvent::Done {
+                    finish_reason: FinishReason::Stop,
+                },
+            ],
+        ],
+    );
+    let project_id = seed_project(&state);
+
+    let turn = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-undecodable".into(),
+            answer: "Students need a way to track their reading list".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(turn.validation_outcome, "not_structured");
+    assert!(turn.patch.is_none());
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    let unstructured = events
+        .iter()
+        .find(|event| event.r#type == "prd_patch_unstructured")
+        .expect("prd_patch_unstructured event logged");
+    assert_eq!(
+        unstructured.payload["parse_failure_kind"],
+        "undecodable_json:retry_undecodable_json"
+    );
+
+    let turns = interview_turn::list_by_draft(state.db.lock().unwrap().conn(), "draft-undecodable")
+        .unwrap();
+    assert_eq!(turns.len(), 1);
+    assert_eq!(turns[0].outcome, PrdPatchValidationOutcome::NotStructured);
+    assert_eq!(
+        turns[0].parse_failure_kind.as_deref(),
+        Some("undecodable_json:retry_undecodable_json")
+    );
+    assert_eq!(
+        turns[0].student_answer,
+        "Students need a way to track their reading list"
+    );
+}
+
+// S-057 GO-gate fix: a nondeterministic contract violation (prose-only first
+// reply) recovers via ONE deterministic in-turn retry; the audit trail keeps
+// the flake history on the applied turn.
+#[tokio::test]
+async fn prd_interview_turn_recovers_via_in_turn_retry_after_no_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![
+            vec![
+                ChatEvent::TextDelta("일정 관리 앱이군요! 좋은 생각이에요. 이제 정리해 볼게요.".into()),
+                ChatEvent::Done {
+                    finish_reason: FinishReason::Length,
+                },
+            ],
+            vec![
+                ChatEvent::TextDelta(
+                    r#"{"assistantMessage":"정리했어요.","patch":{"operations":[{"op":"set_goal","value":"사용자가 자신의 일정을 쉽게 관리할 수 있게 한다. 혼자 사용하는 개인 일정 관리 앱을 만든다."}],"rationale":"답변에서 목표가 확인되어 반영했습니다."}}"#
+                        .into(),
+                ),
+                ChatEvent::Done {
+                    finish_reason: FinishReason::Stop,
+                },
+            ],
+        ],
+    );
+    let project_id = seed_project(&state);
+
+    let turn = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-recovered".into(),
+            answer: "혼자 쓰는 일정관리 앱을 만들고 싶어요".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(turn.validation_outcome, "applied");
+    assert_eq!(
+        turn.live_draft.spec.goal,
+        "사용자가 자신의 일정을 쉽게 관리할 수 있게 한다. 혼자 사용하는 개인 일정 관리 앱을 만든다."
+    );
+
+    // No unstructured event — the turn ultimately structured; the flake lives
+    // on the InterviewTurn row instead.
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    assert!(!events
+        .iter()
+        .any(|event| event.r#type == "prd_patch_unstructured"));
+
+    let turns =
+        interview_turn::list_by_draft(state.db.lock().unwrap().conn(), "draft-recovered").unwrap();
+    assert_eq!(turns.len(), 1);
+    assert_eq!(turns[0].outcome, PrdPatchValidationOutcome::Applied);
+    assert_eq!(
+        turns[0].parse_failure_kind.as_deref(),
+        Some("no_json_truncated:recovered")
+    );
+}
+
+#[tokio::test]
+async fn prd_interview_turn_leaves_genuine_none_turn_unflagged() {
+    // The model answered (valid RawPrdTurnResponse shape) but proposed no
+    // patch at all — a genuine net-zero turn, not a structuring failure. Must
+    // stay "none" with no parse_failure_kind and no unstructured event, while
+    // still getting a durable InterviewTurn row (S-053: every turn, not just
+    // ones that changed something).
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(
+                r#"{"assistantMessage":"이 부분은 다음에 더 알려주시겠어요?"}"#.into(),
+            ),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+
+    let turn = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-genuine-none".into(),
+            answer: "I'm not sure yet".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(turn.validation_outcome, "none");
+    assert!(turn.patch.is_none());
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    assert!(!events
+        .iter()
+        .any(|event| event.r#type == "prd_patch_unstructured"));
+
+    let turns =
+        interview_turn::list_by_draft(state.db.lock().unwrap().conn(), "draft-genuine-none")
+            .unwrap();
+    assert_eq!(turns.len(), 1);
+    assert_eq!(turns[0].outcome, PrdPatchValidationOutcome::None);
+    assert_eq!(turns[0].parse_failure_kind, None);
+    assert_eq!(turns[0].student_answer, "I'm not sure yet");
+}
+
+#[tokio::test]
+async fn prd_interview_turn_applied_patch_also_writes_interview_turn_row() {
+    // S-053 D1: the InterviewTurn table is written for EVERY outcome,
+    // including "applied" — not just failure turns.
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(
+                r#"{"assistantMessage":"목표를 반영했어요.","patch":{"operations":[{"op":"set_goal","value":"Build a focus timer"}],"rationale":"목표를 추출했습니다."}}"#
+                    .into(),
+            ),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+
+    let turn = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-applied-row".into(),
+            answer: "A focus timer that shows a countdown".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(turn.validation_outcome, "applied");
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    assert!(!events
+        .iter()
+        .any(|event| event.r#type == "prd_patch_unstructured"));
+
+    let turns = interview_turn::list_by_draft(state.db.lock().unwrap().conn(), "draft-applied-row")
+        .unwrap();
+    assert_eq!(turns.len(), 1);
+    assert_eq!(turns[0].outcome, PrdPatchValidationOutcome::Applied);
+    assert_eq!(turns[0].parse_failure_kind, None);
+    assert_eq!(
+        turns[0].student_answer,
+        "A focus timer that shows a countdown"
     );
 }
 
@@ -1077,6 +1486,235 @@ fn generate_draft_logs_form_consistency_annotation_without_blocking() {
         .unwrap();
     assert!(exported.contains("\"type\":\"plan.form_consistency\""));
     assert!(exported.contains("\"blocking\":false"));
+}
+
+// S-050 P3: marker-less non-junk criteria on an accepted draft are logged as
+// `plan.criterion_quality_advisory` annotations, one per advisory, mirroring
+// the form-consistency precedent above.
+#[test]
+fn generate_draft_logs_criterion_quality_advisories_for_marker_less_criteria() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let session_id = seed_session(&state, project_id);
+    seed_minimal_prd(&state, project_id);
+    let interview =
+        workspace_plan_start_interview_impl(&state, project_id, "Build a roadmap".into()).unwrap();
+    let submitted =
+        workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
+            .unwrap();
+
+    let mut input = draft_input();
+    input.steps[0]
+        .acceptance_criteria
+        .push(AcceptanceCriterionInput::Text(
+            "The schema follows the existing project code style.".into(),
+        ));
+    input.steps[1]
+        .acceptance_criteria
+        .push(AcceptanceCriterionInput::Text(
+            "The export step follows the existing project code style.".into(),
+        ));
+
+    let (plan, steps) =
+        workspace_plan_generate_draft_impl(&state, submitted.id, input, false).unwrap();
+    assert_eq!(steps.len(), 2);
+
+    let db = state.db.lock().unwrap();
+    let events = event_log::list(db.conn()).unwrap();
+    let advisories: Vec<_> = events
+        .iter()
+        .filter(|event| {
+            event.r#type == dive_lib::dive::event_log::PLAN_CRITERION_QUALITY_ADVISORY_EVENT
+        })
+        .collect();
+
+    // S-056 D2: `draft_input()`'s two steps both link AC-001 with the
+    // identical criterion text "A saved PRD unlocks plan generation", so a
+    // third advisory (`step_criterion_duplicate`) now rides alongside the
+    // two `criterion_no_marker` ones this test adds.
+    assert_eq!(advisories.len(), 3);
+    for advisory in &advisories {
+        assert_eq!(advisory.session_id, Some(session_id));
+        assert_eq!(advisory.payload["project_id"], json!(project_id));
+        assert_eq!(advisory.payload["plan_id"], json!(plan.id));
+        assert_eq!(advisory.payload["blocking"], json!(false));
+        assert_eq!(advisory.payload["annotation"], json!(true));
+        assert_eq!(advisory.payload["agencyComponent"], json!("plan"));
+    }
+    let marker_less_advisories: Vec<_> = advisories
+        .iter()
+        .filter(|advisory| advisory.payload["code"] == json!("criterion_no_marker"))
+        .collect();
+    assert_eq!(marker_less_advisories.len(), 2);
+    assert!(marker_less_advisories.iter().any(|advisory| {
+        advisory.payload["step_ref"] == json!("Create schema")
+            && advisory.payload["criterion_preview"]
+                == json!("The schema follows the existing project code style.")
+    }));
+    assert!(marker_less_advisories.iter().any(|advisory| {
+        advisory.payload["step_ref"] == json!("Export artifacts")
+            && advisory.payload["criterion_preview"]
+                == json!("The export step follows the existing project code style.")
+    }));
+    assert!(advisories.iter().any(|advisory| {
+        advisory.payload["code"] == json!("step_criterion_duplicate")
+            && advisory.payload["step_ref"] == json!("Export artifacts")
+            && advisory.payload["criterion_preview"] == json!("A saved PRD unlocks plan generation")
+    }));
+    drop(db);
+
+    let exported = ExportEngine::new(state.db.clone())
+        .export_session_with_salt(session_id, &ExportOptions::default(), "test-salt")
+        .unwrap();
+    assert!(exported.contains("\"type\":\"plan.criterion_quality_advisory\""));
+}
+
+// S-050 P3: a draft where every criterion carries an observable marker (the
+// default `draft_input()` fixture) logs zero `criterion_no_marker` advisory
+// events. S-056 D2: that same fixture links AC-001 with the identical
+// criterion text on both of its steps, so it now also logs exactly one
+// `step_criterion_duplicate` advisory — the cross-step check working as
+// designed, not a marker-quality finding.
+#[test]
+fn generate_draft_logs_zero_marker_less_advisories_when_all_criteria_carry_markers() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    seed_session(&state, project_id);
+    seed_minimal_prd(&state, project_id);
+    let interview =
+        workspace_plan_start_interview_impl(&state, project_id, "Build a roadmap".into()).unwrap();
+    let submitted =
+        workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
+            .unwrap();
+
+    let (_plan, steps) =
+        workspace_plan_generate_draft_impl(&state, submitted.id, draft_input(), false).unwrap();
+    assert_eq!(steps.len(), 2);
+
+    let db = state.db.lock().unwrap();
+    let events = event_log::list(db.conn()).unwrap();
+    let advisories: Vec<_> = events
+        .iter()
+        .filter(|event| {
+            event.r#type == dive_lib::dive::event_log::PLAN_CRITERION_QUALITY_ADVISORY_EVENT
+        })
+        .collect();
+
+    assert_eq!(advisories.len(), 1);
+    assert!(!advisories
+        .iter()
+        .any(|advisory| advisory.payload["code"] == json!("criterion_no_marker")));
+    assert!(advisories.iter().any(|advisory| {
+        advisory.payload["code"] == json!("step_criterion_duplicate")
+            && advisory.payload["step_ref"] == json!("Export artifacts")
+            && advisory.payload["criterion_preview"] == json!("A saved PRD unlocks plan generation")
+    }));
+}
+
+// S-050 P3: a blocked draft (junk criterion trips the P1 gate before the
+// draft is ever persisted) must not log any advisory events.
+#[test]
+fn generate_draft_blocked_by_junk_criterion_logs_no_advisory_events() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    seed_session(&state, project_id);
+    seed_minimal_prd(&state, project_id);
+    let interview =
+        workspace_plan_start_interview_impl(&state, project_id, "Build a roadmap".into()).unwrap();
+    let submitted =
+        workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
+            .unwrap();
+
+    let mut input = draft_input();
+    input.acceptance_criteria = vec![AcceptanceCriterionInput::Text("적당히 잘".into())];
+
+    let result = workspace_plan_generate_draft_impl(&state, submitted.id, input, false);
+    assert!(result.is_err());
+
+    let db = state.db.lock().unwrap();
+    let events = event_log::list(db.conn()).unwrap();
+    let advisory_count = events
+        .iter()
+        .filter(|event| {
+            event.r#type == dive_lib::dive::event_log::PLAN_CRITERION_QUALITY_ADVISORY_EVENT
+        })
+        .count();
+    assert_eq!(advisory_count, 0);
+}
+
+// S-056 D2: the two new cross-step advisories (`step_expected_file_overlap`,
+// `step_criterion_duplicate`) reach the EventLog as
+// `plan.criterion_quality_advisory` annotations for an accepted draft,
+// exactly like the S-050 P3 marker-less advisories above.
+#[test]
+fn generate_draft_logs_step_overlap_advisories_for_accepted_draft() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state = mk_state(&tmp);
+    let project_id = seed_project(&state);
+    let session_id = seed_session(&state, project_id);
+    seed_minimal_prd(&state, project_id);
+    let interview =
+        workspace_plan_start_interview_impl(&state, project_id, "Build a roadmap".into()).unwrap();
+    let submitted =
+        workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
+            .unwrap();
+
+    let mut input = draft_input();
+    // draft_input()'s two steps already share the identical AC-001 criterion
+    // text (exercises step_criterion_duplicate); additionally overlap their
+    // expected_files, differing only in case/whitespace, to exercise
+    // step_expected_file_overlap in the same accepted draft.
+    input.steps[0].expected_files = vec!["src/shared.ts".into()];
+    input.steps[1].expected_files = vec!["  SRC/Shared.ts  ".into()];
+
+    let (plan, steps) =
+        workspace_plan_generate_draft_impl(&state, submitted.id, input, false).unwrap();
+    assert_eq!(steps.len(), 2);
+
+    let db = state.db.lock().unwrap();
+    let events = event_log::list(db.conn()).unwrap();
+    let advisories: Vec<_> = events
+        .iter()
+        .filter(|event| {
+            event.r#type == dive_lib::dive::event_log::PLAN_CRITERION_QUALITY_ADVISORY_EVENT
+        })
+        .collect();
+
+    for advisory in &advisories {
+        assert_eq!(advisory.session_id, Some(session_id));
+        assert_eq!(advisory.payload["project_id"], json!(project_id));
+        assert_eq!(advisory.payload["plan_id"], json!(plan.id));
+        assert_eq!(advisory.payload["blocking"], json!(false));
+        assert_eq!(advisory.payload["annotation"], json!(true));
+        assert_eq!(advisory.payload["agencyComponent"], json!("plan"));
+    }
+    assert!(advisories.iter().any(|advisory| {
+        advisory.payload["code"] == json!("step_criterion_duplicate")
+            && advisory.payload["step_ref"] == json!("Export artifacts")
+            && advisory.payload["criterion_preview"] == json!("A saved PRD unlocks plan generation")
+    }));
+    assert!(advisories.iter().any(|advisory| {
+        advisory.payload["code"] == json!("step_expected_file_overlap")
+            && advisory.payload["step_ref"] == json!("Export artifacts")
+            && advisory.payload["criterion_preview"] == json!("src/shared.ts")
+    }));
+    drop(db);
+
+    let exported = ExportEngine::new(state.db.clone())
+        .export_session_with_salt(session_id, &ExportOptions::default(), "test-salt")
+        .unwrap();
+    // The export anonymizer hashes the `code`/path-shaped `criterion_preview`
+    // fields (same as every other event payload), so — matching the S-050 P3
+    // export assertion above — this only checks that both advisory events
+    // (not just one) reached the exported JSONL, not their redacted content.
+    let advisory_line_count = exported
+        .lines()
+        .filter(|line| line.contains("\"type\":\"plan.criterion_quality_advisory\""))
+        .count();
+    assert_eq!(advisory_line_count, 2);
 }
 
 #[test]

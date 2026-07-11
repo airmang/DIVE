@@ -160,12 +160,6 @@ pub fn data_fetch_keywords() -> &'static [&'static str] {
         "fetches",
         "fetching",
         "api",
-        "load",
-        "loads",
-        "loaded",
-        "request",
-        "requests",
-        "requested",
         "endpoint",
         "데이터",
         "불러",
@@ -173,20 +167,11 @@ pub fn data_fetch_keywords() -> &'static [&'static str] {
     ]
 }
 
+/// S-050 D2: narrowed to explicit responsive/mobile signals. Generic UI nouns
+/// (button, page, layout, 화면, 버튼) were removed — they appear in virtually
+/// every beginner goal and are not a requirement signal.
 pub fn ui_goal_keywords() -> &'static [&'static str] {
-    &[
-        "responsive",
-        "mobile",
-        "layout",
-        "button",
-        "buttons",
-        "page",
-        "pages",
-        "반응형",
-        "모바일",
-        "화면",
-        "버튼",
-    ]
+    &["responsive", "mobile", "반응형", "모바일"]
 }
 
 pub const STATE_MARKERS: &[&str] = &[
@@ -231,6 +216,17 @@ pub const STATE_MARKERS: &[&str] = &[
     "calculate",
     "calculates",
     "calculated",
+    "line-through",
+    "strikethrough",
+    "toggle",
+    "toggles",
+    "click",
+    "clicked",
+    "checked",
+    "unchecked",
+    "added",
+    "removed",
+    "deleted",
     "완료",
     "보임",
     "표시",
@@ -247,6 +243,12 @@ pub const STATE_MARKERS: &[&str] = &[
     "저장",
     "유지",
     "새로고침",
+    "취소선",
+    "체크",
+    "클릭",
+    "토글",
+    "추가",
+    "삭제",
 ];
 
 pub const RESPONSIVE_MARKERS: &[&str] = &[

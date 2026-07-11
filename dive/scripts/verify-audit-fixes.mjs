@@ -30,8 +30,8 @@ const controller = read("src/components/product/useProductShellController.ts");
 const sidebar = read("src/components/shell/Sidebar.tsx");
 const providerSelector = read("src/components/settings/ProviderModelSelector.tsx");
 const roadmap = read("src/features/roadmap/usePlanRoadmap.ts");
-const roadmapRail = read("src/components/product/RoadmapRail.tsx");
-const ipc = read("src-tauri/src/ipc/mod.rs");
+const planStepActions = read("src/components/plan/PlanStepActions.tsx");
+const ipc = read("src-tauri/src/ipc/chat.rs");
 const errors = read("src/lib/error-classify.ts");
 const ko = JSON.parse(read("src/i18n/ko.json"));
 const en = JSON.parse(read("src/i18n/en.json"));
@@ -77,7 +77,7 @@ check(
 );
 check(
   "blocked mapped steps keep a resume action",
-  /item\.status\s*===\s*"blocked"[\s\S]*onResume/.test(roadmapRail),
+  /item\.status\s*===\s*"blocked"[\s\S]*onResume/.test(planStepActions),
 );
 
 console.log("\n5. Rate-limit guidance names quota and model switching");

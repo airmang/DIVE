@@ -97,6 +97,35 @@ export function ProviderModelSelector({
     return current ? [current, ...visibleOptions] : visibleOptions;
   }, [visibleOptions, options, selected]);
 
+  // S-051 D2 point 1: when the backend has annotated the catalog against the
+  // pinned pi-ai registry, group executable models ahead of the rest and
+  // mark the ones the sidecar can't run. `pi_executable` is only ever
+  // uniformly `null`/`undefined` (no annotation available — e.g. the
+  // provider has no confirmed Pi mapping, or the registry hasn't answered)
+  // or a real boolean per model; either way this must never hide options or
+  // change behavior when nothing is annotated (fail open).
+  const hasExecutableData = useMemo(
+    () => options.some((model) => typeof model.pi_executable === "boolean"),
+    [options],
+  );
+  const recommendedOptions = useMemo(
+    () =>
+      hasExecutableData ? renderedOptions.filter((model) => model.pi_executable === true) : [],
+    [renderedOptions, hasExecutableData],
+  );
+  const otherOptions = useMemo(
+    () =>
+      hasExecutableData
+        ? renderedOptions.filter((model) => model.pi_executable !== true)
+        : renderedOptions,
+    [renderedOptions, hasExecutableData],
+  );
+  const selectedModelInfo = useMemo(
+    () => options.find((model) => model.id === selected),
+    [options, selected],
+  );
+  const showUnsupportedHint = hasExecutableData && selectedModelInfo?.pi_executable === false;
+
   const handleChange = async (modelId: string) => {
     setSelected(modelId);
     setSaving(true);
@@ -158,14 +187,48 @@ export function ProviderModelSelector({
           data-testid="provider-model-select"
           data-provider-kind={providerKind}
         >
-          {renderedOptions.map((model) => (
-            <option key={model.id} value={model.id}>
-              {model.display_name}
-            </option>
-          ))}
+          {hasExecutableData ? (
+            <>
+              {recommendedOptions.length > 0 ? (
+                <optgroup label={t("settings.model_group_pi_verified")}>
+                  {recommendedOptions.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.display_name}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+              {otherOptions.length > 0 ? (
+                <optgroup label={t("settings.model_group_other")}>
+                  {otherOptions.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.pi_executable === false
+                        ? `${model.display_name} ${t("settings.model_pi_unsupported_marker")}`
+                        : model.display_name}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+            </>
+          ) : (
+            renderedOptions.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.display_name}
+              </option>
+            ))
+          )}
         </select>
         {showFilter && visibleOptions.length === 0 ? (
           <p className="mt-1 text-[10px] text-fg-muted">{t("settings.model_filter_no_match")}</p>
+        ) : null}
+        {showUnsupportedHint ? (
+          <p className="mt-1 text-[10px] text-warn" data-testid="provider-model-unsupported-hint">
+            {recommendedOptions[0]
+              ? t("settings.model_pi_unsupported_hint", {
+                  model: recommendedOptions[0].display_name,
+                })
+              : t("settings.model_pi_unsupported_hint_generic")}
+          </p>
         ) : null}
       </div>
       {saving ? (

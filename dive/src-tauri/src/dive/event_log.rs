@@ -18,9 +18,14 @@ use crate::tools::guard::assess_terminal_script;
 
 pub const SUPERVISOR_EVALUATED_EVENT: &str = "provocation.supervisor_evaluated";
 pub const RUNTIME_CAPABILITY_EVALUATED_EVENT: &str = "runtime.capability_evaluated";
+pub const RUNTIME_MODEL_NOT_FOUND_EVENT: &str = "runtime.model_not_found";
 pub const PRD_PATCH_PROPOSED_EVENT: &str = "prd_patch_proposed";
 pub const PRD_PATCH_APPLIED_EVENT: &str = "prd_patch_applied";
 pub const PRD_PATCH_REJECTED_EVENT: &str = "prd_patch_rejected";
+/// S-053 D1: a structuring failure (no JSON in the model turn, or JSON that
+/// decodes as neither response shape) — previously silent, closing the audit
+/// hole where the exact turn a supervision-research log needs left no trace.
+pub const PRD_PATCH_UNSTRUCTURED_EVENT: &str = "prd_patch_unstructured";
 pub const PRD_AUTHORED_EVENT: &str = "prd_authored";
 pub const PRD_EDITED_EVENT: &str = "prd_edited";
 pub const PRD_VERSION_CREATED_EVENT: &str = "prd_version_created";
@@ -33,6 +38,7 @@ pub const PLAN_STEP_APPENDED_EVENT: &str = "plan_step_appended";
 pub const PLAN_STEP_CHANGED_EVENT: &str = "plan_step_changed";
 pub const PLAN_STEP_RETIRED_EVENT: &str = "plan_step_retired";
 pub const PLAN_FORM_CONSISTENCY_EVENT: &str = "plan.form_consistency";
+pub const PLAN_CRITERION_QUALITY_ADVISORY_EVENT: &str = "plan.criterion_quality_advisory";
 pub const PERMISSION_PRIMER_SHOWN_EVENT: &str = "permission_primer.shown";
 pub const PERMISSION_PRIMER_DISMISSED_EVENT: &str = "permission_primer.dismissed";
 pub const VERIFICATION_COACH_REQUESTED_EVENT: &str = "verification_coach.requested";
@@ -245,6 +251,35 @@ pub fn plan_form_consistency_payload(input: PlanFormConsistencyPayloadInput<'_>)
     })
 }
 
+pub struct PlanCriterionQualityAdvisoryPayloadInput<'a> {
+    pub project_id: i64,
+    pub plan_id: i64,
+    pub code: &'a str,
+    pub criterion_preview: Option<&'a str>,
+    pub step_ref: Option<&'a str>,
+}
+
+/// S-050 D1/P3: non-blocking advisory annotation for an accepted plan draft
+/// (`plan.criterion_quality_advisory`), following the `plan.form_consistency`
+/// precedent above. `criterion_preview` is expected to already be truncated
+/// by the caller's `compact_preview` (96 chars) — this builder does not
+/// re-truncate, matching the privacy posture of the other plan events.
+pub fn plan_criterion_quality_advisory_payload(
+    input: PlanCriterionQualityAdvisoryPayloadInput<'_>,
+) -> Value {
+    json!({
+        "project_id": input.project_id,
+        "plan_id": input.plan_id,
+        "code": input.code,
+        "criterion_preview": input.criterion_preview,
+        "step_ref": input.step_ref,
+        "source": "deterministic_criterion_quality_check",
+        "blocking": false,
+        "annotation": true,
+        "createdAt": crate::db::now_ms(),
+    })
+}
+
 pub(crate) fn enrich_agency_payload(event_type: &str, payload: Value) -> Value {
     let Value::Object(mut map) = payload else {
         return payload;
@@ -368,6 +403,7 @@ fn infer_agency_component(event_type: &str, payload: &Value) -> Option<&'static 
         }
         RUNTIME_CAPABILITY_EVALUATED_EVENT
         | RUNTIME_ROUTING_DECISION_EVENT
+        | RUNTIME_MODEL_NOT_FOUND_EVENT
         | PROJECT_COMMAND_RESULT_EVENT
         | TERMINAL_SCRIPT_APPROVAL_REQUESTED_EVENT
         | TERMINAL_SCRIPT_RESULT_EVENT
@@ -382,10 +418,12 @@ fn infer_agency_component(event_type: &str, payload: &Value) -> Option<&'static 
         PRD_PATCH_PROPOSED_EVENT
         | PRD_PATCH_APPLIED_EVENT
         | PRD_PATCH_REJECTED_EVENT
+        | PRD_PATCH_UNSTRUCTURED_EVENT
         | PRD_AUTHORED_EVENT
         | PRD_EDITED_EVENT
         | PRD_VERSION_CREATED_EVENT
-        | PLAN_FORM_CONSISTENCY_EVENT => return Some("plan"),
+        | PLAN_FORM_CONSISTENCY_EVENT
+        | PLAN_CRITERION_QUALITY_ADVISORY_EVENT => return Some("plan"),
         PERMISSION_PRIMER_SHOWN_EVENT | PERMISSION_PRIMER_DISMISSED_EVENT => return Some("action"),
         "checkpoint_create" | "checkpoint_restore" => return Some("rollback"),
         "verify_start" | "verify_complete" => return Some("verify"),
@@ -542,6 +580,7 @@ fn infer_agency_state(event_type: &str, payload: &Value) -> Option<&'static str>
                 _ => None,
             };
         }
+        RUNTIME_MODEL_NOT_FOUND_EVENT => return Some("runtime_unavailable"),
         PREVIEW_OPEN_REQUESTED_EVENT => return Some("verification_needed"),
         PREVIEW_OPEN_RESULT_EVENT => {
             return match string_field(payload, "status") {
@@ -950,6 +989,7 @@ fn infer_evidence_summary(event_type: &str, payload: &Value) -> Option<Value> {
                 "patchProposed": event_type == PRD_PATCH_PROPOSED_EVENT,
                 "patchApplied": event_type == PRD_PATCH_APPLIED_EVENT,
                 "patchRejected": event_type == PRD_PATCH_REJECTED_EVENT,
+                "patchUnstructured": event_type == PRD_PATCH_UNSTRUCTURED_EVENT,
                 "versionCreated": event_type == PRD_VERSION_CREATED_EVENT,
             }));
         }
@@ -1040,6 +1080,13 @@ fn infer_decision(event_type: &str, payload: &Value) -> Option<Value> {
                 "kind": "runtime_routing",
                 "outcome": payload.get("outcome").cloned().unwrap_or(Value::Null),
                 "reasonCode": payload.get("reasonCode").cloned().unwrap_or(Value::Null),
+            }));
+        }
+        RUNTIME_MODEL_NOT_FOUND_EVENT => {
+            return Some(json!({
+                "kind": "runtime_model_not_found",
+                "provider": payload.get("provider").cloned().unwrap_or(Value::Null),
+                "model": payload.get("model").cloned().unwrap_or(Value::Null),
             }));
         }
         PREVIEW_OPEN_REQUESTED_EVENT => return Some(json!({ "kind": "preview_requested" })),
@@ -1161,6 +1208,28 @@ pub fn runtime_capability_evaluated_payload(
     }))
 }
 
+/// S-051 D3: the sidecar rejected a `run` turn with its own `model not
+/// found: ${provider}/${modelId}` error (`pi-sidecar/src/index.mjs:166`)
+/// even though the preflight (`runtime.capability_evaluated`) let the turn
+/// start — registry drift or a future race. Deterministic and kept distinct
+/// from the preflight verdict so QA can audit run-time occurrences
+/// separately (does not duplicate `runtime_capability_evaluated_payload`,
+/// which already covers the preflight `model_not_executable` reason code).
+pub fn runtime_model_not_found_payload(
+    provider: impl Into<String>,
+    model: impl Into<String>,
+    source: impl Into<String>,
+    message: impl Into<String>,
+) -> Value {
+    redact_value(&json!({
+        "provider": provider.into(),
+        "model": model.into(),
+        "source": source.into(),
+        "message": message.into(),
+        "created_at": crate::db::now_ms(),
+    }))
+}
+
 pub fn runtime_event_payload(value: Value) -> Value {
     redact_value(&value)
 }
@@ -1253,6 +1322,34 @@ pub fn prd_patch_rejected_payload(
         "patch_id": patch_id.into(),
         "reason_codes": reason_codes,
         "held_for_student": held_for_student,
+    }))
+}
+
+/// S-053 D1: fired when a PRD interview turn produced no usable patch because
+/// the model's response failed to structure (no JSON at all, or JSON that
+/// decodes as neither the patch-envelope nor the bare-patch shape) — distinct
+/// from a turn that structured fine but proposed no change. No raw answer
+/// text or raw model response text here, matching the redaction posture of
+/// the other PRD_PATCH_* events; the student's answer is persisted separately
+/// in the local-only InterviewTurn table, not the exported EventLog.
+#[allow(clippy::too_many_arguments)]
+pub fn prd_patch_unstructured_payload(
+    project_id: i64,
+    project_spec_id: impl Into<String>,
+    draft_id: impl Into<String>,
+    turn_id: impl Into<String>,
+    parse_failure_kind: impl Into<String>,
+    provider: impl Into<String>,
+    model: impl Into<String>,
+) -> Value {
+    redact_value(&json!({
+        "project_id": project_id,
+        "project_spec_id": project_spec_id.into(),
+        "draft_id": draft_id.into(),
+        "turn_id": turn_id.into(),
+        "parse_failure_kind": parse_failure_kind.into(),
+        "provider": provider.into(),
+        "model": model.into(),
     }))
 }
 
@@ -1577,6 +1674,28 @@ mod tests {
     }
 
     #[test]
+    fn runtime_model_not_found_payload_carries_provider_model_source_and_redacts() {
+        let payload = runtime_model_not_found_payload(
+            "openrouter",
+            "anthropic/claude-sonnet-5",
+            "sidecar_run",
+            "pi sidecar error: model not found: openrouter/anthropic/claude-sonnet-5 api_key=sk-leak",
+        );
+        assert_eq!(payload["provider"], "openrouter");
+        assert_eq!(payload["model"], "anthropic/claude-sonnet-5");
+        assert_eq!(payload["source"], "sidecar_run");
+        assert!(!payload.to_string().contains("sk-leak"));
+        assert!(payload.to_string().contains("[REDACTED_SECRET]"));
+
+        let enriched = enrich_agency_payload(RUNTIME_MODEL_NOT_FOUND_EVENT, payload);
+        assert_eq!(enriched["agencyComponent"], "action");
+        assert_eq!(enriched["agencyState"], "runtime_unavailable");
+        assert_eq!(enriched["decision"]["kind"], "runtime_model_not_found");
+        assert_eq!(enriched["decision"]["provider"], "openrouter");
+        assert_eq!(enriched["decision"]["model"], "anthropic/claude-sonnet-5");
+    }
+
+    #[test]
     fn prd_lifecycle_event_payload_builders_redact_required_fields() {
         let proposed = prd_patch_proposed_payload(
             1,
@@ -1609,6 +1728,44 @@ mod tests {
         );
         assert_eq!(applied["criterion_ids_assigned"][0], "AC-001");
         assert_eq!(applied["student_edited_fields_respected"][0], "constraints");
+    }
+
+    #[test]
+    fn plan_criterion_quality_advisory_payload_builder_shape() {
+        let payload =
+            plan_criterion_quality_advisory_payload(PlanCriterionQualityAdvisoryPayloadInput {
+                project_id: 7,
+                plan_id: 42,
+                code: "criterion_no_marker",
+                criterion_preview: Some("The export step follows the existing project code style."),
+                step_ref: Some("Export artifacts"),
+            });
+
+        assert_eq!(payload["project_id"], json!(7));
+        assert_eq!(payload["plan_id"], json!(42));
+        assert_eq!(payload["code"], json!("criterion_no_marker"));
+        assert_eq!(
+            payload["criterion_preview"],
+            json!("The export step follows the existing project code style.")
+        );
+        assert_eq!(payload["step_ref"], json!("Export artifacts"));
+        assert_eq!(
+            payload["source"],
+            json!("deterministic_criterion_quality_check")
+        );
+        assert_eq!(payload["blocking"], json!(false));
+        assert_eq!(payload["annotation"], json!(true));
+        assert!(payload["createdAt"].is_i64());
+
+        let missing_class =
+            plan_criterion_quality_advisory_payload(PlanCriterionQualityAdvisoryPayloadInput {
+                project_id: 7,
+                plan_id: 42,
+                code: "missing_state_class_advisory",
+                criterion_preview: Some("persistence"),
+                step_ref: None,
+            });
+        assert_eq!(missing_class["step_ref"], Value::Null);
     }
 
     #[test]
