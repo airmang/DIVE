@@ -631,6 +631,18 @@ pub async fn run_supervised_turn(
         AgentError::Internal(err)
     })?;
 
+    // 011 live-QA fix (tier1-run-log 재QA 2026-07-11, 재저니 3-D): the
+    // supervised Pi path ended at `assistant_end` (a momentary in-turn clear
+    // point) and never emitted the terminal `done` — only the legacy agent
+    // loop did. The frontend's per-run terminal latch (S-052) therefore never
+    // engaged in production, and a trailing tool/telemetry event could leave
+    // the 45s stall timer armed after a fully successful turn. Failures
+    // already emit `error` (above); successes now emit the matching terminal
+    // event the frontend grammar has always handled.
+    emit(AgentEvent::Done {
+        reason: "turn_completed".into(),
+    });
+
     Ok(result)
 }
 
@@ -2989,6 +3001,10 @@ rl.on("line", (line) => {{
                 "tool_result",
                 "assistant_delta",
                 "assistant_end",
+                // 011 live-QA fix: the supervised path now closes every
+                // successful turn with the terminal `done` the frontend's
+                // stall latch keys on (재QA 재저니 3-D regression lock).
+                "done",
             ]
         );
         assert!(events.iter().any(|event| matches!(
