@@ -82,7 +82,7 @@ is S-057: clean app-data new-project → 3-step completion, 3 consecutive runs,
 | S-054 | Release-gate restoration: verifier repoints, rate-limit resume, chunk 549→374 KB, verifiers joined verify:v4 CI chain (P1-04) | Done (all verifiers green) |
 | S-055 | Windows installed-app demo readiness (P1-05, demo-critical) | CI x64 installed smoke 13/13 PASS (run 29131250191); real-hardware demo-condition pass remains (rehearsal) |
 | S-056 | Demo UX polish: session-starting state, overlap advisories, multi-criterion linking, project archive (P2) | Done (live QA PASS) |
-| S-057 | GO-judgment exit gate + presentation fallback package | Fallback package doc ready; GO gate (clean app-data E2E ×3) pending |
+| S-057 | GO-judgment exit gate + presentation fallback package | **macOS GO achieved** — clean app-data E2E 3/3 PASS, zero false errors (`s057-go-run-log.md`; report verdict updated). Remaining: Windows real-hardware demo-condition pass at rehearsal + recording/fallback checklist |
 
 Live QA evidence: `docs/qa/011-live-qa/tier1-run-log.md` (initial run + three
 re-QA rounds). Live QA surfaced and closed four integration defects unit
