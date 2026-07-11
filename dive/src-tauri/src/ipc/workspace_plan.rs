@@ -1019,20 +1019,54 @@ pub async fn workspace_prd_interview_turn_impl(
         &base_draft,
         &input.conversation,
         &input.answer,
+        false,
     )
     .await?;
     let turn_id = format!("prd-turn-{}", now_ms());
-    let parsed = parse_prd_turn_response(&raw, &turn_id);
+    let mut parsed = parse_prd_turn_response(&raw, &turn_id);
     // 011 재QA 2차: audit which structuring failures were actually response
     // truncation — a Length finish means the model may have been cut before
     // its JSON started, which is invisible in the raw text alone.
-    let parse_failure_kind: Option<String> = parsed.parse_failure_kind.map(|kind| {
-        if matches!(turn_finish_reason, FinishReason::Length) {
-            format!("{kind}_truncated")
-        } else {
-            kind.to_string()
+    let mut parse_failure_kind: Option<String> = parsed
+        .parse_failure_kind
+        .map(|kind| kind_with_truncation(kind, turn_finish_reason));
+    // 011 S-057 GO 게이트 FAIL (s057-go-run-log 회차 1): some models violate
+    // the JSON output contract nondeterministically (long prose first, JSON
+    // truncated away — no_json_truncated even at a raised token budget). One
+    // deterministic in-turn retry with a hard contract reminder makes a
+    // single student answer robust across models; the audit trail records
+    // both the flake and the recovery. Genuine no-op turns (no parse failure)
+    // never retry, and a retry transport error keeps the salvaged first
+    // result instead of failing the turn.
+    if parsed.parse_failure_kind.is_some() {
+        if let Ok((retry_raw, retry_finish)) = run_prd_interview_turn(
+            runtime.provider.as_ref(),
+            input.model.clone(),
+            &base_draft,
+            &input.conversation,
+            &input.answer,
+            true,
+        )
+        .await
+        {
+            let retry_parsed = parse_prd_turn_response(&retry_raw, &turn_id);
+            match retry_parsed.parse_failure_kind {
+                None => {
+                    parse_failure_kind = parse_failure_kind.map(|kind| format!("{kind}:recovered"));
+                    parsed = retry_parsed;
+                }
+                Some(retry_kind) => {
+                    parse_failure_kind = parse_failure_kind.map(|kind| {
+                        format!(
+                            "{kind}:retry_{}",
+                            kind_with_truncation(retry_kind, retry_finish)
+                        )
+                    });
+                    parsed = retry_parsed;
+                }
+            }
         }
-    });
+    }
     let assistant_message = parsed
         .assistant_message
         .filter(|message| !message.trim().is_empty())
@@ -1060,7 +1094,11 @@ pub async fn workspace_prd_interview_turn_impl(
     let mut db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.conn_mut();
     let current_draft = load_or_create_prd_draft(conn, input.project_id, &input.draft_id)?;
-    let mut turn_parse_failure_kind: Option<String> = None;
+    // Carries the full flake/recovery history onto the InterviewTurn row even
+    // when the in-turn retry recovered and the patch applied (e.g.
+    // "no_json_truncated:recovered") — the audit must record the flake, not
+    // just the final outcome.
+    let turn_parse_failure_kind: Option<String> = parse_failure_kind.clone();
     if let Some(patch) = patch {
         let operation_kinds = patch
             .operations
@@ -1136,7 +1174,6 @@ pub async fn workspace_prd_interview_turn_impl(
         // "none".
         if let Some(kind) = parse_failure_kind {
             output.validation_outcome = "not_structured".into();
-            turn_parse_failure_kind = Some(kind.to_string());
             dive_event_log::append_to_conn(
                 conn,
                 None,
@@ -2311,13 +2348,33 @@ fn project_spec_id_for_draft(draft: &LiveProjectSpecDraftRow) -> String {
         .unwrap_or_else(|| format!("prd-{}", draft.project_id))
 }
 
+/// Suffixes a parse-failure kind with `_truncated` when the provider finish
+/// was a Length cut — the difference between "model disobeyed the contract"
+/// and "model ran out of budget" is invisible in the raw text alone.
+fn kind_with_truncation(kind: &str, finish_reason: FinishReason) -> String {
+    if matches!(finish_reason, FinishReason::Length) {
+        format!("{kind}_truncated")
+    } else {
+        kind.to_string()
+    }
+}
+
 async fn run_prd_interview_turn(
     provider: &dyn crate::providers::LlmProvider,
     model: String,
     draft: &LiveProjectSpecDraftRow,
     conversation: &[PrdInterviewConversationTurnInput],
     answer: &str,
+    json_contract_retry: bool,
 ) -> Result<(String, FinishReason), String> {
+    let mut user_prompt = build_prd_interview_user_prompt(draft, conversation, answer);
+    if json_contract_retry {
+        // 011 S-057: hard reminder for the deterministic in-turn retry after a
+        // structuring failure — the previous attempt violated the contract.
+        user_prompt.push_str(
+            "\n\nIMPORTANT: your previous reply violated the output contract. Respond with ONLY one JSON object now — the very first character of your reply must be '{'. No prose, no Markdown fences, no text outside the JSON.",
+        );
+    }
     let req = ChatRequest {
         model,
         messages: vec![
@@ -2325,19 +2382,19 @@ async fn run_prd_interview_turn(
                 content: build_prd_interview_system_prompt(),
             },
             Message::User {
-                content: build_prd_interview_user_prompt(draft, conversation, answer),
+                content: user_prompt,
             },
         ],
         tools: None,
         tool_choice: Some(ToolChoice::None),
         temperature: Some(0.2),
-        // 011 재QA 2차 (tier1-run-log): 900 was too small for reasoning-heavy
-        // models — on claude-sonnet-5 the thinking budget can eat most of the
-        // output allowance, truncating the reply before its JSON starts
-        // (observed as no_json structuring failures with prose-only text).
-        // A detailed Korean answer's patch (7+ operations) also exceeds 900
-        // output tokens on its own.
-        max_tokens: Some(2400),
+        // 011 재QA 2차→S-057 GO 게이트: 900 then 2400 both truncated on
+        // claude-sonnet-5 (no_json_truncated in the audit trail) — a
+        // reasoning-heavy model can spend thinking budget AND write a long
+        // Korean prose lead-in before its JSON. 8000 gives real headroom so a
+        // contract-disobeying-but-eventually-JSON reply still completes (the
+        // parser extracts the JSON span from surrounding prose).
+        max_tokens: Some(8000),
         stream: true,
     };
     let mut stream = with_retry(

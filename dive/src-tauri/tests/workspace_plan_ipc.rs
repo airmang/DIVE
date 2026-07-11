@@ -998,14 +998,25 @@ async fn prd_interview_turn_accepts_operation_alias_without_leaking_patch_json()
 #[tokio::test]
 async fn prd_interview_turn_flags_no_json_response_as_not_structured() {
     let tmp = tempfile::tempdir().unwrap();
+    // S-057: a structuring failure triggers ONE deterministic in-turn retry —
+    // script both attempts failing so the final outcome is not_structured
+    // with the combined flake history.
     let (state, _provider) = mk_state_with_scripts(
         &tmp,
-        vec![vec![
-            ChatEvent::TextDelta("이 질문에 대해 조금 더 설명해 주시겠어요?".into()),
-            ChatEvent::Done {
-                finish_reason: FinishReason::Stop,
-            },
-        ]],
+        vec![
+            vec![
+                ChatEvent::TextDelta("이 질문에 대해 조금 더 설명해 주시겠어요?".into()),
+                ChatEvent::Done {
+                    finish_reason: FinishReason::Stop,
+                },
+            ],
+            vec![
+                ChatEvent::TextDelta("여전히 프로즈로만 답합니다.".into()),
+                ChatEvent::Done {
+                    finish_reason: FinishReason::Stop,
+                },
+            ],
+        ],
     );
     let project_id = seed_project(&state);
 
@@ -1035,7 +1046,10 @@ async fn prd_interview_turn_flags_no_json_response_as_not_structured() {
     assert_eq!(unstructured.payload["project_id"], project_id);
     assert_eq!(unstructured.payload["draft_id"], "draft-unstructured");
     assert_eq!(unstructured.payload["turn_id"], turn.turn_id);
-    assert_eq!(unstructured.payload["parse_failure_kind"], "no_json");
+    assert_eq!(
+        unstructured.payload["parse_failure_kind"],
+        "no_json:retry_no_json"
+    );
     assert_eq!(unstructured.payload["provider"], "mock");
     assert_eq!(unstructured.payload["model"], "mock-model");
     // No raw answer text or raw model response text in the EventLog payload.
@@ -1057,7 +1071,10 @@ async fn prd_interview_turn_flags_no_json_response_as_not_structured() {
         "음, 잘 모르겠어요, 그냥 뭔가 만들고 싶어요"
     );
     assert_eq!(turns[0].outcome, PrdPatchValidationOutcome::NotStructured);
-    assert_eq!(turns[0].parse_failure_kind.as_deref(), Some("no_json"));
+    assert_eq!(
+        turns[0].parse_failure_kind.as_deref(),
+        Some("no_json:retry_no_json")
+    );
 }
 
 #[tokio::test]
@@ -1065,15 +1082,26 @@ async fn prd_interview_turn_flags_undecodable_json_response_as_not_structured() 
     let tmp = tempfile::tempdir().unwrap();
     let (state, _provider) = mk_state_with_scripts(
         &tmp,
-        vec![vec![
-            ChatEvent::TextDelta(
-                r#"{"assistantMessage":"제가 응답 구조를 잘못 만들었어요.","patch":{"operations":"oops"}}"#
-                    .into(),
-            ),
-            ChatEvent::Done {
-                finish_reason: FinishReason::Stop,
-            },
-        ]],
+        vec![
+            vec![
+                ChatEvent::TextDelta(
+                    r#"{"assistantMessage":"제가 응답 구조를 잘못 만들었어요.","patch":{"operations":"oops"}}"#
+                        .into(),
+                ),
+                ChatEvent::Done {
+                    finish_reason: FinishReason::Stop,
+                },
+            ],
+            vec![
+                ChatEvent::TextDelta(
+                    r#"{"assistantMessage":"또 잘못 만들었어요.","patch":{"operations":"oops"}}"#
+                        .into(),
+                ),
+                ChatEvent::Done {
+                    finish_reason: FinishReason::Stop,
+                },
+            ],
+        ],
     );
     let project_id = seed_project(&state);
 
@@ -1101,7 +1129,7 @@ async fn prd_interview_turn_flags_undecodable_json_response_as_not_structured() 
         .expect("prd_patch_unstructured event logged");
     assert_eq!(
         unstructured.payload["parse_failure_kind"],
-        "undecodable_json"
+        "undecodable_json:retry_undecodable_json"
     );
 
     let turns = interview_turn::list_by_draft(state.db.lock().unwrap().conn(), "draft-undecodable")
@@ -1110,11 +1138,76 @@ async fn prd_interview_turn_flags_undecodable_json_response_as_not_structured() 
     assert_eq!(turns[0].outcome, PrdPatchValidationOutcome::NotStructured);
     assert_eq!(
         turns[0].parse_failure_kind.as_deref(),
-        Some("undecodable_json")
+        Some("undecodable_json:retry_undecodable_json")
     );
     assert_eq!(
         turns[0].student_answer,
         "Students need a way to track their reading list"
+    );
+}
+
+// S-057 GO-gate fix: a nondeterministic contract violation (prose-only first
+// reply) recovers via ONE deterministic in-turn retry; the audit trail keeps
+// the flake history on the applied turn.
+#[tokio::test]
+async fn prd_interview_turn_recovers_via_in_turn_retry_after_no_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![
+            vec![
+                ChatEvent::TextDelta("일정 관리 앱이군요! 좋은 생각이에요. 이제 정리해 볼게요.".into()),
+                ChatEvent::Done {
+                    finish_reason: FinishReason::Length,
+                },
+            ],
+            vec![
+                ChatEvent::TextDelta(
+                    r#"{"assistantMessage":"정리했어요.","patch":{"operations":[{"op":"set_goal","value":"사용자가 자신의 일정을 쉽게 관리할 수 있게 한다. 혼자 사용하는 개인 일정 관리 앱을 만든다."}],"rationale":"답변에서 목표가 확인되어 반영했습니다."}}"#
+                        .into(),
+                ),
+                ChatEvent::Done {
+                    finish_reason: FinishReason::Stop,
+                },
+            ],
+        ],
+    );
+    let project_id = seed_project(&state);
+
+    let turn = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-recovered".into(),
+            answer: "혼자 쓰는 일정관리 앱을 만들고 싶어요".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(turn.validation_outcome, "applied");
+    assert_eq!(
+        turn.live_draft.spec.goal,
+        "사용자가 자신의 일정을 쉽게 관리할 수 있게 한다. 혼자 사용하는 개인 일정 관리 앱을 만든다."
+    );
+
+    // No unstructured event — the turn ultimately structured; the flake lives
+    // on the InterviewTurn row instead.
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    assert!(!events
+        .iter()
+        .any(|event| event.r#type == "prd_patch_unstructured"));
+
+    let turns =
+        interview_turn::list_by_draft(state.db.lock().unwrap().conn(), "draft-recovered").unwrap();
+    assert_eq!(turns.len(), 1);
+    assert_eq!(turns[0].outcome, PrdPatchValidationOutcome::Applied);
+    assert_eq!(
+        turns[0].parse_failure_kind.as_deref(),
+        Some("no_json_truncated:recovered")
     );
 }
 
