@@ -1013,7 +1013,7 @@ pub async fn workspace_prd_interview_turn_impl(
     };
 
     let runtime = state.ensure_provider_runtime().await?;
-    let raw = run_prd_interview_turn(
+    let (raw, turn_finish_reason) = run_prd_interview_turn(
         runtime.provider.as_ref(),
         input.model.clone(),
         &base_draft,
@@ -1023,7 +1023,16 @@ pub async fn workspace_prd_interview_turn_impl(
     .await?;
     let turn_id = format!("prd-turn-{}", now_ms());
     let parsed = parse_prd_turn_response(&raw, &turn_id);
-    let parse_failure_kind = parsed.parse_failure_kind;
+    // 011 재QA 2차: audit which structuring failures were actually response
+    // truncation — a Length finish means the model may have been cut before
+    // its JSON started, which is invisible in the raw text alone.
+    let parse_failure_kind: Option<String> = parsed.parse_failure_kind.map(|kind| {
+        if matches!(turn_finish_reason, FinishReason::Length) {
+            format!("{kind}_truncated")
+        } else {
+            kind.to_string()
+        }
+    });
     let assistant_message = parsed
         .assistant_message
         .filter(|message| !message.trim().is_empty())
@@ -2308,7 +2317,7 @@ async fn run_prd_interview_turn(
     draft: &LiveProjectSpecDraftRow,
     conversation: &[PrdInterviewConversationTurnInput],
     answer: &str,
-) -> Result<String, String> {
+) -> Result<(String, FinishReason), String> {
     let req = ChatRequest {
         model,
         messages: vec![
@@ -2322,7 +2331,13 @@ async fn run_prd_interview_turn(
         tools: None,
         tool_choice: Some(ToolChoice::None),
         temperature: Some(0.2),
-        max_tokens: Some(900),
+        // 011 재QA 2차 (tier1-run-log): 900 was too small for reasoning-heavy
+        // models — on claude-sonnet-5 the thinking budget can eat most of the
+        // output allowance, truncating the reply before its JSON starts
+        // (observed as no_json structuring failures with prose-only text).
+        // A detailed Korean answer's patch (7+ operations) also exceeds 900
+        // output tokens on its own.
+        max_tokens: Some(2400),
         stream: true,
     };
     let mut stream = with_retry(
@@ -2357,7 +2372,7 @@ async fn run_prd_interview_turn(
     if finish_reason == FinishReason::Error {
         return Err("PRD interview provider finished with an error".into());
     }
-    Ok(text)
+    Ok((text, finish_reason))
 }
 
 fn build_prd_interview_system_prompt() -> String {
