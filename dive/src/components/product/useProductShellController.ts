@@ -153,6 +153,7 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
     "step_kind must be one of feature, refactor, rename, comment, debug. Use refactor/rename only for behavior-preserving move/restructure/name changes; use debug for diagnose-then-fix work.",
     "Every step must link to at least one saved PRD criterion ID through linked_criterion_ids and explain the link in rationale.",
     "Use the saved PRD criterion IDs exactly; do not invent AC IDs.",
+    "acceptance_criteria entries must be full observable criterion sentences (copy the PRD criterion text or write a new concrete sentence); never put bare criterion IDs like AC-001 in acceptance_criteria — IDs belong only in linked_criterion_ids.",
     ...(architecture
       ? [
           "The PRD includes the student's confirmed architecture (form + tech stack). Decompose for that form and stack: keep every step, expected_files, and verification consistent with it, and do not switch to a different framework or stack.",

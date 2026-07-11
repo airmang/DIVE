@@ -1335,6 +1335,46 @@ fn normalize_acceptance_criteria(
     out
 }
 
+/// 011 live-QA fix (tier1-run-log 2026-07-11, 저니 B): some models (observed
+/// with claude-sonnet-5) echo the saved PRD criterion IDs ("AC-001") into the
+/// plan draft's `acceptance_criteria` arrays instead of the criterion text —
+/// the generation prompt's "Use the saved PRD criterion IDs exactly"
+/// (intended for `linked_criterion_ids`) gets over-applied. Downstream
+/// matching is text-equality only (`criterion_input_to_object`), so such a
+/// reference reads as literal five-character text and the quality gate
+/// blocked every plan as `criterion_too_short: "AC-001"`. Resolve exact
+/// ACTIVE-criterion ID references to their full PRD criterion object before
+/// validation, so both the gate and persistence see the real criterion.
+/// Unknown or retired IDs stay literal and fail the gate honestly.
+fn resolve_prd_criterion_id_references(
+    plan_input: &mut PlanDraftInput,
+    prd: &crate::db::models::ProjectSpec,
+) {
+    fn resolve(input: &mut AcceptanceCriterionInput, criteria: &[AcceptanceCriterion]) {
+        let AcceptanceCriterionInput::Text(value) = input else {
+            return;
+        };
+        let candidate = value.trim();
+        if candidate.is_empty() {
+            return;
+        }
+        if let Some(existing) = criteria.iter().find(|criterion| {
+            criterion.status == AcceptanceCriterionStatus::Active
+                && criterion.criterion_id == candidate
+        }) {
+            *input = AcceptanceCriterionInput::Object(existing.clone());
+        }
+    }
+    for criterion in &mut plan_input.acceptance_criteria {
+        resolve(criterion, &prd.acceptance_criteria);
+    }
+    for step in &mut plan_input.steps {
+        for criterion in &mut step.acceptance_criteria {
+            resolve(criterion, &prd.acceptance_criteria);
+        }
+    }
+}
+
 fn criterion_input_text(input: &AcceptanceCriterionInput) -> Option<String> {
     match input {
         AcceptanceCriterionInput::Text(value) => {
@@ -3145,6 +3185,7 @@ pub fn workspace_plan_generate_draft_impl(
         return Err("minimal PRD is required before generating a plan draft".into());
     }
     let project_prd = project_prd.expect("minimal PRD checked above");
+    resolve_prd_criterion_id_references(&mut plan_input, &project_prd);
     let quality_report =
         validate_criterion_quality(&interview.goal, &plan_input).map_err(|e| e.to_string())?;
     for step in &mut plan_input.steps {
@@ -6959,6 +7000,131 @@ mod criterion_quality_tests {
                 "{locale_file} marker examples assembled into a minimal one-step plan must \
                  pass validate_criterion_quality"
             );
+        }
+    }
+
+    /// 011 live-QA regression lock (tier1-run-log 2026-07-11 저니 B): models
+    /// can echo PRD criterion IDs into `acceptance_criteria`; the resolver
+    /// must turn exact ACTIVE-ID references into the full PRD criterion
+    /// before the gate sees them, and leave everything else literal.
+    mod prd_criterion_id_reference_tests {
+        use super::*;
+        use crate::db::models::{ProjectSpec, ProjectSpecStatus};
+        use std::collections::BTreeMap;
+
+        fn prd_with_criteria() -> ProjectSpec {
+            let criterion = |id: &str, text: &str, active: bool| AcceptanceCriterion {
+                criterion_id: id.into(),
+                text: text.into(),
+                source: AcceptanceCriterionSource::Interview,
+                status: if active {
+                    AcceptanceCriterionStatus::Active
+                } else {
+                    AcceptanceCriterionStatus::Retired
+                },
+                created_in_version: 1,
+                retired_in_version: if active { None } else { Some(2) },
+            };
+            ProjectSpec {
+                project_spec_id: "prd-test".into(),
+                project_id: 1,
+                current_version: 2,
+                goal: "정적 체크리스트 앱".into(),
+                intent_summary: Some("체크리스트를 만든다".into()),
+                scope: vec!["할 일 목록".into()],
+                non_goals: vec!["서버 저장".into()],
+                constraints: vec!["정적 페이지".into()],
+                acceptance_criteria: vec![
+                    criterion(
+                        "AC-001",
+                        "완료한 항목을 클릭하면 취소선이 표시되고 다시 클릭하면 해제된다.",
+                        true,
+                    ),
+                    criterion(
+                        "AC-002",
+                        "할 일 3개를 추가하면 목록에 3개 항목이 보인다.",
+                        true,
+                    ),
+                    criterion("AC-003", "은퇴한 기준은 해석되지 않는다.", false),
+                ],
+                architecture: None,
+                field_provenance: BTreeMap::new(),
+                status: ProjectSpecStatus::Approved,
+                created_at: 1,
+                updated_at: 1,
+            }
+        }
+
+        // The exact live failure: step acceptance_criteria carrying bare IDs
+        // blocked the plan as criterion_too_short "AC-001". After resolution
+        // the gate must validate the real criterion text and pass.
+        #[test]
+        fn active_id_references_resolve_and_pass_the_gate() {
+            let prd = prd_with_criteria();
+            let mut plan = plan_with_steps(
+                "정적 체크리스트 앱",
+                vec![named_step_with_criteria(
+                    "체크리스트 구현",
+                    "step-001",
+                    &["AC-001", "AC-002"],
+                )],
+            );
+
+            resolve_prd_criterion_id_references(&mut plan, &prd);
+
+            let resolved: Vec<String> = plan.steps[0]
+                .acceptance_criteria
+                .iter()
+                .filter_map(criterion_input_text)
+                .collect();
+            assert!(resolved[0].contains("취소선"));
+            assert!(resolved[1].contains("3개 항목"));
+            assert!(matches!(
+                plan.steps[0].acceptance_criteria[0],
+                AcceptanceCriterionInput::Object(ref c) if c.criterion_id == "AC-001"
+            ));
+            validate_criterion_quality("정적 체크리스트 앱", &plan)
+                .expect("resolved ID references must pass the re-tuned gate");
+        }
+
+        #[test]
+        fn unknown_and_retired_ids_stay_literal_and_block_honestly() {
+            let prd = prd_with_criteria();
+            let mut plan = plan_with_steps(
+                "정적 체크리스트 앱",
+                vec![named_step_with_criteria(
+                    "체크리스트 구현",
+                    "step-001",
+                    &["AC-099", "AC-003"],
+                )],
+            );
+
+            resolve_prd_criterion_id_references(&mut plan, &prd);
+
+            for criterion in &plan.steps[0].acceptance_criteria {
+                assert!(matches!(criterion, AcceptanceCriterionInput::Text(_)));
+            }
+            let err = validate_criterion_quality("정적 체크리스트 앱", &plan)
+                .expect_err("unresolvable ID-only criteria must still block");
+            assert_eq!(err.reason, CriterionQualityErrorReason::VagueCriteria);
+        }
+
+        #[test]
+        fn full_text_and_object_inputs_are_untouched() {
+            let prd = prd_with_criteria();
+            let mut plan = plan_with_steps(
+                "정적 체크리스트 앱",
+                vec![named_step_with_criteria(
+                    "체크리스트 구현",
+                    "step-001",
+                    &["완료한 항목을 클릭하면 취소선이 표시된다"],
+                )],
+            );
+            let before = plan.steps[0].acceptance_criteria.clone();
+
+            resolve_prd_criterion_id_references(&mut plan, &prd);
+
+            assert_eq!(plan.steps[0].acceptance_criteria, before);
         }
     }
 
