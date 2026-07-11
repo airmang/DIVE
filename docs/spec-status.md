@@ -75,17 +75,20 @@ is S-057: clean app-data new-project → 3-step completion, 3 consecutive runs,
 
 | Wily Stage | Scope | Status |
 | --- | --- | --- |
-| S-050 | Plan-quality gate re-tuning + recovery-example self-pass regression lock (P0-01, absorbs P2-05 plan-recovery Korean copy) | Code landed (P1-P3); live re-QA pending |
-| S-051 | Provider+model Pi executability preflight, unsupported-model surfacing, error un-swallowing, pi-ai 0.80.6 bump + factory-default registry CI gate (P0-02, absorbs P2-02 curation) | Code landed (P1-P3); live re-QA pending |
-| S-052 | Post-success false stall-timeout removal — per-run terminal state, no timer re-arm (P1-01) | Code landed (P1); live re-QA pending |
-| S-053 | PRD interview patch-failure transparency (not_structured + interview_turns audit trail) + field-level provenance (P1-02, P1-03) | Code landed (P1-P3); live re-QA pending |
-| S-054 | Release-gate restoration: verifier repoints + rate-limit resume affordance, initial chunk 549→374 KB (< 500 KiB), verifiers joined the verify:v4 CI chain; QA app-data isolation confirmed pre-existing (P1-04) | Code landed (P1-P2); all three verifiers pass |
-| S-055 | Windows installed-app demo readiness — NSIS smoke, first run, demo conditions (P1-05, demo-critical) | Pending Windows runner/hardware (release gate now green) |
-| S-056 | Demo UX polish: session-starting empty state, cross-step overlap advisories (advisory-first, self-pass locked), multi-criterion evidence linking, project archive (P2) | Code landed (P1-P3); live re-QA pending |
-| S-057 | GO-judgment exit gate + presentation fallback package (recording, run-of-show, failure contingencies) | Fallback package doc prepared; GO gate pending live QA |
+| S-050 | Plan-quality gate re-tuning + recovery-example self-pass lock + live-found criterion-ID resolution hotfix (P0-01) | Done (live QA PASS) |
+| S-051 | Pi executability preflight + selector marking + pi-ai 0.80.6 bump + factory-default registry CI gate (P0-02) | Done (live QA PASS — Sonnet 5 executes) |
+| S-052 | False stall-timeout removal: per-run terminal latch + live-found done-emission integration fix (P1-01) | Done (live QA PASS — 127 s post-approval, zero errors) |
+| S-053 | PRD transparency (not_structured + interview_turns audit trail + 다시 구조화) + field provenance + live-found output-contract/max_tokens fixes (P1-02/03) | Done (live QA PASS — one-shot structuring + mixed provenance) |
+| S-054 | Release-gate restoration: verifier repoints, rate-limit resume, chunk 549→374 KB, verifiers joined verify:v4 CI chain (P1-04) | Done (all verifiers green) |
+| S-055 | Windows installed-app demo readiness (P1-05, demo-critical) | CI x64 installed smoke 13/13 PASS (run 29131250191); real-hardware demo-condition pass remains (rehearsal) |
+| S-056 | Demo UX polish: session-starting state, overlap advisories, multi-criterion linking, project archive (P2) | Done (live QA PASS) |
+| S-057 | GO-judgment exit gate + presentation fallback package | Fallback package doc ready; GO gate (clean app-data E2E ×3) pending |
 
-Live re-QA for the landed stages is batched into one computer-use session:
-`docs/qa/011-live-qa/tier1-combined-run-order.md` (journeys A–F).
+Live QA evidence: `docs/qa/011-live-qa/tier1-run-log.md` (initial run + three
+re-QA rounds). Live QA surfaced and closed four integration defects unit
+tests could not see: criterion-ID echo, missing supervised-path `done`
+emission, interview prompt output contract, and interview max_tokens
+truncation.
 
 ## 010 Implementation Status
 
