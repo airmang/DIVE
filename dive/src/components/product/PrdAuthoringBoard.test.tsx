@@ -482,6 +482,35 @@ describe("PrdAuthoringBoard", () => {
     );
   });
 
+  it("keeps focus and lands every character when typing into a brand-new criterion (round-2)", () => {
+    // A fresh draft renders a single empty acceptance-criterion row whose id is
+    // not yet allocated, so its React key falls back to the array index. The
+    // first keystroke allocates "AC-001"; if that flips the row key, React
+    // remounts the input and drops focus after one character.
+    renderBoard({
+      draft: createLiveProjectSpecDraft(42, { acceptanceCriteria: [] }),
+    });
+
+    const input = screen.getByTestId("prd-criterion-input-0") as HTMLInputElement;
+    input.focus();
+    expect(document.activeElement).toBe(input);
+
+    // Type character-by-character into the SAME node we focused. An atomic
+    // fireEvent.change that re-queries each time would mask the remount; holding
+    // the original reference is what surfaces the lost-focus drop.
+    const text = "할 일 목록";
+    let typed = "";
+    for (const ch of text) {
+      typed += ch;
+      fireEvent.change(input, { target: { value: typed } });
+    }
+
+    const liveInput = screen.getByTestId("prd-criterion-input-0") as HTMLInputElement;
+    expect(liveInput).toBe(input); // never remounted
+    expect(liveInput.value).toBe(text); // every character landed
+    expect(document.activeElement).toBe(input); // focus retained through typing
+  });
+
   it("renders a factual reply on a patch-only turn instead of deleting the bubble (P1-12)", async () => {
     const onSubmitAnswer = vi.fn().mockResolvedValue({ appliedChange: true });
     renderBoard({ onSubmitAnswer });

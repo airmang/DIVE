@@ -854,7 +854,13 @@ export function PrdAuthoringBoard({
                 {t("prd.fields.acceptance_criteria_help")}
               </span>
               {displayCriteria.map((criterion, index) => (
-                <label key={criterion.criterionId || index} className="flex items-center gap-2">
+                // Key by array index only. A brand-new row starts with an empty
+                // criterionId; the first keystroke allocates one (e.g. "AC-001"),
+                // and keying by that id would flip the key mid-typing, remounting
+                // the input and dropping focus after one character (round-2 QA).
+                // The list is only ever appended-to/edited in place, so the index
+                // is a stable identity here.
+                <label key={index} className="flex items-center gap-2">
                   <span className="w-14 shrink-0 text-xs font-semibold text-accent">
                     {criterion.criterionId || `AC-${String(index + 1).padStart(3, "0")}`}
                   </span>
