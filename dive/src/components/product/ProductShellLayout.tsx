@@ -74,6 +74,17 @@ export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
   const [rightRailWidth, setRightRailWidth] = useState(() =>
     storedWidth(RIGHT_RAIL_STORAGE_KEY, RIGHT_RAIL_DEFAULT, RIGHT_RAIL_MIN, RIGHT_RAIL_MAX),
   );
+  // S-064 E2: keep StepDetailSlideIn mounted once it has been opened. It used to
+  // be conditionally rendered (`open ? <panel/> : null`), which unmounted it on
+  // close — discarding the S-029 review evidence held in its local state (viewed
+  // diffs, manual observations, opened previews/app) and making the close
+  // animation (translate-x-full) unreachable. The panel is built to stay mounted
+  // with `open` driving visibility; we only defer the first mount so the lazy
+  // chunk still loads on demand rather than up front.
+  const [stepDetailEverOpened, setStepDetailEverOpened] = useState(false);
+  useEffect(() => {
+    if (shell.stepDetail.open) setStepDetailEverOpened(true);
+  }, [shell.stepDetail.open]);
   const rightPanelVisible =
     shell.roadmap.visible || shell.roadmap.showEmpty || shell.planRoadmap.hasPlan;
   const gridTemplateColumns = rightPanelVisible
@@ -200,7 +211,7 @@ export function ProductShellLayout({ shell }: ProductShellLayoutProps) {
       ) : null}
       <ActionDock />
       <ProductModalHost modals={shell.modals} />
-      {shell.stepDetail.open ? (
+      {stepDetailEverOpened ? (
         <Suspense fallback={null}>
           <StepDetailSlideIn {...shell.stepDetail} />
         </Suspense>

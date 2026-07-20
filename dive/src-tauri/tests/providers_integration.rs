@@ -141,12 +141,15 @@ async fn openai_integration_test() {
             ChatEvent::ToolCallEnd {
                 id: "call_1".into()
             },
-            ChatEvent::Done {
-                finish_reason: FinishReason::ToolCalls
-            },
+            // S-064: OpenAI streams the usage-only chunk after the finish chunk;
+            // the parser now emits Usage before Done so a Done-breaking consumer
+            // (e.g. prompt_check) still counts tokens.
             ChatEvent::Usage {
                 prompt_tokens: 5,
                 completion_tokens: 7
+            },
+            ChatEvent::Done {
+                finish_reason: FinishReason::ToolCalls
             },
         ]
     );

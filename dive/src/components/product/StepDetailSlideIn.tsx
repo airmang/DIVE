@@ -349,7 +349,12 @@ export function StepDetailSlideIn({
   const [previewOpenedStepIds, setPreviewOpenedStepIds] = useState<Set<number>>(() => new Set());
   const [appOpenedStepIds, setAppOpenedStepIds] = useState<Set<number>>(() => new Set());
   const retryLoopByStepRef = useRef<Map<number, RetryLoopFailureSnapshot>>(new Map());
-  const lastSupervisorEvaluationKeyRef = useRef("");
+  // S-064: tracks the supervisor eval that is currently in flight (or has
+  // settled) for a given request set. `cancelled` is flipped only when the
+  // request set actually changes or the component unmounts — never on an
+  // identity-only re-run — so a "checking…" flag can't get stranded (see the
+  // supervisor-eval effect below).
+  const supervisorEvalInflightRef = useRef<{ key: string; cancelled: boolean } | null>(null);
   const [retryLoopSnapshot, setRetryLoopSnapshot] = useState<RetryLoopFailureSnapshot | null>(null);
 
   useEffect(() => {
@@ -832,34 +837,58 @@ export function StepDetailSlideIn({
   );
 
   useEffect(() => {
-    let cancelled = false;
+    // S-064 I1: the panel now stays mounted while closed (E2), so the supervisor
+    // eval MUST be gated on `open`. Otherwise a background changedFiles/verifyLog
+    // update on a closed panel would fire evaluateProvocationSupervisor with
+    // `verify_entered` — an unrequested LLM call that also records a supervision
+    // evaluation the student never triggered. When closed we cancel any inflight
+    // eval and clear the "checking" flag, but keep the existing cards and their
+    // engagement evidence so reopening restores the same review state.
+    if (!open) {
+      if (supervisorEvalInflightRef.current) {
+        supervisorEvalInflightRef.current.cancelled = true;
+        supervisorEvalInflightRef.current = null;
+      }
+      setSupervisorEvalPending(false);
+      return;
+    }
+
     const requests = [
       retryLoopSupervisorRequest,
       diffReadySupervisorRequest,
       supervisorEvaluationRequest,
     ].filter((request): request is NonNullable<typeof request> => request !== null);
     const requestKey = JSON.stringify(requests);
+    const inflight = supervisorEvalInflightRef.current;
+
     if (requests.length === 0) {
-      lastSupervisorEvaluationKeyRef.current = "";
+      if (inflight) inflight.cancelled = true;
+      supervisorEvalInflightRef.current = null;
       setSupervisorEvalPending(false);
       setProvocationCards((current) => (current.length > 0 ? [] : current));
-      return () => {
-        cancelled = true;
-      };
+      return;
     }
-    if (requestKey === lastSupervisorEvaluationKeyRef.current) {
-      return () => {
-        cancelled = true;
-      };
+
+    // A same-content re-run with a new object identity must not restart a live
+    // eval — but if the matching eval was already cancelled (key change or a
+    // prior unmount), fall through and restart instead of leaving "checking…"
+    // stuck forever (S-064: the old code cancelled on every re-run yet skipped
+    // the restart when the JSON key matched).
+    if (inflight !== null && !inflight.cancelled && inflight.key === requestKey) {
+      return;
     }
-    lastSupervisorEvaluationKeyRef.current = requestKey;
+
+    // The request set changed: cancel the prior eval before starting a new one.
+    if (inflight) inflight.cancelled = true;
+    const token = { key: requestKey, cancelled: false };
+    supervisorEvalInflightRef.current = token;
 
     setSupervisorEvalPending(true);
     setProvocationCards((current) => (current.length > 0 ? [] : current));
     void (async () => {
       for (const request of requests) {
         const response = await evaluateProvocationSupervisor(request);
-        if (cancelled) return;
+        if (token.cancelled) return;
         if (response.status === "shown") {
           setProvocationCards([response.card]);
           setSupervisorEvalPending(false);
@@ -872,16 +901,24 @@ export function StepDetailSlideIn({
       if (import.meta.env.DEV) {
         console.warn("supervisor evaluation failed:", err);
       }
-      if (!cancelled) {
+      if (!token.cancelled) {
         setProvocationCards((current) => (current.length > 0 ? [] : current));
         setSupervisorEvalPending(false);
       }
     });
+    // No cancelling cleanup here on purpose: an identity-only re-run with the
+    // same key must let the in-flight eval finish. Cancellation is explicit —
+    // on key change (above), on close (the `!open` guard), and on unmount.
+  }, [open, diffReadySupervisorRequest, retryLoopSupervisorRequest, supervisorEvaluationRequest]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [diffReadySupervisorRequest, retryLoopSupervisorRequest, supervisorEvaluationRequest]);
+  useEffect(
+    () => () => {
+      if (supervisorEvalInflightRef.current) {
+        supervisorEvalInflightRef.current.cancelled = true;
+      }
+    },
+    [],
+  );
   useEffect(() => {
     const currentCardIds = new Set(provocationCards.map((card) => card.id));
     setEngagedProvocationCardIds((current) => {
@@ -1238,6 +1275,10 @@ export function StepDetailSlideIn({
       data-open={open ? "true" : "false"}
       data-step-id={step?.id ?? ""}
       data-status={status ?? ""}
+      // S-064 I2: the panel stays mounted while closed (E2), so `inert` removes
+      // its close/open-code/open-chat controls and chat input from the tab order
+      // and the SR tree instead of leaving them reachable off-screen (S-044).
+      inert={!open}
     >
       <div
         role="separator"

@@ -316,6 +316,90 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
     expect(screen.queryByText("확인 필요 카드")).toBeNull();
   });
 
+  it("does not strand the review 'checking' state on an identity-only re-render (S-064)", async () => {
+    // Hold the first evaluation in flight so a same-content re-render (fresh
+    // step/changedFiles object identities, identical JSON) lands while it is
+    // still pending. The old effect cancelled the in-flight eval on every
+    // re-run and then skipped the restart when the request key matched, leaving
+    // "checking…" stuck forever.
+    let resolveInFlight!: (
+      value: Awaited<ReturnType<typeof evaluateProvocationSupervisor>>,
+    ) => void;
+    const inFlight = new Promise<Awaited<ReturnType<typeof evaluateProvocationSupervisor>>>(
+      (resolve) => {
+        resolveInFlight = resolve;
+      },
+    );
+    evaluateMock.mockReturnValueOnce(inFlight);
+    // A restart (there must NOT be one) would also resolve — so a hang can only
+    // come from the stranding bug, not from a missing mock value.
+    evaluateMock.mockResolvedValue({
+      status: "shown",
+      evaluationId: "eval-restart",
+      card: supervisorCard(),
+    });
+
+    const view = renderStepDetail();
+    await waitFor(() => expect(evaluateMock).toHaveBeenCalledTimes(1));
+    // The review stage reserves a deterministic "checking…" slot while pending.
+    expect(
+      screen.getByTestId("verification-stepper-stage-button-review-card-pending"),
+    ).toBeTruthy();
+
+    // Identity-only re-render: new step/changedFiles objects, same content.
+    view.rerender(stepDetailElement());
+
+    // Resolve the still-in-flight eval; its card must surface (not be discarded)
+    // and no redundant restart should have been needed.
+    resolveInFlight({ status: "shown", evaluationId: "eval-1", card: supervisorCard() });
+
+    const card = await openReviewCardStage();
+    expect(card).toBeTruthy();
+    expect(evaluateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not run supervisor evaluation while the panel is closed (S-064 I1)", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-closed",
+      dropReason: "provoke_false",
+    });
+
+    const view = renderStepDetail({ open: true });
+    await waitFor(() => expect(evaluateMock).toHaveBeenCalled());
+    const callsWhileOpen = evaluateMock.mock.calls.length;
+
+    // Close the panel, then change the inputs. A closed (but still-mounted)
+    // panel must NOT fire an evaluation — no unrequested LLM call, no phantom
+    // supervision record.
+    view.rerender(
+      stepDetailElement({ open: false, changedFiles: [{ path: "src/Widget.tsx", diff: null }] }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(evaluateMock.mock.calls.length).toBe(callsWhileOpen);
+
+    // Reopening resumes normal evaluation.
+    view.rerender(
+      stepDetailElement({ open: true, changedFiles: [{ path: "src/Widget.tsx", diff: null }] }),
+    );
+    await waitFor(() => expect(evaluateMock.mock.calls.length).toBeGreaterThan(callsWhileOpen));
+  });
+
+  it("marks the closed panel inert so its controls leave the tab order (S-064 I2)", () => {
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-inert",
+      dropReason: "provoke_false",
+    });
+
+    const view = renderStepDetail({ open: true });
+    expect(screen.getByTestId("step-detail-panel").hasAttribute("inert")).toBe(false);
+
+    view.rerender(stepDetailElement({ open: false }));
+    expect(screen.getByTestId("step-detail-panel").hasAttribute("inert")).toBe(true);
+  });
+
   it("shows verification coach guidance near review without creating a review card", async () => {
     evaluateMock.mockResolvedValue({
       status: "none",

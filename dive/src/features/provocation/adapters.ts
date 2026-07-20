@@ -28,6 +28,7 @@ import type {
 import { useLocaleStore } from "../../i18n";
 import { loadTauri } from "../../lib/tauri";
 import { hasConcreteVerificationEvidence } from "./verificationStatus";
+import { classifyChangedFilePath, isHighRiskCategory } from "./pathClassifier";
 
 export function stringArray(value: unknown): string[] {
   return Array.isArray(value)
@@ -73,33 +74,12 @@ export function normalizePlanStep(input: {
   };
 }
 
+// S-064 E7: delegates to the shared bounded classifier. This used to be a
+// separate copy with unbounded substring matches (e.g. `config`, `auth`,
+// `page`), which mislabelled AuthorCard.tsx as auth and reconfigure.md as
+// config on the live diff_ready path.
 export function guessChangedFileCategory(path: string): ChangedFileCategory {
-  const lower = path.toLowerCase();
-  if (
-    /(\.pem|\.key)$/.test(lower) ||
-    /(^|\/)(id_rsa|credentials|\.npmrc|\.netrc)($|[./_-])/.test(lower)
-  ) {
-    return "secret";
-  }
-  if (/(^|\/)\.github\/workflows\//.test(lower)) return "ci";
-  if (/(^|\/)(\.gitlab-ci(\.ya?ml)?|dockerfile|makefile)$/.test(lower)) return "ci";
-  if (
-    /(^|\/)package\.json$|(^|\/)(pnpm-lock\.ya?ml|package-lock\.json|yarn\.lock|cargo\.lock|poetry\.lock|gemfile\.lock|go\.sum|requirements\.txt)$/.test(
-      lower,
-    )
-  ) {
-    return "dependency";
-  }
-  if (/(^|\/)\.env|config|tsconfig|vite|webpack|tailwind|eslint/.test(lower)) {
-    return "config";
-  }
-  if (/(auth|oauth|permission|policy|security)/.test(lower)) return "auth";
-  if (/(schema|migration|migrations|db|database)/.test(lower)) return "db";
-  if (/(route|router|page)/.test(lower)) return "routing";
-  if (/(\.test\.|\.spec\.)/.test(lower)) return "test";
-  if (/\.(css|scss|tsx|jsx)$/.test(lower)) return "ui";
-  if (/\.(ts|js|rs)$/.test(lower)) return "logic";
-  return "unknown";
+  return classifyChangedFilePath(path);
 }
 
 export function normalizeChangedFile(input: {
@@ -751,8 +731,7 @@ function pathMatchesExpected(path: string, expectedFiles: string[]): boolean {
 }
 
 function isHighRiskFile(file: ProvocationChangedFile): boolean {
-  const category = file.category ?? guessChangedFileCategory(file.path);
-  return ["auth", "config", "db", "dependency", "routing", "ci", "secret"].includes(category);
+  return isHighRiskCategory(file.category ?? classifyChangedFilePath(file.path));
 }
 
 export function buildDiffReadyReviewAssessment(input: {

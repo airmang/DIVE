@@ -61,6 +61,22 @@ pub enum EgressBlockReason {
     DnsResolutionFailed {
         host: String,
     },
+    // S-064: distinct transport failures. DNS already succeeded by the time the
+    // socket send runs, so folding connect/timeout/tls failures into
+    // `DnsResolutionFailed` misreported them as "offline / host could not be
+    // resolved".
+    ConnectionFailed {
+        host: String,
+    },
+    RequestTimeout {
+        host: String,
+    },
+    TlsError {
+        host: String,
+    },
+    TransportFailed {
+        host: String,
+    },
     DeniedResolvedIp {
         host: String,
         ip: IpAddr,
@@ -98,6 +114,10 @@ impl EgressBlockReason {
             Self::ZoneIdInHost => "zone_id_in_host",
             Self::NonCanonicalIpLiteral { .. } => "non_canonical_ip_literal",
             Self::DnsResolutionFailed { .. } => "dns_resolution_failed",
+            Self::ConnectionFailed { .. } => "connection_failed",
+            Self::RequestTimeout { .. } => "request_timeout",
+            Self::TlsError { .. } => "tls_error",
+            Self::TransportFailed { .. } => "transport_failed",
             Self::DeniedResolvedIp { .. } => "denied_resolved_ip",
             Self::RedirectToDeniedTarget { .. } => "redirect_to_denied_target",
             Self::TooManyRedirects => "too_many_redirects",
@@ -116,6 +136,14 @@ impl EgressBlockReason {
             Self::DnsResolutionFailed { .. } => {
                 "web fetch unavailable because the host could not be resolved"
             }
+            Self::ConnectionFailed { .. } => {
+                "web fetch unavailable because the host could not be reached"
+            }
+            Self::RequestTimeout { .. } => "web fetch stopped because the request timed out",
+            Self::TlsError { .. } => {
+                "web fetch blocked because the host's TLS connection could not be verified"
+            }
+            Self::TransportFailed { .. } => "web fetch failed due to a network error",
             _ => "web fetch blocked by safety policy",
         }
     }
@@ -123,7 +151,11 @@ impl EgressBlockReason {
     pub fn unavailable_reason(&self) -> WebUnavailableReason {
         match self {
             Self::DeadlineExceeded => WebUnavailableReason::Timeout,
+            Self::RequestTimeout { .. } => WebUnavailableReason::Timeout,
             Self::DnsResolutionFailed { .. } => WebUnavailableReason::Offline,
+            Self::ConnectionFailed { .. } => WebUnavailableReason::Offline,
+            Self::TransportFailed { .. } => WebUnavailableReason::Offline,
+            Self::TlsError { .. } => WebUnavailableReason::BlockedTarget,
             Self::ResponseTooLarge { .. } => WebUnavailableReason::Timeout,
             Self::DisallowedScheme { .. }
             | Self::EmbeddedCredentials

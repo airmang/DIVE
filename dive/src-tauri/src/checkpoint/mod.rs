@@ -54,6 +54,8 @@ pub enum CheckpointError {
     CheckpointNotFound(i64),
     #[error("invalid kind: {0}")]
     InvalidKind(String),
+    #[error("restore incomplete: {0}")]
+    RestoreIncomplete(String),
 }
 
 pub struct CheckpointEngine {
@@ -470,6 +472,10 @@ impl CheckpointEngine {
             Ok(t) => t,
             Err(_) => return Ok(()),
         };
+        // S-064: a remove that fails for anything other than "already gone"
+        // means the restore is leaving stale tracked files behind, so collect
+        // and surface it instead of reporting success.
+        let mut failures: Vec<String> = Vec::new();
         head_tree.walk(git2::TreeWalkMode::PreOrder, |dir, entry| {
             if entry.kind() == Some(ObjectType::Blob) {
                 if let Some(name) = entry.name() {
@@ -479,11 +485,22 @@ impl CheckpointEngine {
                         PathBuf::from(dir).join(name)
                     };
                     let p = self.project_root.join(&rel);
-                    let _ = std::fs::remove_file(&p);
+                    if let Err(e) = std::fs::remove_file(&p) {
+                        if e.kind() != std::io::ErrorKind::NotFound {
+                            failures.push(format!("{}: {e}", rel.display()));
+                        }
+                    }
                 }
             }
             git2::TreeWalkResult::Ok
         })?;
+        if !failures.is_empty() {
+            return Err(CheckpointError::RestoreIncomplete(format!(
+                "failed to remove {} tracked file(s): {}",
+                failures.len(),
+                failures.join("; ")
+            )));
+        }
         Ok(())
     }
 
@@ -753,6 +770,10 @@ fn write_tree_to_disk(
     tree: &git2::Tree<'_>,
     root: &Path,
 ) -> Result<(), CheckpointError> {
+    // S-064: previously every fs write/mkdir error was discarded, so a partial
+    // restore (permission denied, path occupied, disk full) still reported
+    // success. Collect the failures and surface them as an explicit error.
+    let mut failures: Vec<String> = Vec::new();
     tree.walk(git2::TreeWalkMode::PreOrder, |dir, entry| {
         if entry.kind() != Some(ObjectType::Blob) {
             return git2::TreeWalkResult::Ok;
@@ -767,15 +788,30 @@ fn write_tree_to_disk(
         };
         let abs = root.join(&rel);
         if let Some(parent) = abs.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        if let Ok(obj) = entry.to_object(repo) {
-            if let Some(blob) = obj.as_blob() {
-                let _ = std::fs::write(&abs, blob.content());
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                failures.push(format!("{}: {e}", rel.display()));
+                return git2::TreeWalkResult::Ok;
             }
+        }
+        match entry.to_object(repo) {
+            Ok(obj) => {
+                if let Some(blob) = obj.as_blob() {
+                    if let Err(e) = std::fs::write(&abs, blob.content()) {
+                        failures.push(format!("{}: {e}", rel.display()));
+                    }
+                }
+            }
+            Err(e) => failures.push(format!("{}: {e}", rel.display())),
         }
         git2::TreeWalkResult::Ok
     })?;
+    if !failures.is_empty() {
+        return Err(CheckpointError::RestoreIncomplete(format!(
+            "failed to write {} file(s): {}",
+            failures.len(),
+            failures.join("; ")
+        )));
+    }
     Ok(())
 }
 
@@ -786,11 +822,19 @@ fn path_filter(path: &Path, _matched_spec: &[u8]) -> i32 {
         || s.contains(".sqlite-shm")
         || s.contains(".sqlite-journal")
         || s.contains(".dive.tmp")
-        || s.starts_with("node_modules/")
-        || s.starts_with("target/")
-        || s.starts_with("dist/")
     {
         return 1;
+    }
+    // S-064: exclude build/dependency dirs at ANY depth — a monorepo has
+    // packages/*/node_modules and nested target/dist, which the previous
+    // root-only `starts_with` let leak into every checkpoint.
+    let excluded = ["node_modules", "target", "dist"];
+    for component in path.components() {
+        if let std::path::Component::Normal(name) = component {
+            if matches!(name.to_str(), Some(n) if excluded.contains(&n)) {
+                return 1;
+            }
+        }
     }
     0
 }
@@ -1093,6 +1137,74 @@ mod tests {
             list.iter()
                 .any(|c| c.kind == "auto-pre-restore" && c.label.is_none()),
             "restore must auto-create a locale-neutral backup checkpoint, got {list:?}",
+        );
+    }
+
+    #[test]
+    fn write_tree_to_disk_reports_write_failures() {
+        // S-064: a partial restore must surface an error, not report success.
+        let (engine, tmp, sid) = engine_with_tempdir();
+        engine.init().unwrap();
+        std::fs::create_dir_all(tmp.path().join("docs")).unwrap();
+        std::fs::write(tmp.path().join("docs/readme.txt"), "hi").unwrap();
+        let cp = engine
+            .create_checkpoint(sid, None, "manual", Some("v1"))
+            .unwrap();
+
+        let repo = engine.open_repo().unwrap();
+        let oid = git2::Oid::from_str(&cp.git_sha).unwrap();
+        let tree = repo.find_commit(oid).unwrap().tree().unwrap();
+
+        // Fresh root where "docs" is a *file*, so writing "docs/readme.txt"
+        // cannot create its parent directory.
+        let conflict = tempfile::tempdir().unwrap();
+        std::fs::write(conflict.path().join("docs"), "not a dir").unwrap();
+
+        let err = write_tree_to_disk(&repo, &tree, conflict.path()).unwrap_err();
+        assert!(
+            matches!(err, CheckpointError::RestoreIncomplete(_)),
+            "partial restore must surface an error, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn snapshot_excludes_nested_build_dirs() {
+        // S-064: node_modules/target/dist must be excluded at any depth, not
+        // only at the repo root.
+        let (engine, tmp, sid) = engine_with_tempdir();
+        engine.init().unwrap();
+        std::fs::write(tmp.path().join("keep.txt"), "keep").unwrap();
+        std::fs::create_dir_all(tmp.path().join("packages/app/node_modules")).unwrap();
+        std::fs::write(tmp.path().join("packages/app/node_modules/dep.js"), "junk").unwrap();
+        std::fs::create_dir_all(tmp.path().join("crate/target")).unwrap();
+        std::fs::write(tmp.path().join("crate/target/out.o"), "obj").unwrap();
+        let cp = engine
+            .create_checkpoint(sid, None, "manual", Some("v1"))
+            .unwrap();
+
+        let repo = engine.open_repo().unwrap();
+        let oid = git2::Oid::from_str(&cp.git_sha).unwrap();
+        let tree = repo.find_commit(oid).unwrap().tree().unwrap();
+
+        let mut paths: Vec<String> = Vec::new();
+        tree.walk(git2::TreeWalkMode::PreOrder, |dir, entry| {
+            if entry.kind() == Some(ObjectType::Blob) {
+                if let Some(name) = entry.name() {
+                    paths.push(format!("{dir}{name}"));
+                }
+            }
+            git2::TreeWalkResult::Ok
+        })
+        .unwrap();
+
+        assert!(paths.iter().any(|p| p.ends_with("keep.txt")), "{paths:?}");
+        assert!(
+            !paths.iter().any(|p| p.contains("node_modules")),
+            "nested node_modules must be excluded: {paths:?}"
+        );
+        assert!(
+            !paths.iter().any(|p| p.contains("target/")),
+            "nested target must be excluded: {paths:?}"
         );
     }
 

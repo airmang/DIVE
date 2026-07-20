@@ -113,14 +113,34 @@ impl OsKeyring {
     }
 }
 
+/// Reduce the pre-store read to the prior secret that should be cleaned up.
+/// `NoEntry` → nothing stored yet. S-064 I3: a real read failure (e.g. a locked
+/// keychain) must NOT abort the store — `set_password` may still succeed, and
+/// the large-token file-secret fallback lives *only* on the `set_password` error
+/// path, so aborting here would silently break a store that previously
+/// succeeded. A failed read therefore yields `None` (proceed, skipping the
+/// prior-marker cleanup we can't safely perform) plus the error for logging —
+/// never a propagated error. The un-cleaned prior marker is an accepted residual.
+fn prior_secret_for_store(
+    result: Result<String, keyring::Error>,
+) -> (Option<String>, Option<keyring::Error>) {
+    match result {
+        Ok(secret) => (Some(secret), None),
+        Err(keyring::Error::NoEntry) => (None, None),
+        Err(err) => (None, Some(err)),
+    }
+}
+
 impl Keyring for OsKeyring {
     fn store(&self, scope: &SecretScope, secret: &str) -> Result<(), AuthError> {
         let entry = Self::entry(scope)?;
-        let previous = match entry.get_password() {
-            Ok(secret) => Some(secret),
-            Err(keyring::Error::NoEntry) => None,
-            Err(_) => None,
-        };
+        let (previous, read_error) = prior_secret_for_store(entry.get_password());
+        if let Some(err) = read_error {
+            tracing::warn!(
+                error = %crate::telemetry::redact_log_text(&err.to_string()),
+                "failed to read existing secret before store; proceeding without prior-marker cleanup"
+            );
+        }
 
         match entry.set_password(secret) {
             Ok(()) => {
@@ -591,6 +611,25 @@ mod tests {
     use super::*;
 
     static FILE_SECRET_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn prior_secret_for_store_proceeds_on_read_failure() {
+        // Ok → the previous value (used to clean up a file-secret marker), no error.
+        let (prev, err) = prior_secret_for_store(Ok("v".into()));
+        assert_eq!(prev.as_deref(), Some("v"));
+        assert!(err.is_none());
+        // NoEntry → nothing stored yet, nothing to log.
+        let (prev, err) = prior_secret_for_store(Err(keyring::Error::NoEntry));
+        assert!(prev.is_none() && err.is_none());
+        // S-064 I3: a real read failure must yield NO previous (so the store
+        // still proceeds to set_password + the large-token file-secret fallback)
+        // plus the error for logging — it must NEVER be an aborting error.
+        let locked =
+            keyring::Error::NoStorageAccess(Box::new(std::io::Error::other("keychain locked")));
+        let (prev, err) = prior_secret_for_store(Err(locked));
+        assert!(prev.is_none(), "read failure must not abort the store");
+        assert!(err.is_some(), "read failure must be surfaced for logging");
+    }
 
     fn sample_scopes() -> Vec<SecretScope> {
         vec![

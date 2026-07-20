@@ -1190,7 +1190,14 @@ pub async fn workspace_prd_interview_turn_impl(
             )
             .map_err(|e| e.to_string())?;
         }
-        persist_live_prd_draft(conn, &output.live_draft)?;
+        // S-064 G4: a no-patch turn must NOT re-persist `output.live_draft` —
+        // that draft was captured (`base_draft`) *before* the LLM call, so if
+        // the student edited the draft while the model was running, rewriting it
+        // here silently reverts that concurrent edit. `current_draft` is the row
+        // as it stands now (edits included); nothing changed this turn, so leave
+        // the DB alone and hand the authoritative current draft back to the
+        // caller instead of the stale snapshot.
+        output.live_draft = current_draft;
     }
 
     interview_turn_dao::insert(
@@ -3544,7 +3551,12 @@ pub fn workspace_plan_approve_impl(
         .as_ref()
         .and_then(|res| res.note.as_deref())
         .and_then(bounded_critique_note);
-    let _ = dive_event_log::append_to_conn(
+    // S-064: the approval + export already committed above, so a failure here
+    // must not roll back the user-visible success — but silently dropping this
+    // supervision-evidence event (`let _ =`) leaves the research ledger
+    // inconsistent (Constitution IV). Surface it as a warning instead, matching
+    // the annotation-logging convention elsewhere in this file.
+    if let Err(err) = dive_event_log::append_to_conn(
         db.conn(),
         None,
         "plan_approved",
@@ -3555,7 +3567,13 @@ pub fn workspace_plan_approve_impl(
             "critiqueResponse": critique_response,
             "critiqueNote": critique_note,
         }),
-    );
+    ) {
+        tracing::warn!(
+            error = %crate::telemetry::redact_log_text(&err.to_string()),
+            plan_id = plan.id,
+            "failed to append plan_approved supervision-evidence event"
+        );
+    }
     Ok(plan)
 }
 
@@ -3901,7 +3919,7 @@ fn maybe_create_pre_pivot_checkpoint(
         .ok()
         .flatten();
     if let Some(row) = row {
-        let _ = log_event(
+        if let Err(err) = log_event(
             state,
             Some(checkpoint.session_id),
             "checkpoint_create",
@@ -3913,7 +3931,13 @@ fn maybe_create_pre_pivot_checkpoint(
                 "git_sha": row.git_sha,
                 "changed_file_count": row.changed_files.len(),
             }),
-        );
+        ) {
+            tracing::warn!(
+                error = %crate::telemetry::redact_log_text(&err),
+                checkpoint_id = row.id,
+                "failed to append checkpoint_create event"
+            );
+        }
     }
 }
 
@@ -4667,7 +4691,7 @@ pub fn roadmap_step_open_impl(
             "step is blocked: waiting for {}",
             blocked_dependencies.join(", ")
         );
-        let _ = append_plan_activity(
+        if let Err(err) = append_plan_activity(
             conn,
             &plan,
             Some(&step),
@@ -4675,7 +4699,13 @@ pub fn roadmap_step_open_impl(
             "plan_step_open_failed",
             "Step start blocked",
             Some(&reason),
-        );
+        ) {
+            tracing::warn!(
+                error = %crate::telemetry::redact_log_text(&err),
+                step_id,
+                "failed to append plan_step_open_failed activity"
+            );
+        }
         return Err(reason);
     }
 
@@ -4742,7 +4772,7 @@ pub fn roadmap_step_open_impl(
     let mapping = mapping_dao::get_by_id(conn, mapping_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "mapping not found after insert".to_string())?;
-    let _ = append_plan_activity(
+    if let Err(err) = append_plan_activity(
         conn,
         &plan,
         Some(&step),
@@ -4750,7 +4780,13 @@ pub fn roadmap_step_open_impl(
         "plan_step_opened",
         "Step session started",
         None,
-    );
+    ) {
+        tracing::warn!(
+            error = %crate::telemetry::redact_log_text(&err),
+            session_id,
+            "failed to append plan_step_opened activity"
+        );
+    }
     Ok(mapping)
 }
 
@@ -4792,7 +4828,7 @@ pub fn roadmap_step_update_state_impl(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "mapping not found after update".to_string())?;
     let message = step_state_activity_message(mapping.status.as_str());
-    let _ = append_plan_activity(
+    if let Err(err) = append_plan_activity(
         db.conn(),
         &plan,
         Some(&step),
@@ -4800,7 +4836,13 @@ pub fn roadmap_step_update_state_impl(
         "plan_step_state_changed",
         &message,
         None,
-    );
+    ) {
+        tracing::warn!(
+            error = %crate::telemetry::redact_log_text(&err),
+            step_id = mapping.step_id,
+            "failed to append plan_step_state_changed activity"
+        );
+    }
     Ok(mapping)
 }
 

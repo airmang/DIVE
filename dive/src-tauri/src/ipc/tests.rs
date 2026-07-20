@@ -2083,3 +2083,144 @@ fn transition_name(transition: CardTransition) -> &'static str {
         CardTransition::Extend => "extend",
     }
 }
+
+// S-064 G4: simulates a student saving a draft edit *during* the PRD interview
+// LLM call — i.e. between the impl's pre-call `base_draft` capture and its
+// post-call `current_draft` reload — then returns a valid no-patch response.
+struct ConcurrentDraftEditProvider {
+    db: Arc<std::sync::Mutex<crate::db::Database>>,
+    project_id: i64,
+    edited_goal: String,
+}
+
+#[async_trait::async_trait]
+impl crate::providers::LlmProvider for ConcurrentDraftEditProvider {
+    fn id(&self) -> &str {
+        "concurrent-edit-mock"
+    }
+
+    fn list_models(&self) -> Vec<crate::providers::ModelInfo> {
+        Vec::new()
+    }
+
+    async fn chat(
+        &self,
+        _req: crate::providers::ChatRequest,
+    ) -> Result<
+        futures::stream::BoxStream<'static, crate::providers::ChatEvent>,
+        crate::providers::ProviderError,
+    > {
+        // The impl holds no DB lock across the provider call, so a concurrent
+        // student edit can land here and must survive the no-patch turn.
+        {
+            let db = self.db.lock().unwrap();
+            let mut draft = crate::db::dao::prd::get_draft(db.conn(), self.project_id)
+                .unwrap()
+                .expect("seeded draft exists");
+            draft.spec.goal = self.edited_goal.clone();
+            crate::db::dao::prd::upsert_draft(
+                db.conn(),
+                &crate::db::models::NewLiveProjectSpecDraft {
+                    draft_id: draft.draft_id.clone(),
+                    project_id: draft.project_id,
+                    base_version: draft.base_version,
+                    spec: draft.spec.clone(),
+                    dirty_fields: draft.dirty_fields.clone(),
+                    student_edited_fields: draft.student_edited_fields.clone(),
+                    last_patch_id: draft.last_patch_id.clone(),
+                    field_provenance: draft.field_provenance.clone(),
+                },
+            )
+            .unwrap();
+        }
+        use futures::StreamExt;
+        let events = vec![
+            crate::providers::ChatEvent::TextDelta(
+                "{\"assistantMessage\": \"좋은 질문이에요. 조금 더 알려주세요.\"}".into(),
+            ),
+            crate::providers::ChatEvent::Done {
+                finish_reason: crate::providers::FinishReason::Stop,
+            },
+        ];
+        Ok(futures::stream::iter(events).boxed())
+    }
+
+    async fn refresh_auth(&mut self) -> Result<(), crate::providers::ProviderError> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn prd_interview_no_patch_turn_preserves_concurrent_draft_edit() {
+    let state = AppState::dev_mock();
+    let project_id = {
+        let db = state.db.lock().unwrap();
+        crate::db::dao::project::insert(
+            db.conn(),
+            &crate::db::models::NewProject {
+                name: "p".into(),
+                path: "/tmp/p".into(),
+                provider_default: None,
+                model_default: None,
+            },
+        )
+        .unwrap()
+    };
+
+    // Seed the initial draft with the original goal.
+    let draft_id = format!("prd-draft-{project_id}");
+    let mut initial = super::workspace_plan::workspace_prd_draft_get_impl(
+        &state,
+        project_id,
+        Some(draft_id.clone()),
+    )
+    .unwrap();
+    initial.spec.goal = "원래 목표".into();
+    super::workspace_plan::workspace_prd_draft_save_impl(
+        &state,
+        super::workspace_plan::PrdDraftSaveInput {
+            project_id,
+            draft: initial,
+        },
+    )
+    .unwrap();
+
+    // The provider lands "동시 편집 목표" on the draft mid-call, then returns a
+    // no-patch response.
+    state
+        .swap_runtime(ProviderRuntime::new(
+            Some(1),
+            ProviderKind::OpenAi,
+            crate::providers::default_model_for_kind("openai").to_string(),
+            Arc::new(ConcurrentDraftEditProvider {
+                db: state.db.clone(),
+                project_id,
+                edited_goal: "동시 편집 목표".into(),
+            }),
+        ))
+        .unwrap();
+
+    let output = super::workspace_plan::workspace_prd_interview_turn_impl(
+        &state,
+        super::workspace_plan::PrdInterviewTurnInput {
+            project_id,
+            draft_id: draft_id.clone(),
+            answer: "제 앱은 할 일 관리 앱이에요.".into(),
+            conversation: Vec::new(),
+            provider: "openai".into(),
+            model: crate::providers::default_model_for_kind("openai").to_string(),
+        },
+    )
+    .await
+    .unwrap();
+
+    // No patch was proposed, so the outcome stays "none"...
+    assert_eq!(output.validation_outcome, "none");
+    // ...but the concurrent student edit must NOT be reverted, either in the
+    // returned draft or in the persisted row.
+    assert_eq!(output.live_draft.spec.goal, "동시 편집 목표");
+    let persisted =
+        super::workspace_plan::workspace_prd_draft_get_impl(&state, project_id, Some(draft_id))
+            .unwrap();
+    assert_eq!(persisted.spec.goal, "동시 편집 목표");
+}

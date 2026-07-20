@@ -451,9 +451,7 @@ impl WebFetch {
                 .header(reqwest::header::ACCEPT_ENCODING, "identity")
                 .send()
                 .await
-                .map_err(|_| EgressBlockReason::DnsResolutionFailed {
-                    host: target.host.clone(),
-                })?;
+                .map_err(|err| classify_transport_error(&err, &target.host))?;
 
             if response.status().is_redirection() {
                 hop = hop.saturating_add(1);
@@ -549,6 +547,47 @@ impl Resolve for PinnedReqwestResolver {
             }
         })
     }
+}
+
+/// S-064: classify a socket-send `reqwest::Error` by kind. DNS has already
+/// resolved by the time we send, so a failure here is a connect refusal, a
+/// timeout, or a TLS problem — not a name-resolution failure. Reporting them
+/// distinctly stops the "you're offline / host could not be resolved"
+/// misdiagnosis.
+fn classify_transport_error(err: &reqwest::Error, host: &str) -> EgressBlockReason {
+    let host = host.to_string();
+    if err.is_timeout() {
+        return EgressBlockReason::RequestTimeout { host };
+    }
+    if is_tls_error(err) {
+        return EgressBlockReason::TlsError { host };
+    }
+    if err.is_connect() {
+        return EgressBlockReason::ConnectionFailed { host };
+    }
+    EgressBlockReason::TransportFailed { host }
+}
+
+/// reqwest folds TLS handshake failures into its connect layer, so probe the
+/// error source chain for TLS/certificate wording to separate them out.
+fn is_tls_error(err: &reqwest::Error) -> bool {
+    error_chain_mentions_tls(err)
+}
+
+fn error_chain_mentions_tls(err: &dyn std::error::Error) -> bool {
+    let mut source: Option<&dyn std::error::Error> = Some(err);
+    while let Some(current) = source {
+        let text = current.to_string().to_lowercase();
+        if text.contains("tls")
+            || text.contains("ssl")
+            || text.contains("certificate")
+            || text.contains("handshake")
+        {
+            return true;
+        }
+        source = current.source();
+    }
+    false
 }
 
 fn web_fetch_failure_output(
@@ -655,6 +694,46 @@ mod tests {
 
     fn public_ip() -> IpAddr {
         IpAddr::V4(std::net::Ipv4Addr::new(93, 184, 216, 34))
+    }
+
+    #[tokio::test]
+    async fn transport_error_connect_refused_is_not_dns_failure() {
+        // S-064: a refused connection (DNS already resolved) must classify as a
+        // connection failure, never as DnsResolutionFailed / "offline".
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener); // guarantees the port is closed
+
+        let err = reqwest::Client::new()
+            .get(format!("http://127.0.0.1:{port}/"))
+            .send()
+            .await
+            .expect_err("connect to a closed port must fail");
+
+        let reason = classify_transport_error(&err, "127.0.0.1");
+        assert!(
+            !matches!(reason, EgressBlockReason::DnsResolutionFailed { .. }),
+            "connect-refused misreported as DNS failure: {reason:?}"
+        );
+        assert!(
+            matches!(
+                reason,
+                EgressBlockReason::ConnectionFailed { .. }
+                    | EgressBlockReason::TransportFailed { .. }
+            ),
+            "expected a connection/transport failure, got {reason:?}"
+        );
+    }
+
+    #[test]
+    fn tls_wording_in_error_chain_is_detected() {
+        // The source chain drives TLS detection, so a certificate-flavoured
+        // error is classified as TLS rather than a generic connect failure.
+        let inner = std::io::Error::other("invalid peer certificate: UnknownIssuer");
+        assert!(error_chain_mentions_tls(&inner));
+        let benign =
+            std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "connection refused");
+        assert!(!error_chain_mentions_tls(&benign));
     }
 
     #[tokio::test]

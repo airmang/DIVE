@@ -1,5 +1,6 @@
 import { sortProvocationCards } from "./priority";
 import { hasAiSelfReport, hasObservedVerificationEvidence } from "./verificationStatus";
+import { classifyChangedFilePath, isHighRiskCategory } from "./pathClassifier";
 import type {
   ChangedFileCategory,
   DiveStage,
@@ -117,16 +118,6 @@ const VERIFICATION_TERMS = [
   "assert",
   "compare",
   "repro",
-];
-
-const HIGH_RISK_PATH_PATTERNS = [
-  /(^|\/)package\.json$/i,
-  /(^|\/)(pnpm-lock|package-lock|yarn)\.lock$/i,
-  /(^|\/)\.env($|\.)/i,
-  /(^|\/)(vite|webpack|rollup|eslint|tsconfig|tailwind|postcss)\.[cm]?[jt]s$/i,
-  /(^|\/)(schema|migration|migrations|db|database)(\/|\.|$)/i,
-  /(^|\/)(auth|oauth|permission|policy|security)(\/|\.|$)/i,
-  /(^|\/)(route|routes|router|routing)(\/|\.|$)/i,
 ];
 
 const GOAL_CATEGORY_TERMS: Record<ChangedFileCategory, string[]> = {
@@ -257,30 +248,17 @@ function hasVerificationStep(steps: ProvocationPlanStep[] | undefined): boolean 
   );
 }
 
+// S-064 E7: both category classification and the high-risk decision now flow
+// through the shared bounded classifier so the rules engine and the live
+// diff_ready path agree.
 function categorizePath(path: string): ChangedFileCategory {
-  const lower = path.toLowerCase();
-  if (HIGH_RISK_PATH_PATTERNS.some((pattern) => pattern.test(path))) {
-    if (/(package|lock)/i.test(path)) return "dependency";
-    if (/(auth|oauth|permission|policy|security)/i.test(path)) return "auth";
-    if (/(schema|migration|db|database)/i.test(path)) return "db";
-    return "config";
-  }
-  if (/(route|router|page)/.test(lower)) return "routing";
-  if (/(\.test\.|\.spec\.)/.test(lower)) return "test";
-  if (/\.(css|scss|tsx|jsx)$/.test(lower)) return "ui";
-  if (/\.(ts|js|rs)$/.test(lower)) return "logic";
-  return "unknown";
+  return classifyChangedFilePath(path);
 }
 
 function highRiskFile(file: ProvocationChangedFile): boolean {
-  return Boolean(
+  return (
     file.changeType === "deleted" ||
-    file.category === "dependency" ||
-    file.category === "config" ||
-    file.category === "auth" ||
-    file.category === "db" ||
-    file.category === "routing" ||
-    HIGH_RISK_PATH_PATTERNS.some((pattern) => pattern.test(file.path)),
+    isHighRiskCategory(file.category ?? classifyChangedFilePath(file.path))
   );
 }
 

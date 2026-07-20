@@ -257,37 +257,64 @@ async fn write_http_response(
     stream.write_all(response.as_bytes()).await
 }
 
+/// Accepts connections until one requests the OAuth callback path or the
+/// deadline passes. S-064: a single stray connection — browser prefetch, a
+/// favicon probe, a port scanner — used to be accepted as "the" callback and
+/// abort the whole login. Those get a 404 and are skipped; only a request to
+/// the callback path is returned (with its still-open stream) for completion.
+/// The `deadline` preserves the original overall `CALLBACK_TIMEOUT` semantics.
+async fn accept_oauth_callback(
+    listener: &TcpListener,
+    deadline: tokio::time::Instant,
+) -> Result<(tokio::net::TcpStream, String), String> {
+    loop {
+        let (mut stream, _) = tokio::time::timeout_at(deadline, listener.accept())
+            .await
+            .map_err(|_| "callback timed out".to_string())?
+            .map_err(|err| format!("callback accept: {err}"))?;
+
+        let mut buf = vec![0u8; 8192];
+        // S-064 M2: bound the read by the same deadline as accept — a connection
+        // that opens but never sends data must not hang the login forever. An
+        // empty/failed read is noise (try the next); the deadline elapsing ends
+        // the wait, matching the accept-timeout behavior.
+        let n = match tokio::time::timeout_at(deadline, stream.read(&mut buf)).await {
+            Ok(Ok(0)) | Ok(Err(_)) => continue,
+            Ok(Ok(n)) => n,
+            Err(_) => return Err("callback timed out".to_string()),
+        };
+        let request = String::from_utf8_lossy(&buf[..n]);
+        let Some(target) = request
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+        else {
+            continue;
+        };
+
+        if !request_target_matches_callback(target) {
+            let body = response_html(
+                "DIVE OAuth callback not found",
+                "This callback URL is not handled by DIVE.",
+            );
+            let _ = write_http_response(&mut stream, "404 Not Found", &body).await;
+            // Not the OAuth redirect — keep listening for the real one.
+            continue;
+        }
+
+        let target = target.to_string();
+        return Ok((stream, target));
+    }
+}
+
 async fn run_callback_server_once(app: AppHandle, state: AppState) -> Result<(), String> {
     let listener = TcpListener::bind(CALLBACK_BIND_ADDR)
         .await
         .map_err(|err| format!("callback bind: {err}"))?;
-    let (mut stream, _) = tokio::time::timeout(CALLBACK_TIMEOUT, listener.accept())
-        .await
-        .map_err(|_| "callback timed out".to_string())?
-        .map_err(|err| format!("callback accept: {err}"))?;
+    let deadline = tokio::time::Instant::now() + CALLBACK_TIMEOUT;
+    let (mut stream, target) = accept_oauth_callback(&listener, deadline).await?;
 
-    let mut buf = vec![0u8; 8192];
-    let n = stream
-        .read(&mut buf)
-        .await
-        .map_err(|err| format!("callback read: {err}"))?;
-    let request = String::from_utf8_lossy(&buf[..n]);
-    let target = request
-        .lines()
-        .next()
-        .and_then(|line| line.split_whitespace().nth(1))
-        .ok_or_else(|| "callback request missing target".to_string())?;
-
-    if !request_target_matches_callback(target) {
-        let body = response_html(
-            "DIVE OAuth callback not found",
-            "This callback URL is not handled by DIVE.",
-        );
-        let _ = write_http_response(&mut stream, "404 Not Found", &body).await;
-        return Err(format!("unexpected callback path: {target}"));
-    }
-
-    let parsed = parse_authorization_input(target);
+    let parsed = parse_authorization_input(&target);
     let code = parsed
         .code
         .as_deref()
@@ -608,6 +635,60 @@ mod tests {
             *guard = None;
         }
         (db, keyring)
+    }
+
+    #[tokio::test]
+    async fn accept_oauth_callback_skips_noise_before_real_callback() {
+        // S-064: a stray connection (favicon probe / scanner) must not abort the
+        // login — the accept loop should keep going until the real callback.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let server = tokio::spawn(async move { accept_oauth_callback(&listener, deadline).await });
+
+        // Noise first. Drain the response so we know the server processed it and
+        // looped back to accept() before we send the real callback.
+        let mut noise = tokio::net::TcpStream::connect(addr).await.unwrap();
+        noise
+            .write_all(b"GET /favicon.ico HTTP/1.1\r\nHost: x\r\n\r\n")
+            .await
+            .unwrap();
+        let mut discard = Vec::new();
+        let _ = noise.read_to_end(&mut discard).await;
+
+        // Real callback.
+        let mut good = tokio::net::TcpStream::connect(addr).await.unwrap();
+        good.write_all(b"GET /auth/callback?code=abc&state=xyz HTTP/1.1\r\nHost: x\r\n\r\n")
+            .await
+            .unwrap();
+
+        let (_stream, target) = server.await.unwrap().unwrap();
+        assert!(target.contains("code=abc"), "target was {target}");
+        assert!(target.contains("state=xyz"), "target was {target}");
+    }
+
+    #[tokio::test]
+    async fn accept_oauth_callback_read_honors_deadline_on_silent_connection() {
+        // S-064 M2: a connection that opens but never sends must not hang the
+        // read forever — it is bounded by the same deadline as accept.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(200);
+        let server = tokio::spawn(async move { accept_oauth_callback(&listener, deadline).await });
+
+        // Open a connection and hold it open without sending any bytes.
+        let _silent = tokio::net::TcpStream::connect(addr).await.unwrap();
+
+        // The helper must return (with a timeout error) rather than hang; the
+        // outer timeout makes a regression fail cleanly instead of stalling.
+        let result = tokio::time::timeout(Duration::from_secs(5), server)
+            .await
+            .expect("accept_oauth_callback must return once the deadline elapses")
+            .unwrap();
+        assert!(
+            result.is_err(),
+            "silent connection should time out, got {result:?}"
+        );
     }
 
     #[tokio::test]

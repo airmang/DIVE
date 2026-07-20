@@ -43,7 +43,13 @@ pub fn list_by_session(
     session_id: i64,
     limit: i64,
 ) -> Result<Vec<MessageRow>, DbError> {
-    let mut stmt=conn.prepare("SELECT id, session_id, card_id, role, content, reasoning_content, tool_calls, usage, provider, model, created_at FROM Message WHERE session_id = ? ORDER BY created_at, id LIMIT ?")?;
+    // S-064 E1: keep the *newest* `limit` messages, then hand them back in
+    // chronological order. The naive `ORDER BY created_at, id LIMIT ?` kept the
+    // oldest N instead — on a session past the cap it dropped the most recent
+    // turns (including the user input just inserted) from the LLM history. The
+    // inner query selects the newest N (DESC), the outer re-sorts ascending so
+    // every consumer still sees oldest→newest.
+    let mut stmt=conn.prepare("SELECT id, session_id, card_id, role, content, reasoning_content, tool_calls, usage, provider, model, created_at FROM (SELECT id, session_id, card_id, role, content, reasoning_content, tool_calls, usage, provider, model, created_at FROM Message WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT ?) ORDER BY created_at, id")?;
     let rows = stmt
         .query_map(params![session_id, limit], query_map_row)?
         .collect::<Result<Vec<_>, _>>()?;
@@ -103,6 +109,31 @@ mod tests {
         let (_, sid) = seed_project_session(db.conn());
         insert(db.conn(), &msg(sid, "a")).unwrap();
         insert(db.conn(), &msg(sid, "b")).unwrap();
-        assert_eq!(list_by_session(db.conn(), sid, 1).unwrap().len(), 1);
+        // The single kept row must be the newest ("b"), not the oldest.
+        let rows = list_by_session(db.conn(), sid, 1).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].content, "b");
+    }
+
+    // S-064 E1: on a session past the cap, list_by_session must keep the newest
+    // N and drop the oldest — the previous ASC+LIMIT kept the oldest N and lost
+    // the most recent turns (including the just-inserted user input).
+    #[test]
+    fn list_by_session_keeps_newest_when_over_limit() {
+        let (db, _) = fresh_db();
+        let (_, sid) = seed_project_session(db.conn());
+        for i in 0..201 {
+            insert(db.conn(), &msg(sid, &format!("m{i:03}"))).unwrap();
+        }
+        let rows = list_by_session(db.conn(), sid, 200).unwrap();
+        assert_eq!(rows.len(), 200);
+        // Oldest message dropped, newest message kept.
+        assert_eq!(rows.first().unwrap().content, "m001");
+        assert_eq!(rows.last().unwrap().content, "m200");
+        // Still returned oldest→newest (ascending by id/created_at).
+        let ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
+        let mut sorted = ids.clone();
+        sorted.sort_unstable();
+        assert_eq!(ids, sorted);
     }
 }
