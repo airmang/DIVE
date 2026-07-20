@@ -1,6 +1,6 @@
 # DIVE Spec Status
 
-**Last updated**: 2026-07-03
+**Last updated**: 2026-07-20
 
 This file prevents agents from treating old design notes as active product
 authority. The canonical DIVE v2 source of truth lives in `.specify/` and
@@ -62,6 +62,45 @@ archived-status sections below).
 | `specs/010-beginner-readiness-ux/design-s041.md` … `design-s048.md` | Canonical planning aids | Per-stage designs for the eight 010 stages. |
 | `specs/010-beginner-readiness-ux/adr-s048-network-egress.md` | Accepted ADR | Constitution 1.0.0→1.1.0 amendment admitting the Rust-validated network-egress capability class (Principle III). |
 | `specs/011-conference-demo-readiness/spec.md` | Canonical | Defines the round-3 conference-demo-readiness scope (8 themes → Wily Stages S-050–S-057) from the 2026-07-10 QA NO-GO verdict, targeting the 2026-08-14 presentation (Windows demo machine). |
+| `specs/013-public-release-readiness/spec.md` | Canonical | Defines the round-4 public-release readiness scope (13 themes → Wily Stages S-058–S-070) from the 2026-07-20 full-repo code review (124 confirmed findings), gating the public repo flip synchronized with the 2026-08-14 presentation. |
+
+## External Product Extraction
+
+DIVE for Codex was separated on 2026-07-15 into the independent local
+repository `/Users/wilycastle/Code/projects/dive-plugin`. Its constitution,
+plugin manifest, feature 001 spec, and future implementation authority live in
+that repository. DIVE-2 retains only the extraction record at
+`docs/product-extractions/dive-plugin.md`; there is no active 012 feature in
+this repository.
+
+## 013 Implementation Status
+
+As of 2026-07-20, `specs/013-public-release-readiness/` (round 4, public
+release readiness) is approved (owner, full scope) and staged as Wily Stages
+S-058 through S-070. Input evidence is
+`docs/qa/public-release-code-review-2026-07-20.md` (full-repo review, 124
+confirmed findings: 2 P0 / 35 P1 / 87 P2). The repo goes public with the
+2026-08-14 presentation; S-070 (history purge + flip gate) is strictly last so
+history is rewritten exactly once. Implementer models: Sonnet for mechanical
+stages (S-058–S-062), Opus for judgment-bearing stages (S-063–S-069); the root
+harness session owns design, adversarial review, CI verification, and Wily
+lifecycle.
+
+| Wily Stage | Scope | Status |
+| --- | --- | --- |
+| S-058 | Public hygiene: copyrighted PDF tree removal → references.md, .gitignore promotion + gap closure, OFL font notices, tracked junk (test-results, pi-sidecar-spikes, root images/) (P0-1 tree half, A1, A2) | Ready |
+| S-059 | Script/version truth: 23 orphaned scripts, verify:version-sync self-versioning, README version drift (gate markers preserved), deps-ci P2s (C8, E6, A3) | Ready |
+| S-060 | Rust dead-code sweep: crate-wide `#![allow(dead_code)]` removal, `greet`, caller-less IPC surface, dead symbols (C1, C2, C4, C5) | Ready |
+| S-061 | FE dead-code sweep + loadTauri unification: ghost rationaleChallenge wiring, prdPatch TS mirror, 18 loadTauri copies (C6, C7, D1) | Ready |
+| S-062 | FE silent-failure surfacing: settings connect, plan add-step, observation record, preview candidate (E3, E4) | Ready |
+| S-063 | Rust tool security/robustness: env-dump asymmetry, redact_line JSON no-op, output stream cap, multi_replace staging leak + security P2s; S-048 6b disposition recorded (F1–F3, E5) | Ready |
+| S-064 | Correctness bug pack: latest-200 history, evidence-preserving StepDetail mount, risk-classifier unification, stale-draft race + correctness P2s (E1, E2, E7, G4) | Ready |
+| S-065 | Approval-pipeline unification: legacy `AgentLoop::run` removal, single tool-execution source (C3, D2; depends S-060) | Ready |
+| S-066 | workspace_plan.rs submodule split (7,724 lines → 6 submodules, behavior-preserving) (B1) | Ready |
+| S-067 | supervisor.rs split + pi_sidecar spawn helper/test extraction (B2, D3) | Ready |
+| S-068 | FE god-hook split: useProductShellController, StepDetailSlideIn, useChatSession (B3–B5; depends S-061, S-062) | Ready |
+| S-069 | Performance/duplication pack: JOIN COUNT, plan-scoped EventLog query, memoization policy + perf/dup P2s (G1–G3; depends S-066–S-068) | Ready |
+| S-070 | History purge (`git filter-repo` on references-pdf) + owner decisions (author email, home paths) + final flip gate — strictly last | Ready |
 
 ## 011 Implementation Status
 
