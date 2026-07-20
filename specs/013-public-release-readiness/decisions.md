@@ -142,7 +142,41 @@ is noted as a residual in the report.
 
 `docs/spec-status.md` tracked follow-up updated to record the resolution.
 
-## D-013-09 (open, owner) — History-rewrite pass options
+## D-013-13 (S-070) — Public flip is BLOCKED on GitHub Support (PR-ref purge)
+
+The history rewrite is complete and clean: `git filter-repo` purged the 18
+copyrighted PDFs and the internal conference-poster tree (references.md kept)
+from all of `main`'s history; `.git` shrank 160 MB → 12 MB; `origin/main`
+was force-pushed and carries **zero** PDF/references-pdf objects; the stale
+`010`/`011` branches were deleted from origin. Owner decisions applied: email
+left as-is, home paths scrubbed in-tree, conference material made internal.
+
+**Blocker — do NOT flip the repo public yet.** 19 references-pdf objects
+remain reachable on origin through `refs/pull/*/head` (the ~30 closed/merged
+pull-request head refs GitHub maintains). These refs are GitHub-managed and
+**cannot be deleted with `git push`**; rewriting `main` does not touch them.
+On a public repo the copyrighted PDFs would still be served through the PR
+"Files changed" views and by fetching the PR refs — i.e. the DMCA exposure
+the whole round exists to remove would survive.
+
+**Required before flip (owner action):** open a GitHub Support request to
+purge cached views and the pull-request references for this repository after
+the history rewrite (GitHub's documented "Removing sensitive data" remedy —
+only Support can drop `refs/pull/*` content), and confirm completion. Also
+review the scratch branch `claude/angry-margulis-e16424` still on origin.
+Only after Support confirms the PR-ref/cached PDF exposure is gone should the
+repository be toggled private → public. That toggle and the Support ticket
+are the owner's to execute.
+
+## D-013-09 (owner) — History-rewrite pass decisions (resolved)
+
+Resolved 2026-07-20: (a) commit-author email `kokyuhyun@hotmail.com` left
+as-is across history per owner; (b) personal home paths scrubbed in the
+working tree (18 docs → `~/DIVE-2`, `~`), history left as-is (non-sensitive).
+The single `git filter-repo` rewrite pass (run as two continuations on the
+same working repo) purged the copyrighted PDFs and the internal
+conference-poster tree; a full bundle backup was taken first
+(scratchpad `dive-pre-filter-repo-backup.bundle`, 153 MB) for recoverability.
 
 S-070 executes exactly one `git filter-repo` pass. Owner decisions pending:
 commit-author personal email exposure, and personal home paths in 15 tracked
