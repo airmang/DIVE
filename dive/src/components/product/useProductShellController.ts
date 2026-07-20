@@ -1,13 +1,4 @@
-import {
-  Suspense,
-  createElement,
-  lazy,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { VerifyLogView } from "../workmap/types";
 import type { ApprovalDecision } from "../workmap/ApprovalJudgment";
 import type { ToolApprovalMetadata } from "../chat/types";
@@ -19,22 +10,15 @@ import {
   selectCurrentCard,
   useWorkmapStore,
 } from "../../stores/workmap";
-import {
-  selectHasConnectedProvider,
-  useProjectSessionStore,
-  type ProviderSummary,
-} from "../../stores/project-session";
+import { selectHasConnectedProvider, useProjectSessionStore } from "../../stores/project-session";
 import { cockpitProviderLabel } from "../../lib/provider-format";
-import { matchSidecarModelNotFoundError } from "../../lib/error-classify";
 import { useToast } from "../toast/toast-context";
 import { getCardStateMeta } from "../workmap/card-state-meta";
 import { useT } from "../../i18n";
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts";
 import { usePlanRoadmap, useRoadmap } from "../../features/roadmap";
 import {
-  PLAN_DRAFT_REVIEW_REQUEST_EVENT,
   createLiveProjectSpecDraft,
-  requestPlanAddStepDraft,
   quickIntakeInterviewAnswers,
   validateConfirmableProjectSpec,
   usePlan,
@@ -43,27 +27,15 @@ import {
   type LiveProjectSpecDraft,
   type PrdInterviewConversationTurn,
   type ProjectSpec,
-  type RouteDecision,
   type InterviewAnswer,
   type QuickIntakeInput,
 } from "../../features/planning";
-import type {
-  InterviewRow,
-  PlanCritiqueResolution,
-  PlanGenerationResult,
-} from "../../features/planning";
-import type { ConfirmableRouteDecision } from "./PlanRouteConfirmModal";
+import type { PlanCritiqueResolution } from "../../features/planning";
 import {
   buildIssueLines,
   collectRecoveryExamples,
-  decodePlanDraftQualityError,
-  usePlanInterviewLLM,
-  type PlanDraftLlmErrorReason,
-  type PlanDraftQualityIssue,
 } from "../../features/planning/usePlanInterviewLLM";
 import { useChatSession } from "../../hooks/useChatSession";
-import { refreshMenuRecents, useMenuEvents } from "../../lib/menu-events";
-import { pickFolder } from "../../lib/tauri-dialog";
 import { useTheme } from "../../hooks/useTheme";
 import { hasRecognizedDemoRoute } from "../../lib/dev-demo";
 import { useUiPreferencesStore } from "../../stores/ui-preferences";
@@ -77,366 +49,58 @@ import {
   hasExecutedTestCommand,
 } from "../../features/provocation/verificationGrade";
 import { useProductShellDialogs } from "./useProductShellDialogs";
-import { PlanDraftRecoveryScreen } from "./PlanDraftRecoveryScreen";
-import { PlanDraftPendingScreen } from "./PlanDraftPendingScreen";
-import { SocraticInterviewPanel } from "./SocraticInterviewPanel";
 import { useProductPlanStepRuntime } from "./useProductPlanStepRuntime";
 import { useProductConversationModel } from "./useProductConversationModel";
 import { useProductRecovery } from "./useProductRecovery";
-import { PrdAuthoringBoard, type PrdPatchFeedback } from "./PrdAuthoringBoard";
-import { FinalPrdReadView } from "./FinalPrdReadView";
-import { fallbackModels } from "../settings/providerModels";
-import { requestProjectRailTab } from "./ProjectRail";
-import type { ArchitectureForm } from "../../features/planning";
+import type { PrdPatchFeedback } from "./PrdAuthoringBoard";
+import {
+  type InterviewSurfaceData,
+  type PlanDraftSurfaceData,
+  type PrdSurfaceData,
+} from "./ConversationSurfaces";
+import { usePlanChatRouting } from "./usePlanChatRouting";
+import { usePlanDraftLifecycle } from "./usePlanDraftLifecycle";
+import { useShellMenus, useShellNavigation } from "./useShellMenus";
+import {
+  buildPrdPlanGenerationPrompt,
+  draftFromProjectSpec,
+  interviewAnswersFromQuestions,
+  modelNotFoundToastArgs,
+  prdRuntimeSelection,
+  prdTurnFailureDescription,
+  restorePrdDraftIfCurrent,
+  runtimeSetupActionLabel,
+  shouldRenderPlanDraftPending,
+  shouldShowEmptyPlanRail,
+  shouldUsePrdReferenceSurface,
+  stringArray,
+  type PrdMode,
+} from "./productShellControllerLogic";
 
-export type PrdMode = "authoring" | "read" | null;
+// The pure helpers moved to ./productShellControllerLogic; re-export the ones
+// external callers and unit tests still import from this module.
+export {
+  buildPrdPlanGenerationPrompt,
+  draftFromProjectSpec,
+  modelNotFoundToastArgs,
+  restorePrdDraftIfCurrent,
+  runtimeSetupActionLabel,
+  shouldRenderPlanDraftPending,
+  shouldShowEmptyPlanRail,
+  shouldUsePrdReferenceSurface,
+} from "./productShellControllerLogic";
+export type { ModelNotFoundToastArgs, PrdMode } from "./productShellControllerLogic";
+export { usePlanDraftPendingController } from "./usePlanDraftLifecycle";
 
 interface PendingPrdPlanRequest {
   projectSpec: ProjectSpec;
   interviewAnswers?: InterviewAnswer[];
 }
 
-function planScaffoldingForForm(form: ArchitectureForm): string | null {
-  switch (form) {
-    case "web_app":
-      return "For web_app, steps should cover browser UI screens/components, client state, user interactions, and frontend verification; avoid CLI-only deliverables unless they directly support the web app.";
-    case "static_page":
-      return "For static_page, steps should be static HTML/CSS/JS; avoid server, database, or backend-auth steps.";
-    case "cli_tool":
-      return "For cli_tool, steps should cover command parsing, terminal input/output, files/config if needed, and command verification; avoid DOM, browser page, or UI component steps.";
-    case "desktop_app":
-      return "For desktop_app, steps should cover desktop window/app shell, local UI flows, packaging/runtime integration, and local persistence when needed; avoid API-service-only endpoint steps.";
-    case "api_service":
-      return "For api_service, steps should cover endpoints, request/response schemas, validation, data/storage boundaries, and API tests; avoid UI/DOM/browser-page steps.";
-    case "other":
-      return null;
-  }
-}
-
-export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
-  const activeCriteria = projectSpec.acceptanceCriteria
-    .filter((criterion) => criterion.status === "active" && criterion.text.trim().length > 0)
-    .map((criterion) => ({
-      criterionId: criterion.criterionId,
-      text: criterion.text,
-    }));
-  // S-047 (010 theme 7): the student's confirmed architecture (form + stack) is
-  // decomposition context — the model decomposes *for* that form/stack rather than
-  // re-choosing one. This is context-only: it shapes the prose, not the plan schema.
-  const architecture = projectSpec.architecture
-    ? {
-        form: projectSpec.architecture.form,
-        formLabel: projectSpec.architecture.formOtherLabel?.trim() || projectSpec.architecture.form,
-        stack: projectSpec.architecture.stack ?? "",
-      }
-    : null;
-  const prd = {
-    goal: projectSpec.goal,
-    intentSummary: projectSpec.intentSummary ?? "",
-    scope: projectSpec.scope,
-    nonGoals: projectSpec.nonGoals,
-    constraints: projectSpec.constraints,
-    acceptanceCriteria: activeCriteria,
-    ...(architecture ? { architecture } : {}),
-  };
-  const formScaffolding = projectSpec.architecture
-    ? planScaffoldingForForm(projectSpec.architecture.form)
-    : null;
-
-  return [
-    "[PRD_PLAN_GENERATION]",
-    "Use the saved PRD below as the source of truth and return compact JSON only.",
-    'Return shape: {"intent_summary":"...","unresolved_questions":[],"plan_input":{"goal":"...","intent_summary":"...","scope":[],"non_goals":[],"constraints":[],"acceptance_criteria":[],"steps":[]}}.',
-    "Generate 2-6 steps and never exceed 8.",
-    "Each step must be small enough for one supervised DIVE turn.",
-    "Each step must include: step_id, title, summary, instruction_seed, expected_files, acceptance_criteria, linked_criterion_ids, rationale, step_kind, verification_command, verification_type, dependencies, parallel_group.",
-    "step_kind must be one of feature, refactor, rename, comment, debug. Use refactor/rename only for behavior-preserving move/restructure/name changes; use debug for diagnose-then-fix work.",
-    "Every step must link to at least one saved PRD criterion ID through linked_criterion_ids and explain the link in rationale.",
-    "Use the saved PRD criterion IDs exactly; do not invent AC IDs.",
-    "acceptance_criteria entries must be full observable criterion sentences (copy the PRD criterion text or write a new concrete sentence); never put bare criterion IDs like AC-001 in acceptance_criteria — IDs belong only in linked_criterion_ids.",
-    ...(architecture
-      ? [
-          "The PRD includes the student's confirmed architecture (form + tech stack). Decompose for that form and stack: keep every step, expected_files, and verification consistent with it, and do not switch to a different framework or stack.",
-        ]
-      : []),
-    ...(formScaffolding ? ["DIVE form-specific step scaffolding:", formScaffolding] : []),
-    "verification_command must be one no-shell command with explicit args when a command is appropriate, otherwise null with a clear manual verification summary in the step text.",
-    "Do not include Markdown fences or prose.",
-    "",
-    `Saved PRD JSON:\n${JSON.stringify(prd)}`,
-  ].join("\n");
-}
-
-type Translate = (key: string, values?: Record<string, string | number>) => string;
-
-// S-051 D2 point 2 / P2: the composer's runtime-unavailable CTA label per
-// `RuntimeSetupAction`. `open_project`/`retry_runtime` keep their existing
-// special-cased behavior (retry has no button); `switch_model` gets a
-// dedicated label pointing the student at provider/model settings instead
-// of the generic "open provider setup" copy.
-export function runtimeSetupActionLabel(
-  setupAction: string | null | undefined,
-  t: Translate,
-): string | undefined {
-  if (setupAction === "open_project") return t("sidebar.new_project");
-  if (setupAction === "retry_runtime") return undefined;
-  if (setupAction === "switch_model") return t("runtime.capability.switch_model_action");
-  return t("runtime.capability.setup_action");
-}
-
-export interface ModelNotFoundToastArgs {
-  title: string;
-  description: string;
-  actionLabel: string;
-}
-
-/**
- * S-051 D3: decides whether a chat error is the sidecar's own run-time
- * `model not found` failure and, if so, what a toast surfacing it should
- * say. Pure so the detection/copy logic is unit-testable without mounting
- * the shell controller — see `matchSidecarModelNotFoundError` for the
- * detection regex.
- */
-export function modelNotFoundToastArgs(
-  errorMessage: string | null | undefined,
-  t: Translate,
-): ModelNotFoundToastArgs | null {
-  if (!errorMessage) return null;
-  const match = matchSidecarModelNotFoundError(errorMessage);
-  if (!match) return null;
-  return {
-    title: t("runtime.model_not_found.toast_title"),
-    description: t("runtime.model_not_found.toast_description", {
-      provider: match.provider,
-      model: match.model,
-    }),
-    actionLabel: t("runtime.capability.switch_model_action"),
-  };
-}
-
-export function shouldShowEmptyPlanRail(input: {
-  currentProjectId: number | null;
-  planAccepted: boolean;
-  roadmapStepCount: number;
-  prdReadiness: "missing" | "draft" | "minimal";
-  prdMode: PrdMode;
-}) {
-  return (
-    input.currentProjectId !== null &&
-    !input.planAccepted &&
-    input.roadmapStepCount === 0 &&
-    input.prdReadiness === "minimal" &&
-    input.prdMode === "read"
-  );
-}
-
-export function shouldUsePrdReferenceSurface(input: {
-  prdMode: PrdMode;
-  hasPlan: boolean;
-  roadmapStepCount: number;
-  activePlanStepIdForChat?: number;
-}) {
-  return (
-    input.prdMode === "read" &&
-    (input.hasPlan || input.roadmapStepCount > 0 || input.activePlanStepIdForChat !== undefined)
-  );
-}
-
-const PlanDraftApprovalScreen = lazy(() =>
-  import("./PlanDraftApprovalScreen").then((module) => ({
-    default: module.PlanDraftApprovalScreen,
-  })),
-);
-
-interface PendingPlanRouteConfirmation {
-  decision: ConfirmableRouteDecision;
-  resolve: (approved: boolean) => void;
-}
-
-export const PLAN_DRAFT_PENDING_TIMEOUT_MS = 30_000;
-
-export function shouldRenderPlanDraftPending(input: {
-  planDraftPending: boolean;
-  hasGeneratedPlanDraft: boolean;
-  hasPlanDraftFailure: boolean;
-}): boolean {
-  return input.planDraftPending && !input.hasGeneratedPlanDraft && !input.hasPlanDraftFailure;
-}
-
-export function usePlanDraftPendingController(timeoutMs: number = PLAN_DRAFT_PENDING_TIMEOUT_MS) {
-  const expectingPlanDraftRef = useRef(false);
-  const [planDraftPending, setPlanDraftPending] = useState(false);
-
-  const setPlanDraftExpectation = useCallback((pending: boolean) => {
-    expectingPlanDraftRef.current = pending;
-    setPlanDraftPending(pending);
-  }, []);
-
-  useEffect(() => {
-    if (!planDraftPending) return;
-    const handle = window.setTimeout(() => {
-      expectingPlanDraftRef.current = false;
-      setPlanDraftPending(false);
-    }, timeoutMs);
-    return () => window.clearTimeout(handle);
-  }, [planDraftPending, timeoutMs]);
-
-  return {
-    expectingPlanDraftRef,
-    planDraftPending,
-    setPlanDraftExpectation,
-  };
-}
-
-export function interviewAnswersFromQuestions(value: unknown): InterviewAnswer[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => {
-      if (!item || typeof item !== "object") return null;
-      const record = item as Record<string, unknown>;
-      const question = typeof record.question === "string" ? record.question.trim() : "";
-      const answer = typeof record.answer === "string" ? record.answer.trim() : "";
-      return question && answer ? { question, answer } : null;
-    })
-    .filter((item): item is InterviewAnswer => item !== null);
-}
-
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-    : [];
-}
-
-function safeExportFilenamePart(value: string | null, fallback: string): string {
-  const cleaned = (value ?? "")
-    .trim()
-    .replace(/[\\/:*?"<>|]+/g, "-")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-  return cleaned || fallback;
-}
-
-function downloadSessionExport(
-  sessionId: number,
-  sessionTitle: string | null,
-  jsonl: string,
-): void {
-  const filenamePart = safeExportFilenamePart(sessionTitle, `session-${sessionId}`);
-  const blob = new Blob([jsonl], { type: "application/x-ndjson" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `dive-${filenamePart}.jsonl`;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
-
-function activeConnectedProvider(providers: ProviderSummary[]): ProviderSummary | null {
-  return (
-    providers.find((provider) => provider.is_connected && provider.is_active) ??
-    providers.find((provider) => provider.is_connected) ??
-    null
-  );
-}
-
-function prdTurnFailureDescription(
-  err: unknown,
-  t: (key: string, params?: Record<string, string | number>) => string,
-): string {
-  const message = err instanceof Error ? err.message : String(err);
-  const normalized = message.toLowerCase();
-  if (
-    normalized.includes("internal_error") ||
-    normalized.includes("internal server error") ||
-    normalized.includes("api error (5") ||
-    normalized.includes("provider chat api error")
-  ) {
-    return t("prd.authoring.turn_failed_retryable_description");
-  }
-  return message;
-}
-
-function prdRuntimeSelection(
-  providers: ProviderSummary[],
-): { provider: string; model: string } | null {
-  const provider = activeConnectedProvider(providers);
-  if (!provider) return null;
-  return {
-    provider: provider.kind,
-    model: provider.selected_model?.trim() || fallbackModels(provider.kind)[0]?.id || "default",
-  };
-}
-
-export function draftFromProjectSpec(projectSpec: ProjectSpec): LiveProjectSpecDraft {
-  return createLiveProjectSpecDraft(projectSpec.projectId, {
-    draftId: `prd-draft-${projectSpec.projectId}`,
-    projectSpecId: projectSpec.projectSpecId,
-    baseVersion: projectSpec.currentVersion,
-    currentVersion: projectSpec.currentVersion,
-    goal: projectSpec.goal,
-    intentSummary: projectSpec.intentSummary,
-    scope: projectSpec.scope,
-    nonGoals: projectSpec.nonGoals,
-    constraints: projectSpec.constraints,
-    acceptanceCriteria: projectSpec.acceptanceCriteria,
-    // S-047: carry the decided architecture into the editable draft. Without this,
-    // the read-view "Edit" button (which rebuilds the draft here with no backend
-    // refetch) would reset architecture to null and permanently drop it on re-save.
-    architecture: projectSpec.architecture,
-    // S-053 D3: same reasoning for provenance — reopening a confirmed PRD for
-    // editing via this client-only rebuild must not reset the intent-check
-    // card to the legacy-empty-map "AI summarized this" fallback.
-    fieldProvenance: projectSpec.fieldProvenance,
-    status: "draft",
-  });
-}
-
-export function restorePrdDraftIfCurrent(input: {
-  currentDraft: LiveProjectSpecDraft | null;
-  restoredDraft: LiveProjectSpecDraft | null;
-  requestedProjectId: number;
-  requestedDraftId: string;
-  requestedDraftUpdatedAt: number;
-}): LiveProjectSpecDraft | null {
-  const {
-    currentDraft,
-    restoredDraft,
-    requestedProjectId,
-    requestedDraftId,
-    requestedDraftUpdatedAt,
-  } = input;
-  if (!restoredDraft || !currentDraft) {
-    return currentDraft;
-  }
-  if (
-    restoredDraft.projectId !== requestedProjectId ||
-    restoredDraft.draftId !== requestedDraftId
-  ) {
-    return currentDraft;
-  }
-  if (currentDraft.projectId !== requestedProjectId || currentDraft.draftId !== requestedDraftId) {
-    return currentDraft;
-  }
-  if (currentDraft.updatedAt !== requestedDraftUpdatedAt) {
-    return currentDraft;
-  }
-  return restoredDraft;
-}
-
 export function useProductShellController() {
   const t = useT();
   const dialogs = useProductShellDialogs();
   const setOnboardingOpen = dialogs.setOnboardingOpen;
-  const [activeInterview, setActiveInterview] = useState<InterviewRow | null>(null);
-  const activeInterviewRef = useRef<InterviewRow | null>(null);
-  const [generatedPlanDraft, setGeneratedPlanDraft] = useState<PlanGenerationResult | null>(null);
-  const [planDraftReviewRequestNonce, setPlanDraftReviewRequestNonce] = useState(0);
-  const [planDraftFailure, setPlanDraftFailure] = useState<{
-    reason: PlanDraftLlmErrorReason;
-    unresolvedQuestions: string[];
-    issues?: PlanDraftQualityIssue[];
-  } | null>(null);
   const [prdMode, setPrdMode] = useState<PrdMode>(null);
   const [prdDraft, setPrdDraft] = useState<LiveProjectSpecDraft | null>(null);
   const [currentProjectSpec, setCurrentProjectSpec] = useState<ProjectSpec | null>(null);
@@ -451,16 +115,6 @@ export function useProductShellController() {
   const [pendingPrdPlanRequest, setPendingPrdPlanRequest] = useState<PendingPrdPlanRequest | null>(
     null,
   );
-  const { expectingPlanDraftRef, planDraftPending, setPlanDraftExpectation } =
-    usePlanDraftPendingController();
-  const [pendingPlanRoute, setPendingPlanRoute] = useState<PendingPlanRouteConfirmation | null>(
-    null,
-  );
-  const pendingPlanRouteRef = useRef<PendingPlanRouteConfirmation | null>(null);
-  const [pendingPlanReplace, setPendingPlanReplace] = useState<{
-    resolve: (confirmed: boolean) => void;
-  } | null>(null);
-  const pendingPlanReplaceRef = useRef<{ resolve: (confirmed: boolean) => void } | null>(null);
   const wasStreaming = useRef(false);
   const prdDraftRestoreRequestRef = useRef(0);
 
@@ -508,15 +162,7 @@ export function useProductShellController() {
   const getProjectSpecDraft = plan.getProjectSpecDraft;
   const saveProjectSpecDraft = plan.saveProjectSpecDraft;
   const planRouter = usePlanRouter(currentProjectId);
-  const currentDraft = plan.currentDraft;
-  const planStatus = plan.status?.status;
   const prdReadiness = plan.prdStatus?.status ?? "missing";
-
-  useEffect(() => {
-    if (generatedPlanDraft && generatedPlanDraft.plan.project_id !== currentProjectId) {
-      setGeneratedPlanDraft(null);
-    }
-  }, [currentProjectId, generatedPlanDraft]);
 
   useEffect(() => {
     prdDraftRestoreRequestRef.current += 1;
@@ -549,321 +195,42 @@ export function useProductShellController() {
     };
   }, [currentProjectId, getProjectSpec, prdMode, prdReadiness]);
 
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const requestedProjectId = (event as CustomEvent<{ projectId?: number }>).detail?.projectId;
-      if (typeof requestedProjectId === "number" && requestedProjectId !== currentProjectId) {
-        return;
-      }
-      setPlanDraftReviewRequestNonce((nonce) => nonce + 1);
-    };
-    window.addEventListener(PLAN_DRAFT_REVIEW_REQUEST_EVENT, handler);
-    return () => window.removeEventListener(PLAN_DRAFT_REVIEW_REQUEST_EVENT, handler);
-  }, [currentProjectId]);
+  const {
+    handleBeforeChatSend,
+    pendingPlanRoute,
+    settlePlanRouteConfirmation,
+    requestPlanReplaceConfirmation,
+    pendingPlanReplace,
+    settlePlanReplaceConfirmation,
+  } = usePlanChatRouting({
+    currentProjectId,
+    plan,
+    planRoadmap,
+    planRouter,
+    toast,
+    t,
+  });
 
-  useEffect(() => {
-    if (currentProjectId === null || generatedPlanDraft !== null || planStatus !== "draft") {
-      return;
-    }
-    let cancelled = false;
-    void currentDraft()
-      .then((draft) => {
-        if (!cancelled && draft) {
-          setGeneratedPlanDraft(draft);
-        }
-      })
-      .catch((err) => {
-        console.warn("load current plan draft failed:", err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [currentDraft, currentProjectId, generatedPlanDraft, planDraftReviewRequestNonce, planStatus]);
-
-  useEffect(() => {
-    pendingPlanRouteRef.current = pendingPlanRoute;
-  }, [pendingPlanRoute]);
-
-  useEffect(
-    () => () => {
-      pendingPlanRouteRef.current?.resolve(false);
-    },
-    [],
-  );
-
-  const requestPlanRouteConfirmation = useCallback(
-    (decision: ConfirmableRouteDecision) =>
-      new Promise<boolean>((resolve) => {
-        setPendingPlanRoute({ decision, resolve });
-      }),
-    [],
-  );
-
-  const settlePlanRouteConfirmation = useCallback((approved: boolean) => {
-    const pending = pendingPlanRouteRef.current;
-    if (!pending) return;
-    pending.resolve(approved);
-    pendingPlanRouteRef.current = null;
-    setPendingPlanRoute(null);
-  }, []);
-
-  useEffect(() => {
-    pendingPlanReplaceRef.current = pendingPlanReplace;
-  }, [pendingPlanReplace]);
-  useEffect(
-    () => () => {
-      pendingPlanReplaceRef.current?.resolve(false);
-    },
-    [],
-  );
-  const requestPlanReplaceConfirmation = useCallback(
-    () =>
-      new Promise<boolean>((resolve) => {
-        setPendingPlanReplace({ resolve });
-      }),
-    [],
-  );
-  const settlePlanReplaceConfirmation = useCallback((confirmed: boolean) => {
-    const pending = pendingPlanReplaceRef.current;
-    if (!pending) return;
-    pending.resolve(confirmed);
-    pendingPlanReplaceRef.current = null;
-    setPendingPlanReplace(null);
-  }, []);
-
-  const handleBeforeChatSend = useCallback(
-    async ({
-      text,
-      runMode,
-    }: {
-      text: string;
-      runMode?: "interview" | "plan" | "build" | "verify";
-    }) => {
-      if (runMode === "interview") return true;
-      const approvedPlanId = planRoadmap.status?.has_approved_plan
-        ? planRoadmap.status.plan_id
-        : plan.status?.has_approved_plan
-          ? plan.status.plan_id
-          : null;
-      if (approvedPlanId === null || currentProjectId === null) return true;
-
-      let decision: RouteDecision;
-      try {
-        decision = await planRouter.route(text);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (message.toLowerCase().includes("cancel")) return false;
-        toast({
-          variant: "error",
-          title: t("planning.route.error.routing_failed", {
-            message,
-          }),
-        });
-        return true;
-      }
-
-      // add_step routes to the dashboard add-step area; remove/supersede apply
-      // chat / skip stay normal chat; every confirmable outcome opens the modal.
-      // add_step routes to the dashboard add-step area; remove / supersede /
-      // multi_step apply from the modal; duplicate / clarify are informational.
-      if (decision.action === "chat" || decision.action === "skip") {
-        return true;
-      }
-
-      const approved = await requestPlanRouteConfirmation(decision);
-
-      if (decision.action === "duplicate" || decision.action === "clarify") {
-        // Informational: the modal was the response — duplicate shows the
-        // collision, clarify asks a question the user answers in chat (which
-        // routes again). Don't re-send the original message.
-        return false;
-      }
-
-      if (decision.action === "add_step") {
-        // "Just chat" keeps the original message as a normal chat turn.
-        if (!approved) return true;
-        requestProjectRailTab("dashboard");
-        requestPlanAddStepDraft({
-          projectId: currentProjectId,
-          planId: approvedPlanId,
-          draft: decision.draft,
-          reason: decision.reason,
-          source: "chat_route",
-        });
-        toast({
-          variant: "info",
-          title: t("planning.route.confirm.dedicated_area_title"),
-          description: t("planning.route.confirm.dedicated_area_description"),
-        });
-        return false;
-      }
-
-      // remove_step / supersede_step / multi_step apply directly from the modal;
-      // "Cancel" dismisses without re-sending the request to chat.
-      if (!approved) return false;
-      try {
-        if (decision.action === "remove_step") {
-          const stepLabel = `${decision.target.stepId}: ${decision.target.title}`;
-          await planRouter.removeStep(approvedPlanId, decision.target.dbId, decision.reason);
-          toast({
-            variant: "success",
-            title: t("planning.route.confirm.removed_toast", { step: stepLabel }),
-          });
-        } else if (decision.action === "supersede_step") {
-          const stepLabel = `${decision.target.stepId}: ${decision.target.title}`;
-          await planRouter.supersedeStep(
-            approvedPlanId,
-            decision.target.dbId,
-            decision.replacement,
-            decision.reason,
-          );
-          toast({
-            variant: "success",
-            title: t("planning.route.confirm.superseded_toast", { step: stepLabel }),
-          });
-        } else {
-          // multi_step: insert the whole dependency-ordered batch in one IPC.
-          await planRouter.appendSteps(approvedPlanId, decision.drafts, {
-            mutationReason: decision.reason,
-          });
-          toast({
-            variant: "success",
-            title: t("planning.route.confirm.added_steps_toast", {
-              count: decision.drafts.length,
-            }),
-          });
-        }
-        await planRoadmap.refresh();
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        toast({
-          variant: "error",
-          title: t("planning.route.confirm.apply_failed", { message }),
-        });
-      }
-      return false;
-    },
-    [currentProjectId, plan, planRoadmap, planRouter, requestPlanRouteConfirmation, t, toast],
-  );
-
-  const planInterviewObserver = usePlanInterviewLLM({
-    onPlanDraft: (draft) => {
-      const interview = activeInterviewRef.current;
-      if (!interview) {
-        setPlanDraftExpectation(false);
-        return;
-      }
-      setPlanDraftFailure(null);
-      void (async () => {
-        try {
-          const submitted =
-            interview.status === "draft"
-              ? await plan.submitInterview(
-                  interview.id,
-                  draft.intentSummary,
-                  draft.unresolvedQuestions,
-                )
-              : interview;
-          setActiveInterview({
-            ...submitted,
-            intent_summary: draft.intentSummary,
-            unresolved_questions: draft.unresolvedQuestions,
-          });
-          // A project already carrying an APPROVED plan would make plan
-          // generation hard-fail in the backend ("already has approved plan").
-          // We know this up front via plan.status, so confirm a deliberate
-          // replacement (discards the approved plan + its steps) before
-          // generating, instead of dead-ending the student on a raw error.
-          let replaceApproved = false;
-          if (plan.status?.has_approved_plan) {
-            replaceApproved = await requestPlanReplaceConfirmation();
-            if (!replaceApproved) {
-              toast({
-                variant: "info",
-                title: t("planning.replace.kept_title"),
-                description: t("planning.replace.kept_description"),
-              });
-              return;
-            }
-          }
-          const generated = await plan.generateDraft(
-            interview.id,
-            draft.planInput,
-            replaceApproved,
-          );
-          setGeneratedPlanDraft(generated);
-          await planRoadmap.refresh();
-          toast({
-            variant: "success",
-            title: t("planning.interview.draft_ready_title"),
-            description: t("planning.interview.draft_ready_description"),
-          });
-        } catch (err) {
-          const qualityError = decodePlanDraftQualityError(err);
-          if (qualityError) {
-            const unresolvedQuestions = qualityError.unresolvedQuestions ?? [];
-            setPlanDraftFailure({
-              reason: qualityError.reason,
-              unresolvedQuestions,
-              issues: qualityError.issues,
-            });
-            setActiveInterview((current) =>
-              current
-                ? {
-                    ...current,
-                    unresolved_questions: unresolvedQuestions,
-                  }
-                : current,
-            );
-            toast({
-              variant: "warn",
-              title: t(`planning.interview.recovery.${qualityError.reason}.title`),
-              description: t(`planning.interview.recovery.${qualityError.reason}.description`),
-            });
-            return;
-          }
-          toast({
-            variant: "error",
-            title: t("planning.interview.draft_failed_title"),
-            description: err instanceof Error ? err.message : String(err),
-          });
-        } finally {
-          setPlanDraftExpectation(false);
-        }
-      })();
-    },
-    onPlanDraftError: (error) => {
-      if (!expectingPlanDraftRef.current) return;
-      if (!activeInterviewRef.current) {
-        setPlanDraftExpectation(false);
-        return;
-      }
-      setPlanDraftExpectation(false);
-      setPlanDraftFailure({
-        reason: error.reason,
-        unresolvedQuestions: error.unresolvedQuestions ?? [],
-        issues: error.issues,
-      });
-      setActiveInterview((current) =>
-        current
-          ? {
-              ...current,
-              unresolved_questions: error.unresolvedQuestions ?? [],
-            }
-          : current,
-      );
-      toast({
-        variant: "warn",
-        title: t(`planning.interview.recovery.${error.reason}.title`),
-        description: t(`planning.interview.recovery.${error.reason}.description`),
-      });
-    },
+  const {
+    activeInterview,
+    setActiveInterview,
+    activeInterviewRef,
+    generatedPlanDraft,
+    setGeneratedPlanDraft,
+    planDraftFailure,
+    setPlanDraftFailure,
+    planDraftPending,
+    setPlanDraftExpectation,
+    planInterviewObserver,
+  } = usePlanDraftLifecycle({
+    currentProjectId,
+    plan,
+    planRoadmap,
+    requestPlanReplaceConfirmation,
+    toast,
+    t,
   });
   const chat = useChatSession(currentSessionId, planInterviewObserver, handleBeforeChatSend);
-
-  useEffect(() => {
-    activeInterviewRef.current = activeInterview;
-  }, [activeInterview]);
 
   const cards = roadmapModel.workmapCompat.cards;
   const currentCard = useWorkmapStore(selectCurrentCard);
@@ -1129,116 +496,19 @@ export function useProductShellController() {
     dialogs.setStepDetailOpen(false);
   }, [dialogs, requestChatFocus]);
 
-  const openSettingsRoute = useCallback(() => {
-    const url = new URL(window.location.href);
-    url.searchParams.delete("demo");
-    url.searchParams.set("route", "settings");
-    window.history.pushState({}, "", url.toString());
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  }, []);
+  const { openSettingsRoute, openPromptHelperRoute, openUserGuideRoute } = useShellNavigation();
 
-  const openPromptHelperRoute = import.meta.env.DEV
-    ? () => {
-        const url = new URL(window.location.href);
-        url.searchParams.delete("demo");
-        url.searchParams.set("route", "prompt-helper");
-        window.history.pushState({}, "", url.toString());
-        window.dispatchEvent(new PopStateEvent("popstate"));
-      }
-    : undefined;
-
-  const openUserGuideRoute = useCallback((doc: "index" | "troubleshooting") => {
-    const url = new URL(window.location.href);
-    url.searchParams.delete("demo");
-    url.searchParams.set("route", "user-guide");
-    if (doc === "troubleshooting") {
-      url.searchParams.set("doc", "troubleshooting");
-    } else {
-      url.searchParams.delete("doc");
-    }
-    window.history.pushState({}, "", url.toString());
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  }, []);
-
-  const handleOpenProject = useCallback(async () => {
-    const picked = await pickFolder({ title: t("project.open_pick_title") });
-    if (!picked) return;
-    try {
-      await openProject(picked);
-    } catch (err) {
-      toast({
-        variant: "error",
-        title: t("toast.project_open_failed"),
-        description: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }, [openProject, toast, t]);
-
-  const handleExportSession = useCallback(async () => {
-    if (currentSessionId === null) {
-      toast({
-        variant: "error",
-        title: t("toast.export_no_session_title"),
-        description: t("toast.export_no_session_description"),
-      });
-      return;
-    }
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const jsonl = await invoke<string>("export_session", { sessionId: currentSessionId });
-      downloadSessionExport(currentSessionId, currentSessionTitle, jsonl);
-      toast({
-        variant: "success",
-        title: t("toast.export_success_title"),
-        description: t("toast.export_success_description"),
-      });
-    } catch (err) {
-      toast({
-        variant: "error",
-        title: t("toast.export_failed_title"),
-        description: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }, [currentSessionId, currentSessionTitle, t, toast]);
-
-  useMenuEvents({
-    "menu:new-project": () => dialogs.setNewProjectOpen(true),
-    "menu:open-project": () => void handleOpenProject(),
-    "menu:open-recent": (payload) => {
-      const projectId = (payload as { project_id?: number } | undefined)?.project_id;
-      if (typeof projectId !== "number") return;
-      void selectProject(projectId).then(() => refreshMenuRecents());
-    },
-    "menu:export-session": () => void handleExportSession(),
-    "menu:settings": openSettingsRoute,
-    "menu:toggle-theme": () => toggleTheme(),
-    "menu:help-tutorial": () => {
-      const { tutorialEnabled, setTutorialEnabled } = useUiPreferencesStore.getState();
-      const nextEnabled = !tutorialEnabled;
-      setTutorialEnabled(nextEnabled);
-      toast({
-        variant: "info",
-        title: nextEnabled ? t("toast.tutorial_on") : t("toast.tutorial_off"),
-        description: t("toast.tutorial_description"),
-      });
-    },
-    "menu:help-docs": () => {
-      openUserGuideRoute("index");
-    },
-    "menu:help-issue": () => {
-      openUserGuideRoute("troubleshooting");
-      toast({
-        variant: "info",
-        title: t("toast.issue_guidance_title"),
-        description: t("toast.issue_guidance_description"),
-      });
-    },
-    "menu:help-about": () =>
-      toast({
-        variant: "info",
-        title: t("toast.about_title"),
-        description: t("toast.about_description"),
-      }),
+  useShellMenus({
+    setNewProjectOpen: dialogs.setNewProjectOpen,
+    openProject,
+    selectProject,
+    openSettingsRoute,
+    toggleTheme,
+    openUserGuideRoute,
+    currentSessionId,
+    currentSessionTitle,
+    toast,
+    t,
   });
 
   const handleVerify = useCallback(
@@ -1576,7 +846,19 @@ export function useProductShellController() {
         });
       }
     },
-    [chat, currentProjectId, plan, requestChatFocus, setPlanDraftExpectation, t, toast],
+    [
+      activeInterviewRef,
+      chat,
+      currentProjectId,
+      plan,
+      requestChatFocus,
+      setActiveInterview,
+      setGeneratedPlanDraft,
+      setPlanDraftExpectation,
+      setPlanDraftFailure,
+      t,
+      toast,
+    ],
   );
 
   useEffect(() => {
@@ -1919,7 +1201,7 @@ export function useProductShellController() {
         }
       })();
     },
-    [chat, currentProjectId, plan, t, toast],
+    [chat, currentProjectId, plan, setActiveInterview, t, toast],
   );
 
   const handleSubmitInterviewAnswer = useCallback(
@@ -1947,7 +1229,16 @@ export function useProductShellController() {
         }
       })();
     },
-    [chat, handleStartInterview, latestInterviewQuestion, plan, t, toast],
+    [
+      activeInterviewRef,
+      chat,
+      handleStartInterview,
+      latestInterviewQuestion,
+      plan,
+      setActiveInterview,
+      t,
+      toast,
+    ],
   );
 
   const handleCompleteInterview = useCallback(() => {
@@ -1959,7 +1250,7 @@ export function useProductShellController() {
     setPlanDraftExpectation(true);
     setPlanDraftFailure(null);
     void chat.sendUserMessage(submitPrompt, "interview", false);
-  }, [chat, setPlanDraftExpectation, t]);
+  }, [activeInterviewRef, chat, setPlanDraftExpectation, setPlanDraftFailure, t]);
 
   const handleApproveGeneratedPlan = useCallback(
     (critiqueResolution?: PlanCritiqueResolution) => {
@@ -1978,7 +1269,7 @@ export function useProductShellController() {
         }
       })();
     },
-    [generatedPlanDraft, plan, planRoadmap, t, toast],
+    [generatedPlanDraft, plan, planRoadmap, setGeneratedPlanDraft, t, toast],
   );
 
   const handleRequestPlanRevision = useCallback(
@@ -1995,7 +1286,7 @@ export function useProductShellController() {
       setPlanDraftFailure(null);
       void chat.sendUserMessage(prompt, "interview", false);
     },
-    [chat, generatedPlanDraft, setPlanDraftExpectation, t],
+    [chat, generatedPlanDraft, setPlanDraftExpectation, setPlanDraftFailure, t],
   );
 
   const handleRetryPlanDraft = useCallback(() => {
@@ -2029,7 +1320,7 @@ export function useProductShellController() {
     setPlanDraftExpectation(true);
     setPlanDraftFailure(null);
     void chat.sendUserMessage(prompt, "interview", false);
-  }, [chat, planDraftFailure, setPlanDraftExpectation, t]);
+  }, [activeInterviewRef, chat, planDraftFailure, setPlanDraftExpectation, setPlanDraftFailure, t]);
 
   const handleDiscardGeneratedPlan = useCallback(() => {
     if (!generatedPlanDraft) return;
@@ -2046,41 +1337,47 @@ export function useProductShellController() {
         });
       }
     })();
-  }, [generatedPlanDraft, plan, t, toast]);
+  }, [generatedPlanDraft, plan, setGeneratedPlanDraft, t, toast]);
 
-  const prdSurface = useMemo(() => {
+  const prdSurface = useMemo<PrdSurfaceData | null>(() => {
     if (prdMode === "authoring" && prdDraft) {
-      return createElement(PrdAuthoringBoard, {
-        projectName: currentProjectName ?? t("project.untitled"),
-        projectPath: currentProjectPath,
-        prdState: prdReadiness === "minimal" ? "editing" : prdReadiness,
-        draft: prdDraft,
-        busy: prdBusy,
-        recentlyChangedFields: prdPatchFeedback?.appliedFieldPaths ?? [],
-        patchFeedback: prdPatchFeedback,
-        architectureProposals,
-        quickIntakeEnabled,
-        onDraftChange: handlePrdDraftChange,
-        onSubmitAnswer: handleSubmitPrdAnswer,
-        onSavePrdAndCreatePlan: handleSavePrdAndCreatePlan,
-        onQuickIntakeSubmit: handleQuickIntakeSubmit,
-      });
+      return {
+        mode: "authoring",
+        props: {
+          projectName: currentProjectName ?? t("project.untitled"),
+          projectPath: currentProjectPath,
+          prdState: prdReadiness === "minimal" ? "editing" : prdReadiness,
+          draft: prdDraft,
+          busy: prdBusy,
+          recentlyChangedFields: prdPatchFeedback?.appliedFieldPaths ?? [],
+          patchFeedback: prdPatchFeedback,
+          architectureProposals,
+          quickIntakeEnabled,
+          onDraftChange: handlePrdDraftChange,
+          onSubmitAnswer: handleSubmitPrdAnswer,
+          onSavePrdAndCreatePlan: handleSavePrdAndCreatePlan,
+          onQuickIntakeSubmit: handleQuickIntakeSubmit,
+        },
+      };
     }
     if (prdMode === "read" && currentProjectSpec) {
-      return createElement(FinalPrdReadView, {
-        projectName: currentProjectName ?? t("project.untitled"),
-        projectSpec: currentProjectSpec,
-        planActionLabel: t("prd.authoring.create_plan"),
-        canCreatePlan: !hasExistingPlan,
-        planStatusLabel: hasExistingPlan ? t("prd.read_view.plan_created") : null,
-        onEdit: () => {
-          setPrdDraft(draftFromProjectSpec(currentProjectSpec));
-          setPrdPatchFeedback(null);
-          setArchitectureProposals(null);
-          setPrdMode("authoring");
+      return {
+        mode: "read",
+        props: {
+          projectName: currentProjectName ?? t("project.untitled"),
+          projectSpec: currentProjectSpec,
+          planActionLabel: t("prd.authoring.create_plan"),
+          canCreatePlan: !hasExistingPlan,
+          planStatusLabel: hasExistingPlan ? t("prd.read_view.plan_created") : null,
+          onEdit: () => {
+            setPrdDraft(draftFromProjectSpec(currentProjectSpec));
+            setPrdPatchFeedback(null);
+            setArchitectureProposals(null);
+            setPrdMode("authoring");
+          },
+          onCreatePlan: handleCreatePlanFromRail,
         },
-        onCreatePlan: handleCreatePlanFromRail,
-      });
+      };
     }
     return null;
   }, [
@@ -2102,6 +1399,67 @@ export function useProductShellController() {
     quickIntakeEnabled,
     t,
   ]);
+
+  const interviewSurface: InterviewSurfaceData | null = showInterviewPanel
+    ? {
+        started: activeInterview !== null,
+        answers: interviewAnswers,
+        unresolvedQuestionCount,
+        loading: chat.isStreaming,
+        disabled: interviewPanelDisabled,
+        provocation: {
+          enabled: enableProvocationCards,
+          mode: provocationScaffoldMode,
+          projectId: currentProjectId,
+          sessionId: currentSessionId,
+        },
+        onSubmitGoal: handleStartInterview,
+        onSubmitAnswer: handleSubmitInterviewAnswer,
+        onComplete: handleCompleteInterview,
+      }
+    : null;
+
+  const planDraftSurface: PlanDraftSurfaceData | null = generatedPlanDraft
+    ? {
+        mode: "approval",
+        props: {
+          draft: generatedPlanDraft,
+          interview: activeInterview,
+          busy: chat.isStreaming,
+          provocation: {
+            enabled: enableProvocationCards,
+            mode: provocationScaffoldMode,
+            projectId: currentProjectId,
+            sessionId: currentSessionId,
+          },
+          onApprove: handleApproveGeneratedPlan,
+          onRequestRevision: handleRequestPlanRevision,
+          onDiscard: handleDiscardGeneratedPlan,
+        },
+      }
+    : planDraftFailure
+      ? {
+          mode: "recovery",
+          props: {
+            reason: planDraftFailure.reason,
+            unresolvedQuestions: planDraftFailure.unresolvedQuestions,
+            issues: planDraftFailure.issues,
+            busy: chat.isStreaming,
+            onRetry: handleRetryPlanDraft,
+            onDismiss: () => setPlanDraftFailure(null),
+            onEditPrd: () => {
+              setPlanDraftFailure(null);
+              handleOpenPrdAuthoring();
+            },
+          },
+        }
+      : shouldRenderPlanDraftPending({
+            planDraftPending,
+            hasGeneratedPlanDraft: generatedPlanDraft !== null,
+            hasPlanDraftFailure: planDraftFailure !== null,
+          })
+        ? { mode: "pending" }
+        : null;
 
   return {
     projectName: currentProjectName,
@@ -2131,24 +1489,7 @@ export function useProductShellController() {
       ) => void chat.approveToolCall(toolCallId, modifiedArgs, approvalMetadata),
       onDenyToolCall: (toolCallId: string, reason?: string) =>
         void chat.denyToolCall(toolCallId, reason),
-      interviewPanel: showInterviewPanel
-        ? createElement(SocraticInterviewPanel, {
-            started: activeInterview !== null,
-            answers: interviewAnswers,
-            unresolvedQuestionCount,
-            loading: chat.isStreaming,
-            disabled: interviewPanelDisabled,
-            provocation: {
-              enabled: enableProvocationCards,
-              mode: provocationScaffoldMode,
-              projectId: currentProjectId,
-              sessionId: currentSessionId,
-            },
-            onSubmitGoal: handleStartInterview,
-            onSubmitAnswer: handleSubmitInterviewAnswer,
-            onComplete: handleCompleteInterview,
-          })
-        : null,
+      interview: interviewSurface,
       modelLabel: planRouter.routeBusy
         ? planRouter.routeCancelRequested
           ? t("planning.route.cancel_requested_status")
@@ -2212,45 +1553,7 @@ export function useProductShellController() {
         checkpointAvailable: recoveryCheckpoints.length > 0,
         onOpenRecovery: () => dialogs.setRecoveryOpen(true),
       },
-      planDraftApproval: generatedPlanDraft
-        ? createElement(
-            Suspense,
-            { fallback: null },
-            createElement(PlanDraftApprovalScreen, {
-              draft: generatedPlanDraft,
-              interview: activeInterview,
-              busy: chat.isStreaming,
-              provocation: {
-                enabled: enableProvocationCards,
-                mode: provocationScaffoldMode,
-                projectId: currentProjectId,
-                sessionId: currentSessionId,
-              },
-              onApprove: handleApproveGeneratedPlan,
-              onRequestRevision: handleRequestPlanRevision,
-              onDiscard: handleDiscardGeneratedPlan,
-            }),
-          )
-        : planDraftFailure
-          ? createElement(PlanDraftRecoveryScreen, {
-              reason: planDraftFailure.reason,
-              unresolvedQuestions: planDraftFailure.unresolvedQuestions,
-              issues: planDraftFailure.issues,
-              busy: chat.isStreaming,
-              onRetry: handleRetryPlanDraft,
-              onDismiss: () => setPlanDraftFailure(null),
-              onEditPrd: () => {
-                setPlanDraftFailure(null);
-                handleOpenPrdAuthoring();
-              },
-            })
-          : shouldRenderPlanDraftPending({
-                planDraftPending,
-                hasGeneratedPlanDraft: generatedPlanDraft !== null,
-                hasPlanDraftFailure: planDraftFailure !== null,
-              })
-            ? createElement(PlanDraftPendingScreen)
-            : null,
+      planDraft: planDraftSurface,
       prdSurface,
       prdSurfaceMode: prdReferenceMode ? ("reference" as const) : ("full" as const),
     },

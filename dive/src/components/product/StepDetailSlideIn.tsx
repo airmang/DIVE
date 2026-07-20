@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -13,9 +13,7 @@ import { Button } from "../ui/button";
 import { LearningHint } from "../ui/learning-hint";
 import { cn } from "../../lib/utils";
 import {
-  agencyToneClass,
   deriveAgencyStateView,
-  type AgencyStateItem,
   type RoadmapLinkedCriterion,
   type RoadmapStep,
   type RoadmapStepStatus,
@@ -28,8 +26,6 @@ import { useChatComposerStore } from "../../stores/chatComposer";
 import { DecisionGate } from "./DecisionGate";
 import {
   ProvocationCardHost,
-  createDiffReadySupervisorRequest,
-  createRetryLoopSupervisorRequest,
   deriveVerificationStatuses,
   evaluateProvocationSupervisor,
   highRiskFilesFromDiffScopeCard,
@@ -40,9 +36,7 @@ import {
   type ProvocationContext,
   type DiffReadySupervisorEvaluationRequest,
   type ScaffoldMode,
-  type SupervisorEvaluationRequest,
-  VERIFICATION_STATUS_LABEL_KEY,
-  type VerificationStatusItem,
+  type SupervisorEvaluationUiState,
   useProvocationActionResolver,
 } from "../../features/provocation";
 import type { SupervisorFeasibility } from "../../features/provocation";
@@ -57,6 +51,28 @@ import {
   VerificationReviewStepper,
   type VerificationReviewStage,
 } from "./VerificationReviewStepper";
+import { REVIEW_SIDEBAR_MIN_WIDTH, useReviewSidebarWidth } from "./useReviewSidebarWidth";
+import {
+  isSubstantiveObservation,
+  splitAcceptanceCriteria,
+  uniqueStrings,
+} from "./stepDetailEvidence";
+import {
+  buildDiffReadySupervisorRequest,
+  buildRetryLoopSupervisorRequest,
+  buildSupervisorEvaluationRequest,
+  type RetryLoopFailureSnapshot,
+  type StepDetailProvocation,
+} from "./stepDetailSupervisorRequests";
+import {
+  ChangeEvidenceBundle,
+  CriterionConfirmPanel,
+  Section,
+  VerificationBlock,
+  VerificationFocusPanel,
+  type CriterionEvidenceRef,
+  type VerificationFocusAction,
+} from "./StepDetailSections";
 
 export interface StepDetailSlideInProps {
   open: boolean;
@@ -100,74 +116,13 @@ const STATUS_CLASS: Record<RoadmapStepStatus, string> = {
   shipped: "border-success/70 bg-success/15 text-success",
 };
 
-const REVIEW_SIDEBAR_WIDTH_STORAGE_KEY = "dive.review-sidebar.width";
-const REVIEW_SIDEBAR_DEFAULT_WIDTH = 520;
-const REVIEW_SIDEBAR_MIN_WIDTH = 380;
-const REVIEW_SIDEBAR_MAX_WIDTH = 900;
-const REVIEW_SIDEBAR_VIEWPORT_RATIO = 0.8;
-const REVIEW_SIDEBAR_KEYBOARD_STEP = 16;
-
-type CriterionEvidenceRef = "preview" | "app" | null;
-type VerificationFocusActionKind =
-  | "open_preview"
-  | "run_app"
-  | "run_tests"
-  | "open_diff"
-  | "go_chat";
-
-interface VerificationFocusAction {
-  kind: VerificationFocusActionKind;
-  label: string;
-  ariaLabel: string;
-  disabled?: boolean;
-  onClick: () => void;
-}
-
-interface RetryLoopFailureSnapshot {
-  failureFingerprint: string;
-  failureSummary: string;
-  failureCount: number;
-  lastFailureAt: number | string;
-  lastOccurrenceKey: string;
-}
-
-function uniqueStrings(items: string[]): string[] {
-  return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
-}
-
-/**
- * Minimum length for a manual observation to count as substantive evidence
- * (S-029). A bare keystroke or empty string is not an observation.
- */
-const MIN_OBSERVATION_LENGTH = 8;
-
-function isSubstantiveObservation(text: string | null | undefined): boolean {
-  return typeof text === "string" && text.trim().length >= MIN_OBSERVATION_LENGTH;
-}
-
-/**
- * Split a single acceptance-criteria string into the distinct criteria it
- * enumerates (S-029): a multi-AC goal stored as one summary string (e.g.
- * "AC-1 …\nAC-2 …\nAC-3 …") must still gate on EACH criterion, not collapse to
- * one. Falls back to a single criterion for plain one-line text. Used only when
- * the step has no structured `linkedCriteria`.
- */
-function splitAcceptanceCriteria(text: string): string[] {
-  const trimmed = text.trim();
-  if (trimmed.length === 0) return [];
-  let parts = trimmed
-    .split(/\r?\n|[;•]/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-  if (parts.length <= 1) {
-    const markerParts = trimmed
-      .split(/(?=\bAC[\s-]?\d+\b)/i)
-      .map((part) => part.replace(/^[,\s]+/, "").trim())
-      .filter(Boolean);
-    if (markerParts.length > 1) parts = markerParts;
-  }
-  const unique = [...new Set(parts)];
-  return unique.length > 0 ? unique : [trimmed];
+function statusIcon(status: RoadmapStepStatus) {
+  const cls = "h-3 w-3 shrink-0";
+  if (status === "shipped" || status === "done")
+    return <CheckCircle2 className={cls} aria-hidden />;
+  if (status === "review") return <Clock3 className={cls} aria-hidden />;
+  if (status === "in_progress") return <AlertCircle className={cls} aria-hidden />;
+  return <Circle className={cls} aria-hidden />;
 }
 
 function highRiskFilesFromCards(cards: ProvocationCard[]): string[] {
@@ -197,123 +152,6 @@ function diffReadyAssessmentEvidenceCard(
       diffReadyAssessment: request.diffReadyAssessment,
     },
     createdAt: "1970-01-01T00:00:00.000Z",
-  };
-}
-
-function statusIcon(status: RoadmapStepStatus) {
-  const cls = "h-3 w-3 shrink-0";
-  if (status === "shipped" || status === "done")
-    return <CheckCircle2 className={cls} aria-hidden />;
-  if (status === "review") return <Clock3 className={cls} aria-hidden />;
-  if (status === "in_progress") return <AlertCircle className={cls} aria-hidden />;
-  return <Circle className={cls} aria-hidden />;
-}
-
-function reviewSidebarMaxWidth(): number {
-  if (typeof window === "undefined") return REVIEW_SIDEBAR_MAX_WIDTH;
-  return Math.min(
-    REVIEW_SIDEBAR_MAX_WIDTH,
-    Math.floor(window.innerWidth * REVIEW_SIDEBAR_VIEWPORT_RATIO),
-  );
-}
-
-function clampReviewSidebarWidth(width: number, maxWidth = reviewSidebarMaxWidth()): number {
-  if (!Number.isFinite(width)) return REVIEW_SIDEBAR_DEFAULT_WIDTH;
-  return Math.min(maxWidth, Math.max(REVIEW_SIDEBAR_MIN_WIDTH, Math.round(width)));
-}
-
-function readStoredReviewSidebarWidth(): number | null {
-  if (typeof window === "undefined") return null;
-  const stored = window.localStorage.getItem(REVIEW_SIDEBAR_WIDTH_STORAGE_KEY);
-  if (!stored) return null;
-  const parsed = Number.parseInt(stored, 10);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function persistReviewSidebarWidth(width: number) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(REVIEW_SIDEBAR_WIDTH_STORAGE_KEY, String(width));
-}
-
-function useReviewSidebarWidth(open: boolean, panelRef: RefObject<HTMLDivElement | null>) {
-  const [maxWidth, setMaxWidth] = useState(() => reviewSidebarMaxWidth());
-  const [width, setWidth] = useState(() =>
-    clampReviewSidebarWidth(REVIEW_SIDEBAR_DEFAULT_WIDTH, reviewSidebarMaxWidth()),
-  );
-
-  const applyWidth = (nextWidth: number) => {
-    const nextMaxWidth = reviewSidebarMaxWidth();
-    const clamped = clampReviewSidebarWidth(nextWidth, nextMaxWidth);
-    setMaxWidth(nextMaxWidth);
-    setWidth(clamped);
-    persistReviewSidebarWidth(clamped);
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    const nextMaxWidth = reviewSidebarMaxWidth();
-    const stored = readStoredReviewSidebarWidth();
-    setMaxWidth(nextMaxWidth);
-    setWidth(clampReviewSidebarWidth(stored ?? REVIEW_SIDEBAR_DEFAULT_WIDTH, nextMaxWidth));
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleResize = () => {
-      const nextMaxWidth = reviewSidebarMaxWidth();
-      setMaxWidth(nextMaxWidth);
-      setWidth((current) => {
-        const clamped = clampReviewSidebarWidth(current, nextMaxWidth);
-        if (clamped !== current) persistReviewSidebarWidth(clamped);
-        return clamped;
-      });
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [open]);
-
-  const widthFromClientX = (clientX: number): number => {
-    const panelRight = panelRef.current?.getBoundingClientRect().right ?? 0;
-    const rightEdge = panelRight > 0 ? panelRight : window.innerWidth;
-    return rightEdge - clientX;
-  };
-
-  const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    applyWidth(widthFromClientX(event.clientX));
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      moveEvent.preventDefault();
-      applyWidth(widthFromClientX(moveEvent.clientX));
-    };
-    const handleMouseUp = () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-  };
-
-  const resetWidth = () => applyWidth(REVIEW_SIDEBAR_DEFAULT_WIDTH);
-
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      applyWidth(width - REVIEW_SIDEBAR_KEYBOARD_STEP);
-      return;
-    }
-    if (event.key === "ArrowRight") {
-      event.preventDefault();
-      applyWidth(width + REVIEW_SIDEBAR_KEYBOARD_STEP);
-    }
-  };
-
-  return {
-    width,
-    maxWidth,
-    handleMouseDown,
-    handleKeyDown,
-    resetWidth,
   };
 }
 
@@ -600,7 +438,7 @@ export function StepDetailSlideIn({
           userHasViewedPreview: previewOpened,
         }
       : null;
-  const supervisorUiState = useMemo(() => {
+  const supervisorUiState = useMemo<SupervisorEvaluationUiState | null>(() => {
     if (!step) return null;
     return {
       goalSummary: [step.title, step.description].filter(Boolean).join("\n"),
@@ -640,138 +478,92 @@ export function StepDetailSlideIn({
     verifyLog?.test_exit_code,
     verifyLog?.test_result,
   ]);
-  const supervisorEvaluationRequest = useMemo<SupervisorEvaluationRequest | null>(() => {
-    if (
-      !step ||
-      !supervisorUiState ||
-      !provocation?.enabled ||
-      typeof provocation.sessionId !== "number"
-    )
-      return null;
-    // Keep preview-open transitions as reevaluation triggers without recording them as evidence.
-    void previewOpened;
-    return {
-      sessionId: provocation.sessionId,
-      event: "verify_entered",
-      artifactRef: {
-        kind: "step",
-        id: String(step.id),
-        label: step.title || `Step ${step.position}`,
-      },
-      sourceUiMode: provocation.mode,
-      locale: useLocaleStore.getState().locale,
-      uiState: supervisorUiState,
-    };
-  }, [
-    previewOpened,
-    provocation?.enabled,
-    provocation?.mode,
-    provocation?.sessionId,
-    step,
-    supervisorUiState,
-  ]);
-  const diffReadySupervisorRequest = useMemo(() => {
-    if (
-      !step ||
-      !supervisorUiState ||
-      !provocation?.enabled ||
-      typeof provocation.sessionId !== "number" ||
-      changedFiles.length === 0 ||
-      verifyState === "error" ||
-      verifyLog?.test_result === "fail"
-    ) {
-      return null;
-    }
-    const goalSummary = [step.title, step.description].filter(Boolean).join("\n");
-    const stepSummary = [
-      step.title,
-      step.description,
-      step.assistSummary,
-      planContext?.purpose,
-      verificationPlanText,
-    ]
-      .filter(Boolean)
-      .join("\n");
-    return createDiffReadySupervisorRequest({
-      sessionId: provocation.sessionId,
-      projectId: typeof provocation.projectId === "number" ? provocation.projectId : undefined,
-      stepId: step.id,
-      stepTitle: step.title || `Step ${step.position}`,
-      sourceUiMode: provocation.mode,
-      locale: useLocaleStore.getState().locale,
-      goalSummary,
-      stepSummary,
-      changedFiles: changedFiles.map((file) => normalizeChangedFile({ path: file.path })),
-      expectedFiles,
+  // A stable provocation object whose identity changes only when one of its
+  // primitive fields does — mirrors the primitive dep lists the request memos
+  // used before extraction, so passing the whole object to the pure builders
+  // keeps their recompute frequency unchanged.
+  const provocationEnabled = provocation?.enabled;
+  const provocationMode = provocation?.mode;
+  const provocationProjectId = provocation?.projectId;
+  const provocationSessionId = provocation?.sessionId;
+  const provocationConfig = useMemo<StepDetailProvocation | undefined>(
+    () =>
+      // `mode` is required whenever the prop is present, so its presence is the
+      // faithful "provocation was provided" signal — reading the destructured
+      // primitives (not the object) keeps the memo stable across renders.
+      provocationMode === undefined
+        ? undefined
+        : {
+            enabled: provocationEnabled ?? false,
+            mode: provocationMode,
+            projectId: provocationProjectId,
+            sessionId: provocationSessionId,
+          },
+    [provocationEnabled, provocationMode, provocationProjectId, provocationSessionId],
+  );
+  const supervisorEvaluationRequest = useMemo(
+    () =>
+      buildSupervisorEvaluationRequest({
+        step,
+        supervisorUiState,
+        provocation: provocationConfig,
+        previewOpened,
+        locale: useLocaleStore.getState().locale,
+      }),
+    [previewOpened, provocationConfig, step, supervisorUiState],
+  );
+  const diffReadySupervisorRequest = useMemo(
+    () =>
+      buildDiffReadySupervisorRequest({
+        step,
+        supervisorUiState,
+        provocation: provocationConfig,
+        changedFiles,
+        verifyState,
+        verifyTestResult: verifyLog?.test_result,
+        planContextPurpose: planContext?.purpose,
+        verificationPlanText,
+        expectedFiles,
+        diffViewed,
+        stepKind: planContext?.stepKind,
+        locale: useLocaleStore.getState().locale,
+      }),
+    [
+      changedFiles,
       diffViewed,
-      stepKind: planContext?.stepKind ?? null,
-      uiState: supervisorUiState,
-    });
-  }, [
-    changedFiles,
-    diffViewed,
-    expectedFiles,
-    planContext?.purpose,
-    planContext?.stepKind,
-    provocation?.enabled,
-    provocation?.mode,
-    provocation?.projectId,
-    provocation?.sessionId,
-    step,
-    supervisorUiState,
-    verificationPlanText,
-    verifyLog?.test_result,
-    verifyState,
-  ]);
-  const retryLoopSupervisorRequest = useMemo(() => {
-    if (
-      !step ||
-      !supervisorUiState ||
-      !retryLoopSnapshot ||
-      retryLoopSnapshot.failureCount < 2 ||
-      !provocation?.enabled ||
-      typeof provocation.sessionId !== "number"
-    ) {
-      return null;
-    }
-    const goalSummary = [step.title, step.description].filter(Boolean).join("\n");
-    const stepSummary = [
-      step.title,
-      step.description,
-      step.assistSummary,
+      expectedFiles,
       planContext?.purpose,
+      planContext?.stepKind,
+      provocationConfig,
+      step,
+      supervisorUiState,
       verificationPlanText,
-    ]
-      .filter(Boolean)
-      .join("\n");
-    return createRetryLoopSupervisorRequest({
-      sessionId: provocation.sessionId,
-      projectId: typeof provocation.projectId === "number" ? provocation.projectId : undefined,
-      stepId: step.id,
-      stepTitle: step.title || `Step ${step.position}`,
-      sourceUiMode: provocation.mode,
-      locale: useLocaleStore.getState().locale,
-      goalSummary,
-      stepSummary,
-      failureSummary: retryLoopSnapshot.failureSummary,
-      failureCount: retryLoopSnapshot.failureCount,
-      lastFailureAt: retryLoopSnapshot.lastFailureAt,
-      recoveryAvailable: rollbackAvailable,
-      lastActionSummary: "verification_failed",
-      uiState: supervisorUiState,
-    });
-  }, [
-    planContext?.purpose,
-    provocation?.enabled,
-    provocation?.mode,
-    provocation?.projectId,
-    provocation?.sessionId,
-    retryLoopSnapshot,
-    rollbackAvailable,
-    step,
-    supervisorUiState,
-    verificationPlanText,
-  ]);
+      verifyLog?.test_result,
+      verifyState,
+    ],
+  );
+  const retryLoopSupervisorRequest = useMemo(
+    () =>
+      buildRetryLoopSupervisorRequest({
+        step,
+        supervisorUiState,
+        retryLoopSnapshot,
+        provocation: provocationConfig,
+        planContextPurpose: planContext?.purpose,
+        verificationPlanText,
+        rollbackAvailable,
+        locale: useLocaleStore.getState().locale,
+      }),
+    [
+      planContext?.purpose,
+      provocationConfig,
+      retryLoopSnapshot,
+      rollbackAvailable,
+      step,
+      supervisorUiState,
+      verificationPlanText,
+    ],
+  );
   const verificationCoachRequest = useMemo<VerificationCoachGenerateRequest | null>(() => {
     if (!step || !isReview || typeof provocation?.sessionId !== "number") return null;
     return {
@@ -1502,397 +1294,6 @@ export function StepDetailSlideIn({
         </div>
       )}
     </aside>
-  );
-}
-
-const VERIFY_STATUS_CLASS: Record<VerificationStatusItem["tone"], string> = {
-  info: "border-info/50 bg-info/10 text-info",
-  success: "border-success/60 bg-success/10 text-success",
-  warn: "border-warn/60 bg-warn/10 text-warn",
-  risk: "border-danger/60 bg-danger/10 text-danger",
-};
-
-function VerificationStatusChip({ item }: { item: VerificationStatusItem }) {
-  const t = useT();
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-sm border px-2 py-0.5 text-[10px] font-semibold",
-        VERIFY_STATUS_CLASS[item.tone],
-      )}
-      data-testid="verification-status-chip"
-      data-status-id={item.id}
-      data-evidence-backed={item.evidenceBacked ? "true" : "false"}
-    >
-      {t(VERIFICATION_STATUS_LABEL_KEY[item.id])}
-    </span>
-  );
-}
-
-function AgencyStateChip({ item }: { item: AgencyStateItem }) {
-  const t = useT();
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-sm border px-2 py-0.5 text-[10px] font-semibold",
-        agencyToneClass(item.tone),
-      )}
-      data-testid="agency-state-chip"
-      data-agency-state={item.id}
-      data-agency-component={item.component}
-      data-evidence-backed={item.evidenceBacked ? "true" : "false"}
-    >
-      {t(item.labelKey)}
-    </span>
-  );
-}
-
-function verificationActionIcon(kind: VerificationFocusActionKind) {
-  if (kind === "open_diff") return <FileCode aria-hidden />;
-  if (kind === "run_tests") return <Clock3 aria-hidden />;
-  return <ExternalLink aria-hidden />;
-}
-
-function VerificationFocusPanel({
-  criterionText,
-  verificationPlanText,
-  action,
-  verificationStatuses,
-  agencyItems,
-}: {
-  criterionText: string;
-  verificationPlanText: string | null;
-  action: VerificationFocusAction | null;
-  verificationStatuses: VerificationStatusItem[];
-  agencyItems: AgencyStateItem[];
-}) {
-  const t = useT();
-  const verificationStatusIds = new Set<string>(verificationStatuses.map((item) => item.id));
-  const dedupedAgencyItems = agencyItems.filter((item) => !verificationStatusIds.has(item.id));
-  return (
-    <section
-      className="mt-4 border-b border-border/70 pb-4"
-      data-testid="step-detail-verification-focus"
-    >
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-accent">
-            {t("roadmap.step_detail.verify_focus_title")}
-          </div>
-          <p
-            className="mt-2 text-lg font-semibold leading-snug text-fg"
-            data-testid="step-detail-criterion-focal"
-          >
-            {criterionText}
-          </p>
-          {verificationPlanText ? (
-            <p
-              className="mt-1 break-words font-mono text-[11px] text-fg-muted"
-              data-testid="step-detail-feasible-method"
-            >
-              {verificationPlanText}
-            </p>
-          ) : null}
-        </div>
-        {action ? (
-          <Button
-            type="button"
-            variant="primary"
-            size="sm"
-            className="min-h-10 px-3 text-sm"
-            disabled={action.disabled}
-            onClick={action.onClick}
-            aria-label={action.ariaLabel}
-            data-testid="step-detail-primary-verification-action"
-            data-action-kind={action.kind}
-          >
-            {verificationActionIcon(action.kind)}
-            {action.label}
-          </Button>
-        ) : null}
-      </div>
-
-      {verificationStatuses.length > 0 || dedupedAgencyItems.length > 0 ? (
-        <div
-          className="mt-3 flex flex-wrap gap-1.5 text-fg-muted"
-          data-testid="step-detail-evidence-chips"
-        >
-          {verificationStatuses.map((item) => (
-            <VerificationStatusChip key={item.id} item={item} />
-          ))}
-          {dedupedAgencyItems.map((item) => (
-            <AgencyStateChip key={item.id} item={item} />
-          ))}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function CriterionConfirmPanel({
-  hasAcceptanceCriteria,
-  criterionEvidenceRef,
-  previewOpened,
-  appOpened,
-  onConfirmPreview,
-  onConfirmApp,
-}: {
-  hasAcceptanceCriteria: boolean;
-  criterionEvidenceRef: CriterionEvidenceRef;
-  previewOpened: boolean;
-  appOpened: boolean;
-  onConfirmPreview: () => void;
-  onConfirmApp: () => void;
-}) {
-  const t = useT();
-  if (!hasAcceptanceCriteria) return null;
-
-  return (
-    <div
-      className="border-t border-border/70 pt-3 text-xs text-fg"
-      data-testid="step-detail-criterion-confirm"
-    >
-      <p className="font-medium">{t("roadmap.step_detail.criterion_confirm_label")}</p>
-      <p className="mt-0.5 text-[11px] text-fg-muted">
-        {t("roadmap.step_detail.criterion_confirm_hint")}
-      </p>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        <Button
-          type="button"
-          variant={criterionEvidenceRef === "preview" ? "primary" : "outline"}
-          size="sm"
-          disabled={!previewOpened}
-          onClick={onConfirmPreview}
-          aria-label={t("roadmap.step_detail.criterion_confirm_preview")}
-          data-testid="step-detail-confirm-preview"
-        >
-          {t("roadmap.step_detail.criterion_confirm_preview")}
-        </Button>
-        <Button
-          type="button"
-          variant={criterionEvidenceRef === "app" ? "primary" : "outline"}
-          size="sm"
-          disabled={!appOpened}
-          onClick={onConfirmApp}
-          aria-label={t("roadmap.step_detail.criterion_confirm_app")}
-          data-testid="step-detail-confirm-app"
-        >
-          {t("roadmap.step_detail.criterion_confirm_app")}
-        </Button>
-      </div>
-      {criterionEvidenceRef ? (
-        <p
-          className="mt-2 text-[11px] font-medium text-success"
-          data-testid="step-detail-criterion-evidence-ref"
-        >
-          {criterionEvidenceRef === "preview"
-            ? t("roadmap.step_detail.criterion_confirm_preview_selected")
-            : t("roadmap.step_detail.criterion_confirm_app_selected")}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function ChangeEvidenceBundle({
-  expectedFiles,
-  actualChangedFiles,
-  unexpectedHighRiskFiles,
-  verificationStatuses,
-  rollbackAvailable,
-  diffViewed,
-  verificationPlanText,
-}: {
-  expectedFiles: string[];
-  actualChangedFiles: string[];
-  unexpectedHighRiskFiles: string[];
-  verificationStatuses: VerificationStatusItem[];
-  rollbackAvailable: boolean;
-  diffViewed: boolean;
-  verificationPlanText: string | null;
-}) {
-  const t = useT();
-  return (
-    <div className="space-y-3 text-xs" data-testid="step-detail-change-bundle">
-      <div className="grid gap-2 sm:grid-cols-2">
-        <BundleList
-          testId="step-detail-expected-files"
-          title={t("roadmap.step_detail.bundle_expected_files")}
-          items={expectedFiles}
-          empty={t("roadmap.step_detail.bundle_none")}
-        />
-        <BundleList
-          testId="step-detail-actual-files"
-          title={t("roadmap.step_detail.bundle_actual_files")}
-          items={actualChangedFiles}
-          empty={t("roadmap.step_detail.bundle_none")}
-        />
-      </div>
-      <div
-        className={cn(
-          "rounded-sm border px-2 py-2",
-          unexpectedHighRiskFiles.length > 0
-            ? "border-danger/50 bg-danger/5 text-danger"
-            : "border-border bg-bg/60 text-fg-muted",
-        )}
-        data-testid="step-detail-unexpected-high-risk-files"
-        data-count={unexpectedHighRiskFiles.length}
-      >
-        <p className="font-semibold text-fg">
-          {t("roadmap.step_detail.bundle_unexpected_high_risk")}
-        </p>
-        <p className="mt-1 break-words font-mono">
-          {unexpectedHighRiskFiles.length > 0
-            ? compactBundleItems(unexpectedHighRiskFiles)
-            : t("roadmap.step_detail.bundle_none")}
-        </p>
-      </div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <div className="rounded-sm border bg-bg/60 px-2 py-2" data-testid="step-detail-diff-viewed">
-          <p className="font-semibold text-fg">{t("roadmap.step_detail.bundle_diff_review")}</p>
-          <p className="mt-1 text-fg-muted">
-            {diffViewed
-              ? t("roadmap.step_detail.bundle_diff_reviewed")
-              : t("roadmap.step_detail.bundle_diff_not_reviewed")}
-          </p>
-        </div>
-        <div
-          className="rounded-sm border bg-bg/60 px-2 py-2"
-          data-testid="step-detail-rollback-availability"
-        >
-          <p className="font-semibold text-fg">{t("roadmap.step_detail.bundle_rollback")}</p>
-          <p className="mt-1 text-fg-muted">
-            {rollbackAvailable
-              ? t("roadmap.step_detail.bundle_rollback_available")
-              : t("roadmap.step_detail.bundle_rollback_unavailable")}
-          </p>
-        </div>
-      </div>
-      <div className="rounded-sm border bg-bg/60 px-2 py-2">
-        <p className="font-semibold text-fg">{t("roadmap.step_detail.bundle_verification")}</p>
-        {verificationPlanText ? (
-          <p className="mt-1 break-words font-mono text-[11px] text-fg-muted">
-            {verificationPlanText}
-          </p>
-        ) : null}
-        {verificationStatuses.length > 0 ? (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {verificationStatuses.map((item) => (
-              <VerificationStatusChip key={item.id} item={item} />
-            ))}
-          </div>
-        ) : (
-          <p className="mt-1 text-fg-muted">
-            {t("roadmap.step_detail.bundle_verification_missing")}
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function BundleList({
-  title,
-  items,
-  empty,
-  testId,
-}: {
-  title: string;
-  items: string[];
-  empty: string;
-  testId: string;
-}) {
-  return (
-    <div className="rounded-sm border bg-bg/60 px-2 py-2" data-testid={testId}>
-      <p className="font-semibold text-fg">{title}</p>
-      <p className="mt-1 break-words font-mono text-fg-muted">
-        {items.length > 0 ? compactBundleItems(items) : empty}
-      </p>
-    </div>
-  );
-}
-
-function compactBundleItems(items: string[]): string {
-  if (items.length <= 4) return items.join(", ");
-  return `${items.slice(0, 4).join(", ")} +${items.length - 4}`;
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="mt-4 border-t border-border/70 pt-3">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-fg-muted">
-        {title}
-      </div>
-      <div className="mt-1">{children}</div>
-    </section>
-  );
-}
-
-interface VerificationBlockProps {
-  verifyLog: VerifyLogView | null;
-  verifyState: "idle" | "running" | "error";
-  verifyError: string | null;
-}
-
-function VerificationBlock({ verifyLog, verifyState, verifyError }: VerificationBlockProps) {
-  const t = useT();
-  if (verifyState === "running") {
-    return <p className="text-xs text-fg-muted">…</p>;
-  }
-  if (verifyState === "error" && verifyError) {
-    return (
-      <p className="text-xs text-danger" data-testid="step-detail-verify-error">
-        {verifyError}
-      </p>
-    );
-  }
-  if (!verifyLog) {
-    return <p className="text-xs text-fg-muted">—</p>;
-  }
-  return (
-    <div className="space-y-2 text-xs" data-testid="step-detail-verify-log">
-      <div className="flex flex-wrap items-center gap-2">
-        <span
-          className={cn(
-            "inline-flex items-center gap-1 rounded-sm border px-2 py-0.5 text-[10px] font-semibold",
-            verifyLog.intent_match
-              ? "border-info/60 bg-info/10 text-info"
-              : "border-warn/60 bg-warn/10 text-warn",
-          )}
-          data-testid="step-detail-intent-match"
-          data-intent-match={verifyLog.intent_match ? "true" : "false"}
-        >
-          {verifyLog.intent_match
-            ? t("roadmap.step_detail.intent_match_true")
-            : t("roadmap.step_detail.intent_match_false")}
-        </span>
-        <span
-          className={cn(
-            "inline-flex items-center gap-1 rounded-sm border px-2 py-0.5 text-[10px] font-semibold",
-            verifyLog.test_result === "pass"
-              ? "border-success/60 bg-success/10 text-success"
-              : verifyLog.test_result === "fail"
-                ? "border-danger/60 bg-danger/10 text-danger"
-                : "border-warn/60 bg-warn/10 text-warn",
-          )}
-          data-testid="step-detail-test-result"
-          data-test-result={verifyLog.test_result}
-        >
-          {t(`roadmap.step_detail.test_result.${verifyLog.test_result}`)}
-        </span>
-      </div>
-      {verifyLog.test_result === "skipped" ? (
-        <p className="text-[10px] text-fg-muted" data-testid="step-detail-unverified-note">
-          {t("roadmap.step_detail.unverified_note")}
-        </p>
-      ) : null}
-      {verifyLog.test_command ? (
-        <p className="break-all font-mono text-[11px] text-fg">{verifyLog.test_command}</p>
-      ) : null}
-      {verifyLog.details ? (
-        <p className="whitespace-pre-wrap text-[11px] text-fg-muted">{verifyLog.details}</p>
-      ) : null}
-    </div>
   );
 }
 
