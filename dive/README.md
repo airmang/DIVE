@@ -2,8 +2,9 @@
 
 Beginner-friendly desktop UI for controlling a local AI coding agent. Built with Tauri 2.x + React 19 + TypeScript 5 + Vite 7.
 
-- Product version: **1.0.0-rc.2**
-- Package metadata: `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` are all `1.0.0-rc.2`.
+- Product version: `package.json` (`version`) is the single source of truth —
+  `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json` are kept in sync with
+  it. Run `pnpm verify:version-sync` to check the three files agree.
 - Internal spec/coordination docs live in the repository root and `../docs/internal/`.
 
 ## Product surface

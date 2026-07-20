@@ -7,6 +7,9 @@ on:
         description: "Release owner approving this release-gate run"
         required: true
 
+permissions:
+  contents: read
+
 jobs:
   windows-release-gate:
     name: windows release gate (${{ matrix.label }})
@@ -63,7 +66,11 @@ jobs:
       - name: Install tauri-driver and Edge driver helper
         run: |
           cargo install tauri-driver --locked
-          cargo install --git https://github.com/chippers/msedgedriver-tool
+          # Third-party helper, no published crate/release — pinned to the
+          # upstream main HEAD as of 2026-07-20 to avoid an unreviewed
+          # supply-chain change landing silently on every CI run.
+          # Upstream: https://github.com/chippers/msedgedriver-tool
+          cargo install --git https://github.com/chippers/msedgedriver-tool --rev 8c4b34f51b45f5cf08013366d703de464ab871d1
           $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
           $driverTool = Join-Path $cargoBin "msedgedriver-tool.exe"
           if (-not (Test-Path $driverTool)) { throw "msedgedriver-tool.exe not found at $driverTool" }
