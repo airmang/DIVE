@@ -28,8 +28,10 @@ import {
 } from "../../features/provocation";
 import { useT } from "../../i18n";
 import { cn } from "../../lib/utils";
+import { runUserAction } from "../../lib/runUserAction";
 import { useProjectSessionStore } from "../../stores/project-session";
 import { Button } from "../ui/button";
+import { useToast } from "../toast/toast-context";
 
 interface PlanAddStepPanelProps {
   projectId: number;
@@ -293,6 +295,7 @@ export function PlanAddStepPanel({
   onAppended,
 }: PlanAddStepPanelProps) {
   const t = useT();
+  const { toast } = useToast();
   const [requestText, setRequestText] = useState("");
   const [title, setTitle] = useState("");
   const [reason, setReason] = useState("");
@@ -627,30 +630,37 @@ export function PlanAddStepPanel({
       position: 0,
     };
     setSaving(true);
-    try {
-      await onAppendStep({
-        planId,
-        draft,
-        mutationReason: reason.trim(),
-        linkedCriterionIds: selectedCriterionIds,
-        prdDelta,
-      });
-      setTitle("");
-      setReason("");
-      setExpectedFilesText("");
-      setVerificationCheck("");
-      setVerificationType(null);
-      setSelectedCriterionIds([]);
-      setDraftAcceptanceCriteria([]);
-      setDraftDependencies([]);
-      setDraftParallelGroup(null);
-      setDraftNotice(null);
-      setDraftStatus(null);
-      setRequestText("");
-      await onAppended?.();
-    } finally {
-      setSaving(false);
-    }
+    const result = await runUserAction(
+      () =>
+        onAppendStep({
+          planId,
+          draft,
+          mutationReason: reason.trim(),
+          linkedCriterionIds: selectedCriterionIds,
+          prdDelta,
+        }),
+      (err) =>
+        toast({
+          variant: "error",
+          title: t("toast.plan_add_step_failed"),
+          description: err instanceof Error ? err.message : String(err),
+        }),
+    );
+    setSaving(false);
+    if (!result.ok) return;
+    setTitle("");
+    setReason("");
+    setExpectedFilesText("");
+    setVerificationCheck("");
+    setVerificationType(null);
+    setSelectedCriterionIds([]);
+    setDraftAcceptanceCriteria([]);
+    setDraftDependencies([]);
+    setDraftParallelGroup(null);
+    setDraftNotice(null);
+    setDraftStatus(null);
+    setRequestText("");
+    await onAppended?.();
   };
 
   return (

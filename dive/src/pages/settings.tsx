@@ -12,6 +12,8 @@ import { useUiPreferencesStore } from "../stores/ui-preferences";
 import { ProviderModelSelector } from "../components/settings/ProviderModelSelector";
 import type { ScaffoldMode } from "../features/provocation";
 import { loadTauri } from "../lib/tauri";
+import { classifyConnectError, type ConnectErrorState } from "../lib/error-classify";
+import { runUserAction } from "../lib/runUserAction";
 
 interface PolicyDto {
   rules: Record<string, string>;
@@ -125,6 +127,10 @@ export function SettingsPage() {
   const [connecting, setConnecting] = useState(false);
   const [selectingProviderId, setSelectingProviderId] = useState<number | null>(null);
   const [codexDialogOpen, setCodexDialogOpen] = useState(false);
+  const [connectError, setConnectError] = useState<{
+    kind: string;
+    error: ConnectErrorState;
+  } | null>(null);
 
   useEffect(() => {
     if (!loaded) {
@@ -239,13 +245,15 @@ export function SettingsPage() {
     }
     if (!apiKeyInput.trim()) return;
     setConnecting(true);
-    try {
-      await connectProvider(kind, apiKeyInput.trim());
-      setApiKeyInput("");
-      setExpandedKind(null);
-    } finally {
-      setConnecting(false);
-    }
+    setConnectError(null);
+    const result = await runUserAction(
+      () => connectProvider(kind, apiKeyInput.trim()),
+      (err) => setConnectError({ kind, error: classifyConnectError(err, t) }),
+    );
+    setConnecting(false);
+    if (!result.ok) return;
+    setApiKeyInput("");
+    setExpandedKind(null);
   };
 
   const handleCodexDisconnect = async () => {
@@ -277,12 +285,15 @@ export function SettingsPage() {
 
   const handleSelectProvider = async (row: ProviderSummary) => {
     setSelectingProviderId(row.id);
-    try {
-      await selectProvider(row.id);
-      await loadAll();
-    } finally {
-      setSelectingProviderId(null);
-    }
+    setConnectError(null);
+    await runUserAction(
+      async () => {
+        await selectProvider(row.id);
+        await loadAll();
+      },
+      (err) => setConnectError({ kind: row.kind, error: classifyConnectError(err, t) }),
+    );
+    setSelectingProviderId(null);
   };
 
   const backToShell = () => {
@@ -555,11 +566,11 @@ export function SettingsPage() {
                         variant="outline"
                         size="sm"
                         disabled={!p.ga}
-                        onClick={() =>
-                          isCodex
-                            ? setCodexDialogOpen(true)
-                            : setExpandedKind(expanded ? null : p.kind)
-                        }
+                        onClick={() => {
+                          setConnectError(null);
+                          if (isCodex) setCodexDialogOpen(true);
+                          else setExpandedKind(expanded ? null : p.kind);
+                        }}
                         data-testid="provider-connect-btn"
                         data-provider-kind={p.kind}
                       >
@@ -571,6 +582,35 @@ export function SettingsPage() {
                       </Button>
                     )}
                   </div>
+                  {connectError?.kind === p.kind ? (
+                    <div
+                      className="rounded-md border border-danger/40 bg-danger/5 px-2 py-1.5 text-[11px] text-danger"
+                      role="alert"
+                      data-testid="provider-connect-error"
+                    >
+                      <p className="font-medium">{connectError.error.headline}</p>
+                      {connectError.error.hints && connectError.error.hints.length > 0 ? (
+                        <ul
+                          className="mt-1 list-inside list-disc space-y-0.5 text-fg-muted"
+                          data-testid="provider-connect-error-hints"
+                        >
+                          {connectError.error.hints.map((hint, index) => (
+                            <li key={index}>{hint}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      {connectError.error.raw ? (
+                        <details className="mt-1" data-testid="provider-connect-error-detail">
+                          <summary className="cursor-pointer text-fg-muted">
+                            {t("onboarding.details")}
+                          </summary>
+                          <p className="mt-1 break-words font-mono text-[10px] text-fg-muted">
+                            {connectError.error.raw}
+                          </p>
+                        </details>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {!isCodex && expanded && p.ga ? (
                     <div className="flex flex-col gap-2 border-t pt-2">
                       <Input

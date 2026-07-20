@@ -18,6 +18,7 @@ import type { PreviewSessionKind } from "./types";
 import { PreviewOnboardingCoachmark } from "./PreviewOnboardingCoachmark";
 import { previewModeHint } from "./previewModeHint";
 import { loadTauri, type TauriApi } from "../../lib/tauri";
+import { runUserAction } from "../../lib/runUserAction";
 
 const PREVIEW_CANDIDATES = ["http://127.0.0.1:5173", "http://localhost:5173"];
 const STATIC_PREVIEW_CANDIDATES = ["index.html"];
@@ -248,11 +249,15 @@ export function PreviewTab() {
     setError(null);
     setStatus(null);
     setConnecting(true);
-    try {
-      await openPreview("local_url", url);
-    } finally {
-      setConnecting(false);
-    }
+    await runUserAction(
+      () => openPreview("local_url", url),
+      (err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+        pushTerminalLine({ kind: "stderr", text: `[preview] ${message}` });
+      },
+    );
+    setConnecting(false);
   };
 
   const loadStaticCandidate = async (target: string) => {

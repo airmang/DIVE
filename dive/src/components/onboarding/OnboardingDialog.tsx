@@ -12,7 +12,7 @@ import { Input } from "../ui/input";
 import { CodexOAuthDialog } from "../codex/CodexOAuthDialog";
 import { useProjectSessionStore } from "../../stores/project-session";
 import { useT } from "../../i18n";
-import { classifyError } from "../../lib/error-classify";
+import { classifyConnectError, type ConnectErrorState } from "../../lib/error-classify";
 
 function hasTauriRuntime(): boolean {
   if (typeof window === "undefined") return false;
@@ -53,27 +53,6 @@ const PROVIDER_CHOICES: Array<{
   { kind: "codex", label: "Codex", hintKey: "onboarding.provider_codex_hint" },
 ];
 
-interface OnboardingErrorState {
-  headline: string;
-  hints?: string[];
-  raw?: string;
-  showKeyLink?: boolean;
-}
-
-// S-046 (P1-05/P2-20): render the classified recovery hints as plain-Korean
-// bullets and keep the raw English provider tail behind a collapsed toggle, so
-// the primary onboarding error message is never a bare English string.
-function onboardingError(err: unknown, t: ReturnType<typeof useT>): OnboardingErrorState {
-  const classified = classifyError(err);
-  const headline =
-    classified.kind === "unknown" ? t("onboarding.connect_failed_generic") : t(classified.titleKey);
-  const hints = t(classified.hintsKey)
-    .split("|")
-    .map((hint) => hint.trim())
-    .filter((hint) => hint.length > 0);
-  return { headline, hints, raw: classified.rawMessage, showKeyLink: true };
-}
-
 export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
   const t = useT();
   const connectProvider = useProjectSessionStore((s) => s.connectProvider);
@@ -81,7 +60,7 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
   const [kind, setKind] = useState("anthropic");
   const [apiKey, setApiKey] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<OnboardingErrorState | null>(null);
+  const [error, setError] = useState<ConnectErrorState | null>(null);
   const [codexOpen, setCodexOpen] = useState(false);
   const selectedProvider = PROVIDER_CHOICES.find((provider) => provider.kind === kind);
   const providerUnavailable = selectedProvider?.available === false;
@@ -125,7 +104,7 @@ export function OnboardingDialog({ open, onOpenChange, onConnected }: Props) {
       onOpenChange(false);
       onConnected?.();
     } catch (err) {
-      setError(onboardingError(err, t));
+      setError(classifyConnectError(err, t));
     } finally {
       setSubmitting(false);
     }

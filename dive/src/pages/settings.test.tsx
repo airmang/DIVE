@@ -119,4 +119,27 @@ describe("SettingsPage review-card preferences", () => {
     fireEvent.click(connectButton);
     expect(screen.queryByTestId("provider-key-input")).toBeNull();
   });
+
+  it("shows a role=alert connect error when connecting a provider fails", async () => {
+    useProjectSessionStore.setState({
+      connectProvider: vi.fn().mockRejectedValue(new Error("401 Unauthorized invalid x-api-key")),
+    });
+
+    render(<SettingsPage />);
+
+    const anthropicCard = screen
+      .getAllByTestId("provider-card")
+      .find((card) => card.dataset.providerKind === "anthropic") as HTMLElement;
+    const card = within(anthropicCard);
+
+    fireEvent.click(card.getByTestId("provider-connect-btn"));
+    fireEvent.change(card.getByTestId("provider-key-input"), { target: { value: "sk-bad" } });
+    fireEvent.click(card.getByTestId("provider-submit"));
+
+    const errorBox = await screen.findByTestId("provider-connect-error");
+    expect(errorBox.getAttribute("role")).toBe("alert");
+    expect(screen.getByTestId("provider-connect-error-hints")).toBeTruthy();
+    // The form stays populated (not silently reset) so retrying doesn't require retyping.
+    expect((card.getByTestId("provider-key-input") as HTMLInputElement).value).toBe("sk-bad");
+  });
 });

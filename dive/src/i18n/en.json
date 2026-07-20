@@ -1739,6 +1739,8 @@
     "checkpoint_save_failed": "Could not save checkpoint",
     "project_open_failed": "Could not open project",
     "workmap_save_failed": "Could not save roadmap",
+    "plan_add_step_failed": "Could not save step",
+    "verification_observation_failed": "Could not save observation",
     "tutorial_on": "Tutorial mode is on",
     "tutorial_off": "Tutorial mode is off",
     "tutorial_description": "You can change this anytime in Settings > General.",

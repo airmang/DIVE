@@ -76,6 +76,34 @@ export function classifyError(input: unknown): ClassifiedError {
   };
 }
 
+export interface ConnectErrorState {
+  headline: string;
+  hints?: string[];
+  raw?: string;
+  showKeyLink?: boolean;
+}
+
+/**
+ * Shared provider connect/select error formatting (S-046 pattern): render the
+ * classified recovery hints as plain-language bullets and keep the raw
+ * provider error text behind a collapsed toggle, so the primary message is
+ * never a bare English string. Used by OnboardingDialog and Settings so both
+ * surfaces describe the same failure the same way.
+ */
+export function classifyConnectError(
+  err: unknown,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): ConnectErrorState {
+  const classified = classifyError(err);
+  const headline =
+    classified.kind === "unknown" ? t("onboarding.connect_failed_generic") : t(classified.titleKey);
+  const hints = t(classified.hintsKey)
+    .split("|")
+    .map((hint) => hint.trim())
+    .filter((hint) => hint.length > 0);
+  return { headline, hints, raw: classified.rawMessage, showKeyLink: true };
+}
+
 export type ProjectCreateErrorKind = "unsafe_path" | "permission" | "canonicalize" | "generic";
 
 export interface ClassifiedProjectCreateError {

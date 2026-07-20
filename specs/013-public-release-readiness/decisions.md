@@ -67,6 +67,21 @@ inlined away and the orphaned `useProvocationCards.ts` wrapper (zero
 importers) deleted. The per-render context-construction inefficiency remains
 S-069 backlog.
 
+## D-013-10 (S-062) — Failure surfacing sites and two verified non-changes
+
+Silent-failure fixes route through a shared `runUserAction` helper at five
+sites (settings connect/select, plan add-step, verification observation,
+preview candidate) using the existing classifyError/toast patterns —
+`classifyConnectError` was extracted from OnboardingDialog so the same failure
+renders identically in onboarding and settings. Two review items were
+verified as not needing change: `ProductShellLayout.handleOpenPlanStep` (both
+upstream callers already catch — PlanStep try/catch→onActionError,
+PlanView allSettled→failure banners; adding a toast would double-surface),
+and the dead store `error` field (zero readers confirmed, but removal
+cascades ~29 lines through runStoreAction/13 actions — deferred to backlog).
+type-aware no-floating-promises lint was not added (config is not
+type-aware; build-time cost).
+
 ## D-013-08 (open) — S-048 6b plain-GET egress disposition
 
 To be decided in S-063 design: absorb the process-tool plain-GET egress

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCcw } from "lucide-react";
 import { Button } from "../ui/button";
 import { useT } from "../../i18n";
+import { runUserAction } from "../../lib/runUserAction";
+import { useToast } from "../toast/toast-context";
 import {
   generateVerificationCoachGuide,
   recordVerificationObservation,
@@ -83,6 +85,7 @@ export function VerificationCoachPanel({
   onObservationRecorded,
 }: VerificationCoachPanelProps) {
   const t = useT();
+  const { toast } = useToast();
   const [response, setResponse] = useState<VerificationCoachGenerateResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [nonce, setNonce] = useState(0);
@@ -212,20 +215,31 @@ export function VerificationCoachPanel({
   const handleRecordObservation = () => {
     if (!canRecord) return;
     setRecording(true);
-    void recordVerificationObservation({
-      sessionId: request.sessionId,
-      cardId: request.cardId,
-      planStepId: request.planStepId,
-      guideVersion: response?.guideVersion ?? request.guideVersion ?? null,
-      evidenceKind,
-      criterionIds: recordCriterionIds,
-      observationText: observationText.trim(),
-    })
-      .then((record) => {
-        onObservationRecorded(record);
-        setObservationText(record.observationText);
-      })
-      .finally(() => setRecording(false));
+    void (async () => {
+      const result = await runUserAction(
+        () =>
+          recordVerificationObservation({
+            sessionId: request.sessionId,
+            cardId: request.cardId,
+            planStepId: request.planStepId,
+            guideVersion: response?.guideVersion ?? request.guideVersion ?? null,
+            evidenceKind,
+            criterionIds: recordCriterionIds,
+            observationText: observationText.trim(),
+          }),
+        (err) =>
+          toast({
+            variant: "error",
+            title: t("toast.verification_observation_failed"),
+            description: err instanceof Error ? err.message : String(err),
+          }),
+      );
+      if (result.ok) {
+        onObservationRecorded(result.value);
+        setObservationText(result.value.observationText);
+      }
+      setRecording(false);
+    })();
   };
 
   return (

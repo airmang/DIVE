@@ -1739,6 +1739,8 @@
     "checkpoint_save_failed": "체크포인트 저장 실패",
     "project_open_failed": "프로젝트 열기 실패",
     "workmap_save_failed": "로드맵 저장 실패",
+    "plan_add_step_failed": "단계 저장 실패",
+    "verification_observation_failed": "관찰 기록 저장 실패",
     "tutorial_on": "튜토리얼 모드를 켰습니다",
     "tutorial_off": "튜토리얼 모드를 껐습니다",
     "tutorial_description": "Settings > 일반에서 언제든 바꿀 수 있습니다.",
