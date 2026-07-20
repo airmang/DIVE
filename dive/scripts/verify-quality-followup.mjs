@@ -13,6 +13,13 @@ function read(path) {
   return readFileSync(join(root, path), "utf8");
 }
 
+// S-068 split several god-files into a primary file plus the sibling files it
+// composes. readAll() reads that file set as one unit so a module's contract is
+// verified at its new location without weakening what is required.
+function readAll(paths) {
+  return paths.map((path) => read(path)).join("\n");
+}
+
 function check(name, condition, detail = "") {
   if (condition) {
     pass += 1;
@@ -41,7 +48,12 @@ const viteConfig = read("vite.config.ts");
 const app = read("src/App.tsx");
 const actionDock = read("src/components/product/ActionDock.tsx");
 const productShellLayout = read("src/components/product/ProductShellLayout.tsx");
-const controller = read("src/components/product/useProductShellController.ts");
+// S-068 split: the controller composes ConversationSurfaces.tsx, which lazy-loads
+// PlanDraftApprovalScreen (the createElement views moved out of the hook).
+const controller = readAll([
+  "src/components/product/useProductShellController.ts",
+  "src/components/product/ConversationSurfaces.tsx",
+]);
 const agentLoop = read("src-tauri/src/agent/mod.rs");
 const agentLoopTest = read("src-tauri/tests/agent_loop.rs");
 const ipc = read("src-tauri/src/ipc/state.rs");

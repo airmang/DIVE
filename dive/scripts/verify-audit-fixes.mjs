@@ -13,6 +13,13 @@ function read(path) {
   return readFileSync(join(root, path), "utf8");
 }
 
+// S-068/S-069 split several god-files into a primary file plus the sibling files
+// it composes. readAll() reads that file set as one unit so a module's contract
+// is verified at its new location without weakening what is required.
+function readAll(paths) {
+  return paths.map((path) => read(path)).join("\n");
+}
+
 function check(name, condition, detail = "") {
   if (condition) {
     pass += 1;
@@ -25,9 +32,24 @@ function check(name, condition, detail = "") {
 
 const agentEvent = read("src-tauri/src/agent/event.rs");
 const agentLoop = read("src-tauri/src/agent/mod.rs");
-const chatSession = read("src/hooks/useChatSession.ts");
+// S-069 split: useChatSession composes the agent-event union (which carries the
+// assistant_end finish_reason field) and the pure reducer.
+const chatSession = readAll([
+  "src/hooks/useChatSession.ts",
+  "src/hooks/agent-events.ts",
+  "src/hooks/chat-session-reducer.ts",
+]);
 const planLlm = read("src/features/planning/usePlanInterviewLLM.ts");
-const controller = read("src/components/product/useProductShellController.ts");
+// S-068 split: the controller composes these hooks/views; PlanDraftRecoveryScreen
+// is now rendered from ConversationSurfaces.tsx.
+const controller = readAll([
+  "src/components/product/useProductShellController.ts",
+  "src/components/product/usePlanChatRouting.ts",
+  "src/components/product/usePlanDraftLifecycle.ts",
+  "src/components/product/useShellMenus.ts",
+  "src/components/product/productShellControllerLogic.ts",
+  "src/components/product/ConversationSurfaces.tsx",
+]);
 const sidebar = read("src/components/shell/Sidebar.tsx");
 const providerSelector = read("src/components/settings/ProviderModelSelector.tsx");
 const roadmap = read("src/features/roadmap/usePlanRoadmap.ts");

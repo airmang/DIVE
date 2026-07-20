@@ -70,8 +70,10 @@ if (!/menu:help-tutorial/.test(menu)) {
   console.log("[OK] Native Help menu has tutorial toggle item");
 }
 
+// S-068 split: the controller composes useShellMenus(), which owns native menu
+// event handling including the help-tutorial toggle.
 const productShellController = readFileSync(
-  repoPath("dive/src/components/product/useProductShellController.ts"),
+  repoPath("dive/src/components/product/useShellMenus.ts"),
   "utf8",
 );
 if (

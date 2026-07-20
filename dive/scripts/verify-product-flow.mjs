@@ -16,6 +16,14 @@ function read(rel, root = repoRoot) {
   return readFileSync(filePath(rel, root), "utf8");
 }
 
+// S-066/S-067/S-068/S-069 split several god-files into a primary file plus the
+// sibling files it composes. A module's wiring contract now spans that file set,
+// so readAll() reads them as one unit — the checks verify the same contract at
+// its new location without weakening what is required.
+function readAll(rels, root = repoRoot) {
+  return rels.map((rel) => read(rel, root)).join("\n");
+}
+
 function exists(rel, root = repoRoot) {
   return existsSync(filePath(rel, root));
 }
@@ -31,7 +39,16 @@ function includesAll(source, needles) {
 
 const lib = read("dive/src-tauri/src/lib.rs");
 const projectSession = read("dive/src/stores/project-session.ts");
-const controller = read("dive/src/components/product/useProductShellController.ts");
+const controller = readAll([
+  "dive/src/components/product/useProductShellController.ts",
+  // S-068 split: the controller composes these hooks/views (imported and called
+  // in useProductShellController.ts).
+  "dive/src/components/product/usePlanChatRouting.ts",
+  "dive/src/components/product/usePlanDraftLifecycle.ts",
+  "dive/src/components/product/useShellMenus.ts",
+  "dive/src/components/product/productShellControllerLogic.ts",
+  "dive/src/components/product/ConversationSurfaces.tsx",
+]);
 const planStepLogic = read("dive/src/components/product/productShellPlanStepLogic.ts");
 const planStepRuntime = read("dive/src/components/product/useProductPlanStepRuntime.ts");
 const productRecovery = read("dive/src/components/product/useProductRecovery.ts");
@@ -40,7 +57,13 @@ const productModalHost = read("dive/src/components/product/ProductModalHost.tsx"
 const planRouteConfirmModal = read("dive/src/components/product/PlanRouteConfirmModal.tsx");
 const planDashboardPanel = read("dive/src/components/product/PlanDashboardPanel.tsx");
 const planAddStepPanel = read("dive/src/components/product/PlanAddStepPanel.tsx");
-const chatSession = read("dive/src/hooks/useChatSession.ts");
+const chatSession = readAll([
+  "dive/src/hooks/useChatSession.ts",
+  // S-069 split: useChatSession composes the agent-event union and the pure
+  // reducer/normalizers (imported in useChatSession.ts).
+  "dive/src/hooks/agent-events.ts",
+  "dive/src/hooks/chat-session-reducer.ts",
+]);
 const workmap = read("dive/src/hooks/useWorkmap.ts");
 const usePlan = read("dive/src/features/planning/usePlan.ts");
 const usePlanRouter = read("dive/src/features/planning/usePlanRouter.ts");
@@ -66,7 +89,14 @@ const roadmapRail = read("dive/src/components/product/RoadmapRail.tsx");
 const planView = read("dive/src/components/plan/PlanView.tsx");
 const planTimeline = read("dive/src/components/plan/PlanTimeline.tsx");
 const planStepActions = read("dive/src/components/plan/PlanStepActions.tsx");
-const stepDetail = read("dive/src/components/product/StepDetailSlideIn.tsx");
+const stepDetail = readAll([
+  "dive/src/components/product/StepDetailSlideIn.tsx",
+  // S-067/S-068 split: the slide-in composes these section/evidence/supervisor
+  // files (imported in StepDetailSlideIn.tsx).
+  "dive/src/components/product/StepDetailSections.tsx",
+  "dive/src/components/product/stepDetailEvidence.ts",
+  "dive/src/components/product/stepDetailSupervisorRequests.ts",
+]);
 const slideInStore = read("dive/src/stores/slideIn.ts");
 const slideInPanel = read("dive/src/components/slide-in/SlideInPanel.tsx");
 const codeTab = read("dive/src/components/slide-in/CodeTab.tsx");
@@ -380,7 +410,7 @@ check(
     "requestPlanReplaceConfirmation",
     "replaceApproved",
   ]) &&
-    includesAll(read("dive/src-tauri/src/ipc/workspace_plan.rs"), [
+    includesAll(read("dive/src-tauri/src/ipc/workspace_plan/plan_lifecycle.rs"), [
       "replace_approved",
       "|| replace_approved",
     ]) &&

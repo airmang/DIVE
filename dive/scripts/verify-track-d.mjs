@@ -94,13 +94,15 @@ const checks = [
     pattern: /export async function refreshMenuRecents/,
   },
   {
+    // S-068 split: the controller composes useShellMenus(), which owns the
+    // menu-event subscription and open-project handling.
     name: "Product shell controller subscribes to menu events",
-    path: "dive/src/components/product/useProductShellController.ts",
+    path: "dive/src/components/product/useShellMenus.ts",
     pattern: /useMenuEvents\(/,
   },
   {
     name: "Product shell controller handles open project",
-    path: "dive/src/components/product/useProductShellController.ts",
+    path: "dive/src/components/product/useShellMenus.ts",
     pattern: /handleOpenProject/,
   },
   {

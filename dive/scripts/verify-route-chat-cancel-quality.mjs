@@ -48,7 +48,16 @@ const en = read("src/i18n/en.json");
 const tauriLib = read("src-tauri/src/lib.rs");
 const ipcMod = read("src-tauri/src/ipc/mod.rs");
 const ipcState = read("src-tauri/src/ipc/state.rs");
-const workspacePlan = read("src-tauri/src/ipc/workspace_plan.rs");
+// S-066 split workspace_plan.rs into a module dir; the route-cancel contract now
+// lives in plan_routing.rs (impls: register/remove tokens, cancel-selected waits)
+// plus commands.rs (the #[command] registrations). plan_routing.rs is read first
+// so the intra-file proximity checks below stay contiguous.
+const workspacePlan = [
+  "src-tauri/src/ipc/workspace_plan/plan_routing.rs",
+  "src-tauri/src/ipc/workspace_plan/commands.rs",
+]
+  .map((path) => read(path))
+  .join("\n");
 const planRouter = read("src-tauri/src/dive/plan_router.rs");
 const workspacePlanTest = read("src-tauri/tests/workspace_plan_ipc.rs");
 const releaseSmoke = read("scripts/release-gate-smoke.mjs");
