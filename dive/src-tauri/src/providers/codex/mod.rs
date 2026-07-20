@@ -715,7 +715,6 @@ mod tests {
             tool_choice: Some(super::super::ToolChoice::Specific("verify_result".into())),
             temperature: Some(0.0),
             max_tokens: Some(256),
-            stream: true,
         };
 
         let body = to_codex_responses_payload(&req);
@@ -873,7 +872,6 @@ mod tests {
             tool_choice: Some(super::super::ToolChoice::None),
             temperature: Some(0.0),
             max_tokens: Some(64),
-            stream: true,
         };
 
         let mut stream = provider.chat(req).await.expect("codex provider chat");

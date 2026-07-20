@@ -135,7 +135,6 @@ mod tests {
             tool_choice: None,
             temperature: None,
             max_tokens: None,
-            stream: true,
         };
         assert!(matches!(
             sentinel.chat(req).await,

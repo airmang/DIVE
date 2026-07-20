@@ -325,10 +325,6 @@ pub(super) fn select_runtime_at(
     }
 }
 
-pub(super) fn select_runtime(kind: ProviderKind, env_override: Option<&str>) -> RuntimeChoice {
-    select_runtime_at(kind, None, true, env_override, now_ms(), None)
-}
-
 fn runtime_selection_reason() -> String {
     match std::env::var("DIVE_RUNTIME").ok().as_deref() {
         Some("pi") => "DIVE_RUNTIME=pi selected supervised Pi runtime".into(),
@@ -602,35 +598,6 @@ pub fn runtime_capability_event_payload_for_test(
 }
 
 #[tauri::command]
-pub async fn pi_sidecar_codex_smoke(
-    state: State<'_, AppState>,
-    provider_config_id: Option<i64>,
-    model: Option<String>,
-) -> Result<crate::pi_sidecar::PiSidecarSmokeResult, String> {
-    let provider_config_id = match provider_config_id {
-        Some(id) => id,
-        None => {
-            let db = state.db.lock().map_err(|e| e.to_string())?;
-            provider_dao::list(db.conn())
-                .map_err(|e| e.to_string())?
-                .into_iter()
-                .rev()
-                .find(|row| row.kind == "codex")
-                .map(|row| row.id)
-                .ok_or_else(|| "codex provider not found".to_string())?
-        }
-    };
-    let project_root = state.project_root_required()?;
-    crate::pi_sidecar::run_codex_smoke(
-        state.keyring.as_ref(),
-        provider_config_id,
-        project_root,
-        model,
-    )
-    .await
-}
-
-#[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn chat_send(
     app: AppHandle,
@@ -697,7 +664,6 @@ pub async fn chat_send(
         .model(snap.model)
         .cancel(cancel)
         .run_mode(run_mode)
-        .plan_accepted(effective_plan_accepted)
         .locale(locale)
         .step_context(step_context.map(|ctx| ctx.context))
         .build()

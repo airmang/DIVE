@@ -77,7 +77,6 @@ impl AiAssistEngine {
             tool_choice: Some(ToolChoice::Specific("assist_cards".into())),
             temperature: Some(0.4),
             max_tokens: Some(1024),
-            stream: true,
         };
 
         let mut stream = self

@@ -30,8 +30,6 @@ struct WebFetchInput {
     purpose: String,
     #[serde(default)]
     web_fetch_approval: Option<WebFetchApproval>,
-    #[serde(default)]
-    reuse_for_session: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

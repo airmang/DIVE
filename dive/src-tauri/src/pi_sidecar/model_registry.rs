@@ -101,7 +101,7 @@ impl PiModelRegistryCache {
     /// `ipc::provider`'s `provider_list_models` executability-annotation
     /// tests, S-051 P2) can preload a fixed registry without spawning the
     /// real sidecar.
-    #[cfg(any(test, feature = "dev-mock"))]
+    #[cfg(test)]
     pub(crate) fn preloaded_for_test(providers: HashMap<String, HashSet<String>>) -> Self {
         Self {
             state: RwLock::new(RegistryState::Loaded(ModelRegistrySnapshot { providers })),

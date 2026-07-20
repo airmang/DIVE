@@ -1,4 +1,3 @@
-use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -468,11 +467,6 @@ pub fn short_hash(value: &str) -> String {
     hasher.update(value.as_bytes());
     let hex = format!("{:x}", hasher.finalize());
     hex[..16].to_string()
-}
-
-#[allow(dead_code)]
-fn _assert_ipnet_dependency_present() -> Option<IpNet> {
-    None
 }
 
 #[cfg(test)]

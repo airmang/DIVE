@@ -196,7 +196,6 @@ pub struct AgentLoop {
     pub cancel: Arc<AtomicBool>,
     pub model: String,
     pub run_mode: AgentRunMode,
-    pub plan_accepted: bool,
     pub locale: Option<String>,
     pub step_context: Option<StepContext>,
     web_fetch_session_grants: Arc<Mutex<HashSet<String>>>,
@@ -304,7 +303,6 @@ impl AgentLoop {
                 tool_choice: None,
                 temperature: Some(0.7),
                 max_tokens: Some(4096),
-                stream: true,
             };
 
             let assistant_id = Uuid::new_v4().to_string();
@@ -2817,7 +2815,6 @@ pub struct AgentLoopBuilder {
     cancel: Option<Arc<AtomicBool>>,
     model: Option<String>,
     run_mode: Option<AgentRunMode>,
-    plan_accepted: bool,
     locale: Option<String>,
     step_context: Option<StepContext>,
 }
@@ -2859,10 +2856,6 @@ impl AgentLoopBuilder {
         self.run_mode = Some(mode);
         self
     }
-    pub fn plan_accepted(mut self, accepted: bool) -> Self {
-        self.plan_accepted = accepted;
-        self
-    }
     pub fn locale(mut self, locale: Option<String>) -> Self {
         self.locale = locale
             .map(|s| s.trim().to_string())
@@ -2889,7 +2882,6 @@ impl AgentLoopBuilder {
                 .unwrap_or_else(|| Arc::new(AtomicBool::new(false))),
             model: self.model.unwrap_or_else(|| "unset".into()),
             run_mode: self.run_mode.unwrap_or(AgentRunMode::Plan),
-            plan_accepted: self.plan_accepted,
             locale: self.locale,
             step_context: self.step_context,
             web_fetch_session_grants: Arc::new(Mutex::new(HashSet::new())),

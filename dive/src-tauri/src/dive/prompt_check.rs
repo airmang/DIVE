@@ -92,7 +92,6 @@ impl PromptCheckEngine {
             tool_choice: Some(ToolChoice::Specific("prompt_review".into())),
             temperature: Some(0.2),
             max_tokens: Some(512),
-            stream: true,
         };
 
         let stream = match self.provider.chat(req).await {
@@ -204,7 +203,6 @@ impl PromptCheckEngine {
             tool_choice: None,
             temperature: Some(0.2),
             max_tokens: Some(512),
-            stream: true,
         };
 
         let mut stream = self

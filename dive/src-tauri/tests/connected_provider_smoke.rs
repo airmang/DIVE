@@ -83,7 +83,6 @@ async fn connected_provider_smoke_uses_real_keyring_without_printing_secrets() {
         tool_choice: None,
         temperature: Some(0.0),
         max_tokens: Some(256),
-        stream: true,
     };
 
     let mut stream = tokio::time::timeout(Duration::from_secs(90), runtime.provider.chat(request))

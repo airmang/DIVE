@@ -18,7 +18,6 @@ fn request(model: &str) -> ChatRequest {
         tool_choice: None,
         temperature: None,
         max_tokens: Some(128),
-        stream: true,
     }
 }
 

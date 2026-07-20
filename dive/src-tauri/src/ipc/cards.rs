@@ -645,6 +645,10 @@ pub async fn card_transition(
     Ok(next)
 }
 
+// Test-only convenience wrapper: exercises the provenance-less path directly,
+// bypassing the `card_transition` tauri command. Production always goes
+// through `card_transition_with_checkpoint_and_provenance_impl`.
+#[cfg(test)]
 pub(super) fn card_transition_with_checkpoint_impl(
     state: &AppState,
     card_id: i64,

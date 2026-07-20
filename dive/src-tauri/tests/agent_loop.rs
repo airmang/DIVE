@@ -194,7 +194,6 @@ fn loop_with_failing_web_fetch(
         .model("mock-model")
         .cancel(Arc::new(AtomicBool::new(false)))
         .run_mode(AgentRunMode::Build)
-        .plan_accepted(true)
         .max_iterations(3)
         .build()
         .unwrap()
@@ -518,7 +517,6 @@ async fn repeated_identical_tool_calls_stop_before_spinning() {
         .model("mock-model")
         .cancel(Arc::new(AtomicBool::new(false)))
         .run_mode(AgentRunMode::Build)
-        .plan_accepted(true)
         .max_iterations(5)
         .build()
         .unwrap();
@@ -694,7 +692,6 @@ async fn product_path_build_step_creates_code_output_and_records_changed_files()
         .model("mock-model")
         .cancel(Arc::new(AtomicBool::new(false)))
         .run_mode(AgentRunMode::Build)
-        .plan_accepted(true)
         .step_context(Some(StepContext {
             step_id: 1,
             title: "Create browser todo app".into(),
@@ -1277,7 +1274,6 @@ async fn plan_first_allows_empty_workmap_after_plan_accepted() {
         .model("mock-model")
         .cancel(Arc::new(AtomicBool::new(false)))
         .max_iterations(5)
-        .plan_accepted(true)
         .build()
         .unwrap();
 

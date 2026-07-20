@@ -117,7 +117,6 @@ pub async fn decide_cancelable(
         tool_choice: Some(ToolChoice::None),
         temperature: Some(0.0),
         max_tokens: Some(700),
-        stream: true,
     };
     check_route_cancel(cancel.as_ref())?;
     let mut stream = if let Some(cancel) = cancel.clone() {

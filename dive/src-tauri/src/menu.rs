@@ -128,14 +128,6 @@ fn labels(locale: MenuLocale) -> &'static MenuLabels {
     }
 }
 
-/// Build the application menu with the provided recent project rows.
-pub fn build_menu<R: Runtime>(
-    app: &AppHandle<R>,
-    recents: &[(i64, String)],
-) -> tauri::Result<Menu<R>> {
-    build_menu_for_locale(app, recents, MenuLocale::from_env())
-}
-
 pub fn build_menu_for_locale<R: Runtime>(
     app: &AppHandle<R>,
     recents: &[(i64, String)],

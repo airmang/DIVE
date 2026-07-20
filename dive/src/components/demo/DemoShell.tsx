@@ -7,7 +7,6 @@ import ScenarioADemoPage from "../../pages/scenario-a-demo";
 import ScenarioBDemoPage from "../../pages/scenario-b-demo";
 import PlanSurfaceDemoPage from "../../pages/plan-surface-demo";
 import ToolGuardDemoPage from "../../pages/tool-guard-demo";
-import ProvisioningDemoPage from "../../pages/provisioning-demo";
 import ExportDemoPage from "../../pages/export-demo";
 import TimelineDemoPage from "../../pages/timeline-demo";
 import ToastDemoPage from "../../pages/toast-demo";
@@ -36,7 +35,6 @@ export function DemoShell({ route }: DemoShellProps) {
   if (demoRoute === "scenario-b-demo") return <ScenarioBDemoPage />;
   if (demoRoute === "plan-surface-demo") return <PlanSurfaceDemoPage />;
   if (demoRoute === "tool-guard-demo") return <ToolGuardDemoPage />;
-  if (demoRoute === "provisioning-demo") return <ProvisioningDemoPage />;
   if (demoRoute === "timeline-demo") return <TimelineDemoPage />;
   if (demoRoute === "toast-demo") return <ToastDemoPage />;
   if (demoRoute === "polish-demo") return <PolishDemoPage />;

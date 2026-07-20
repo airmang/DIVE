@@ -1990,14 +1990,6 @@ fn is_confirmable_project_spec(spec: &ProjectSpec) -> bool {
     is_minimal_project_spec(spec) && architecture_is_decided(spec)
 }
 
-fn is_minimal_project_spec_draft(spec: &ProjectSpecDraft) -> bool {
-    !spec.goal.trim().is_empty()
-        && spec.acceptance_criteria.iter().any(|criterion| {
-            criterion.status == AcceptanceCriterionStatus::Active
-                && !criterion.text.trim().is_empty()
-        })
-}
-
 // Confirm-gate thresholds mirror the frontend `validateConfirmableProjectSpec`
 // (dive/src/features/planning/projectSpec.ts). The PRD interview readiness signal
 // MUST track these so DIVE never tells the student to confirm while the "PRD 확정"
@@ -2136,10 +2128,6 @@ fn confirmable_draft_gaps(spec: &ProjectSpecDraft) -> Vec<ConfirmableGap> {
         Some(_) => {}
     }
     gaps
-}
-
-fn is_confirmable_project_spec_draft(spec: &ProjectSpecDraft) -> bool {
-    confirmable_draft_gaps(spec).is_empty()
 }
 
 fn allocate_acceptance_criterion_id(criteria: &[AcceptanceCriterion]) -> String {
@@ -2395,7 +2383,6 @@ async fn run_prd_interview_turn(
         // contract-disobeying-but-eventually-JSON reply still completes (the
         // parser extracts the JSON span from surrounding prose).
         max_tokens: Some(8000),
-        stream: true,
     };
     let mut stream = with_retry(
         || {

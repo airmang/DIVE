@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+// dead_code 린트는 crate-wide로 끄지 말 것 — 개별 allow + 사유만 허용 (S-060)
 
 pub mod agent;
 pub mod auth;
@@ -26,11 +26,6 @@ pub use providers::{
     ModelInfo, OpenAiProvider, ProviderError, ToolCall, ToolChoice, ToolDef, Usage,
 };
 use tauri::Manager;
-
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -77,7 +72,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            greet,
             ipc::message_list,
             ipc::pending_tool_calls,
             ipc::chat_send,
@@ -100,9 +94,6 @@ pub fn run() {
             ipc::checkpoint_create,
             ipc::checkpoint_restore,
             ipc::checkpoint_list,
-            ipc::openrouter_issue_key,
-            ipc::openrouter_revoke_all,
-            ipc::openrouter_list_keys,
             ipc::export_session,
             ipc::log_ui_event,
             ipc::provocation_log_event,
@@ -141,7 +132,6 @@ pub fn run() {
             ipc::codex_oauth_status,
             ipc::codex_oauth_logout,
             ipc::codex_oauth_refresh,
-            ipc::pi_sidecar_codex_smoke,
             ipc::mcp_server_add,
             ipc::mcp_server_list,
             ipc::mcp_server_remove,

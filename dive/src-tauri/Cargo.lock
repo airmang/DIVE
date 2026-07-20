@@ -815,7 +815,6 @@ dependencies = [
  "eventsource-stream",
  "futures",
  "git2",
- "ipnet",
  "keyring",
  "once_cell",
  "rand 0.8.6",

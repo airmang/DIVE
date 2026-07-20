@@ -8,7 +8,6 @@ pub struct ChatRequest {
     pub tool_choice: Option<ToolChoice>,
     pub temperature: Option<f32>,
     pub max_tokens: Option<u32>,
-    pub stream: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

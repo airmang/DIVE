@@ -13,7 +13,6 @@
 
 pub mod codex_oauth;
 mod error;
-pub mod openrouter_provisioning;
 mod scope;
 
 use std::collections::HashMap;
@@ -28,9 +27,6 @@ use sha2::{Digest, Sha256};
 
 pub use codex_oauth::{CodexOAuth, CodexTokens, OAuthError, PkcePair};
 pub use error::AuthError;
-pub use openrouter_provisioning::{
-    ChildKey, ChildKeySummary, OpenRouterProvisioning, ProvisioningError,
-};
 pub use scope::SecretScope;
 
 const FILE_SECRET_MARKER_PREFIX: &str = "DIVE_FILE_SECRET_V1:";

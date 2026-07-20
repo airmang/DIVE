@@ -118,7 +118,6 @@ enum StageCSupervisorOutput {
     RuntimeUnavailable,
     Timeout,
     SidecarError,
-    LateAfterFinalization,
 }
 
 const SUPERVISOR_EVALUATION_ATTEMPTS_DEFAULT: usize = 3;
@@ -296,6 +295,9 @@ struct EvaluatedSupervisorAttempt {
     log: Option<SupervisorEvaluationLog>,
 }
 
+// Test-only convenience wrapper around `evaluate_with_output_and_log` that
+// drops the log half of the tuple; production code always needs the log.
+#[cfg(test)]
 fn evaluate_with_output(
     request: ProvocationAgentEvaluateRequest,
     output: StageCSupervisorOutput,
@@ -368,7 +370,7 @@ fn evaluate_with_output_and_log(
             StageCSupervisorOutput::SidecarError => {
                 dropped_validation_result(SupervisorDropReason::SidecarError)
             }
-            StageCSupervisorOutput::Timeout | StageCSupervisorOutput::LateAfterFinalization => {
+            StageCSupervisorOutput::Timeout => {
                 dropped_validation_result(SupervisorDropReason::Timeout)
             }
         }
@@ -1144,20 +1146,6 @@ mod tests {
             response.drop_reason,
             Some(SupervisorDropReason::SidecarError)
         );
-        assert!(response.card.is_none());
-    }
-
-    #[test]
-    fn provocation_agent_evaluate_contract_level_late_result_is_dropped_as_timeout() {
-        let mut dedup = SupervisorDedupState::new();
-        let response = evaluate_with_output(
-            request_with_verification(self_report_only_verification()),
-            StageCSupervisorOutput::LateAfterFinalization,
-            &mut dedup,
-        );
-
-        assert_eq!(response.status, ProvocationAgentEvaluateStatus::Dropped);
-        assert_eq!(response.drop_reason, Some(SupervisorDropReason::Timeout));
         assert!(response.card.is_none());
     }
 

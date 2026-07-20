@@ -174,7 +174,6 @@ impl VerifyEngine {
             tool_choice: Some(ToolChoice::Specific("verify_result".into())),
             temperature: Some(0.0),
             max_tokens: Some(1024),
-            stream: true,
         };
 
         let mut stream = self

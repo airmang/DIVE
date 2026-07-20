@@ -407,14 +407,6 @@ fn keyring_from_environment(default_local_file_path: PathBuf) -> Arc<dyn Keyring
     }
 }
 
-fn hydrate_provider_runtime(
-    db: &Database,
-    keyring: &dyn Keyring,
-) -> Result<ProviderRuntime, AppStateError> {
-    let rows = provider_dao::list(db.conn())?;
-    hydrate_provider_runtime_from_rows(rows, keyring)
-}
-
 fn hydrate_provider_runtime_from_rows(
     rows: Vec<ProviderConfigRow>,
     keyring: &dyn Keyring,

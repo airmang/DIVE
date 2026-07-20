@@ -1,6 +1,4 @@
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::Mutex;
 
@@ -193,11 +191,6 @@ impl McpClient {
         }
         Ok(resp.result.unwrap_or(serde_json::Value::Null))
     }
-}
-
-#[async_trait]
-pub trait RiskLevelFrom: Send + Sync {
-    async fn risk_map(&self) -> HashMap<String, String>;
 }
 
 #[cfg(test)]

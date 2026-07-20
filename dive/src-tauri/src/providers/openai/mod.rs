@@ -525,7 +525,6 @@ mod tests {
             tool_choice: Some(ToolChoice::Specific("assist_cards".into())),
             temperature: Some(0.4),
             max_tokens: Some(1024),
-            stream: true,
         };
 
         let body = to_openai_payload(&req);
@@ -560,7 +559,6 @@ mod tests {
             tool_choice: None,
             temperature: None,
             max_tokens: None,
-            stream: true,
         };
 
         let body = to_openai_payload(&req);
@@ -597,7 +595,6 @@ mod tests {
             tool_choice: None,
             temperature: None,
             max_tokens: None,
-            stream: true,
         };
 
         let body = to_openai_payload(&req);
@@ -622,7 +619,6 @@ mod tests {
             tool_choice: None,
             temperature: None,
             max_tokens: None,
-            stream: true,
         };
 
         let body = to_openai_payload(&req);
@@ -646,7 +642,6 @@ mod tests {
             tool_choice: None,
             temperature: None,
             max_tokens: None,
-            stream: true,
         };
 
         let body = to_openai_payload(&req);

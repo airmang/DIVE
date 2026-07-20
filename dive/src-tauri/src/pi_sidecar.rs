@@ -15,7 +15,9 @@ use tokio::process::Command;
 use tokio::time::{timeout, Duration, Instant};
 
 use crate::agent::{event::AgentProgressKind, AgentError, AgentEvent, AgentLoop};
-use crate::auth::{self, Keyring};
+#[cfg(test)]
+use crate::auth;
+use crate::auth::Keyring;
 use crate::providers::{FinishReason, Message as ProviderMessage, ToolCall, ToolDef};
 
 mod command;
@@ -30,9 +32,11 @@ pub mod parity;
 #[cfg(test)]
 use command::set_test_sidecar_script_path;
 use command::{bundled_sidecar_path, resolve_sidecar_command, SidecarCommand};
+use credential::{now_epoch_ms, prepare_runtime_credential};
+// QA smoke harness only (see `run_codex_smoke` below, S-060) — no production caller.
+#[cfg(test)]
 use credential::{
-    decode_jwt_exp_ms, default_expiry_ms, file_mode_string, now_epoch_ms,
-    prepare_runtime_credential, write_codex_auth_file, TempAuthDir,
+    decode_jwt_exp_ms, default_expiry_ms, file_mode_string, write_codex_auth_file, TempAuthDir,
 };
 pub use model_registry::PiModelRegistryCache;
 #[cfg(test)]
@@ -52,8 +56,12 @@ use transport::{
 };
 
 const PROVIDER_ID: &str = "openai-codex";
+// QA smoke harness only (see `run_codex_smoke` below, S-060) — no production caller.
+#[cfg(test)]
 const DEFAULT_MODEL: &str = "gpt-5.4-mini";
+#[cfg(test)]
 const SMOKE_MARKER: &str = "DIVE_PI_SIDECAR_TOOL_OK";
+#[cfg(test)]
 const SMOKE_PROMPT: &str = "Use the dive_context tool exactly once with request \"phase2-smoke\". After the tool result, reply exactly DIVE_PI_SIDECAR_TOOL_OK and nothing else.";
 const PI_TURN_TIMEOUT: Duration = Duration::from_secs(120);
 const SUPERVISOR_TURN_TIMEOUT_DEFAULT_MS: u64 = 12_000;
@@ -162,6 +170,11 @@ impl PiSidecarSupervisorError {
     }
 }
 
+// QA smoke harness — no production caller since the `pi_sidecar_codex_smoke`
+// tauri command was removed (S-060); only the ignored
+// `live_codex_smoke_uses_dive_keyring_and_custom_tool` unit test invokes this,
+// run manually against real Codex OAuth credentials.
+#[cfg(test)]
 pub async fn run_codex_smoke(
     keyring: &dyn Keyring,
     provider_config_id: i64,
