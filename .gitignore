@@ -35,12 +35,13 @@ Thumbs.db
 # Harness work-orders / wily plans (generated, regenerable from tasks.md)
 .harness/
 
-# Internal conference/strategy documents — never public
-docs/research/conference-poster/07-*.md
-docs/research/conference-poster/08-*.md
-docs/research/conference-poster/09-*.md
-docs/research/conference-poster/10-*.md
-docs/research/conference-poster/DIVE-최종논문-KACE2026.hwpx
+# Internal conference/research working material — never public.
+# The whole conference-poster tree is local research (unpublished paper
+# drafts, pilot protocol, pedagogy design, advisory docs, stage plans, QA
+# evidence); only the public reference list is tracked.
+docs/research/conference-poster/*
+docs/research/conference-poster/*/
+!docs/research/conference-poster/references.md
 docs/release-readiness/
 
 # Agent/tooling scratch directories (사용자별, 커밋 대상 아님)
@@ -50,15 +51,6 @@ docs/release-readiness/
 
 # KACE 발표 덱 편집 파이프라인 (별도 repo에서 빌드, 로컬 산출물)
 decks/
-
-# 저작권 보호 학술 PDF 원문 (로컬 연구용 사본, docs/research/conference-poster/references.md 참조)
-docs/research/conference-poster/references-pdf/
-
-# 발표 준비 작업 파일 (로컬 유지, 공개 대상 아님)
-docs/research/conference-poster/*.pptx
-docs/research/conference-poster/12-*.md
-docs/research/conference-poster/figures/
-docs/research/conference-poster/build-deck.js
 
 # 루트 작업 산출물
 fig1-preview.png
