@@ -56,3 +56,34 @@ decks/
 
 # 루트 작업 산출물
 fig1-preview.png
+
+# ─────────────────────────────────────────────────────────────────────────
+# Minimal-public internalization — sensitive internal docs stay on the
+# owner's local disk but are excluded from this public repository. Their
+# tracked copies were removed with `git rm --cached` (local files preserved).
+# ─────────────────────────────────────────────────────────────────────────
+
+# Internal spec/coordination + progress notes
+docs/internal/
+
+# Archived internal decision/plan notes and agent planning docs
+docs/archive/internal/
+docs/archive/superpowers/plans/
+
+# Internal research notes (public conference reference list stays tracked)
+docs/research/ai-era-programming-education-direction.md
+docs/research/reproduce.md
+docs/research/vibe-coding-supervision-thesis.md
+
+# Pilot protocol, release-gate SOP, and research measure/ablation packs
+docs/pilot-benchmarks.md
+docs/pilot-checklist.md
+docs/release-gate-2026-05.md
+docs/research-ablation.md
+docs/research-measures.md
+
+# QA screenshots only — docs/qa/ text (.md/.json) stays tracked
+docs/qa/**/*.png
+docs/qa/**/*.jpg
+docs/qa/**/*.jpeg
+docs/qa/**/*.gif

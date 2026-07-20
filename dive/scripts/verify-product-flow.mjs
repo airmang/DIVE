@@ -74,8 +74,6 @@ const previewTab = read("dive/src/components/slide-in/PreviewTab.tsx");
 const recoveryPanel = read("dive/src/components/product/RecoveryPanel.tsx");
 const recoverySlideIn = read("dive/src/components/product/RecoverySlideIn.tsx");
 const releaseSmoke = read("dive/scripts/release-gate-smoke.mjs");
-const ablationDoc = read("docs/research-ablation.md");
-const ablationDocLower = ablationDoc.toLowerCase();
 const stagePlanDoc = read("docs/research/conference-poster/04-Wily-Stage-실행계획.md");
 const evidenceTemplatePath =
   "docs/research/conference-poster/evidence/connected-provider-smoke-template.md";
@@ -425,15 +423,6 @@ check(
     includesAll(releaseSmoke, ["restart preserves disk DB", "collectEvidence"]),
 );
 
-check(
-  "ablation doc uses current plan-first approval-judgment framing",
-  includesAll(ablationDocLower, [
-    "plan-first",
-    "frictionless approval",
-    "judgmental approval",
-    "require_approval_judgment",
-  ]) && !ablationDoc.includes("D/I/V/E gates enabled"),
-);
 check(
   "pilot freeze procedure exists and requires product-flow verifier",
   includesAll(stagePlanDoc, [

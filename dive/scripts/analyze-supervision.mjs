@@ -50,9 +50,7 @@ const report = {
     approved_no_concern: overTrust.length,
   },
   metric_3_steer_events: steerCount,
-  metric_3_note: events.length
-    ? "from event records"
-    : "no event records in export - see research-measures steer",
+  metric_3_note: events.length ? "from event records" : "no event records in export",
 };
 
 console.log(JSON.stringify(report, null, 2));

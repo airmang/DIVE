@@ -193,7 +193,7 @@ First MVP build of the Sarkar "AI as provocateur" supervision layer working end 
   - `Step` ↔ `Card` is an optional 1:1 mapping via `StepSessionMapping`; opening a ready step creates the mapping and seeds the implementation session (ADR-082).
   - ADRs added: ADR-080 (SQLite as runtime SoT, `.dive/*` as approval-time export), ADR-081 (Card unchanged, plan metadata in new `Step` table), ADR-082 (`Step` ↔ `Card` optional 1:1 via `StepSessionMapping`), ADR-083 (Interview → Plan → Step → Card 4-layer split with run_mode gates).
   - `mermaid` ^11.12.1 added to `dive/package.json` for plan flow diagram preview.
-  - 2026-05-10 close-out verification on local: `cargo fmt --check`, `cargo clippy --all-targets --features dev-mock -D warnings`, `cargo test --features dev-mock --all-targets` (all 0 failed), `pnpm typecheck`, `pnpm lint --max-warnings 0`, `pnpm build` — all clean. See `docs/internal/DIVE_NEXT.md` for evidence.
+  - 2026-05-10 close-out verification on local: `cargo fmt --check`, `cargo clippy --all-targets --features dev-mock -D warnings`, `cargo test --features dev-mock --all-targets` (all 0 failed), `pnpm typecheck`, `pnpm lint --max-warnings 0`, `pnpm build` — all clean. Evidence recorded in internal notes (not included in the public repository).
 - DIVE v4 productization polish: native project/menu entry points, Tauri folder picker, tutorial mode, provider model selector, and per-track verification scripts.
 - Static provider model lists and persisted `selected_model` storage for connected providers.
 - `pnpm verify:v4` aggregate gate covering Tracks A-G; Track H live model refresh remains a follow-up.

@@ -36,4 +36,3 @@
 - 설계 명세(아카이브): [`DIVE_SPEC.md`](../archive/legacy-specs/DIVE_SPEC.md)
 - 의사결정 기록: [`DIVE_DECISIONS.md`](../../DIVE_DECISIONS.md)
 - 접근성 근거: [`../a11y-contrast.md`](../a11y-contrast.md)
-- 파일럿 체크리스트: [`../pilot-checklist.md`](../pilot-checklist.md)

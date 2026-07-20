@@ -19,7 +19,7 @@
 - **근거 있는 개입** — 목표·계획·권한·변경·터미널 오류·검증 게이트처럼 실제 프로젝트 상태에 근거가 있을 때만 검토 카드가 뜹니다. 근거 없는 일반 경고는 띄우지 않습니다.
 - **감독을 연습시키는 흐름** — 계획을 나누고, 지시하고, 실행하고, 검증하고, 확장하는(Decompose · Instruct · Execute · Verify · Extend) 실제 작업 안에서 감독 역량을 기릅니다. 퀴즈·배지·별도 학습 트랙이 아닙니다.
 
-이 방향의 논거는 [`docs/research/vibe-coding-supervision-thesis.md`](./docs/research/vibe-coding-supervision-thesis.md)에 정리되어 있습니다.
+이 방향의 논거는 별도의 내부 연구 노트(공개 저장소 미포함)에 정리되어 있습니다.
 
 ---
 

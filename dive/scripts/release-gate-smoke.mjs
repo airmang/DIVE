@@ -501,7 +501,6 @@ async function main() {
     "production wire verifier exists",
     existsSync(join(diveRoot, "scripts", "verify-production-wire.mjs")),
   );
-  record("release gate SOP exists", existsSync(join(repoRoot, "docs", "release-gate-2026-05.md")));
   record(
     "release gate workflow matches SOP commands",
     releaseGateWorkflowMatchesSop(),

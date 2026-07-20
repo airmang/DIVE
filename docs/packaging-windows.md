@@ -93,7 +93,7 @@ GitHub Actions x64 and ARM64 matrix runners for both release artifacts.
 
 승인 요청은 `.wily/phases/p10-09-external-release-blockers/approval-packet.md`의 정확한 문장을 사용하고, 커밋 범위는 `.wily/phases/p10-09-external-release-blockers/release-prep-commit-manifest.md`의 명시적 staging 목록을 따른다. `git add .`는 사용하지 않고, `qa-sandbox/`와 `.wily/sessions/**`는 릴리스 오너가 명시 승인하지 않는 한 커밋하지 않는다.
 
-커밋·푸시 전 검증 명령은 [`docs/release-gate-2026-05.md`](./release-gate-2026-05.md)의 P10-09 release blocker 절에 있는 pre-push verification summary를 따른다.
+커밋·푸시 전 검증 명령은 내부 릴리스 게이트 SOP(공개 저장소 미포함)의 P10-09 release blocker 절에 있는 pre-push verification summary를 따른다.
 
 릴리스 후보 게시 시에는 `.github/workflows/release.yml`을 `v1.0.0-rc.2` 태그, release owner, 승인된 숫자형 release-gate run id 입력으로 실행해 release-gate에서 smoke된 x64/ARM64 NSIS 아티팩트를 draft GitHub Release 자산으로 승격한다. release workflow는 입력된 run id가 GitHub Actions `databaseId`와 일치하고 같은 commit SHA의 성공한 manual `release-gate` 실행인지 검증하며, `DIVE-release-smoke-x64` / `DIVE-release-smoke-arm64` JSON의 owner·commit·results·blockers를 확인한 뒤, 같은 release-gate run의 `DIVE-windows-x64-nsis` / `DIVE-windows-arm64-nsis` installer artifact를 사용해 draft release를 만든다. draft release tag는 해당 workflow commit SHA에 고정된다. 정식 `v1.0.0` 승격은 별도 릴리스 승인 후 같은 절차를 따른다.
 
@@ -103,7 +103,7 @@ GitHub Actions x64 and ARM64 matrix runners for both release artifacts.
 
 - EV 코드 서명 인증서 **미보유** — 예산·발급 과정(2~4주) 미확보
 - Windows SmartScreen이 첫 설치 시 "게시자 확인 불가" 경고 표시 → **추가 정보 → 실행** 2클릭으로 진행
-- 학교 현장 배포용 `docs/student-quickstart.md` + `docs/pilot-checklist.md` 에 이 동작을 사전 안내
+- 학교 현장 배포용 `docs/student-quickstart.md` + 내부 파일럿 체크리스트(공개 저장소 미포함)에 이 동작을 사전 안내
 
 ### v1.0 정식 배포(2026-12) 전 의사결정 필요
 
@@ -135,7 +135,7 @@ Tauri는 Windows에서 Microsoft Edge WebView2 런타임을 요구:
 
 ## 7. 릴리스 스모크 테스트 (수동 + 자동 Gate)
 
-릴리스 후보 workflow를 dispatch하기 전, `docs/release-gate-2026-05.md`의 2단계 gate를 따른다. Playwright/Vite 데모 스위트는 UI 렌더링 회귀용이며, NSIS 설치본의 IPC·DB·keyring 동작을 증명하지 않는다.
+릴리스 후보 workflow를 dispatch하기 전, 내부 릴리스 게이트 SOP(공개 저장소 미포함)의 2단계 gate를 따른다. Playwright/Vite 데모 스위트는 UI 렌더링 회귀용이며, NSIS 설치본의 IPC·DB·keyring 동작을 증명하지 않는다.
 
 ### 7.1 자동 Release Gate — Windows + tauri-driver
 

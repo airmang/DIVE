@@ -85,7 +85,7 @@
 - [ ] OpenRouter 자식 키 25개 **최종 일괄 폐기**
 - [ ] OpenRouter 메인 키 한도 확인 → 남은 크레딧 정리
 - [ ] 모든 JSONL 파일을 `dive-pilot-data/final/`로 백업
-- [ ] `docs/pilot-benchmarks.md` 양식에 전체 6차시 요약 + 교사 회고 작성
+- [ ] 내부 파일럿 벤치마크 양식(공개 저장소 미포함)에 전체 6차시 요약 + 교사 회고 작성
 - [ ] `docs/pilot-feedback.md` 에 학생 설문 결과 집계
 
 ## 관련 명세

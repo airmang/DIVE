@@ -35,8 +35,8 @@ implementation planning.
 - Active decisions under `specs/*/decisions.md` govern tradeoffs for that feature.
 - Generated `plan.md` and `tasks.md` files are authoritative only inside their
   matching feature directory.
-- `docs/archive/superpowers/specs/` and `docs/archive/superpowers/plans/` are
-  historical unless an active spec explicitly incorporates them.
+- `docs/archive/superpowers/specs/` is historical unless an active spec
+  explicitly incorporates it.
 
 ## Current Product Decisions
 

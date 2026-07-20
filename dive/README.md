@@ -5,7 +5,8 @@ Beginner-friendly desktop UI for controlling a local AI coding agent. Built with
 - Product version: `package.json` (`version`) is the single source of truth —
   `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json` are kept in sync with
   it. Run `pnpm verify:version-sync` to check the three files agree.
-- Internal spec/coordination docs live in the repository root and `../docs/internal/`.
+- Internal spec/coordination docs live in the repository root; internal-only
+  coordination notes are kept outside this public repository.
 
 ## Product surface
 

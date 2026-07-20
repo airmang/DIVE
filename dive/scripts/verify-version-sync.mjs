@@ -1,6 +1,6 @@
 // Version-sync verification: package.json / Cargo.toml / Cargo.lock /
-// tauri.conf.json agree, the ADR bundle is complete, README/progress/
-// changelog carry the required release markers, and the release-gate /
+// tauri.conf.json agree, the ADR bundle is complete, README / changelog
+// carry the required release markers, and the release-gate /
 // release workflows keep their documented structure.
 // Usage: node scripts/verify-version-sync.mjs [expected-version]
 // With no argument, the expected version is read from dive/package.json —
@@ -23,14 +23,6 @@ function read(rel) {
   return fs.readFileSync(path.join(repo, rel), "utf8");
 }
 
-function readFirst(...rels) {
-  const found = rels.find((rel) => fs.existsSync(path.join(repo, rel)));
-  if (!found) {
-    throw new Error(`none of these files exist: ${rels.join(", ")}`);
-  }
-  return read(found);
-}
-
 function check(name, cond, detail = "") {
   if (cond) {
     pass++;
@@ -44,21 +36,6 @@ function check(name, cond, detail = "") {
 function note(name, detail = "") {
   warn++;
   console.log(`  WARN  ${name}${detail ? "  " + detail : ""}`);
-}
-
-function workflowRunExamplesUseApprovedRef(...docs) {
-  return docs.every((doc) => {
-    const lines = doc.split("\n");
-    return lines.every((line, index) => {
-      if (!/gh workflow run (?:release-gate|release)\.yml/.test(line)) {
-        return true;
-      }
-      return lines
-        .slice(index, index + 5)
-        .join("\n")
-        .includes("--ref <approved-branch>");
-    });
-  });
 }
 
 function cargoVersion() {
@@ -110,9 +87,8 @@ for (const id of requiredIds) {
   );
 }
 
-console.log("\n3. README / progress / changelog markers");
+console.log("\n3. README / changelog markers");
 const readme = read("README.md");
-const progress = readFirst("DIVE_PROGRESS.md", "docs/internal/DIVE_PROGRESS.md");
 const changelog = read("CHANGELOG.md");
 check(
   "README old v1.0 2026-11~12 completed Phase 6 row removed",
@@ -128,15 +104,6 @@ check(
   readme.includes(`(${adrCount} ADR`) &&
     readme.includes(`ADR-${String(latestAdrId).padStart(3, "0")}`),
   `expected=${adrCount} ADR, latest=ADR-${String(latestAdrId).padStart(3, "0")}`,
-);
-check("DIVE_PROGRESS Phase 7 exists", /## Phase 7 .*Production Wiring/.test(progress));
-check(
-  "DIVE_PROGRESS Phase 6 yanked note",
-  /Phase 6[\s\S]{0,500}Yanked|Phase 6[\s\S]{0,500}회수/.test(progress),
-);
-check(
-  "DIVE_PROGRESS 7-14 marked complete or gated",
-  /7-14[\s\S]{0,400}(완료|PHASE_GATE|외부 blocker)/.test(progress),
 );
 check("CHANGELOG rc.2 header", changelog.includes(`## [${expected}]`));
 check("CHANGELOG rc.1 yanked header", changelog.includes("## [Yanked] 1.0.0-rc.1"));
@@ -159,57 +126,6 @@ check("CHANGELOG rc.2 release notes non-empty", changelogReleaseNotes.length > 0
 
 console.log("\n4. Tag / GitHub release external gates");
 const releaseGateWorkflow = read(".github/workflows/release-gate.yml");
-const releaseGateDocs = read("docs/release-gate-2026-05.md");
-const packagingWindowsDocs = read("docs/packaging-windows.md");
-const nextDocs = read("docs/internal/DIVE_NEXT.md");
-const phase10PlanDocs = read("docs/internal/DIVE_NEXT_PHASE10_PLAN.md");
-check(
-  "release docs require committed current release prep",
-  releaseGateDocs.includes("commit and push") &&
-    releaseGateDocs.includes("current release prep state") &&
-    releaseGateDocs.includes("workflow evidence must") &&
-    releaseGateDocs.includes("current `release-gate.yml` /") &&
-    releaseGateDocs.includes("`release.yml` hardening and docs") &&
-    releaseGateDocs.includes("approval-packet.md") &&
-    releaseGateDocs.includes("release-prep-commit-manifest.md") &&
-    releaseGateDocs.includes("--ref <approved-branch>") &&
-    releaseGateDocs.includes("Immediately before dispatching `release.yml`") &&
-    releaseGateDocs.includes("same commit SHA") &&
-    releaseGateDocs.includes("as the approved `release-gate.yml` run") &&
-    releaseGateDocs.includes("numeric GitHub Actions `databaseId`") &&
-    releaseGateDocs.includes("GitHub-hosted `windows-11-arm` label") &&
-    releaseGateDocs.includes("bash ./scripts/verify-release-mock-guard.sh") &&
-    releaseGateDocs.includes("Do not use `git add .`") &&
-    releaseGateDocs.includes("`qa-sandbox/`") &&
-    releaseGateDocs.includes("`.wily/sessions/**`") &&
-    workflowRunExamplesUseApprovedRef(releaseGateDocs, packagingWindowsDocs) &&
-    packagingWindowsDocs.includes("커밋·푸시된 현재 릴리스 준비 상태") &&
-    packagingWindowsDocs.includes("같은 commit SHA") &&
-    packagingWindowsDocs.includes("GitHub Actions `databaseId`") &&
-    packagingWindowsDocs.includes("현재 로컬 하드닝을 증명하지 못한다") &&
-    packagingWindowsDocs.includes("approval-packet.md") &&
-    packagingWindowsDocs.includes("release-prep-commit-manifest.md") &&
-    packagingWindowsDocs.includes("--ref <approved-branch>") &&
-    packagingWindowsDocs.includes("`release.yml` dispatch 직전에는 remote SHA 확인을 다시 수행") &&
-    packagingWindowsDocs.includes("gh workflow run release.yml --repo airmang/DIVE-2") &&
-    packagingWindowsDocs.includes("-f tag=v1.0.0-rc.2") &&
-    packagingWindowsDocs.includes('-f release_owner="<owner-name>"') &&
-    packagingWindowsDocs.includes(
-      '-f release_gate_run_id="<approved-numeric-release-gate-run-id>"',
-    ) &&
-    packagingWindowsDocs.includes("`git add .`는 사용하지 않고") &&
-    packagingWindowsDocs.includes("`qa-sandbox/`") &&
-    packagingWindowsDocs.includes("`.wily/sessions/**`"),
-);
-check(
-  "Phase 10 SoT requires committed release prep before release evidence",
-  nextDocs.includes("현재 release prep 변경이 승인된 브랜치에 커밋·푸시되고") &&
-    nextDocs.includes("Stage 19 전체 완료 조건") &&
-    phase10PlanDocs.includes(
-      "Release-owner 승인 후 현재 release prep 변경을 승인된 브랜치에 커밋·푸시한다",
-    ) &&
-    phase10PlanDocs.includes("GitHub Release 권한 + 승인된 commit/push"),
-);
 check(
   "release-gate workflow manual dispatch only",
   releaseGateWorkflow.includes("workflow_dispatch:") && !/^\s+push:\s*$/m.test(releaseGateWorkflow),

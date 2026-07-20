@@ -36,8 +36,8 @@
 - 결정: 다음 4파일로 운영
   - `DIVE_SPEC.md` — 제품 명세 (변하지 않음, 사용자만 수정)
   - `DIVE_DECISIONS.md` — ADR 누적 (이 파일)
-  - `docs/internal/DIVE_PROGRESS.md` — 작업 체크리스트
-  - `docs/internal/DIVE_NEXT.md` — 단일 작업 단위 (ralph가 매 턴 갱신)
+  - 내부 진행 노트(공개 저장소 미포함) — 작업 체크리스트
+  - 내부 작업 노트(공개 저장소 미포함) — 단일 작업 단위 (ralph가 매 턴 갱신)
 - 대안: 단일 통합 파일 — 너무 커져서 파싱 부담
 - 결과: 각 파일이 명확한 책임. ralph 프롬프트가 짧아짐.
 
@@ -59,7 +59,7 @@
   - Windows VM을 상시 로컬에서 돌림 — 디스크·메모리 오버헤드 부담. ralph 루프가 사용자 부재 시간에 돌아간다는 점과도 맞지 않음.
   - 친지 Windows 머신에서 수동 빌드 — 재현성·접근성 부족.
 - 결과:
-  - 작업 1-1의 Windows 빌드 완료 조건 2개는 CI 첫 push에서 자동 검증된다. 실패 시 `docs/internal/DIVE_NEXT.md`에 BLOCKED로 다시 기록한다.
+  - 작업 1-1의 Windows 빌드 완료 조건 2개는 CI 첫 push에서 자동 검증된다. 실패 시 내부 작업 노트(공개 저장소 미포함)에 BLOCKED로 다시 기록한다.
   - GitHub Actions 무료 러너 `windows-11-arm`는 2025년부터 GA된 상태이므로 비용 추가 없이 ARM64 검증이 가능하다.
   - 로컬 macOS 검증 + Windows CI 검증의 이원화를 공식 절차로 문서화(`dive/README.md`의 "CI (권장)" 섹션).
 
@@ -465,7 +465,7 @@
 - 컨텍스트: 핸드오프 명세가 요구한 4-5 범위는 (a) 실제 학교 PC에 설치 및 검증 (b) OpenRouter 자식 키 25개 발급 + 25명 동시 호출 시뮬레이션 (c) Cloudflare Workers 짧은 URL 호스팅. 이번 세션은 외부 자원(학교 PC, 충전된 OpenRouter main key, Cloudflare 계정/도메인) 부재로 (a)(b)(c) 세 번째 단계를 직접 수행할 수 없음.
 - 결정:
   - **코드·문서 준비는 이번 세션에서 완료**: 교사 체크리스트, 벤치마크 템플릿, Windows 빌드 가이드, 25명 동시 시뮬레이션 스크립트. 모두 "사용자가 실제 자원을 가진 시점에 바로 실행 가능"한 상태.
-  - **실제 학교 PC 검증은 사용자 몫으로 명시 이관**: `docs/internal/DIVE_PROGRESS.md` 4-5 완료 노트에 "외부 자원 필요 항목(사용자 실행 대기)" 섹션 추가. Phase 5 진입 전이라도 파일럿 실시 가능.
+  - **실제 학교 PC 검증은 사용자 몫으로 명시 이관**: 내부 진행 노트(공개 저장소 미포함) 4-5 완료 노트에 "외부 자원 필요 항목(사용자 실행 대기)" 섹션 추가. Phase 5 진입 전이라도 파일럿 실시 가능.
   - **25명 시뮬레이션은 Playwright로 가능 범위까지**: 실제 OpenRouter 호출 없이 UI 플로우(onboarding → 프로젝트 → 세션)만 25 컨텍스트 동시 실행. 네트워크 stress는 목표가 아니고 UI 동시성·localStorage 충돌 회귀 검증이 목표. 실제 API stress는 유료 실제 키 필요.
   - **Cloudflare Workers는 Phase 5로 연기**: 학교 환경에서 QR 직접 스캔만으로도 25명 배포가 가능함을 ADR-017(OpenRouter provisioning 3-5)이 확인. 짧은 URL은 편의 기능이지 필수가 아님.
 - 대안:
@@ -473,7 +473,7 @@
   - **무료 OpenRouter 키로 제한된 stress 테스트**: 무료 티어는 $0 한도 + rate limit 엄격 → 25명 동시 호출이 의미 있는 데이터를 주지 못함. 불필요 비용만 발생.
   - **실제 학교 PC 없이 Windows VM으로 대체**: VM은 SmartScreen/Defender 동작이 실제 학교 IT 환경과 다름 → false positive 많음. 실제 하드웨어가 유일한 truth source.
 - 결과:
-  - 4 docs 신규 (`docs/pilot-checklist.md`, `pilot-benchmarks.md`, `windows-build-guide.md` + 향후 `pilot-feedback.md` 템플릿은 4-6에서 매뉴얼과 함께 추가).
+  - 4 docs 신규 (내부 파일럿 체크리스트·벤치마크(공개 저장소 미포함), `windows-build-guide.md` + 향후 `pilot-feedback.md` 템플릿은 4-6에서 매뉴얼과 함께 추가).
   - `scripts/simulate-25-users.mjs`는 CI 회귀에는 들어가지 않음 — on-demand 벤치마크 도구. `--count N` 파라미터로 규모 조정.
   - Phase 4 PHASE_GATE는 "코드·문서 준비 완료, 실환경 검증 사용자 대기"로 마킹. 실제 검증 후 필요 시 Phase 4-5-post 패치 ADR.
 
@@ -587,7 +587,7 @@
   - **한 규칙에 `\p{Script=Hangul}` 사용한 복잡한 look-around**: JS `u` 플래그로 가능하나 가독성↓. 현재 suffix 화이트리스트가 명확.
 - 결과:
   - +16 Playwright 검증, 0 신규 CI 러너, 이전 회귀 전부 유지(21 suites / 330 assertions)
-  - 한국어 특화 규칙 품질은 파일럿 데이터로 튜닝 예정 — `docs/pilot-benchmarks.md`에 "모호함 감지 오탐/누락 비율" 지표 추가 여부를 5-6 통합 이후 결정
+  - 한국어 특화 규칙 품질은 파일럿 데이터로 튜닝 예정 — 내부 파일럿 벤치마크(공개 저장소 미포함)에 "모호함 감지 오탐/누락 비율" 지표 추가 여부를 5-6 통합 이후 결정
   - "보내기 전 점검"(§6.6.3, 모델 자체 비평)은 5-5에서 — 모델 호출 1회 추가 + 토큰 사용량 표시까지. 5-4는 외부 호출 0 원칙 유지
 
 ## ADR-031: 보내기 전 점검은 single-tool tool_choice + 3-way 적용 + 토큰 수 즉시 표시
@@ -623,14 +623,14 @@
   - **랜딩 페이지는 얇게**: `pages/phase5-integration.tsx`는 5개 feature 카드 + 각 demo로 링크 + Rust 통과 배너만. 실제 검증은 기존 22 스위트가 모두 돌아가는 것으로. 랜딩 자체는 13 assertion(카드 렌더 + 네비게이션 + end-to-end ambiguity→check 플로우)만 검증.
   - **Rust 테스트 수는 하드코딩**: 랜딩 배너의 "238 passed"는 현재 세션 수치. Phase 6 CI 연동 시점에 자동 갱신 예정. 파일럿 시연 시 Rust 테스트가 더 붙을 수 있지만 배너는 "대략적 신뢰 지표"로만 취급.
   - **`AppState`에 MCP client 캐시 도입은 연기**: 현재 테스트는 `McpServerRegistry::build_adapters`로 직접 ToolRegistry에 등록하는 방식만 검증. 실제 앱 lifecycle(시작 시 enabled 서버 자동 연결 + 종료 시 child 프로세스 정리)은 Phase 6-4 NSIS 패키징 작업과 함께 Rust main loop 구조를 재검토할 때 다룬다.
-  - **실환경 검증은 사용자 몫**: Codex OAuth, MCP npm 서버, HTTP MCP 인증은 유료/외부 계정 필요. docs/internal/PHASE5_HANDOFF.md에 체크리스트로 명시.
+  - **실환경 검증은 사용자 몫**: Codex OAuth, MCP npm 서버, HTTP MCP 인증은 유료/외부 계정 필요. 내부 핸드오프 노트(공개 저장소 미포함)에 체크리스트로 명시.
 - 대안:
   - **여러 개의 end-to-end 테스트** (Codex-only / MCP-only / Combined): 같은 모크 인프라를 반복 설정하는 비용 vs 한 테스트가 실패해도 어느 계층인지 알 수 있는 이점. 기존 통합 테스트(`ai_assist_engine.rs`, `verify_engine.rs`, `mcp_tool_integration.rs`)가 각 계층을 이미 커버하므로 phase5_e2e는 "결합" 레이어만 검증.
   - **Playwright로 모든 5 feature를 한 페이지에서 직접 재생**: Tauri IPC가 요구되는 Codex status / MCP test_connect 등은 브라우저 mock fallback에 의존. 랜딩 페이지에서는 네비게이션 + 기존 데모 재사용이 더 유지보수 친화적.
   - **수동 walkthrough 문서**: 핸드오프에 체크리스트로만 남기고 자동 테스트 없음. 자동화 이득(회귀 방지) 포기.
 - 결과:
   - +1 Rust 테스트, +1 Playwright 스위트(13 assertions), +1 데모 페이지. 전체 Rust 237 → 238, 전체 Playwright 22 → 23 스위트 / 345 → 358 assertions
-  - Phase 5 PHASE_GATE 진입 — `docs/internal/DIVE_NEXT.md` / `docs/internal/DIVE_PROGRESS.md` / `docs/internal/PHASE5_HANDOFF.md` 세트 업데이트
+  - Phase 5 PHASE_GATE 진입 — 내부 작업/진행/핸드오프 노트(공개 저장소 미포함) 세트 업데이트
   - Phase 6 진입 시 5-4 한국어 정규식에 영어 룰 추가, 5-5 토큰 비용 환산 UI 등 다국어·정식 릴리스 마감이 이어진다
 
 ## ADR-033: i18n은 i18next 없이 JSON + Zustand persist + useT() 커스텀 훅으로 충분
@@ -683,7 +683,7 @@
 
 - 일시: 2026-05-04
 - 상태: 채택 (작업 6-3)
-- 컨텍스트: 명세 §12.2는 "본문 4.5:1, 주요 버튼 3:1" WCAG AA를 요구. 팔레트(§2.3)는 파스텔 보라 기반이라 디자인 변경은 최소화해야 한다. 동시에 라이트 모드 Link 버튼(`text-accent` = #9B85C7 on #FAFAFC = 3.7:1)이 본문 기준 4.5:1을 밑돈다는 것이 `docs/internal/DIVE_PROGRESS.md` 4-3 작업에서 이미 알려져 있었다. 자동 회귀 방지를 위해 대비 검사를 테스트 스위트에 넣어야 한다.
+- 컨텍스트: 명세 §12.2는 "본문 4.5:1, 주요 버튼 3:1" WCAG AA를 요구. 팔레트(§2.3)는 파스텔 보라 기반이라 디자인 변경은 최소화해야 한다. 동시에 라이트 모드 Link 버튼(`text-accent` = #9B85C7 on #FAFAFC = 3.7:1)이 본문 기준 4.5:1을 밑돈다는 것이 내부 진행 노트(공개 저장소 미포함) 4-3 작업에서 이미 알려져 있었다. 자동 회귀 방지를 위해 대비 검사를 테스트 스위트에 넣어야 한다.
 - 결정:
   - **런타임 Playwright 측정**: 대비 값을 하드코딩한 표로 검증하면 CSS 변수 + Tailwind `bg-panel2` 같은 alpha 적용 조합에서 실제 렌더링 값과 괴리된다. `getComputedStyle().color` / `backgroundColor`에서 브라우저가 최종 계산한 RGB를 뽑아 WCAG 2.1 공식(`0.2126R + 0.7152G + 0.0722B`, 감마 선형화)을 직접 적용. 실제 사용자가 보는 픽셀과 동일.
   - **다크 + 라이트 양쪽 + motion-reduce 각 1 스위트**: `document.documentElement.classList.remove("dark") + add("light")`로 수동 전환. 테스트는 `dive.theme` localStorage도 함께 업데이트해 앱 상태와 일치 유지.
@@ -735,7 +735,7 @@
 - 컨텍스트: v1.0 배포를 위해 (a) 오픈소스 라이선스 선택(명세 §14.1 — MIT 우선 검토), (b) 공개용 README (기존 루트 README는 ralph 운영 문서였음), (c) 릴리스 자동화가 필요. 수동 릴리스는 (3곳 버전 동기화 누락, CHANGELOG 복사 누락, 아티팩트 첨부 누락) 오류 유형이 많다.
 - 결정:
   - **MIT 라이선스**: 가장 자유롭고 학교·기업·개인 모두 사용 가능. Apache 2.0의 특허 조항은 학생 교육용 SW에 과도한 규율. AGPL은 상용 fork 방지 목적이 현 단계에 무리(연구 목적 + 교육 보급이 우선). 의존 라이브러리(Tauri/React/Zustand/Radix/Lucide 모두 MIT 또는 동등) 라이선스 호환.
-  - **README는 공개용으로 완전 교체**: 기존 ralph 운영 문서는 `docs/internal/RALPH_README.md`로 이동. 일반 방문자가 GitHub에서 처음 보는 파일은 "이게 뭐고 어떻게 쓰나"에 답해야 하지, "codex CLI로 어떻게 자동 개발하나"가 아니다.
+  - **README는 공개용으로 완전 교체**: 기존 ralph 운영 문서는 내부 운영 문서(공개 저장소 미포함)로 이동. 일반 방문자가 GitHub에서 처음 보는 파일은 "이게 뭐고 어떻게 쓰나"에 답해야 하지, "codex CLI로 어떻게 자동 개발하나"가 아니다.
   - **CHANGELOG는 Keep a Changelog 포맷**: 섹션(Added/Changed/Fixed/Security/...) 고정. 릴리스 워크플로우가 `awk`로 해당 버전 블록 추출 → GitHub Release body에 주입. Phase별 이력을 역순으로 기록.
   - **버전 동기화는 릴리스 워크플로우 첫 단계에서 검증**: `verify-versions` job이 3곳(`package.json`·`Cargo.toml`·`tauri.conf.json`) 모두 태그 버전과 일치하는지 확인 → 불일치 시 `::error::` + exit 1. CI에서 실패하므로 잘못된 버전으로 릴리스 빌드 시작조차 못함.
   - **Draft Release로 생성**: 자동 publish 하지 않고 draft에 머묾. 릴리스 관리자가 아티팩트 / 노트 검토 후 GitHub UI에서 수동 publish. 파일럿 버전 노트 수정이 자주 필요할 것이라는 현실 고려.
@@ -748,7 +748,7 @@
   - **Apache 2.0**: 특허 부여 조항 명시 필요. DIVE는 독창적 알고리즘이 주 기여가 아니라 워크플로우 설계 + 교육 자료라서 특허 부여가 큰 의미 없음. MIT로 충분.
   - **AGPL**: Microsoft Trusted Signing 같은 상용 인프라와 마찰 가능성. DIVE 채택 목표(학교 보급 + 오픈 연구 공유)와 배치.
 - 결과:
-  - `LICENSE` + `README.md`(공개) + `CHANGELOG.md` + `.github/workflows/release.yml` 4 파일 신규 (+ `docs/internal/RALPH_README.md` 파일 이동)
+  - `LICENSE` + `README.md`(공개) + `CHANGELOG.md` + `.github/workflows/release.yml` 4 파일 신규 (+ 내부 운영 문서(공개 저장소 미포함) 파일 이동)
   - 첫 릴리스(`v1.0.0-rc.1` 태그) 푸시 시 3곳 버전 검증 통과 후 자동으로 Windows x64/ARM64 NSIS 인스톨러 첨부된 Draft Release 생성
   - Phase 6 종료 후 사용자(총괄 연구원)가 Draft 검토 → 수동 Publish → v1.0 정식 배포
 
@@ -1349,7 +1349,7 @@
   - `dive/src-tauri/src/agent/mod.rs`
   - `dive/src-tauri/src/ipc/policy.rs`
   - `dive/src/pages/settings.tsx`
-  - `docs/research-ablation.md`
+  - 내부 연구 절제(ablation) 노트(공개 저장소 미포함)
 
 ## ADR-080: SQLite는 runtime SoT, `.dive/plan.json`은 승인 시점 portable export
 
@@ -1372,7 +1372,7 @@
   - `dive/src-tauri/src/db/schema.rs` (CREATE_INTERVIEW/PLAN/STEP/STEP_SESSION_MAPPING)
   - `dive/src-tauri/src/db/migrations.rs` (migration_v7)
   - `dive/src-tauri/src/workspace_plan/artifacts.rs` (export 생성)
-  - `docs/internal/DIVE_NEXT_PHASE9_PLAN.md`
+  - 내부 Phase 9 계획 노트(공개 저장소 미포함)
   - `DIVE_SPEC.md` §4.1.1, §4.1.6, §10.2
 
 ## ADR-081: Card 테이블은 변경하지 않고 별도 Step 테이블로 계획 메타데이터 분리
@@ -1484,4 +1484,4 @@
   - 연구 빌드는 기존 env 기반 자동화가 계속 가능하다.
 - 참조 파일:
   - `dive/src-tauri/src/dive/gate.rs`
-  - `docs/research-ablation.md`
+  - 내부 연구 절제(ablation) 노트(공개 저장소 미포함)
