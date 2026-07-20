@@ -185,6 +185,38 @@ and 0 PDFs remain reachable from main. Caveat: like the PDFs, the old
 omc/omx content still lives in the `refs/pull/*` PR refs and is covered by
 the same GitHub Support purge required before the public flip (D-013-13).
 
+## D-013-15 (S-070 follow-up) — Minimal-public docs cut + verify:v4 repoint
+
+Owner decision (2026-07-20): keep the public repo to genuinely-public
+documentation. Internalized (untrack + gitignore + history purge; local
+copies preserved): 46 QA screenshots, docs/internal/ progress/planning,
+unpublished research (thesis / ai-era direction / reproduce),
+docs/archive/superpowers/plans/ + docs/archive/internal/ agent-planning
+notes and internal deck, and the pilot / release-gate / research-measure /
+ablation process docs. Kept public (evidence chain intact): specs/,
+spec-status, the QA text findings specs cite, promoted design docs
+(superpowers/specs/), legacy-specs (code-referenced), audits, user/build
+docs. All CI hard-reads (verify-version-sync, verify-product-flow) and
+citations (README, dive-README, AGENTS, CHANGELOG, DIVE_DECISIONS,
+round2-audit-findings) that pointed at internalized docs were fixed to
+neutral "internal notes (not in the public repository)" phrasing; README
+release-gate markers preserved. The history purge (a third filter-repo
+pass) caught old pre-2026-07-03-cleanup paths too (docs/superpowers/plans/,
+root DIVE_NEXT/PROGRESS). origin/main force-pushed (`e53300a…a6bff3d`) —
+0 internalized-doc objects, 0 PDFs, 0 omc/omx remain reachable from main.
+
+Separately, the verify:v4 static-wiring verifiers (verify-product-flow +
+route-chat/track-d/e/audit/quality) had drifted from the S-066/067/068
+refactors — they grepped files/symbols that moved. This was missed because
+per-stage CI ran the standard gates (cargo/pnpm test) but not the verify:v4
+static track. Fixed by repointing (readAll() over the split files; no
+check deleted, no includesAll loosened) — verify:v4 green, 0 real
+product-wiring regressions found.
+
+Same caveat as D-013-13: the internalized docs, like the PDFs and omc/omx,
+still live in the `refs/pull/*` PR refs and are covered by the one GitHub
+Support purge required before the public flip.
+
 ## D-013-09 (owner) — History-rewrite pass decisions (resolved)
 
 Resolved 2026-07-20: (a) commit-author email `kokyuhyun@hotmail.com` left
