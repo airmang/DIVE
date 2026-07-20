@@ -16,7 +16,7 @@
 
 ## Beginner-readiness rubric (14 dimensions)
 
-Distilled from `.specify/memory/constitution.md` + `docs/research/{vibe-coding-supervision-thesis,conference-poster/01-교수법,internal-research-notes,ai-era-programming-education-direction}.md` + `docs/{student-quickstart,teacher-manual}.md`.
+Distilled from `.specify/memory/constitution.md` + `docs/research/{vibe-coding-supervision-thesis,conference-poster/01-교수법,ai-era-programming-education-direction}.md` + `docs/{student-quickstart,teacher-manual}.md`.
 
 - **[D01] First-run comprehension without help (무지원 첫 진입 이해)** — GOOD: On first launch a true-novice Korean student, with no teacher/manual, can tell within the first screen what DIVE is for (supervising AI to build a real thing) and what to touch first. Onboarding -> provider connect -> project/session -> first card follows the student-quickstart 1→5분 path with each step's success signal visible in-app (e.g. green dot ●, '카드 추가' active only in D). The student is never staring at a blank state with no next action.  
   FAIL: The student opens the app and does not know what it is, what to click, or whether the previous step worked. Required setup (provider key, folder path) appears with no plain-language framing and stalls them. They need the teacher just to get past the first screen.  

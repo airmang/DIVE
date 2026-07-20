@@ -25,7 +25,7 @@ The backend grew a **provider/runtime/supervision layer**; the cockpit UI never 
 The product can now talk through 6 providers and (on s-005) a supervised Pi runtime with
 per-tool risk/approval — but a user in the cockpit **cannot see which AI is answering, which
 runtime is executing, or that tool-calls are being supervised.** Separately, the
-"cockpit-first" identity from `docs/research/internal-ux-research-notes.md` is
+"cockpit-first" identity from internal UX research notes is
 still undercut by a hard chat-gate, and i18n integrity has regressed in shipping components.
 
 ## 2. Findings

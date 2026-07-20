@@ -46,6 +46,8 @@ docs/release-readiness/
 
 # Agent/tooling scratch directories (사용자별, 커밋 대상 아님)
 .orca/
+.omc/
+.omx/
 .playwright-mcp/
 .pnpm-store/
 

@@ -285,7 +285,7 @@ DIVE의 사고 절차는 **두 계층**으로 구성된다.
 | 종료 조건 | 사용자가 [인터뷰 완료]를 누르면 `Interview.status = submitted`. AI가 충분하다고 판단해도 자동 종료 X(사용자 결정 우선). |
 | 저장 | 매 Q&A는 `Interview.questions` JSON에 누적, 미해결 질문은 `unresolved_questions`에 별도 보관. 의도 요약은 `intent_summary`. |
 | 다시 시작 | 사용자가 인터뷰 폐기를 선택하면 `status = discarded`. 새 Interview를 만들 수 있다. |
-| 외부 도구와 구분 | 본 기능은 제품 내장 'Interview' 단계다. internal deep-interview 스킬과 명칭은 비슷하지만 별개의 제품 기능. |
+| 외부 도구와 구분 | 본 기능은 제품 내장 'Interview' 단계이며 별개의 제품 기능이다. |
 
 이 단계에서 mutating 도구(`edit_file`/`bash` 등)는 권한 카드 단계까지 가지 않고 게이트에서 차단된다 — `chat_send`의 `run_mode = Interview`.
 
