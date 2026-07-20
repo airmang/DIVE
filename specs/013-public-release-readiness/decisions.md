@@ -168,6 +168,23 @@ Only after Support confirms the PR-ref/cached PDF exposure is gone should the
 repository be toggled private → public. That toggle and the Support ticket
 are the owner's to execute.
 
+## D-013-14 (S-070 follow-up) — OMC/OMX tooling traces purged
+
+Owner request (2026-07-20): erase all traces of the OMC/OMX interview
+tooling before the public flip. Purged the two research files
+(`docs/research/omc-deep-interview-*.md`, `omx-deep-interview-*.md`) from
+tree and all history (`git filter-repo --invert-paths`), redacted their
+string references from retained docs' history (thesis frontmatter, round2
+audit source citations, DIVE_SPEC comparison, pacemaker-talk spec line,
+ui-ux audit citation) via `--replace-text` with neutral phrasing, deleted
+the local `.omc/` dir, and gitignored `.omc/`/`.omx/`. Code identifiers
+that merely contain the substrings (`…FromConversation`, `…FromCards`,
+`domcontentloaded`) were verified false-positives and left untouched.
+`origin/main` was force-pushed (`ee6ce0e…d2e6c22`) — 0 omc/omx objects
+and 0 PDFs remain reachable from main. Caveat: like the PDFs, the old
+omc/omx content still lives in the `refs/pull/*` PR refs and is covered by
+the same GitHub Support purge required before the public flip (D-013-13).
+
 ## D-013-09 (owner) — History-rewrite pass decisions (resolved)
 
 Resolved 2026-07-20: (a) commit-author email `kokyuhyun@hotmail.com` left
