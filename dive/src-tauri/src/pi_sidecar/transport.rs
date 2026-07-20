@@ -1,3 +1,4 @@
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 #[cfg(test)]
@@ -8,8 +9,17 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 use tokio::time::{timeout, Duration, Instant};
 
+use super::command::SidecarCommand;
 use super::protocol::SidecarEvent;
 use super::{PI_TURN_TIMEOUT, SIDECAR_HEARTBEAT_STALL_TIMEOUT};
+
+/// Error text emitted when the sidecar closes stdout before the turn completes.
+/// This string is protocol between `next_sidecar_event*` (producer) and
+/// `run_supervised_turn_inner` (which branches on it to distinguish a clean EOF
+/// from a crash); keep it a shared symbol so the branch cannot silently break if
+/// the wording changes. The text itself is surfaced as a runtime error and stays
+/// unchanged.
+pub(super) const SIDECAR_STDOUT_CLOSED: &str = "pi sidecar stdout closed before turn completion";
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct SidecarTiming {
@@ -80,6 +90,63 @@ pub(super) fn spawn_sidecar_stdout_reader(
     rx
 }
 
+pub(super) struct SpawnedSidecar {
+    pub(super) child: tokio::process::Child,
+    pub(super) stdin: tokio::process::ChildStdin,
+    pub(super) stdout: tokio::process::ChildStdout,
+    pub(super) stderr_task: tokio::task::JoinHandle<Vec<String>>,
+}
+
+/// Spawn the Node sidecar with piped stdio, take the three pipes, and start the
+/// stderr redaction collector. Every caller (`run_codex_smoke`,
+/// `run_supervisor_turn`, `run_supervised_turn_inner`, `query_model_registry`)
+/// repeated this block verbatim except for the spawn-failure prefix, which
+/// varies per path — so `spawn_error_label` keeps each site's existing error
+/// text while the pipe-take and stderr messages stay shared. Callers that need a
+/// typed error (`PiSidecarSupervisorError`) map the returned `String` at the
+/// call site, preserving the original variant.
+pub(super) fn spawn_sidecar(
+    sidecar_cmd: &SidecarCommand,
+    spawn_error_label: &str,
+) -> Result<SpawnedSidecar, String> {
+    let mut child = super::new_sidecar_process(sidecar_cmd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| format!("{spawn_error_label}: {e}"))?;
+
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "pi sidecar stdin unavailable".to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "pi sidecar stdout unavailable".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "pi sidecar stderr unavailable".to_string())?;
+
+    let stderr_task = tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        let mut lines = Vec::new();
+        while let Ok(Some(line)) = reader.next_line().await {
+            lines.push(redact_line(&line));
+        }
+        lines
+    });
+
+    Ok(SpawnedSidecar {
+        child,
+        stdin,
+        stdout,
+        stderr_task,
+    })
+}
+
 pub(super) fn remaining_turn_budget(
     started: Instant,
     timeout: Duration,
@@ -98,9 +165,7 @@ pub(super) async fn next_sidecar_event(
     let wait_for = remaining.min(timing.heartbeat_stall_timeout);
     match timeout(wait_for, rx.recv()).await {
         Ok(Some(SidecarReadMessage::Event(event))) => Ok(event),
-        Ok(Some(SidecarReadMessage::Eof)) => {
-            Err("pi sidecar stdout closed before turn completion".to_string())
-        }
+        Ok(Some(SidecarReadMessage::Eof)) => Err(SIDECAR_STDOUT_CLOSED.to_string()),
         Ok(Some(SidecarReadMessage::Error(err))) => Err(err),
         Ok(None) => Err("pi sidecar event reader stopped before turn completion".to_string()),
         Err(_) if started.elapsed() >= timing.turn_timeout => {
@@ -126,9 +191,7 @@ pub(super) async fn next_sidecar_event_during_tool(
 ) -> Result<SidecarEvent, String> {
     match timeout(timing.heartbeat_stall_timeout, rx.recv()).await {
         Ok(Some(SidecarReadMessage::Event(event))) => Ok(event),
-        Ok(Some(SidecarReadMessage::Eof)) => {
-            Err("pi sidecar stdout closed before turn completion".to_string())
-        }
+        Ok(Some(SidecarReadMessage::Eof)) => Err(SIDECAR_STDOUT_CLOSED.to_string()),
         Ok(Some(SidecarReadMessage::Error(err))) => Err(err),
         Ok(None) => Err("pi sidecar event reader stopped before turn completion".to_string()),
         Err(_) => Err(format!(

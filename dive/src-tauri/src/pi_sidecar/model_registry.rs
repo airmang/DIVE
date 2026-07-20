@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::process::Stdio;
 use std::sync::RwLock;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -7,7 +6,7 @@ use tokio::time::{timeout, Duration};
 
 use super::command::{bundled_sidecar_path, resolve_sidecar_command};
 use super::protocol::{sidecar_event_name, SidecarEvent};
-use super::transport::redact_line;
+use super::transport::{redact_line, spawn_sidecar, SpawnedSidecar};
 
 /// Bounded wait for the sidecar's `list_models` handshake response. Shorter
 /// than `PI_TURN_TIMEOUT` — this is a local registry lookup with no network
@@ -114,35 +113,12 @@ impl PiModelRegistryCache {
 /// D1). Used to populate `PiModelRegistryCache`.
 pub(super) async fn query_model_registry() -> Result<HashMap<String, HashSet<String>>, String> {
     let sidecar_cmd = resolve_sidecar_command(bundled_sidecar_path())?;
-    let mut child = super::new_sidecar_process(&sidecar_cmd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|e| format!("spawn pi sidecar for list_models: {e}"))?;
-
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| "pi sidecar stdin unavailable".to_string())?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "pi sidecar stdout unavailable".to_string())?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "pi sidecar stderr unavailable".to_string())?;
-
-    let stderr_task = tokio::spawn(async move {
-        let mut reader = BufReader::new(stderr).lines();
-        let mut lines = Vec::new();
-        while let Ok(Some(line)) = reader.next_line().await {
-            lines.push(redact_line(&line));
-        }
-        lines
-    });
+    let SpawnedSidecar {
+        mut child,
+        mut stdin,
+        stdout,
+        stderr_task,
+    } = spawn_sidecar(&sidecar_cmd, "spawn pi sidecar for list_models")?;
 
     stdin
         .write_all(b"{\"type\":\"list_models\"}\n")
