@@ -1,17 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { PLAN_ROADMAP_REFRESH_EVENT } from "./usePlanRoadmap";
-
-type TauriApi = {
-  invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-};
-
-async function loadTauri(): Promise<TauriApi | null> {
-  const w =
-    typeof window === "undefined" ? null : (window as unknown as { __TAURI_INTERNALS__?: unknown });
-  if (!w?.__TAURI_INTERNALS__) return null;
-  const core = await import("@tauri-apps/api/core");
-  return { invoke: core.invoke as TauriApi["invoke"] };
-}
+import { loadTauri, type TauriApi } from "../../lib/tauri";
 
 export interface PlanActivityLogRow {
   id: number;

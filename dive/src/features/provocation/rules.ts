@@ -1,4 +1,4 @@
-import { shouldShowProvocationCardInMode, sortProvocationCards } from "./priority";
+import { sortProvocationCards } from "./priority";
 import { hasAiSelfReport, hasObservedVerificationEvidence } from "./verificationStatus";
 import type {
   ChangedFileCategory,
@@ -713,10 +713,7 @@ export function generateQuarantinedRuleProvocationCards(
     (candidate): candidate is ProvocationCard => candidate !== null,
   );
   const eligible = cards.filter((candidate) => cardEligibleForStage(candidate, context));
-  const visible = eligible.filter((candidate) =>
-    shouldShowProvocationCardInMode(candidate, context.mode),
-  );
-  return sortProvocationCards(visible);
+  return sortProvocationCards(eligible);
 }
 
 export function generateProvocationCards(context: ProvocationContext): ProvocationCard[] {

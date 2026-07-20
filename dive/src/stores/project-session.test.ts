@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: mocks.invoke,
+  convertFileSrc: (path: string) => path,
 }));
 
 vi.mock("../lib/menu-events", () => ({

@@ -35,8 +35,7 @@ export function Sidebar({ className }: SidebarProps) {
   const projects = useProjectSessionStore((s) => s.projects);
   // Plain derivation off the already-subscribed `projects` array, not a
   // Zustand selector — a selector returning a fresh `.filter()` array every
-  // call breaks useSyncExternalStore's snapshot-equality check and loops (see
-  // why selectActiveSessions is exported but never consumed via the hook).
+  // call breaks useSyncExternalStore's snapshot-equality check and loops.
   const activeProjects = projects.filter((p) => p.status !== "archived");
   const archivedProjects = projects.filter((p) => p.status === "archived");
   const sessions = useProjectSessionStore((s) => s.sessions);

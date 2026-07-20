@@ -3,6 +3,37 @@
  * Shape kept close to Rust `ChatEvent` (§8.1) so the 2-3 adapter is simple.
  */
 
+import type {
+  ApprovalProvenance,
+  ProvocationChangedFile,
+  ProvocationPlanStep,
+  ProvocationVerification,
+  ScaffoldMode,
+} from "../../features/provocation";
+
+/**
+ * Provocation-card wiring threaded unchanged from ChatArea through
+ * MessageList to ToolActivity. All three previously declared this shape
+ * independently and had drifted apart (S-061); this is the single compiling
+ * superset — ToolActivity only reads a subset of these fields today, but the
+ * object it actually receives at runtime always has the full shape.
+ */
+export interface ChatProvocationConfig {
+  enabled: boolean;
+  mode: ScaffoldMode;
+  projectId?: number | null;
+  sessionId?: number | null;
+  goalText?: string | null;
+  changedFiles?: ProvocationChangedFile[];
+  targetFiles?: string[];
+  planSteps?: ProvocationPlanStep[];
+  verification?: ProvocationVerification;
+  approvalProvenance?: ApprovalProvenance | null;
+  checkpointAvailable?: boolean | null;
+  suppressAiSelfReportOnly?: boolean;
+  onOpenRecovery?: () => void;
+}
+
 export type ChatRole = "user" | "assistant" | "system" | "tool";
 
 export type ChatMessageKind =

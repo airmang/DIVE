@@ -2266,15 +2266,6 @@ export function useProductShellController() {
       onCreatePlan: handleCreatePlanFromRail,
     },
     planRoadmap,
-    planStepRationaleChallenge:
-      currentProjectId !== null
-        ? {
-            projectId: currentProjectId,
-            onChallenge: plan.challengeStepRationale,
-            onAcceptOffer: plan.acceptRationaleChallengeOffer,
-            onDismissOffer: plan.dismissRationaleChallengeOffer,
-          }
-        : undefined,
     stepDetail: {
       open: dialogs.stepDetailOpen,
       step: currentStepDetailStep,

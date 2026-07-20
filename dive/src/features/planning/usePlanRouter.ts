@@ -1,18 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PlanStepRow } from "../roadmap";
 import type { ProjectSpecDelta, StepDraftInput } from "./types";
-
-type TauriApi = {
-  invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-};
-
-async function loadTauri(): Promise<TauriApi | null> {
-  const w =
-    typeof window === "undefined" ? null : (window as unknown as { __TAURI_INTERNALS__?: unknown });
-  if (!w?.__TAURI_INTERNALS__) return null;
-  const core = await import("@tauri-apps/api/core");
-  return { invoke: core.invoke as TauriApi["invoke"] };
-}
+import { loadTauri, type TauriApi } from "../../lib/tauri";
 
 export interface StepRefPayload {
   stepId: string;

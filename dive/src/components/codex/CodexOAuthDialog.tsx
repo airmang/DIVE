@@ -3,19 +3,8 @@ import { ExternalLink } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { loadTauri } from "../../lib/tauri";
 import { useT } from "../../i18n";
-
-type TauriApi = {
-  invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-};
-
-async function loadTauri(): Promise<TauriApi | null> {
-  const w =
-    typeof window === "undefined" ? null : (window as unknown as { __TAURI_INTERNALS__?: unknown });
-  if (!w?.__TAURI_INTERNALS__) return null;
-  const core = await import("@tauri-apps/api/core");
-  return { invoke: core.invoke as TauriApi["invoke"] };
-}
 
 interface StartResponse {
   auth_url: string;

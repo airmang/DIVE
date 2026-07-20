@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
-import type { ChatMessage, ToolApprovalMetadata } from "./types";
+import type { ChatMessage, ChatProvocationConfig, ToolApprovalMetadata } from "./types";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
 import { ToolActivity } from "./ToolActivity";
@@ -10,13 +10,6 @@ import { ErrorMessage } from "./ErrorMessage";
 import { filterInterviewNoise } from "./filterInterviewNoise";
 import { useT } from "../../i18n";
 import { useChatComposerStore } from "../../stores/chatComposer";
-import type {
-  ProvocationChangedFile,
-  ApprovalProvenance,
-  ProvocationPlanStep,
-  ProvocationVerification,
-  ScaffoldMode,
-} from "../../features/provocation";
 import {
   ProvocationCardHost,
   assistantReportsFromConversation,
@@ -37,21 +30,7 @@ interface Props {
     approvalMetadata?: ToolApprovalMetadata,
   ) => void;
   onDenyToolCall?: (toolCallId: string, reason?: string) => void;
-  provocation?: {
-    enabled: boolean;
-    mode: ScaffoldMode;
-    projectId?: number | null;
-    sessionId?: number | null;
-    goalText?: string | null;
-    changedFiles?: ProvocationChangedFile[];
-    targetFiles?: string[];
-    planSteps?: ProvocationPlanStep[];
-    verification?: ProvocationVerification;
-    approvalProvenance?: ApprovalProvenance | null;
-    checkpointAvailable?: boolean | null;
-    suppressAiSelfReportOnly?: boolean;
-    onOpenRecovery?: () => void;
-  };
+  provocation?: ChatProvocationConfig;
   /** Cap DOM nodes to last N. Real virtualization lands in task 4-4. */
   maxRendered?: number;
 }

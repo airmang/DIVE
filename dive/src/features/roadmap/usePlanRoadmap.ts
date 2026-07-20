@@ -2,20 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { normalizeStepCriteria, type WorkspacePlanStatus } from "../planning";
 import { deriveAgencyStateView } from "./agencyStatus";
 import type { AgencyStateView } from "./types";
+import { loadTauri, type TauriApi } from "../../lib/tauri";
 
 export const PLAN_ROADMAP_REFRESH_EVENT = "dive:plan-roadmap-refresh";
-
-type TauriApi = {
-  invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-};
-
-async function loadTauri(): Promise<TauriApi | null> {
-  const w =
-    typeof window === "undefined" ? null : (window as unknown as { __TAURI_INTERNALS__?: unknown });
-  if (!w?.__TAURI_INTERNALS__) return null;
-  const core = await import("@tauri-apps/api/core");
-  return { invoke: core.invoke as TauriApi["invoke"] };
-}
 
 export interface PlanStepRow {
   id: number;

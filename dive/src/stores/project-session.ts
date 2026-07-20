@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { hasRecognizedDemoRoute } from "../lib/dev-demo";
 import { refreshMenuRecents } from "../lib/menu-events";
+import { loadTauri, type TauriApi } from "../lib/tauri";
 import { translate, useLocaleStore } from "../i18n";
 
 export interface ProjectRow {
@@ -32,18 +33,6 @@ export interface ProviderSummary {
   is_active?: boolean;
   selected_model?: string | null;
   account_id?: string | null;
-}
-
-type TauriApi = {
-  invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-};
-
-async function loadTauri(): Promise<TauriApi | null> {
-  const w =
-    typeof window === "undefined" ? null : (window as unknown as { __TAURI_INTERNALS__?: unknown });
-  if (!w?.__TAURI_INTERNALS__) return null;
-  const core = await import("@tauri-apps/api/core");
-  return { invoke: core.invoke as TauriApi["invoke"] };
 }
 
 const STORAGE_KEY = "dive:project-session";
@@ -741,15 +730,6 @@ export const useProjectSessionStore = create<State>((set, get) => ({
     );
   },
 }));
-
-export const selectActiveSessions = (state: State): SessionRow[] =>
-  state.sessions.filter((s) => s.status !== "archived");
-
-export const selectActiveProjects = (state: State): ProjectRow[] =>
-  state.projects.filter((p) => p.status !== "archived");
-
-export const selectArchivedProjects = (state: State): ProjectRow[] =>
-  state.projects.filter((p) => p.status === "archived");
 
 export const selectCurrentProject = (state: State): ProjectRow | null => {
   if (state.currentProjectId === null) return null;

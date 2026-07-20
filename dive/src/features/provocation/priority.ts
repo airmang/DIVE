@@ -1,9 +1,4 @@
-import type {
-  ProvocationCard,
-  ProvocationCardType,
-  ProvocationSeverity,
-  SupervisorSourceUiMode,
-} from "./types";
+import type { ProvocationCard, ProvocationCardType, ProvocationSeverity } from "./types";
 
 const TYPE_PRIORITY: Record<ProvocationCardType, number> = {
   diff_scope_review: 650,
@@ -49,13 +44,4 @@ export function sortProvocationCards(cards: ProvocationCard[]): ProvocationCard[
 
 export function selectPrimaryProvocationCard(cards: ProvocationCard[]): ProvocationCard | null {
   return sortProvocationCards(cards)[0] ?? null;
-}
-
-export function shouldShowProvocationCardInMode(
-  card: ProvocationCard,
-  mode: SupervisorSourceUiMode,
-): boolean {
-  void card;
-  void mode;
-  return true;
 }

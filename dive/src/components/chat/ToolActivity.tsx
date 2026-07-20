@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type {
+  ChatProvocationConfig,
   ReasoningMessageData,
   ToolApprovalMetadata,
   ToolCallMessageData,
@@ -35,11 +36,6 @@ import {
 } from "../permission-card/PermissionCardPrimer";
 import { McpProvenanceBadge } from "../mcp/McpProvenanceBadge";
 import { useT } from "../../i18n";
-import type {
-  ProvocationChangedFile,
-  ProvocationPlanStep,
-  ScaffoldMode,
-} from "../../features/provocation";
 
 /**
  * ToolActivity — a single tool action rendered as one unit.
@@ -64,18 +60,7 @@ interface Props {
     approvalMetadata?: ToolApprovalMetadata,
   ) => void;
   onDeny?: (toolCallId: string, reason?: string) => void;
-  provocation?: {
-    enabled: boolean;
-    mode: ScaffoldMode;
-    projectId?: number | null;
-    sessionId?: number | null;
-    goalText?: string | null;
-    changedFiles?: ProvocationChangedFile[];
-    targetFiles?: string[];
-    planSteps?: ProvocationPlanStep[];
-    checkpointAvailable?: boolean | null;
-    onOpenRecovery?: () => void;
-  };
+  provocation?: ChatProvocationConfig;
 }
 
 function pathFromArgs(args: unknown): string | null {

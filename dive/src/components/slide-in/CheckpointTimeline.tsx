@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { loadTauri } from "../../lib/tauri";
 import { useT } from "../../i18n";
 
 export interface TimelineItem {
@@ -24,18 +25,6 @@ interface Props {
   currentCheckpointId?: number | null;
   onRestore?: (id: number) => void;
   mockItems?: TimelineItem[];
-}
-
-type TauriApi = {
-  invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-};
-
-async function loadTauri(): Promise<TauriApi | null> {
-  const w =
-    typeof window === "undefined" ? null : (window as unknown as { __TAURI_INTERNALS__?: unknown });
-  if (!w?.__TAURI_INTERNALS__) return null;
-  const core = await import("@tauri-apps/api/core");
-  return { invoke: core.invoke as TauriApi["invoke"] };
 }
 
 function formatTime(ms: number): string {

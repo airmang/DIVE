@@ -17,6 +17,7 @@ import { useT } from "../../i18n";
 import type { PreviewSessionKind } from "./types";
 import { PreviewOnboardingCoachmark } from "./PreviewOnboardingCoachmark";
 import { previewModeHint } from "./previewModeHint";
+import { loadTauri, type TauriApi } from "../../lib/tauri";
 
 const PREVIEW_CANDIDATES = ["http://127.0.0.1:5173", "http://localhost:5173"];
 const STATIC_PREVIEW_CANDIDATES = ["index.html"];
@@ -41,11 +42,6 @@ function viewportIcon(viewport: PreviewViewport) {
   return <Monitor className={cls} aria-hidden />;
 }
 
-type TauriApi = {
-  invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
-  convertFileSrc(path: string): string;
-};
-
 type PreviewOpenKind = "static_file" | "local_url" | "dev_server" | "auto";
 
 type PreviewOpenResponse = {
@@ -61,17 +57,6 @@ type PreviewOpenResponse = {
   commandSummary?: string | null;
   resolvedAt: number;
 };
-
-async function loadTauri(): Promise<TauriApi | null> {
-  const w =
-    typeof window === "undefined" ? null : (window as unknown as { __TAURI_INTERNALS__?: unknown });
-  if (!w?.__TAURI_INTERNALS__) return null;
-  const core = await import("@tauri-apps/api/core");
-  return {
-    invoke: core.invoke as TauriApi["invoke"],
-    convertFileSrc: core.convertFileSrc,
-  };
-}
 
 function isLoopbackUrl(raw: string): boolean {
   try {

@@ -1,6 +1,5 @@
 import type { StepSessionMappingRow, usePlanRoadmap } from "../../features/roadmap";
 import { PlanView } from "../plan";
-import type { PlanRationaleChallengeHandlers } from "../plan/types";
 import { RoadmapPanel } from "./RoadmapPanel";
 import type { ProductShellController } from "./useProductShellController";
 
@@ -17,7 +16,6 @@ interface RoadmapRailProps {
   onOpenSession: (sessionId: number) => void;
   onCreatePlan: () => void;
   onReviewPlan?: () => void;
-  rationaleChallenge?: PlanRationaleChallengeHandlers;
 }
 
 export function RoadmapRail({
@@ -28,7 +26,6 @@ export function RoadmapRail({
   onOpenSession,
   onCreatePlan,
   onReviewPlan,
-  rationaleChallenge,
 }: RoadmapRailProps) {
   if (!planRoadmap.hasPlan && fallbackRoadmap.visible) {
     const {
@@ -49,7 +46,6 @@ export function RoadmapRail({
         onOpenSession,
         onCreatePlan,
         onReviewPlan,
-        rationaleChallenge,
       }}
     />
   );

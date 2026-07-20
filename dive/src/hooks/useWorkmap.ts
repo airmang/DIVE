@@ -7,10 +7,7 @@ import type { VerifyLogView } from "../components/workmap/types";
 import type { ChangedFile } from "../components/slide-in/types";
 import type { ApprovalProvenance } from "../features/provocation";
 import { useLocaleStore } from "../i18n";
-
-type TauriApi = {
-  invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-};
+import { loadTauri, type TauriApi } from "../lib/tauri";
 
 interface CardRow {
   id: number;
@@ -39,14 +36,6 @@ interface WorkmapSnapshot {
 
 interface CardToolCallStats {
   count: number;
-}
-
-async function loadTauri(): Promise<TauriApi | null> {
-  const w =
-    typeof window === "undefined" ? null : (window as unknown as { __TAURI_INTERNALS__?: unknown });
-  if (!w?.__TAURI_INTERNALS__) return null;
-  const core = await import("@tauri-apps/api/core");
-  return { invoke: core.invoke as TauriApi["invoke"] };
 }
 
 function toTile(row: CardRow): CardTileData {

@@ -1,17 +1,5 @@
 import type { PlanRoadmapStep, StepSessionMappingRow } from "../../features/roadmap";
-import type {
-  ChallengeStepRationaleInput,
-  ChallengeStepRationaleResult,
-  RationaleChallengeOfferActionInput,
-  WorkspacePlanStatus,
-} from "../../features/planning";
-
-export interface PlanRationaleChallengeHandlers {
-  projectId: number;
-  onChallenge: (input: ChallengeStepRationaleInput) => Promise<ChallengeStepRationaleResult>;
-  onAcceptOffer: (input: RationaleChallengeOfferActionInput) => Promise<unknown>;
-  onDismissOffer: (input: RationaleChallengeOfferActionInput) => Promise<unknown>;
-}
+import type { WorkspacePlanStatus } from "../../features/planning";
 
 export type PlanLineToken = "none" | "done" | "active" | "future";
 
@@ -42,7 +30,6 @@ export interface PlanActionHandlers {
   onOpenSession: (sessionId: number) => void;
   onCreatePlan?: () => void;
   onReviewPlan?: () => void;
-  rationaleChallenge?: PlanRationaleChallengeHandlers;
 }
 
 export interface PlanStepRenderState {

@@ -18,6 +18,7 @@ import type {
 import { translate, useLocaleStore } from "../i18n";
 import { useSlideInStore } from "../stores/slideIn";
 import type { PreviewSessionKind } from "../components/slide-in/types";
+import { loadTauriEvents, type TauriEventApi } from "../lib/tauri";
 
 /**
  * Mirror of `AgentEvent` (Rust src-tauri/src/agent/event.rs). Variants match
@@ -269,31 +270,6 @@ export interface CheckpointRowPayload {
 
 interface CheckpointRestorePayload {
   restored_session_state: boolean;
-}
-
-type TauriApi = {
-  invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-  listen: <T>(event: string, handler: (e: { payload: T }) => void) => Promise<() => void>;
-  convertFileSrc: (path: string) => string;
-};
-
-async function loadTauri(): Promise<TauriApi | null> {
-  const w =
-    typeof window === "undefined"
-      ? null
-      : (window as unknown as {
-          __TAURI_INTERNALS__?: unknown;
-        });
-  if (!w?.__TAURI_INTERNALS__) return null;
-  const [coreMod, eventMod] = await Promise.all([
-    import("@tauri-apps/api/core"),
-    import("@tauri-apps/api/event"),
-  ]);
-  return {
-    invoke: coreMod.invoke as TauriApi["invoke"],
-    convertFileSrc: coreMod.convertFileSrc,
-    listen: eventMod.listen as unknown as TauriApi["listen"],
-  };
 }
 
 export interface ChatSessionState {
@@ -550,7 +526,7 @@ export function useChatSession(
     cancelRequested: false,
     loadingHistory: false,
   });
-  const apiRef = useRef<TauriApi | null>(null);
+  const apiRef = useRef<TauriEventApi | null>(null);
   const onAgentEventRef = useRef<typeof onAgentEvent>(onAgentEvent);
   const beforeSendUserMessageRef = useRef<typeof beforeSendUserMessage>(beforeSendUserMessage);
   const lastRetryableIntentRef = useRef<SendUserMessageContext | null>(null);
@@ -670,7 +646,7 @@ export function useChatSession(
         apiRef.current = null;
         return;
       }
-      const api = await loadTauri();
+      const api = await loadTauriEvents();
       if (cancelled) return;
       apiRef.current = api;
       if (!api) {

@@ -10,19 +10,8 @@ import {
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { LearningHint } from "../ui/learning-hint";
+import { loadTauri } from "../../lib/tauri";
 import { useLocale, useT } from "../../i18n";
-
-type TauriApi = {
-  invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-};
-
-async function loadTauri(): Promise<TauriApi | null> {
-  const w =
-    typeof window === "undefined" ? null : (window as unknown as { __TAURI_INTERNALS__?: unknown });
-  if (!w?.__TAURI_INTERNALS__) return null;
-  const core = await import("@tauri-apps/api/core");
-  return { invoke: core.invoke as TauriApi["invoke"] };
-}
 
 export interface PromptIssue {
   kind: string;

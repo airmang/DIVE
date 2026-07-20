@@ -41,6 +41,32 @@ export default tseslint.config(
       globals: globals.vitest,
     },
   },
+  // S-061: loadTauri/TauriApi has exactly one home (src/lib/tauri.ts, exporting
+  // loadTauri/loadTauriEvents + TauriApi/TauriEventApi). Sites that need Tauri
+  // IPC should import from there instead of redeclaring a private copy — the
+  // repo previously accumulated 18 near-identical copies. This block precedes
+  // the S-030 block below on purpose: for files the S-030 block also matches,
+  // that block's own (extended) no-restricted-syntax array is the one that
+  // takes effect, since same-rule configs don't merge across objects in flat
+  // config — only the last matching object's array wins. So the loadTauri
+  // selectors also had to be added there, not just here.
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/lib/tauri.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "FunctionDeclaration[id.name='loadTauri']",
+          message: "Don't redeclare loadTauri — import it from src/lib/tauri.ts. (S-061)",
+        },
+        {
+          selector: "VariableDeclarator[id.name='loadTauri']",
+          message: "Don't redeclare loadTauri — import it from src/lib/tauri.ts. (S-061)",
+        },
+      ],
+    },
+  },
   // S-030 (i18n): forbid hardcoded Hangul string literals in the supervised-flow
   // UI so English-locale users never see Korean. Route every user-facing string
   // through i18n (t()/translate). Legitimately-Korean files are intentionally out
@@ -89,6 +115,17 @@ export default tseslint.config(
         {
           selector: "TemplateElement[value.cooked=/[\\uAC00-\\uD7A3]/]",
           message: "Hangul in template literal in supervised-flow UI — route through i18n. (S-030)",
+        },
+        // S-061: same rationale as the standalone loadTauri block above — repeated
+        // here because this config object's own no-restricted-syntax array is what
+        // wins (in full) for the files this block matches.
+        {
+          selector: "FunctionDeclaration[id.name='loadTauri']",
+          message: "Don't redeclare loadTauri — import it from src/lib/tauri.ts. (S-061)",
+        },
+        {
+          selector: "VariableDeclarator[id.name='loadTauri']",
+          message: "Don't redeclare loadTauri — import it from src/lib/tauri.ts. (S-061)",
         },
       ],
     },

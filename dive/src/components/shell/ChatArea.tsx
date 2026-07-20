@@ -18,17 +18,10 @@ import { RuntimeBadge } from "./RuntimeBadge";
 import { GetStartedChecklist } from "../product/GetStartedChecklist";
 import type { GetStartedModel } from "../product/GetStartedChecklist";
 import { MessageList } from "../chat/MessageList";
-import type { ChatMessage, ToolApprovalMetadata } from "../chat/types";
+import type { ChatMessage, ChatProvocationConfig, ToolApprovalMetadata } from "../chat/types";
 import type { PromptContext } from "../../lib/prompt-templates";
 import { useT } from "../../i18n";
 import type { RuntimeSelection } from "../../hooks/useChatSession";
-import type {
-  ProvocationChangedFile,
-  ApprovalProvenance,
-  ProvocationPlanStep,
-  ProvocationVerification,
-  ScaffoldMode,
-} from "../../features/provocation";
 
 /** Placeholder rows shown while a session's persisted history is loading. */
 function MessageHistorySkeleton({ label }: { label: string }) {
@@ -105,21 +98,7 @@ interface ChatAreaProps {
   prdSurface?: ReactNode;
   prdSurfaceMode?: PrdSurfaceMode;
   planDraftApproval?: ReactNode;
-  provocation?: {
-    enabled: boolean;
-    mode: ScaffoldMode;
-    projectId?: number | null;
-    sessionId?: number | null;
-    goalText?: string | null;
-    changedFiles?: ProvocationChangedFile[];
-    targetFiles?: string[];
-    planSteps?: ProvocationPlanStep[];
-    verification?: ProvocationVerification;
-    approvalProvenance?: ApprovalProvenance | null;
-    checkpointAvailable?: boolean | null;
-    suppressAiSelfReportOnly?: boolean;
-    onOpenRecovery?: () => void;
-  };
+  provocation?: ChatProvocationConfig;
 }
 
 export function ChatArea({

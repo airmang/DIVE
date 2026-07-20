@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: mocks.invoke,
+  convertFileSrc: (path: string) => path,
 }));
 
 declare global {
@@ -108,15 +109,6 @@ describe("usePlan PRD IPC methods", () => {
       if (cmd === "workspace_prd_save") {
         return savedSpec();
       }
-      if (cmd === "workspace_plan_challenge_step_rationale") {
-        return {
-          objectionId: "obj-001",
-          suggestionStatus: "offered",
-          offerId: "offer-001",
-          offerKind: "adjust_plan",
-          message: "현재 계획 영역에서 이 단계를 다시 조정해볼 수 있어요.",
-        };
-      }
       if (cmd === "workspace_plan_append_step") {
         return {
           id: 12,
@@ -212,46 +204,6 @@ describe("usePlan PRD IPC methods", () => {
       reason: "interview",
     });
     expect(mocks.invoke).toHaveBeenCalledWith("workspace_prd_status", { projectId: 42 });
-  });
-
-  it("returns rationale challenge offer fields and refreshes status", async () => {
-    const { result } = renderHook(() => usePlan(42));
-    await waitFor(() => expect(result.current.prdStatus?.status).toBe("draft"));
-    const planStatusCallsBefore = mocks.invoke.mock.calls.filter(
-      ([cmd]) => cmd === "workspace_plan_status",
-    ).length;
-    const prdStatusCallsBefore = mocks.invoke.mock.calls.filter(
-      ([cmd]) => cmd === "workspace_prd_status",
-    ).length;
-
-    const challengeResult = await act(async () =>
-      result.current.challengeStepRationale({
-        planId: 7,
-        stepDbId: 11,
-        text: "이 단계가 AC-001과 직접 연결되는지 다시 보고 싶어요.",
-        linkedCriterionIds: ["AC-001"],
-      }),
-    );
-    expect(challengeResult.objectionId).toBe("obj-001");
-    expect(challengeResult.suggestionStatus).toBe("offered");
-    expect(challengeResult.offerId).toBe("offer-001");
-    expect(challengeResult.offerKind).toBe("adjust_plan");
-    expect(challengeResult.message).toBe("현재 계획 영역에서 이 단계를 다시 조정해볼 수 있어요.");
-
-    expect(mocks.invoke).toHaveBeenCalledWith("workspace_plan_challenge_step_rationale", {
-      input: {
-        planId: 7,
-        stepDbId: 11,
-        text: "이 단계가 AC-001과 직접 연결되는지 다시 보고 싶어요.",
-        linkedCriterionIds: ["AC-001"],
-      },
-    });
-    expect(
-      mocks.invoke.mock.calls.filter(([cmd]) => cmd === "workspace_plan_status").length,
-    ).toBeGreaterThan(planStatusCallsBefore);
-    expect(
-      mocks.invoke.mock.calls.filter(([cmd]) => cmd === "workspace_prd_status").length,
-    ).toBeGreaterThan(prdStatusCallsBefore);
   });
 
   it("invokes append-step with mutation metadata and refreshes PRD status", async () => {

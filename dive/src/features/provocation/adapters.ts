@@ -26,6 +26,7 @@ import type {
   SupervisorSourceUiMode,
 } from "./types";
 import { useLocaleStore } from "../../i18n";
+import { loadTauri } from "../../lib/tauri";
 import { hasConcreteVerificationEvidence } from "./verificationStatus";
 
 export function stringArray(value: unknown): string[] {
@@ -411,18 +412,6 @@ export function createProvocationContext(
     changedFiles: input.changedFiles?.filter((item) => item.path.trim().length > 0),
     retrySignals: input.retrySignals?.filter((item) => item.retryCount > 0),
   };
-}
-
-type TauriApi = {
-  invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-};
-
-async function loadTauri(): Promise<TauriApi | null> {
-  const w =
-    typeof window === "undefined" ? null : (window as unknown as { __TAURI_INTERNALS__?: unknown });
-  if (!w?.__TAURI_INTERNALS__) return null;
-  const core = await import("@tauri-apps/api/core");
-  return { invoke: core.invoke as TauriApi["invoke"] };
 }
 
 function localEvaluationId(): string {

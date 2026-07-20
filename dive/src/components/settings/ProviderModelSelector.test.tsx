@@ -25,6 +25,7 @@ const { LONG_CATALOG, catalogRef } = vi.hoisted(() => {
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: async (cmd: string) => (cmd === "provider_list_models" ? catalogRef.current : undefined),
+  convertFileSrc: (path: string) => path,
 }));
 
 describe("ProviderModelSelector", () => {
