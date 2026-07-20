@@ -82,11 +82,36 @@ cascades ~29 lines through runStoreAction/13 actions — deferred to backlog).
 type-aware no-floating-promises lint was not added (config is not
 type-aware; build-time cost).
 
-## D-013-08 (open) — S-048 6b plain-GET egress disposition
+## D-013-08 (S-063) — S-048 6b plain-GET egress: absorbed (option a)
 
-To be decided in S-063 design: absorb the process-tool plain-GET egress
-hardening (S-048 locked decision 6b, tracked in `docs/spec-status.md`) or keep
-it tracked separately.
+**Decision: option (a) — absorb the hardening now.** The process-tool plain-GET
+egress hole (S-048 locked decision 6b — `curl -o … https://x` / `wget …` passing
+`classify_bash_command`, tracked in `docs/spec-status.md`) is closed in S-063
+rather than left as a standing follow-up.
+
+Rationale: Constitution III(1.1.0) already requires that "the same safe-egress
+policy MUST also govern any outbound network reachable through the process tool"
+and that the plain-GET allowance "MUST be tightened or filed as a tracked
+egress-hardening follow-up." S-063 is the security-hardening stage whose whole
+premise is making the process tools symmetric with the SSRF-guarded `web_fetch`,
+so tightening here is the constitutionally-preferred branch — deferring again
+would leave `web_fetch` un-truthfully describable as the "only sanctioned egress"
+(the exact wording the ADR forbids until this lands).
+
+Implementation: a command-anchored `curl`/`wget` rule was added to the shared
+`classify_bash_command` blocklist (guard.rs), so both `run_process` and
+`run_terminal_script` now block plain outbound fetch with a beginner-facing
+reason ("network fetch via process tool") that steers to DIVE's checked
+`web_fetch` (public docs, SSRF-validated) or Preview (local dev servers). The
+rule is anchored to command position (`^`/after a separator) so a source file
+merely named `curl_helper.js` is not blocked. The pre-existing guard test that
+asserted `curl -o … https://x` was *allowed* (guard.rs:498-499) was updated to
+assert it is now blocked — this is the intended tightening, documented in the
+S-063 report. Wrapper reach (`xargs curl …`) is bounded by the same wrapper
+concern handled in F1's `detect_wrapper_shell_bypass` and the `env` block, and
+is noted as a residual in the report.
+
+`docs/spec-status.md` tracked follow-up updated to record the resolution.
 
 ## D-013-09 (open, owner) — History-rewrite pass options
 

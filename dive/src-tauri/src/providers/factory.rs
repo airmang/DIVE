@@ -187,7 +187,26 @@ fn is_local_provider_host(url: &reqwest::Url) -> bool {
     let Some(host) = url.host_str() else {
         return false;
     };
-    host == "localhost" || host == "::1" || host.starts_with("127.")
+    is_loopback_host(host)
+}
+
+/// True only for genuine loopback hosts. The previous check was doubly wrong:
+/// `host.starts_with("127.")` also accepted remote domains like `127.evil.com`,
+/// and `host == "::1"` never matched because `url` serialises an IPv6 host with
+/// brackets (`[::1]`). Parse the host as an IP (stripping the IPv6 brackets) and
+/// ask for a true loopback address; otherwise only the `localhost` domain.
+fn is_loopback_host(host: &str) -> bool {
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    let stripped = host
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+        .unwrap_or(host);
+    stripped
+        .parse::<std::net::IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false)
 }
 
 pub async fn health_check(
@@ -390,7 +409,36 @@ mod tests {
             validate_provider_base_url("openai", Some("http://127.0.0.1:11434/v1")).unwrap(),
             Some("http://127.0.0.1:11434/v1".into())
         );
+        // IPv6 loopback previously never matched (`::1` vs bracketed `[::1]`).
+        assert_eq!(
+            validate_provider_base_url("openai", Some("http://[::1]:11434/v1")).unwrap(),
+            Some("http://[::1]:11434/v1".into())
+        );
         assert_eq!(validate_provider_base_url("openai", None).unwrap(), None);
+    }
+
+    #[test]
+    fn base_url_validation_rejects_spoofed_loopback_prefix_over_http() {
+        // `127.evil.com` is a remote domain that merely starts with "127."; the
+        // old prefix check accepted it as loopback. It must now be rejected.
+        let err = validate_provider_base_url("openai", Some("http://127.evil.com/v1")).unwrap_err();
+        assert!(matches!(err, ProviderError::InvalidConfig(_)));
+        for host in [
+            "http://127.0.0.5:8080/v1",
+            "http://[::1]/v1",
+            "http://localhost/v1",
+        ] {
+            assert!(
+                validate_provider_base_url("openai", Some(host)).is_ok(),
+                "{host} should be treated as loopback"
+            );
+        }
+        for host in ["http://10.0.0.1/v1", "http://169.254.169.254/latest"] {
+            assert!(
+                validate_provider_base_url("openai", Some(host)).is_err(),
+                "{host} must not be treated as loopback"
+            );
+        }
     }
 
     #[test]

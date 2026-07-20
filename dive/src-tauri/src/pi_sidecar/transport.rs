@@ -185,19 +185,63 @@ impl Drop for TestSidecarTimingGuard {
     }
 }
 
+/// Redact long secret-shaped tokens from an error/log line before it is
+/// surfaced. The old whitespace-split version matched only when an *entire*
+/// space-delimited token was token-shaped, so a secret embedded in compact JSON
+/// (`{"access":"eyJhbGciOi…"}`) slipped through untouched. Scan the characters
+/// instead and mask every maximal run of `[A-Za-z0-9_-]` of 32+ chars — the same
+/// rule the Node sidecar's `redactError` applies (index.mjs).
 pub(super) fn redact_line(line: &str) -> String {
-    line.split_whitespace()
-        .map(|part| {
-            if part.len() >= 32
-                && part
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
-            {
-                "[REDACTED]"
-            } else {
-                part
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    const MIN_TOKEN_LEN: usize = 32;
+    let mut out = String::with_capacity(line.len());
+    let mut run = String::new();
+    for ch in line.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+            run.push(ch);
+        } else {
+            flush_redacted_run(&mut run, &mut out, MIN_TOKEN_LEN);
+            out.push(ch);
+        }
+    }
+    flush_redacted_run(&mut run, &mut out, MIN_TOKEN_LEN);
+    out
+}
+
+fn flush_redacted_run(run: &mut String, out: &mut String, min_len: usize) {
+    if run.len() >= min_len {
+        out.push_str("[REDACTED]");
+    } else {
+        out.push_str(run);
+    }
+    run.clear();
+}
+
+#[cfg(test)]
+mod redact_line_tests {
+    use super::redact_line;
+
+    #[test]
+    fn masks_long_token_inside_compact_json() {
+        let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9";
+        assert!(token.len() >= 32);
+        let line = format!(r#"parse failed: {{"access":"{token}"}}"#);
+        let redacted = redact_line(&line);
+        assert!(!redacted.contains(token), "token leaked: {redacted}");
+        assert!(redacted.contains("[REDACTED]"));
+        // Surrounding JSON punctuation is preserved.
+        assert!(redacted.contains(r#"{"access":"#));
+    }
+
+    #[test]
+    fn masks_long_whitespace_delimited_token() {
+        let token = "AKIAIOSFODNN7EXAMPLEabcdefghijklmnop";
+        let redacted = redact_line(&format!("key = {token} trailing"));
+        assert_eq!(redacted, "key = [REDACTED] trailing");
+    }
+
+    #[test]
+    fn leaves_short_tokens_and_structure_untouched() {
+        assert_eq!(redact_line("ok short-abc123 done"), "ok short-abc123 done");
+        assert_eq!(redact_line("no secrets here"), "no secrets here");
+    }
 }

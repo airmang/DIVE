@@ -4,7 +4,19 @@ use serde_json::{json, Value};
 use std::time::Duration;
 
 use super::guard::{assess_terminal_script, block_as_error};
-use super::{truncate_utf8, RiskLevel, Tool, ToolContext, ToolError, ToolOutput};
+use super::process_exec::{run_capped, scrub_sensitive_env, CappedRunError};
+use super::{RiskLevel, Tool, ToolContext, ToolError, ToolOutput};
+
+/// Decode captured bytes for display, appending the truncation marker when the
+/// child produced more than the output cap.
+fn display_stream(bytes: &[u8], truncated: bool) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    if truncated {
+        format!("{text}\n... [truncated]")
+    } else {
+        text.into_owned()
+    }
+}
 
 const DEFAULT_TIMEOUT_SEC: u64 = 60;
 const MAX_TIMEOUT_SEC: u64 = 120;
@@ -129,17 +141,24 @@ impl Tool for RunTerminalScript {
             }
             ShellFamily::Unknown => unreachable!("effective shell family is never unknown"),
         };
-        command.current_dir(&ctx.project_root).kill_on_drop(true);
+        command.current_dir(&ctx.project_root);
+        scrub_sensitive_env(&mut command);
 
-        let output = tokio::time::timeout(Duration::from_secs(timeout_sec), command.output())
+        let output = run_capped(command, Duration::from_secs(timeout_sec), output_limit)
             .await
-            .map_err(|_| {
-                ToolError::InvalidInput(format!("terminal script timed out after {timeout_sec}s"))
-            })??;
-        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-        let stdout_truncated = stdout.len() > output_limit;
-        let stderr_truncated = stderr.len() > output_limit;
+            .map_err(|e| match e {
+                CappedRunError::Timeout => ToolError::InvalidInput(format!(
+                    "terminal script timed out after {timeout_sec}s"
+                )),
+                CappedRunError::Spawn(err) | CappedRunError::Io(err) => ToolError::Io(err),
+            })?;
+        // run_capped already bounds each stream's buffer to `output_limit`, so
+        // append the truncation marker from the capture's own flag rather than
+        // re-measuring the (already-capped) string.
+        let stdout_truncated = output.stdout_truncated;
+        let stderr_truncated = output.stderr_truncated;
+        let stdout = display_stream(&output.stdout, stdout_truncated);
+        let stderr = display_stream(&output.stderr, stderr_truncated);
         let exit_code = output.status.code().unwrap_or(-1);
         let success = output.status.success();
         let summary = if success {
@@ -163,8 +182,8 @@ impl Tool for RunTerminalScript {
                 "outputLimit": output_limit,
                 "exitCode": exit_code,
                 "summary": summary,
-                "stdout": truncate_utf8(&stdout, output_limit, "\n... [truncated]"),
-                "stderr": truncate_utf8(&stderr, output_limit, "\n... [truncated]"),
+                "stdout": stdout,
+                "stderr": stderr,
                 "truncated": stdout_truncated || stderr_truncated,
             }),
         })
@@ -252,6 +271,30 @@ mod tests {
                 .expect_err("unsafe script should be blocked");
             assert!(matches!(err, ToolError::Blocked(_)), "{script}: {err:?}");
         }
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn terminal_script_scrubs_sensitive_env_from_child() {
+        // `AWS_`-prefixed name is scrubbed but is not a printf/echo secret
+        // keyword, so the script itself passes the guard and can observe the
+        // scrub end to end.
+        let tmp = tempfile::tempdir().unwrap();
+        let ctx = ToolContext::new(tmp.path(), 9);
+        std::env::set_var("AWS_TEST_SCRUB_VALUE", "leaked-value");
+        let out = RunTerminalScript
+            .run(
+                valid("printf 'result=%s' \"${AWS_TEST_SCRUB_VALUE:-EMPTY}\""),
+                &ctx,
+            )
+            .await;
+        std::env::remove_var("AWS_TEST_SCRUB_VALUE");
+        let out = out.unwrap();
+        assert_eq!(
+            out.full["stdout"].as_str().unwrap(),
+            "result=EMPTY",
+            "the child must not inherit the sensitive env var"
+        );
     }
 
     #[tokio::test]

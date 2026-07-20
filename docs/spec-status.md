@@ -174,12 +174,15 @@ query-string-dropped/hashed-path EventLog export. Web content is agent input,
 never verification evidence: the closed `ExecutionEvidenceSource` set has no
 web variant.
 
-**Tracked follow-up (S-048 locked decision 6b — egress hardening)**: plain
-outbound GET via the process tool (`curl -o … https://x`, permitted by
-`classify_bash_command`) remains un-SSRF-guarded. Per Constitution III(1.1.0)
-it must be tightened or tracked; it is tracked here as an explicit follow-up,
-and `web_fetch` must not be described as the "only sanctioned egress" until
-that tightening lands.
+**Resolved (S-048 locked decision 6b — egress hardening, closed in S-063,
+decision D-013-08 option a)**: plain outbound GET via the process tool
+(`curl -o … https://x` / `wget …`, formerly permitted by
+`classify_bash_command`) is now blocked by a command-anchored `curl`/`wget`
+rule in the shared blocklist, so `run_process` and `run_terminal_script` steer
+network reads to the SSRF-validated `web_fetch` (public docs) or Preview (local
+dev servers). Per Constitution III(1.1.0) the process-tool egress is thereby
+tightened rather than left tracked; `web_fetch` remains input-only, never
+verification evidence.
 
 ## 008 Implementation Status
 

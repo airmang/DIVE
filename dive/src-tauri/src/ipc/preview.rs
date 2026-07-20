@@ -508,6 +508,20 @@ async fn serve_static_preview_request(mut stream: TcpStream, root: PathBuf) -> s
         .split_whitespace();
     let method = parts.next().unwrap_or_default();
     let raw_path = parts.next().unwrap_or("/");
+    // DNS-rebinding defense: the server binds 127.0.0.1, but a browser tricked
+    // into resolving an attacker domain to the loopback address would send that
+    // domain in the Host header. Serve only requests whose Host is loopback, so
+    // a rebound external origin cannot read the student's project files.
+    if !request_has_allowed_host(&request) {
+        return write_static_response(
+            &mut stream,
+            403,
+            "text/plain; charset=utf-8",
+            b"forbidden",
+            method == "HEAD",
+        )
+        .await;
+    }
     if method != "GET" && method != "HEAD" {
         return write_static_response(
             &mut stream,
@@ -555,6 +569,7 @@ async fn write_static_response(
 ) -> std::io::Result<()> {
     let reason = match status {
         200 => "OK",
+        403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
         _ => "Error",
@@ -568,6 +583,47 @@ async fn write_static_response(
         stream.write_all(body).await?;
     }
     Ok(())
+}
+
+/// Extract the request's Host header and check it names a loopback host. A
+/// missing Host (which a rebinding browser attack cannot produce) is rejected.
+fn request_has_allowed_host(request: &str) -> bool {
+    request
+        .lines()
+        .skip(1)
+        .take_while(|line| !line.trim().is_empty())
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.trim()
+                .eq_ignore_ascii_case("host")
+                .then(|| value.trim().to_string())
+        })
+        .map(|host| is_allowed_preview_host(&host))
+        .unwrap_or(false)
+}
+
+fn is_allowed_preview_host(host_header: &str) -> bool {
+    let host_header = host_header.trim();
+    if host_header.is_empty() {
+        return false;
+    }
+    // Strip the optional port. IPv6 literals are bracketed: `[::1]:8080`.
+    let hostname = if let Some(rest) = host_header.strip_prefix('[') {
+        rest.split(']').next().unwrap_or("")
+    } else {
+        host_header
+            .rsplit_once(':')
+            .map(|(host, _)| host)
+            .unwrap_or(host_header)
+    };
+    let hostname = hostname.trim();
+    if hostname.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    hostname
+        .parse::<std::net::IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false)
 }
 
 fn resolve_static_request_path(root: &Path, raw_path: &str) -> Option<PathBuf> {
@@ -1368,5 +1424,58 @@ mod tests {
         assert_eq!(value["type"], "preview_open_result");
         assert_eq!(value["previewUrl"], "asset://project/index.html");
         assert_eq!(value["assetFilePath"], "/project/index.html");
+    }
+
+    #[test]
+    fn allowed_preview_host_accepts_loopback_only() {
+        for host in [
+            "127.0.0.1:5173",
+            "127.0.0.1",
+            "localhost",
+            "localhost:80",
+            "[::1]:5173",
+        ] {
+            assert!(is_allowed_preview_host(host), "{host} should be allowed");
+        }
+        for host in [
+            "attacker.example",
+            "attacker.example:5173",
+            "10.0.0.1:80",
+            "169.254.169.254",
+            "",
+        ] {
+            assert!(!is_allowed_preview_host(host), "{host} should be rejected");
+        }
+    }
+
+    #[tokio::test]
+    async fn static_preview_server_rejects_rebinding_host() {
+        std::fs::create_dir_all("/tmp").ok();
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("index.html"), "<h1>ok</h1>").unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = tokio::spawn(run_static_preview_server(listener, root));
+
+        async fn fetch(port: u16, host: &str) -> String {
+            let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+            let request =
+                format!("GET /index.html HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
+            stream.write_all(request.as_bytes()).await.unwrap();
+            let mut buf = Vec::new();
+            stream.read_to_end(&mut buf).await.unwrap();
+            String::from_utf8_lossy(&buf).into_owned()
+        }
+
+        let allowed = fetch(port, &format!("127.0.0.1:{port}")).await;
+        assert!(allowed.starts_with("HTTP/1.1 200"), "{allowed}");
+        assert!(allowed.contains("<h1>ok</h1>"));
+
+        let rebind = fetch(port, "attacker.example").await;
+        assert!(rebind.starts_with("HTTP/1.1 403"), "{rebind}");
+
+        handle.abort();
     }
 }

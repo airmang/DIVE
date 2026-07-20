@@ -643,17 +643,37 @@ fn normalize_loopback_url(target: &str) -> Result<String, (&'static str, String)
     let host = url
         .host_str()
         .ok_or_else(|| ("unsupported_url", "Enter a valid local preview URL.".into()))?;
-    if !(host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1" || host == "::1") {
+    let is_localhost = host.eq_ignore_ascii_case("localhost");
+    if !is_loopback_preview_host(host) {
         return Err((
             "external_url",
             "Preview is limited to local project URLs.".into(),
         ));
     }
-    if url.host_str() == Some("localhost") {
+    if is_localhost {
         url.set_host(Some("127.0.0.1"))
             .map_err(|_| ("unsupported_url", "Enter a valid local preview URL.".into()))?;
     }
     Ok(url.to_string())
+}
+
+/// Loopback host check for preview URLs. The old inline check used
+/// `host == "::1"`, which was dead: `reqwest::Url` serialises an IPv6 host with
+/// brackets (`[::1]`), so the literal never matched and IPv6 loopback previews
+/// were wrongly rejected. Parse the (bracket-stripped) host as an IP and require
+/// a true loopback address; otherwise accept only the `localhost` domain.
+fn is_loopback_preview_host(host: &str) -> bool {
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    let stripped = host
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+        .unwrap_or(host);
+    stripped
+        .parse::<std::net::IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false)
 }
 
 async fn probe_preview_url(url: &str) -> bool {
@@ -671,6 +691,28 @@ async fn probe_preview_url(url: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalize_loopback_url_accepts_loopback_and_blocks_external() {
+        assert_eq!(
+            normalize_loopback_url("http://localhost:5173/app").unwrap(),
+            "http://127.0.0.1:5173/app"
+        );
+        assert!(normalize_loopback_url("http://127.0.0.1:5173/").is_ok());
+        // IPv6 loopback was previously rejected by the dead `::1` comparison.
+        assert!(normalize_loopback_url("http://[::1]:5173/").is_ok());
+        // External / spoofed-loopback hosts stay blocked.
+        assert_eq!(
+            normalize_loopback_url("http://example.com/").unwrap_err().0,
+            "external_url"
+        );
+        assert_eq!(
+            normalize_loopback_url("http://127.evil.com/")
+                .unwrap_err()
+                .0,
+            "external_url"
+        );
+    }
 
     #[test]
     fn preview_open_requires_target_for_explicit_static_and_url() {

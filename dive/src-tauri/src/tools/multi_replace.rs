@@ -495,14 +495,10 @@ async fn apply_plans(ctx: &ToolContext, plans: &[ReplacementPlan]) -> Result<(),
             })?;
     }
 
-    let mut staged = Vec::new();
-    match stage_writes(&changed).await {
-        Ok(items) => staged = items,
-        Err(error) => {
-            cleanup_staged_files(&staged).await;
-            return Err(error);
-        }
-    }
+    // `stage_writes` now cleans up any partially-staged temp files itself on
+    // failure, so a mid-batch error leaves no `.tmp`/`.bak` residue (the old
+    // caller-side cleanup ran against an always-empty vec — a no-op leak).
+    let staged = stage_writes(&changed).await?;
 
     let mut applied = Vec::new();
     for (idx, item) in staged.iter().enumerate() {
@@ -525,68 +521,101 @@ async fn stage_writes<'a>(
     plans: &[&'a ReplacementPlan],
 ) -> Result<Vec<StagedWrite<'a>>, ApplyError> {
     let batch_id = Uuid::new_v4().simple().to_string();
-    let mut staged = Vec::new();
+    let mut staged: Vec<StagedWrite<'a>> = Vec::new();
     for (idx, plan) in plans.iter().enumerate() {
-        let parent = plan.path.parent().ok_or_else(|| ApplyError {
-            message: format!("{}: target has no parent directory", plan.rel_path),
-            rollback_errors: Vec::new(),
-        })?;
-        let file_name = plan
-            .path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| ApplyError {
-                message: format!("{}: target file name is not valid UTF-8", plan.rel_path),
-                rollback_errors: Vec::new(),
-            })?;
-        let after_tmp = parent.join(format!(
-            ".{file_name}.dive-multi-replace-{batch_id}-{idx}.tmp"
-        ));
-        let backup_tmp = parent.join(format!(
-            ".{file_name}.dive-multi-replace-{batch_id}-{idx}.bak"
-        ));
-        if after_tmp.exists() || backup_tmp.exists() {
-            return Err(ApplyError {
-                message: format!("{}: temporary file already exists", plan.rel_path),
-                rollback_errors: Vec::new(),
-            });
+        match stage_one(plan, &batch_id, idx).await {
+            Ok(item) => staged.push(item),
+            Err(error) => {
+                // A later plan failed: remove the temp files staged for the
+                // earlier plans in this batch so nothing leaks.
+                cleanup_staged_files(&staged).await;
+                return Err(error);
+            }
         }
-
-        tokio::fs::write(&after_tmp, &plan.after)
-            .await
-            .map_err(|e| ApplyError {
-                message: format!("{}: failed to stage replacement: {e}", plan.rel_path),
-                rollback_errors: Vec::new(),
-            })?;
-        let permissions = tokio::fs::metadata(&plan.path)
-            .await
-            .map_err(|e| ApplyError {
-                message: format!("{}: failed to read target metadata: {e}", plan.rel_path),
-                rollback_errors: Vec::new(),
-            })?
-            .permissions();
-        tokio::fs::set_permissions(&after_tmp, permissions)
-            .await
-            .map_err(|e| ApplyError {
-                message: format!(
-                    "{}: failed to stage replacement permissions: {e}",
-                    plan.rel_path
-                ),
-                rollback_errors: Vec::new(),
-            })?;
-        tokio::fs::write(&backup_tmp, &plan.before)
-            .await
-            .map_err(|e| ApplyError {
-                message: format!("{}: failed to stage rollback copy: {e}", plan.rel_path),
-                rollback_errors: Vec::new(),
-            })?;
-        staged.push(StagedWrite {
-            plan,
-            after_tmp,
-            backup_tmp,
-        });
     }
     Ok(staged)
+}
+
+async fn stage_one<'a>(
+    plan: &'a ReplacementPlan,
+    batch_id: &str,
+    idx: usize,
+) -> Result<StagedWrite<'a>, ApplyError> {
+    let parent = plan.path.parent().ok_or_else(|| ApplyError {
+        message: format!("{}: target has no parent directory", plan.rel_path),
+        rollback_errors: Vec::new(),
+    })?;
+    let file_name = plan
+        .path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| ApplyError {
+            message: format!("{}: target file name is not valid UTF-8", plan.rel_path),
+            rollback_errors: Vec::new(),
+        })?;
+    let after_tmp = parent.join(format!(
+        ".{file_name}.dive-multi-replace-{batch_id}-{idx}.tmp"
+    ));
+    let backup_tmp = parent.join(format!(
+        ".{file_name}.dive-multi-replace-{batch_id}-{idx}.bak"
+    ));
+    if after_tmp.exists() || backup_tmp.exists() {
+        return Err(ApplyError {
+            message: format!("{}: temporary file already exists", plan.rel_path),
+            rollback_errors: Vec::new(),
+        });
+    }
+
+    // If any step fails after the first write, remove this plan's own partial
+    // temp files before returning — otherwise the `.tmp` written just above
+    // would be orphaned (the never-cleaned residue the old code left behind).
+    if let Err(error) = write_staged_files(plan, &after_tmp, &backup_tmp).await {
+        let _ = tokio::fs::remove_file(&after_tmp).await;
+        let _ = tokio::fs::remove_file(&backup_tmp).await;
+        return Err(error);
+    }
+
+    Ok(StagedWrite {
+        plan,
+        after_tmp,
+        backup_tmp,
+    })
+}
+
+async fn write_staged_files(
+    plan: &ReplacementPlan,
+    after_tmp: &Path,
+    backup_tmp: &Path,
+) -> Result<(), ApplyError> {
+    tokio::fs::write(after_tmp, &plan.after)
+        .await
+        .map_err(|e| ApplyError {
+            message: format!("{}: failed to stage replacement: {e}", plan.rel_path),
+            rollback_errors: Vec::new(),
+        })?;
+    let permissions = tokio::fs::metadata(&plan.path)
+        .await
+        .map_err(|e| ApplyError {
+            message: format!("{}: failed to read target metadata: {e}", plan.rel_path),
+            rollback_errors: Vec::new(),
+        })?
+        .permissions();
+    tokio::fs::set_permissions(after_tmp, permissions)
+        .await
+        .map_err(|e| ApplyError {
+            message: format!(
+                "{}: failed to stage replacement permissions: {e}",
+                plan.rel_path
+            ),
+            rollback_errors: Vec::new(),
+        })?;
+    tokio::fs::write(backup_tmp, &plan.before)
+        .await
+        .map_err(|e| ApplyError {
+            message: format!("{}: failed to stage rollback copy: {e}", plan.rel_path),
+            rollback_errors: Vec::new(),
+        })?;
+    Ok(())
 }
 
 async fn rollback_applied(staged: &[&StagedWrite<'_>]) -> Vec<String> {
@@ -616,6 +645,46 @@ async fn cleanup_backups(staged: &[StagedWrite<'_>]) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn plan_for(path: PathBuf, rel: &str, before: &str, after: &str) -> ReplacementPlan {
+        ReplacementPlan {
+            path,
+            rel_path: rel.to_string(),
+            before: before.to_string(),
+            after: after.to_string(),
+            matches: 1,
+            replacements: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn stage_writes_leaves_no_residue_when_a_later_plan_fails() {
+        // Regression for the staging leak: when staging fails on a later plan,
+        // no `.tmp`/`.bak` files from this batch may survive.
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("good.txt"), "old\n").unwrap();
+        let good = plan_for(tmp.path().join("good.txt"), "good.txt", "old\n", "new\n");
+        // The second target does not exist, so reading its metadata fails
+        // partway through staging (after its `.tmp` has been written).
+        let missing = plan_for(
+            tmp.path().join("missing.txt"),
+            "missing.txt",
+            "old\n",
+            "new\n",
+        );
+
+        let plans = [&good, &missing];
+        let result = stage_writes(&plans).await;
+        assert!(result.is_err(), "staging should fail on the missing target");
+
+        let residue: Vec<String> = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.contains("dive-multi-replace"))
+            .collect();
+        assert!(residue.is_empty(), "leaked staged temp files: {residue:?}");
+    }
 
     #[tokio::test]
     async fn multi_replace_applies_across_files_and_supports_first_occurrence() {

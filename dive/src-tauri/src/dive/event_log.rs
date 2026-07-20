@@ -58,11 +58,16 @@ pub const WEB_FETCH_BLOCKED_EVENT: &str = "web_fetch.blocked";
 
 static SECRET_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?ix)
+        // The named-secret branch allows an optional quote on either side of the
+        // separator so a JSON-embedded secret (`"password":"hunter2"`) is caught,
+        // not just the bare `password=hunter2` form. The value class is broadened
+        // to base64/JWT characters — safe because it only applies once a secret
+        // key + separator has already matched.
+        r#"(?ix)
         sk-[A-Za-z0-9_\-]{3,}
-        |(?:api[_-]?key|token|secret|authorization|password)\s*[:=]\s*[A-Za-z0-9_\-\.]{4,}
+        |(?:api[_-]?key|token|secret|authorization|password)["']?\s*[:=]\s*["']?[A-Za-z0-9_./+=\-]{4,}
         |bearer\s+[A-Za-z0-9_\-\.]{4,}
-        ",
+        "#,
     )
     .expect("secret redaction regex")
 });
@@ -1595,26 +1600,47 @@ pub fn redact_text(text: &str) -> String {
     redact_phone_like_tokens(&redacted)
 }
 
+/// Redact phone-number-shaped tokens while preserving the surrounding text
+/// structure. The old implementation split on whitespace and re-joined with a
+/// single space, which collapsed every newline / tab / run of spaces even when
+/// no phone number was present — corrupting multi-line log payloads (e.g. JSON
+/// with embedded newlines). This walks the string, replacing only the
+/// non-whitespace tokens that look like phone numbers and emitting all
+/// whitespace exactly as it appeared.
 fn redact_phone_like_tokens(text: &str) -> String {
-    text.split_whitespace()
-        .map(|token| {
-            let normalized = token.trim_matches(|ch: char| {
-                matches!(
-                    ch,
-                    ',' | '.' | ':' | ';' | '(' | ')' | '[' | ']' | '"' | '\''
-                )
-            });
-            let digits = normalized.chars().filter(|ch| ch.is_ascii_digit()).count();
-            let phone_like =
-                digits >= 10 && (normalized.starts_with("010") || normalized.starts_with('+'));
-            if phone_like {
-                "[REDACTED_PII]"
-            } else {
-                token
+    let mut out = String::with_capacity(text.len());
+    let mut token = String::new();
+    for ch in text.chars() {
+        if ch.is_whitespace() {
+            if !token.is_empty() {
+                out.push_str(redact_if_phone_like(&token));
+                token.clear();
             }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+            out.push(ch);
+        } else {
+            token.push(ch);
+        }
+    }
+    if !token.is_empty() {
+        out.push_str(redact_if_phone_like(&token));
+    }
+    out
+}
+
+fn redact_if_phone_like(token: &str) -> &str {
+    let normalized = token.trim_matches(|ch: char| {
+        matches!(
+            ch,
+            ',' | '.' | ':' | ';' | '(' | ')' | '[' | ']' | '"' | '\''
+        )
+    });
+    let digits = normalized.chars().filter(|ch| ch.is_ascii_digit()).count();
+    let phone_like = digits >= 10 && (normalized.starts_with("010") || normalized.starts_with('+'));
+    if phone_like {
+        "[REDACTED_PII]"
+    } else {
+        token
+    }
 }
 
 pub fn hash_text(text: &str) -> String {
@@ -1671,6 +1697,33 @@ mod tests {
         assert!(!encoded.contains("secret-token-123"));
         assert!(!encoded.contains("hunter2"));
         assert!(encoded.contains("[REDACTED_SECRET]"));
+    }
+
+    #[test]
+    fn redact_text_masks_secret_values_embedded_in_json() {
+        // The value lives inside quoted JSON text, not as its own object key, so
+        // key-based redaction does not see it — SECRET_RE must.
+        let redacted = redact_text(r#"log line {"password":"hunter2xyz","apiKey":"abcd1234efgh"}"#);
+        assert!(!redacted.contains("hunter2xyz"), "{redacted}");
+        assert!(!redacted.contains("abcd1234efgh"), "{redacted}");
+        assert!(redacted.contains("[REDACTED_SECRET]"));
+        // The bare `key=value` form still redacts.
+        assert!(!redact_text("api_key=supersecretvalue").contains("supersecretvalue"));
+    }
+
+    #[test]
+    fn redact_text_preserves_line_and_space_structure() {
+        // No secrets/PII: the string must survive byte-for-byte (the old
+        // phone-redaction pass collapsed all whitespace unconditionally).
+        let input = "line one\nline two\n\tindented   spaced";
+        assert_eq!(redact_text(input), input);
+        // A phone-shaped token is redacted, surrounding newlines preserved.
+        assert_eq!(
+            redact_text("call\n010-1234-5678\nnow"),
+            "call\n[REDACTED_PII]\nnow"
+        );
+        // Multi-line JSON keeps its newline.
+        assert_eq!(redact_text("{\"a\":1}\n{\"b\":2}"), "{\"a\":1}\n{\"b\":2}");
     }
 
     #[test]

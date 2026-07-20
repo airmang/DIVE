@@ -42,12 +42,14 @@ import {
   copyFileSync,
   rmSync,
   writeFileSync,
+  readFileSync,
   chmodSync,
   createWriteStream,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { get } from "node:https";
+import { createHash } from "node:crypto";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = resolve(HERE, "..", "src-tauri", "binaries");
@@ -100,6 +102,55 @@ function download(url, dest) {
   });
 }
 
+// Fetch the text of a URL (following one level of redirect), for SHASUMS256.txt.
+function fetchText(url) {
+  return new Promise((res, rej) => {
+    get(url, (resp) => {
+      if (resp.statusCode === 301 || resp.statusCode === 302) {
+        return fetchText(resp.headers.location).then(res, rej);
+      }
+      if (resp.statusCode !== 200) {
+        return rej(new Error(`fetch ${url} -> HTTP ${resp.statusCode}`));
+      }
+      let data = "";
+      resp.setEncoding("utf8");
+      resp.on("data", (chunk) => (data += chunk));
+      resp.on("end", () => res(data));
+    }).on("error", rej);
+  });
+}
+
+// Verify a downloaded archive against the official nodejs.org SHASUMS256.txt for
+// the pinned NODE_VERSION. The SEA base is an injectable *official Node binary*
+// running with the student's trust, so the integrity check gates extraction: it
+// detects a corrupted/truncated download and pins the exact NODE_VERSION so a
+// silently-substituted or drifted archive fails the build. NODE_VERSION is pinned
+// to the build toolchain's own Node (process.versions.node), so the checked
+// digest is a fixed, reproducible target. NOTE: SHASUMS256.txt is fetched over
+// the same origin as the archive, so this is corruption/pin detection — not
+// defense against a full MITM that rewrites both files. Cryptographic (GPG)
+// signature verification of SHASUMS256.txt is a tracked backlog hardening item.
+async function verifyArchiveChecksum(archivePath, archiveName) {
+  const shasums = await fetchText(
+    `https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt`,
+  );
+  const entry = shasums
+    .split("\n")
+    .map((line) => line.trim().split(/\s+/))
+    .find((parts) => parts[1] === archiveName);
+  if (!entry) {
+    throw new Error(`SHASUMS256.txt has no entry for ${archiveName}`);
+  }
+  const expected = entry[0].toLowerCase();
+  const actual = createHash("sha256").update(readFileSync(archivePath)).digest("hex");
+  if (actual !== expected) {
+    throw new Error(
+      `checksum mismatch for ${archiveName}: expected ${expected}, got ${actual}`,
+    );
+  }
+  console.log(`[build-sidecar] verified ${archiveName} against SHASUMS256.txt`);
+}
+
 // Fetch the official, statically-linked Node binary for the host and return its
 // path. SEA needs a self-contained base, not a package-manager thin launcher.
 async function fetchHostNodeBinary() {
@@ -109,17 +160,18 @@ async function fetchHostNodeBinary() {
     throw new Error(`no official Node build for ${process.platform}/${process.arch}`);
   if (platform === "win") {
     const zip = join(BUILD_DIR, "node.zip");
-    await download(
-      `https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-win-${arch}.zip`,
-      zip,
-    );
+    const zipName = `node-v${NODE_VERSION}-win-${arch}.zip`;
+    await download(`https://nodejs.org/dist/v${NODE_VERSION}/${zipName}`, zip);
+    await verifyArchiveChecksum(zip, zipName);
     run("tar", ["-xf", zip, "-C", BUILD_DIR]); // bsdtar on win10+ extracts zip
     return join(BUILD_DIR, `node-v${NODE_VERSION}-win-${arch}`, "node.exe");
   }
   const tgz = join(BUILD_DIR, "node.tar.gz");
   const base = `node-v${NODE_VERSION}-${platform}-${arch}`;
+  const tgzName = `${base}.tar.gz`;
   console.log(`[build-sidecar] fetching official Node ${NODE_VERSION} (${platform}-${arch}) …`);
-  await download(`https://nodejs.org/dist/v${NODE_VERSION}/${base}.tar.gz`, tgz);
+  await download(`https://nodejs.org/dist/v${NODE_VERSION}/${tgzName}`, tgz);
+  await verifyArchiveChecksum(tgz, tgzName);
   run("tar", ["-xzf", tgz, "-C", BUILD_DIR]);
   return join(BUILD_DIR, base, "bin", "node");
 }

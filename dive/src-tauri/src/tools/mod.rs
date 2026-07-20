@@ -12,6 +12,7 @@ pub mod guard;
 pub mod list_dir;
 pub mod mkdir;
 pub mod multi_replace;
+pub mod process_exec;
 pub mod read_file;
 pub mod registry;
 pub mod run_process;

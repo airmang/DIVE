@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 use std::time::Duration;
 
 use super::guard::{block_as_error, classify_bash_command};
+use super::process_exec::{run_capped, scrub_sensitive_env, CappedRunError};
 use super::{truncate_utf8, RiskLevel, Tool, ToolContext, ToolError, ToolOutput};
 
 #[derive(Deserialize)]
@@ -73,6 +74,9 @@ impl Tool for RunProcess {
         if let Some(reason) = classify_bash_command(&command_line) {
             return Err(block_as_error(reason));
         }
+        if let Some(reason) = detect_wrapper_shell_bypass(&args.command, &args.args) {
+            return Err(ToolError::InvalidInput(reason));
+        }
         Ok(())
     }
 
@@ -89,14 +93,16 @@ impl Tool for RunProcess {
         };
 
         let mut cmd = tokio::process::Command::new(command);
-        cmd.args(&args.args)
-            .current_dir(&ctx.project_root)
-            .kill_on_drop(true);
-        let output = tokio::time::timeout(Duration::from_secs(timeout), cmd.output())
+        cmd.args(&args.args).current_dir(&ctx.project_root);
+        scrub_sensitive_env(&mut cmd);
+        let output = run_capped(cmd, Duration::from_secs(timeout), MAX_OUTPUT_BYTES)
             .await
-            .map_err(|_| {
-                ToolError::InvalidInput(format!("process timed out after {timeout}s"))
-            })??;
+            .map_err(|e| match e {
+                CappedRunError::Timeout => {
+                    ToolError::InvalidInput(format!("process timed out after {timeout}s"))
+                }
+                CappedRunError::Spawn(err) | CappedRunError::Io(err) => ToolError::Io(err),
+            })?;
         let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
         let code = output.status.code().unwrap_or(-1);
@@ -116,11 +122,55 @@ impl Tool for RunProcess {
                 "reason": args.reason,
                 "expected_effect": args.expected_effect,
                 "exit_code": code,
-                "stdout": truncate(&stdout, MAX_OUTPUT_BYTES),
-                "stderr": truncate(&stderr, MAX_OUTPUT_BYTES),
+                "stdout": display_output(&stdout, output.stdout_truncated),
+                "stderr": display_output(&stderr, output.stderr_truncated),
             }),
         })
     }
+}
+
+/// Interpreters that run an arbitrary shell command line. Blocked as the direct
+/// `command`, and — behind an exec wrapper — anywhere in the argument vector.
+const SHELL_EXECUTABLES: &[&str] = &[
+    "bash",
+    "sh",
+    "zsh",
+    "fish",
+    "dash",
+    "ash",
+    "ksh",
+    "tcsh",
+    "csh",
+    "cmd",
+    "powershell",
+    "pwsh",
+];
+
+/// Programs whose job is to execute another command they are handed. The
+/// "no shell in `command`" rule only guards the executable field, so these can
+/// be used to smuggle a shell through the argument vector
+/// (`env bash -c …`, `xargs sh …`, `timeout 5 bash …`). `env` itself is already
+/// blocked outright by `classify_bash_command` (environment dump), but the
+/// others are legitimate on their own and only dangerous when they wrap a shell.
+const EXEC_WRAPPERS: &[&str] = &[
+    "env", "xargs", "nice", "ionice", "nohup", "setsid", "timeout", "stdbuf", "time", "watch",
+    "flock", "chroot", "unbuffer", "taskset", "setarch", "script",
+];
+
+/// Network-fetch executables that bypass the web_fetch SSRF guard. Blocked as
+/// the direct command by `classify_bash_command`, and — behind an exec wrapper —
+/// anywhere in the argument vector (I-1: `nohup curl …`, `timeout 10 curl …`,
+/// `stdbuf -oL wget …`, `xargs curl …`, including absolute-path forms).
+const NETWORK_FETCHERS: &[&str] = &["curl", "wget"];
+
+/// Lowercased executable basename with any `.exe` suffix stripped.
+fn executable_basename(value: &str) -> String {
+    let name = value
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(value)
+        .to_ascii_lowercase();
+    name.strip_suffix(".exe").unwrap_or(&name).to_string()
 }
 
 fn validate_command_no_shell(command: &str) -> Result<(), ToolError> {
@@ -130,19 +180,39 @@ fn validate_command_no_shell(command: &str) -> Result<(), ToolError> {
             "executable path may not escape project root: {command}"
         )));
     }
-    let executable = std::path::Path::new(command)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(command)
-        .to_ascii_lowercase();
-    let executable = executable.strip_suffix(".exe").unwrap_or(&executable);
-    const SHELL_EXECUTABLES: &[&str] = &["bash", "sh", "zsh", "fish", "cmd", "powershell", "pwsh"];
-    if SHELL_EXECUTABLES.contains(&executable) {
+    let executable = executable_basename(command);
+    if SHELL_EXECUTABLES.contains(&executable.as_str()) {
         return Err(ToolError::InvalidInput(format!(
             "shell executable not allowed in command: {command}"
         )));
     }
     Ok(())
+}
+
+/// Reject an exec wrapper that launches a shell through its arguments. Without
+/// this, the shell-executable ban on the `command` field is trivially bypassed
+/// (`{"command":"xargs","args":["sh","-c","…"]}`). We flag only shells in the
+/// args — plain wrapper chains like `nice timeout pnpm test` stay allowed, and
+/// interpreter inline-eval (`python -c`, `node -e`) is already caught by
+/// `classify_bash_command` on the joined command line.
+fn detect_wrapper_shell_bypass(command: &str, args: &[String]) -> Option<String> {
+    if !EXEC_WRAPPERS.contains(&executable_basename(command).as_str()) {
+        return None;
+    }
+    for arg in args {
+        let base = executable_basename(arg);
+        if SHELL_EXECUTABLES.contains(&base.as_str()) {
+            return Some(format!(
+                "wrapper command may not launch a shell: {command} … {arg}"
+            ));
+        }
+        if NETWORK_FETCHERS.contains(&base.as_str()) {
+            return Some(format!(
+                "wrapper command may not launch a network fetch: {command} … {arg}"
+            ));
+        }
+    }
+    None
 }
 
 fn validate_timeout(timeout_sec: Option<u64>) -> Result<(), ToolError> {
@@ -195,6 +265,18 @@ fn has_project_escape(value: &str) -> bool {
 
 fn truncate(s: &str, max: usize) -> String {
     truncate_utf8(s, max, "\n… [truncated]")
+}
+
+/// Bound the displayed stream length (guards against UTF-8 lossy expansion of
+/// the already-capped buffer) and ensure the truncation marker is present when
+/// the child produced more than the display cap.
+fn display_output(text: &str, truncated: bool) -> String {
+    let bounded = truncate(text, MAX_OUTPUT_BYTES);
+    if truncated && !bounded.contains("[truncated]") {
+        format!("{bounded}\n… [truncated]")
+    } else {
+        bounded
+    }
 }
 
 #[cfg(test)]
@@ -279,6 +361,107 @@ mod tests {
         assert!(RunProcess
             .validate(&json!({ "command": "rm", "args": ["-rf", "build/"] }))
             .is_ok());
+    }
+
+    #[test]
+    fn run_process_validate_blocks_env_dump_and_dotenv_read() {
+        // Promoted credential-exposure rules now cover the direct process tool.
+        for input in [
+            json!({ "command": "env" }),
+            json!({ "command": "printenv" }),
+            json!({ "command": "cat", "args": [".env"] }),
+        ] {
+            let err = RunProcess
+                .validate(&input)
+                .expect_err("credential-exposure command should be blocked");
+            assert!(
+                matches!(err, ToolError::Blocked(_)),
+                "expected blocked error for {input:?}, got {err:?}"
+            );
+        }
+        assert!(RunProcess
+            .validate(&json!({ "command": "cat", "args": ["README.md"] }))
+            .is_ok());
+    }
+
+    #[test]
+    fn run_process_validate_blocks_wrapper_shell_bypass() {
+        // The shell ban on `command` is bypassable through an exec wrapper's
+        // args; detect_wrapper_shell_bypass closes that (P2).
+        for input in [
+            json!({ "command": "xargs", "args": ["sh", "-c", "echo hi"] }),
+            json!({ "command": "timeout", "args": ["5", "bash", "-lc", "echo hi"] }),
+            json!({ "command": "nohup", "args": ["zsh"] }),
+            json!({ "command": "/usr/bin/env", "args": ["bash"] }),
+        ] {
+            assert!(
+                RunProcess.validate(&input).is_err(),
+                "wrapper→shell bypass should be blocked: {input:?}"
+            );
+        }
+        // Wrapper chains that do not launch a shell stay allowed.
+        assert!(RunProcess
+            .validate(&json!({ "command": "nice", "args": ["-n", "10", "pnpm", "test"] }))
+            .is_ok());
+        assert!(RunProcess
+            .validate(&json!({ "command": "timeout", "args": ["30", "pnpm", "build"] }))
+            .is_ok());
+    }
+
+    #[test]
+    fn run_process_validate_blocks_wrapper_network_fetch_bypass() {
+        // I-1: an exec wrapper can smuggle curl/wget through its args, past the
+        // command-anchored classify rule.
+        for input in [
+            json!({ "command": "nohup", "args": ["curl", "https://x"] }),
+            json!({ "command": "timeout", "args": ["10", "curl", "https://x"] }),
+            json!({ "command": "stdbuf", "args": ["-oL", "wget", "https://x"] }),
+            json!({ "command": "xargs", "args": ["curl", "https://x"] }),
+            json!({ "command": "nohup", "args": ["/usr/bin/curl", "https://x"] }),
+        ] {
+            assert!(
+                RunProcess.validate(&input).is_err(),
+                "wrapper→network-fetch bypass should be blocked: {input:?}"
+            );
+        }
+        // A wrapper chain without a shell or fetcher stays allowed, and a source
+        // file merely named for curl is not a fetch.
+        assert!(RunProcess
+            .validate(&json!({ "command": "nice", "args": ["timeout", "5", "pnpm", "test"] }))
+            .is_ok());
+        assert!(RunProcess
+            .validate(&json!({ "command": "node", "args": ["curl_helper.js"] }))
+            .is_ok());
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn run_process_scrubs_sensitive_env_from_child() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let bin = tmp.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let script = bin.join("dump.sh");
+        std::fs::write(&script, "#!/bin/sh\nprintf '%s' \"$DIVE_TEST_SCRUB_TOKEN\"").unwrap();
+        let mut perms = std::fs::metadata(&script).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&script, perms).unwrap();
+
+        std::env::set_var("DIVE_TEST_SCRUB_TOKEN", "super-secret-value");
+        let ctx = ToolContext::new(tmp.path(), 1);
+        let out = RunProcess
+            .run(json!({ "command": "bin/dump.sh" }), &ctx)
+            .await
+            .unwrap();
+        std::env::remove_var("DIVE_TEST_SCRUB_TOKEN");
+
+        assert!(out.success);
+        assert_eq!(
+            out.full["stdout"].as_str().unwrap(),
+            "",
+            "the child must not inherit the sensitive env var"
+        );
     }
 
     #[tokio::test]
