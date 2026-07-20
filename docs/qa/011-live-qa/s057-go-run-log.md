@@ -96,7 +96,7 @@ app-data에서 시작해 PRD 상세 답변 1회 구조화, 아키텍처 확정, 
 - 시작 화면의 사이드바가 비어 있고 `프로젝트가 없습니다`가 표시되는 것을
   확인했다.
 - 빈 프로젝트 폴더
-  `/Users/wilycastle/Code/projects/DIVE-2/qa-sandbox/go-run-1`을 만들고 프로젝트
+  `~/DIVE-2/qa-sandbox/go-run-1`을 만들고 프로젝트
   이름을 `go-run-1`로 생성했다.
 - OpenRouter를 연결하고 모델을 `Anthropic: Claude Sonnet 5`로 선택했다.
 

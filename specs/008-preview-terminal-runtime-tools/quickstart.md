@@ -89,7 +89,7 @@ high-risk path and cannot become the default command path.
 ## Suggested Commands
 
 ```bash
-cd C:/Users/kokyu/Code/DIVE-2/dive
+cd ~/DIVE-2/dive
 pnpm typecheck
 pnpm exec vitest run src/hooks/useChatSession.test.ts src/components/slide-in/PreviewTab.test.tsx src/components/chat/ToolActivity.test.tsx
 pnpm test:unit

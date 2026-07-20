@@ -68,7 +68,7 @@ Expected result: no static provocation or generic warning fallback appears.
 ## Suggested Commands
 
 ```bash
-cd /Users/wilycastle/Code/projects/DIVE-2/dive
+cd ~/DIVE-2/dive
 pnpm typecheck
 pnpm exec vitest run src/components/product/StepDetailSlideIn.test.tsx src/components/product/DecisionGate.test.tsx src/features/provocation/verificationGrade.test.ts src/features/provocation/__tests__/rules.test.ts
 pnpm test:unit

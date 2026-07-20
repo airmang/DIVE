@@ -21,7 +21,7 @@ cargo test
 ## Implementation Notes
 
 Run commands from the repository checkout at
-`/Users/wilycastle/Code/projects/DIVE-2`. The app package is still under
+`~/DIVE-2`. The app package is still under
 `dive/`, and Rust tests still run from `dive/src-tauri/`; no command path changed
 during 004 implementation.
 

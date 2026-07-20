@@ -1,8 +1,8 @@
 # DIVE 제품화 계획 — Production Wiring 우선
 
 **작성**: 2026-05-04 (개정: 2026-05-04 리뷰 반영)
-**베이스**: `/Users/wilycastle/Code/projects/DIVE-2/` (opencode 구현)
-**참고**: `/Users/wilycastle/Code/projects/DIVE/` (Codex 구현, 아카이브, 추가 커밋 금지)
+**베이스**: `~/DIVE-2/` (opencode 구현)
+**참고**: `~/DIVE/` (Codex 구현, 아카이브, 추가 커밋 금지)
 
 > **개정 요약 (v3)**:
 > - **v2 (2026-05-04 초판 검토)**: Track 0 2주 → 4주, Workmap persistence 분리, ProviderRuntime 스냅샷, provider_connect health check, project_root RwLock 5곳, silent fallback 제거, URL namespace 분리, rc.1 일괄 클리어, tauri-driver 스모크, OpenRouter 학생 키, Onboarding Skip 재정의.
@@ -33,7 +33,7 @@
 
 ### 0.2 연관 발견 (DIVE Codex 레포)
 
-`/Users/wilycastle/Code/projects/DIVE/dive/src-tauri/src/lib.rs`의 `run()`이 `manage(app_state)` / `invoke_handler` 둘 다 등록 안 함. **백엔드 IPC가 frontend로 노출조차 안 됨**. DIVE-2보다 더 심각 — DIVE는 아카이브 유지.
+`~/DIVE/dive/src-tauri/src/lib.rs`의 `run()`이 `manage(app_state)` / `invoke_handler` 둘 다 등록 안 함. **백엔드 IPC가 frontend로 노출조차 안 됨**. DIVE-2보다 더 심각 — DIVE는 아카이브 유지.
 
 ### 0.3 결론
 
@@ -1251,7 +1251,7 @@ DAO 확장: `card::create`, `card::delete_by_id`, `card::reorder` 추가. positi
 ### 9.1 Developer Gate (매 PR / 매 커밋)
 
 ```bash
-cd /Users/wilycastle/Code/projects/DIVE-2/dive
+cd ~/DIVE-2/dive
 
 # Frontend
 pnpm typecheck && pnpm lint --max-warnings 0 && pnpm format:check && pnpm build

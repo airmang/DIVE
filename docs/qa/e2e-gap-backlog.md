@@ -103,7 +103,7 @@ Verification-coach degradation is well-built (every failure maps to a non-hangin
 
 ## Synthesis notes
 
-Verified against source in /Users/wilycastle/Code/projects/DIVE-2/dive: supervisor.rs:1426 hardcodes the Korean provocation question; PreviewTab.tsx:247 sandbox is 'allow-scripts allow-same-origin' (no allow-modals/allow-forms); agencyStatus.ts:28+ hardcodes Korean labels. These three confirmed roots underpin the top 3 themes.
+Verified against source in ~/DIVE-2/dive: supervisor.rs:1426 hardcodes the Korean provocation question; PreviewTab.tsx:247 sandbox is 'allow-scripts allow-same-origin' (no allow-modals/allow-forms); agencyStatus.ts:28+ hardcodes Korean labels. These three confirmed roots underpin the top 3 themes.
 
 Sequencing logic: the top 3 themes are P0 because each independently breaks a credible English E2E run — i18n makes trust-critical surfaces unreadable, the hollow evidence gate defeats DIVE's reason-to-exist, and the inert preview pushes users out of the supervised loop exactly at verify. They also share fixes: a responsive/reload/ready-gated preview (theme 3) is the mechanism that lets the evidence gate (theme 2) demand real per-criterion observation, so build them together. The supervisor.rs locale fix is shared between theme 1 and the stepper/detection theme.
 

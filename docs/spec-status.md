@@ -67,7 +67,7 @@ archived-status sections below).
 ## External Product Extraction
 
 DIVE for Codex was separated on 2026-07-15 into the independent local
-repository `/Users/wilycastle/Code/projects/dive-plugin`. Its constitution,
+repository `~/dive-plugin`. Its constitution,
 plugin manifest, feature 001 spec, and future implementation authority live in
 that repository. DIVE-2 retains only the extraction record at
 `docs/product-extractions/dive-plugin.md`; there is no active 012 feature in

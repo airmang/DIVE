@@ -29,7 +29,7 @@
 - `git ls-tree origin/main`으로 원격에도 push 확인. 무관한 기능 커밋 `29d639f`(add -A 사고)로 유입. 이 PDF를 참조하는 추적 문서 0건 — repo 기능상 불필요.
 - public 전환 즉시 무단 재배포 = DMCA takedown 대상. Dhanorkar2026 PDF 메타데이터에는 저자 개인 이메일도 포함.
 - **처리**: 트리에서 삭제 + DOI/공식링크 목록 `references.md`로 대체 + **git filter-repo로 히스토리 퍼지** (.git 158MB → 클론 무게도 해소). 2026-06-11 185MB PNG 제거 때 히스토리 재작성 선례 있음.
-- **같은 재작성 패스에서 함께 결정할 것**: ① 커밋 author 개인 이메일(kokyuhyun@hotmail.com) 공개 여부, ② 추적 문서 15개의 개인 홈 경로(/Users/wilycastle, C:/Users/kokyu) 정리 여부.
+- **같은 재작성 패스에서 함께 결정할 것**: ① 커밋 author 개인 이메일(kokyuhyun@hotmail.com) 공개 여부, ② 추적 문서 15개의 개인 홈 경로(~, ~) 정리 여부.
 
 ---
 

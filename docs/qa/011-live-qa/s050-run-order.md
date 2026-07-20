@@ -1,7 +1,7 @@
 # 011 라이브 QA 작업 지시서 — S-050 계획 품질 게이트 (2026-07-11)
 
 macOS computer-use 세션용. 대상 앱은 이미 빌드·실행되어 있음:
-`/Users/wilycastle/Code/projects/DIVE-2/dive/src-tauri/target/release/bundle/macos/DIVE.app`
+`~/DIVE-2/dive/src-tauri/target/release/bundle/macos/DIVE.app`
 (꺼져 있으면 `open <경로>`로 실행. dev 모드 금지 — 릴리스 .app만 유효.)
 
 ## ⚠️ 선행 조건 (중요)

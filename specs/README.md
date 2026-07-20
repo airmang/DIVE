@@ -23,7 +23,7 @@ implementation planning.
 ## External Products
 
 - **DIVE for Codex** was separated on 2026-07-15 into the independent local
-  repository `/Users/wilycastle/Code/projects/dive-plugin`. Its product
+  repository `~/dive-plugin`. Its product
   constitution and feature specs are authoritative there, not under this
   repository's `specs/` tree. See
   [`docs/product-extractions/dive-plugin.md`](../docs/product-extractions/dive-plugin.md).

@@ -11,7 +11,7 @@
 
 ```bash
 DIVE_QA_APP_DATA_DIR=/tmp/dive-go-run-1 \
-  /Users/wilycastle/Code/projects/DIVE-2/dive/src-tauri/target/release/bundle/macos/DIVE.app/Contents/MacOS/dive
+  ~/DIVE-2/dive/src-tauri/target/release/bundle/macos/DIVE.app/Contents/MacOS/dive
 ```
 
 회차 2·3은 `-2`, `-3`으로. 격리 확인: 사이드바가 비어 있고 기존 프로젝트가
