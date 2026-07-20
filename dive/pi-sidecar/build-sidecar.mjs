@@ -131,9 +131,7 @@ function fetchText(url) {
 // defense against a full MITM that rewrites both files. Cryptographic (GPG)
 // signature verification of SHASUMS256.txt is a tracked backlog hardening item.
 async function verifyArchiveChecksum(archivePath, archiveName) {
-  const shasums = await fetchText(
-    `https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt`,
-  );
+  const shasums = await fetchText(`https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt`);
   const entry = shasums
     .split("\n")
     .map((line) => line.trim().split(/\s+/))
@@ -144,9 +142,7 @@ async function verifyArchiveChecksum(archivePath, archiveName) {
   const expected = entry[0].toLowerCase();
   const actual = createHash("sha256").update(readFileSync(archivePath)).digest("hex");
   if (actual !== expected) {
-    throw new Error(
-      `checksum mismatch for ${archiveName}: expected ${expected}, got ${actual}`,
-    );
+    throw new Error(`checksum mismatch for ${archiveName}: expected ${expected}, got ${actual}`);
   }
   console.log(`[build-sidecar] verified ${archiveName} against SHASUMS256.txt`);
 }
