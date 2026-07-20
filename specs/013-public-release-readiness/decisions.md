@@ -82,6 +82,19 @@ cascades ~29 lines through runStoreAction/13 actions — deferred to backlog).
 type-aware no-floating-promises lint was not added (config is not
 type-aware; build-time cost).
 
+## D-013-11 (S-068) — Two FE hook extractions deferred
+
+The three god-hooks split into 11 modules (−34%), but two extractions the
+spec named were deferred on evidence, not skipped: `usePrdAuthoring`
+(startPlanGenerationFromPrd threads PRD state + plan-draft lifecycle + chat +
+session + navigation; a clean hook would take ~30 inputs — a leaky
+abstraction that risks behavior under pure-move) and `useCardActions`
+(restoreCheckpoint mutates chat state via setState, coupling card/checkpoint
+IPC to the session). Both are recorded for a future dedicated refactor with
+proper interface design, not a public-release-gating item. The prdSurface
+React.memo bailout that the element→data move would have lost was restored in
+this stage (ConversationSurfaces wrappers), so S-068 is performance-neutral.
+
 ## D-013-08 (S-063) — S-048 6b plain-GET egress: absorbed (option a)
 
 **Decision: option (a) — absorb the hardening now.** The process-tool plain-GET
