@@ -89,6 +89,9 @@ jobs:
       - run: cargo fmt --all -- --check
 
       - run: cargo clippy --features dev-mock --all-targets -- -D warnings
+      # Feature-less pass keeps the production build (no dev-mock) warning-free —
+      # this is what enforces the cfg(any(test, feature = "dev-mock")) gates.
+      - run: cargo clippy -- -D warnings
 
       - run: cargo test --features dev-mock --all-targets
 

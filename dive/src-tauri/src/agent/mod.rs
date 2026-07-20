@@ -23,7 +23,6 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use futures::StreamExt;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -32,9 +31,13 @@ use crate::db::models::{NewMessage, StepKind};
 use crate::db::Database;
 use crate::dive::event_log as dive_event_log;
 use crate::dive::{build_plan_interview_system_prompt, prompt_locale_is_english};
-use crate::providers::{
-    ChatEvent, ChatRequest, FinishReason, LlmProvider, Message as ProviderMessage, ToolCall,
-};
+use crate::providers::{FinishReason, LlmProvider, Message as ProviderMessage, ToolCall};
+// `ChatEvent`/`ChatRequest`/`StreamExt` are only referenced by the in-process
+// `run`/`stream_assistant` test harness, which is gated to test / `dev-mock`
+// builds; keep their imports on the same gate to avoid unused-import warnings
+// in the shipped (feature-less) build.
+#[cfg(any(test, feature = "dev-mock"))]
+use crate::providers::{ChatEvent, ChatRequest};
 use crate::tools::multi_replace;
 use crate::tools::runtime::{
     classify_preview_open_command, RuntimeInputKind, RuntimeRoutingDecision, RuntimeRoutingOutcome,
@@ -43,6 +46,8 @@ use crate::tools::{
     assess_file_write_secrets, params_preview, BlockReason, RiskLevel, ToolContext, ToolError,
     ToolRegistry,
 };
+#[cfg(any(test, feature = "dev-mock"))]
+use futures::StreamExt;
 
 const DEFAULT_MAX_ITERATIONS: u32 = 10;
 const PROJECT_COMMAND_DEFAULT_TIMEOUT_SEC: u64 = 30;
@@ -218,11 +223,39 @@ pub struct SupervisedToolResult {
     pub full: Value,
 }
 
+/// One tool-call outcome, carrying exactly the data each outcome needs to
+/// record tool-specific evidence (project command / terminal script / web
+/// fetch). Consolidates the per-outcome `if tc.name == ...` dispatch that was
+/// previously inlined once per outcome in the execution pipeline; see
+/// [`AgentLoop::record_tool_evidence`].
+enum ToolEvidenceOutcome<'a> {
+    /// Blocked before execution (validation/egress). Command/script record with
+    /// no tool output; web_fetch records a `blocked` result.
+    Blocked { summary: &'a str },
+    /// The tool ran and returned an error.
+    Failed { summary: &'a str, full: &'a Value },
+    /// The tool ran to completion (`success` may still be false).
+    Completed {
+        success: bool,
+        summary: &'a str,
+        full: &'a Value,
+    },
+    /// The user denied the approval request.
+    Denied { reason: &'a str },
+}
+
 impl AgentLoop {
     pub fn builder() -> AgentLoopBuilder {
         AgentLoopBuilder::default()
     }
 
+    /// In-process, single-process turn loop used only as a test harness: it
+    /// drives `MockProvider` end to end (record user message → stream assistant
+    /// → execute tools → loop). Production chat runs through the supervised
+    /// pi_sidecar path (`begin_external_turn` + `execute_supervised_tool_call`),
+    /// which needs the Node sidecar and cannot run in-process — so this stays
+    /// gated to test / `dev-mock` builds and is not part of the shipped surface.
+    #[cfg(any(test, feature = "dev-mock"))]
     pub async fn run(
         &self,
         session_id: i64,
@@ -233,14 +266,11 @@ impl AgentLoop {
         let created_at = crate::db::now_ms();
         let current_card_id = self.current_card_id(session_id)?;
         self.persist_user_message(session_id, current_card_id, user_input)?;
-        emit_and_forward(
-            emit,
-            AgentEvent::UserMessage {
-                id: user_msg_id,
-                content: user_input.to_string(),
-                created_at,
-            },
-        );
+        emit(AgentEvent::UserMessage {
+            id: user_msg_id,
+            content: user_input.to_string(),
+            created_at,
+        });
         self.log_event(
             session_id,
             "stage_enter",
@@ -289,7 +319,7 @@ impl AgentLoop {
         let mut last_tool_signature: Option<String> = None;
         let mut repeated_tool_turns = 0_u32;
 
-        for iter in 0..self.max_iterations {
+        for _ in 0..self.max_iterations {
             self.check_cancel()?;
 
             let request = ChatRequest {
@@ -409,504 +439,11 @@ impl AgentLoop {
             }
 
             for tc in &tool_calls {
-                self.check_cancel()?;
-                let (base_risk, tool_opt) = match self.registry.get(&tc.name) {
-                    Some(t) => (t.risk_level(), Some(t)),
-                    None => (RiskLevel::Warn, None),
-                };
-                let mut args_value: Value = serde_json::from_str(&tc.arguments)
-                    .map_err(AgentError::ArgumentJson)
-                    .unwrap_or_else(|e| {
-                        let msg = format!("tool arguments not JSON: {e}");
-                        emit(AgentEvent::Error {
-                            message: msg,
-                            retryable: false,
-                        });
-                        Value::Object(Default::default())
-                    });
-                let web_fetch_prepare_error = if tc.name == "web_fetch" {
-                    match crate::tools::web_fetch::prepare_approval_args(&args_value).await {
-                        Ok((prepared, _approval)) => {
-                            args_value = prepared;
-                            None
-                        }
-                        Err(err) => Some(err),
-                    }
-                } else {
-                    None
-                };
-                let preview = params_preview(&tc.name, &args_value);
-                let diff_preview_bundle = self.build_diff_preview(&tc.name, &args_value).await;
-                let approval_warnings = approval_warnings_for_tool(
-                    &tc.name,
-                    &args_value,
-                    diff_preview_bundle.diff_preview.as_ref(),
-                    &diff_preview_bundle.diff_previews,
-                );
-                let risk = approval_risk(base_risk, &approval_warnings);
-                let reasoning_text = reasoning_summary(&tc.name, &preview);
-                emit(AgentEvent::Reasoning {
-                    id: Uuid::new_v4().to_string(),
-                    text: reasoning_text.clone(),
+                let result = self.execute_tool_call(session_id, tc, None, emit).await?;
+                messages.push(ProviderMessage::Tool {
+                    content: result.content,
                     tool_call_id: tc.id.clone(),
-                    created_at: crate::db::now_ms(),
                 });
-                self.log_event(
-                    session_id,
-                    "reasoning",
-                    json!({ "tool": tc.name, "tool_call_id": tc.id, "text": reasoning_text }),
-                )?;
-                emit(AgentEvent::ToolCallStart {
-                    id: tc.id.clone(),
-                    tool: tc.name.clone(),
-                    params_preview: preview.clone(),
-                    risk,
-                    diff_preview: diff_preview_bundle.diff_preview.clone(),
-                    diff_previews: diff_preview_bundle.diff_previews.clone(),
-                    approval_warnings: approval_warnings.clone(),
-                    args: args_value.clone(),
-                });
-                let mut start_payload =
-                    json!({ "tool": tc.name, "params_preview": preview, "risk": risk.as_str() });
-                if !approval_warnings.is_empty() {
-                    start_payload["approvalWarnings"] =
-                        serde_json::to_value(&approval_warnings).unwrap_or(Value::Null);
-                }
-                self.log_event(session_id, "tool_call_start", start_payload)?;
-
-                let Some(tool) = tool_opt else {
-                    let msg = format!("tool '{}' not registered", tc.name);
-                    emit(AgentEvent::ToolResult {
-                        call_id: tc.id.clone(),
-                        success: false,
-                        summary: msg.clone(),
-                        full: json!({ "error": msg.clone() }),
-                    });
-                    messages.push(ProviderMessage::Tool {
-                        content: msg,
-                        tool_call_id: tc.id.clone(),
-                    });
-                    continue;
-                };
-
-                if let Some(err) = web_fetch_prepare_error {
-                    let egress_reason = match &err {
-                        ToolError::EgressBlocked(reason) => Some(reason.clone()),
-                        _ => None,
-                    };
-                    let (reason, msg) = tool_validation_block(err);
-                    emit(AgentEvent::ToolCallBlocked {
-                        id: tc.id.clone(),
-                        reason: reason.clone(),
-                    });
-                    self.log_event(
-                        session_id,
-                        "tool_call_blocked",
-                        json!({
-                            "tool": tc.name,
-                            "rule": reason.rule,
-                            "pattern": reason.pattern,
-                        }),
-                    )?;
-                    if let Some(reason) = egress_reason {
-                        self.record_web_fetch_blocked(session_id, &tc.id, &args_value, &reason)?;
-                    }
-                    let full = json!({
-                        "runtimeAction": "web_fetch",
-                        "status": "blocked",
-                        "success": false,
-                        "summary": msg.clone(),
-                        "error": msg.clone(),
-                        "isEvidence": false,
-                    });
-                    emit(AgentEvent::ToolResult {
-                        call_id: tc.id.clone(),
-                        success: false,
-                        summary: msg.clone(),
-                        full: full.clone(),
-                    });
-                    self.record_web_fetch_result(
-                        session_id,
-                        &tc.id,
-                        "blocked",
-                        false,
-                        &msg,
-                        Some(&full),
-                    )?;
-                    messages.push(ProviderMessage::Tool {
-                        content: msg,
-                        tool_call_id: tc.id.clone(),
-                    });
-                    continue;
-                }
-
-                if let Err(err) = tool.validate(&args_value) {
-                    let egress_reason = match &err {
-                        ToolError::EgressBlocked(reason) => Some(reason.clone()),
-                        _ => None,
-                    };
-                    let (reason, msg) = tool_validation_block(err);
-                    emit(AgentEvent::ToolCallBlocked {
-                        id: tc.id.clone(),
-                        reason: reason.clone(),
-                    });
-                    self.log_event(
-                        session_id,
-                        "tool_call_blocked",
-                        json!({
-                            "tool": tc.name,
-                            "rule": reason.rule,
-                            "pattern": reason.pattern,
-                        }),
-                    )?;
-                    if tc.name == "run_process" {
-                        let evidence = self.record_project_command_result(
-                            session_id,
-                            &tc.id,
-                            &args_value,
-                            "blocked",
-                            false,
-                            &msg,
-                            None,
-                        )?;
-                        emit(evidence.to_event());
-                    }
-                    if tc.name == "run_terminal_script" {
-                        let evidence = self.record_terminal_script_result(
-                            session_id, &tc.id, "blocked", false, &msg, None,
-                        )?;
-                        emit(evidence.to_event());
-                    }
-                    if let Some(reason) = egress_reason {
-                        self.record_web_fetch_blocked(session_id, &tc.id, &args_value, &reason)?;
-                    }
-                    if tc.name == "web_fetch" {
-                        let full = json!({
-                            "runtimeAction": "web_fetch",
-                            "status": "blocked",
-                            "success": false,
-                            "summary": msg.clone(),
-                            "error": msg.clone(),
-                            "isEvidence": false,
-                        });
-                        self.record_web_fetch_result(
-                            session_id,
-                            &tc.id,
-                            "blocked",
-                            false,
-                            &msg,
-                            Some(&full),
-                        )?;
-                    }
-                    messages.push(ProviderMessage::Tool {
-                        content: msg,
-                        tool_call_id: tc.id.clone(),
-                    });
-                    continue;
-                }
-
-                if tc.name == "run_terminal_script" {
-                    self.record_terminal_script_approval_requested(
-                        session_id,
-                        &tc.id,
-                        &args_value,
-                    )?;
-                }
-                let reused_web_fetch_grant =
-                    tc.name == "web_fetch" && self.web_fetch_session_grant_allows(&args_value);
-                if tc.name == "web_fetch" && !reused_web_fetch_grant {
-                    self.record_web_fetch_approval_requested(session_id, &tc.id, &args_value)?;
-                }
-
-                let decision = if reused_web_fetch_grant {
-                    PermissionDecision::approved_with_metadata(Some(json!({
-                        "source": "web_fetch_session_reuse",
-                    })))
-                } else {
-                    self.permission
-                        .intercept(
-                            tc,
-                            risk,
-                            PermissionRequestContext {
-                                session_id,
-                                params_preview: preview.clone(),
-                                diff_preview: diff_preview_bundle.diff_preview.clone(),
-                                diff_previews: diff_preview_bundle.diff_previews.clone(),
-                                approval_warnings: approval_warnings.clone(),
-                                args: args_value.clone(),
-                            },
-                        )
-                        .await
-                };
-                match decision {
-                    PermissionDecision::Approved {
-                        modified_args,
-                        approval_metadata,
-                    } => {
-                        emit(AgentEvent::ToolCallApproved { id: tc.id.clone() });
-                        let effective_args = modified_args.unwrap_or(args_value);
-                        let effective_args_for_event = effective_args.clone();
-                        if tc.name == "web_fetch"
-                            && effective_args
-                                .get("reuse_for_session")
-                                .and_then(Value::as_bool)
-                                .unwrap_or(false)
-                        {
-                            self.remember_web_fetch_session_grant(&effective_args);
-                        }
-                        self.log_event(
-                            session_id,
-                            "tool_approve",
-                            tool_approve_payload(
-                                &tc.name,
-                                &tc.id,
-                                risk,
-                                None,
-                                approval_metadata.as_ref(),
-                            ),
-                        )?;
-                        if let Some(payload) = provocation_continue_with_risk_payload(
-                            &tc.name,
-                            &tc.id,
-                            risk,
-                            None,
-                            approval_metadata.as_ref(),
-                        ) {
-                            self.log_event(session_id, "provocation.continued_with_risk", payload)?;
-                        }
-                        tracing::info!(
-                            session_id,
-                            tool = %tc.name,
-                            risk = risk.as_str(),
-                            "tool execution started"
-                        );
-                        let out = match tool.run(effective_args, &self.tool_ctx).await {
-                            Ok(out) => out,
-                            Err(e) => {
-                                let msg = format!("{e}");
-                                let full = if tc.name == "run_process" {
-                                    json!({ "runtimeAction": "project_command", "error": msg.clone() })
-                                } else if tc.name == "run_terminal_script" {
-                                    json!({ "runtimeAction": "terminal_script", "error": msg.clone() })
-                                } else if tc.name == "web_fetch" {
-                                    json!({ "runtimeAction": "web_fetch", "status": "failed", "error": msg.clone(), "isEvidence": false })
-                                } else {
-                                    json!({ "error": msg.clone() })
-                                };
-                                tracing::warn!(
-                                    session_id,
-                                    tool = %tc.name,
-                                    error = %crate::telemetry::redact_log_text(&msg),
-                                    "tool execution failed"
-                                );
-                                emit(AgentEvent::ToolResult {
-                                    call_id: tc.id.clone(),
-                                    success: false,
-                                    summary: msg.clone(),
-                                    full: full.clone(),
-                                });
-                                if tc.name == "run_process" {
-                                    let evidence = self.record_project_command_result(
-                                        session_id,
-                                        &tc.id,
-                                        &effective_args_for_event,
-                                        "failed",
-                                        false,
-                                        &msg,
-                                        Some(&full),
-                                    )?;
-                                    emit(evidence.to_event());
-                                }
-                                if tc.name == "run_terminal_script" {
-                                    let evidence = self.record_terminal_script_result(
-                                        session_id,
-                                        &tc.id,
-                                        "failed",
-                                        false,
-                                        &msg,
-                                        Some(&full),
-                                    )?;
-                                    emit(evidence.to_event());
-                                }
-                                if tc.name == "web_fetch" {
-                                    self.record_web_fetch_result(
-                                        session_id,
-                                        &tc.id,
-                                        "failed",
-                                        false,
-                                        &msg,
-                                        Some(&full),
-                                    )?;
-                                }
-                                self.log_event(
-                                    session_id,
-                                    "tool_error",
-                                    json!({ "tool": tc.name, "error": msg.clone() }),
-                                )?;
-                                self.log_event(
-                                    session_id,
-                                    "error_occurred",
-                                    dive_event_log::error_payload("tool", &msg),
-                                )?;
-                                messages.push(ProviderMessage::Tool {
-                                    content: msg,
-                                    tool_call_id: tc.id.clone(),
-                                });
-                                continue;
-                            }
-                        };
-                        emit(AgentEvent::ToolResult {
-                            call_id: tc.id.clone(),
-                            success: out.success,
-                            summary: out.summary.clone(),
-                            full: out.full.clone(),
-                        });
-                        if tc.name == "run_process" {
-                            let evidence = self.record_project_command_result(
-                                session_id,
-                                &tc.id,
-                                &effective_args_for_event,
-                                "completed",
-                                out.success,
-                                &out.summary,
-                                Some(&out.full),
-                            )?;
-                            emit(evidence.to_event());
-                        }
-                        if tc.name == "run_terminal_script" {
-                            let evidence = self.record_terminal_script_result(
-                                session_id,
-                                &tc.id,
-                                "completed",
-                                out.success,
-                                &out.summary,
-                                Some(&out.full),
-                            )?;
-                            emit(evidence.to_event());
-                        }
-                        if tc.name == "web_fetch" {
-                            let status = out
-                                .full
-                                .get("status")
-                                .and_then(Value::as_str)
-                                .unwrap_or(if out.success { "completed" } else { "failed" });
-                            self.record_web_fetch_result(
-                                session_id,
-                                &tc.id,
-                                status,
-                                out.success,
-                                &out.summary,
-                                Some(&out.full),
-                            )?;
-                        }
-                        tracing::info!(
-                            session_id,
-                            tool = %tc.name,
-                            success = out.success,
-                            "tool execution completed"
-                        );
-                        self.record_changed_files(
-                            session_id,
-                            &tc.name,
-                            &out.full,
-                            diff_preview_bundle.diff_preview.as_ref(),
-                            &diff_preview_bundle.diff_previews,
-                        )?;
-                        self.log_event(
-                            session_id,
-                            "tool_result",
-                            json!({
-                                "tool": tc.name,
-                                "success": out.success,
-                                "summary": out.summary.clone(),
-                            }),
-                        )?;
-                        self.log_event(
-                            session_id,
-                            "tool_complete",
-                            json!({
-                                "tool": tc.name,
-                                "success": out.success,
-                                "summary": out.summary.clone(),
-                            }),
-                        )?;
-                        let tool_content = tool_result_content_for_model(&tc.name, &out.full);
-                        messages.push(ProviderMessage::Tool {
-                            content: tool_content,
-                            tool_call_id: tc.id.clone(),
-                        });
-                    }
-                    PermissionDecision::Denied(reason) => {
-                        emit(AgentEvent::ToolCallDenied {
-                            id: tc.id.clone(),
-                            reason: reason.clone(),
-                        });
-                        if tc.name == "run_process" {
-                            let content = format!("user denied tool call: {reason}");
-                            let evidence = self.record_project_command_result(
-                                session_id,
-                                &tc.id,
-                                &args_value,
-                                "denied",
-                                false,
-                                &content,
-                                None,
-                            )?;
-                            emit(evidence.to_event());
-                        }
-                        if tc.name == "run_terminal_script" {
-                            let content = format!("user denied terminal script: {reason}");
-                            let evidence = self.record_terminal_script_result(
-                                session_id, &tc.id, "denied", false, &content, None,
-                            )?;
-                            emit(evidence.to_event());
-                        }
-                        if tc.name == "web_fetch" {
-                            let content = format!("user denied web fetch: {reason}");
-                            let full = json!({
-                                "runtimeAction": "web_fetch",
-                                "status": "denied",
-                                "success": false,
-                                "summary": content,
-                                "isEvidence": false,
-                            });
-                            self.record_web_fetch_result(
-                                session_id,
-                                &tc.id,
-                                "denied",
-                                false,
-                                &content,
-                                Some(&full),
-                            )?;
-                        }
-                        self.log_event(
-                            session_id,
-                            "tool_call_denied",
-                            json!({ "tool": tc.name, "reason": reason.clone() }),
-                        )?;
-                        self.log_event(
-                            session_id,
-                            "tool_reject",
-                            json!({ "tool": tc.name, "reason": reason.clone() }),
-                        )?;
-                        messages.push(ProviderMessage::Tool {
-                            content: format!("user denied tool call: {reason}"),
-                            tool_call_id: tc.id.clone(),
-                        });
-                    }
-                }
-            }
-
-            if iter + 1 == self.max_iterations {
-                emit(AgentEvent::Done {
-                    reason: "max_iterations".into(),
-                });
-                self.log_event(
-                    session_id,
-                    "error_occurred",
-                    dive_event_log::error_payload("agent_loop", "max_iterations"),
-                )?;
-                return Err(AgentError::MaxIterations(self.max_iterations));
             }
         }
 
@@ -921,6 +458,9 @@ impl AgentLoop {
         Err(AgentError::MaxIterations(self.max_iterations))
     }
 
+    /// Streams one assistant reply for the in-process [`run`](Self::run) loop.
+    /// Gated to test / `dev-mock` builds along with its only caller.
+    #[cfg(any(test, feature = "dev-mock"))]
     async fn stream_assistant(
         &self,
         assistant_id: &str,
@@ -1027,14 +567,11 @@ impl AgentLoop {
         let created_at = crate::db::now_ms();
         let current_card_id = self.current_card_id(session_id)?;
         self.persist_user_message(session_id, current_card_id, user_input)?;
-        emit_and_forward(
-            emit,
-            AgentEvent::UserMessage {
-                id: user_msg_id,
-                content: user_input.to_string(),
-                created_at,
-            },
-        );
+        emit(AgentEvent::UserMessage {
+            id: user_msg_id,
+            content: user_input.to_string(),
+            created_at,
+        });
         self.log_event(
             session_id,
             "stage_enter",
@@ -1154,6 +691,29 @@ impl AgentLoop {
         tc: &ToolCall,
         emit: &mut (dyn FnMut(AgentEvent) + Send),
     ) -> Result<SupervisedToolResult, AgentError> {
+        // The supervised (pi_sidecar) chat path is the single production caller
+        // of the tool-execution pipeline; it tags every EventLog/telemetry
+        // record with the "pi_sidecar" runtime.
+        self.execute_tool_call(session_id, tc, Some("pi_sidecar"), emit)
+            .await
+    }
+
+    /// Canonical single-tool execution pipeline: risk assessment, argument
+    /// parsing, web_fetch prepare, diff/approval-warning derivation, the
+    /// Reasoning/ToolCallStart events, permission interception, execution, and
+    /// evidence/EventLog recording for one tool call. Both the supervised
+    /// production path (`execute_supervised_tool_call`) and the in-process test
+    /// loop (`run`) route through here; the only per-caller difference is the
+    /// `runtime` tag stamped on EventLog and telemetry — `Some("pi_sidecar")`
+    /// for the supervised path, `None` for the in-process loop, which omits the
+    /// field, matching its historical EventLog shape.
+    async fn execute_tool_call(
+        &self,
+        session_id: i64,
+        tc: &ToolCall,
+        runtime: Option<&str>,
+        emit: &mut (dyn FnMut(AgentEvent) + Send),
+    ) -> Result<SupervisedToolResult, AgentError> {
         self.check_cancel()?;
         let (base_risk, tool_opt) = match self.registry.get(&tc.name) {
             Some(t) => (t.risk_level(), Some(t)),
@@ -1215,13 +775,16 @@ impl AgentLoop {
             "tool": tc.name,
             "params_preview": preview,
             "risk": risk.as_str(),
-            "runtime": "pi_sidecar"
         });
         if !approval_warnings.is_empty() {
             start_payload["approvalWarnings"] =
                 serde_json::to_value(&approval_warnings).unwrap_or(Value::Null);
         }
-        self.log_event(session_id, "tool_call_start", start_payload)?;
+        self.log_event(
+            session_id,
+            "tool_call_start",
+            attach_runtime(start_payload, runtime),
+        )?;
 
         let Some(tool) = tool_opt else {
             let msg = format!("tool '{}' not registered", tc.name);
@@ -1253,12 +816,14 @@ impl AgentLoop {
             self.log_event(
                 session_id,
                 "tool_call_blocked",
-                json!({
-                    "tool": tc.name,
-                    "rule": reason.rule,
-                    "pattern": reason.pattern,
-                    "runtime": "pi_sidecar",
-                }),
+                attach_runtime(
+                    json!({
+                        "tool": tc.name,
+                        "rule": reason.rule,
+                        "pattern": reason.pattern,
+                    }),
+                    runtime,
+                ),
             )?;
             if let Some(reason) = egress_reason {
                 self.record_web_fetch_blocked(session_id, &tc.id, &args_value, &reason)?;
@@ -1348,13 +913,15 @@ impl AgentLoop {
                 self.log_event(
                     session_id,
                     "tool_call_blocked",
-                    json!({
-                        "tool": tc.name,
-                        "rule": classification.reason_code,
-                        "pattern": "preview-open shell workaround",
-                        "runtime": "pi_sidecar",
-                        "commandRan": false,
-                    }),
+                    attach_runtime(
+                        json!({
+                            "tool": tc.name,
+                            "rule": classification.reason_code,
+                            "pattern": "preview-open shell workaround",
+                            "commandRan": false,
+                        }),
+                        runtime,
+                    ),
                 )?;
                 return Ok(SupervisedToolResult {
                     content: full.to_string(),
@@ -1378,52 +945,29 @@ impl AgentLoop {
             self.log_event(
                 session_id,
                 "tool_call_blocked",
-                json!({
-                    "tool": tc.name,
-                    "rule": reason.rule,
-                    "pattern": reason.pattern,
-                    "runtime": "pi_sidecar",
-                }),
+                attach_runtime(
+                    json!({
+                        "tool": tc.name,
+                        "rule": reason.rule,
+                        "pattern": reason.pattern,
+                    }),
+                    runtime,
+                ),
             )?;
-            if tc.name == "run_process" {
-                let evidence = self.record_project_command_result(
-                    session_id,
-                    &tc.id,
-                    &args_value,
-                    "blocked",
-                    false,
-                    &msg,
-                    None,
-                )?;
-                emit(evidence.to_event());
-            }
-            if tc.name == "run_terminal_script" {
-                let evidence = self.record_terminal_script_result(
-                    session_id, &tc.id, "blocked", false, &msg, None,
-                )?;
-                emit(evidence.to_event());
-            }
             if let Some(reason) = egress_reason {
+                // EgressBlocked is web_fetch-only today, so this ordering is
+                // tool-exclusive with the evidence record below; if a
+                // command/script tool ever raises EgressBlocked, re-check the
+                // blocked-vs-evidence event order against the ledger history.
                 self.record_web_fetch_blocked(session_id, &tc.id, &args_value, &reason)?;
             }
-            if tc.name == "web_fetch" {
-                let full = json!({
-                    "runtimeAction": "web_fetch",
-                    "status": "blocked",
-                    "success": false,
-                    "summary": msg.clone(),
-                    "error": msg.clone(),
-                    "isEvidence": false,
-                });
-                self.record_web_fetch_result(
-                    session_id,
-                    &tc.id,
-                    "blocked",
-                    false,
-                    &msg,
-                    Some(&full),
-                )?;
-            }
+            self.record_tool_evidence(
+                session_id,
+                tc,
+                &args_value,
+                &ToolEvidenceOutcome::Blocked { summary: &msg },
+                emit,
+            )?;
             return Ok(SupervisedToolResult {
                 content: msg.clone(),
                 success: false,
@@ -1484,7 +1028,7 @@ impl AgentLoop {
                         &tc.name,
                         &tc.id,
                         risk,
-                        Some("pi_sidecar"),
+                        runtime,
                         approval_metadata.as_ref(),
                     ),
                 )?;
@@ -1492,7 +1036,7 @@ impl AgentLoop {
                     &tc.name,
                     &tc.id,
                     risk,
-                    Some("pi_sidecar"),
+                    runtime,
                     approval_metadata.as_ref(),
                 ) {
                     self.log_event(session_id, "provocation.continued_with_risk", payload)?;
@@ -1501,7 +1045,7 @@ impl AgentLoop {
                     session_id,
                     tool = %tc.name,
                     risk = risk.as_str(),
-                    runtime = "pi_sidecar",
+                    runtime = runtime_label(runtime),
                     "tool execution started"
                 );
                 // S-032 pre-edit anchor: snapshot the working tree before any
@@ -1529,7 +1073,7 @@ impl AgentLoop {
                             session_id,
                             tool = %tc.name,
                             error = %crate::telemetry::redact_log_text(&msg),
-                            runtime = "pi_sidecar",
+                            runtime = runtime_label(runtime),
                             "tool execution failed"
                         );
                         emit(AgentEvent::ToolResult {
@@ -1538,43 +1082,23 @@ impl AgentLoop {
                             summary: msg.clone(),
                             full: full.clone(),
                         });
-                        if tc.name == "run_process" {
-                            let evidence = self.record_project_command_result(
-                                session_id,
-                                &tc.id,
-                                &effective_args_for_event,
-                                "failed",
-                                false,
-                                &msg,
-                                Some(&full),
-                            )?;
-                            emit(evidence.to_event());
-                        }
-                        if tc.name == "run_terminal_script" {
-                            let evidence = self.record_terminal_script_result(
-                                session_id,
-                                &tc.id,
-                                "failed",
-                                false,
-                                &msg,
-                                Some(&full),
-                            )?;
-                            emit(evidence.to_event());
-                        }
-                        if tc.name == "web_fetch" {
-                            self.record_web_fetch_result(
-                                session_id,
-                                &tc.id,
-                                "failed",
-                                false,
-                                &msg,
-                                Some(&full),
-                            )?;
-                        }
+                        self.record_tool_evidence(
+                            session_id,
+                            tc,
+                            &effective_args_for_event,
+                            &ToolEvidenceOutcome::Failed {
+                                summary: &msg,
+                                full: &full,
+                            },
+                            emit,
+                        )?;
                         self.log_event(
                             session_id,
                             "tool_error",
-                            json!({ "tool": tc.name, "error": msg.clone(), "runtime": "pi_sidecar" }),
+                            attach_runtime(
+                                json!({ "tool": tc.name, "error": msg.clone() }),
+                                runtime,
+                            ),
                         )?;
                         self.log_event(
                             session_id,
@@ -1595,44 +1119,17 @@ impl AgentLoop {
                     summary: out.summary.clone(),
                     full: out.full.clone(),
                 });
-                if tc.name == "run_process" {
-                    let evidence = self.record_project_command_result(
-                        session_id,
-                        &tc.id,
-                        &effective_args_for_event,
-                        "completed",
-                        out.success,
-                        &out.summary,
-                        Some(&out.full),
-                    )?;
-                    emit(evidence.to_event());
-                }
-                if tc.name == "run_terminal_script" {
-                    let evidence = self.record_terminal_script_result(
-                        session_id,
-                        &tc.id,
-                        "completed",
-                        out.success,
-                        &out.summary,
-                        Some(&out.full),
-                    )?;
-                    emit(evidence.to_event());
-                }
-                if tc.name == "web_fetch" {
-                    let status = out
-                        .full
-                        .get("status")
-                        .and_then(Value::as_str)
-                        .unwrap_or(if out.success { "completed" } else { "failed" });
-                    self.record_web_fetch_result(
-                        session_id,
-                        &tc.id,
-                        status,
-                        out.success,
-                        &out.summary,
-                        Some(&out.full),
-                    )?;
-                }
+                self.record_tool_evidence(
+                    session_id,
+                    tc,
+                    &effective_args_for_event,
+                    &ToolEvidenceOutcome::Completed {
+                        success: out.success,
+                        summary: &out.summary,
+                        full: &out.full,
+                    },
+                    emit,
+                )?;
                 if tc.name == "preview_open" {
                     self.record_preview_open_tool_result(session_id, &out.full)?;
                     emit_preview_open_tool_events(&out.full, emit);
@@ -1641,7 +1138,7 @@ impl AgentLoop {
                     session_id,
                     tool = %tc.name,
                     success = out.success,
-                    runtime = "pi_sidecar",
+                    runtime = runtime_label(runtime),
                     "tool execution completed"
                 );
                 self.record_changed_files(
@@ -1654,22 +1151,26 @@ impl AgentLoop {
                 self.log_event(
                     session_id,
                     "tool_result",
-                    json!({
-                        "tool": tc.name,
-                        "success": out.success,
-                        "summary": out.summary.clone(),
-                        "runtime": "pi_sidecar",
-                    }),
+                    attach_runtime(
+                        json!({
+                            "tool": tc.name,
+                            "success": out.success,
+                            "summary": out.summary.clone(),
+                        }),
+                        runtime,
+                    ),
                 )?;
                 self.log_event(
                     session_id,
                     "tool_complete",
-                    json!({
-                        "tool": tc.name,
-                        "success": out.success,
-                        "summary": out.summary.clone(),
-                        "runtime": "pi_sidecar",
-                    }),
+                    attach_runtime(
+                        json!({
+                            "tool": tc.name,
+                            "success": out.success,
+                            "summary": out.summary.clone(),
+                        }),
+                        runtime,
+                    ),
                 )?;
                 Ok(SupervisedToolResult {
                     content: tool_result_content_for_model(&tc.name, &out.full),
@@ -1683,53 +1184,28 @@ impl AgentLoop {
                     id: tc.id.clone(),
                     reason: reason.clone(),
                 });
-                if tc.name == "run_process" {
-                    let content = format!("user denied tool call: {reason}");
-                    let evidence = self.record_project_command_result(
-                        session_id,
-                        &tc.id,
-                        &args_value,
-                        "denied",
-                        false,
-                        &content,
-                        None,
-                    )?;
-                    emit(evidence.to_event());
-                }
-                if tc.name == "run_terminal_script" {
-                    let content = format!("user denied terminal script: {reason}");
-                    let evidence = self.record_terminal_script_result(
-                        session_id, &tc.id, "denied", false, &content, None,
-                    )?;
-                    emit(evidence.to_event());
-                }
-                if tc.name == "web_fetch" {
-                    let content = format!("user denied web fetch: {reason}");
-                    let full = json!({
-                        "runtimeAction": "web_fetch",
-                        "status": "denied",
-                        "success": false,
-                        "summary": content,
-                        "isEvidence": false,
-                    });
-                    self.record_web_fetch_result(
-                        session_id,
-                        &tc.id,
-                        "denied",
-                        false,
-                        &content,
-                        Some(&full),
-                    )?;
-                }
+                self.record_tool_evidence(
+                    session_id,
+                    tc,
+                    &args_value,
+                    &ToolEvidenceOutcome::Denied { reason: &reason },
+                    emit,
+                )?;
                 self.log_event(
                     session_id,
                     "tool_call_denied",
-                    json!({ "tool": tc.name, "reason": reason.clone(), "runtime": "pi_sidecar" }),
+                    attach_runtime(
+                        json!({ "tool": tc.name, "reason": reason.clone() }),
+                        runtime,
+                    ),
                 )?;
                 self.log_event(
                     session_id,
                     "tool_reject",
-                    json!({ "tool": tc.name, "reason": reason.clone(), "runtime": "pi_sidecar" }),
+                    attach_runtime(
+                        json!({ "tool": tc.name, "reason": reason.clone() }),
+                        runtime,
+                    ),
                 )?;
                 let content = format!("user denied tool call: {reason}");
                 Ok(SupervisedToolResult {
@@ -1740,6 +1216,145 @@ impl AgentLoop {
                 })
             }
         }
+    }
+
+    /// Records tool-specific evidence for one execution [`ToolEvidenceOutcome`]
+    /// and, for the command/script tools, emits the corresponding evidence
+    /// event. `web_fetch` records only — its user-facing surface is the
+    /// `ToolResult` the caller already emitted. Single home for the per-tool
+    /// dispatch that the four outcome arms of `execute_tool_call` share.
+    fn record_tool_evidence(
+        &self,
+        session_id: i64,
+        tc: &ToolCall,
+        args: &Value,
+        outcome: &ToolEvidenceOutcome<'_>,
+        emit: &mut (dyn FnMut(AgentEvent) + Send),
+    ) -> Result<(), AgentError> {
+        match tc.name.as_str() {
+            "run_process" => {
+                let evidence = match outcome {
+                    ToolEvidenceOutcome::Blocked { summary } => self
+                        .record_project_command_result(
+                            session_id, &tc.id, args, "blocked", false, summary, None,
+                        )?,
+                    ToolEvidenceOutcome::Failed { summary, full } => self
+                        .record_project_command_result(
+                            session_id,
+                            &tc.id,
+                            args,
+                            "failed",
+                            false,
+                            summary,
+                            Some(*full),
+                        )?,
+                    ToolEvidenceOutcome::Completed {
+                        success,
+                        summary,
+                        full,
+                    } => self.record_project_command_result(
+                        session_id,
+                        &tc.id,
+                        args,
+                        "completed",
+                        *success,
+                        summary,
+                        Some(*full),
+                    )?,
+                    ToolEvidenceOutcome::Denied { reason } => self.record_project_command_result(
+                        session_id,
+                        &tc.id,
+                        args,
+                        "denied",
+                        false,
+                        &format!("user denied tool call: {reason}"),
+                        None,
+                    )?,
+                };
+                emit(evidence.to_event());
+            }
+            "run_terminal_script" => {
+                let evidence = match outcome {
+                    ToolEvidenceOutcome::Blocked { summary } => self
+                        .record_terminal_script_result(
+                            session_id, &tc.id, "blocked", false, summary, None,
+                        )?,
+                    ToolEvidenceOutcome::Failed { summary, full } => self
+                        .record_terminal_script_result(
+                            session_id,
+                            &tc.id,
+                            "failed",
+                            false,
+                            summary,
+                            Some(*full),
+                        )?,
+                    ToolEvidenceOutcome::Completed {
+                        success,
+                        summary,
+                        full,
+                    } => self.record_terminal_script_result(
+                        session_id,
+                        &tc.id,
+                        "completed",
+                        *success,
+                        summary,
+                        Some(*full),
+                    )?,
+                    ToolEvidenceOutcome::Denied { reason } => self.record_terminal_script_result(
+                        session_id,
+                        &tc.id,
+                        "denied",
+                        false,
+                        &format!("user denied terminal script: {reason}"),
+                        None,
+                    )?,
+                };
+                emit(evidence.to_event());
+            }
+            "web_fetch" => match outcome {
+                ToolEvidenceOutcome::Blocked { summary } => {
+                    self.record_web_fetch_result(
+                        session_id, &tc.id, "blocked", false, summary, None,
+                    )?;
+                }
+                ToolEvidenceOutcome::Failed { summary, full } => {
+                    self.record_web_fetch_result(
+                        session_id,
+                        &tc.id,
+                        "failed",
+                        false,
+                        summary,
+                        Some(*full),
+                    )?;
+                }
+                ToolEvidenceOutcome::Completed {
+                    success,
+                    summary,
+                    full,
+                } => {
+                    let status = full
+                        .get("status")
+                        .and_then(Value::as_str)
+                        .unwrap_or(if *success { "completed" } else { "failed" });
+                    self.record_web_fetch_result(
+                        session_id,
+                        &tc.id,
+                        status,
+                        *success,
+                        summary,
+                        Some(*full),
+                    )?;
+                }
+                ToolEvidenceOutcome::Denied { reason } => {
+                    let content = format!("user denied web fetch: {reason}");
+                    self.record_web_fetch_result(
+                        session_id, &tc.id, "denied", false, &content, None,
+                    )?;
+                }
+            },
+            _ => {}
+        }
+        Ok(())
     }
 
     fn persist_user_message(
@@ -2118,6 +1733,9 @@ impl AgentLoop {
         }
     }
 
+    /// Cancellation await used by the in-process [`run`](Self::run) loop's
+    /// stream select; gated to test / `dev-mock` builds with its only caller.
+    #[cfg(any(test, feature = "dev-mock"))]
     async fn wait_for_cancel(&self) {
         while !self.cancel.load(Ordering::SeqCst) {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -2387,14 +2005,11 @@ fn step_kind_prompt_clause(kind: StepKind, locale: Option<&str>) -> Option<&'sta
     }
 }
 
+#[cfg(any(test, feature = "dev-mock"))]
 struct PendingToolCall {
     id: String,
     name: String,
     arguments: String,
-}
-
-fn emit_and_forward(emit: &mut (dyn FnMut(AgentEvent) + Send), evt: AgentEvent) {
-    emit(evt);
 }
 
 fn runtime_routing_decision_event(
@@ -2753,6 +2368,25 @@ fn tool_validation_block(err: ToolError) -> (BlockReason, String) {
             )
         }
     }
+}
+
+/// Stamps the optional `runtime` tag onto an EventLog payload. The supervised
+/// path passes `Some("pi_sidecar")`; the in-process loop passes `None`, which
+/// leaves the payload untouched (preserving its historical, runtime-less
+/// shape). Insertion order is irrelevant — `serde_json` serializes object keys
+/// alphabetically — so this yields byte-identical output to baking the key into
+/// the `json!` literal.
+fn attach_runtime(mut payload: Value, runtime: Option<&str>) -> Value {
+    if let (Some(rt), Value::Object(map)) = (runtime, &mut payload) {
+        map.insert("runtime".into(), Value::String(rt.to_string()));
+    }
+    payload
+}
+
+/// Telemetry label for the executing runtime. The supervised path reports
+/// `pi_sidecar`; the in-process test loop reports `in_process`.
+fn runtime_label(runtime: Option<&str>) -> &str {
+    runtime.unwrap_or("in_process")
 }
 
 fn tool_approve_payload(
