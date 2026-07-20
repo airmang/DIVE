@@ -2,7 +2,7 @@ import { Sidebar } from "../shell/Sidebar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs";
 import { useT } from "../../i18n";
 import { PlanDashboardPanel } from "./PlanDashboardPanel";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { cn } from "../../lib/utils";
 
 export const PROJECT_RAIL_TAB_REQUEST_EVENT = "dive:project-rail-tab-request";
@@ -14,7 +14,11 @@ export function requestProjectRailTab(tab: ProjectRailTab) {
   window.dispatchEvent(new CustomEvent(PROJECT_RAIL_TAB_REQUEST_EVENT, { detail: { tab } }));
 }
 
-export function ProjectRail() {
+// S-069 P3: this propless child is rendered by ProductShellLayout, which
+// re-renders on every streaming delta. `memo` lets it (and the PlanDashboardPanel
+// subtree) skip those parent-driven re-renders; its own tab state and the
+// project-rail-tab window event still drive its updates.
+export const ProjectRail = memo(function ProjectRail() {
   const t = useT();
   const [activeTab, setActiveTab] = useState<ProjectRailTab>("workspace");
 
@@ -56,4 +60,4 @@ export function ProjectRail() {
       </TabsContent>
     </Tabs>
   );
-}
+});

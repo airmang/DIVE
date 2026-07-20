@@ -42,6 +42,54 @@ pub fn list_by_message(conn: &Connection, message_id: i64) -> Result<Vec<ToolCal
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
+/// Count tool calls attributable to a card in a single query (S-069 G1),
+/// replacing the former full-`Message`-scan + per-message `list_by_message`
+/// N+1. Per-message semantics are preserved exactly: structured `ToolCall`
+/// rows win when present, otherwise the `Message.tool_calls` JSON array length
+/// is used (0 when the column is NULL or holds a non-array JSON value).
+pub fn count_by_card(conn: &Connection, card_id: i64) -> Result<i64, DbError> {
+    let count: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(
+            CASE WHEN tc_count > 0 THEN tc_count
+                 ELSE COALESCE(json_array_length(tool_calls), 0) END
+         ), 0)
+         FROM (
+            SELECT m.tool_calls AS tool_calls,
+                   (SELECT COUNT(*) FROM ToolCall tc WHERE tc.message_id = m.id) AS tc_count
+            FROM Message m
+            WHERE m.card_id = ?
+         )",
+        [card_id],
+        |row| row.get(0),
+    )?;
+    Ok(count)
+}
+/// Per-card tool-call counts for a whole session in one query (S-069 P4-1),
+/// replacing the per-card `count_by_card` fan-out that `card_tool_call_stats`
+/// drove — one IPC round-trip per card on every workmap refresh. Same
+/// per-message semantics as [`count_by_card`]; only cards with at least one
+/// message appear, so callers must default an absent card to 0 (identical to a
+/// per-card count of 0).
+pub fn counts_by_session(conn: &Connection, session_id: i64) -> Result<Vec<(i64, i64)>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT card_id, COALESCE(SUM(
+            CASE WHEN tc_count > 0 THEN tc_count
+                 ELSE COALESCE(json_array_length(tool_calls), 0) END
+         ), 0) AS n
+         FROM (
+            SELECT m.card_id AS card_id,
+                   m.tool_calls AS tool_calls,
+                   (SELECT COUNT(*) FROM ToolCall tc WHERE tc.message_id = m.id) AS tc_count
+            FROM Message m
+            WHERE m.session_id = ? AND m.card_id IS NOT NULL
+         )
+         GROUP BY card_id",
+    )?;
+    let rows = stmt
+        .query_map([session_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<Vec<(i64, i64)>, _>>()?;
+    Ok(rows)
+}
 pub fn update(conn: &Connection, id: i64, row: &NewToolCall) -> Result<(), DbError> {
     let input = json_to_string(&row.input)?;
     let output = optional_json_to_string(row.output.as_ref())?;

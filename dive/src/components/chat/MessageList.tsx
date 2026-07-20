@@ -61,8 +61,17 @@ function MessageListImpl({
   const [autoScroll, setAutoScroll] = useState(true);
   const pushComposerSeed = useChatComposerStore((s) => s.pushSeed);
 
-  const rendered = filterInterviewNoise(messages);
-  const visible = rendered.length > maxRendered ? rendered.slice(-maxRendered) : rendered;
+  // S-069 P4-2: memoize the transcript filter (and its slice) so it is not
+  // recomputed on re-renders where `messages` is unchanged (scroll/prop
+  // churn). It also stabilizes `visible`'s reference, which the
+  // `conversationProvocationContext` memo below depends on — previously that
+  // memo recomputed every render because `filterInterviewNoise` returned a
+  // fresh array each time.
+  const rendered = useMemo(() => filterInterviewNoise(messages), [messages]);
+  const visible = useMemo(
+    () => (rendered.length > maxRendered ? rendered.slice(-maxRendered) : rendered),
+    [rendered, maxRendered],
+  );
   const pendingApproval = visible.find(
     (message) => message.kind === "tool_call" && message.status === "pending",
   );

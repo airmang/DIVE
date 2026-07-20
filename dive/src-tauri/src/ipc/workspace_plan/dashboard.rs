@@ -211,23 +211,18 @@ fn plan_activity_for_plan(
     plan_id: i64,
     limit: i64,
 ) -> Result<Vec<PlanActivityLogRow>, String> {
-    let limit = if limit <= 0 {
-        20
-    } else {
-        limit.min(100) as usize
-    };
-    let mut rows = event_log_dao::list(conn)
+    // S-069 G2: filter/sort/limit in SQL (`list_plan_events`) instead of loading
+    // the entire append-only EventLog and filtering in Rust once per project.
+    // The DAO already applies `type GLOB 'plan_*' AND plan_id = ?` and
+    // `ORDER BY created_at DESC, id DESC LIMIT`, so `plan_activity_from_event`
+    // (re-checking the same predicate) never drops a row here — it only maps
+    // each event onto the activity-log projection.
+    let limit = if limit <= 0 { 20 } else { limit.min(100) };
+    let rows = event_log_dao::list_plan_events(conn, plan_id, limit)
         .map_err(|e| e.to_string())?
         .into_iter()
         .filter_map(|row| plan_activity_from_event(row, Some(plan_id)))
         .collect::<Vec<_>>();
-    rows.sort_by(|left, right| {
-        right
-            .created_at
-            .cmp(&left.created_at)
-            .then_with(|| right.id.cmp(&left.id))
-    });
-    rows.truncate(limit);
     Ok(rows)
 }
 
@@ -276,13 +271,21 @@ pub(super) fn mappings_for_steps(
     conn: &rusqlite::Connection,
     steps: &[StepRow],
 ) -> Result<Vec<StepSessionMappingRow>, String> {
-    let mut mappings = Vec::new();
-    for step in steps {
-        if let Some(mapping) = mapping_dao::get_by_step(conn, step.id).map_err(|e| e.to_string())? {
-            mappings.push(mapping);
-        }
-    }
-    Ok(mappings)
+    // S-069 G2: one `IN (...)` query instead of a `get_by_step` call per step.
+    // Re-projected back into `steps` order so the returned Vec is identical to
+    // the former per-step loop — some callers (`workspace_plan_step_mappings`)
+    // return it straight to the frontend, where array order is observable.
+    let step_ids: Vec<i64> = steps.iter().map(|step| step.id).collect();
+    let mut by_step: std::collections::HashMap<i64, StepSessionMappingRow> =
+        mapping_dao::list_by_step_ids(conn, &step_ids)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|mapping| (mapping.step_id, mapping))
+            .collect();
+    Ok(steps
+        .iter()
+        .filter_map(|step| by_step.remove(&step.id))
+        .collect())
 }
 
 pub(super) fn done_step_ids(

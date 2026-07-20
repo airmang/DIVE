@@ -23,9 +23,10 @@ const MIGRATIONS: &[(i64, MigrationFn)] = &[
     (16, migration_v16),
     (17, migration_v17),
     (18, migration_v18),
+    (19, migration_v19),
 ];
 
-pub const LATEST_SCHEMA_VERSION: i64 = 18;
+pub const LATEST_SCHEMA_VERSION: i64 = 19;
 
 pub fn migrate(conn: &mut Connection) -> Result<(), DbError> {
     migrate_with_migrations(conn, MIGRATIONS)
@@ -436,6 +437,17 @@ fn migration_v18(tx: &Transaction<'_>) -> rusqlite::Result<()> {
         tx.execute_batch(
             "ALTER TABLE Project ADD COLUMN status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','archived'))",
         )?;
+    }
+    Ok(())
+}
+
+/// S-069 G1/G2 — performance indexes for card-scoped tool-call counting and
+/// plan-scoped activity-log queries, both of which previously fell back to
+/// full-table scans. Purely additive `CREATE INDEX IF NOT EXISTS`; no data
+/// change and no observable-output change (indexes never alter query results).
+fn migration_v19(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    for index in schema::CREATE_V19_INDEXES {
+        tx.execute_batch(index)?;
     }
     Ok(())
 }
@@ -1193,6 +1205,57 @@ mod tests {
         let tx = db.conn_mut().transaction().unwrap();
         super::migration_v18(&tx).unwrap();
         tx.commit().unwrap();
+    }
+
+    #[test]
+    fn migration_v19_creates_perf_indexes() {
+        let (db, _tmp) = fresh_db();
+        let count: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name IN ('idx_message_card','idx_tool_call_message','idx_event_log_plan_id')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn migration_v19_builds_plan_id_expression_index_over_existing_rows() {
+        // The idx_event_log_plan_id expression index calls
+        // json_extract(payload, '$.plan_id') on every EventLog row as it builds.
+        // On a real upgrade the ledger is non-empty, so exercise the build over
+        // seeded rows (a plan_* event with plan_id, and one without) rather than
+        // the empty table the other tests use — a malformed payload would fail
+        // the CREATE INDEX and block startup.
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        super::migrate_with_migrations(&mut conn, &super::MIGRATIONS[..18]).unwrap();
+
+        conn.execute(
+            "INSERT INTO EventLog(session_id, type, payload, created_at) VALUES (NULL, 'plan_step_added', '{\"plan_id\":7,\"step\":\"a\"}', 100)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO EventLog(session_id, type, payload, created_at) VALUES (NULL, 'chat_message', '{}', 101)",
+            [],
+        )
+        .unwrap();
+
+        let tx = conn.transaction().unwrap();
+        super::migration_v19(&tx).unwrap();
+        tx.commit().unwrap();
+
+        // The expression index now exists and answers the G2 scoped query.
+        let plan_id: i64 = conn
+            .query_row(
+                "SELECT json_extract(payload, '$.plan_id') FROM EventLog WHERE type GLOB 'plan_*' AND json_extract(payload, '$.plan_id') = 7",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(plan_id, 7);
     }
 
     #[test]

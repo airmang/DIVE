@@ -17,6 +17,12 @@ pub struct CardToolCallStats {
     pub count: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CardToolCallCount {
+    pub card_id: i64,
+    pub count: i64,
+}
+
 fn ensure_title(title: String) -> Result<String, String> {
     let title = title.trim().to_owned();
     if title.is_empty() {
@@ -143,6 +149,23 @@ pub fn card_tool_call_stats_impl(
     Ok(CardToolCallStats { count })
 }
 
+/// S-069 P4-1: all cards' tool-call counts for a session in one call, replacing
+/// the per-card `card_tool_call_stats` fan-out the workmap ran on every refresh.
+/// Cards with no messages are omitted (the frontend defaults them to 0, which
+/// equals their per-card count), so the counts the UI renders are unchanged.
+pub fn card_tool_call_stats_batch_impl(
+    state: &AppState,
+    session_id: i64,
+) -> Result<Vec<CardToolCallCount>, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let rows = crate::db::dao::tool_call::counts_by_session(db.conn(), session_id)
+        .map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .map(|(card_id, count)| CardToolCallCount { card_id, count })
+        .collect())
+}
+
 #[tauri::command]
 pub async fn card_create(
     state: State<'_, AppState>,
@@ -200,6 +223,14 @@ pub async fn card_tool_call_stats(
     card_id: i64,
 ) -> Result<CardToolCallStats, String> {
     card_tool_call_stats_impl(&state, card_id)
+}
+
+#[tauri::command]
+pub async fn card_tool_call_stats_batch(
+    state: State<'_, AppState>,
+    session_id: i64,
+) -> Result<Vec<CardToolCallCount>, String> {
+    card_tool_call_stats_batch_impl(&state, session_id)
 }
 
 #[tauri::command]
@@ -363,5 +394,73 @@ mod tests {
 
         let stats = card_tool_call_stats_impl(&state, card.id).unwrap();
         assert_eq!(stats.count, 1);
+    }
+
+    // S-069 P4-1: the batch query must return the same count the per-card
+    // command produces for every card, and omit only cards with no messages
+    // (which the frontend reads as 0).
+    #[test]
+    fn card_tool_call_stats_batch_matches_per_card() {
+        let state = mk_state();
+        let session_id = seed_session(&state);
+        let a = card_create_impl(&state, session_id, "a".into(), None, None, None, None).unwrap();
+        let b = card_create_impl(&state, session_id, "b".into(), None, None, None, None).unwrap();
+        // Card c intentionally has no messages at all.
+        let c = card_create_impl(&state, session_id, "c".into(), None, None, None, None).unwrap();
+        {
+            let db = state.db.lock().unwrap();
+            let mk_msg = |card_id: i64, tc: Option<serde_json::Value>| {
+                message_dao::insert(
+                    db.conn(),
+                    &NewMessage {
+                        session_id,
+                        card_id: Some(card_id),
+                        role: "assistant".into(),
+                        content: "m".into(),
+                        reasoning_content: None,
+                        tool_calls: tc,
+                        usage: None,
+                        provider: None,
+                        model: None,
+                    },
+                )
+                .unwrap()
+            };
+            // Card a: one message with a structured row + one with a 2-elem JSON.
+            let m1 = mk_msg(a.id, None);
+            tool_call_dao::insert(
+                db.conn(),
+                &NewToolCall {
+                    message_id: m1,
+                    name: "read_file".into(),
+                    input: json!({ "p": "x" }),
+                    output: None,
+                    approved: Some(true),
+                    risk_level: "safe".into(),
+                },
+            )
+            .unwrap();
+            mk_msg(a.id, Some(json!([{ "n": "a" }, { "n": "b" }])));
+            // Card b: a message but no tool calls → count 0 (still present).
+            mk_msg(b.id, None);
+        }
+
+        let batch: std::collections::HashMap<i64, i64> =
+            card_tool_call_stats_batch_impl(&state, session_id)
+                .unwrap()
+                .into_iter()
+                .map(|row| (row.card_id, row.count))
+                .collect();
+        for card in [a.id, b.id, c.id] {
+            let per_card = card_tool_call_stats_impl(&state, card).unwrap().count;
+            assert_eq!(
+                batch.get(&card).copied().unwrap_or(0),
+                per_card,
+                "card {card} diverged from per-card stats"
+            );
+        }
+        assert_eq!(batch.get(&a.id).copied().unwrap_or(0), 3);
+        assert_eq!(batch.get(&b.id).copied().unwrap_or(0), 0);
+        assert_eq!(batch.get(&c.id).copied().unwrap_or(0), 0);
     }
 }

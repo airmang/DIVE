@@ -154,6 +154,31 @@ pub struct CardRow {
     pub updated_at: i64,
 }
 
+impl From<&CardRow> for NewCard {
+    /// Clone a persisted card back into an insertable draft — the base for the
+    /// "copy existing card, override a few fields" updates in `ipc::cards`
+    /// (S-069 dedup). Identity/timestamp columns (`id`, `created_at`,
+    /// `updated_at`) are re-derived on insert, so they are intentionally dropped.
+    fn from(row: &CardRow) -> Self {
+        NewCard {
+            session_id: row.session_id,
+            title: row.title.clone(),
+            instruction: row.instruction.clone(),
+            assist_summary: row.assist_summary.clone(),
+            acceptance_criteria: row.acceptance_criteria.clone(),
+            retrospective: row.retrospective.clone(),
+            change_summary: row.change_summary.clone(),
+            state: row.state,
+            verify_log: row.verify_log.clone(),
+            changed_files: row.changed_files.clone(),
+            test_command: row.test_command.clone(),
+            approval_judgment: row.approval_judgment.clone(),
+            approval_provenance: row.approval_provenance.clone(),
+            position: row.position,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NewMessage {
     pub session_id: i64,

@@ -211,9 +211,17 @@ pub(crate) mod tests {
             // first migration to ALTER Project directly, so this fixture must
             // include it — earlier migrations only ever referenced Project via
             // FK, which SQLite doesn't validate at CREATE TABLE time.
+            // migration_v19 additionally builds indexes directly on ToolCall and
+            // EventLog (also created by migration_v1), so those must be present
+            // too — CREATE INDEX, unlike an FK, requires the target table to
+            // exist. (Message is recreated by migration_v8's guard, but include
+            // it as well so the fixture faithfully mirrors a real v1 DB.)
             conn.execute_batch(schema::CREATE_PROJECT).unwrap();
             conn.execute_batch(schema::CREATE_WORKMAP).unwrap();
             conn.execute_batch(schema::CREATE_CARD).unwrap();
+            conn.execute_batch(schema::CREATE_MESSAGE).unwrap();
+            conn.execute_batch(schema::CREATE_TOOL_CALL).unwrap();
+            conn.execute_batch(schema::CREATE_EVENT_LOG).unwrap();
             conn.execute(
                 "CREATE TABLE schema_version(version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)",
                 [],

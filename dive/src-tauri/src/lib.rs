@@ -85,6 +85,7 @@ pub fn run() {
             ipc::card_delete,
             ipc::card_reorder,
             ipc::card_tool_call_stats,
+            ipc::card_tool_call_stats_batch,
             ipc::card_update_instruction,
             ipc::card_update_test_command,
             ipc::card_save_retrospective,

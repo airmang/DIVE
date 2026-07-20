@@ -95,6 +95,22 @@ proper interface design, not a public-release-gating item. The prdSurface
 React.memo bailout that the element→data move would have lost was restored in
 this stage (ConversationSurfaces wrappers), so S-068 is performance-neutral.
 
+## D-013-12 (S-069) — Per-card stats command kept; migration test hardened
+
+G1 optimized `count_by_card` (single JOIN COUNT, no full scan / N+1), which
+backs the per-card `card_tool_call_stats` IPC command. The P2 batch
+(`card_tool_call_stats_batch` via `counts_by_session`) became the workmap's
+production path, so adversarial review (M4) flagged the per-card command as now
+caller-less. It is **kept**, not removed: it is the sole consumer of the
+G1-optimized `count_by_card` stack and its equivalence test
+(`count_by_card_matches_reference_scan_across_message_shapes`) is valuable
+regression coverage on the canonical count semantics; removing a tested,
+working single-card API in a performance stage on the release branch is more
+risk than the Minor warrants. Review M2 (expression-index build path unexercised
+on non-empty ledgers) was closed with a defensive migration test seeding real
+EventLog rows before v19. M1/M3 are invariant-protected (plan_id is always an
+integer; cards never leave their session) and non-actionable.
+
 ## D-013-08 (S-063) — S-048 6b plain-GET egress: absorbed (option a)
 
 **Decision: option (a) — absorb the hardening now.** The process-tool plain-GET

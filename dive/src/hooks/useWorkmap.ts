@@ -34,7 +34,8 @@ interface WorkmapSnapshot {
   current_card_id: number | null;
 }
 
-interface CardToolCallStats {
+interface CardToolCallCount {
+  card_id: number;
   count: number;
 }
 
@@ -166,16 +167,15 @@ export function useWorkmap(sessionId: number | null) {
       if (generation.current !== requestGeneration) return;
       hydrateFromRemote(snapshot.cards.map(toTile), snapshot.current_card_id);
       setRowsById(new Map(snapshot.cards.map((row) => [row.id, row])));
-      const counts = await Promise.all(
-        snapshot.cards.map(async (row) => {
-          const stats = await api.invoke<CardToolCallStats>("card_tool_call_stats", {
-            cardId: row.id,
-          });
-          return [row.id, stats.count] as const;
-        }),
-      );
+      // S-069 P4-1: one batch call instead of a per-card `card_tool_call_stats`
+      // fan-out (previously N IPC round-trips on every refresh). Cards with no
+      // messages are absent from the result and read back as 0 via
+      // `toolCallCountFor`, matching the old per-card count.
+      const stats = await api.invoke<CardToolCallCount[]>("card_tool_call_stats_batch", {
+        sessionId,
+      });
       if (generation.current !== requestGeneration) return;
-      setToolCallCounts(new Map(counts));
+      setToolCallCounts(new Map(stats.map((row) => [row.card_id, row.count])));
       setError(null);
     } catch (err) {
       if (generation.current !== requestGeneration) return;

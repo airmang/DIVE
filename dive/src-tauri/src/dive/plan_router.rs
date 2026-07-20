@@ -4,8 +4,9 @@
 //! for one compact `ROUTE ...` line and parses that line into a draft decision
 //! that the IPC layer can present for user confirmation.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use futures::StreamExt;
@@ -279,16 +280,42 @@ fn build_user_prompt(prompt: &str, ctx: &PlanRouterContext) -> String {
     )
 }
 
+// S-069 G4: the router recompiled 10+ regexes on every parse (once per field,
+// per routed chat message). The two fixed patterns are compiled once via
+// `LazyLock`; the `name`-parameterized field patterns are memoized by pattern
+// shape + field name (the field-name set is small and fixed). `Regex` clones
+// are Arc-cheap. Patterns are byte-identical to the former inline versions, so
+// parsing behavior is unchanged.
+static ROUTE_LINE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^ROUTE\s+(add_step|chat|clarify|remove|supersede|multi_step)\b(?P<rest>.*)$")
+        .expect("static ROUTE line pattern is valid")
+});
+static BARE_REASON_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"reason\s*=\s*(.+)$"#).expect("static bare-reason pattern is valid")
+});
+static FIELD_REGEX_CACHE: LazyLock<Mutex<HashMap<String, Regex>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Return a compiled regex for `key`, building it from `pattern` on first use
+/// and reusing the cached compilation thereafter. `key` must uniquely identify
+/// the produced pattern (here: pattern-shape prefix + field name).
+fn field_regex(key: &str, pattern: impl FnOnce() -> String) -> Result<Regex, String> {
+    let mut cache = FIELD_REGEX_CACHE.lock().map_err(|e| e.to_string())?;
+    if let Some(re) = cache.get(key) {
+        return Ok(re.clone());
+    }
+    let re = Regex::new(&pattern()).map_err(|e| e.to_string())?;
+    cache.insert(key.to_string(), re.clone());
+    Ok(re)
+}
+
 fn parse_route_decision(text: &str) -> Result<PlanRouterDecision, String> {
     let line = text
         .lines()
         .map(str::trim)
         .find(|line| line.starts_with("ROUTE "))
         .ok_or_else(|| "router response did not contain a ROUTE line".to_string())?;
-    let route_re =
-        Regex::new(r"^ROUTE\s+(add_step|chat|clarify|remove|supersede|multi_step)\b(?P<rest>.*)$")
-            .map_err(|e| e.to_string())?;
-    let caps = route_re
+    let caps = ROUTE_LINE_RE
         .captures(line)
         .ok_or_else(|| "router response used an invalid ROUTE format".to_string())?;
     let action = caps
@@ -437,11 +464,9 @@ fn required_string(rest: &str, name: &str) -> Result<String, String> {
 }
 
 fn field_string(rest: &str, name: &str) -> Result<Option<String>, String> {
-    let quoted = Regex::new(&format!(
-        r#"{}\s*=\s*"((?:[^"\\]|\\.)*)""#,
-        regex::escape(name)
-    ))
-    .map_err(|e| e.to_string())?;
+    let quoted = field_regex(&format!("q:{name}"), || {
+        format!(r#"{}\s*=\s*"((?:[^"\\]|\\.)*)""#, regex::escape(name))
+    })?;
     if let Some(caps) = quoted.captures(rest) {
         let raw = caps
             .get(1)
@@ -453,22 +478,23 @@ fn field_string(rest: &str, name: &str) -> Result<Option<String>, String> {
     }
 
     if name == "reason" {
-        let bare_reason = Regex::new(r#"reason\s*=\s*(.+)$"#).map_err(|e| e.to_string())?;
-        if let Some(caps) = bare_reason.captures(rest) {
+        if let Some(caps) = BARE_REASON_RE.captures(rest) {
             return Ok(caps.get(1).map(|m| m.as_str().trim().to_string()));
         }
     }
 
-    let bare = Regex::new(&format!(r#"{}\s*=\s*([^\s]+)"#, regex::escape(name)))
-        .map_err(|e| e.to_string())?;
+    let bare = field_regex(&format!("b:{name}"), || {
+        format!(r#"{}\s*=\s*([^\s]+)"#, regex::escape(name))
+    })?;
     Ok(bare
         .captures(rest)
         .and_then(|caps| caps.get(1).map(|m| m.as_str().trim().to_string())))
 }
 
 fn field_array(rest: &str, name: &str) -> Result<Option<Vec<String>>, String> {
-    let re = Regex::new(&format!(r#"{}\s*=\s*(\[[^\]]*\])"#, regex::escape(name)))
-        .map_err(|e| e.to_string())?;
+    let re = field_regex(&format!("a:{name}"), || {
+        format!(r#"{}\s*=\s*(\[[^\]]*\])"#, regex::escape(name))
+    })?;
     let Some(caps) = re.captures(rest) else {
         return Ok(None);
     };

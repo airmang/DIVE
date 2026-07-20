@@ -298,3 +298,18 @@ CREATE TABLE IF NOT EXISTS InterviewTurn (
 pub const CREATE_V16_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_interview_turn_draft ON InterviewTurn(draft_id, created_at)",
 ];
+
+// S-069 performance indexes:
+// - `idx_message_card` + `idx_tool_call_message` back the card-scoped tool-call
+//   count (`tool_call::count_by_card`), replacing a full Message scan + per-
+//   message ToolCall re-query.
+// - `idx_event_log_plan_id` is an expression index on the payload's `plan_id`
+//   with `created_at` trailing, so plan-scoped activity queries
+//   (`event_log::list_plan_events`) seek by plan and satisfy the
+//   `ORDER BY created_at DESC, id DESC LIMIT` via a reverse index scan instead
+//   of scanning the whole append-only EventLog per project.
+pub const CREATE_V19_INDEXES: &[&str] = &[
+    "CREATE INDEX IF NOT EXISTS idx_message_card ON Message(card_id)",
+    "CREATE INDEX IF NOT EXISTS idx_tool_call_message ON ToolCall(message_id)",
+    "CREATE INDEX IF NOT EXISTS idx_event_log_plan_id ON EventLog(json_extract(payload, '$.plan_id'), created_at)",
+];

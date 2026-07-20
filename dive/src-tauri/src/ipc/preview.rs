@@ -262,23 +262,12 @@ pub async fn preview_open_impl(
             match validate_static_preview_target(&root, &request.target) {
                 Ok(target) => {
                     let base_url = static_preview_base_url(state, &root).await?;
-                    Ok(PreviewOpenResponse {
+                    Ok(static_preview_ready_response(
                         request_id,
-                        status: PreviewOpenStatus::Ready,
-                        kind: request.kind,
-                        preview_url: Some(format!(
-                            "{}/{}",
-                            base_url.trim_end_matches('/'),
-                            url_path_for_target(&target.target_label)
-                        )),
-                        asset_file_path: Some(target.asset_file_path.display().to_string()),
-                        target_label: target.target_label,
-                        reason_code: None,
-                        message: "Preview opened.".into(),
-                        logs: Vec::new(),
-                        command_summary: Some("Static project preview server".into()),
-                        resolved_at: now_ms(),
-                    })
+                        request.kind,
+                        &base_url,
+                        target,
+                    ))
                 }
                 Err(reason) => Ok(unavailable_preview_response(
                     request_id,
@@ -333,23 +322,7 @@ pub async fn preview_open_impl(
         )
         .await
         {
-            Ok(start) => Ok(PreviewOpenResponse {
-                request_id,
-                status: PreviewOpenStatus::Ready,
-                kind: request.kind,
-                preview_url: Some(start.url.clone()),
-                asset_file_path: None,
-                target_label: start.url.clone(),
-                reason_code: None,
-                message: if start.reused {
-                    "Connected to the running preview.".into()
-                } else {
-                    "Preview opened.".into()
-                },
-                logs: start.logs,
-                command_summary: Some(start.command.join(" ")),
-                resolved_at: now_ms(),
-            }),
+            Ok(start) => Ok(dev_server_ready_response(request_id, request.kind, start)),
             Err(error) => Ok(failed_preview_response(
                 request_id,
                 request.kind,
@@ -365,23 +338,12 @@ pub async fn preview_open_impl(
                 match validate_static_preview_target(&root, "index.html") {
                     Ok(target) => {
                         let base_url = static_preview_base_url(state, &root).await?;
-                        Ok(PreviewOpenResponse {
+                        Ok(static_preview_ready_response(
                             request_id,
-                            status: PreviewOpenStatus::Ready,
-                            kind: PreviewRequestKind::StaticFile,
-                            preview_url: Some(format!(
-                                "{}/{}",
-                                base_url.trim_end_matches('/'),
-                                url_path_for_target(&target.target_label)
-                            )),
-                            asset_file_path: Some(target.asset_file_path.display().to_string()),
-                            target_label: target.target_label,
-                            reason_code: None,
-                            message: "Preview opened.".into(),
-                            logs: Vec::new(),
-                            command_summary: Some("Static project preview server".into()),
-                            resolved_at: now_ms(),
-                        })
+                            PreviewRequestKind::StaticFile,
+                            &base_url,
+                            target,
+                        ))
                     }
                     Err(reason) => Ok(unavailable_preview_response(
                         request_id,
@@ -400,23 +362,11 @@ pub async fn preview_open_impl(
                 )
                 .await
                 {
-                    Ok(start) => Ok(PreviewOpenResponse {
+                    Ok(start) => Ok(dev_server_ready_response(
                         request_id,
-                        status: PreviewOpenStatus::Ready,
-                        kind: PreviewRequestKind::DevServer,
-                        preview_url: Some(start.url.clone()),
-                        asset_file_path: None,
-                        target_label: start.url.clone(),
-                        reason_code: None,
-                        message: if start.reused {
-                            "Connected to the running preview.".into()
-                        } else {
-                            "Preview opened.".into()
-                        },
-                        logs: start.logs,
-                        command_summary: Some(start.command.join(" ")),
-                        resolved_at: now_ms(),
-                    }),
+                        PreviewRequestKind::DevServer,
+                        start,
+                    )),
                     Err(error) => Ok(failed_preview_response(
                         request_id,
                         PreviewRequestKind::DevServer,
@@ -999,6 +949,63 @@ fn failed_preview_response(
         message: message.into(),
         logs,
         command_summary,
+        resolved_at: now_ms(),
+    }
+}
+
+/// S-069 dedup: the "static preview ready" response, shared by the direct
+/// `StaticFile` arm and the `Auto` arm's index.html path. `kind` differs between
+/// callers (the request's own kind vs. an explicit `StaticFile`), so it stays a
+/// parameter; every other field is identical to the former inline literals.
+fn static_preview_ready_response(
+    request_id: String,
+    kind: PreviewRequestKind,
+    base_url: &str,
+    target: StaticPreviewTarget,
+) -> PreviewOpenResponse {
+    PreviewOpenResponse {
+        request_id,
+        status: PreviewOpenStatus::Ready,
+        kind,
+        preview_url: Some(format!(
+            "{}/{}",
+            base_url.trim_end_matches('/'),
+            url_path_for_target(&target.target_label)
+        )),
+        asset_file_path: Some(target.asset_file_path.display().to_string()),
+        target_label: target.target_label,
+        reason_code: None,
+        message: "Preview opened.".into(),
+        logs: Vec::new(),
+        command_summary: Some("Static project preview server".into()),
+        resolved_at: now_ms(),
+    }
+}
+
+/// S-069 dedup: the "dev-server preview ready" response, shared by the direct
+/// `DevServer` arm and the `Auto` arm's fallback path. `kind` differs between
+/// callers, so it stays a parameter; every other field is identical to the
+/// former inline literals.
+fn dev_server_ready_response(
+    request_id: String,
+    kind: PreviewRequestKind,
+    start: PreviewStartResult,
+) -> PreviewOpenResponse {
+    PreviewOpenResponse {
+        request_id,
+        status: PreviewOpenStatus::Ready,
+        kind,
+        preview_url: Some(start.url.clone()),
+        asset_file_path: None,
+        target_label: start.url,
+        reason_code: None,
+        message: if start.reused {
+            "Connected to the running preview.".into()
+        } else {
+            "Preview opened.".into()
+        },
+        logs: start.logs,
+        command_summary: Some(start.command.join(" ")),
         resolved_at: now_ms(),
     }
 }

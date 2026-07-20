@@ -48,20 +48,9 @@ pub fn card_update_instruction_impl(
             db.conn(),
             card_id,
             &NewCard {
-                session_id: existing.session_id,
-                title: existing.title.clone(),
                 instruction: Some(instruction),
-                assist_summary: existing.assist_summary.clone(),
-                acceptance_criteria: existing.acceptance_criteria.clone(),
-                retrospective: existing.retrospective.clone(),
-                change_summary: existing.change_summary.clone(),
                 state: next_state,
-                verify_log: existing.verify_log.clone(),
-                changed_files: existing.changed_files.clone(),
-                test_command: existing.test_command.clone(),
-                approval_judgment: existing.approval_judgment.clone(),
-                approval_provenance: existing.approval_provenance.clone(),
-                position: existing.position,
+                ..NewCard::from(&existing)
             },
         )
         .map_err(|e| e.to_string())?;
@@ -100,20 +89,8 @@ pub fn card_update_test_command_impl(
             db.conn(),
             card_id,
             &NewCard {
-                session_id: existing.session_id,
-                title: existing.title,
-                instruction: existing.instruction,
-                assist_summary: existing.assist_summary,
-                acceptance_criteria: existing.acceptance_criteria,
-                retrospective: existing.retrospective,
-                change_summary: existing.change_summary,
-                state: existing.state,
-                verify_log: existing.verify_log,
-                changed_files: existing.changed_files,
                 test_command: normalized.clone(),
-                approval_judgment: existing.approval_judgment,
-                approval_provenance: existing.approval_provenance,
-                position: existing.position,
+                ..NewCard::from(&existing)
             },
         )
         .map_err(|e| e.to_string())?;
@@ -227,20 +204,11 @@ pub(super) fn card_transition_no_checkpoint_with_provenance_impl(
         db.conn(),
         card_id,
         &NewCard {
-            session_id: existing.session_id,
-            title: existing.title,
-            instruction: existing.instruction,
-            assist_summary: existing.assist_summary,
-            acceptance_criteria: existing.acceptance_criteria,
-            retrospective: existing.retrospective,
             change_summary,
             state: next,
-            verify_log: existing.verify_log,
-            changed_files: existing.changed_files,
-            test_command: existing.test_command,
             approval_judgment,
             approval_provenance,
-            position: existing.position,
+            ..NewCard::from(&existing)
         },
     )
     .map_err(|e| e.to_string())?;
@@ -576,20 +544,8 @@ pub fn card_save_retrospective_impl(
             db.conn(),
             card_id,
             &NewCard {
-                session_id: existing.session_id,
-                title: existing.title,
-                instruction: existing.instruction,
-                assist_summary: existing.assist_summary,
-                acceptance_criteria: existing.acceptance_criteria,
                 retrospective: content.clone(),
-                change_summary: existing.change_summary,
-                state: existing.state,
-                verify_log: existing.verify_log,
-                changed_files: existing.changed_files,
-                test_command: existing.test_command,
-                approval_judgment: existing.approval_judgment,
-                approval_provenance: existing.approval_provenance,
-                position: existing.position,
+                ..NewCard::from(&existing)
             },
         )
         .map_err(|e| e.to_string())?;

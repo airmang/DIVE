@@ -85,6 +85,31 @@ pub fn list(conn: &Connection) -> Result<Vec<StepSessionMappingRow>, DbError> {
     Ok(rows)
 }
 
+/// Fetch mappings for a set of step ids in one query (S-069 G2), replacing the
+/// per-step `get_by_step` N+1 in `mappings_for_steps`. `StepSessionMapping` has
+/// `UNIQUE(step_id)`, so this returns at most one row per id — the same set the
+/// per-step loop produced. Callers key by `step_id` and do not depend on order.
+pub fn list_by_step_ids(
+    conn: &Connection,
+    step_ids: &[i64],
+) -> Result<Vec<StepSessionMappingRow>, DbError> {
+    if step_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = std::iter::repeat("?")
+        .take(step_ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT id, step_id, session_id, card_id, state_path, status, started_at, completed_at, checkpoint_ids, verification_status, verification_evidence, user_decision, created_at, updated_at FROM StepSessionMapping WHERE step_id IN ({placeholders}) ORDER BY id"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(step_ids.iter()), query_map_row)?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
 pub fn list_by_session(
     conn: &Connection,
     session_id: i64,
@@ -210,5 +235,60 @@ mod tests {
         insert(db.conn(), &new_mapping(step_id)).unwrap();
         let row = get_by_step(db.conn(), step_id).unwrap().unwrap();
         assert_eq!(row.status, "planned");
+    }
+
+    // S-069 G2: the batched `list_by_step_ids` must return exactly the same set
+    // as looping `get_by_step` per step — including excluding unmapped steps and
+    // ignoring non-existent ids — with the empty-slice fast path returning none.
+    #[test]
+    fn list_by_step_ids_matches_per_step_lookup() {
+        let (db, _tmp) = fresh_db();
+        let (plan_id, first_step) = seed_plan_step(db.conn());
+        let add_step = |sid: &str, pos: i64| {
+            step_dao::insert(
+                db.conn(),
+                &NewStep {
+                    plan_id,
+                    step_id: sid.into(),
+                    title: "T".into(),
+                    summary: None,
+                    instruction_seed: None,
+                    expected_files: Some(json!([])),
+                    acceptance_criteria: Some(json!([])),
+                    step_kind: Default::default(),
+                    verification_kind: None,
+                    verification_command: None,
+                    verification_manual_check: None,
+                    dependencies: Some(json!([])),
+                    parallel_group: None,
+                    position: pos,
+                },
+            )
+            .unwrap()
+        };
+        let second_step = add_step("step-002", 2);
+        let third_step = add_step("step-003", 3);
+        // Map only the first and third steps; the second is left unmapped.
+        insert(db.conn(), &new_mapping(first_step)).unwrap();
+        insert(db.conn(), &new_mapping(third_step)).unwrap();
+
+        assert!(list_by_step_ids(db.conn(), &[]).unwrap().is_empty());
+
+        let ids = [first_step, second_step, third_step, 999_999];
+        let mut batched: Vec<i64> = list_by_step_ids(db.conn(), &ids)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.step_id)
+            .collect();
+        batched.sort_unstable();
+        let mut reference: Vec<i64> = ids
+            .iter()
+            .filter_map(|id| get_by_step(db.conn(), *id).unwrap())
+            .map(|m| m.step_id)
+            .collect();
+        reference.sort_unstable();
+
+        assert_eq!(batched, reference);
+        assert_eq!(batched, vec![first_step, third_step]);
     }
 }
