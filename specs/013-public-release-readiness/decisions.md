@@ -142,7 +142,27 @@ is noted as a residual in the report.
 
 `docs/spec-status.md` tracked follow-up updated to record the resolution.
 
-## D-013-13 (S-070) — Public flip is BLOCKED on GitHub Support (PR-ref purge)
+## D-013-16 (S-070 resolution) — Flipped via a fresh repo, not GitHub Support
+
+The PR-ref/cached-view blocker (D-013-13) was resolved without a GitHub
+Support ticket by starting the public repository fresh. The old
+`airmang/DIVE` (with the pre-rewrite history, 53 PR refs, and 8 old-history
+tags still reachable) was **renamed to a private archive** — preserving the
+copyrighted PDFs, PR/issue history, and published Releases privately for the
+owner — and a **new empty `airmang/DIVE`** was created. The already-cleaned
+history (main `24dd2f1` + the filter-repo-rewritten clean tags rc.2–rc.9) was
+pushed to it. The new repo therefore never had any PR refs, cached old
+commits, or PDF-bearing tags: final verification shows 0 PDFs, 0 omc/omx, 0
+internalized-doc objects, and 0 `refs/pull/*` reachable. This supersedes the
+"GitHub Support required" path in D-013-13 — the fresh-repo route is the
+self-service, deadline-safe resolution.
+
+Residual owner notes: GitHub Releases (installers) live on the renamed
+private archive, not the fresh public repo — recreate them from the pushed
+tags if public installers are wanted. The private archive retains everything
+else for reference.
+
+## D-013-13 (S-070) — Public flip WAS blocked on GitHub Support (superseded by D-013-16)
 
 The history rewrite is complete and clean: `git filter-repo` purged the 18
 copyrighted PDFs and the internal conference-poster tree (references.md kept)
