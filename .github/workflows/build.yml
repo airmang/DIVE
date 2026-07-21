@@ -195,3 +195,87 @@ jobs:
           path: dive/build-release-smoke-${{ matrix.label }}.json
           if-no-files-found: error
           retention-days: 14
+
+  # macOS distribution (Tier 1: unsigned, consistent with the unsigned Windows
+  # NSIS installers). A separate job — the build-windows steps are
+  # PowerShell/msedgedriver/WebView2-shaped and do not apply to macOS. The Pi
+  # sidecar SEA is host-only, so each mac arch needs its own runner. The primary
+  # artifact is a zipped .app (users unzip and drag to Applications, matching the
+  # rc.4 mac release); a .dmg is attempted best-effort in a later step because
+  # Tauri's AppleScript-based dmg bundler can fail on headless CI.
+  build-macos:
+    name: build ${{ matrix.label }}
+    needs: [frontend-check, rust-check]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macos-arm64
+            runner: macos-14
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: dive
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: dive/pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dive/src-tauri
+          key: ${{ matrix.target }}
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: build Pi sidecar (${{ matrix.target }})
+        run: |
+          npm --prefix pi-sidecar ci
+          node pi-sidecar/build-sidecar.mjs --target ${{ matrix.target }}
+
+      - name: tauri build .app (${{ matrix.target }})
+        run: pnpm tauri build --target ${{ matrix.target }} --bundles app
+
+      - name: zip .app bundle
+        run: |
+          set -euo pipefail
+          app="$(find "src-tauri/target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -name '*.app' | head -1)"
+          if [ -z "$app" ]; then echo "no .app bundle found"; exit 1; fi
+          ditto -c -k --keepParent "$app" "DIVE-${{ matrix.label }}.app.zip"
+          ls -lh "DIVE-${{ matrix.label }}.app.zip"
+
+      - name: tauri build .dmg (best-effort)
+        id: dmg
+        continue-on-error: true
+        run: pnpm tauri build --target ${{ matrix.target }} --bundles dmg
+
+      - name: upload .app.zip
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: DIVE-${{ matrix.label }}-app
+          path: dive/DIVE-${{ matrix.label }}.app.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: upload .dmg (best-effort)
+        if: ${{ !cancelled() && steps.dmg.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: DIVE-${{ matrix.label }}-dmg
+          path: dive/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          if-no-files-found: warn
+          retention-days: 14
