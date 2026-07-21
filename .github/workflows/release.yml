@@ -188,6 +188,12 @@ jobs:
             --repo "${EXPECTED_REPO}" \
             --name DIVE-windows-arm64-nsis \
             --dir artifacts/DIVE-windows-arm64-nsis
+          # macOS (Apple Silicon) — the zipped .app is the primary mac artifact.
+          mkdir -p artifacts/DIVE-macos-arm64-app
+          gh run download "${RELEASE_GATE_RUN_ID}" \
+            --repo "${EXPECTED_REPO}" \
+            --name DIVE-macos-arm64-app \
+            --dir artifacts/DIVE-macos-arm64-app
 
       - name: collect installer paths
         id: collect
@@ -299,6 +305,7 @@ jobs:
           files: |
             artifacts/DIVE-windows-x64-nsis/*.exe
             artifacts/DIVE-windows-arm64-nsis/*.exe
+            artifacts/DIVE-macos-arm64-app/*.zip
           fail_on_unmatched_files: true
 
       - name: upload release evidence

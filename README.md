@@ -2,11 +2,11 @@
 
 > 초심자가 AI 코딩 에이전트를 **감독**하며 배우는 로컬 데스크톱 앱
 
-**DIVE**는 코딩 에이전트를 터미널에서 직접 다루기 어려운 초심자를 위한 **Windows 데스크톱 앱**입니다. 목표를 자연어로 설명하면 AI가 계획을 세우고 코드를 바꾸지만, 사용자는 그 과정을 **계획 검토 → 단계별 실행 → 변경 확인 → 검증 → 되돌리기**로 지켜보고 통제합니다. DIVE의 핵심은 "AI가 대신 코딩해 주는 것"이 아니라 **AI를 감독하는 법을 익히게 하는 것**입니다.
+**DIVE**는 코딩 에이전트를 터미널에서 직접 다루기 어려운 초심자를 위한 **데스크톱 앱**(Windows · macOS)입니다. 목표를 자연어로 설명하면 AI가 계획을 세우고 코드를 바꾸지만, 사용자는 그 과정을 **계획 검토 → 단계별 실행 → 변경 확인 → 검증 → 되돌리기**로 지켜보고 통제합니다. DIVE의 핵심은 "AI가 대신 코딩해 주는 것"이 아니라 **AI를 감독하는 법을 익히게 하는 것**입니다.
 
 [![build](https://github.com/airmang/DIVE/actions/workflows/build.yml/badge.svg)](https://github.com/airmang/DIVE/actions/workflows/build.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20ARM64-0078d4.svg)](#설치-windows)
+[![platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20ARM64%20%7C%20macOS%20arm64-0078d4.svg)](#설치)
 [![version](https://img.shields.io/badge/version-1.0.0--rc.9-6f42c1.svg)](./CHANGELOG.md)
 
 ---
@@ -110,7 +110,7 @@ cargo clippy --features dev-mock --all-targets -- -D warnings
 cargo test --features dev-mock --all-targets
 ```
 
-macOS/Linux에서는 로컬 개발·QA용 `.app`/`.dmg` 번들을 만들 수 있지만, 배포 대상은 Windows(x64·ARM64) NSIS 인스톨러입니다. Pi 사이드카는 Node SEA로 빌드되어 아키텍처별 호스트에서 컴파일해야 하므로 릴리스는 CI 매트릭스(`.github/workflows/build.yml`)를 사용합니다.
+배포 대상은 Windows(x64·ARM64) NSIS 인스톨러와 macOS(Apple Silicon) `.app`(zip)/`.dmg`입니다. macOS 빌드는 현재 **미서명**이라(Windows 인스톨러와 동일) 첫 실행 시 Gatekeeper가 "확인되지 않은 개발자" 경고를 띄웁니다 — 앱을 우클릭 → **열기**로 한 번 실행하면 이후에는 정상 실행됩니다. Linux에서는 로컬 개발·QA용 번들만 지원합니다. Pi 사이드카는 Node SEA로 빌드되어 아키텍처별 호스트에서 컴파일해야 하므로 릴리스는 CI 매트릭스(`.github/workflows/build.yml`)를 사용합니다.
 
 ---
 
