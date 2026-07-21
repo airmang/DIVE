@@ -250,3 +250,33 @@ conference-poster tree; a full bundle backup was taken first
 S-070 executes exactly one `git filter-repo` pass. Owner decisions pending:
 commit-author personal email exposure, and personal home paths in 15 tracked
 docs. To be asked at S-070 kickoff, not before.
+
+## D-013-17 (post-cleanup review 2026-07-22) — Two verification claims corrected
+
+The 2026-07-22 post-cleanup re-review (`docs/qa/post-cleanup-review-2026-07-22.md`)
+found that two "clean" verifications recorded above were measured too narrowly:
+
+1. **D-013-15 "all verify:v4 hard-reads fixed" was incomplete.**
+   `verify-product-flow.mjs` still hard-read an internalized conference-poster
+   doc (`04-Wily-Stage-실행계획.md`), so `pnpm verify:v4` ENOENT-crashed on every
+   clean checkout — red CI in `build.yml` and release-gate Gate A on the public
+   repo, undetected because the owner's untracked local copy masked it. **Already
+   fixed on main by `98c19db`** (removed the two conference-poster checks). No
+   further code action; this entry records that the D-013-15 claim held only on
+   a machine with the local copies present.
+
+2. **D-013-14/15/16 "0 omc/omx / 0 internalized-doc objects reachable" was a
+   filename check, not a directory-object check — and is FALSE for three internal
+   tooling directories.** The purges targeted specific paths (`docs/research/omc-*.md`,
+   PDFs, conference-poster, minimal-public docs) and those are genuinely gone
+   (verified 0). But `.omc/` (25 objects incl. `project-memory.json` with the
+   owner home path and the KACE interview playbook under `.omc/specs/`),
+   `.sisyphus/` (13), and `.wily/` (228) were **never in any of the three
+   filter-repo path lists**. All 266 objects remain reachable from the now-PUBLIC
+   `origin/main` history (commit `45df0c7` tree) and from every shipped tag
+   rc.2–rc.9 — reproduced with `git rev-list origin/main --objects | grep`.
+   **Pending action:** the final (4th) `git filter-repo` pass MUST add
+   `.omc .omx .sisyphus .wily` to its `--invert-paths` set, rewrite the tags, and
+   force-push; the public force-push remains the owner's to execute. Do not
+   re-trust a "0 reachable" claim that greps filenames rather than enumerating
+   directory objects across all refs+tags.
