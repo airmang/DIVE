@@ -367,14 +367,14 @@ v0.1 — 워크맵 + 채팅 + 권한 카드 + D 게이트. 메인 시나리오 A
 
 ---
 
-[Unreleased]: https://github.com/airmang/DIVE-2/compare/v1.0.0-rc.4...HEAD
-[1.0.0-rc.4]: https://github.com/airmang/DIVE-2/compare/v1.0.0-rc.3...v1.0.0-rc.4
-[1.0.0-rc.3]: https://github.com/airmang/DIVE-2/compare/v1.0.0-rc.2...v1.0.0-rc.3
-[1.0.0-rc.2]: https://github.com/airmang/DIVE-2/compare/v1.0.0-rc.1...v1.0.0-rc.2
-[Yanked 1.0.0-rc.1]: https://github.com/airmang/DIVE-2/releases/tag/v1.0.0-rc.1
-[1.0.0-rc.1]: https://github.com/airmang/DIVE-2/releases/tag/v1.0.0-rc.1
-[0.3.0]: https://github.com/airmang/DIVE-2/releases/tag/v0.3.0
-[0.2.0]: https://github.com/airmang/DIVE-2/releases/tag/v0.2.0
-[0.2.0-beta]: https://github.com/airmang/DIVE-2/releases/tag/v0.2.0-beta
-[0.1.0]: https://github.com/airmang/DIVE-2/releases/tag/v0.1.0
-[0.0.1]: https://github.com/airmang/DIVE-2/releases/tag/v0.0.1
+[Unreleased]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.4...HEAD
+[1.0.0-rc.4]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.3...v1.0.0-rc.4
+[1.0.0-rc.3]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.2...v1.0.0-rc.3
+[1.0.0-rc.2]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.1...v1.0.0-rc.2
+[Yanked 1.0.0-rc.1]: https://github.com/airmang/DIVE/releases/tag/v1.0.0-rc.1
+[1.0.0-rc.1]: https://github.com/airmang/DIVE/releases/tag/v1.0.0-rc.1
+[0.3.0]: https://github.com/airmang/DIVE/releases/tag/v0.3.0
+[0.2.0]: https://github.com/airmang/DIVE/releases/tag/v0.2.0
+[0.2.0-beta]: https://github.com/airmang/DIVE/releases/tag/v0.2.0-beta
+[0.1.0]: https://github.com/airmang/DIVE/releases/tag/v0.1.0
+[0.0.1]: https://github.com/airmang/DIVE/releases/tag/v0.0.1

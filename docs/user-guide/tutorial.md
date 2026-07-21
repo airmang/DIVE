@@ -10,7 +10,7 @@
 ## 준비물
 
 - Windows 10 22H2 이상 또는 Windows 11 (x64 또는 ARM64)
-- DIVE 인스톨러 (`DIVE_<version>_x64-setup.exe`) — [GitHub Releases](https://github.com/airmang/DIVE-2/releases/latest)
+- DIVE 인스톨러 (`DIVE_<version>_x64-setup.exe`) — [GitHub Releases](https://github.com/airmang/DIVE/releases/latest)
 - **AI 프로바이더 계정 1개** (아래 중 하나)
   - **ChatGPT Plus/Pro 구독** — OAuth로 연결, 별도 API 키 불필요
   - Anthropic API 키 (콘솔에서 발급, $5 크레딧 필요)

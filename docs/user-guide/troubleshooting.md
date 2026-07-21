@@ -178,7 +178,7 @@ pnpm tauri:dev   # 자세한 tracing DEBUG 레벨 로그
 ## 아직 해결 안 됐다면
 
 1. [FAQ](./faq.md) 다시 확인
-2. [GitHub Issues](https://github.com/airmang/DIVE-2/issues) 기존 이슈 검색
+2. [GitHub Issues](https://github.com/airmang/DIVE/issues) 기존 이슈 검색
 3. 새 Issue 등록 (진단 정보 첨부)
 4. 긴급·보안 관련은 연구진에 직접 이메일
 

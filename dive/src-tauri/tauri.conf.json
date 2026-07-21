@@ -36,7 +36,7 @@
     "longDescription": "DIVE는 프로젝트 폴더를 선택하고 AI를 연결한 뒤, 계획 수립부터 코드 변경과 검증까지 안전 확인을 거치며 진행하도록 돕는 데스크톱 앱입니다.",
     "copyright": "© 2026 DIVE 연구진. MIT License.",
     "publisher": "DIVE 연구진",
-    "homepage": "https://github.com/airmang/DIVE-2",
+    "homepage": "https://github.com/airmang/DIVE",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
