@@ -46,7 +46,6 @@ const rc1Migration = read("src/lib/rc1-migration.ts");
 const ko = read("src/i18n/ko.json");
 const en = read("src/i18n/en.json");
 const tauriLib = read("src-tauri/src/lib.rs");
-const ipcMod = read("src-tauri/src/ipc/mod.rs");
 const ipcState = read("src-tauri/src/ipc/state.rs");
 // S-066 split workspace_plan.rs into a module dir; the route-cancel contract now
 // lives in plan_routing.rs (impls: register/remove tokens, cancel-selected waits)

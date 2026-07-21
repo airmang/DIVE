@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,10 +22,6 @@ function read(rel, root = repoRoot) {
 // its new location without weakening what is required.
 function readAll(rels, root = repoRoot) {
   return rels.map((rel) => read(rel, root)).join("\n");
-}
-
-function exists(rel, root = repoRoot) {
-  return existsSync(filePath(rel, root));
 }
 
 function check(name, ok, detail = "") {
@@ -64,6 +60,13 @@ const chatSession = readAll([
   "dive/src/hooks/agent-events.ts",
   "dive/src/hooks/chat-session-reducer.ts",
 ]);
+// Read the PRIMARY split files on their own (not via readAll) so composition-edge
+// checks can assert the primary actually imports and calls its extracted siblings.
+// readAll() concatenation verifies a symbol EXISTS somewhere in the file set; it
+// cannot tell a live import+call from an orphaned definition that moved to a
+// sibling. These primary-only reads restore that edge guarantee.
+const controllerPrimary = read("dive/src/components/product/useProductShellController.ts");
+const chatSessionPrimary = read("dive/src/hooks/useChatSession.ts");
 const workmap = read("dive/src/hooks/useWorkmap.ts");
 const usePlan = read("dive/src/features/planning/usePlan.ts");
 const usePlanRouter = read("dive/src/features/planning/usePlanRouter.ts");
@@ -454,6 +457,35 @@ check(
 // research material excluded from the public repository (D-013-15). Their
 // wiring checks were removed with the docs so this verifier does not read
 // files absent from a clean checkout.
+
+// Composition-edge guard (post S-066/067/068/069 split). The checks above read a
+// primary + its extracted siblings as one concatenated unit via readAll(), which
+// only proves a symbol exists somewhere in the set — orphaning an extracted hook
+// (deleting its import+call in the primary while leaving the file) would keep them
+// all green. These assertions pin the actual composition edges: the primary file
+// must both import AND call each module it is supposed to compose.
+check(
+  "useProductShellController composes its S-068 extracted hooks (import + call site)",
+  includesAll(controllerPrimary, [
+    'from "./usePlanChatRouting"',
+    "usePlanChatRouting({",
+    'from "./usePlanDraftLifecycle"',
+    "usePlanDraftLifecycle({",
+    'from "./useShellMenus"',
+    "useShellMenus({",
+    'from "./ConversationSurfaces"',
+    'from "./productShellControllerLogic"',
+  ]),
+);
+check(
+  "useChatSession composes its S-069 extracted event union + reducer (import + use)",
+  includesAll(chatSessionPrimary, [
+    'from "./agent-events"',
+    "unwrapAgentEvent",
+    'from "./chat-session-reducer"',
+    "reduceChatSessionState",
+  ]),
+);
 
 const failed = checks.filter((item) => !item.ok);
 console.log(
