@@ -66,6 +66,8 @@ impl Default for MenuLocaleState {
 }
 
 struct MenuLabels {
+    // Used only in the macOS app-menu Preferences item; dead on other platforms.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     app_preferences: &'static str,
     file: &'static str,
     new_project: &'static str,

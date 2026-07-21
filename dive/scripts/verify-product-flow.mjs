@@ -104,10 +104,6 @@ const previewTab = read("dive/src/components/slide-in/PreviewTab.tsx");
 const recoveryPanel = read("dive/src/components/product/RecoveryPanel.tsx");
 const recoverySlideIn = read("dive/src/components/product/RecoverySlideIn.tsx");
 const releaseSmoke = read("dive/scripts/release-gate-smoke.mjs");
-const stagePlanDoc = read("docs/research/conference-poster/04-Wily-Stage-실행계획.md");
-const evidenceTemplatePath =
-  "docs/research/conference-poster/evidence/connected-provider-smoke-template.md";
-const evidenceTemplate = exists(evidenceTemplatePath) ? read(evidenceTemplatePath) : "";
 
 const registeredCommands = [
   "ipc::project_create",
@@ -453,27 +449,11 @@ check(
     includesAll(releaseSmoke, ["restart preserves disk DB", "collectEvidence"]),
 );
 
-check(
-  "pilot freeze procedure exists and requires product-flow verifier",
-  includesAll(stagePlanDoc, [
-    "버전 프리즈",
-    "pnpm verify:product-flow",
-    "connected-provider smoke",
-    "실 프로바이더",
-    "증거 없이는 통과로 기록하지 않는다",
-  ]),
-);
-check(
-  "connected-provider smoke evidence template is clearly not completed evidence",
-  exists(evidenceTemplatePath) &&
-    includesAll(evidenceTemplate, [
-      "TEMPLATE ONLY",
-      "Do not mark this file as passed evidence",
-      "pnpm verify:product-flow",
-      "connected-provider smoke",
-    ]) &&
-    !/status:\s*(passed|complete|green|done)/i.test(evidenceTemplate),
-);
+// The pilot-freeze procedure doc and the connected-provider smoke evidence
+// template live under docs/research/conference-poster/, which is internal
+// research material excluded from the public repository (D-013-15). Their
+// wiring checks were removed with the docs so this verifier does not read
+// files absent from a clean checkout.
 
 const failed = checks.filter((item) => !item.ok);
 console.log(
