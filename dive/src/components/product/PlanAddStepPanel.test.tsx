@@ -13,6 +13,7 @@ import {
   type SupervisorEvaluationResponse,
 } from "../../features/provocation";
 import { useProjectSessionStore } from "../../stores/project-session";
+import { ToastProvider } from "../toast/ToastProvider";
 import { PlanAddStepPanel } from "./PlanAddStepPanel";
 
 vi.mock("../../features/provocation", async (importOriginal) => {
@@ -375,5 +376,120 @@ describe("PlanAddStepPanel scope-expansion supervisor cards", () => {
         parallelGroup: 2,
       }),
     });
+  });
+});
+
+describe("PlanAddStepPanel post-save refresh failures", () => {
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: "ko" });
+    useProjectSessionStore.setState({ currentProjectId: 1, currentSessionId: 99 });
+    evaluateMock.mockReset();
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    useProjectSessionStore.setState({ currentProjectId: null, currentSessionId: null });
+  });
+
+  it("does not surface a mutation-failed toast when a post-success refresh rejects", async () => {
+    const onAppendStep = vi.fn().mockResolvedValue(undefined);
+    const onAppended = vi.fn().mockRejectedValue(new Error("refresh failed"));
+
+    render(
+      <ToastProvider>
+        <PlanAddStepPanel
+          projectId={1}
+          planId={11}
+          projectName="DIVE demo"
+          projectSpec={projectSpec()}
+          onAppendStep={onAppendStep}
+          onAppended={onAppended}
+        />
+      </ToastProvider>,
+    );
+
+    fireEvent.change(screen.getByTestId("plan-add-step-title"), {
+      target: { value: "Analytics dashboard" },
+    });
+    fireEvent.change(screen.getByTestId("plan-add-step-reason"), {
+      target: { value: "사용자가 사용량을 볼 수 있게 한다." },
+    });
+
+    fireEvent.click(screen.getByTestId("plan-add-step-save"));
+
+    await waitFor(() => expect(onAppendStep).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onAppended).toHaveBeenCalledTimes(1));
+
+    // The step mutation succeeded; the refresh's own rejection must not be
+    // relabeled as "could not save step".
+    expect(screen.queryByTestId("toast")).toBeNull();
+    // The form still resets, confirming the save path completed normally.
+    expect((screen.getByTestId("plan-add-step-title") as HTMLInputElement).value).toBe("");
+  });
+});
+
+describe("PlanAddStepPanel scope-expansion supervisor locale", () => {
+  beforeEach(() => {
+    useProjectSessionStore.setState({ currentProjectId: 1, currentSessionId: 99 });
+    evaluateMock.mockReset();
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    useProjectSessionStore.setState({ currentProjectId: null, currentSessionId: null });
+    useLocaleStore.setState({ locale: "ko" });
+  });
+
+  it("threads the active en-locale into the scope-expansion supervisor request instead of hardcoding ko-KR", async () => {
+    useLocaleStore.setState({ locale: "en" });
+
+    renderPanel();
+
+    fireEvent.change(screen.getByTestId("plan-add-step-title"), {
+      target: { value: "Analytics dashboard" },
+    });
+    fireEvent.change(screen.getByTestId("plan-add-step-reason"), {
+      target: { value: "Let users see their usage." },
+    });
+
+    await waitFor(() => expect(evaluateMock).toHaveBeenCalled());
+    const request = lastSupervisorRequest();
+    expect(request?.locale).toBe("en");
+    if (request?.event !== "scope_expansion") {
+      throw new Error("expected scope_expansion request");
+    }
+    // Evidence-ref labels must localize with the active locale, not stay
+    // hardcoded in Korean.
+    const titleRef = request.evidenceRefs.find((ref) => ref.id === "step.title");
+    expect(titleRef?.label).toBe("Add-step title");
+    expect(titleRef?.label).not.toBe("추가 단계 제목");
+  });
+
+  it("threads the active ko-locale into the scope-expansion supervisor request", async () => {
+    useLocaleStore.setState({ locale: "ko" });
+
+    renderPanel();
+
+    fireEvent.change(screen.getByTestId("plan-add-step-title"), {
+      target: { value: "Analytics dashboard" },
+    });
+    fireEvent.change(screen.getByTestId("plan-add-step-reason"), {
+      target: { value: "사용자가 사용량을 볼 수 있게 한다." },
+    });
+
+    await waitFor(() => expect(evaluateMock).toHaveBeenCalled());
+    const request = lastSupervisorRequest();
+    expect(request?.locale).toBe("ko");
+    expect(request?.locale).not.toBe("ko-KR");
   });
 });

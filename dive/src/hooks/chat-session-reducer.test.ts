@@ -102,3 +102,42 @@ describe("reduceChatSessionState assistant stream reattach", () => {
     });
   });
 });
+
+describe("reduceChatSessionState cancelRequested", () => {
+  it("keeps a pending cancelRequested through agent_progress instead of wiping it", () => {
+    let state = { ...initialState(), isStreaming: true, cancelRequested: true };
+    state = reduceChatSessionState(state, {
+      type: "agent_progress",
+      kind: "heartbeat",
+      message: "still working",
+      created_at: 1,
+    });
+
+    expect(state.cancelRequested).toBe(true);
+  });
+
+  it("keeps a pending cancelRequested through tool_call_start instead of wiping it", () => {
+    let state = { ...initialState(), isStreaming: true, cancelRequested: true };
+    state = reduceChatSessionState(state, {
+      type: "tool_call_start",
+      id: "tc1",
+      tool: "read_file",
+      params_preview: "path: file.ts",
+      risk: "safe",
+      args: { path: "file.ts" },
+    });
+
+    expect(state.cancelRequested).toBe(true);
+  });
+
+  it("still clears cancelRequested on terminal events (assistant_end/error/done)", () => {
+    let state = { ...initialState(), isStreaming: true, cancelRequested: true };
+    state = reduceChatSessionState(state, {
+      type: "assistant_end",
+      id: "a1",
+      content: "done",
+    });
+
+    expect(state.cancelRequested).toBe(false);
+  });
+});

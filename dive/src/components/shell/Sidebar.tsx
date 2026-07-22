@@ -17,6 +17,8 @@ import {
   modelDisplayName,
 } from "../../lib/provider-format";
 import { useT } from "../../i18n";
+import { runUserAction } from "../../lib/runUserAction";
+import { useToast } from "../toast/toast-context";
 
 interface SidebarProps {
   className?: string;
@@ -25,6 +27,7 @@ interface SidebarProps {
 export function Sidebar({ className }: SidebarProps) {
   const { theme, toggleTheme } = useTheme();
   const t = useT();
+  const { toast } = useToast();
   const themeSwitchLabel =
     theme === "dark" ? t("sidebar.theme_to_light") : t("sidebar.theme_to_dark");
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
@@ -55,30 +58,82 @@ export function Sidebar({ className }: SidebarProps) {
     if (!loaded) void loadAll().catch(() => undefined);
   }, [loaded, loadAll]);
 
+  const handleSelectProject = async (id: number) => {
+    await runUserAction(
+      () => selectProject(id),
+      (err) =>
+        toast({
+          variant: "error",
+          title: t("toast.project_open_failed"),
+          description: err instanceof Error ? err.message : String(err),
+        }),
+    );
+  };
+
   const handleNewSession = async () => {
     if (!currentProject) return;
-    await createSession(currentProject.id);
+    await runUserAction(
+      () => createSession(currentProject.id),
+      (err) =>
+        toast({
+          variant: "error",
+          title: t("toast.new_session_failed"),
+          description: err instanceof Error ? err.message : String(err),
+        }),
+    );
   };
 
   const handleDeleteProject = async (id: number) => {
     const ok = window.confirm(t("sidebar.delete_project_confirm"));
     if (!ok) return;
-    await deleteProject(id, false);
+    await runUserAction(
+      () => deleteProject(id, false),
+      (err) =>
+        toast({
+          variant: "error",
+          title: t("toast.delete_project_failed"),
+          description: err instanceof Error ? err.message : String(err),
+        }),
+    );
   };
 
   // S-056 D4: archiving is reversible (unlike delete), so no confirm dialog.
   const handleArchiveProject = async (id: number) => {
-    await archiveProject(id);
+    await runUserAction(
+      () => archiveProject(id),
+      (err) =>
+        toast({
+          variant: "error",
+          title: t("toast.archive_project_failed"),
+          description: err instanceof Error ? err.message : String(err),
+        }),
+    );
   };
 
   const handleUnarchiveProject = async (id: number) => {
-    await unarchiveProject(id);
+    await runUserAction(
+      () => unarchiveProject(id),
+      (err) =>
+        toast({
+          variant: "error",
+          title: t("toast.unarchive_project_failed"),
+          description: err instanceof Error ? err.message : String(err),
+        }),
+    );
   };
 
   const handleDeleteSession = async (id: number) => {
     const ok = window.confirm(t("sidebar.delete_session_confirm"));
     if (!ok) return;
-    await deleteSession(id);
+    await runUserAction(
+      () => deleteSession(id),
+      (err) =>
+        toast({
+          variant: "error",
+          title: t("toast.delete_session_failed"),
+          description: err instanceof Error ? err.message : String(err),
+        }),
+    );
   };
 
   const connectedProvider = findConnectedProvider(providers);
@@ -128,7 +183,7 @@ export function Sidebar({ className }: SidebarProps) {
               <li key={p.id} className="flex items-center gap-1">
                 <button
                   type="button"
-                  onClick={() => void selectProject(p.id)}
+                  onClick={() => void handleSelectProject(p.id)}
                   className={cn(
                     "flex-1 rounded-md px-3 py-1.5 text-left text-sm text-fg hover:bg-bg-panel2",
                     currentProject?.id === p.id && "bg-accent-subtle text-fg",
@@ -189,7 +244,7 @@ export function Sidebar({ className }: SidebarProps) {
                   <li key={p.id} className="flex items-center gap-1">
                     <button
                       type="button"
-                      onClick={() => void selectProject(p.id)}
+                      onClick={() => void handleSelectProject(p.id)}
                       className={cn(
                         "flex-1 rounded-md px-3 py-1.5 text-left text-sm text-fg opacity-60 hover:bg-bg-panel2",
                         currentProject?.id === p.id && "bg-accent-subtle text-fg",

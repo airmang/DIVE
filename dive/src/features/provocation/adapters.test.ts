@@ -7,8 +7,28 @@ import {
   createScopeExpansionSupervisorRequest,
   guessChangedFileCategory,
   normalizeChangedFile,
+  normalizeFailureFingerprint,
   normalizeSupervisorEvaluationResponse,
 } from "./adapters";
+
+describe("normalizeFailureFingerprint", () => {
+  it("collapses two messages that differ only in a 0x-hex address to the same key", () => {
+    const a = normalizeFailureFingerprint("segfault at address 0x7ffee23a1000 in worker");
+    const b = normalizeFailureFingerprint("segfault at address 0x1a2b3c4d in worker");
+    const unrelated = normalizeFailureFingerprint("timeout waiting for response in worker");
+
+    expect(a).toBe(b);
+    expect(a).not.toBe(unrelated);
+  });
+
+  it("still collapses plain decimal digits that are not part of a hex token", () => {
+    const a = normalizeFailureFingerprint("failed after 3 retries on line 42");
+    const b = normalizeFailureFingerprint("failed after 12 retries on line 900");
+
+    expect(a).toBe(b);
+    expect(a).toBe("failed after # retries on line #");
+  });
+});
 
 describe("scope-expansion supervisor adapters", () => {
   it("normalizes a scope-expansion evaluation request with review-only actions", () => {

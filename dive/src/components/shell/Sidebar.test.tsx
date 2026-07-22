@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useLocaleStore } from "../../i18n";
 import { useProjectSessionStore, type ProjectRow } from "../../stores/project-session";
+import { ToastProvider } from "../toast/ToastProvider";
 import { Sidebar } from "./Sidebar";
 
 function project(id: number, name: string, status = "active"): ProjectRow {
@@ -131,5 +132,47 @@ describe("Sidebar archived projects section (S-056 D4)", () => {
     fireEvent.click(screen.getByTestId("archived-projects-toggle"));
     fireEvent.click(screen.getByTestId("project-unarchive"));
     expect(unarchiveProject).toHaveBeenCalledWith(2);
+  });
+});
+
+describe("Sidebar mutation failures surface a toast instead of an unhandled rejection", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    useLocaleStore.setState({ locale: "en" });
+    useProjectSessionStore.setState({
+      loaded: true,
+      projects: [project(1, "active-one")],
+      sessions: [],
+      currentProjectId: 1,
+      currentSessionId: null,
+      providers: [],
+      error: null,
+      loadAll: vi.fn().mockResolvedValue(undefined),
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    useLocaleStore.setState({ locale: "ko" });
+    useProjectSessionStore.setState({ loaded: false });
+  });
+
+  it("shows an error toast when deleteProject rejects (delete confirmed)", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const deleteProject = vi.fn().mockRejectedValue(new Error("disk full"));
+    useProjectSessionStore.setState({ deleteProject });
+
+    render(
+      <ToastProvider>
+        <Sidebar />
+      </ToastProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId("project-delete"));
+
+    const toast = await screen.findByTestId("toast");
+    expect(toast.dataset.variant).toBe("error");
+    expect(toast.textContent).toContain("Could not delete project");
   });
 });

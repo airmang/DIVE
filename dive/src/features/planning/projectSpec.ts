@@ -144,7 +144,13 @@ export function adaptAcceptanceCriteria(
 
   for (const item of value) {
     if (isAcceptanceCriterion(item)) {
-      criteria.push({ ...item, text: item.text.trim(), criterionId: item.criterionId.trim() });
+      const criterionId = item.criterionId.trim();
+      const isDuplicate = criteria.some((criterion) => criterion.criterionId === criterionId);
+      criteria.push({
+        ...item,
+        text: item.text.trim(),
+        criterionId: isDuplicate ? allocateCriterionId(criteria) : criterionId,
+      });
       continue;
     }
     if (isAcceptanceCriterionShape(item)) {

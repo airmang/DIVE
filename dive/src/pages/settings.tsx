@@ -14,6 +14,7 @@ import type { ScaffoldMode } from "../features/provocation";
 import { loadTauri } from "../lib/tauri";
 import { classifyConnectError, type ConnectErrorState } from "../lib/error-classify";
 import { runUserAction } from "../lib/runUserAction";
+import { useToast } from "../components/toast/toast-context";
 
 interface PolicyDto {
   rules: Record<string, string>;
@@ -99,6 +100,7 @@ function usesNonDefaultProviderHost(provider: ProviderSummary | undefined) {
 
 export function SettingsPage() {
   const t = useT();
+  const { toast } = useToast();
   const internalResearchEnabled = import.meta.env.DEV;
   const { theme, toggleTheme } = useTheme();
   const locale = useLocaleStore((s) => s.locale);
@@ -121,7 +123,6 @@ export function SettingsPage() {
     disable_gates: false,
     controls_enabled: false,
   });
-  const [resetNextSession, setResetNextSession] = useState(true);
   const [expandedKind, setExpandedKind] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [connecting, setConnecting] = useState(false);
@@ -178,8 +179,6 @@ export function SettingsPage() {
       try {
         const raw = window.localStorage.getItem("dive:auto-approve-policy");
         if (raw) setPolicy(JSON.parse(raw) as PolicyDto);
-        const raw2 = window.localStorage.getItem("dive:reset-next-session");
-        if (raw2) setResetNextSession(raw2 === "true");
         const controlsEnabled = internalResearchEnabled;
         const researchDisable = controlsEnabled
           ? window.localStorage.getItem("dive:research-disable-gates")
@@ -280,7 +279,15 @@ export function SettingsPage() {
       return;
     }
     if (!window.confirm(t("settings.disconnect_confirm", { kind: row.kind }))) return;
-    await disconnectProvider(row.id);
+    await runUserAction(
+      () => disconnectProvider(row.id),
+      (err) =>
+        toast({
+          variant: "error",
+          title: t("toast.disconnect_provider_failed"),
+          description: err instanceof Error ? err.message : String(err),
+        }),
+    );
   };
 
   const handleSelectProvider = async (row: ProviderSummary) => {
@@ -569,7 +576,10 @@ export function SettingsPage() {
                         onClick={() => {
                           setConnectError(null);
                           if (isCodex) setCodexDialogOpen(true);
-                          else setExpandedKind(expanded ? null : p.kind);
+                          else {
+                            setApiKeyInput("");
+                            setExpandedKind(expanded ? null : p.kind);
+                          }
                         }}
                         data-testid="provider-connect-btn"
                         data-provider-kind={p.kind}
@@ -675,26 +685,6 @@ export function SettingsPage() {
               <p className="mt-1 text-fg-muted">{t("settings.safety_undo_description")}</p>
             </div>
           </div>
-          <label className="flex items-start gap-2 rounded-md border bg-bg-panel px-3 py-2.5 text-xs">
-            <input
-              type="checkbox"
-              checked={resetNextSession}
-              onChange={(e) => {
-                setResetNextSession(e.target.checked);
-                window.localStorage.setItem("dive:reset-next-session", String(e.target.checked));
-              }}
-              data-testid="policy-reset-next"
-              className="mt-0.5 h-3.5 w-3.5"
-            />
-            <span>
-              <span className="block text-sm font-medium text-fg">
-                {t("settings.reset_approvals_title")}
-              </span>
-              <span className="block text-fg-muted">
-                {t("settings.reset_approvals_description")}
-              </span>
-            </span>
-          </label>
         </section>
 
         <section className="flex flex-col gap-3" data-testid="settings-section-advanced">

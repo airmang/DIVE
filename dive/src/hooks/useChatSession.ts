@@ -405,6 +405,14 @@ export function useChatSession(
     let cancelled = false;
     let historyLoaded = false;
     const bufferedEvents: AgentEvent[] = [];
+    // Idempotent: safe to call from the cleanup fn and from the async body
+    // below without double-invoking the resolved Tauri unlisten callback.
+    const stopListening = () => {
+      if (unsub) {
+        unsub();
+        unsub = null;
+      }
+    };
     clearStallTimer();
     runTerminalRef.current = true;
     setState({
@@ -538,11 +546,22 @@ export function useChatSession(
           const runTerminal = runTerminalRef.current;
           setState((prev) => reduceChatSessionState(prev, payload, runTerminal));
         });
+        // Cleanup may have already run while this listen() was pending — in
+        // that case its `if (unsub) unsub()` saw unsub still null and could
+        // not tear it down. Catch that here before the listener (and the
+        // ever-growing bufferedEvents behind it) is allowed to leak.
+        if (cancelled) {
+          stopListening();
+          return;
+        }
         const [history, pending] = await Promise.all([
           api.invoke<ChatMessage[]>("message_list", { sessionId }),
           api.invoke<PendingToolCall[]>("pending_tool_calls", { sessionId }),
         ]);
-        if (cancelled) return;
+        if (cancelled) {
+          stopListening();
+          return;
+        }
         historyLoaded = true;
         const pendingMessages = pending.map(pendingToolCallToMessage);
         const replayEvents = bufferedEvents.splice(0);
@@ -565,7 +584,10 @@ export function useChatSession(
           return next;
         });
       } catch (err) {
-        if (cancelled) return;
+        if (cancelled) {
+          stopListening();
+          return;
+        }
         historyLoaded = true;
         setState((s) => ({
           ...s,
@@ -578,7 +600,7 @@ export function useChatSession(
     return () => {
       cancelled = true;
       clearStallTimer();
-      if (unsub) unsub();
+      stopListening();
     };
   }, [armStallTimer, clearStallTimer, sessionId, startNewRun]);
 

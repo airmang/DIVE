@@ -1,5 +1,6 @@
 import type { PlanRoadmapStep } from "../../features/roadmap";
 import type { CardTileData } from "../workmap/types";
+import type { Locale } from "../../i18n";
 
 export type SessionStepMap = Record<number, number>;
 
@@ -66,11 +67,14 @@ function executionCriteriaContext(value: unknown): ExecutionCriteriaContext {
   };
 }
 
-export function buildPlanStepExecutionPrompt(item: PlanRoadmapStep): string {
+export function buildPlanStepExecutionPrompt(item: PlanRoadmapStep, locale: Locale = "ko"): string {
+  const en = locale === "en";
   const lines = [
-    "다음 계획 Step만 실행해 주세요.",
+    en ? "Execute only the following plan step." : "다음 계획 Step만 실행해 주세요.",
     "",
-    "이 내용은 DIVE의 승인된 계획에서 가져온 실행 컨텍스트입니다. 범위를 넓히지 말고 이 Step의 완료 기준만 충족하세요.",
+    en
+      ? "This is execution context from DIVE's approved plan. Don't widen the scope — meet only this step's completion criteria."
+      : "이 내용은 DIVE의 승인된 계획에서 가져온 실행 컨텍스트입니다. 범위를 넓히지 말고 이 Step의 완료 기준만 충족하세요.",
     "",
     `Step ID: ${item.step.step_id}`,
     `Title: ${item.step.title}`,
@@ -119,10 +123,18 @@ export function buildPlanStepExecutionPrompt(item: PlanRoadmapStep): string {
   lines.push(
     "",
     "Execution constraints:",
-    "- 필요한 파일이나 디렉터리가 아직 없으면 직접 생성하세요.",
-    "- 기존 동작을 불필요하게 바꾸지 말고 위 Step 범위 안에서만 수정하세요.",
-    "- 완료 후 변경한 파일, 실행한 검증, 남은 위험을 짧게 보고하세요.",
-    "- 완료 기준을 충족할 수 없으면 추측하지 말고 막힌 이유와 필요한 결정을 설명하세요.",
+    en
+      ? "- If a needed file or directory doesn't exist yet, create it yourself."
+      : "- 필요한 파일이나 디렉터리가 아직 없으면 직접 생성하세요.",
+    en
+      ? "- Don't change existing behavior unnecessarily — modify only within this step's scope."
+      : "- 기존 동작을 불필요하게 바꾸지 말고 위 Step 범위 안에서만 수정하세요.",
+    en
+      ? "- When done, briefly report the files you changed, the verification you ran, and any remaining risk."
+      : "- 완료 후 변경한 파일, 실행한 검증, 남은 위험을 짧게 보고하세요.",
+    en
+      ? "- If you can't meet the completion criteria, don't guess — explain what's blocking you and what decision is needed."
+      : "- 완료 기준을 충족할 수 없으면 추측하지 말고 막힌 이유와 필요한 결정을 설명하세요.",
   );
   return lines.join("\n");
 }

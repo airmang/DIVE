@@ -62,6 +62,32 @@ describe("project spec helpers", () => {
     expect(allocateCriterionId(existing)).toBe("AC-011");
   });
 
+  it("reassigns a repeated valid criterion id instead of letting it pass through as a duplicate", () => {
+    const criteria = adaptAcceptanceCriteria([
+      {
+        criterionId: "AC-001",
+        text: "First",
+        source: "interview",
+        status: "active",
+        createdInVersion: 1,
+        retiredInVersion: null,
+      },
+      {
+        criterionId: "AC-001",
+        text: "Duplicate of first",
+        source: "interview",
+        status: "active",
+        createdInVersion: 1,
+        retiredInVersion: null,
+      },
+    ]);
+
+    expect(criteria).toHaveLength(2);
+    expect(criteria[0].criterionId).toBe("AC-001");
+    expect(criteria[1].criterionId).not.toBe("AC-001");
+    expect(new Set(criteria.map((c) => c.criterionId)).size).toBe(2);
+  });
+
   it("reassigns invalid AC-000 criterion ids instead of preserving them", () => {
     const criteria = adaptAcceptanceCriteria([
       {

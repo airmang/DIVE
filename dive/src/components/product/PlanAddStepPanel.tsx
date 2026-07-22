@@ -26,7 +26,7 @@ import {
   type SupervisorEvidenceRefContract,
   type SupervisorSourceUiMode,
 } from "../../features/provocation";
-import { useT } from "../../i18n";
+import { useLocaleStore, useT } from "../../i18n";
 import { cn } from "../../lib/utils";
 import { runUserAction } from "../../lib/runUserAction";
 import { useProjectSessionStore } from "../../stores/project-session";
@@ -194,6 +194,7 @@ function buildScopeEvidenceRefs(input: {
   prdDelta: ProjectSpecDelta | null;
   activeCriteria: AcceptanceCriterion[];
   scopeExpansion: ScopeExpansionAssessment;
+  t: (key: string, params?: Record<string, string | number>) => string;
 }): SupervisorEvidenceRefContract[] {
   const refs: SupervisorEvidenceRefContract[] = [];
   const push = (ref: SupervisorEvidenceRefContract) => {
@@ -205,7 +206,7 @@ function buildScopeEvidenceRefs(input: {
       id: "step.title",
       source: "plan",
       kind: "add_step_draft",
-      label: "추가 단계 제목",
+      label: input.t("plan_add_step.evidence_step_title"),
       valueSummary: input.title.trim(),
       verificationEvidence: false,
     });
@@ -215,7 +216,7 @@ function buildScopeEvidenceRefs(input: {
       id: "step.reason",
       source: "plan",
       kind: "add_step_draft",
-      label: "추가 단계 이유",
+      label: input.t("plan_add_step.evidence_step_reason"),
       valueSummary: input.reason.trim(),
       verificationEvidence: false,
     });
@@ -224,7 +225,7 @@ function buildScopeEvidenceRefs(input: {
     id: "step.linkedCriterionIds",
     source: "plan",
     kind: "add_step_draft",
-    label: "연결된 PRD 기준",
+    label: input.t("plan_add_step.evidence_linked_criteria"),
     valueSummary: { linkedCriterionIds: input.selectedCriterionIds },
     verificationEvidence: false,
   });
@@ -233,7 +234,7 @@ function buildScopeEvidenceRefs(input: {
       id: `step.expectedFiles[${index}]`,
       source: "plan",
       kind: "add_step_draft",
-      label: "예상 파일",
+      label: input.t("plan_add_step.evidence_expected_file"),
       valueSummary: expectedFile,
       verificationEvidence: false,
     });
@@ -243,7 +244,7 @@ function buildScopeEvidenceRefs(input: {
       id: `prdDelta.scopeChanges[${index}]`,
       source: "plan",
       kind: "prd_scope",
-      label: "PRD 범위 변경",
+      label: input.t("plan_add_step.evidence_prd_scope_change"),
       valueSummary: scopeChange,
       verificationEvidence: false,
     });
@@ -255,7 +256,7 @@ function buildScopeEvidenceRefs(input: {
         id: refId,
         source: "plan",
         kind: "scope_expansion_assessment",
-        label: "범위 확장 근거",
+        label: input.t("plan_add_step.evidence_scope_expansion_reason"),
         valueSummary: refId,
         verificationEvidence: false,
       });
@@ -318,6 +319,7 @@ export function PlanAddStepPanel({
   const [actionRoute, setActionRoute] = useState<ScopeActionRoute | null>(null);
   const [planAdjustmentSuggestion, setPlanAdjustmentSuggestion] =
     useState<PlanAdjustmentReviewRequestDetail | null>(null);
+  const locale = useLocaleStore((s) => s.locale);
   const currentProjectId = useProjectSessionStore((s) => s.currentProjectId);
   const currentSessionId = useProjectSessionStore((s) => s.currentSessionId);
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -354,8 +356,18 @@ export function PlanAddStepPanel({
         prdDelta,
         activeCriteria,
         scopeExpansion,
+        t,
       }),
-    [activeCriteria, expectedFiles, prdDelta, reason, scopeExpansion, selectedCriterionIds, title],
+    [
+      activeCriteria,
+      expectedFiles,
+      prdDelta,
+      reason,
+      scopeExpansion,
+      selectedCriterionIds,
+      t,
+      title,
+    ],
   );
   const scopeSupervisorRequest = useMemo(() => {
     if (
@@ -382,7 +394,7 @@ export function PlanAddStepPanel({
       planId,
       artifactRef,
       sourceUiMode: provocationMode,
-      locale: "ko-KR",
+      locale,
       contextHash: stableHash({
         projectId,
         planId,
@@ -416,6 +428,7 @@ export function PlanAddStepPanel({
   }, [
     expectedFiles,
     hasReviewableDraft,
+    locale,
     planId,
     prdDelta,
     projectId,
@@ -660,7 +673,18 @@ export function PlanAddStepPanel({
     setDraftNotice(null);
     setDraftStatus(null);
     setRequestText("");
-    await onAppended?.();
+    // The mutation already succeeded (runUserAction above returned ok) — a
+    // post-success refresh rejection here is not a save failure. The refresh
+    // hook owns its own error state, so treat it as non-fatal instead of
+    // letting it surface as (or crash as an unhandled rejection alongside)
+    // "could not save step" for a step that was, in fact, saved.
+    try {
+      await onAppended?.();
+    } catch (err) {
+      if (import.meta.env.DEV) {
+        console.warn("plan add step post-save refresh failed:", err);
+      }
+    }
   };
 
   return (

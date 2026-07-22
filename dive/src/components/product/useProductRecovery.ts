@@ -70,8 +70,14 @@ export function useProductRecovery(input: {
   // are batched/async, so the guard needs a ref, not just restoringCheckpointId,
   // to reject a concurrent call made before the state update has been observed.
   const restoreInFlightRef = useRef(false);
+  // Mirrors useWorkmap.ts's requestGeneration pattern: a session switch fires a
+  // new refresh, but a stale in-flight fetch from the *previous* session can
+  // still resolve last and, without this guard, would overwrite the newer
+  // session's already-applied checkpoint list.
+  const checkpointsGenerationRef = useRef(0);
 
   const refreshCheckpoints = useCallback(async () => {
+    const requestGeneration = ++checkpointsGenerationRef.current;
     if (currentSessionId === null) {
       setCheckpoints((current) => (current.length === 0 ? current : []));
       setCheckpointsError((current) => (current === null ? current : null));
@@ -80,12 +86,14 @@ export function useProductRecovery(input: {
     setCheckpointsLoading(true);
     try {
       const rows = await listCheckpoints();
+      if (checkpointsGenerationRef.current !== requestGeneration) return;
       setCheckpoints(rows);
       setCheckpointsError(null);
     } catch (err) {
+      if (checkpointsGenerationRef.current !== requestGeneration) return;
       setCheckpointsError(err instanceof Error ? err.message : String(err));
     } finally {
-      setCheckpointsLoading(false);
+      if (checkpointsGenerationRef.current === requestGeneration) setCheckpointsLoading(false);
     }
   }, [currentSessionId, listCheckpoints]);
 

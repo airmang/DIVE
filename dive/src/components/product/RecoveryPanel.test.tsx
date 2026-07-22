@@ -199,9 +199,9 @@ describe("RecoveryPanel failure actions", () => {
     expect(screen.queryByTestId("recovery-restoring-banner")).toBeNull();
     expect((screen.getByTestId("recovery-save-point") as HTMLButtonElement).disabled).toBe(false);
     expect((screen.getByTestId("recovery-refresh") as HTMLButtonElement).disabled).toBe(false);
-    expect(
-      (screen.getAllByTestId("recovery-restore")[0] as HTMLButtonElement).disabled,
-    ).toBe(false);
+    expect((screen.getAllByTestId("recovery-restore")[0] as HTMLButtonElement).disabled).toBe(
+      false,
+    );
   });
 
   it("marks only the most recent pre-edit anchor as the before-your-last-edit point (S-032)", () => {

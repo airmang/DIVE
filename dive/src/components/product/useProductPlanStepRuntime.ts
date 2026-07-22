@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { PlanRoadmapStep, StepSessionMappingRow } from "../../features/roadmap";
 import type { CardTileData } from "../workmap/types";
+import type { Locale } from "../../i18n";
 import {
   buildPlanStepExecutionPrompt,
   deriveActivePlanStepIdForChat,
@@ -20,6 +21,7 @@ export function useProductPlanStepRuntime(input: {
   currentSessionId: number | null;
   currentCard: Pick<CardTileData, "id"> | null;
   planRoadmapSteps: PlanRoadmapStep[];
+  locale: Locale;
 }) {
   const [justOpenedPlanStepBySession, setJustOpenedPlanStepBySession] = useState<
     Record<number, number>
@@ -82,9 +84,14 @@ export function useProductPlanStepRuntime(input: {
     if (!item) return null;
     return {
       stepId,
-      prompt: buildPlanStepExecutionPrompt(item),
+      prompt: buildPlanStepExecutionPrompt(item, input.locale),
     };
-  }, [input.currentSessionId, input.planRoadmapSteps, pendingPromptPlanStepBySession]);
+  }, [
+    input.currentSessionId,
+    input.locale,
+    input.planRoadmapSteps,
+    pendingPromptPlanStepBySession,
+  ]);
 
   const clearPendingPlanStepPrompt = useCallback(() => {
     const sessionId = input.currentSessionId;

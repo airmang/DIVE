@@ -120,6 +120,32 @@ describe("SettingsPage review-card preferences", () => {
     expect(screen.queryByTestId("provider-key-input")).toBeNull();
   });
 
+  it("clears the API key input when switching between provider connect forms (P2 settings-api-key-carries-across-providers)", () => {
+    render(<SettingsPage />);
+
+    const anthropicCard = screen
+      .getAllByTestId("provider-card")
+      .find((card) => card.dataset.providerKind === "anthropic") as HTMLElement;
+    const openaiCard = screen
+      .getAllByTestId("provider-card")
+      .find((card) => card.dataset.providerKind === "openai") as HTMLElement;
+
+    fireEvent.click(within(anthropicCard).getByTestId("provider-connect-btn"));
+    fireEvent.change(within(anthropicCard).getByTestId("provider-key-input"), {
+      target: { value: "sk-secret-for-anthropic" },
+    });
+    expect(
+      (within(anthropicCard).getByTestId("provider-key-input") as HTMLInputElement).value,
+    ).toBe("sk-secret-for-anthropic");
+
+    // Switching the expanded card to openai must not carry the anthropic-typed
+    // key along (it would otherwise be submittable, masked, to the wrong provider).
+    fireEvent.click(within(openaiCard).getByTestId("provider-connect-btn"));
+
+    const openaiInput = within(openaiCard).getByTestId("provider-key-input") as HTMLInputElement;
+    expect(openaiInput.value).toBe("");
+  });
+
   it("shows a role=alert connect error when connecting a provider fails", async () => {
     useProjectSessionStore.setState({
       connectProvider: vi.fn().mockRejectedValue(new Error("401 Unauthorized invalid x-api-key")),

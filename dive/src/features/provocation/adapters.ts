@@ -208,9 +208,8 @@ function matchingRetryPhrases(text: string): string[] {
 
 function normalizeFailureKey(value: string): string {
   return lowercase(value)
-    .replace(/\d+/g, "#")
     .replace(/0x[0-9a-f]+/g, "0x#")
-    .replace(/line #/g, "line #")
+    .replace(/\d+/g, "#")
     .slice(0, 240);
 }
 

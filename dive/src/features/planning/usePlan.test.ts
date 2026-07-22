@@ -2,7 +2,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLiveProjectSpecDraft } from "./projectSpec";
-import { usePlan } from "./usePlan";
+import { usePlan, type WorkspacePlanStatus } from "./usePlan";
 import type { ProjectSpec, PrdPatch, StepDraftInput } from "./types";
 
 const mocks = vi.hoisted(() => ({
@@ -258,5 +258,69 @@ describe("usePlan PRD IPC methods", () => {
       },
     });
     expect(mocks.invoke).toHaveBeenCalledWith("workspace_prd_status", { projectId: 42 });
+  });
+
+  it("ignores a stale refresh response after the project changes mid-flight (useplan-stale-project-race)", async () => {
+    function planStatus(overrides: Partial<WorkspacePlanStatus>): WorkspacePlanStatus {
+      return {
+        status: "needs_prd",
+        has_plan: false,
+        has_approved_plan: false,
+        plan_summary: null,
+        plan_id: null,
+        step_count: 0,
+        ready_count: 0,
+        blocked_count: 0,
+        active_count: 0,
+        done_count: 0,
+        prd_status: null,
+        ...overrides,
+      };
+    }
+
+    type Resolver = (value: unknown) => void;
+    const planResolvers = new Map<number, Resolver>();
+    const prdResolvers = new Map<number, Resolver>();
+
+    mocks.invoke.mockReset();
+    mocks.invoke.mockImplementation((cmd: string, args?: { projectId?: number }) => {
+      const projectId = args?.projectId as number;
+      if (cmd === "workspace_plan_status") {
+        return new Promise((resolve) => planResolvers.set(projectId, resolve));
+      }
+      if (cmd === "workspace_prd_status") {
+        return new Promise((resolve) => prdResolvers.set(projectId, resolve));
+      }
+      throw new Error(`unexpected command ${cmd}`);
+    });
+
+    const { result, rerender } = renderHook(({ projectId }) => usePlan(projectId), {
+      initialProps: { projectId: 1 },
+    });
+
+    await waitFor(() => expect(planResolvers.has(1)).toBe(true));
+
+    // Switch projects before project 1's in-flight refresh resolves.
+    rerender({ projectId: 2 });
+    await waitFor(() => expect(planResolvers.has(2)).toBe(true));
+
+    // The current project's (2) response resolves first.
+    await act(async () => {
+      planResolvers.get(2)!(planStatus({ status: "ready_project_2" }));
+      prdResolvers.get(2)!({ status: "missing" });
+    });
+    await waitFor(() => expect(result.current.status?.status).toBe("ready_project_2"));
+
+    // The superseded project's (1) response arrives late — it must not stomp
+    // project 2's already-applied state.
+    await act(async () => {
+      planResolvers.get(1)!(planStatus({ status: "stale_project_1" }));
+      prdResolvers.get(1)!({ status: "missing" });
+      // Give the (would-be) stale `.then` continuation a couple of
+      // microtask/macrotask turns to run before asserting nothing changed.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(result.current.status?.status).toBe("ready_project_2");
   });
 });

@@ -866,4 +866,38 @@ describe("useChatSession runtime event reducer", () => {
     });
     expect(result.current.messages.filter((message) => message.kind === "error")).toHaveLength(0);
   });
+
+  it("unsubscribes the chat listener even when unmount races the pending api.listen() call", async () => {
+    // Regression for chat-listener-unsub-race-leak: if the effect's cleanup
+    // runs while `api.listen(...)` is still pending, the resolved unlisten
+    // must not be dropped on the floor (it would leak both the live Tauri
+    // listener and the buffered-events array behind it).
+    let resolveListen!: (unlisten: () => void) => void;
+    const pendingListen = new Promise<() => void>((resolve) => {
+      resolveListen = resolve;
+    });
+    const unlisten = vi.fn();
+    tauriMocks.listen.mockReset();
+    tauriMocks.listen.mockImplementation(() => pendingListen);
+
+    const { unmount } = renderHook(() => useChatSession(42));
+
+    // Let the effect progress past loadTauriEvents()/its cancelled-check to the
+    // point where api.listen() has actually been called and is now pending —
+    // that is the exact window the leak lives in.
+    await waitFor(() => expect(tauriMocks.listen).toHaveBeenCalled());
+
+    // Cleanup fires while api.listen() is still pending (unsub not yet set).
+    unmount();
+
+    await act(async () => {
+      resolveListen(unlisten);
+      await pendingListen;
+    });
+
+    // The resolved unlisten is invoked from the effect's async continuation a
+    // few microtask hops after listen() settles, so wait for it rather than
+    // asserting on a single flush.
+    await waitFor(() => expect(unlisten).toHaveBeenCalledTimes(1));
+  });
 });

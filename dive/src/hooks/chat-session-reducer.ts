@@ -354,7 +354,6 @@ export function reduceChatSessionState(
         messages: mergeMessagesById(prev.messages, [m]),
         isStreaming: true,
         runStartedAt: prev.runStartedAt ?? Date.now(),
-        cancelRequested: false,
       };
     }
     case "tool_call_approved": {
@@ -479,7 +478,6 @@ export function reduceChatSessionState(
         ...prev,
         isStreaming: true,
         runStartedAt: prev.runStartedAt ?? evt.created_at,
-        cancelRequested: false,
       };
     }
     case "error": {

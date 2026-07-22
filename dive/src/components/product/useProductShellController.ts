@@ -14,7 +14,7 @@ import { selectHasConnectedProvider, useProjectSessionStore } from "../../stores
 import { cockpitProviderLabel } from "../../lib/provider-format";
 import { useToast } from "../toast/toast-context";
 import { getCardStateMeta } from "../workmap/card-state-meta";
-import { useT } from "../../i18n";
+import { useLocale, useT } from "../../i18n";
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts";
 import { usePlanRoadmap, useRoadmap } from "../../features/roadmap";
 import {
@@ -99,6 +99,7 @@ interface PendingPrdPlanRequest {
 
 export function useProductShellController() {
   const t = useT();
+  const locale = useLocale();
   const dialogs = useProductShellDialogs();
   const setOnboardingOpen = dialogs.setOnboardingOpen;
   const [prdMode, setPrdMode] = useState<PrdMode>(null);
@@ -172,6 +173,10 @@ export function useProductShellController() {
     setPrdPatchFeedback(null);
     setPrdBusy(false);
     setPendingPrdPlanRequest(null);
+    // Project A's architecture proposal cards must never survive onto project
+    // B's PRD board — they render as clickable confirm cards and would seed a
+    // decision on the wrong project.
+    setArchitectureProposals(null);
   }, [currentProjectId]);
 
   useEffect(() => {
@@ -247,6 +252,7 @@ export function useProductShellController() {
     currentSessionId,
     currentCard,
     planRoadmapSteps: planRoadmap.steps,
+    locale,
   });
   const activePlanStep = useMemo(
     () =>
@@ -693,6 +699,7 @@ export function useProductShellController() {
     if (!nextDraft) return;
     setPrdDraft(nextDraft);
     setPrdPatchFeedback(null);
+    setArchitectureProposals(null);
     setPrdMode("authoring");
     const restoreRequestId = prdDraftRestoreRequestRef.current + 1;
     prdDraftRestoreRequestRef.current = restoreRequestId;

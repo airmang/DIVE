@@ -36,7 +36,7 @@ function roadmapStep(overrides: Partial<PlanRoadmapStep> = {}): PlanRoadmapStep 
 
 describe("product shell plan-step logic", () => {
   it("builds the suggested step prompt from instruction seed, expected files, and criteria", () => {
-    expect(buildPlanStepExecutionPrompt(roadmapStep())).toBe(
+    expect(buildPlanStepExecutionPrompt(roadmapStep(), "ko")).toBe(
       [
         "다음 계획 Step만 실행해 주세요.",
         "",
@@ -71,9 +71,51 @@ describe("product shell plan-step logic", () => {
   });
 
   it("tells the agent to scaffold missing structure instead of stalling on an empty workspace", () => {
-    const prompt = buildPlanStepExecutionPrompt(roadmapStep());
+    const prompt = buildPlanStepExecutionPrompt(roadmapStep(), "ko");
     expect(prompt).toContain("필요한 파일이나 디렉터리가 아직 없으면 직접 생성");
     expect(prompt).toContain("범위를 넓히지 말고");
+  });
+
+  it("defaults to Korean directives when no locale is passed (backward compatible)", () => {
+    const prompt = buildPlanStepExecutionPrompt(roadmapStep());
+    expect(prompt).toContain("다음 계획 Step만 실행해 주세요.");
+  });
+
+  it("builds English directives instead of hardcoded Korean when locale is 'en'", () => {
+    const prompt = buildPlanStepExecutionPrompt(roadmapStep(), "en");
+    expect(prompt).toBe(
+      [
+        "Execute only the following plan step.",
+        "",
+        "This is execution context from DIVE's approved plan. Don't widen the scope — meet only this step's completion criteria.",
+        "",
+        "Step ID: step-001",
+        "Title: Create the app shell",
+        "",
+        "Instruction:",
+        "Build the shell with navigation.",
+        "",
+        "Expected files:",
+        "- src/App.tsx",
+        "- src/main.tsx",
+        "",
+        "Acceptance criteria:",
+        "- renders shell",
+        "- has navigation",
+        "",
+        "Verification:",
+        "- Kind: command",
+        "- Command: pnpm test",
+        "- Manual check: Open the app shell and inspect navigation.",
+        "",
+        "Execution constraints:",
+        "- If a needed file or directory doesn't exist yet, create it yourself.",
+        "- Don't change existing behavior unnecessarily — modify only within this step's scope.",
+        "- When done, briefly report the files you changed, the verification you ran, and any remaining risk.",
+        "- If you can't meet the completion criteria, don't guess — explain what's blocking you and what decision is needed.",
+      ].join("\n"),
+    );
+    expect(prompt).not.toContain("다음 계획 Step만 실행해 주세요.");
   });
 
   it("preserves object-shaped criteria metadata in the execution prompt", () => {

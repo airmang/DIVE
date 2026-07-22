@@ -9,6 +9,7 @@
  * - Fallback chain: active locale → ko → key string (tests can detect misses).
  * - OS detection on first run, `localStorage` persistence (`dive:locale`).
  */
+import { useCallback } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import koResources from "./ko.json";
@@ -81,7 +82,14 @@ export function translate(
 
 export function useT() {
   const locale = useLocaleStore((s) => s.locale);
-  return (key: string, params?: Record<string, string | number>) => translate(locale, key, params);
+  // Stable across renders (keyed on locale) so callers can safely list `t` in a
+  // useMemo/useEffect dependency array without churning every render — an
+  // unmemoized closure here caused an infinite re-render once a memo depended
+  // on it (PlanAddStepPanel scopeEvidenceRefs).
+  return useCallback(
+    (key: string, params?: Record<string, string | number>) => translate(locale, key, params),
+    [locale],
+  );
 }
 
 export function useLocale(): Locale {

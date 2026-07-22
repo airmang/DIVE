@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { normalizeStepCriteria, type WorkspacePlanStatus } from "../planning";
 import { deriveAgencyStateView } from "./agencyStatus";
 import type { AgencyStateView } from "./types";
@@ -155,12 +155,16 @@ export function usePlanRoadmap(projectId: number | null) {
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Bumped on every refresh() call so a stale response from a superseded
+  // project (rapid A -> B switch) can't stomp the current project's state.
+  const generation = useRef(0);
 
   useEffect(() => {
     void loadTauri().then(setApi);
   }, []);
 
   const refresh = useCallback(async () => {
+    const requestGeneration = ++generation.current;
     if (projectId === null || !api) {
       setStatus(null);
       setSteps([]);
@@ -173,6 +177,7 @@ export function usePlanRoadmap(projectId: number | null) {
       const nextStatus = await api.invoke<WorkspacePlanStatus>("workspace_plan_status", {
         projectId,
       });
+      if (generation.current !== requestGeneration) return;
       setStatus(nextStatus);
       const planId = nextStatus.has_plan ? nextStatus.plan_id : null;
       if (planId === null) {
@@ -186,14 +191,18 @@ export function usePlanRoadmap(projectId: number | null) {
         api.invoke<PlanStepRow[]>("workspace_plan_list_steps", { planId }),
         api.invoke<StepSessionMappingRow[]>("workspace_plan_step_mappings", { planId }),
       ]);
+      if (generation.current !== requestGeneration) return;
       setSteps(nextSteps);
       setMappings(nextMappings);
       setError(null);
     } catch (err) {
+      if (generation.current !== requestGeneration) return;
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoadingStatus(false);
-      setLoadingDetails(false);
+      if (generation.current === requestGeneration) {
+        setLoadingStatus(false);
+        setLoadingDetails(false);
+      }
     }
   }, [api, projectId]);
 

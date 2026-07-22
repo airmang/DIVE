@@ -65,6 +65,7 @@ describe("useProductPlanStepRuntime", () => {
         currentSessionId: opened.session_id,
         currentCard: null,
         planRoadmapSteps: [item],
+        locale: "ko",
       }),
     );
 
@@ -88,6 +89,7 @@ describe("useProductPlanStepRuntime", () => {
         currentSessionId: opened.session_id,
         currentCard: null,
         planRoadmapSteps: [item],
+        locale: "ko",
       }),
     );
 
@@ -97,5 +99,28 @@ describe("useProductPlanStepRuntime", () => {
     });
 
     expect(result.current.pendingPlanStepPrompt).toBeNull();
+  });
+
+  it("threads the active en locale into the suggested prompt's directives", () => {
+    const item = roadmapStep();
+    const opened = mapping(item.step);
+
+    const { result } = renderHook(() =>
+      useProductPlanStepRuntime({
+        currentSessionId: opened.session_id,
+        currentCard: null,
+        planRoadmapSteps: [item],
+        locale: "en",
+      }),
+    );
+
+    act(() => result.current.rememberJustOpenedPlanStepMapping(opened));
+
+    expect(result.current.pendingPlanStepPrompt?.prompt).toContain(
+      "Execute only the following plan step.",
+    );
+    expect(result.current.pendingPlanStepPrompt?.prompt).not.toContain(
+      "다음 계획 Step만 실행해 주세요.",
+    );
   });
 });

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { CheckpointRowPayload } from "../../hooks/useChatSession";
 import { useProductRecovery } from "./useProductRecovery";
 
 type RecoveryInput = Parameters<typeof useProductRecovery>[0];
@@ -140,5 +141,73 @@ describe("useProductRecovery checkpoint restore concurrency guard", () => {
       void result.current.handleRestoreCheckpoint(2);
     });
     expect(restoreCheckpoint).toHaveBeenCalledWith(2);
+  });
+});
+
+describe("useProductRecovery refreshCheckpoints stale-response guard", () => {
+  it("ignores a stale checkpoint list from a superseded session", async () => {
+    const staleGate = deferred<CheckpointRowPayload[]>();
+    const staleRow: CheckpointRowPayload = {
+      id: 1,
+      session_id: 1,
+      card_id: null,
+      git_sha: "stale-sha",
+      kind: "manual",
+      label: "stale checkpoint",
+      created_at: 1,
+    };
+    const freshRow: CheckpointRowPayload = {
+      id: 2,
+      session_id: 2,
+      card_id: null,
+      git_sha: "fresh-sha",
+      kind: "manual",
+      label: "fresh checkpoint",
+      created_at: 2,
+    };
+    const listCheckpointsSession1 = vi.fn().mockReturnValue(staleGate.promise);
+    const listCheckpointsSession2 = vi.fn().mockResolvedValue([freshRow]);
+
+    const input1 = baseInput({
+      currentSessionId: 1,
+      chat: {
+        messages: [],
+        listCheckpoints: listCheckpointsSession1,
+        createCheckpoint: vi.fn().mockResolvedValue(null),
+        restoreCheckpoint: vi.fn().mockResolvedValue({ restored_session_state: false }),
+        sendUserMessage: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+
+    const { result, rerender } = renderHook((props: RecoveryInput) => useProductRecovery(props), {
+      initialProps: input1,
+    });
+
+    await waitFor(() => expect(listCheckpointsSession1).toHaveBeenCalledTimes(1));
+
+    // The session switches before the session-1 fetch resolves.
+    const input2 = baseInput({
+      currentSessionId: 2,
+      chat: {
+        messages: [],
+        listCheckpoints: listCheckpointsSession2,
+        createCheckpoint: vi.fn().mockResolvedValue(null),
+        restoreCheckpoint: vi.fn().mockResolvedValue({ restored_session_state: false }),
+        sendUserMessage: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+    rerender(input2);
+
+    await waitFor(() => expect(listCheckpointsSession2).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.recoveryCheckpoints).toHaveLength(1));
+    expect(result.current.recoveryCheckpoints.map((c) => c.id)).toEqual([2]);
+
+    // The stale session-1 fetch resolves last, with different data — it must
+    // not clobber the already-applied session-2 checkpoint list.
+    await act(async () => {
+      staleGate.resolve([staleRow]);
+    });
+
+    expect(result.current.recoveryCheckpoints.map((c) => c.id)).toEqual([2]);
   });
 });

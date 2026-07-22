@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AppendPlanStepInput,
   ArchitectureProposals,
@@ -147,12 +147,16 @@ export function usePlan(projectId: number | null) {
   const [prdStatus, setPrdStatus] = useState<WorkspacePrdStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Bumped on every refresh() call so a stale response from a superseded
+  // project (rapid A -> B switch) can't stomp the current project's state.
+  const generation = useRef(0);
 
   useEffect(() => {
     void loadTauri().then(setApi);
   }, []);
 
   const refresh = useCallback(async () => {
+    const requestGeneration = ++generation.current;
     if (projectId === null) {
       setStatus(null);
       setPrdStatus(null);
@@ -171,13 +175,15 @@ export function usePlan(projectId: number | null) {
         api.invoke<WorkspacePlanStatus>("workspace_plan_status", { projectId }),
         api.invoke<WorkspacePrdStatusWire>("workspace_prd_status", { projectId }),
       ]);
+      if (generation.current !== requestGeneration) return;
       setStatus(next);
       setPrdStatus(normalizePrdStatus(nextPrd ?? next.prd_status));
       setError(null);
     } catch (err) {
+      if (generation.current !== requestGeneration) return;
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      if (generation.current === requestGeneration) setLoading(false);
     }
   }, [api, projectId]);
 
