@@ -91,7 +91,7 @@ GitHub Actions x64 and ARM64 matrix runners for both release artifacts.
 
 릴리스 증거 수집용 `release-gate.yml` / `release.yml`은 승인된 브랜치에 커밋·푸시된 현재 릴리스 준비 상태에서 실행한다. workflow 증거는 현재 `release-gate.yml` / `release.yml` 하드닝과 문서를 포함한 같은 commit SHA에서 나와야 한다.
 
-승인 요청은 `.wily/phases/p10-09-external-release-blockers/approval-packet.md`의 정확한 문장을 사용하고, 커밋 범위는 `.wily/phases/p10-09-external-release-blockers/release-prep-commit-manifest.md`의 명시적 staging 목록을 따른다. `git add .`는 사용하지 않고, `qa-sandbox/`와 `.wily/sessions/**`는 릴리스 오너가 명시 승인하지 않는 한 커밋하지 않는다.
+승인 요청 문구와 커밋 staging 목록은 내부 릴리스 게이트 SOP(공개 저장소 미포함)의 approval-packet / release-prep-commit-manifest 절을 따른다. `git add .`는 사용하지 않고, `qa-sandbox/`와 세션 작업 디렉터리는 릴리스 오너가 명시 승인하지 않는 한 커밋하지 않는다.
 
 커밋·푸시 전 검증 명령은 내부 릴리스 게이트 SOP(공개 저장소 미포함)의 P10-09 release blocker 절에 있는 pre-push verification summary를 따른다.
 
@@ -180,9 +180,9 @@ pnpm release:smoke -- --json-out release-smoke-x64.json
 | 6   | 재시작 보존             | 앱 종료→재실행 후 동일 프로젝트/session/card/message가 보존됨                          | [ ] Pass / [ ] Fail               |             |
 | 7   | 제거/데이터 정책        | 제어판/NSIS 제거 성공. 사용자 데이터 보존/삭제 정책 관찰 결과를 기록                   | [ ] Pass / [ ] Fail               |             |
 
-자동 스모크만 통과하고 수동 7종이 누락되면 릴리스는 블록된다. Windows 실기, 코드 서명, GitHub publish는 Track 0에서 외부 blocker로 남길 수 있지만, blocker 목록과 우회/후속 일정을 `internal/DIVE_NEXT.md` 및 릴리스 노트에 명시한다.
+자동 스모크만 통과하고 수동 7종이 누락되면 릴리스는 블록된다. Windows 실기, 코드 서명, GitHub publish는 Track 0에서 외부 blocker로 남길 수 있지만, blocker 목록과 우회/후속 일정을 내부 진행 노트(공개 저장소 미포함) 및 릴리스 노트에 명시한다.
 
-현재 P10-09 릴리스 블로커의 x64/ARM64 Windows smoke, GitHub Release authority, 최종 ship/defer 결정 증거는 `.wily/phases/p10-09-external-release-blockers/external-evidence-request.md` 요청서와 `handoff.md` 템플릿에 맞춰 기록한다. 증거에는 provider API key, OAuth token, cookie, raw secret file을 포함하지 않는다.
+현재 P10-09 릴리스 블로커의 x64/ARM64 Windows smoke, GitHub Release authority, 최종 ship/defer 결정 증거는 내부 릴리스 게이트 SOP(공개 저장소 미포함)의 external-evidence-request / handoff 템플릿에 맞춰 기록한다. 증거에는 provider API key, OAuth token, cookie, raw secret file을 포함하지 않는다.
 
 승인된 `release-gate.yml` 실행은 각 matrix job의 `DIVE-release-smoke-x64` / `DIVE-release-smoke-arm64` artifact에 `release-smoke-*.json` 증거 파일을 업로드하고, smoke를 통과한 installer를 `DIVE-windows-x64-nsis` / `DIVE-windows-arm64-nsis` artifact로 업로드한다.
 

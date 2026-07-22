@@ -34,21 +34,21 @@
 
 ## 2. 실제 사용자 여정 결과
 
-| 여정 | 결과 | 비고 |
-|---|---|---|
-| 새 프로젝트 생성 | PASS | 이름·경로·목표가 명확함 |
-| 온보딩/시작 화면 | PASS | 다음 행동이 비교적 분명함 |
-| 자연어 PRD 인터뷰 | PARTIAL | 상세 답변 1회가 초안에 반영되지 않았고 원인/복구 안내 없음 |
-| 수동 PRD 작성 및 확정 | PASS | 수동 입력으로는 확정 가능 |
-| 신규 프로젝트 계획 생성 | **BLOCKED** | 3개 모델, PRD v2 보강, 재생성 모두 실패 |
-| 신규 프로젝트 구현 | **NOT REACHED** | 계획 생성 차단의 연쇄 결과 |
-| 기존 승인 프로젝트 구현 | PASS | Pi가 파일을 읽고 수정 권한을 요청함 |
-| 편집 권한 게이트 | PASS | diff와 변경 파일을 확인한 후 승인 가능 |
-| 생성 앱 미리보기 | PASS | 추가·삭제·완료 토글을 수동 확인 |
-| 검토/승인 | PASS WITH FRICTION | 근거 연결 후에도 미연결 기준 때문에 위험 감수 사유 필요 |
-| 전체 3단계 완료 | PASS | `03/03 완료` 확인 |
-| 성공 후 상태 신뢰성 | **FAIL** | 정상 수정 후 허위 stall timeout 오류가 2회 표시됨 |
-| Windows 설치 앱 smoke | NOT RUN | macOS arm64 환경에서는 NSIS/EdgeDriver 전체 게이트 실행 불가 |
+| 여정                    | 결과               | 비고                                                         |
+| ----------------------- | ------------------ | ------------------------------------------------------------ |
+| 새 프로젝트 생성        | PASS               | 이름·경로·목표가 명확함                                      |
+| 온보딩/시작 화면        | PASS               | 다음 행동이 비교적 분명함                                    |
+| 자연어 PRD 인터뷰       | PARTIAL            | 상세 답변 1회가 초안에 반영되지 않았고 원인/복구 안내 없음   |
+| 수동 PRD 작성 및 확정   | PASS               | 수동 입력으로는 확정 가능                                    |
+| 신규 프로젝트 계획 생성 | **BLOCKED**        | 3개 모델, PRD v2 보강, 재생성 모두 실패                      |
+| 신규 프로젝트 구현      | **NOT REACHED**    | 계획 생성 차단의 연쇄 결과                                   |
+| 기존 승인 프로젝트 구현 | PASS               | Pi가 파일을 읽고 수정 권한을 요청함                          |
+| 편집 권한 게이트        | PASS               | diff와 변경 파일을 확인한 후 승인 가능                       |
+| 생성 앱 미리보기        | PASS               | 추가·삭제·완료 토글을 수동 확인                              |
+| 검토/승인               | PASS WITH FRICTION | 근거 연결 후에도 미연결 기준 때문에 위험 감수 사유 필요      |
+| 전체 3단계 완료         | PASS               | `03/03 완료` 확인                                            |
+| 성공 후 상태 신뢰성     | **FAIL**           | 정상 수정 후 허위 stall timeout 오류가 2회 표시됨            |
+| Windows 설치 앱 smoke   | NOT RUN            | macOS arm64 환경에서는 NSIS/EdgeDriver 전체 게이트 실행 불가 |
 
 ## 3. 우선순위별 문제와 버그
 
@@ -58,7 +58,7 @@
 
 - 재현: 정적 체크리스트 앱 PRD 작성 → 계획 생성 → Sonnet 4.6/GPT-5.4 Mini로 재시도 → PRD에 반응형·접근성·저장·취소선 기준까지 추가 → 동일 오류.
 - 사용자 영향: 신규 사용자는 구현 단계에 진입할 수 없다.
-- 관찰 근거: [09-plan-retry-blocked-english-implementation-detail.jpg](screenshots/09-plan-retry-blocked-english-implementation-detail.jpg)
+- 관찰 근거: 09-plan-retry-blocked-english-implementation-detail.jpg (내부 연구 노트/스크린샷, 공개 저장소 미포함)
 - 코드 근거:
   - `workspace_plan.rs:4918-4945`는 전역 기준과 모든 단계 기준을 하나씩 검사하고 하나만 표식 목록을 벗어나도 전체 계획을 거부한다.
   - `workspace_plan.rs:4934-4938`의 오류 조언은 “숫자, 비교자, named UI element, state”를 요구한다.
@@ -89,7 +89,7 @@
 
 - 재현: step-2 파일 편집 권한 승인 → 실제 미리보기에서 추가/삭제 성공 → 약 45초 뒤 stall timeout 표시 → 이후 동일 오류 한 번 더 표시.
 - 영향: 성공한 작업을 실패처럼 보이게 하며, 사용자가 재시도하면 중복 변경 가능성이 생긴다. 학술대회 시연에서 가장 눈에 띄는 신뢰성 결함이다.
-- 관찰 근거: [16-successful-edit-followed-by-stall-error.jpg](screenshots/16-successful-edit-followed-by-stall-error.jpg), [18-completed-generated-app-3-of-3.jpg](screenshots/18-completed-generated-app-3-of-3.jpg)
+- 관찰 근거: 16-successful-edit-followed-by-stall-error.jpg, 18-completed-generated-app-3-of-3.jpg (내부 연구 노트/스크린샷, 공개 저장소 미포함)
 - 코드 근거: `useChatSession.ts:720-730`은 일부 종료 이벤트에서 타이머를 지우지만, 그 뒤 도착하는 다른 이벤트는 다시 타이머를 건다. `useChatSession.ts:590-595`의 45초 타이머는 세션이 이미 성공 종료됐는지 확인하지 않고 오류 메시지를 추가한다.
 - 수정 방향: run ID별 종료 상태를 보존하고, terminal event 이후의 telemetry/progress가 stall timer를 다시 활성화하지 못하게 한다. 중복 오류 ID/활성 run 검증 테스트를 추가한다.
 
@@ -97,7 +97,7 @@
 
 - 재현: 사용자·범위·비범위·제약·완료 기준을 포함한 상세 한국어 답변 1회 전송.
 - 결과: 필드는 비어 있고 “방금 대화는 PRD 초안에 바로 반영하지 않았습니다”만 표시됨.
-- 관찰 근거: [05-prd-first-turn-not-applied.jpg](screenshots/05-prd-first-turn-not-applied.jpg)
+- 관찰 근거: 05-prd-first-turn-not-applied.jpg (내부 연구 노트/스크린샷, 공개 저장소 미포함)
 - 코드 근거: `workspace_plan.rs:2474-2502`는 모델 응답에서 유효 JSON patch를 추출하지 못하면 `patch: None`으로 처리한다. UI `PrdAuthoringBoard.tsx:602-606`은 `applied`와 `held_for_student` 이외의 상태를 모두 같은 거절 문구로 표시한다.
 - 수정 방향: `none`, JSON parse 실패, 정책 거절을 구분하고 원인·원문 보존·“다시 구조화” 버튼을 제공한다. 한 번의 상세 답변을 실제 patch로 변환하는 provider 통합 테스트가 필요하다.
 
@@ -105,7 +105,7 @@
 
 - 관찰: AI patch가 실패한 뒤 사용자가 직접 모든 PRD 필드를 입력했지만 검토 카드는 “AI가 대화를 정리한 요약”이라고 표시했다.
 - 영향: 사람 편집과 AI 추론을 구분해야 하는 연구/학술 발표에서 데이터 해석을 오염시킨다.
-- 관찰 근거: [06-prd-manually-completed-review-card.jpg](screenshots/06-prd-manually-completed-review-card.jpg)
+- 관찰 근거: 06-prd-manually-completed-review-card.jpg (내부 연구 노트/스크린샷, 공개 저장소 미포함)
 - 수정 방향: 필드별 출처(`student`, `AI patch`, `AI suggestion accepted`)를 보존하고 카드 문구와 EventLog에 반영한다.
 
 #### P1-04. 정적 release verifier 3개가 현재 실패함
@@ -233,15 +233,17 @@
 
 ## 8. 증거 화면
 
-1. [새 프로젝트 대화상자](screenshots/02-new-project-dialog.jpg)
-2. [PRD 상세 답변 미반영](screenshots/05-prd-first-turn-not-applied.jpg)
-3. [계획 생성 반복 차단](screenshots/09-plan-retry-blocked-english-implementation-detail.jpg)
-4. [파일 편집 권한 카드](screenshots/14-supervised-edit-permission-card.jpg)
-5. [성공 후 허위 stall timeout](screenshots/16-successful-edit-followed-by-stall-error.jpg)
-6. [실제 생성 앱 동작](screenshots/17-final-generated-app-done-toggle.jpg)
-7. [로드맵 03/03 완료와 중복 오류](screenshots/18-completed-generated-app-3-of-3.jpg)
+아래 화면 캡처는 내부 연구 노트/스크린샷(공개 저장소 미포함)으로 보존되어 있다.
 
-전체 원본 스크린샷 18장은 `docs/qa/conference-readiness-2026-07-10/screenshots/`에 보존했다.
+1. 새 프로젝트 대화상자
+2. PRD 상세 답변 미반영
+3. 계획 생성 반복 차단
+4. 파일 편집 권한 카드
+5. 성공 후 허위 stall timeout
+6. 실제 생성 앱 동작
+7. 로드맵 03/03 완료와 중복 오류
+
+전체 원본 스크린샷 18장은 내부 연구 노트/스크린샷(공개 저장소 미포함)으로 보존했다.
 
 ## 9. 환경 변경 및 저장 범위
 

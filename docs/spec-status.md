@@ -10,59 +10,59 @@ archived-status sections below).
 
 ## Canonical Active Specs
 
-| Path | Status | Use |
-| --- | --- | --- |
-| `.specify/memory/constitution.md` | Canonical | Governs all DIVE v2 work. |
-| `specs/README.md` | Canonical | Explains active spec authority and current spec set. |
-| `specs/001-dive-v2-foundation/spec.md` | Canonical | Defines v2 product boundaries, non-goals, and repo strategy. |
-| `specs/001-dive-v2-foundation/decisions.md` | Canonical | Records v2 foundation decisions. |
-| `specs/002-provocation-supervisor-agent/spec.md` | Canonical | Defines dedicated Pi SupervisorAgent behavior for review cards. |
-| `specs/002-provocation-supervisor-agent/decisions.md` | Canonical | Records provocation supervisor decisions. |
-| `specs/002-provocation-supervisor-agent/implementation-gap.md` | Canonical planning aid | Tracks current implementation keep/remove/improve alignment for P1. |
-| `specs/003-supervision-card-ux/spec.md` | Canonical | Defines supervision card presentation/IA (focal criterion, review-vs-permission distinction); presentation only. |
-| `specs/003-supervision-card-ux/decisions.md` | Canonical | Records supervision card UX/IA decisions. |
-| `specs/004-prd-decompose-lifecycle/spec.md` | Canonical | Elevates onboarding into PRD authoring via a dedicated PRD Authoring Board with validated turn-by-turn PRD patches and a concise completed PRD read view; criterion-linked decomposition; mid-flow step add; living PRD. |
-| `specs/004-prd-decompose-lifecycle/decisions.md` | Canonical | Records PRD/decompose lifecycle decisions. |
-| `specs/004-prd-decompose-lifecycle/plan.md` | Canonical planning aid | Defines implementation plan, architecture, and test strategy for the PRD/decompose lifecycle. |
-| `specs/004-prd-decompose-lifecycle/research.md` | Canonical planning aid | Records design decisions for PRD persistence, criteria IDs, rationale storage, add-step flow, and scope-expansion gating. |
-| `specs/004-prd-decompose-lifecycle/data-model.md` | Canonical planning aid | Defines ProjectSpec, AcceptanceCriterion, DecompositionRationale, PlanMutation, PRD delta, scope assessment, and Objection entities. |
-| `specs/004-prd-decompose-lifecycle/contracts/` | Canonical planning aid | Defines IPC, UI lifecycle, and EventLog/export contracts for 004. |
-| `specs/004-prd-decompose-lifecycle/quickstart.md` | Canonical planning aid | Defines validation scenarios and commands for the 004 implementation phase. |
-| `specs/004-prd-decompose-lifecycle/tasks.md` | Canonical planning aid | Defines dependency-ordered implementation tasks for 004, organized by independently testable user story. |
-| `specs/005-v2-spec-conformance-gaps/spec.md` | Canonical | Defines the remaining v2 conformance cleanup scope: no legacy runtime fallback, SupervisorAgent-backed add-step scope cards, rationale challenge offers, and truthful active spec status. |
-| `specs/005-v2-spec-conformance-gaps/plan.md` | Canonical planning aid | Defines implementation plan, architecture, and test strategy for 005. |
-| `specs/005-v2-spec-conformance-gaps/research.md` | Canonical planning aid | Records decisions for runtime capability blocking, scope-expansion supervisor events, rationale challenge offers, and future/reserved mutation scope. |
-| `specs/005-v2-spec-conformance-gaps/data-model.md` | Canonical planning aid | Defines RuntimeCapabilityState, ScopeExpansionReviewEvent, RationaleObjection, PlanAdjustmentOffer, and SpecConformanceRecord. |
-| `specs/005-v2-spec-conformance-gaps/contracts/` | Canonical planning aid | Defines runtime capability, scope supervisor, rationale challenge, and EventLog/export contracts. |
-| `specs/005-v2-spec-conformance-gaps/quickstart.md` | Canonical planning aid | Defines validation scenarios and commands for 005. |
-| `specs/005-v2-spec-conformance-gaps/tasks.md` | Canonical planning aid | Defines dependency-ordered implementation tasks for 005, including the shared foundation tracked by Wily Stage S-016. |
-| `specs/006-sarkar-provocation-expansion/spec.md` | Canonical | Defines planned expansion of Sarkar-style review-card coverage to plan draft approval, diff-ready review, and retry-loop review. |
-| `specs/006-sarkar-provocation-expansion/plan.md` | Canonical planning aid | Defines implementation plan, architecture, and test strategy for 006. |
-| `specs/006-sarkar-provocation-expansion/research.md` | Canonical planning aid | Records decisions for reusing `provocation_agent_evaluate`, deterministic assessments, artifact-adjacent rendering, EventLog reuse, step-scoped retry loops, and action allowlist expansion. |
-| `specs/006-sarkar-provocation-expansion/data-model.md` | Canonical planning aid | Defines expanded supervisor events, artifact refs, plan-draft/diff-ready/retry-loop assessments, expanded cards, and supervisor evaluation logs. |
-| `specs/006-sarkar-provocation-expansion/contracts/` | Canonical planning aid | Defines request, response, validation, EventLog, export, and UI placement contracts for expanded supervisor events. |
-| `specs/006-sarkar-provocation-expansion/quickstart.md` | Canonical planning aid | Defines validation scenarios and commands for 006. |
-| `specs/006-sarkar-provocation-expansion/tasks.md` | Canonical planning aid | Defines dependency-ordered implementation tasks for 006, organized by independently testable user story. |
-| `specs/006-sarkar-provocation-expansion/checklists/requirements.md` | Canonical planning aid | Validates 006 specification completeness before planning. |
-| `specs/007-llm-verification-coach/spec.md` | Active draft | Defines adaptive AI verification coaching in step review, criterion-linked user observation evidence, and evidence-aware approval separation from AI self-report. |
-| `specs/007-llm-verification-coach/plan.md` | Canonical planning aid | Defines implementation plan, architecture, and test strategy for the verification coach. |
-| `specs/007-llm-verification-coach/research.md` | Canonical planning aid | Records decisions separating coach guidance from review cards and approval evidence. |
-| `specs/007-llm-verification-coach/data-model.md` | Canonical planning aid | Defines VerificationCoachingEvent, VerificationGuide, ObservationEvidence, GuidanceValidationResult, and EvidenceBackedDecision. |
-| `specs/007-llm-verification-coach/contracts/` | Canonical planning aid | Defines guidance generation, observation evidence, and EventLog/export contracts. |
-| `specs/007-llm-verification-coach/quickstart.md` | Canonical planning aid | Defines validation scenarios and commands for 007. |
-| `specs/007-llm-verification-coach/tasks.md` | Canonical planning aid | Defines dependency-ordered implementation tasks for 007, with MVP focus on guidance plus observation-backed approval. |
-| `specs/008-preview-terminal-runtime-tools/spec.md` | Active draft | Defines first-class Preview, direct Project Command, and bounded Terminal Script runtime actions for preview and verification work. |
-| `specs/008-preview-terminal-runtime-tools/plan.md` | Canonical planning aid | Defines implementation plan, architecture, and test strategy for 008. |
-| `specs/008-preview-terminal-runtime-tools/research.md` | Canonical planning aid | Records decisions for first-class Preview, direct Project Command, Terminal Script separation, preview rerouting, stale approvals, and EventLog/export reuse. |
-| `specs/008-preview-terminal-runtime-tools/data-model.md` | Canonical planning aid | Defines PreviewRequest, PreviewSession, ProjectCommandRequest, TerminalScriptRequest, RuntimeRoutingDecision, ExecutionEvidence, and StaleApprovalState. |
-| `specs/008-preview-terminal-runtime-tools/contracts/` | Canonical planning aid | Defines Preview, Project Command routing, Terminal Script, and EventLog/export contracts. |
-| `specs/008-preview-terminal-runtime-tools/quickstart.md` | Canonical planning aid | Defines validation scenarios and commands for 008. |
-| `specs/008-preview-terminal-runtime-tools/checklists/requirements.md` | Canonical planning aid | Validates 008 specification completeness before planning. |
-| `specs/010-beginner-readiness-ux/spec.md` | Canonical | Defines the post-rc.5 round-2 beginner-readiness/UX hardening scope (8 themes → Wily Stages S-041–S-048). |
-| `specs/010-beginner-readiness-ux/design-s041.md` … `design-s048.md` | Canonical planning aids | Per-stage designs for the eight 010 stages. |
-| `specs/010-beginner-readiness-ux/adr-s048-network-egress.md` | Accepted ADR | Constitution 1.0.0→1.1.0 amendment admitting the Rust-validated network-egress capability class (Principle III). |
-| `specs/011-conference-demo-readiness/spec.md` | Canonical | Defines the round-3 conference-demo-readiness scope (8 themes → Wily Stages S-050–S-057) from the 2026-07-10 QA NO-GO verdict, targeting the 2026-08-14 presentation (Windows demo machine). |
-| `specs/013-public-release-readiness/spec.md` | Canonical | Defines the round-4 public-release readiness scope (13 themes → Wily Stages S-058–S-070) from the 2026-07-20 full-repo code review (124 confirmed findings), gating the public repo flip synchronized with the 2026-08-14 presentation. |
+| Path                                                                  | Status                  | Use                                                                                                                                                                                                                                     |
+| --------------------------------------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.specify/memory/constitution.md`                                     | Canonical               | Governs all DIVE v2 work.                                                                                                                                                                                                               |
+| `specs/README.md`                                                     | Canonical               | Explains active spec authority and current spec set.                                                                                                                                                                                    |
+| `specs/001-dive-v2-foundation/spec.md`                                | Canonical               | Defines v2 product boundaries, non-goals, and repo strategy.                                                                                                                                                                            |
+| `specs/001-dive-v2-foundation/decisions.md`                           | Canonical               | Records v2 foundation decisions.                                                                                                                                                                                                        |
+| `specs/002-provocation-supervisor-agent/spec.md`                      | Canonical               | Defines dedicated Pi SupervisorAgent behavior for review cards.                                                                                                                                                                         |
+| `specs/002-provocation-supervisor-agent/decisions.md`                 | Canonical               | Records provocation supervisor decisions.                                                                                                                                                                                               |
+| `specs/002-provocation-supervisor-agent/implementation-gap.md`        | Canonical planning aid  | Tracks current implementation keep/remove/improve alignment for P1.                                                                                                                                                                     |
+| `specs/003-supervision-card-ux/spec.md`                               | Canonical               | Defines supervision card presentation/IA (focal criterion, review-vs-permission distinction); presentation only.                                                                                                                        |
+| `specs/003-supervision-card-ux/decisions.md`                          | Canonical               | Records supervision card UX/IA decisions.                                                                                                                                                                                               |
+| `specs/004-prd-decompose-lifecycle/spec.md`                           | Canonical               | Elevates onboarding into PRD authoring via a dedicated PRD Authoring Board with validated turn-by-turn PRD patches and a concise completed PRD read view; criterion-linked decomposition; mid-flow step add; living PRD.                |
+| `specs/004-prd-decompose-lifecycle/decisions.md`                      | Canonical               | Records PRD/decompose lifecycle decisions.                                                                                                                                                                                              |
+| `specs/004-prd-decompose-lifecycle/plan.md`                           | Canonical planning aid  | Defines implementation plan, architecture, and test strategy for the PRD/decompose lifecycle.                                                                                                                                           |
+| `specs/004-prd-decompose-lifecycle/research.md`                       | Canonical planning aid  | Records design decisions for PRD persistence, criteria IDs, rationale storage, add-step flow, and scope-expansion gating.                                                                                                               |
+| `specs/004-prd-decompose-lifecycle/data-model.md`                     | Canonical planning aid  | Defines ProjectSpec, AcceptanceCriterion, DecompositionRationale, PlanMutation, PRD delta, scope assessment, and Objection entities.                                                                                                    |
+| `specs/004-prd-decompose-lifecycle/contracts/`                        | Canonical planning aid  | Defines IPC, UI lifecycle, and EventLog/export contracts for 004.                                                                                                                                                                       |
+| `specs/004-prd-decompose-lifecycle/quickstart.md`                     | Canonical planning aid  | Defines validation scenarios and commands for the 004 implementation phase.                                                                                                                                                             |
+| `specs/004-prd-decompose-lifecycle/tasks.md`                          | Canonical planning aid  | Defines dependency-ordered implementation tasks for 004, organized by independently testable user story.                                                                                                                                |
+| `specs/005-v2-spec-conformance-gaps/spec.md`                          | Canonical               | Defines the remaining v2 conformance cleanup scope: no legacy runtime fallback, SupervisorAgent-backed add-step scope cards, rationale challenge offers, and truthful active spec status.                                               |
+| `specs/005-v2-spec-conformance-gaps/plan.md`                          | Canonical planning aid  | Defines implementation plan, architecture, and test strategy for 005.                                                                                                                                                                   |
+| `specs/005-v2-spec-conformance-gaps/research.md`                      | Canonical planning aid  | Records decisions for runtime capability blocking, scope-expansion supervisor events, rationale challenge offers, and future/reserved mutation scope.                                                                                   |
+| `specs/005-v2-spec-conformance-gaps/data-model.md`                    | Canonical planning aid  | Defines RuntimeCapabilityState, ScopeExpansionReviewEvent, RationaleObjection, PlanAdjustmentOffer, and SpecConformanceRecord.                                                                                                          |
+| `specs/005-v2-spec-conformance-gaps/contracts/`                       | Canonical planning aid  | Defines runtime capability, scope supervisor, rationale challenge, and EventLog/export contracts.                                                                                                                                       |
+| `specs/005-v2-spec-conformance-gaps/quickstart.md`                    | Canonical planning aid  | Defines validation scenarios and commands for 005.                                                                                                                                                                                      |
+| `specs/005-v2-spec-conformance-gaps/tasks.md`                         | Canonical planning aid  | Defines dependency-ordered implementation tasks for 005, including the shared foundation tracked by Wily Stage S-016.                                                                                                                   |
+| `specs/006-sarkar-provocation-expansion/spec.md`                      | Canonical               | Defines planned expansion of Sarkar-style review-card coverage to plan draft approval, diff-ready review, and retry-loop review.                                                                                                        |
+| `specs/006-sarkar-provocation-expansion/plan.md`                      | Canonical planning aid  | Defines implementation plan, architecture, and test strategy for 006.                                                                                                                                                                   |
+| `specs/006-sarkar-provocation-expansion/research.md`                  | Canonical planning aid  | Records decisions for reusing `provocation_agent_evaluate`, deterministic assessments, artifact-adjacent rendering, EventLog reuse, step-scoped retry loops, and action allowlist expansion.                                            |
+| `specs/006-sarkar-provocation-expansion/data-model.md`                | Canonical planning aid  | Defines expanded supervisor events, artifact refs, plan-draft/diff-ready/retry-loop assessments, expanded cards, and supervisor evaluation logs.                                                                                        |
+| `specs/006-sarkar-provocation-expansion/contracts/`                   | Canonical planning aid  | Defines request, response, validation, EventLog, export, and UI placement contracts for expanded supervisor events.                                                                                                                     |
+| `specs/006-sarkar-provocation-expansion/quickstart.md`                | Canonical planning aid  | Defines validation scenarios and commands for 006.                                                                                                                                                                                      |
+| `specs/006-sarkar-provocation-expansion/tasks.md`                     | Canonical planning aid  | Defines dependency-ordered implementation tasks for 006, organized by independently testable user story.                                                                                                                                |
+| `specs/006-sarkar-provocation-expansion/checklists/requirements.md`   | Canonical planning aid  | Validates 006 specification completeness before planning.                                                                                                                                                                               |
+| `specs/007-llm-verification-coach/spec.md`                            | Active draft            | Defines adaptive AI verification coaching in step review, criterion-linked user observation evidence, and evidence-aware approval separation from AI self-report.                                                                       |
+| `specs/007-llm-verification-coach/plan.md`                            | Canonical planning aid  | Defines implementation plan, architecture, and test strategy for the verification coach.                                                                                                                                                |
+| `specs/007-llm-verification-coach/research.md`                        | Canonical planning aid  | Records decisions separating coach guidance from review cards and approval evidence.                                                                                                                                                    |
+| `specs/007-llm-verification-coach/data-model.md`                      | Canonical planning aid  | Defines VerificationCoachingEvent, VerificationGuide, ObservationEvidence, GuidanceValidationResult, and EvidenceBackedDecision.                                                                                                        |
+| `specs/007-llm-verification-coach/contracts/`                         | Canonical planning aid  | Defines guidance generation, observation evidence, and EventLog/export contracts.                                                                                                                                                       |
+| `specs/007-llm-verification-coach/quickstart.md`                      | Canonical planning aid  | Defines validation scenarios and commands for 007.                                                                                                                                                                                      |
+| `specs/007-llm-verification-coach/tasks.md`                           | Canonical planning aid  | Defines dependency-ordered implementation tasks for 007, with MVP focus on guidance plus observation-backed approval.                                                                                                                   |
+| `specs/008-preview-terminal-runtime-tools/spec.md`                    | Active draft            | Defines first-class Preview, direct Project Command, and bounded Terminal Script runtime actions for preview and verification work.                                                                                                     |
+| `specs/008-preview-terminal-runtime-tools/plan.md`                    | Canonical planning aid  | Defines implementation plan, architecture, and test strategy for 008.                                                                                                                                                                   |
+| `specs/008-preview-terminal-runtime-tools/research.md`                | Canonical planning aid  | Records decisions for first-class Preview, direct Project Command, Terminal Script separation, preview rerouting, stale approvals, and EventLog/export reuse.                                                                           |
+| `specs/008-preview-terminal-runtime-tools/data-model.md`              | Canonical planning aid  | Defines PreviewRequest, PreviewSession, ProjectCommandRequest, TerminalScriptRequest, RuntimeRoutingDecision, ExecutionEvidence, and StaleApprovalState.                                                                                |
+| `specs/008-preview-terminal-runtime-tools/contracts/`                 | Canonical planning aid  | Defines Preview, Project Command routing, Terminal Script, and EventLog/export contracts.                                                                                                                                               |
+| `specs/008-preview-terminal-runtime-tools/quickstart.md`              | Canonical planning aid  | Defines validation scenarios and commands for 008.                                                                                                                                                                                      |
+| `specs/008-preview-terminal-runtime-tools/checklists/requirements.md` | Canonical planning aid  | Validates 008 specification completeness before planning.                                                                                                                                                                               |
+| `specs/010-beginner-readiness-ux/spec.md`                             | Canonical               | Defines the post-rc.5 round-2 beginner-readiness/UX hardening scope (8 themes → Wily Stages S-041–S-048).                                                                                                                               |
+| `specs/010-beginner-readiness-ux/design-s041.md` … `design-s048.md`   | Canonical planning aids | Per-stage designs for the eight 010 stages.                                                                                                                                                                                             |
+| `specs/010-beginner-readiness-ux/adr-s048-network-egress.md`          | Accepted ADR            | Constitution 1.0.0→1.1.0 amendment admitting the Rust-validated network-egress capability class (Principle III).                                                                                                                        |
+| `specs/011-conference-demo-readiness/spec.md`                         | Canonical               | Defines the round-3 conference-demo-readiness scope (8 themes → Wily Stages S-050–S-057) from the 2026-07-10 QA NO-GO verdict, targeting the 2026-08-14 presentation (Windows demo machine).                                            |
+| `specs/013-public-release-readiness/spec.md`                          | Canonical               | Defines the round-4 public-release readiness scope (13 themes → Wily Stages S-058–S-070) from the 2026-07-20 full-repo code review (124 confirmed findings), gating the public repo flip synchronized with the 2026-08-14 presentation. |
 
 ## External Product Extraction
 
@@ -86,21 +86,21 @@ stages (S-058–S-062), Opus for judgment-bearing stages (S-063–S-069); the ro
 harness session owns design, adversarial review, CI verification, and Wily
 lifecycle.
 
-| Wily Stage | Scope | Status |
-| --- | --- | --- |
-| S-058 | Public hygiene: copyrighted PDF tree removal → references.md, .gitignore promotion + gap closure, OFL font notices, tracked junk (test-results, pi-sidecar-spikes, root images/) (P0-1 tree half, A1, A2) | Ready |
-| S-059 | Script/version truth: 23 orphaned scripts, verify:version-sync self-versioning, README version drift (gate markers preserved), deps-ci P2s (C8, E6, A3) | Ready |
-| S-060 | Rust dead-code sweep: crate-wide `#![allow(dead_code)]` removal, `greet`, caller-less IPC surface, dead symbols (C1, C2, C4, C5) | Ready |
-| S-061 | FE dead-code sweep + loadTauri unification: ghost rationaleChallenge wiring, prdPatch TS mirror, 18 loadTauri copies (C6, C7, D1) | Ready |
-| S-062 | FE silent-failure surfacing: settings connect, plan add-step, observation record, preview candidate (E3, E4) | Ready |
-| S-063 | Rust tool security/robustness: env-dump asymmetry, redact_line JSON no-op, output stream cap, multi_replace staging leak + security P2s; S-048 6b disposition recorded (F1–F3, E5) | Ready |
-| S-064 | Correctness bug pack: latest-200 history, evidence-preserving StepDetail mount, risk-classifier unification, stale-draft race + correctness P2s (E1, E2, E7, G4) | Ready |
-| S-065 | Approval-pipeline unification: legacy `AgentLoop::run` removal, single tool-execution source (C3, D2; depends S-060) | Ready |
-| S-066 | workspace_plan.rs submodule split (7,724 lines → 6 submodules, behavior-preserving) (B1) | Ready |
-| S-067 | supervisor.rs split + pi_sidecar spawn helper/test extraction (B2, D3) | Ready |
-| S-068 | FE god-hook split: useProductShellController, StepDetailSlideIn, useChatSession (B3–B5; depends S-061, S-062) | Ready |
-| S-069 | Performance/duplication pack: JOIN COUNT, plan-scoped EventLog query, memoization policy + perf/dup P2s (G1–G3; depends S-066–S-068) | Ready |
-| S-070 | History purge (`git filter-repo` on references-pdf) + owner decisions (author email, home paths) + final flip gate — strictly last | Ready |
+| Wily Stage | Scope                                                                                                                                                                                                     | Status                                                       |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| S-058      | Public hygiene: copyrighted PDF tree removal → references.md, .gitignore promotion + gap closure, OFL font notices, tracked junk (test-results, pi-sidecar-spikes, root images/) (P0-1 tree half, A1, A2) | Done (see `specs/013-public-release-readiness/decisions.md`) |
+| S-059      | Script/version truth: 23 orphaned scripts, verify:version-sync self-versioning, README version drift (gate markers preserved), deps-ci P2s (C8, E6, A3)                                                   | Done (see `specs/013-public-release-readiness/decisions.md`) |
+| S-060      | Rust dead-code sweep: crate-wide `#![allow(dead_code)]` removal, `greet`, caller-less IPC surface, dead symbols (C1, C2, C4, C5)                                                                          | Done (see `specs/013-public-release-readiness/decisions.md`) |
+| S-061      | FE dead-code sweep + loadTauri unification: ghost rationaleChallenge wiring, prdPatch TS mirror, 18 loadTauri copies (C6, C7, D1)                                                                         | Done (see `specs/013-public-release-readiness/decisions.md`) |
+| S-062      | FE silent-failure surfacing: settings connect, plan add-step, observation record, preview candidate (E3, E4)                                                                                              | Done (see `specs/013-public-release-readiness/decisions.md`) |
+| S-063      | Rust tool security/robustness: env-dump asymmetry, redact_line JSON no-op, output stream cap, multi_replace staging leak + security P2s; S-048 6b disposition recorded (F1–F3, E5)                        | Done (see `specs/013-public-release-readiness/decisions.md`) |
+| S-064      | Correctness bug pack: latest-200 history, evidence-preserving StepDetail mount, risk-classifier unification, stale-draft race + correctness P2s (E1, E2, E7, G4)                                          | Done (see `specs/013-public-release-readiness/decisions.md`) |
+| S-065      | Approval-pipeline unification: legacy `AgentLoop::run` removal, single tool-execution source (C3, D2; depends S-060)                                                                                      | Done (see `specs/013-public-release-readiness/decisions.md`) |
+| S-066      | workspace_plan.rs submodule split (7,724 lines → 6 submodules, behavior-preserving) (B1)                                                                                                                  | Done (see `specs/013-public-release-readiness/decisions.md`) |
+| S-067      | supervisor.rs split + pi_sidecar spawn helper/test extraction (B2, D3)                                                                                                                                    | Done (see `specs/013-public-release-readiness/decisions.md`) |
+| S-068      | FE god-hook split: useProductShellController, StepDetailSlideIn, useChatSession (B3–B5; depends S-061, S-062)                                                                                             | Done (see `specs/013-public-release-readiness/decisions.md`) |
+| S-069      | Performance/duplication pack: JOIN COUNT, plan-scoped EventLog query, memoization policy + perf/dup P2s (G1–G3; depends S-066–S-068)                                                                      | Done (see `specs/013-public-release-readiness/decisions.md`) |
+| S-070      | History purge (`git filter-repo` on references-pdf) + owner decisions (author email, home paths) + final flip gate — strictly last                                                                        | Done (see `specs/013-public-release-readiness/decisions.md`) |
 
 ## 011 Implementation Status
 
@@ -112,16 +112,16 @@ S-057. Input evidence is `docs/qa/conference-readiness-2026-07-10/report.md`
 is S-057: clean app-data new-project → 3-step completion, 3 consecutive runs,
 0 false errors, on macOS and the installed Windows demo build.
 
-| Wily Stage | Scope | Status |
-| --- | --- | --- |
-| S-050 | Plan-quality gate re-tuning + recovery-example self-pass lock + live-found criterion-ID resolution hotfix (P0-01) | Done (live QA PASS) |
-| S-051 | Pi executability preflight + selector marking + pi-ai 0.80.6 bump + factory-default registry CI gate (P0-02) | Done (live QA PASS — Sonnet 5 executes) |
-| S-052 | False stall-timeout removal: per-run terminal latch + live-found done-emission integration fix (P1-01) | Done (live QA PASS — 127 s post-approval, zero errors) |
-| S-053 | PRD transparency (not_structured + interview_turns audit trail + 다시 구조화) + field provenance + live-found output-contract/max_tokens fixes (P1-02/03) | Done (live QA PASS — one-shot structuring + mixed provenance) |
-| S-054 | Release-gate restoration: verifier repoints, rate-limit resume, chunk 549→374 KB, verifiers joined verify:v4 CI chain (P1-04) | Done (all verifiers green) |
-| S-055 | Windows installed-app demo readiness (P1-05, demo-critical) | CI x64 installed smoke 13/13 PASS (run 29131250191); real-hardware demo-condition pass remains (rehearsal) |
-| S-056 | Demo UX polish: session-starting state, overlap advisories, multi-criterion linking, project archive (P2) | Done (live QA PASS) |
-| S-057 | GO-judgment exit gate + presentation fallback package | **macOS GO achieved** — clean app-data E2E 3/3 PASS, zero false errors (`s057-go-run-log.md`; report verdict updated). Remaining: Windows real-hardware demo-condition pass at rehearsal + recording/fallback checklist |
+| Wily Stage | Scope                                                                                                                                                     | Status                                                                                                                                                                                                                  |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S-050      | Plan-quality gate re-tuning + recovery-example self-pass lock + live-found criterion-ID resolution hotfix (P0-01)                                         | Done (live QA PASS)                                                                                                                                                                                                     |
+| S-051      | Pi executability preflight + selector marking + pi-ai 0.80.6 bump + factory-default registry CI gate (P0-02)                                              | Done (live QA PASS — Sonnet 5 executes)                                                                                                                                                                                 |
+| S-052      | False stall-timeout removal: per-run terminal latch + live-found done-emission integration fix (P1-01)                                                    | Done (live QA PASS — 127 s post-approval, zero errors)                                                                                                                                                                  |
+| S-053      | PRD transparency (not_structured + interview_turns audit trail + 다시 구조화) + field provenance + live-found output-contract/max_tokens fixes (P1-02/03) | Done (live QA PASS — one-shot structuring + mixed provenance)                                                                                                                                                           |
+| S-054      | Release-gate restoration: verifier repoints, rate-limit resume, chunk 549→374 KB, verifiers joined verify:v4 CI chain (P1-04)                             | Done (all verifiers green)                                                                                                                                                                                              |
+| S-055      | Windows installed-app demo readiness (P1-05, demo-critical)                                                                                               | CI x64 installed smoke 13/13 PASS (run 29131250191); real-hardware demo-condition pass remains (rehearsal)                                                                                                              |
+| S-056      | Demo UX polish: session-starting state, overlap advisories, multi-criterion linking, project archive (P2)                                                 | Done (live QA PASS)                                                                                                                                                                                                     |
+| S-057      | GO-judgment exit gate + presentation fallback package                                                                                                     | **macOS GO achieved** — clean app-data E2E 3/3 PASS, zero false errors (`s057-go-run-log.md`; report verdict updated). Remaining: Windows real-hardware demo-condition pass at rehearsal + recording/fallback checklist |
 
 Live QA evidence: `docs/qa/011-live-qa/tier1-run-log.md` (initial run + three
 re-QA rounds). Live QA surfaced and closed four integration defects unit
@@ -137,17 +137,17 @@ S-048 on branch `010-beginner-readiness-ux`. Stages S-041 through S-047 each
 landed with local CI green plus a live re-QA pass on the rebuilt release app
 (evidence in `docs/qa/round2-live-qa-run-log.md`).
 
-| Wily Stage | Scope | Status |
-| --- | --- | --- |
-| S-041 | PRD interview honesty/dead-end fix, criterion scaffolding, confirmable-gate routing (theme 1) | Done |
-| S-042 | Anti-automation-bias hardening: offline verify-provocation, high-risk read gate, review-card honesty (theme 2) | Done |
-| S-043 | Korean-parity i18n sweep (theme 3) | Done |
-| S-044 | WCAG AA contrast + a11y semantics (theme 4) | Done |
-| S-045 | Beginner vocabulary & first-run framing, Safe/Warn/Danger primer (theme 5) | Done |
-| S-046 | Error/recovery legibility, loading states, composer gating (theme 6) | Done |
-| S-047 | Mandatory student architecture decision in the PRD interview (theme 7, owner-added) | Done |
-| S-048 | Supervised agent web access: DIVE-owned `web_fetch` + Rust egress guard under Constitution III(1.1.0) (theme 8, owner-added) | Done |
-| S-049 | 010 deferred-tail closeout: P2-38 preview-log i18n, `--color-info` AA token, S-047 Q2 form-scaffolding + non-blocking form-consistency EventLog annotation, S-045 primer EventLog | Done |
+| Wily Stage | Scope                                                                                                                                                                             | Status |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| S-041      | PRD interview honesty/dead-end fix, criterion scaffolding, confirmable-gate routing (theme 1)                                                                                     | Done   |
+| S-042      | Anti-automation-bias hardening: offline verify-provocation, high-risk read gate, review-card honesty (theme 2)                                                                    | Done   |
+| S-043      | Korean-parity i18n sweep (theme 3)                                                                                                                                                | Done   |
+| S-044      | WCAG AA contrast + a11y semantics (theme 4)                                                                                                                                       | Done   |
+| S-045      | Beginner vocabulary & first-run framing, Safe/Warn/Danger primer (theme 5)                                                                                                        | Done   |
+| S-046      | Error/recovery legibility, loading states, composer gating (theme 6)                                                                                                              | Done   |
+| S-047      | Mandatory student architecture decision in the PRD interview (theme 7, owner-added)                                                                                               | Done   |
+| S-048      | Supervised agent web access: DIVE-owned `web_fetch` + Rust egress guard under Constitution III(1.1.0) (theme 8, owner-added)                                                      | Done   |
+| S-049      | 010 deferred-tail closeout: P2-38 preview-log i18n, `--color-info` AA token, S-047 Q2 form-scaffolding + non-blocking form-consistency EventLog annotation, S-045 primer EventLog | Done   |
 
 S-049 closes the four items the S-043/S-044/S-045/S-047 designs explicitly
 deferred to a follow-up: (P2-38) `preview.rs` reuse strings became a
@@ -226,9 +226,9 @@ local EventLog/export path. It extends the
 preserves the `specs/003-supervision-card-ux/` presentation constraints plus
 the `specs/005-v2-spec-conformance-gaps/` `scope_expansion` behavior.
 
-| Wily Stage | Scope | Status |
-| --- | --- | --- |
-| S-022 | T001-T065 006 Sarkar-style plan-draft, diff-ready, retry-loop, EventLog/export, regression, and validation handoff | Done |
+| Wily Stage | Scope                                                                                                              | Status |
+| ---------- | ------------------------------------------------------------------------------------------------------------------ | ------ |
+| S-022      | T001-T065 006 Sarkar-style plan-draft, diff-ready, retry-loop, EventLog/export, regression, and validation handoff | Done   |
 
 S-022 validation evidence is recorded in
 `specs/006-sarkar-provocation-expansion/quickstart.md`. Final validation passed
@@ -268,21 +268,21 @@ conformance cleanup tracked by Wily Stages S-016 through S-020. It closes gaps
 found after 002/003/004 implementation review without expanding the visible
 mutation surface beyond the implemented `add_step` path.
 
-| Gap | Status |
-| --- | --- |
-| User-visible legacy runtime fallback still selectable for v2 work | Closed in S-017: v2 work reports supervised Pi readiness or an explicit unavailable capability state; legacy requests are blocked rather than shown as a successful runtime. |
-| Add-step scope-expansion review card generated by frontend rule card instead of SupervisorAgent path | Closed in S-018: add-step scope cards use the dedicated SupervisorAgent path with DIVE-owned evidence validation; invalid, unavailable, timed-out, or duplicate outcomes log no-card/drop results with no static fallback. |
-| Step-rationale challenge logs objection but does not offer plan adjustment/re-decomposition | Closed in S-019: objections are logged/exportable and now produce non-blocking plan-adjustment offers that route to reviewable plan-area suggestions without silently mutating the plan. |
+| Gap                                                                                                  | Status                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| User-visible legacy runtime fallback still selectable for v2 work                                    | Closed in S-017: v2 work reports supervised Pi readiness or an explicit unavailable capability state; legacy requests are blocked rather than shown as a successful runtime.                                                                                                                                                                                                                                                           |
+| Add-step scope-expansion review card generated by frontend rule card instead of SupervisorAgent path | Closed in S-018: add-step scope cards use the dedicated SupervisorAgent path with DIVE-owned evidence validation; invalid, unavailable, timed-out, or duplicate outcomes log no-card/drop results with no static fallback.                                                                                                                                                                                                             |
+| Step-rationale challenge logs objection but does not offer plan adjustment/re-decomposition          | Closed in S-019: objections are logged/exportable and now produce non-blocking plan-adjustment offers that route to reviewable plan-area suggestions without silently mutating the plan.                                                                                                                                                                                                                                               |
 | `change_step` / `retire_step` mutation behavior reserved in contracts but easy to misread as shipped | Resolved by S-033 (009 theme 5): both mutations now ship as visible, tested apply IPCs — `retire_step` via the remove path (`workspace_plan_remove_step`, `plan_step_retired` event/export, P3) and `change_step` via the supersede path (`workspace_plan_supersede_step`, `plan_step_changed` event, P4). The shipped 004/005 plan-mutation behaviors are `add_step`, plus `retire_step` and `change_step` shipped under 009 theme 5. |
-| 003 card UX status needs truthful completion/harmonization accounting | Clarified in S-020: 003 remains the active presentation/IA authority. Previously implemented review-card presentation work is the baseline, while broad permission-card harmonization remains active/future unless separately validated. |
+| 003 card UX status needs truthful completion/harmonization accounting                                | Clarified in S-020: 003 remains the active presentation/IA authority. Previously implemented review-card presentation work is the baseline, while broad permission-card harmonization remains active/future unless separately validated.                                                                                                                                                                                               |
 
-| Wily Stage | Scope | Status |
-| --- | --- | --- |
-| S-016 | T001-T015 shared copy, types, Rust models, EventLog/export, supervisor contract, and status setup | Done |
-| S-017 | T016-T027 no user-visible legacy runtime fallback | Done |
-| S-018 | T028-T041 add-step scope-expansion SupervisorAgent path | Done |
-| S-019 | T042-T054 rationale challenge plan-adjustment offers | Done |
-| S-020 | T055-T062 shipped-vs-future documentation checks and canonical status truth update | Done |
+| Wily Stage | Scope                                                                                             | Status |
+| ---------- | ------------------------------------------------------------------------------------------------- | ------ |
+| S-016      | T001-T015 shared copy, types, Rust models, EventLog/export, supervisor contract, and status setup | Done   |
+| S-017      | T016-T027 no user-visible legacy runtime fallback                                                 | Done   |
+| S-018      | T028-T041 add-step scope-expansion SupervisorAgent path                                           | Done   |
+| S-019      | T042-T054 rationale challenge plan-adjustment offers                                              | Done   |
+| S-020      | T055-T062 shipped-vs-future documentation checks and canonical status truth update                | Done   |
 
 S-020 validation evidence is recorded in
 `specs/005-v2-spec-conformance-gaps/quickstart.md`. The docs regression guard is
@@ -297,13 +297,13 @@ decomposition/rationale challenge, and dedicated add-step/scope-review slices.
 Final validation and handoff are tracked by Wily Stage S-015 and tasks
 T065-T070.
 
-| Wily Stage | Scope | Status |
-| --- | --- | --- |
-| S-011 | T001-T015 PRD contracts, validation, persistence, EventLog, export foundation | Done |
-| S-012 | T016-T034 PRD onboarding, authoring board, read view, PRD IPC/logging | Done |
-| S-013 | T035-T051 criterion-linked decomposition and rationale challenge | Done |
-| S-014 | T052-T064 dedicated add-step mutation, scope assessment, review-card integration, export | Done |
-| S-015 | T065-T070 quickstart/status docs, typecheck, unit tests, Rust tests, quickstart validation | Done |
+| Wily Stage | Scope                                                                                      | Status |
+| ---------- | ------------------------------------------------------------------------------------------ | ------ |
+| S-011      | T001-T015 PRD contracts, validation, persistence, EventLog, export foundation              | Done   |
+| S-012      | T016-T034 PRD onboarding, authoring board, read view, PRD IPC/logging                      | Done   |
+| S-013      | T035-T051 criterion-linked decomposition and rationale challenge                           | Done   |
+| S-014      | T052-T064 dedicated add-step mutation, scope assessment, review-card integration, export   | Done   |
+| S-015      | T065-T070 quickstart/status docs, typecheck, unit tests, Rust tests, quickstart validation | Done   |
 
 S-015 did not add product scope. Validation passed with `pnpm typecheck`,
 `pnpm test:unit`, required plain `cargo test`, extended
@@ -317,11 +317,11 @@ MockProvider integration test targets now declare `required-features =
 Relocated to `docs/archive/legacy-specs/` in the 2026-07-03 doc cleanup. Kept
 for rationale archaeology only; do not implement v2 behavior directly from them.
 
-| Path | Status | Notes |
-| --- | --- | --- |
-| `docs/archive/legacy-specs/DIVE_SPEC.md` | Historical reference | Earlier broad product spec (still cited as the §2.3 palette / §10.3 serde-contract source in code comments). |
-| `docs/archive/legacy-specs/DIVE_PLAN.md` | Historical reference | Legacy Track-0 / rc.1→rc.2 migration plan. Not active for v2 planning. |
-| `DIVE_DECISIONS.md` | Historical ADR ledger | Kept at repo root. Active v2 conflicts are resolved by spec-kit decisions. |
+| Path                                     | Status                | Notes                                                                                                        |
+| ---------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `docs/archive/legacy-specs/DIVE_SPEC.md` | Historical reference  | Earlier broad product spec (still cited as the §2.3 palette / §10.3 serde-contract source in code comments). |
+| `docs/archive/legacy-specs/DIVE_PLAN.md` | Historical reference  | Legacy Track-0 / rc.1→rc.2 migration plan. Not active for v2 planning.                                       |
+| `DIVE_DECISIONS.md`                      | Historical ADR ledger | Kept at repo root. Active v2 conflicts are resolved by spec-kit decisions.                                   |
 
 ## Superseded Superpowers Specs & Plans (archived)
 

@@ -4,7 +4,14 @@ All notable changes to DIVE are documented here. Format: [Keep a Changelog](http
 
 ## [Unreleased]
 
-_대기 중인 미출시 변경 사항 없음._
+32 commits sit on `main` past the `v1.0.0-rc.9` tag, not yet covered by a
+dedicated release entry. These are chiefly the spec 013 public-release-readiness
+round (Wily Stages S-058–S-070: Rust/FE dead-code sweeps, process-tool egress
+hardening, a correctness bug pack, silent-failure surfacing, several
+god-file/god-hook splits, a performance pass, and the public-hygiene/history-purge
+work), plus a restored macOS CI build and post-cleanup review fixes. See
+`git log v1.0.0-rc.9..HEAD` for the full list; a proper changelog entry is
+pending the next release cut.
 
 ## [1.0.0-rc.9] — 2026-07-11
 
@@ -367,7 +374,12 @@ v0.1 — 워크맵 + 채팅 + 권한 카드 + D 게이트. 메인 시나리오 A
 
 ---
 
-[Unreleased]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.4...HEAD
+[Unreleased]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.9...HEAD
+[1.0.0-rc.9]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.8...v1.0.0-rc.9
+[1.0.0-rc.8]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.7...v1.0.0-rc.8
+[1.0.0-rc.7]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.6...v1.0.0-rc.7
+[1.0.0-rc.6]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.5...v1.0.0-rc.6
+[1.0.0-rc.5]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.4...v1.0.0-rc.5
 [1.0.0-rc.4]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.3...v1.0.0-rc.4
 [1.0.0-rc.3]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.2...v1.0.0-rc.3
 [1.0.0-rc.2]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.1...v1.0.0-rc.2

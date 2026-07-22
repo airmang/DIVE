@@ -129,38 +129,38 @@ DIVE v2의 [헌법](./.specify/memory/constitution.md)이 정하는 원칙:
 
 ## 문서 지도
 
-| 위치 | 내용 |
-| --- | --- |
-| [`README.md`](./README.md) · [`dive/README.md`](./dive/README.md) | 제품/개발 진입점 |
-| [`CHANGELOG.md`](./CHANGELOG.md) | 릴리스 히스토리 |
-| [`.specify/memory/constitution.md`](./.specify/memory/constitution.md) | v2 헌법 (최상위 권위) |
-| [`specs/`](./specs/) · [`specs/README.md`](./specs/README.md) | 캐논 스펙 (001–010) |
-| [`docs/spec-status.md`](./docs/spec-status.md) | 스펙 권위 상태 원장 |
-| [`DIVE_DECISIONS.md`](./DIVE_DECISIONS.md) | ADR 원장 (72 ADR, 최신 ADR-085) |
-| [`docs/user-guide/`](./docs/user-guide/) · [`docs/scenarios/`](./docs/scenarios/) | 사용자·수업 문서 |
-| [`docs/research/`](./docs/research/) | 연구 산출물 (KACE2026 발표) |
-| [`docs/archive/`](./docs/archive/) | 이관된 과거 설계·계획 (참고용, 비활성) |
+| 위치                                                                              | 내용                                                                                  |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| [`README.md`](./README.md) · [`dive/README.md`](./dive/README.md)                 | 제품/개발 진입점                                                                      |
+| [`CHANGELOG.md`](./CHANGELOG.md)                                                  | 릴리스 히스토리                                                                       |
+| [`.specify/memory/constitution.md`](./.specify/memory/constitution.md)            | v2 헌법 (최상위 권위)                                                                 |
+| [`specs/`](./specs/) · [`specs/README.md`](./specs/README.md)                     | 캐논 스펙 (001–010)                                                                   |
+| [`docs/spec-status.md`](./docs/spec-status.md)                                    | 스펙 권위 상태 원장                                                                   |
+| [`DIVE_DECISIONS.md`](./DIVE_DECISIONS.md)                                        | ADR 원장 (72 ADR, 최신 ADR-085)                                                       |
+| [`docs/user-guide/`](./docs/user-guide/) · [`docs/scenarios/`](./docs/scenarios/) | 사용자·수업 문서                                                                      |
+| [`docs/research/`](./docs/research/)                                              | 참고문헌 목록만 공개 — KACE2026 연구 산출물 본문은 내부 연구 노트(공개 저장소 미포함) |
+| [`docs/archive/`](./docs/archive/)                                                | 이관된 과거 설계·계획 (참고용, 비활성)                                                |
 
 ---
 
 ## 연구 배경
 
-DIVE는 제품인 동시에 **연구 도구**입니다. "AI 시대의 프로그래밍 교육은 *작성*에서 *감독*으로 옮겨가야 한다"는 논지를 검증하기 위해, 감독 개입과 증거를 로컬에서 재구성 가능하게 로깅합니다. 관련 산출물은 2026 한국컴퓨터교육학회(KACE2026) 발표를 목표로 [`docs/research/`](./docs/research/)에 정리되어 있습니다. DIVE가 감독 역량·비판적 사고를 향상시킨다는 주장은 경험적 데이터로 뒷받침되기 전까지 **가설**로 다룹니다.
+DIVE는 제품인 동시에 **연구 도구**입니다. "AI 시대의 프로그래밍 교육은 *작성*에서 *감독*으로 옮겨가야 한다"는 논지를 검증하기 위해, 감독 개입과 증거를 로컬에서 재구성 가능하게 로깅합니다. 관련 산출물은 2026 한국컴퓨터교육학회(KACE2026) 발표를 목표로 준비 중이며, 별도의 내부 연구 노트(공개 저장소 미포함)에 정리되어 있습니다. DIVE가 감독 역량·비판적 사고를 향상시킨다는 주장은 경험적 데이터로 뒷받침되기 전까지 **가설**로 다룹니다.
 
 ---
 
 ## 로드맵
 
-| 버전 | 범위 |
-| --- | --- |
+| 버전        | 범위                                                                                                                                                                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | v1.0.0-rc.9 | 학회 데모 준비 3라운드 (011): 계획 품질 게이트 정직화(P0-01), 광고된 모델의 실행 가능성 보장(P0-02), 가짜 정지 타임아웃 제거, PRD 인터뷰 정직·복구, 학생 편집의 AI-요약 오귀속 제거, 릴리스 게이트 복구 — macOS 무각본 라이브 데모 GO 확정 |
-| v1.0.0-rc.8 | PRD 아키텍처 추천 보드 반영 (S-047 2단계 인터뷰 완성): AI의 폼/스택 추천이 채팅 프로즈가 아닌 선택 가능한 카드로 보드에 반영 |
-| v1.0.0-rc.7 | 라이브 프로바이더 모델 카탈로그 + Claude Sonnet 5: OpenRouter `/models` 라이브 조회로 신규 상위 모델이 코드 변경 없이 자동 노출 |
-| v1.0.0-rc.6 | 라운드2 초심자-readiness/UX 하드닝 (010, S-041–S-049): PRD 인터뷰 정직성, 자동화-편향 방지, 한국어 i18n 패리티, WCAG AA, 초심자 어휘·첫 실행, 오류·복구 가독성, 필수 아키텍처 결정, 감독형 `web_fetch` |
-| v1.0.0-rc.5 | 009 E2E 품질 하드닝 (50 여정 갭 분석) |
-| v1.0.0-rc.4 | 1차 MVP 릴리스 (Windows x64·ARM64) |
-| v1.0.0-rc.3 | 검증 수정요청 처리, 숨은 Pi 사이드카 |
-| v1.0.0-rc.2 | Production wiring · disk DB · provider runtime · roadmap persistence · release gate |
+| v1.0.0-rc.8 | PRD 아키텍처 추천 보드 반영 (S-047 2단계 인터뷰 완성): AI의 폼/스택 추천이 채팅 프로즈가 아닌 선택 가능한 카드로 보드에 반영                                                                                                               |
+| v1.0.0-rc.7 | 라이브 프로바이더 모델 카탈로그 + Claude Sonnet 5: OpenRouter `/models` 라이브 조회로 신규 상위 모델이 코드 변경 없이 자동 노출                                                                                                            |
+| v1.0.0-rc.6 | 라운드2 초심자-readiness/UX 하드닝 (010, S-041–S-049): PRD 인터뷰 정직성, 자동화-편향 방지, 한국어 i18n 패리티, WCAG AA, 초심자 어휘·첫 실행, 오류·복구 가독성, 필수 아키텍처 결정, 감독형 `web_fetch`                                     |
+| v1.0.0-rc.5 | 009 E2E 품질 하드닝 (50 여정 갭 분석)                                                                                                                                                                                                      |
+| v1.0.0-rc.4 | 1차 MVP 릴리스 (Windows x64·ARM64)                                                                                                                                                                                                         |
+| v1.0.0-rc.3 | 검증 수정요청 처리, 숨은 Pi 사이드카                                                                                                                                                                                                       |
+| v1.0.0-rc.2 | Production wiring · disk DB · provider runtime · roadmap persistence · release gate                                                                                                                                                        |
 
 > ⚠️ `v1.0.0-rc.1`은 **회수(Yanked)**되었습니다 — 해당 빌드는 production AppState가 demo mock으로 연결돼 실 저장·실 LLM 호출이 동작하지 않습니다. **v1.0.0-rc.2 이상**을 사용하세요.
 
