@@ -305,3 +305,38 @@ and force-pushed with owner authorization:
 Residual (accepted, same as every prior rewrite): GitHub may keep unreachable
 old objects server-side until it GCs; they are not clone/PR-reachable. This was
 the last public-exposure blocker from the 2026-07-22 re-review.
+
+## D-013-19 (2026-07-22) — P2 backlog sweep + dead-code dispositions
+
+The 45-item P2 backlog from the re-review (`docs/qa/post-cleanup-review-2026-07-22.md`)
+was swept: 2 were already resolved by the P1 verify-panel fix
+(reopen-refires-eval, stepper-remount), 43 were fixed across 11 file-disjoint
+groups (correctness/race guards, locale threading, transactions, security
+defense-in-depth, dead-struct deletion, verifier hardening), and the full gate
+is green (cargo fmt/clippy/test + FE typecheck/lint/616 tests + verify:v4 46).
+Notable dispositions (kept, not changed, with rationale):
+
+- **Two cross-cutting dead-code items were NOT removed.** `caller-less
+registered IPC commands` (ai_assist_cards, card_list, codex_oauth_refresh,
+  mcp_server_list_tools, mcp_server_set_enabled, preview_start, project_get) and
+  `emitted events without a current listener` (checkpoint_created,
+  verify_started/done, codex://oauth-complete/error) are **kept**: deleting a
+  registered command or an emit is spread across lib.rs + several impl files and
+  risks a non-obvious caller, an audit/EventLog record, or a future listener,
+  for near-zero external-perception value. Recorded here as a deliberate
+  keep-and-disposition rather than a risky release-branch deletion.
+- **ToolCall table (no production writers)** — kept; a `//!` doc note now marks
+  the DAO as legacy/reserved (approvals are already recorded in EventLog +
+  Message.tool_calls; the export's structured tool_call section is simply empty).
+  A future decision can make the runtime write ToolCall rows or retire the table.
+- **plan-events-null-session** — fixed forward (events now stamp the project's
+  session id so the session-scoped export reaches them); already-persisted
+  NULL-session rows are not retroactively migrated (would need a data migration).
+- **Residuals flagged for later, not release-gating**: `looks_secret_like` now
+  duplicates the EventLog `SECRET_RE` pattern in prd_patch.rs (a shared helper
+  across the module boundary is the eventual cleanup); `verify-product-flow.mjs`'s
+  judgment-gate check still matches "ApprovalJudgment" via the surviving
+  type-only import after the dead component body was removed (pre-existing static
+  tautology, same class as D-013-15); the `.mjs` ESLint block is a curated
+  definite-bug subset, widenable toward `js.configs.recommended` once
+  no-empty/no-undef/no-unused-vars are cleaned across the .mjs tree.
