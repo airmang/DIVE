@@ -260,19 +260,46 @@ export function reduceChatSessionState(
       return { ...prev, messages: [...prev.messages, m] };
     }
     case "assistant_delta": {
-      return {
-        ...prev,
-        messages: prev.messages.map((m) =>
-          m.id === evt.id && m.kind === "assistant" ? { ...m, content: m.content + evt.delta } : m,
-        ),
+      const hasPlaceholder = prev.messages.some((m) => m.id === evt.id && m.kind === "assistant");
+      if (hasPlaceholder) {
+        return {
+          ...prev,
+          messages: prev.messages.map((m) =>
+            m.id === evt.id && m.kind === "assistant"
+              ? { ...m, content: m.content + evt.delta }
+              : m,
+          ),
+        };
+      }
+      // Reattaching mid-stream: assistant_start fired before this hook instance
+      // (re)mounted, so there is no placeholder to append to. Upsert one instead
+      // of silently dropping the delta, mirroring the mergeMessagesById pattern
+      // tool_call_start already uses for the same kind of replay.
+      const started: AssistantMessageData = {
+        id: evt.id,
+        kind: "assistant",
+        createdAt: Date.now(),
+        content: evt.delta,
+        streaming: true,
       };
+      return { ...prev, messages: mergeMessagesById(prev.messages, [started]) };
     }
     case "assistant_end": {
-      const messages = prev.messages.map((m) =>
-        m.id === evt.id && m.kind === "assistant"
-          ? { ...m, content: evt.content, streaming: false }
-          : m,
-      );
+      const hasPlaceholder = prev.messages.some((m) => m.id === evt.id && m.kind === "assistant");
+      const ended: AssistantMessageData = {
+        id: evt.id,
+        kind: "assistant",
+        createdAt: Date.now(),
+        content: evt.content,
+        streaming: false,
+      };
+      const messages = hasPlaceholder
+        ? prev.messages.map((m) =>
+            m.id === evt.id && m.kind === "assistant"
+              ? { ...m, content: evt.content, streaming: false }
+              : m,
+          )
+        : mergeMessagesById(prev.messages, [ended]);
       if (evt.finish_reason === "length") {
         const error: ErrorMessageData = {
           id: `err-${Date.now()}`,

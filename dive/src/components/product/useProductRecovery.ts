@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ToastContextValue } from "../toast/toast-context";
 import type { ChatMessage } from "../chat/types";
 import type { VerifyLogView, CardTileData } from "../workmap/types";
@@ -64,6 +64,12 @@ export function useProductRecovery(input: {
   const [checkpointsLoading, setCheckpointsLoading] = useState(false);
   const [checkpointsError, setCheckpointsError] = useState<string | null>(null);
   const [restoringCheckpointId, setRestoringCheckpointId] = useState<number | null>(null);
+  // Synchronous single-flight guard: checkpoint restore does a lock-free worktree
+  // rewrite (checkpoint/mod.rs), so a second restore or a save-point fired while
+  // one is in flight can interleave and corrupt the project. React state updates
+  // are batched/async, so the guard needs a ref, not just restoringCheckpointId,
+  // to reject a concurrent call made before the state update has been observed.
+  const restoreInFlightRef = useRef(false);
 
   const refreshCheckpoints = useCallback(async () => {
     if (currentSessionId === null) {
@@ -93,6 +99,7 @@ export function useProductRecovery(input: {
   );
 
   const handleManualCheckpoint = useCallback(() => {
+    if (restoreInFlightRef.current) return;
     const label = currentCard
       ? t("checkpoint.manual_label_with_card", { title: currentCard.title })
       : t("checkpoint.manual_label");
@@ -119,6 +126,8 @@ export function useProductRecovery(input: {
 
   const handleRestoreCheckpoint = useCallback(
     async (checkpointId: number) => {
+      if (restoreInFlightRef.current) return;
+      restoreInFlightRef.current = true;
       setRestoringCheckpointId(checkpointId);
       try {
         await restoreCheckpoint(checkpointId);
@@ -136,6 +145,7 @@ export function useProductRecovery(input: {
           description: err instanceof Error ? err.message : String(err),
         });
       } finally {
+        restoreInFlightRef.current = false;
         setRestoringCheckpointId(null);
       }
     },

@@ -167,6 +167,43 @@ describe("RecoveryPanel failure actions", () => {
     );
   });
 
+  it("surfaces a persistent busy state and locks every restore/save/refresh control while a restore is in flight", () => {
+    renderPanel({
+      restoringCheckpointId: 1,
+      checkpoints: [
+        { id: 1, label: "restoring this one", kind: "manual", createdAt: 10, changedFiles: [] },
+        { id: 2, label: "not the one restoring", kind: "manual", createdAt: 20, changedFiles: [] },
+      ],
+    });
+
+    // The busy indicator does not depend on the confirm inline being open — it
+    // stays visible even though confirming a restore closes that inline immediately.
+    expect(screen.getByTestId("recovery-restoring-banner")).toBeTruthy();
+
+    expect((screen.getByTestId("recovery-save-point") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("recovery-refresh") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("failed-step-undo") as HTMLButtonElement).disabled).toBe(true);
+
+    // Every undo button locks, not just the one for the checkpoint being restored.
+    const undoButtons = screen.getAllByTestId("recovery-restore") as HTMLButtonElement[];
+    expect(undoButtons).toHaveLength(2);
+    expect(undoButtons.every((button) => button.disabled)).toBe(true);
+  });
+
+  it("does not show the busy banner or disable controls when no restore is in flight", () => {
+    renderPanel({
+      restoringCheckpointId: null,
+      checkpoints: [{ id: 1, label: "cp", kind: "manual", createdAt: 10, changedFiles: [] }],
+    });
+
+    expect(screen.queryByTestId("recovery-restoring-banner")).toBeNull();
+    expect((screen.getByTestId("recovery-save-point") as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByTestId("recovery-refresh") as HTMLButtonElement).disabled).toBe(false);
+    expect(
+      (screen.getAllByTestId("recovery-restore")[0] as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
   it("marks only the most recent pre-edit anchor as the before-your-last-edit point (S-032)", () => {
     renderPanel({
       failedStep: null,

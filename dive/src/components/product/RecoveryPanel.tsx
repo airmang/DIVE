@@ -94,6 +94,11 @@ export function RecoveryPanel({
   const latest = sorted[0] ?? null;
   const visible = sorted.slice(0, 3);
   const undoAvailable = sessionAvailable && sorted.length > 0;
+  // A restore does a lock-free worktree rewrite (checkpoint/mod.rs); a second
+  // restore or a save-point fired while one is in flight can interleave and
+  // corrupt the project, so every restore/save/refresh control locks while any
+  // restore is pending, not just the button for the checkpoint being restored.
+  const isRestoring = restoringCheckpointId !== null;
   // S-032: the most recent pre-edit anchor is the "before your last edit"
   // restore point — mark it so a user recovering from a failure can identify it.
   const latestPreEditAnchorId = useMemo(
@@ -122,6 +127,17 @@ export function RecoveryPanel({
         </Badge>
       </div>
 
+      {isRestoring ? (
+        <div
+          className="mt-3 rounded-md border border-accent/40 bg-accent/10 px-3 py-2 text-xs text-fg"
+          data-testid="recovery-restoring-banner"
+          role="status"
+          aria-live="polite"
+        >
+          {t("recovery.restoring")}
+        </div>
+      ) : null}
+
       {failedStep ? (
         <div
           className="mt-3 rounded-lg border border-danger/40 bg-danger/10 p-3 text-xs"
@@ -139,7 +155,7 @@ export function RecoveryPanel({
             <Button
               size="sm"
               variant={undoAvailable ? "danger" : "outline"}
-              disabled={!undoAvailable}
+              disabled={!undoAvailable || isRestoring}
               onClick={() => latest && setConfirmRestoreId(latest.id)}
               data-testid="failed-step-undo"
             >
@@ -226,7 +242,7 @@ export function RecoveryPanel({
             <Button
               size="sm"
               variant="danger"
-              disabled={restoringCheckpointId === confirmTarget.id}
+              disabled={isRestoring}
               onClick={() => {
                 onRestoreCheckpoint(confirmTarget.id);
                 setConfirmRestoreId(null);
@@ -245,7 +261,7 @@ export function RecoveryPanel({
         <Button
           size="sm"
           variant="primary"
-          disabled={!sessionAvailable}
+          disabled={!sessionAvailable || isRestoring}
           onClick={onCreateCheckpoint}
           data-testid="recovery-save-point"
         >
@@ -255,7 +271,7 @@ export function RecoveryPanel({
         <Button
           size="sm"
           variant="outline"
-          disabled={!sessionAvailable || loading}
+          disabled={!sessionAvailable || loading || isRestoring}
           onClick={onRefresh}
           data-testid="recovery-refresh"
         >
@@ -298,7 +314,7 @@ export function RecoveryPanel({
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={restoringCheckpointId === item.id}
+                    disabled={isRestoring}
                     onClick={() => setConfirmRestoreId(item.id)}
                     data-testid="recovery-restore"
                     data-checkpoint-id={item.id}
