@@ -88,7 +88,7 @@ fn is_system_or_root_path(path: &Path) -> bool {
     if trimmed.len() == 2 && trimmed.ends_with(':') {
         return true;
     }
-    matches!(
+    if matches!(
         trimmed,
         "/system"
             | "/library"
@@ -98,10 +98,46 @@ fn is_system_or_root_path(path: &Path) -> bool {
             | "/usr"
             | "/etc"
             | "/private"
+            | "/home"
+            | "/users"
             | "c:/windows"
             | "c:/program files"
             | "c:/program files (x86)"
-    )
+            | "c:/users"
+    ) {
+        return true;
+    }
+    // `project_delete(delete_folder=true)` must reject $HOME itself,
+    // matching `tools::guard`'s existing block on agent `rm -rf $HOME` —
+    // without this a delete targeting the resolved home directory (e.g. via
+    // a project row pointed there) would recursively wipe it, since the
+    // fixed root-path list above never matched it.
+    if let Some(home) = resolved_home_dir() {
+        let home_normalized = home
+            .to_string_lossy()
+            .replace('\\', "/")
+            .to_ascii_lowercase();
+        let home_trimmed = home_normalized.trim_end_matches('/');
+        if !home_trimmed.is_empty() && trimmed == home_trimmed {
+            return true;
+        }
+    }
+    false
+}
+
+/// Resolves the current user's home directory for the `is_system_or_root_path`
+/// blocklist. Deliberately avoids adding the `dirs` crate as a dependency —
+/// mirrors the env-var resolution `auth::file_secret_dir` already uses in
+/// this codebase.
+fn resolved_home_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("USERPROFILE").map(PathBuf::from)
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var_os("HOME").map(PathBuf::from)
+    }
 }
 
 fn insert_project(state: &AppState, name: String, root: &Path) -> Result<ProjectRow, String> {
@@ -458,6 +494,67 @@ mod tests {
                 &NewProject {
                     name: "root".into(),
                     path: root_path_for_test(),
+                    provider_default: None,
+                    model_default: None,
+                },
+            )
+            .unwrap()
+        };
+
+        let err = project_delete_impl(&state, id, true).unwrap_err();
+        assert!(err.contains("unsafe project path"), "{err}");
+        let db = state.db.lock().unwrap();
+        assert!(project_dao::get_by_id(db.conn(), id).unwrap().is_some());
+    }
+
+    #[test]
+    fn is_system_or_root_path_rejects_home_directory_and_common_home_roots() {
+        for candidate in [
+            "/home",
+            "/Home/",
+            "/users",
+            "/Users",
+            "c:/users",
+            "C:\\Users\\",
+        ] {
+            assert!(
+                is_system_or_root_path(Path::new(candidate)),
+                "{candidate} should be rejected"
+            );
+        }
+        // Regular project-ish paths under a home root must NOT be caught —
+        // only the home directory itself (and the fixed roots above) are
+        // blocked.
+        assert!(!is_system_or_root_path(Path::new(
+            "/Users/example/Code/projects/dive-2"
+        )));
+
+        if let Some(home) = resolved_home_dir() {
+            assert!(
+                is_system_or_root_path(&home),
+                "resolved home dir {} should be rejected",
+                home.display()
+            );
+        }
+    }
+
+    #[test]
+    fn project_delete_with_folder_rejects_home_directory_and_keeps_db_row() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = mk_state(&tmp);
+        let Some(home) = resolved_home_dir() else {
+            // No HOME/USERPROFILE in this environment: nothing to assert,
+            // but `is_system_or_root_path_rejects_home_directory_and_common_home_roots`
+            // still covers the fixed `/home`, `/users`, `c:/users` roots.
+            return;
+        };
+        let id = {
+            let db = state.db.lock().unwrap();
+            project_dao::insert(
+                db.conn(),
+                &NewProject {
+                    name: "home".into(),
+                    path: home.to_string_lossy().into_owned(),
                     provider_default: None,
                     model_default: None,
                 },

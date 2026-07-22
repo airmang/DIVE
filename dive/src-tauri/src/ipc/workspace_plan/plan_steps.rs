@@ -94,12 +94,20 @@ fn persist_prd_delta_for_plan_mutation(
 
     let from_version = latest_prd.version;
     let to_version = from_version + 1;
-    let delta = normalize_plan_mutation_delta(provided_delta, from_version, to_version);
+    let mut delta = normalize_plan_mutation_delta(provided_delta, from_version, to_version);
     let mut next = latest_prd.snapshot.clone();
     next.current_version = to_version;
     next.updated_at = now_ms();
 
-    for mut criterion in delta.added_criteria.clone() {
+    // Mutate `delta.added_criteria` in place (not a clone) so a reallocated id
+    // is reflected in the ledger too, not just the snapshot pushed below. A
+    // clone-and-discard here used to let the two diverge: when a proposed id
+    // collided and got reallocated, only the clone pushed into
+    // `next.acceptance_criteria` got the new id — `delta.added_criteria` kept
+    // the stale, colliding id and that stale id is what flows into
+    // `ProjectSpecVersion.delta_summary`, the `PRD_EDITED` added-ids, the
+    // `NewPlanMutation.prd_delta`, and the exported `plan.json`.
+    for criterion in &mut delta.added_criteria {
         if criterion.text.trim().is_empty() {
             continue;
         }
@@ -115,7 +123,7 @@ fn persist_prd_delta_for_plan_mutation(
         criterion.status = AcceptanceCriterionStatus::Active;
         criterion.created_in_version = to_version;
         criterion.retired_in_version = None;
-        next.acceptance_criteria.push(criterion);
+        next.acceptance_criteria.push(criterion.clone());
     }
 
     let retired_ids = delta
@@ -157,9 +165,14 @@ fn persist_prd_delta_for_plan_mutation(
         .iter()
         .map(|criterion| criterion.criterion_id.clone())
         .collect::<Vec<_>>();
+    // Wily P2 cleanup: stamp with the project's session instead of `None` — a
+    // NULL session_id makes plan/PRD lifecycle rows permanently unreachable by
+    // the session-scoped EventLog export (`ExportEngine::export_session`).
+    let mutation_session_id =
+        super::plan_lifecycle::latest_session_id_for_project(conn, project_id);
     dive_event_log::append_to_conn(
         conn,
-        None,
+        mutation_session_id,
         dive_event_log::PRD_EDITED_EVENT,
         dive_event_log::prd_edited_payload(
             project_id,
@@ -175,7 +188,7 @@ fn persist_prd_delta_for_plan_mutation(
     .map_err(|e| e.to_string())?;
     dive_event_log::append_to_conn(
         conn,
-        None,
+        mutation_session_id,
         dive_event_log::PRD_VERSION_CREATED_EVENT,
         dive_event_log::prd_version_created_payload(
             project_id,
@@ -341,6 +354,16 @@ pub fn workspace_plan_append_step_with_options_impl(
         .map(str::to_string);
     validate_append_draft(&draft)?;
     sanitize_step_verification(&mut draft);
+    {
+        // Wily P2 cleanup: reject before any mutation/checkpoint/export if the
+        // plan's own project isn't the currently selected (ambient) one.
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        super::plan_lifecycle::require_plan_matches_ambient_project_root(
+            state,
+            db.conn(),
+            plan_id,
+        )?;
+    }
     let pre_pivot_checkpoint = prepare_pre_pivot_checkpoint(state, plan_id);
     let row = {
         let mut db = state.db.lock().map_err(|e| e.to_string())?;
@@ -482,8 +505,16 @@ fn append_step_within_tx(
         map.insert("message".into(), json!("Step appended to plan"));
         map.insert("reason".into(), json!(mutation_reason));
     }
-    dive_event_log::append_to_conn(tx, None, dive_event_log::PLAN_STEP_APPENDED_EVENT, payload)
-        .map_err(|e| e.to_string())?;
+    // Wily P2 cleanup: stamp with the project's session instead of `None` — see
+    // `latest_session_id_for_project` doc comment for why this matters for export.
+    let step_session_id = super::plan_lifecycle::latest_session_id_for_project(tx, plan.project_id);
+    dive_event_log::append_to_conn(
+        tx,
+        step_session_id,
+        dive_event_log::PLAN_STEP_APPENDED_EVENT,
+        payload,
+    )
+    .map_err(|e| e.to_string())?;
     Ok(row)
 }
 
@@ -502,6 +533,16 @@ pub fn workspace_plan_remove_step_impl(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
+    {
+        // Wily P2 cleanup: reject before any mutation/checkpoint/export if the
+        // plan's own project isn't the currently selected (ambient) one.
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        super::plan_lifecycle::require_plan_matches_ambient_project_root(
+            state,
+            db.conn(),
+            plan_id,
+        )?;
+    }
     let pre_pivot_checkpoint = prepare_pre_pivot_checkpoint(state, plan_id);
     {
         let mut db = state.db.lock().map_err(|e| e.to_string())?;
@@ -571,8 +612,17 @@ pub fn workspace_plan_remove_step_impl(
             map.insert("message".into(), json!("Step retired from plan"));
             map.insert("reason".into(), json!(mutation_reason));
         }
-        dive_event_log::append_to_conn(&tx, None, dive_event_log::PLAN_STEP_RETIRED_EVENT, payload)
-            .map_err(|e| e.to_string())?;
+        // Wily P2 cleanup: stamp with the project's session instead of `None` —
+        // see `latest_session_id_for_project` doc comment for why this matters.
+        let retire_session_id =
+            super::plan_lifecycle::latest_session_id_for_project(&tx, plan.project_id);
+        dive_event_log::append_to_conn(
+            &tx,
+            retire_session_id,
+            dive_event_log::PLAN_STEP_RETIRED_EVENT,
+            payload,
+        )
+        .map_err(|e| e.to_string())?;
         tx.commit().map_err(|e| e.to_string())?;
     }
     maybe_create_pre_pivot_checkpoint(state, pre_pivot_checkpoint);
@@ -611,6 +661,16 @@ pub fn workspace_plan_supersede_step_impl(
     validate_append_draft(&replacement)?;
     sanitize_step_verification(&mut replacement);
 
+    {
+        // Wily P2 cleanup: reject before any mutation/checkpoint/export if the
+        // plan's own project isn't the currently selected (ambient) one.
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        super::plan_lifecycle::require_plan_matches_ambient_project_root(
+            state,
+            db.conn(),
+            plan_id,
+        )?;
+    }
     let pre_pivot_checkpoint = prepare_pre_pivot_checkpoint(state, plan_id);
     let new_row = {
         let mut db = state.db.lock().map_err(|e| e.to_string())?;
@@ -712,8 +772,17 @@ pub fn workspace_plan_supersede_step_impl(
             map.insert("message".into(), json!("Step superseded by replacement"));
             map.insert("reason".into(), json!(mutation_reason));
         }
-        dive_event_log::append_to_conn(&tx, None, dive_event_log::PLAN_STEP_CHANGED_EVENT, payload)
-            .map_err(|e| e.to_string())?;
+        // Wily P2 cleanup: stamp with the project's session instead of `None` —
+        // see `latest_session_id_for_project` doc comment for why this matters.
+        let supersede_session_id =
+            super::plan_lifecycle::latest_session_id_for_project(&tx, plan.project_id);
+        dive_event_log::append_to_conn(
+            &tx,
+            supersede_session_id,
+            dive_event_log::PLAN_STEP_CHANGED_EVENT,
+            payload,
+        )
+        .map_err(|e| e.to_string())?;
 
         tx.commit().map_err(|e| e.to_string())?;
         new_row
@@ -759,6 +828,16 @@ pub fn workspace_plan_append_steps_impl(
         .filter(|value| !value.is_empty())
         .map(str::to_string);
 
+    {
+        // Wily P2 cleanup: reject before any mutation/checkpoint/export if the
+        // plan's own project isn't the currently selected (ambient) one.
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        super::plan_lifecycle::require_plan_matches_ambient_project_root(
+            state,
+            db.conn(),
+            plan_id,
+        )?;
+    }
     let pre_pivot_checkpoint = prepare_pre_pivot_checkpoint(state, plan_id);
     let rows = {
         let mut db = state.db.lock().map_err(|e| e.to_string())?;
@@ -779,12 +858,27 @@ pub fn workspace_plan_append_steps_impl(
             ));
         }
 
+        // Wily P2 cleanup: `options.linked_criterion_ids`/`options.prd_delta`
+        // are batch-wide (one flat list / one delta for the whole call, same
+        // shape as the single-append `AppendStepOptions`) — the batch used to
+        // read only `options.mutation_reason` and silently drop both. A
+        // non-empty override list applies to every draft in the batch, same
+        // as the single-append path; the shared PRD delta is attached exactly
+        // once, to the first step in insertion order, so a batch of N drafts
+        // does not create N duplicate copies of the same added criteria.
+        let batch_linked_criterion_ids =
+            compact_linked_criterion_ids(&options.linked_criterion_ids);
         let mut assigned: std::collections::HashMap<usize, String> =
             std::collections::HashMap::new();
         let mut rows = Vec::with_capacity(drafts.len());
-        for &idx in &order {
+        for (position, &idx) in order.iter().enumerate() {
             let mut draft = drafts[idx].draft.clone();
-            draft.linked_criterion_ids = compact_linked_criterion_ids(&draft.linked_criterion_ids);
+            if !batch_linked_criterion_ids.is_empty() {
+                draft.linked_criterion_ids = batch_linked_criterion_ids.clone();
+            } else {
+                draft.linked_criterion_ids =
+                    compact_linked_criterion_ids(&draft.linked_criterion_ids);
+            }
             for &dep in &drafts[idx].depends_on_draft {
                 let sibling = assigned.get(&dep).ok_or_else(|| {
                     "internal: sibling draft not inserted before dependent".to_string()
@@ -802,7 +896,13 @@ pub fn workspace_plan_append_steps_impl(
                     existing.step_id, existing.title
                 ));
             }
-            let row = append_step_within_tx(&tx, &plan, &draft, batch_reason.as_deref(), None)?;
+            let step_prd_delta = if position == 0 {
+                options.prd_delta.as_ref()
+            } else {
+                None
+            };
+            let row =
+                append_step_within_tx(&tx, &plan, &draft, batch_reason.as_deref(), step_prd_delta)?;
             assigned.insert(idx, row.step_id.clone());
             rows.push(row);
         }
@@ -957,6 +1057,9 @@ pub fn workspace_plan_challenge_step_rationale_impl(
     }
     let mut db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.conn_mut();
+    // Wily P2 cleanup: reject before any mutation/export if the plan's own
+    // project isn't the currently selected (ambient) one.
+    super::plan_lifecycle::require_plan_matches_ambient_project_root(state, conn, input.plan_id)?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let plan = plan_dao::get_by_id(&tx, input.plan_id)
         .map_err(|e| e.to_string())?
@@ -1012,9 +1115,13 @@ pub fn workspace_plan_challenge_step_rationale_impl(
         );
         map.insert("step_title".into(), Value::String(step.title.clone()));
     }
+    // Wily P2 cleanup: stamp with the project's session instead of `None` — see
+    // `latest_session_id_for_project` doc comment for why this matters for export.
+    let challenge_session_id =
+        super::plan_lifecycle::latest_session_id_for_project(&tx, plan.project_id);
     dive_event_log::append_to_conn(
         &tx,
-        None,
+        challenge_session_id,
         dive_event_log::PLAN_STEP_RATIONALE_CHALLENGED_EVENT,
         payload,
     )
@@ -1031,7 +1138,7 @@ pub fn workspace_plan_challenge_step_rationale_impl(
     );
     dive_event_log::append_to_conn(
         &tx,
-        None,
+        challenge_session_id,
         dive_event_log::PLAN_ADJUSTMENT_OFFERED_EVENT,
         offer_payload,
     )
@@ -1063,6 +1170,9 @@ pub fn workspace_plan_respond_to_plan_adjustment_offer_impl(
 
     let mut db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.conn_mut();
+    // Wily P2 cleanup: reject before any mutation/export if the plan's own
+    // project isn't the currently selected (ambient) one.
+    super::plan_lifecycle::require_plan_matches_ambient_project_root(state, conn, input.plan_id)?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let objection = plan_mutation_dao::get_objection(&tx, &input.objection_id)
         .map_err(|e| e.to_string())?
@@ -1085,7 +1195,12 @@ pub fn workspace_plan_respond_to_plan_adjustment_offer_impl(
         input.offer_id.clone(),
         response.as_str(),
     );
-    dive_event_log::append_to_conn(&tx, None, event_type, payload).map_err(|e| e.to_string())?;
+    // Wily P2 cleanup: stamp with the project's session instead of `None` — see
+    // `latest_session_id_for_project` doc comment for why this matters for export.
+    let response_session_id =
+        super::plan_lifecycle::latest_session_id_for_project(&tx, updated.project_id);
+    dive_event_log::append_to_conn(&tx, response_session_id, event_type, payload)
+        .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
     let project_root = state.project_root_required()?;
     workspace_plan_service::artifacts::export_plan_artifacts(conn, updated.plan_id, &project_root)
@@ -1469,6 +1584,424 @@ mod supersede_repoint_tests {
             blocked_dependency_ids(step_c, &done_ids),
             vec![replacement.step_id.clone()],
             "C must be blocked only on the resolvable replacement, not the retired target"
+        );
+    }
+}
+
+#[cfg(test)]
+mod null_session_export_tests {
+    use super::*;
+    use crate::db::dao::{project as project_dao, session as session_dao};
+    use crate::db::models::{NewPlan, NewProject, NewSession};
+    use crate::export::{ExportEngine, ExportOptions};
+
+    /// Regression for the P2 finding: plan-mutation EventLog rows used to be
+    /// appended with `session_id = NULL`, which the only EventLog export path
+    /// (`ExportEngine::export_session`, `WHERE session_id = ?`) can never
+    /// match — the entire plan/PRD mutation history silently dropped out of
+    /// the pilot JSONL. The fix stamps these rows with the project's latest
+    /// session, so a `plan_step_appended` event must now be reachable through
+    /// that session's real export.
+    #[test]
+    fn plan_step_appended_event_is_reachable_by_session_export() {
+        let state = AppState::dev_mock();
+        let tmp = tempfile::tempdir().unwrap();
+        state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+
+        let (plan_id, session_id) = {
+            let db = state.db.lock().unwrap();
+            let project_id = project_dao::insert(
+                db.conn(),
+                &NewProject {
+                    name: "p".into(),
+                    path: tmp.path().to_string_lossy().into(),
+                    provider_default: None,
+                    model_default: None,
+                },
+            )
+            .unwrap();
+            let session_id = session_dao::insert(
+                db.conn(),
+                &NewSession {
+                    project_id,
+                    title: "Session 1".into(),
+                    ended_at: None,
+                    status: "active".into(),
+                },
+            )
+            .unwrap();
+            let plan_id = plan_dao::insert(
+                db.conn(),
+                &NewPlan {
+                    project_id,
+                    interview_id: None,
+                    goal: "Build the thing".into(),
+                    intent_summary: None,
+                    scope: None,
+                    non_goals: None,
+                    constraints: None,
+                    acceptance_criteria: None,
+                    status: "approved".into(),
+                },
+            )
+            .unwrap();
+            (plan_id, session_id)
+        };
+
+        let draft = StepDraftInput {
+            title: "Step A".into(),
+            summary: "Summary A".into(),
+            instruction_seed: "Seed A".into(),
+            expected_files: vec!["src/a.rs".into()],
+            acceptance_criteria: vec![AcceptanceCriterionInput::Text("Criterion A".into())],
+            linked_criterion_ids: Vec::new(),
+            rationale: None,
+            step_kind: None,
+            verification_command: None,
+            verification_type: Some("manual".into()),
+            dependencies: Vec::new(),
+            parallel_group: None,
+            position: 0,
+            step_id: String::new(),
+        };
+        workspace_plan_append_step_impl(&state, plan_id, draft).unwrap();
+
+        // The row's session_id must be the project's session, not NULL.
+        let stored_session_id: Option<i64> = {
+            let db = state.db.lock().unwrap();
+            db.conn()
+                .query_row(
+                    "SELECT session_id FROM EventLog WHERE type = ?1 ORDER BY id DESC LIMIT 1",
+                    [dive_event_log::PLAN_STEP_APPENDED_EVENT],
+                    |row| row.get::<_, Option<i64>>(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(stored_session_id, Some(session_id));
+
+        // And it must actually be reachable through the real export path —
+        // this is the exact mechanism (`WHERE session_id = ?`) that a NULL
+        // session_id could never satisfy.
+        let engine = ExportEngine::new(state.db.clone());
+        let exported = engine
+            .export_session(session_id, &ExportOptions::default())
+            .unwrap();
+        assert!(
+            exported.contains("plan_step_appended"),
+            "exported JSONL must contain the plan_step_appended event: {exported}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod prd_delta_criterion_id_reconciliation_tests {
+    use super::*;
+    use crate::db::dao::project as project_dao;
+    use crate::db::models::{AcceptanceCriterion, NewProject, ProjectSpecStatus};
+
+    fn seed_project_with_prd(conn: &rusqlite::Connection) -> i64 {
+        let project_id = project_dao::insert(
+            conn,
+            &NewProject {
+                name: "p".into(),
+                path: "/tmp/p".into(),
+                provider_default: None,
+                model_default: None,
+            },
+        )
+        .unwrap();
+        let now = now_ms();
+        let snapshot = ProjectSpec {
+            project_spec_id: format!("prd-{project_id}"),
+            project_id,
+            current_version: 1,
+            goal: "Build the thing".into(),
+            intent_summary: None,
+            scope: Vec::new(),
+            non_goals: Vec::new(),
+            constraints: Vec::new(),
+            acceptance_criteria: vec![AcceptanceCriterion {
+                criterion_id: "AC-001".into(),
+                text: "Existing criterion".into(),
+                source: AcceptanceCriterionSource::Interview,
+                status: AcceptanceCriterionStatus::Active,
+                created_in_version: 1,
+                retired_in_version: None,
+            }],
+            architecture: None,
+            field_provenance: Default::default(),
+            status: ProjectSpecStatus::Approved,
+            created_at: now,
+            updated_at: now,
+        };
+        prd_dao::insert_version(
+            conn,
+            &NewProjectSpecVersion {
+                project_spec_id: snapshot.project_spec_id.clone(),
+                project_id,
+                version: 1,
+                previous_version: None,
+                snapshot,
+                reason: "interview".into(),
+                delta_summary: serde_json::json!({}),
+            },
+        )
+        .unwrap();
+        project_id
+    }
+
+    /// Regression for the P2 finding: a proposed added-criterion id that
+    /// collides with one already in the current PRD snapshot gets reallocated
+    /// only on the clone pushed into the snapshot — `delta.added_criteria`
+    /// (persisted into `ProjectSpecVersion.delta_summary`, the `PRD_EDITED`
+    /// added-ids, and `NewPlanMutation.prd_delta`) used to keep the stale,
+    /// colliding id. The fix mutates `delta.added_criteria` in place so the
+    /// ledger and the snapshot always agree.
+    #[test]
+    fn colliding_added_criterion_id_is_reconciled_in_the_persisted_delta() {
+        let state = AppState::dev_mock();
+        let tmp = tempfile::tempdir().unwrap();
+        state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+
+        let db = state.db.lock().unwrap();
+        let conn = db.conn();
+        let project_id = seed_project_with_prd(conn);
+        let latest_prd = prd_dao::latest_version(conn, project_id).unwrap().unwrap();
+
+        let provided_delta = ProjectSpecDelta {
+            from_version: 1,
+            to_version: 2,
+            added_criteria: vec![AcceptanceCriterion {
+                // Deliberately reuses the existing "AC-001" id — the caller
+                // (plan router / model output) has no visibility into the
+                // live snapshot's already-assigned ids.
+                criterion_id: "AC-001".into(),
+                text: "New criterion colliding on id".into(),
+                source: AcceptanceCriterionSource::PlanMutation,
+                status: AcceptanceCriterionStatus::Active,
+                created_in_version: 2,
+                retired_in_version: None,
+            }],
+            retired_criterion_ids: Vec::new(),
+            scope_changes: Vec::new(),
+            non_goal_changes: Vec::new(),
+        };
+
+        let update = persist_prd_delta_for_plan_mutation(
+            conn,
+            project_id,
+            Some(&latest_prd),
+            Some(&provided_delta),
+        )
+        .unwrap();
+
+        assert_eq!(update.delta.added_criteria.len(), 1);
+        let reconciled_id = update.delta.added_criteria[0].criterion_id.clone();
+        assert_ne!(
+            reconciled_id, "AC-001",
+            "the colliding id must have been reallocated"
+        );
+
+        // The reallocated id must be the SAME one that actually landed in the
+        // persisted snapshot, not diverge from it.
+        let persisted = prd_dao::latest_version(conn, project_id).unwrap().unwrap();
+        let persisted_new_criterion = persisted
+            .snapshot
+            .acceptance_criteria
+            .iter()
+            .find(|c| c.text == "New criterion colliding on id")
+            .expect("new criterion persisted in the snapshot");
+        assert_eq!(
+            persisted_new_criterion.criterion_id, reconciled_id,
+            "the ledger's criterion id must match the snapshot's"
+        );
+
+        // The delta_summary (persisted + exported) must also carry the
+        // reconciled id, not the stale one.
+        assert_eq!(
+            update.delta_summary["criterionIdsAdded"],
+            serde_json::json!([reconciled_id]),
+        );
+    }
+}
+
+#[cfg(test)]
+mod batch_append_options_tests {
+    use super::*;
+    use crate::db::dao::project as project_dao;
+    use crate::db::models::{AcceptanceCriterion, NewPlan, NewProject, ProjectSpecStatus};
+
+    fn seed_project_with_plan_and_prd(
+        conn: &rusqlite::Connection,
+        project_root: &std::path::Path,
+    ) -> (i64, i64) {
+        let project_id = project_dao::insert(
+            conn,
+            &NewProject {
+                name: "p".into(),
+                path: project_root.to_string_lossy().into(),
+                provider_default: None,
+                model_default: None,
+            },
+        )
+        .unwrap();
+        let now = now_ms();
+        let snapshot = ProjectSpec {
+            project_spec_id: format!("prd-{project_id}"),
+            project_id,
+            current_version: 1,
+            goal: "Build the thing".into(),
+            intent_summary: None,
+            scope: Vec::new(),
+            non_goals: Vec::new(),
+            constraints: Vec::new(),
+            acceptance_criteria: vec![AcceptanceCriterion {
+                criterion_id: "AC-001".into(),
+                text: "Existing criterion".into(),
+                source: AcceptanceCriterionSource::Interview,
+                status: AcceptanceCriterionStatus::Active,
+                created_in_version: 1,
+                retired_in_version: None,
+            }],
+            architecture: None,
+            field_provenance: Default::default(),
+            status: ProjectSpecStatus::Approved,
+            created_at: now,
+            updated_at: now,
+        };
+        prd_dao::insert_version(
+            conn,
+            &NewProjectSpecVersion {
+                project_spec_id: snapshot.project_spec_id.clone(),
+                project_id,
+                version: 1,
+                previous_version: None,
+                snapshot,
+                reason: "interview".into(),
+                delta_summary: serde_json::json!({}),
+            },
+        )
+        .unwrap();
+        let plan_id = plan_dao::insert(
+            conn,
+            &NewPlan {
+                project_id,
+                interview_id: None,
+                goal: "Build the thing".into(),
+                intent_summary: None,
+                scope: None,
+                non_goals: None,
+                constraints: None,
+                acceptance_criteria: None,
+                status: "approved".into(),
+            },
+        )
+        .unwrap();
+        (project_id, plan_id)
+    }
+
+    fn batch_draft(title: &str) -> MultiStepDraftInput {
+        MultiStepDraftInput {
+            draft: StepDraftInput {
+                title: title.into(),
+                summary: format!("{title} summary"),
+                instruction_seed: format!("{title} seed"),
+                expected_files: vec![format!("src/{title}.rs")],
+                acceptance_criteria: vec![AcceptanceCriterionInput::Text(format!(
+                    "{title} criterion"
+                ))],
+                linked_criterion_ids: Vec::new(),
+                rationale: None,
+                step_kind: None,
+                verification_command: None,
+                verification_type: Some("manual".into()),
+                dependencies: Vec::new(),
+                parallel_group: None,
+                position: 0,
+                step_id: String::new(),
+            },
+            depends_on_draft: Vec::new(),
+        }
+    }
+
+    /// Regression for the P2 finding: `workspace_plan_append_steps` accepted
+    /// `linkedCriterionIds`/`prdDelta` (the same batch-wide shape as the
+    /// single-append `AppendStepOptions`) but the batch impl silently dropped
+    /// both, honoring only `mutationReason`. The fix applies the linked-id
+    /// override to every draft in the batch and applies the shared PRD delta
+    /// exactly once (to the first step), instead of duplicating it per step.
+    #[test]
+    fn batch_append_honors_linked_criterion_ids_and_applies_prd_delta_once() {
+        let state = AppState::dev_mock();
+        let tmp = tempfile::tempdir().unwrap();
+        state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+
+        let (project_id, plan_id) = {
+            let db = state.db.lock().unwrap();
+            seed_project_with_plan_and_prd(db.conn(), tmp.path())
+        };
+
+        let options = AppendStepOptions {
+            mutation_reason: None,
+            linked_criterion_ids: vec!["AC-001".into()],
+            prd_delta: Some(ProjectSpecDelta {
+                from_version: 1,
+                to_version: 2,
+                added_criteria: vec![AcceptanceCriterion {
+                    criterion_id: "AC-900".into(),
+                    text: "New batch-added criterion".into(),
+                    source: AcceptanceCriterionSource::PlanMutation,
+                    status: AcceptanceCriterionStatus::Active,
+                    created_in_version: 2,
+                    retired_in_version: None,
+                }],
+                retired_criterion_ids: Vec::new(),
+                scope_changes: Vec::new(),
+                non_goal_changes: Vec::new(),
+            }),
+        };
+
+        let rows = workspace_plan_append_steps_impl(
+            &state,
+            plan_id,
+            vec![batch_draft("stepone"), batch_draft("steptwo")],
+            options,
+        )
+        .unwrap();
+        assert_eq!(rows.len(), 2);
+
+        // Every step in the batch must carry the batch-level linked criterion
+        // override, not silently drop it.
+        for row in &rows {
+            let linked = json_linked_criterion_ids(row.acceptance_criteria.as_ref());
+            assert_eq!(
+                linked,
+                vec!["AC-001".to_string()],
+                "batch-level linkedCriterionIds must apply to every step, not just the first"
+            );
+        }
+
+        // The shared PRD delta must be applied exactly once, not once per
+        // step in the batch: every `append_step_within_tx` call bumps the PRD
+        // version regardless of whether it carries a delta (pre-existing,
+        // unrelated to this fix), so assert on content, not the version
+        // number — the new criterion must appear exactly once, by text
+        // (matching by id alone would miss the pre-fix bug, which reallocated
+        // a *different* id — e.g. "AC-901" — for the batch's second copy
+        // instead of reusing "AC-900").
+        let db = state.db.lock().unwrap();
+        let latest_prd = prd_dao::latest_version(db.conn(), project_id)
+            .unwrap()
+            .expect("prd version exists");
+        let occurrences = latest_prd
+            .snapshot
+            .acceptance_criteria
+            .iter()
+            .filter(|c| c.text == "New batch-added criterion")
+            .count();
+        assert_eq!(
+            occurrences, 1,
+            "the batch's shared added criterion must not be duplicated once per step"
         );
     }
 }

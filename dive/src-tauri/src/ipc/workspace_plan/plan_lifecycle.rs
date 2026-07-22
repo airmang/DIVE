@@ -7,7 +7,8 @@ use std::collections::HashSet;
 use serde_json::{json, Value};
 
 use crate::db::dao::{
-    interview as interview_dao, plan as plan_dao, prd as prd_dao, step as step_dao,
+    interview as interview_dao, plan as plan_dao, prd as prd_dao, project as project_dao,
+    step as step_dao,
 };
 use crate::db::models::{
     AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus, InterviewRow,
@@ -429,9 +430,12 @@ pub fn workspace_plan_generate_draft_impl(
     }
     step_dao::validate_dependencies(&tx, plan_id).map_err(|e| e.to_string())?;
     let criterion_coverage = plan_generated_criterion_coverage(&project_prd, &step_criterion_links);
+    // Wily P2 cleanup: stamp with the project's session (same lookup already
+    // used for the form-consistency/criterion-quality annotations just above)
+    // instead of `None`, so this event is reachable by session-scoped export.
     dive_event_log::append_to_conn(
         &tx,
-        None,
+        annotation_session_id,
         dive_event_log::PLAN_GENERATED_EVENT,
         dive_event_log::plan_generated_payload(
             interview.project_id,
@@ -453,12 +457,53 @@ pub fn workspace_plan_generate_draft_impl(
     Ok((plan, steps))
 }
 
-fn latest_session_id_for_project(conn: &rusqlite::Connection, project_id: i64) -> Option<i64> {
+/// Wily P2 cleanup: also used by sibling submodules (`plan_steps`,
+/// `prd_interview`) to stamp plan/PRD lifecycle EventLog rows with a real
+/// session_id instead of `None` — the only EventLog export path
+/// (`ExportEngine::export_session`) selects `WHERE session_id = ?`, so a NULL
+/// session_id makes a row permanently unreachable by any session export.
+pub(super) fn latest_session_id_for_project(
+    conn: &rusqlite::Connection,
+    project_id: i64,
+) -> Option<i64> {
     let mut stmt = conn
         .prepare("SELECT id FROM Session WHERE project_id = ? ORDER BY id DESC LIMIT 1")
         .ok()?;
     stmt.query_row([project_id], |row| row.get::<_, i64>(0))
         .ok()
+}
+
+/// Wily P2 cleanup: reject a plan-mutation command when the plan's own
+/// project no longer matches the ambient selected-project root. Every
+/// plan-mutation write site (`plan_steps`, `plan_lifecycle`) fetches `plan_id`
+/// from the wire, mutates that plan's project in the DB, then exports
+/// artifacts/checkpoints into `state.project_root_required()` (the ambient
+/// selected project) with no check that the two agree — a project switch
+/// mid-command would mis-attribute the exported `.dive/` artifacts and
+/// checkpoints to the wrong project. Called once at command entry, before any
+/// mutation, so a mismatch is a clean no-op rejection instead of a partial,
+/// mis-attributed write.
+pub(super) fn require_plan_matches_ambient_project_root(
+    state: &AppState,
+    conn: &rusqlite::Connection,
+    plan_id: i64,
+) -> Result<(), String> {
+    let project_root = state.project_root_required()?;
+    let plan = plan_dao::get_by_id(conn, plan_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("plan {plan_id} not found"))?;
+    let project = project_dao::get_by_id(conn, plan.project_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("project {} not found", plan.project_id))?;
+    if std::path::Path::new(&project.path) != project_root.as_path() {
+        return Err(format!(
+            "plan {plan_id} belongs to project \"{}\", which is not the \
+             currently selected project; switch back to it before mutating \
+             this plan",
+            project.path
+        ));
+    }
+    Ok(())
 }
 
 fn log_form_consistency_annotations(
@@ -587,6 +632,9 @@ pub fn workspace_plan_approve_impl(
     let project_root = state.project_root_required()?;
     {
         let db = state.db.lock().map_err(|e| e.to_string())?;
+        // Wily P2 cleanup: reject before mutating/exporting anything if the
+        // plan's own project isn't the currently selected (ambient) one.
+        require_plan_matches_ambient_project_root(state, db.conn(), plan_id)?;
         workspace_plan_service::approve_plan_and_export(db.conn(), plan_id, &project_root)
             .map_err(|e| e.to_string())?;
         let plan = plan_dao::get_by_id(db.conn(), plan_id)
@@ -631,9 +679,14 @@ pub fn workspace_plan_approve_impl(
     // supervision-evidence event (`let _ =`) leaves the research ledger
     // inconsistent (Constitution IV). Surface it as a warning instead, matching
     // the annotation-logging convention elsewhere in this file.
+    // Wily P2 cleanup: stamp with the project's session instead of `None` — a
+    // NULL session_id made this row (with the student's critiqueResponse /
+    // critiqueNote supervision evidence) permanently unreachable by the
+    // session-scoped EventLog export.
+    let approval_session_id = latest_session_id_for_project(db.conn(), plan.project_id);
     if let Err(err) = dive_event_log::append_to_conn(
         db.conn(),
-        None,
+        approval_session_id,
         "plan_approved",
         json!({
             "project_id": plan.project_id,
@@ -693,5 +746,82 @@ mod critique_note_tests {
         let long = "가".repeat(400);
         let bounded = bounded_critique_note(&long).expect("non-empty note kept");
         assert_eq!(bounded.chars().count(), 280);
+    }
+}
+
+#[cfg(test)]
+mod ambient_project_root_guard_tests {
+    use super::*;
+    use crate::db::dao::project as project_dao;
+    use crate::db::models::NewProject;
+
+    /// Regression for the P2 finding: a plan-mutation command used to trust
+    /// `plan_id` from the wire and export into whatever project happened to
+    /// be the ambient selection — a project switch mid-command would mutate
+    /// the plan's real project but attribute the exported `.dive/` artifacts
+    /// to the wrong one. The guard must reject before any mutation when the
+    /// plan's own project differs from the ambient selected project.
+    #[test]
+    fn approve_rejects_plan_from_a_different_project_than_ambient() {
+        let state = AppState::dev_mock();
+        let tmp_a = tempfile::tempdir().unwrap();
+        let tmp_b = tempfile::tempdir().unwrap();
+
+        let plan_b_id = {
+            let db = state.db.lock().unwrap();
+            project_dao::insert(
+                db.conn(),
+                &NewProject {
+                    name: "a".into(),
+                    path: tmp_a.path().to_string_lossy().into(),
+                    provider_default: None,
+                    model_default: None,
+                },
+            )
+            .unwrap();
+            let project_b = project_dao::insert(
+                db.conn(),
+                &NewProject {
+                    name: "b".into(),
+                    path: tmp_b.path().to_string_lossy().into(),
+                    provider_default: None,
+                    model_default: None,
+                },
+            )
+            .unwrap();
+            plan_dao::insert(
+                db.conn(),
+                &NewPlan {
+                    project_id: project_b,
+                    interview_id: None,
+                    goal: "Build B".into(),
+                    intent_summary: None,
+                    scope: None,
+                    non_goals: None,
+                    constraints: None,
+                    acceptance_criteria: None,
+                    status: "draft".into(),
+                },
+            )
+            .unwrap()
+        };
+
+        // Ambient selection is project A's root, but we try to approve
+        // project B's plan — a stand-in for a project switch mid-command.
+        state.swap_project_root(tmp_a.path().to_path_buf()).unwrap();
+
+        let result = workspace_plan_approve_impl(&state, plan_b_id, None);
+        assert!(
+            result.is_err(),
+            "approving a plan from a non-ambient project must be rejected"
+        );
+
+        // And it must be a clean no-op: the plan must still be a draft.
+        let db = state.db.lock().unwrap();
+        let plan = plan_dao::get_by_id(db.conn(), plan_b_id).unwrap().unwrap();
+        assert_eq!(
+            plan.status, "draft",
+            "a rejected approve must not mutate the plan"
+        );
     }
 }

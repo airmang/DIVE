@@ -208,12 +208,23 @@ pub fn reorder(conn: &Connection, session_id: i64, ordered_ids: &[i64]) -> Resul
     if existing_ids != ordered_set {
         return Err(DbError::Sqlite(rusqlite::Error::InvalidQuery));
     }
+    // Rewrite every position inside one transaction: previously each UPDATE
+    // committed independently (implicit per-statement autocommit), so a crash
+    // or error partway through the loop could persist a mix of old and new
+    // positions (duplicates). `conn` here is a plain `&Connection` shared with
+    // the rest of the DAO layer, so a raw SQL transaction is used rather than
+    // rusqlite's `Connection::transaction()`, which needs `&mut Connection`.
+    conn.execute_batch("BEGIN IMMEDIATE")?;
     for (idx, id) in ordered_ids.iter().enumerate() {
-        conn.execute(
+        if let Err(err) = conn.execute(
             "UPDATE Card SET position = ?, updated_at = ? WHERE id = ? AND session_id = ?",
             params![idx as i64 + 1, now_ms(), id, session_id],
-        )?;
+        ) {
+            let _ = conn.execute_batch("ROLLBACK");
+            return Err(err.into());
+        }
     }
+    conn.execute_batch("COMMIT")?;
     Ok(())
 }
 
@@ -278,6 +289,46 @@ mod tests {
             vec![1, 2]
         );
     }
+    #[test]
+    fn reorder_rolls_back_all_updates_when_one_update_fails_mid_loop() {
+        let (db, _tmp) = fresh_db();
+        let (_, sid) = seed_project_session(db.conn());
+        let c1 = create(db.conn(), sid, "c1", None).unwrap();
+        let c2 = create(db.conn(), sid, "c2", None).unwrap();
+        let c3 = create(db.conn(), sid, "c3", None).unwrap();
+        assert_eq!((c1.position, c2.position, c3.position), (1, 2, 3));
+
+        // Simulate a failure partway through the reorder loop: a temp trigger
+        // raises whenever c3's position is written. Ordered as [c2, c3, c1],
+        // c2's UPDATE runs (and, pre-fix, would already be durably committed
+        // via its own implicit transaction) before c3's UPDATE aborts.
+        db.conn()
+            .execute_batch(&format!(
+                "CREATE TEMP TRIGGER fail_on_c3_update
+                 BEFORE UPDATE OF position ON Card
+                 WHEN NEW.id = {}
+                 BEGIN
+                    SELECT RAISE(ABORT, 'simulated mid-loop failure');
+                 END;",
+                c3.id
+            ))
+            .unwrap();
+
+        let result = reorder(db.conn(), sid, &[c2.id, c3.id, c1.id]);
+        assert!(result.is_err());
+
+        let positions: std::collections::HashMap<i64, i64> = list_by_session(db.conn(), sid)
+            .unwrap()
+            .into_iter()
+            .map(|c| (c.id, c.position))
+            .collect();
+        assert_eq!(
+            positions,
+            [(c1.id, 1), (c2.id, 2), (c3.id, 3)].into_iter().collect(),
+            "a mid-loop failure must roll back ALL position updates, not leave a partial/duplicate rewrite"
+        );
+    }
+
     #[test]
     fn foreign_key_rejects_missing_session() {
         let (db, _) = fresh_db();

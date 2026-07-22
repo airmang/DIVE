@@ -133,7 +133,13 @@ static REGEX_RULES: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
         ),
         (
             "interpreter inline execution",
-            Regex::new(r"(?i)\b(?:python3?|node|ruby|perl|deno|bun)\b[^|;&]*(?:\s-c\b|\s-e\b|--eval\b)").unwrap(),
+            // `-c`/`-e`/`--eval` run inline code for any of these interpreters.
+            // `node -p`/`node --print` evaluates and prints an expression
+            // (commonly `node -p process.env`, an env-dump via a different
+            // door) — scoped to `node` only because `-p` means something
+            // else for `perl` (print-loop, e.g. `perl -pe 's/a/b/' file`) and
+            // isn't a recognized flag for the others (env-dump-export-p-gap).
+            Regex::new(r"(?i)\b(?:(?:python3?|node|ruby|perl|deno|bun)\b[^|;&]*(?:\s-c\b|\s-e\b|--eval\b)|node\b[^|;&]*(?:\s-p\b|--print\b))").unwrap(),
         ),
         (
             "network upload/exfiltration",
@@ -162,9 +168,11 @@ static REGEX_RULES: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
             // `env`/`printenv` (with or without args) dump the environment; bare
             // `set` lists every variable + function, but `set -e` /
             // `set -euo pipefail` / `set +x` only toggle shell options — so `set`
-            // matches only when bare (no `-`/`+` flags follow) (M-1).
+            // matches only when bare (no `-`/`+` flags follow) (M-1). `export -p`,
+            // `declare -p`, and `typeset -p` are the same env-dump primitive
+            // under a different shell builtin name (env-dump-export-p-gap).
             Regex::new(
-                r"(?i)(^|[;&|\r\n])\s*(?:(?:env|printenv)(?:\s|$)|set\s*(?:$|[;&|\r\n]))",
+                r"(?i)(^|[;&|\r\n])\s*(?:(?:env|printenv)(?:\s|$)|set\s*(?:$|[;&|\r\n])|(?:export|declare|typeset)\s+-p\b)",
             )
             .unwrap(),
         ),
@@ -172,10 +180,17 @@ static REGEX_RULES: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
             "dotenv read",
             // Any common reader pointed at a dotenv file leaks its secrets, so the
             // reader set covers cat/type/gc plus head/tail/less/more/sed/awk/grep/
-            // source and the `.`-source builtin (M-2). The trailing boundary keeps
-            // `.environment.ts` and similar non-dotenv names from matching.
+            // source and the `.`-source builtin (M-2). The `.env` component must
+            // begin a path segment — start of string, or right after a
+            // whitespace/`/`/`\` separator — so `app.env.ts` / `config/app.env.ts`
+            // (a TS source file, not a dotenv file) no longer match, and the
+            // trailing `\b` keeps `.environment.ts` and similar non-dotenv names
+            // from matching (dotenv-rule-overblocks-example-templates). Capture
+            // group 1 is checked in `classify_bash_command` against
+            // `is_dotenv_template_suffix` so conventional non-secret templates
+            // (`.env.example`, `.env.sample`, `.env.template`) are exempted.
             Regex::new(
-                r"(?i)(?:\b(?:cat|type|get-content|gc|head|tail|less|more|sed|awk|grep|source)\b|(?:^|[;&|\r\n])\s*\.\s)[^;&|\r\n]*(?:^|[/\\])?\.env(?:\b|[.\s])",
+                r"(?i)(?:\b(?:cat|type|get-content|gc|head|tail|less|more|sed|awk|grep|source)\b|(?:^|[;&|\r\n])\s*\.\s)(?:[^;&|\r\n]*[\s/\\])?(\.env(?:\.[A-Za-z0-9_-]+)*)\b",
             )
             .unwrap(),
         ),
@@ -224,12 +239,43 @@ pub fn classify_bash_command(cmd: &str) -> Option<BlockReason> {
 
     // Regex pass.
     for (rule, re) in REGEX_RULES.iter() {
-        if re.is_match(trimmed) {
-            return Some(BlockReason::new(rule, re.as_str()));
+        let Some(caps) = re.captures(trimmed) else {
+            continue;
+        };
+        // Conventional non-secret dotenv templates (`.env.example`,
+        // `.env.sample`, `.env.template`) are exempt from the dotenv-read
+        // rule. Every other rule has no capture groups, so `caps.get(1)` is
+        // `None` for them and this is a no-op (dotenv-rule-overblocks-
+        // example-templates finding).
+        if *rule == "dotenv read" {
+            if let Some(m) = caps.get(1) {
+                if is_dotenv_template_suffix(m.as_str()) {
+                    continue;
+                }
+            }
         }
+        return Some(BlockReason::new(rule, re.as_str()));
     }
 
     None
+}
+
+/// Conventional non-secret dotenv templates that are safe to read freely
+/// (dotenv-rule-overblocks-example-templates finding). Checked against only
+/// the first suffix segment after `.env.`, so `.env.example.local` is still
+/// treated as a real (environment-specific) file, not a template.
+const DOTENV_TEMPLATE_SUFFIXES: &[&str] = &["example", "sample", "template"];
+
+/// True when `matched` (the "dotenv read" rule's capture group — e.g. `.env`,
+/// `.env.local`, `.env.example`) names a conventional template file rather
+/// than a real secret-bearing dotenv file.
+fn is_dotenv_template_suffix(matched: &str) -> bool {
+    let lower = matched.to_ascii_lowercase();
+    let Some(rest) = lower.strip_prefix(".env.") else {
+        return false;
+    };
+    let first_segment = rest.split('.').next().unwrap_or(rest);
+    DOTENV_TEMPLATE_SUFFIXES.contains(&first_segment)
 }
 
 fn looks_like_env_file(path: &str) -> bool {
@@ -597,6 +643,62 @@ mod tests {
         assert!(classify_bash_command("head src/config.ts").is_none());
         // Running a script that happens to take `.env` as an arg is not a reader.
         assert!(classify_bash_command("./run.sh .env").is_none());
+    }
+
+    #[test]
+    fn blocks_export_declare_typeset_dump_and_node_print_env() {
+        // env-dump-export-p-gap: `export -p`/`declare -p`/`typeset -p` dump
+        // the environment the same way `env`/`printenv`/bare `set` do.
+        for cmd in ["export -p", "declare -p", "typeset -p", "export -p; ls"] {
+            assert!(classify_bash_command(cmd).is_some(), "must block: {cmd}");
+        }
+        // `node -p`/`node --print` evaluates and prints an expression —
+        // commonly used to dump the environment (`node -p process.env`).
+        for cmd in [
+            "node -p process.env",
+            "node --print process.env",
+            "node -p \"JSON.stringify(process.env)\"",
+        ] {
+            assert!(classify_bash_command(cmd).is_some(), "must block: {cmd}");
+        }
+        // Benign look-alikes stay allowed: assigning/declaring without `-p`,
+        // and `perl -p`/`-pe` mean something unrelated (print-loop).
+        for cmd in [
+            "export FOO=bar",
+            "declare -a arr",
+            "typeset -i x",
+            "perl -pe 's/a/b/' file.txt",
+            "node build.js",
+        ] {
+            assert!(classify_bash_command(cmd).is_none(), "must allow: {cmd}");
+        }
+    }
+
+    #[test]
+    fn dotenv_read_allows_templates_and_dotted_ts_sources() {
+        // dotenv-rule-overblocks-example-templates: conventional non-secret
+        // dotenv templates must stay readable.
+        for cmd in [
+            "cat .env.example",
+            "cat .env.sample",
+            "cat .env.template",
+            "head .env.example",
+        ] {
+            assert!(classify_bash_command(cmd).is_none(), "must allow: {cmd}");
+        }
+        // `.env` must begin a path segment — `app.env.ts` / nested variants
+        // are TypeScript source files, not dotenv secrets files.
+        for cmd in [
+            "cat app.env.ts",
+            "cat config/app.env.ts",
+            "cat src/app.env.ts",
+        ] {
+            assert!(classify_bash_command(cmd).is_none(), "must allow: {cmd}");
+        }
+        // Real dotenv files (including nested paths) stay blocked.
+        for cmd in ["cat .env", "cat .env.local", "cat config/.env"] {
+            assert!(classify_bash_command(cmd).is_some(), "must block: {cmd}");
+        }
     }
 
     #[test]

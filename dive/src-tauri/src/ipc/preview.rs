@@ -60,6 +60,19 @@ impl StaticPreviewServer {
     }
 }
 
+/// Guarantees the listener task is aborted whenever a `StaticPreviewServer`
+/// value is discarded — not just via the explicit `abort()` call above, but
+/// also when one is silently dropped by `*guard = Some(new_server)`
+/// overwriting a stale entry (a concurrent `preview_open` can race another
+/// past the emptiness check in `static_preview_base_url` before either
+/// stores its server; without this, the loser's task and loopback port leak
+/// for the rest of the app's lifetime).
+impl Drop for StaticPreviewServer {
+    fn drop(&mut self) {
+        self.handle.abort();
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct PreviewStartResult {
     pub url: String,
@@ -1224,7 +1237,8 @@ async fn run_install(root: &Path, manager: PackageManager) -> Result<String, Str
     if !output.status.success() {
         return Err(format!(
             "dependency install failed with {}.\n{}",
-            output.status, combined
+            output.status,
+            cap_install_output_for_error(&combined)
         ));
     }
     Ok(combined)
@@ -1338,6 +1352,17 @@ fn push_truncated_lines(logs: &mut Vec<String>, output: &str) {
     }
 }
 
+/// Caps a failed install's combined stdout+stderr to the same
+/// `MAX_LOG_LINES` window `push_truncated_lines` applies on the success
+/// path. Without this, a failed package-manager run writes its full,
+/// uncapped output verbatim into the error string that flows into the
+/// append-only EventLog and chat transcript on every retry.
+fn cap_install_output_for_error(output: &str) -> String {
+    let mut capped_lines = Vec::new();
+    push_truncated_lines(&mut capped_lines, output);
+    capped_lines.join("\n")
+}
+
 fn push_log_line(logs: &mut Vec<String>, line: String) {
     if logs.len() >= MAX_LOG_LINES {
         logs.remove(0);
@@ -1348,6 +1373,20 @@ fn push_log_line(logs: &mut Vec<String>, line: String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cap_install_output_for_error_bounds_line_count() {
+        let big_output: String = (0..(MAX_LOG_LINES * 3))
+            .map(|i| format!("npm error line {i}\n"))
+            .collect();
+
+        let capped = cap_install_output_for_error(&big_output);
+
+        assert_eq!(capped.lines().count(), MAX_LOG_LINES);
+        assert!(capped.contains("npm error line 0"));
+        // The tail of the uncapped blob must not survive truncation.
+        assert!(!capped.contains(&format!("npm error line {}", MAX_LOG_LINES * 3 - 1)));
+    }
 
     #[test]
     fn likely_ports_prefers_script_port_then_common_defaults() {
@@ -1484,5 +1523,33 @@ mod tests {
         assert!(rebind.starts_with("HTTP/1.1 403"), "{rebind}");
 
         handle.abort();
+    }
+
+    /// Regression test for the static-preview-server TOCTOU leak: dropping a
+    /// `StaticPreviewServer` (e.g. because it was overwritten in the
+    /// `static_preview_server` slot by a concurrent caller) must abort its
+    /// listener task rather than leaking it as a detached background task.
+    #[tokio::test]
+    async fn static_preview_server_drop_aborts_its_listener_task() {
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let handle = tokio::spawn(async move {
+            // Held for the task's lifetime; dropping the task (via abort)
+            // drops `_tx`, which the receiver observes immediately instead
+            // of hanging forever.
+            let _tx = tx;
+            std::future::pending::<()>().await
+        });
+        let server = StaticPreviewServer {
+            root: PathBuf::from("/tmp"),
+            base_url: "http://127.0.0.1:0".into(),
+            handle,
+        };
+
+        drop(server);
+
+        tokio::time::timeout(Duration::from_secs(2), rx)
+            .await
+            .expect("StaticPreviewServer::drop must abort its listener task promptly")
+            .expect_err("aborted task's oneshot sender should be dropped, not fulfilled");
     }
 }

@@ -483,36 +483,6 @@ impl PlanAdjustmentOfferStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PlanAdjustmentOffer {
-    pub offer_id: String,
-    pub objection_id: String,
-    pub project_id: i64,
-    pub plan_id: i64,
-    pub step_db_id: i64,
-    pub stable_step_id: String,
-    pub kind: PlanAdjustmentOfferKind,
-    pub status: PlanAdjustmentOfferStatus,
-    pub suggested_seed: Option<String>,
-    pub created_at: i64,
-    pub responded_at: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NewPlanAdjustmentOffer {
-    pub offer_id: String,
-    pub objection_id: String,
-    pub project_id: i64,
-    pub plan_id: i64,
-    pub step_db_id: i64,
-    pub stable_step_id: String,
-    pub kind: PlanAdjustmentOfferKind,
-    pub status: PlanAdjustmentOfferStatus,
-    pub suggested_seed: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PlanAdjustmentOfferRow {
     pub offer_id: String,
     pub objection_id: String,

@@ -41,6 +41,34 @@ impl Drop for TempAuthDir {
     }
 }
 
+/// Best-effort cleanup of stale per-turn OAuth temp dirs left behind when a
+/// process exit skips `TempAuthDir`'s `Drop` (e.g. Tauri shutdown calling
+/// `std::process::exit` mid-turn, or a hard crash). Intended to be called
+/// once at app startup, before any turn creates a new `TempAuthDir`. Safe:
+/// every `dive-pi-sidecar-*` entry under the OS temp dir is a per-turn
+/// directory named with a fresh UUID (see `TempAuthDir::create`), so nothing
+/// live can collide with an old one.
+pub(crate) fn sweep_stale_temp_auth_dirs() {
+    let base = std::env::temp_dir();
+    let entries = match std::fs::read_dir(&base) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let file_name = entry.file_name();
+        let Some(name) = file_name.to_str() else {
+            continue;
+        };
+        if !name.starts_with("dive-pi-sidecar-") {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            let _ = std::fs::remove_dir_all(&path);
+        }
+    }
+}
+
 pub(super) enum RuntimeCredential {
     OauthFile {
         _temp: TempAuthDir,
@@ -242,5 +270,29 @@ mod tests {
 
         #[cfg(unix)]
         assert_eq!(file_mode_string(&path).unwrap(), "600");
+    }
+
+    #[test]
+    fn sweeps_stale_temp_auth_dirs_but_leaves_unrelated_entries() {
+        let stale = std::env::temp_dir().join(format!("dive-pi-sidecar-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&stale).unwrap();
+        std::fs::write(stale.join("auth.json"), "leftover-refresh-token").unwrap();
+
+        let unrelated =
+            std::env::temp_dir().join(format!("dive-unrelated-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&unrelated).unwrap();
+
+        sweep_stale_temp_auth_dirs();
+
+        assert!(
+            !stale.exists(),
+            "stale dive-pi-sidecar-* dir should be swept"
+        );
+        assert!(
+            unrelated.exists(),
+            "unrelated temp dirs must not be touched"
+        );
+
+        let _ = std::fs::remove_dir_all(&unrelated);
     }
 }

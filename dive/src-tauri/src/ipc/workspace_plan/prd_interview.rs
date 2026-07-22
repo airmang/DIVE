@@ -123,7 +123,21 @@ pub async fn workspace_prd_interview_turn_impl(
 
     let mut db = state.db.lock().map_err(|e| e.to_string())?;
     let conn = db.conn_mut();
-    let current_draft = load_or_create_prd_draft(conn, input.project_id, &input.draft_id)?;
+    // Wily P2 cleanup: persist the PROPOSED/APPLIED/REJECTED/UNSTRUCTURED patch
+    // event(s), the live draft update, and the InterviewTurn row as ONE
+    // transaction. These used to be separate writes on the raw connection — a
+    // mid-sequence failure (e.g. the live-draft write succeeding but the
+    // InterviewTurn insert failing) left the audit ledger inconsistent with
+    // the draft: an EventLog row with no InterviewTurn to explain it, or a
+    // draft mutation with no turn record at all.
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let current_draft = load_or_create_prd_draft(&tx, input.project_id, &input.draft_id)?;
+    // Wily P2 cleanup: stamp PRD interview events with the project's session
+    // instead of `None` — a NULL session_id makes a row permanently
+    // unreachable by the session-scoped EventLog export
+    // (`ExportEngine::export_session` selects `WHERE session_id = ?`).
+    let interview_session_id =
+        super::plan_lifecycle::latest_session_id_for_project(&tx, input.project_id);
     // Carries the full flake/recovery history onto the InterviewTurn row even
     // when the in-turn retry recovered and the patch applied (e.g.
     // "no_json_truncated:recovered") — the audit must record the flake, not
@@ -136,8 +150,8 @@ pub async fn workspace_prd_interview_turn_impl(
             .map(|operation| operation.op.clone())
             .collect::<Vec<_>>();
         dive_event_log::append_to_conn(
-            conn,
-            None,
+            &tx,
+            interview_session_id,
             dive_event_log::PRD_PATCH_PROPOSED_EVENT,
             dive_event_log::prd_patch_proposed_payload(
                 input.project_id,
@@ -156,12 +170,12 @@ pub async fn workspace_prd_interview_turn_impl(
         output.applied_field_paths = applied.applied_field_paths.clone();
         output.rejected_reasons = applied.rejected_reasons.clone();
         output.live_draft = applied.draft.clone();
-        persist_live_prd_draft(conn, &applied.draft)?;
+        persist_live_prd_draft(&tx, &applied.draft)?;
 
         if applied.validation_outcome == "applied" {
             dive_event_log::append_to_conn(
-                conn,
-                None,
+                &tx,
+                interview_session_id,
                 dive_event_log::PRD_PATCH_APPLIED_EVENT,
                 dive_event_log::prd_patch_applied_payload(
                     input.project_id,
@@ -179,8 +193,8 @@ pub async fn workspace_prd_interview_turn_impl(
             || applied.validation_outcome == "held_for_student"
         {
             dive_event_log::append_to_conn(
-                conn,
-                None,
+                &tx,
+                interview_session_id,
                 dive_event_log::PRD_PATCH_REJECTED_EVENT,
                 dive_event_log::prd_patch_rejected_payload(
                     input.project_id,
@@ -205,8 +219,8 @@ pub async fn workspace_prd_interview_turn_impl(
         if let Some(kind) = parse_failure_kind {
             output.validation_outcome = "not_structured".into();
             dive_event_log::append_to_conn(
-                conn,
-                None,
+                &tx,
+                interview_session_id,
                 dive_event_log::PRD_PATCH_UNSTRUCTURED_EVENT,
                 dive_event_log::prd_patch_unstructured_payload(
                     input.project_id,
@@ -231,7 +245,7 @@ pub async fn workspace_prd_interview_turn_impl(
     }
 
     interview_turn_dao::insert(
-        conn,
+        &tx,
         &NewInterviewTurn {
             draft_id: output.live_draft.draft_id.clone(),
             turn_id,
@@ -241,6 +255,7 @@ pub async fn workspace_prd_interview_turn_impl(
         },
     )
     .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
 
     Ok(output)
 }
@@ -1063,5 +1078,142 @@ mod prd_interview_prompt_tests {
         let parsed = parse_prd_turn_response(raw, "turn-1");
         assert!(parsed.patch.is_none());
         assert_eq!(parsed.parse_failure_kind, None);
+    }
+}
+
+#[cfg(test)]
+mod interview_turn_transaction_tests {
+    use super::*;
+    use crate::db::dao::project as project_dao;
+    use crate::db::models::NewProject;
+    use crate::ipc::{ProviderKind, ProviderRuntime};
+    use crate::providers::{LlmProvider, ModelInfo, ProviderError};
+    use futures::stream::BoxStream;
+    use std::sync::{Arc, Mutex};
+
+    /// Deletes the project mid-`chat()` call — the same seam
+    /// `ConcurrentDraftEditProvider` (in `ipc::tests`) uses to simulate a
+    /// race — then returns a scripted `set_goal` patch response. By the time
+    /// the impl reaches `persist_live_prd_draft`, the project no longer
+    /// exists, so the `LiveProjectSpecDraft.project_id` foreign key rejects
+    /// the write: a deterministic, real mid-sequence DB failure, not a
+    /// hand-rolled stand-in for one.
+    struct DeleteProjectMidCallProvider {
+        db: Arc<Mutex<crate::db::Database>>,
+        project_id: i64,
+    }
+
+    #[async_trait::async_trait]
+    impl LlmProvider for DeleteProjectMidCallProvider {
+        fn id(&self) -> &str {
+            "delete-project-mid-call-mock"
+        }
+
+        fn list_models(&self) -> Vec<ModelInfo> {
+            Vec::new()
+        }
+
+        async fn chat(
+            &self,
+            _req: ChatRequest,
+        ) -> Result<BoxStream<'static, ChatEvent>, ProviderError> {
+            {
+                let db = self.db.lock().unwrap();
+                project_dao::delete(db.conn(), self.project_id).unwrap();
+            }
+            let events = vec![
+                ChatEvent::TextDelta(
+                    r#"{"assistantMessage":"목표를 반영했어요.","patch":{"operations":[{"op":"set_goal","value":"학생들이 숙제를 관리하는 앱"}],"rationale":"목표를 명확히 했어요"}}"#
+                        .into(),
+                ),
+                ChatEvent::Done {
+                    finish_reason: FinishReason::Stop,
+                },
+            ];
+            Ok(futures::stream::iter(events).boxed())
+        }
+
+        async fn refresh_auth(&mut self) -> Result<(), ProviderError> {
+            Ok(())
+        }
+    }
+
+    /// Regression for the P2 finding: the PRD-interview turn used to persist
+    /// the PRD_PATCH_PROPOSED event, the live draft, and the InterviewTurn row
+    /// as separate un-transactioned writes — a mid-sequence failure could
+    /// leave the EventLog row committed with no corresponding draft update or
+    /// InterviewTurn record. The fix wraps all three in one transaction, so a
+    /// failure partway through rolls back everything written so far in that
+    /// turn, not just the statement that failed.
+    #[tokio::test]
+    async fn mid_sequence_failure_rolls_back_the_earlier_event_write_too() {
+        let state = AppState::dev_mock();
+        let project_id = {
+            let db = state.db.lock().unwrap();
+            project_dao::insert(
+                db.conn(),
+                &NewProject {
+                    name: "p".into(),
+                    path: "/tmp/p".into(),
+                    provider_default: None,
+                    model_default: None,
+                },
+            )
+            .unwrap()
+        };
+        let draft_id = format!("prd-draft-{project_id}");
+
+        state
+            .swap_runtime(ProviderRuntime::new(
+                Some(1),
+                ProviderKind::OpenAi,
+                crate::providers::default_model_for_kind("openai").to_string(),
+                Arc::new(DeleteProjectMidCallProvider {
+                    db: state.db.clone(),
+                    project_id,
+                }),
+            ))
+            .unwrap();
+
+        let result = workspace_prd_interview_turn_impl(
+            &state,
+            PrdInterviewTurnInput {
+                project_id,
+                draft_id,
+                answer: "학생들이 숙제를 관리하는 앱을 만들고 싶어요.".into(),
+                conversation: Vec::new(),
+                provider: "openai".into(),
+                model: crate::providers::default_model_for_kind("openai").to_string(),
+            },
+        )
+        .await;
+
+        assert!(
+            result.is_err(),
+            "the live-draft write must fail once its project is gone mid-call"
+        );
+
+        let db = state.db.lock().unwrap();
+        let event_count: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM EventLog WHERE type = ?1",
+                [dive_event_log::PRD_PATCH_PROPOSED_EVENT],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            event_count, 0,
+            "the PRD_PATCH_PROPOSED event, written earlier in the same \
+             transaction, must be rolled back along with the later failed write"
+        );
+        let turn_count: i64 = db
+            .conn()
+            .query_row("SELECT COUNT(*) FROM InterviewTurn", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            turn_count, 0,
+            "the InterviewTurn row must not be persisted when the turn fails"
+        );
     }
 }

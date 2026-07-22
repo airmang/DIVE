@@ -121,8 +121,11 @@ impl StreamCapture {
 /// Spawn `cmd`, capturing stdout/stderr with each stream's displayable bytes
 /// bounded to `keep_cap`. Reading continues (discarding beyond `keep_cap`) up to
 /// `OUTPUT_READ_LIMIT`; a child still producing past that ceiling is killed so a
-/// runaway writer cannot hang the turn. The whole wait is bounded by `timeout`,
-/// preserving the callers' previous `tokio::time::timeout` semantics.
+/// runaway writer cannot hang the turn. Both the read loop AND the subsequent
+/// child-exit wait are bounded by `timeout`: a child that closes its stdout/
+/// stderr while still running delivers EOF to the read loop immediately, so the
+/// wait for its actual exit is a separate bounded phase — otherwise it could
+/// block unbounded (`kill_on_drop` cannot fire while the child is awaited).
 pub async fn run_capped(
     mut cmd: Command,
     timeout: Duration,
@@ -175,7 +178,19 @@ pub async fn run_capped(
             if out_cap.over_limit || err_cap.over_limit {
                 let _ = child.start_kill();
             }
-            let status = child.wait().await.map_err(CappedRunError::Io)?;
+            // The read loop returning does not mean the child has exited: it
+            // may have closed stdout/stderr (delivering EOF immediately) while
+            // continuing to run. Bound this wait too, otherwise a child in
+            // that state hangs the turn indefinitely even though the overall
+            // `timeout` already elapsed for the read phase.
+            let status = match tokio::time::timeout(timeout, child.wait()).await {
+                Ok(result) => result.map_err(CappedRunError::Io)?,
+                Err(_) => {
+                    let _ = child.start_kill();
+                    let _ = child.wait().await;
+                    return Err(CappedRunError::Timeout);
+                }
+            };
             Ok(CappedOutput {
                 stdout: out_cap.buf,
                 stderr: err_cap.buf,
@@ -275,6 +290,28 @@ mod tests {
         assert!(
             out.status.success(),
             "finite verbose command still succeeds"
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn run_capped_kills_child_that_closes_fds_but_keeps_running() {
+        // A child that closes its own stdout/stderr while continuing to run
+        // delivers EOF to the read loop almost immediately (no producer left),
+        // but must still be killed at `timeout` rather than let `child.wait()`
+        // block unbounded on the still-running process.
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").arg("exec 1>&- 2>&-; sleep 30");
+        let cap = 4096;
+        let started = std::time::Instant::now();
+        let result = run_capped(cmd, Duration::from_secs(2), cap).await;
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "child.wait() must be bounded by the timeout too, not hang until the child exits on its own"
+        );
+        assert!(
+            matches!(result, Err(CappedRunError::Timeout)),
+            "expected Timeout, got {result:?}"
         );
     }
 

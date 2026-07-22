@@ -2,6 +2,10 @@
 //!
 //! Moved verbatim from the former `workspace_plan.rs` monolith (Wily S-066).
 
+use std::sync::LazyLock;
+
+use regex::Regex;
+
 use crate::db::models::{
     AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus,
     LiveProjectSpecDraftRow, PrdPatch, PrdPatchOperation, ProvenanceSource,
@@ -264,20 +268,67 @@ pub(super) fn append_unique_string(mut values: Vec<String>, value: &str) -> Vec<
     values
 }
 
+// Wily P2 cleanup: mirrors `dive::event_log::SECRET_RE` (the pattern the
+// exported EventLog ledger redacts before persistence) — this gate is the
+// sole check standing between a live PRD-interview turn and an unredacted
+// secret landing in the draft row, `ProjectSpecVersion` snapshots, and the
+// exported `.dive/plan.json`, so it must catch at least everything the
+// export-time redactor does. The prior fixed substring list missed
+// `password: x` (a bare colon+space, not `secret:`/`token:` exactly),
+// `authorization: Basic ...` (no `authorization` substring check at all), and
+// a no-space `token=value` (only `"token ="` with a space was checked).
+static SECRET_LIKE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?ix)
+        sk-[A-Za-z0-9_\-]{3,}
+        |(?:api[_-]?key|token|secret|authorization|password)["']?\s*[:=]\s*["']?[A-Za-z0-9_./+=\-]{4,}
+        |bearer\s+[A-Za-z0-9_\-\.]{4,}
+        "#,
+    )
+    .expect("secret-like detection regex")
+});
+
 fn looks_secret_like(text: &str) -> bool {
-    let lower = text.to_ascii_lowercase();
-    lower.contains("sk-")
-        || lower.contains("api_key")
-        || lower.contains("api-key")
-        || lower.contains("token =")
-        || lower.contains("token:")
-        || lower.contains("secret =")
-        || lower.contains("secret:")
-        || lower.contains("bearer ")
+    SECRET_LIKE_RE.is_match(text)
 }
 
 pub(super) fn push_unique(items: &mut Vec<String>, value: String) {
     if !items.contains(&value) {
         items.push(value);
+    }
+}
+
+#[cfg(test)]
+mod looks_secret_like_tests {
+    use super::*;
+
+    /// Regression for the P2 finding: the old fixed substring list only
+    /// checked `secret:`/`token:` and `"token ="`/`"secret ="` (a required
+    /// space around `=`), and never checked `authorization` at all — so a
+    /// bare `password: ...`, a spelled-out `authorization: ...`, and a
+    /// no-space `token=...` all sailed through unredacted into the live PRD
+    /// draft, `ProjectSpecVersion` snapshots, and the exported plan.json.
+    #[test]
+    fn flags_forms_the_old_fixed_substring_list_missed() {
+        assert!(looks_secret_like("password: hunter2"));
+        assert!(looks_secret_like("authorization: Basic dXNlcjpwYXNz"));
+        assert!(looks_secret_like("token=abc123XYZ"));
+    }
+
+    #[test]
+    fn still_flags_previously_covered_forms() {
+        assert!(looks_secret_like("here is my sk-abc123secretvalue"));
+        assert!(looks_secret_like("api_key=supersecretvalue"));
+        assert!(looks_secret_like("Authorization: Bearer abc123XYZtoken"));
+    }
+
+    #[test]
+    fn does_not_flag_ordinary_text_mentioning_the_keywords_in_passing() {
+        assert!(!looks_secret_like(
+            "Thanks for your effort — tokens of appreciation for the team."
+        ));
+        assert!(!looks_secret_like(
+            "Students should feel a sense of ownership over the project."
+        ));
     }
 }

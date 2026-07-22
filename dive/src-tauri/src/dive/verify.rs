@@ -252,11 +252,7 @@ impl VerifyEngine {
             test_exit_code = Some(executed.exit_code);
             test_stdout = Some(executed.stdout);
             test_stderr = Some(executed.stderr);
-            details = if details.is_empty() {
-                format!("검증 명령 `{command_text}` 실행 결과: {test_result:?}")
-            } else {
-                format!("{details}\n\n검증 명령 `{command_text}` 실행 결과: {test_result:?}")
-            };
+            details = append_test_command_summary(&details, command_text, &test_result, locale);
         }
 
         let log = VerifyLog {
@@ -341,6 +337,41 @@ fn split_test_command(command_text: &str) -> Result<(String, Vec<String>), Verif
         return Err(VerifyError::TestCommand("empty command".into()));
     };
     Ok((command.clone(), args.to_vec()))
+}
+
+/// Localized word for a `TestResult`, for embedding in human-facing summary text.
+fn test_result_word(result: &TestResult, locale: &str) -> &'static str {
+    let english = prompt_locale_is_english(locale);
+    match (result, english) {
+        (TestResult::Pass, true) => "pass",
+        (TestResult::Pass, false) => "성공",
+        (TestResult::Fail, true) => "fail",
+        (TestResult::Fail, false) => "실패",
+        (TestResult::Skipped, true) => "skipped",
+        (TestResult::Skipped, false) => "건너뜀",
+    }
+}
+
+/// Appends the executed test-command summary sentence to `details` in the
+/// caller's locale, rather than a hardcoded-Korean sentence with an English
+/// Debug-formatted result.
+fn append_test_command_summary(
+    details: &str,
+    command_text: &str,
+    test_result: &TestResult,
+    locale: &str,
+) -> String {
+    let result_word = test_result_word(test_result, locale);
+    let sentence = if prompt_locale_is_english(locale) {
+        format!("Test command `{command_text}` result: {result_word}")
+    } else {
+        format!("검증 명령 `{command_text}` 실행 결과: {result_word}")
+    };
+    if details.is_empty() {
+        sentence
+    } else {
+        format!("{details}\n\n{sentence}")
+    }
 }
 
 fn build_system_prompt(locale: &str) -> String {
@@ -549,5 +580,27 @@ mod tests {
         assert!(prompt.contains("변경된 파일:\n(변경 파일 정보 없음)"));
         assert!(!prompt.contains("Card title"));
         assert!(!prompt.contains("no changed file information"));
+    }
+
+    #[test]
+    fn append_test_command_summary_uses_english_for_en_locale() {
+        let out = append_test_command_summary("", "pnpm test", &TestResult::Pass, "en");
+        assert_eq!(out, "Test command `pnpm test` result: pass");
+        assert!(!out.contains("검증 명령"));
+        assert!(!out.contains("Pass")); // no Debug-formatted variant leaking through
+    }
+
+    #[test]
+    fn append_test_command_summary_uses_korean_by_default() {
+        let out = append_test_command_summary("", "pnpm test", &TestResult::Fail, "");
+        assert_eq!(out, "검증 명령 `pnpm test` 실행 결과: 실패");
+        assert!(!out.contains("Test command"));
+        assert!(!out.contains("Fail"));
+    }
+
+    #[test]
+    fn append_test_command_summary_appends_after_existing_details() {
+        let out = append_test_command_summary("intent ok", "cargo test", &TestResult::Pass, "en");
+        assert_eq!(out, "intent ok\n\nTest command `cargo test` result: pass");
     }
 }

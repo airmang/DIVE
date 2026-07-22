@@ -32,6 +32,10 @@ pub mod parity;
 use command::set_test_sidecar_script_path;
 use command::{bundled_sidecar_path, resolve_sidecar_command, SidecarCommand};
 use credential::{now_epoch_ms, prepare_runtime_credential};
+// Startup hygiene: sweep dive-pi-sidecar-* temp dirs stranded by a prior
+// process exit that skipped `TempAuthDir::drop` (see credential.rs). Call
+// once during app setup, before the first turn.
+pub(crate) use credential::sweep_stale_temp_auth_dirs;
 // QA smoke harness only (see `run_codex_smoke` below, S-060) — no production caller.
 #[cfg(test)]
 use credential::{file_mode_string, load_codex_auth_entry, write_codex_auth_file, TempAuthDir};
@@ -86,6 +90,7 @@ fn new_sidecar_process(sidecar_cmd: &SidecarCommand) -> Command {
     command
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PiSidecarSmokeResult {
     pub provider_config_id: i64,

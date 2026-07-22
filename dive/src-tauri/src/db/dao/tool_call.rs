@@ -1,3 +1,13 @@
+//! DAO for the `ToolCall` table.
+//!
+//! No production code path writes rows here today: the live pi_sidecar turn
+//! persists tool calls only as the `Message.tool_calls` JSON column, and
+//! approvals are recorded in `EventLog` + `Message.tool_calls`, not this
+//! table. Every writer below (`insert`/`update`/`delete`) is exercised only
+//! by this module's tests. Kept as legacy/reserved schema — not dead code to
+//! delete outright; flagged for a recorded disposition decision rather than
+//! removed (verified in post-cleanup review 2026-07-22, finding
+//! toolcall-table-no-production-writers).
 use crate::db::dao::{json_to_string, optional_json_to_string, parse_json, parse_optional_json};
 use crate::db::models::{NewToolCall, ToolCallRow};
 use crate::db::{now_ms, DbError};

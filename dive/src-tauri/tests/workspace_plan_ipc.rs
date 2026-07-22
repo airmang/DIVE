@@ -229,7 +229,17 @@ fn mk_state_with_scripts(
 }
 
 fn seed_project(state: &AppState) -> i64 {
-    seed_project_named(state, "Workspace Plan", "/tmp/workspace-plan")
+    // Model the production invariant the plan-mutation commands now enforce
+    // (require_plan_matches_ambient_project_root): a plan's project path is the
+    // currently-selected ambient root. In production `swap_project_root` keeps
+    // these identical; the tests previously used a hardcoded path that never
+    // matched the tempdir ambient root.
+    let path = state
+        .project_root_required()
+        .expect("ambient project root")
+        .to_string_lossy()
+        .into_owned();
+    seed_project_named(state, "Workspace Plan", &path)
 }
 
 fn seed_project_named(state: &AppState, name: &str, path: &str) -> i64 {
@@ -2468,14 +2478,33 @@ async fn remove_step_rejects_unapproved_plan_and_already_removed_step() {
     let state = mk_state(&tmp);
 
     // An unapproved (draft) plan rejects removal. (One plan per project, so use
-    // distinct projects for the two scenarios.)
-    let draft_project = seed_project_named(&state, "Draft Project", "/tmp/draft-project");
+    // distinct projects for the two scenarios — each selected as the ambient
+    // root before its mutation so the plan/project-root invariant holds and the
+    // rejection is exercised for the right reason.)
+    let draft_tmp = tempfile::tempdir().unwrap();
+    let draft_project =
+        seed_project_named(&state, "Draft Project", draft_tmp.path().to_str().unwrap());
+    state
+        .swap_project_root(draft_tmp.path().to_path_buf())
+        .unwrap();
     let draft_plan = seed_plan(&state, draft_project, "draft");
     let ds = insert_step(&state, draft_plan, "step-001", &[]);
-    assert!(workspace_plan_remove_step_impl(&state, draft_plan, ds, None).is_err());
+    let draft_err = workspace_plan_remove_step_impl(&state, draft_plan, ds, None).unwrap_err();
+    assert!(
+        draft_err.contains("approved"),
+        "unexpected error: {draft_err}"
+    );
 
     // On an approved plan, removing the same step twice rejects the second.
-    let approved_project = seed_project_named(&state, "Approved Project", "/tmp/approved-project");
+    let approved_tmp = tempfile::tempdir().unwrap();
+    let approved_project = seed_project_named(
+        &state,
+        "Approved Project",
+        approved_tmp.path().to_str().unwrap(),
+    );
+    state
+        .swap_project_root(approved_tmp.path().to_path_buf())
+        .unwrap();
     let plan_id = seed_plan(&state, approved_project, "approved");
     let s1 = insert_step(&state, plan_id, "step-001", &[]);
     workspace_plan_remove_step_impl(&state, plan_id, s1, None).unwrap();

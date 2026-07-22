@@ -112,6 +112,11 @@ pub struct AppState {
     /// Cached pi-ai model registry, queried from the sidecar once per app run
     /// (S-051 D1). See `crate::pi_sidecar::PiModelRegistryCache` doc comment.
     pub pi_model_registry: Arc<crate::pi_sidecar::PiModelRegistryCache>,
+    /// Single-flight gate for `ensure_provider_runtime`'s hydrate path: only
+    /// one concurrent caller performs the keyring/db hydrate at a time, the
+    /// rest block here and then re-check the now-populated runtime instead
+    /// of each hydrating independently.
+    hydrate_gate: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl AppState {
@@ -146,6 +151,7 @@ impl AppState {
             route_cancels: Arc::new(Mutex::new(HashMap::new())),
             keyring: Arc::new(OsKeyring::new()),
             pi_model_registry: Arc::new(crate::pi_sidecar::PiModelRegistryCache::new()),
+            hydrate_gate: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
@@ -202,6 +208,7 @@ impl AppState {
             route_cancels: Arc::new(Mutex::new(HashMap::new())),
             keyring,
             pi_model_registry: Arc::new(crate::pi_sidecar::PiModelRegistryCache::new()),
+            hydrate_gate: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
@@ -221,6 +228,25 @@ impl AppState {
         let mut runtime = self.runtime.write().map_err(|e| e.to_string())?;
         *runtime = next;
         Ok(())
+    }
+
+    /// Installs `next` only if no runtime is currently set, checked and
+    /// written atomically under the same write-lock critical section.
+    /// Returns `None` when `next` was installed, or `Some(current)` when a
+    /// concurrent caller (e.g. `provider_connect`/`provider_select`/
+    /// `provider_disconnect`) already installed a runtime — in which case
+    /// `next` is dropped rather than clobbering that racing write.
+    fn swap_runtime_if_none(
+        &self,
+        next: ProviderRuntime,
+    ) -> Result<Option<ProviderRuntime>, String> {
+        let mut runtime = self.runtime.write().map_err(|e| e.to_string())?;
+        if runtime.kind.is_none() {
+            *runtime = next;
+            Ok(None)
+        } else {
+            Ok(Some(runtime.clone()))
+        }
     }
 
     pub fn invalidate_codex_credentials(&self, provider_config_id: i64) -> Result<(), String> {
@@ -258,23 +284,45 @@ impl AppState {
         Ok(())
     }
 
-    pub async fn ensure_provider_runtime(&self) -> Result<ProviderRuntime, String> {
+    /// Returns `Some(current)` when the active runtime is already usable
+    /// (no hydrate needed), or `None` when the caller must hydrate. As a
+    /// side effect, resets a stale Codex runtime (revoked tokens) to `none`
+    /// so the subsequent hydrate re-derives it from disk.
+    fn resolve_active_runtime(&self) -> Result<Option<ProviderRuntime>, String> {
         let current = self.runtime_snapshot();
-        if !current.kind.is_none() {
-            if current.kind == ProviderKind::Codex
-                && current
-                    .config_id
-                    .and_then(|id| auth::load_codex_tokens(self.keyring.as_ref(), id).ok())
-                    .flatten()
-                    .is_none()
-            {
-                self.swap_runtime(ProviderRuntime::none())
-                    .map_err(|e| format!("runtime: {e}"))?;
-            } else {
-                providers::validate_model_for_kind(current.kind.as_str(), &current.model)
-                    .map_err(|e| e.to_string())?;
-                return Ok(current);
-            }
+        if current.kind.is_none() {
+            return Ok(None);
+        }
+        if current.kind == ProviderKind::Codex
+            && current
+                .config_id
+                .and_then(|id| auth::load_codex_tokens(self.keyring.as_ref(), id).ok())
+                .flatten()
+                .is_none()
+        {
+            self.swap_runtime(ProviderRuntime::none())
+                .map_err(|e| format!("runtime: {e}"))?;
+            return Ok(None);
+        }
+        providers::validate_model_for_kind(current.kind.as_str(), &current.model)
+            .map_err(|e| e.to_string())?;
+        Ok(Some(current))
+    }
+
+    pub async fn ensure_provider_runtime(&self) -> Result<ProviderRuntime, String> {
+        if let Some(current) = self.resolve_active_runtime()? {
+            return Ok(current);
+        }
+
+        // Single-flight: only one caller hydrates at a time. Concurrent
+        // callers block on this gate and, once it is free, re-check the
+        // runtime below instead of each independently hitting the db and
+        // keyring (this also enforces the CAS re-check that keeps a stale
+        // hydrate result from clobbering a concurrent connect/select/
+        // disconnect that raced in while we were waiting or hydrating).
+        let _hydrate_guard = self.hydrate_gate.lock().await;
+        if let Some(current) = self.resolve_active_runtime()? {
+            return Ok(current);
         }
 
         tracing::info!(
@@ -310,9 +358,21 @@ impl AppState {
         }
         providers::validate_model_for_kind(next.kind.as_str(), &next.model)
             .map_err(|e| e.to_string())?;
-        self.swap_runtime(next.clone())
-            .map_err(|e| format!("runtime: {e}"))?;
-        Ok(next)
+        // CAS re-check: install `next` only if the runtime is still `none`.
+        // A concurrent provider_connect/select/disconnect (outside this
+        // gate) may have installed a runtime while we were hydrating; in
+        // that case discard the stale hydrate result instead of clobbering
+        // theirs.
+        match self.swap_runtime_if_none(next.clone())? {
+            None => Ok(next),
+            Some(current) => {
+                tracing::info!(
+                    provider_kind = %current.kind.as_str(),
+                    "discarding stale provider runtime hydrate result: runtime changed concurrently"
+                );
+                Ok(current)
+            }
+        }
     }
 
     pub fn project_root_snapshot(&self) -> PathBuf {
@@ -471,4 +531,89 @@ fn hydrate_provider_runtime_from_rows(
         ));
     }
     Ok(ProviderRuntime::none())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::InMemoryKeyring;
+
+    fn provider_runtime_for_test(config_id: i64, model: &str) -> ProviderRuntime {
+        ProviderRuntime::new(
+            Some(config_id),
+            ProviderKind::Anthropic,
+            model.to_owned(),
+            Arc::new(MockProvider::new(Vec::new())),
+        )
+    }
+
+    /// Regression test for the hydrate-clobber race: a hydrate that resolves
+    /// after a concurrent `provider_connect`/`select`/`disconnect` already
+    /// installed a runtime must not overwrite it. This exercises the exact
+    /// CAS re-check `ensure_provider_runtime` performs via
+    /// `swap_runtime_if_none` right before installing a hydrate result.
+    #[test]
+    fn swap_runtime_if_none_does_not_clobber_a_concurrently_installed_runtime() {
+        let state = AppState::dev_mock();
+
+        // Baseline: installs cleanly into an empty runtime, same as the
+        // uncontended hydrate path.
+        state.swap_runtime(ProviderRuntime::none()).unwrap();
+        let first = provider_runtime_for_test(1, "claude-sonnet-5");
+        assert!(state.swap_runtime_if_none(first).unwrap().is_none());
+        assert_eq!(state.runtime_snapshot().config_id, Some(1));
+
+        // Simulate the race: runtime goes back to `none` (as it would right
+        // before a hydrate is kicked off), then a concurrent caller (e.g.
+        // provider_connect) installs a runtime directly via `swap_runtime`
+        // while the hydrate is still in flight.
+        state.swap_runtime(ProviderRuntime::none()).unwrap();
+        let concurrent = provider_runtime_for_test(2, "claude-opus-4-6");
+        state.swap_runtime(concurrent).unwrap();
+
+        // The late hydrate result must be rejected, not installed, and the
+        // concurrently-installed runtime must remain in place.
+        let stale_hydrate = provider_runtime_for_test(3, "claude-haiku-4-5");
+        let rejected = state
+            .swap_runtime_if_none(stale_hydrate)
+            .unwrap()
+            .expect("stale hydrate result must be rejected when runtime is no longer none");
+        assert_eq!(rejected.config_id, Some(2));
+        assert_eq!(state.runtime_snapshot().config_id, Some(2));
+    }
+
+    /// End-to-end companion: concurrent `ensure_provider_runtime` calls that
+    /// both start from `none` must converge on one consistent hydrated
+    /// runtime rather than racing to install different results.
+    #[tokio::test]
+    async fn ensure_provider_runtime_converges_under_concurrent_calls() {
+        let state = AppState::dev_mock().with_keyring(Arc::new(InMemoryKeyring::new()));
+        let id = {
+            let db = state.db.lock().unwrap();
+            provider_dao::insert(
+                db.conn(),
+                &crate::db::models::NewProviderConfig {
+                    kind: "anthropic".into(),
+                    auth_type: "api_key".into(),
+                    base_url: None,
+                    config: serde_json::Value::Object(serde_json::Map::new()),
+                },
+            )
+            .unwrap()
+        };
+        auth::upsert_provider_api_key(state.keyring.as_ref(), id, "sk-test").unwrap();
+        state.swap_runtime(ProviderRuntime::none()).unwrap();
+
+        let state_a = state.clone();
+        let state_b = state.clone();
+        let (a, b) = tokio::join!(
+            tokio::spawn(async move { state_a.ensure_provider_runtime().await }),
+            tokio::spawn(async move { state_b.ensure_provider_runtime().await }),
+        );
+        let runtime_a = a.unwrap().unwrap();
+        let runtime_b = b.unwrap().unwrap();
+        assert_eq!(runtime_a.config_id, Some(id));
+        assert_eq!(runtime_b.config_id, Some(id));
+        assert_eq!(state.runtime_snapshot().config_id, Some(id));
+    }
 }

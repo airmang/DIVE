@@ -1,10 +1,16 @@
 //! Agent Loop — spec §8.2.
 //!
-//! `AgentLoop::run` drives a single user turn: records the user message,
-//! streams the assistant reply, intercepts tool calls through the
-//! `PermissionHook`, executes approved tools via `ToolRegistry`, and loops
-//! until the model stops requesting tools. Each transition emits an
-//! `AgentEvent` for the UI and persists durable state to SQLite.
+//! Production chat runs through the supervised external-turn surface:
+//! `AgentLoop::begin_external_turn` records the user message and assembles
+//! the provider-bound message history, then `execute_supervised_tool_call`
+//! intercepts each tool call the pi_sidecar-hosted model requests through
+//! the `PermissionHook` and executes approved tools via `ToolRegistry`. Each
+//! transition emits an `AgentEvent` for the UI and persists durable state to
+//! SQLite.
+//!
+//! `AgentLoop::run` is an in-process test harness (gated to `test`/
+//! `dev-mock`) that drives the same shape end to end against `MockProvider`;
+//! it is not part of the shipped surface.
 
 pub mod error;
 pub mod event;
@@ -204,11 +210,6 @@ pub struct AgentLoop {
     pub locale: Option<String>,
     pub step_context: Option<StepContext>,
     web_fetch_session_grants: Arc<Mutex<HashSet<String>>>,
-}
-
-pub struct AgentOutcome {
-    pub events: Vec<AgentEvent>,
-    pub final_reason: String,
 }
 
 pub struct ExternalTurnContext {

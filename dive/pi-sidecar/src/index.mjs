@@ -22,6 +22,16 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 
+// stdout is the JSONL protocol channel (see emit() below) — the bundled Pi SDK
+// graph is not guaranteed to keep console.log/info/debug off of it, and a single
+// stray stdout line fails serde on the strictly-tagged SidecarEvent enum and
+// hard-fails the turn. Pin the console logging methods to stderr so any stray
+// SDK logging cannot corrupt the protocol channel. The explicit protocol emit()
+// below intentionally keeps writing to process.stdout directly.
+console.log = console.error.bind(console);
+console.info = console.error.bind(console);
+console.debug = console.error.bind(console);
+
 export const BUILTIN_DENYLIST = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 export const DEFAULT_DIVE_CONTEXT_TOOL = {
   name: "dive_context",

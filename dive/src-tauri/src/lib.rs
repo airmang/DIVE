@@ -46,6 +46,13 @@ pub fn run() {
             }
 
             tracing::info!("tauri setup starting");
+
+            // Startup hygiene: reclaim per-turn OAuth temp dirs stranded by a
+            // prior process exit that skipped `TempAuthDir::drop` (Tauri
+            // shutdown via std::process::exit mid-turn, or a crash). Each dir is
+            // UUID-named so this races nothing live in the just-started process.
+            pi_sidecar::sweep_stale_temp_auth_dirs();
+
             let app_state = match ipc::AppState::from_app_handle(app.handle()) {
                 Ok(app_state) => app_state,
                 Err(err) => {
