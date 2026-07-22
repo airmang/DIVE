@@ -3,7 +3,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useLocaleStore } from "../../i18n";
-import { recordVerificationObservation } from "../../features/verification-coach/api";
+import {
+  generateVerificationCoachGuide,
+  recordVerificationObservation,
+} from "../../features/verification-coach/api";
 import type { VerificationCoachGenerateRequest } from "../../features/verification-coach/types";
 import { VerificationCoachPanel } from "./VerificationCoachPanel";
 
@@ -19,6 +22,7 @@ vi.mock("../../features/verification-coach/api", () => ({
 }));
 
 const recordMock = vi.mocked(recordVerificationObservation);
+const coachMock = vi.mocked(generateVerificationCoachGuide);
 
 function makeRequest(
   acceptanceCriteria: VerificationCoachGenerateRequest["step"]["acceptanceCriteria"],
@@ -260,5 +264,137 @@ describe("VerificationCoachPanel multi-criterion observation linking (S-056 D3)"
       (screen.getByTestId("verification-observation-record") as HTMLButtonElement).disabled,
     ).toBe(true);
     expect(screen.getByTestId("verification-observation-needs-action")).toBeTruthy();
+  });
+});
+
+describe("VerificationCoachPanel enabled gating (S-064 regression fixes)", () => {
+  const singleCriterion: VerificationCoachGenerateRequest["step"]["acceptanceCriteria"] = [
+    { criterionId: "AC-001", text: "The page renders" },
+  ];
+
+  beforeEach(() => {
+    useLocaleStore.setState({ locale: "ko" });
+    coachMock.mockClear();
+    coachMock.mockResolvedValue({
+      status: "unavailable",
+      eventId: "e1",
+      guideVersion: 1,
+      dropReason: "missing_criterion",
+      message: "n/a",
+    });
+  });
+
+  afterEach(() => cleanup());
+
+  it("does not start a generation while enabled=false, and fires once it becomes enabled", async () => {
+    const view = render(
+      <VerificationCoachPanel
+        request={makeRequest(singleCriterion)}
+        observation={null}
+        observationActionBacked={false}
+        enabled={false}
+        onObservationRecorded={vi.fn()}
+      />,
+    );
+
+    await Promise.resolve();
+    expect(coachMock).not.toHaveBeenCalled();
+
+    view.rerender(
+      <VerificationCoachPanel
+        request={makeRequest(singleCriterion)}
+        observation={null}
+        observationActionBacked={false}
+        enabled={true}
+        onObservationRecorded={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(coachMock).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not refire generation when disabled then re-enabled with an unchanged request (stage revisit / panel reopen)", async () => {
+    const view = render(
+      <VerificationCoachPanel
+        request={makeRequest(singleCriterion)}
+        observation={null}
+        observationActionBacked={false}
+        enabled={true}
+        onObservationRecorded={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(coachMock).toHaveBeenCalledTimes(1));
+
+    // Disable (panel closed / stage navigated away), then re-enable with the
+    // exact same request — must not start a second generation.
+    view.rerender(
+      <VerificationCoachPanel
+        request={makeRequest(singleCriterion)}
+        observation={null}
+        observationActionBacked={false}
+        enabled={false}
+        onObservationRecorded={vi.fn()}
+      />,
+    );
+    view.rerender(
+      <VerificationCoachPanel
+        request={makeRequest(singleCriterion)}
+        observation={null}
+        observationActionBacked={false}
+        enabled={true}
+        onObservationRecorded={vi.fn()}
+      />,
+    );
+
+    await Promise.resolve();
+    expect(coachMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("resets the typed observation draft and evidence kind when the request changes to a different step", () => {
+    const stepA = makeRequest(singleCriterion);
+    const stepB: VerificationCoachGenerateRequest = {
+      ...makeRequest([{ criterionId: "AC-900", text: "A different step's criterion" }]),
+      cardId: 2,
+      planStepId: 2,
+      step: { title: "A different step", acceptanceCriteria: singleCriterion },
+    };
+
+    const view = render(
+      <VerificationCoachPanel
+        request={stepA}
+        observation={null}
+        observationActionBacked={true}
+        onObservationRecorded={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId("verification-observation-text"), {
+      target: { value: "Step A's observation text, long enough to be substantive" },
+    });
+    fireEvent.change(screen.getByTestId("verification-observation-kind"), {
+      target: { value: "terminal_observation" },
+    });
+    expect(
+      (screen.getByTestId("verification-observation-text") as HTMLTextAreaElement).value,
+    ).toContain("Step A");
+
+    // Switching to a different step must not carry step A's draft along —
+    // otherwise it is one click away from being recorded as step B's S-029
+    // evidence (S-064 regression).
+    view.rerender(
+      <VerificationCoachPanel
+        request={stepB}
+        observation={null}
+        observationActionBacked={true}
+        onObservationRecorded={vi.fn()}
+      />,
+    );
+
+    expect((screen.getByTestId("verification-observation-text") as HTMLTextAreaElement).value).toBe(
+      "",
+    );
+    expect((screen.getByTestId("verification-observation-kind") as HTMLSelectElement).value).toBe(
+      "manual_observation",
+    );
   });
 });

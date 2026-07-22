@@ -268,6 +268,53 @@ export function StepDetailSlideIn({
 
   const status = step?.status ?? null;
   const isReview = status === "review";
+
+  // S-064 regression (P1): the S-029 evidence latches below (diffViewedStepIds,
+  // previewOpenedStepIds, appOpenedStepIds, manualObservationsByStep,
+  // criterionEvidenceRef) are add-only and keyed only by step id. Since the
+  // panel now stays mounted across the whole request-changes -> revise ->
+  // re-review loop (S-064 E2), a step that returns to "review" after a
+  // revision round keeps its round-1 latches — pre-satisfying the gate for a
+  // diff the student has never seen, and stamping stale observation ids into
+  // the approval provenance as if they covered it. Track the last status seen
+  // for each step id and invalidate that step's latches whenever it re-enters
+  // "review" from a different status: a genuine new round, not merely
+  // reopening the panel on an unchanged review or a background prop update
+  // that doesn't touch status.
+  const stepLastStatusRef = useRef<Map<number, RoadmapStepStatus | null>>(new Map());
+  useEffect(() => {
+    if (!step) return;
+    const previousStatus = stepLastStatusRef.current.get(step.id);
+    stepLastStatusRef.current.set(step.id, status);
+    if (previousStatus === undefined || previousStatus === "review" || status !== "review") return;
+
+    setDiffViewedStepIds((current) => {
+      if (!current.has(step.id)) return current;
+      const next = new Set(current);
+      next.delete(step.id);
+      return next;
+    });
+    setPreviewOpenedStepIds((current) => {
+      if (!current.has(step.id)) return current;
+      const next = new Set(current);
+      next.delete(step.id);
+      return next;
+    });
+    setAppOpenedStepIds((current) => {
+      if (!current.has(step.id)) return current;
+      const next = new Set(current);
+      next.delete(step.id);
+      return next;
+    });
+    setManualObservationsByStep((current) => {
+      if (!current.has(step.id)) return current;
+      const next = new Map(current);
+      next.delete(step.id);
+      return next;
+    });
+    setCriterionEvidenceRef(null);
+  }, [step, status]);
+
   const hasChangedFiles = changedFiles.length > 0;
   const diffViewed = step ? diffViewedStepIds.has(step.id) : false;
   const previewOpened = step ? previewOpenedStepIds.has(step.id) : false;
@@ -628,6 +675,16 @@ export function StepDetailSlideIn({
     () => new Set(),
   );
 
+  // Tracks the request-set key of the last evaluation this effect actually
+  // saw through to a result (shown card or none) — as opposed to
+  // supervisorEvalInflightRef, which is nulled out on close and so can't by
+  // itself tell "unchanged since we last settled" from "never run". Without
+  // this, closing and reopening with byte-identical inputs re-ran the whole
+  // supervisor turn: the backend's per-session dedup then drops the
+  // identical re-decision, so the review card and its engagement vanish for
+  // good on close/reopen (S-064 regression).
+  const supervisorEvalSettledKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
     // S-064 I1: the panel now stays mounted while closed (E2), so the supervisor
     // eval MUST be gated on `open`. Otherwise a background changedFiles/verifyLog
@@ -653,11 +710,20 @@ export function StepDetailSlideIn({
     const requestKey = JSON.stringify(requests);
     const inflight = supervisorEvalInflightRef.current;
 
+    // Nothing has changed since this exact request set last settled (e.g. a
+    // reopen with unchanged inputs, or an identity-only re-render after the
+    // inflight ref was nulled by a prior close) — the current cards and
+    // engagement already reflect it, so do not restart the eval.
+    if (requestKey === supervisorEvalSettledKeyRef.current) {
+      return;
+    }
+
     if (requests.length === 0) {
       if (inflight) inflight.cancelled = true;
       supervisorEvalInflightRef.current = null;
       setSupervisorEvalPending(false);
       setProvocationCards((current) => (current.length > 0 ? [] : current));
+      supervisorEvalSettledKeyRef.current = requestKey;
       return;
     }
 
@@ -684,11 +750,13 @@ export function StepDetailSlideIn({
         if (response.status === "shown") {
           setProvocationCards([response.card]);
           setSupervisorEvalPending(false);
+          supervisorEvalSettledKeyRef.current = token.key;
           return;
         }
       }
       setProvocationCards((current) => (current.length > 0 ? [] : current));
       setSupervisorEvalPending(false);
+      supervisorEvalSettledKeyRef.current = token.key;
     })().catch((err) => {
       if (import.meta.env.DEV) {
         console.warn("supervisor evaluation failed:", err);
@@ -870,7 +938,7 @@ export function StepDetailSlideIn({
       summary: diffViewed
         ? t("roadmap.step_detail.stepper_stage_code_summary_done")
         : t("roadmap.step_detail.stepper_stage_code_summary_pending"),
-      content: (
+      content: () => (
         <div className="space-y-3">
           {hasChangedFiles ? (
             <Button
@@ -910,12 +978,13 @@ export function StepDetailSlideIn({
       summary: acceptanceCriteriaSatisfied
         ? t("roadmap.step_detail.stepper_stage_observe_summary_done")
         : t("roadmap.step_detail.stepper_stage_observe_summary_pending"),
-      content: (
+      content: (isActive) => (
         <div className="space-y-3">
           <VerificationCoachPanel
             request={verificationCoachRequest}
             observation={manualObservation}
             observationActionBacked={observationActionBacked}
+            enabled={open && isActive}
             onObservationRecorded={(record) => {
               setManualObservationsByStep((current) => {
                 const next = new Map(current);
@@ -943,6 +1012,12 @@ export function StepDetailSlideIn({
           />
         </div>
       ),
+      // S-064 P2: keep the coach mounted across stage revisits (see
+      // VerificationReviewStepper's `keepMounted` doc) so its typed draft and
+      // generated guide survive navigation instead of restarting from
+      // scratch; `enabled` above (not mount/unmount) is what gates its LLM
+      // calls to only when this stage is actually open and active.
+      keepMounted: true,
     });
 
     if (provocationCards.length > 0) {
@@ -954,7 +1029,7 @@ export function StepDetailSlideIn({
         summary: t("roadmap.step_detail.stepper_stage_review_summary", {
           count: provocationCards.length,
         }),
-        content: (
+        content: () => (
           <ProvocationCardHost
             className="space-y-2"
             cards={provocationCards}
@@ -974,7 +1049,7 @@ export function StepDetailSlideIn({
         title: t("roadmap.step_detail.stepper_stage_review_title"),
         evidenced: false,
         summary: t("roadmap.step_detail.stepper_review_eval_pending"),
-        content: (
+        content: () => (
           <p
             className="text-xs text-fg-muted"
             role="status"
@@ -996,7 +1071,7 @@ export function StepDetailSlideIn({
         summary: acceptanceCriteriaSatisfied
           ? t("roadmap.step_detail.stepper_stage_decision_summary_ready")
           : t("roadmap.step_detail.stepper_stage_decision_summary_needs_observation"),
-        content: (
+        content: () => (
           <DecisionGate
             verificationStatuses={verificationStatuses}
             agencyState={agencyState}

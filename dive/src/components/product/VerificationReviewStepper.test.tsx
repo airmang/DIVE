@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
+import { useEffect, useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   VerificationReviewStepper,
   type VerificationReviewStage,
@@ -14,7 +15,7 @@ function makeStages(evidenced: Partial<Record<string, boolean>> = {}): Verificat
       title: "Code",
       summary: "Review changed files",
       evidenced: evidenced.code,
-      content: <p>Code content</p>,
+      content: () => <p>Code content</p>,
     },
     {
       id: "observe",
@@ -22,7 +23,7 @@ function makeStages(evidenced: Partial<Record<string, boolean>> = {}): Verificat
       title: "Observe",
       summary: "Record observation",
       evidenced: evidenced.observe,
-      content: <p>Observe content</p>,
+      content: () => <p>Observe content</p>,
     },
     {
       id: "decision",
@@ -30,7 +31,7 @@ function makeStages(evidenced: Partial<Record<string, boolean>> = {}): Verificat
       title: "Decision",
       summary: "Approve or request changes",
       evidenced: evidenced.decision,
-      content: <p>Decision content</p>,
+      content: () => <p>Decision content</p>,
     },
   ];
 }
@@ -102,5 +103,102 @@ describe("VerificationReviewStepper", () => {
     expect(screen.getByTestId("verification-stepper-stage-code").dataset.stageState).toBe(
       "current",
     );
+  });
+});
+
+const mountCounts: Record<string, number> = {};
+
+function ProbeContent({ trackerKey, isActive }: { trackerKey: string; isActive?: boolean }) {
+  const [text, setText] = useState("");
+  useEffect(() => {
+    mountCounts[trackerKey] = (mountCounts[trackerKey] ?? 0) + 1;
+  }, [trackerKey]);
+  return (
+    <div>
+      <span data-testid={`probe-active-${trackerKey}`}>{String(isActive)}</span>
+      <input
+        data-testid={`probe-input-${trackerKey}`}
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+      />
+    </div>
+  );
+}
+
+function makeStagesWithProbes(): VerificationReviewStage[] {
+  return [
+    {
+      id: "code",
+      marker: "1",
+      title: "Code",
+      summary: "Review changed files",
+      content: () => <ProbeContent trackerKey="code" />,
+    },
+    {
+      id: "observe",
+      marker: "2",
+      title: "Observe",
+      summary: "Record observation",
+      content: (isActive) => <ProbeContent trackerKey="observe" isActive={isActive} />,
+      keepMounted: true,
+    },
+    {
+      id: "decision",
+      marker: "3",
+      title: "Decision",
+      summary: "Approve or request changes",
+      content: () => <p>Decision content</p>,
+    },
+  ];
+}
+
+describe("VerificationReviewStepper keepMounted (S-064 P2 regression fix)", () => {
+  beforeEach(() => {
+    delete mountCounts.code;
+    delete mountCounts.observe;
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("mounts a keepMounted stage from the start (hidden while inactive) and never remounts it across navigation", () => {
+    renderStepper(makeStagesWithProbes());
+
+    // Mounted immediately even though "code" is the active stage — hidden,
+    // not absent — so its state can survive the very first navigation away.
+    expect(mountCounts.observe).toBe(1);
+    expect(screen.getByTestId("probe-active-observe").textContent).toBe("false");
+
+    fireEvent.click(screen.getByTestId("verification-stepper-next")); // code -> observe
+    expect(mountCounts.observe).toBe(1);
+    expect(screen.getByTestId("probe-active-observe").textContent).toBe("true");
+
+    fireEvent.change(screen.getByTestId("probe-input-observe"), {
+      target: { value: "draft in progress" },
+    });
+
+    fireEvent.click(screen.getByTestId("verification-stepper-next")); // observe -> decision
+    expect(mountCounts.observe).toBe(1);
+    expect(screen.getByTestId("probe-active-observe").textContent).toBe("false");
+    expect((screen.getByTestId("probe-input-observe") as HTMLInputElement).value).toBe(
+      "draft in progress",
+    );
+
+    fireEvent.click(screen.getByTestId("verification-stepper-previous")); // back to observe
+    expect(mountCounts.observe).toBe(1);
+    expect(screen.getByTestId("probe-active-observe").textContent).toBe("true");
+    expect((screen.getByTestId("probe-input-observe") as HTMLInputElement).value).toBe(
+      "draft in progress",
+    );
+  });
+
+  it("still mounts/unmounts a non-keepMounted stage's content only while active (baseline preserved)", () => {
+    renderStepper(makeStagesWithProbes());
+    expect(mountCounts.code).toBe(1);
+
+    fireEvent.click(screen.getByTestId("verification-stepper-next")); // code -> observe
+    fireEvent.click(screen.getByTestId("verification-stepper-previous")); // observe -> code
+    expect(mountCounts.code).toBe(2);
   });
 });

@@ -26,6 +26,18 @@ interface VerificationCoachPanelProps {
    * is held back so typing alone cannot satisfy the decision gate.
    */
   observationActionBacked: boolean;
+  /**
+   * Gates the guide-generation effect below: only start a new generation
+   * attempt while this is true (StepDetailSlideIn passes `open && isActive`,
+   * mirroring its own open-gated supervisor eval). Defaults to true so
+   * embeddings that don't care about visibility keep the old always-on
+   * behavior. The panel may stay mounted while this is false (S-064 P2: the
+   * stepper now keeps the observe stage mounted-but-hidden across stage
+   * navigation) — it just must never START a new LLM call/ledger write while
+   * disabled; an attempt already in flight when this flips false is still
+   * allowed to settle locally.
+   */
+  enabled?: boolean;
   onObservationRecorded: (record: ObservationEvidenceRecord) => void;
 }
 
@@ -82,6 +94,7 @@ export function VerificationCoachPanel({
   request,
   observation,
   observationActionBacked,
+  enabled = true,
   onObservationRecorded,
 }: VerificationCoachPanelProps) {
   const t = useT();
@@ -105,26 +118,52 @@ export function VerificationCoachPanel({
   requestRef.current = request;
   const requestKey = useMemo(() => automaticGenerationKey(request), [request]);
 
-  // Re-seed the default selection (first criterion only) whenever the step
-  // changes — mirrors the guide-regeneration effect below so switching steps
-  // never leaves a stale cross-step selection checked.
+  // Re-seed the per-step defaults (first criterion checked, blank draft)
+  // whenever the step or revision round changes — requestKey folds in
+  // cardId/step/evidence (minus priorObservations/guideVersion), so a step
+  // switch or a new round's changed diff both change it. Without resetting
+  // observationText/evidenceKind here, another step's typed prose (or a
+  // stale revision round's) rides along as this step's S-029 evidence
+  // (S-064 regression).
   useEffect(() => {
     const first = requestRef.current?.step.acceptanceCriteria.find(
       (criterion) => criterion.criterionId.trim().length > 0,
     );
     setSelectedCriterionIds(first ? [first.criterionId] : []);
+    setObservationText("");
+    setEvidenceKind("manual_observation");
   }, [requestKey]);
 
+  // Tracks the requestKey+nonce pair a generation attempt has already been
+  // started for, so a stage revisit or panel reopen with unchanged inputs
+  // never refires the coach LLM call (S-064 regression: the coach used to
+  // fire this unconditionally whenever mounted, including while the panel
+  // was closed or the observe stage merely remounted on revisit). `enabled`
+  // is the caller's "may this fire" signal (open AND this is the active
+  // stepper stage) — a new attempt is never STARTED while it is false; an
+  // attempt already running is left to settle normally so reopening doesn't
+  // strand the panel in "loading" forever.
+  const attemptedKeyRef = useRef<string | null>(null);
+  const inflightRef = useRef<{ key: string; cancelled: boolean } | null>(null);
+
   useEffect(() => {
-    let cancelled = false;
+    if (!enabled) return;
     const currentRequest = requestRef.current;
     if (!currentRequest) {
-      setResponse(null);
-      setLoading(false);
-      return () => {
-        cancelled = true;
-      };
+      if (attemptedKeyRef.current !== null) {
+        attemptedKeyRef.current = null;
+        setResponse(null);
+        setLoading(false);
+      }
+      return;
     }
+
+    const attemptKey = `${requestKey}::${nonce}`;
+    if (attemptedKeyRef.current === attemptKey) return;
+    if (inflightRef.current) inflightRef.current.cancelled = true;
+    const token = { key: attemptKey, cancelled: false };
+    inflightRef.current = token;
+    attemptedKeyRef.current = attemptKey;
 
     setLoading(true);
     void generateVerificationCoachGuide({
@@ -132,10 +171,10 @@ export function VerificationCoachPanel({
       guideVersion: (currentRequest.guideVersion ?? 0) + nonce,
     })
       .then((next) => {
-        if (!cancelled) setResponse(next);
+        if (!token.cancelled) setResponse(next);
       })
       .catch(() => {
-        if (!cancelled) {
+        if (!token.cancelled) {
           setResponse({
             status: "unavailable",
             eventId: `coach-error-${Date.now()}`,
@@ -146,13 +185,16 @@ export function VerificationCoachPanel({
         }
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!token.cancelled) setLoading(false);
       });
+  }, [enabled, nonce, requestKey]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [nonce, requestKey]);
+  useEffect(
+    () => () => {
+      if (inflightRef.current) inflightRef.current.cancelled = true;
+    },
+    [],
+  );
 
   if (!request) return null;
   const guide = response?.status === "shown" ? response.guide : null;

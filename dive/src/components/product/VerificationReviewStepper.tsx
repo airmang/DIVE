@@ -8,7 +8,23 @@ export interface VerificationReviewStage {
   marker: string;
   title: string;
   summary: string;
-  content: ReactNode;
+  /**
+   * Rendered with the current isActive flag so stage content can react to it
+   * (e.g. gate its own effects on "am I actually visible").
+   */
+  content: (isActive: boolean) => ReactNode;
+  /**
+   * When true, this stage's content stays mounted (hidden via CSS, not
+   * unmounted) once it first renders, even after the user navigates to a
+   * different stage. Most stages default to mount-only-while-active — this
+   * is only for stages whose content owns local state or in-flight work that
+   * must survive a revisit (S-064 P2 regression: revisiting "observe" used
+   * to remount the verification coach, discarding the typed draft and
+   * re-firing guide generation from scratch). Do not set this for stages
+   * whose mount timing is itself meaningful (e.g. "shown" telemetry that
+   * should fire only once the stage is actually seen).
+   */
+  keepMounted?: boolean;
   evidenced?: boolean;
 }
 
@@ -169,31 +185,36 @@ export function VerificationReviewStepper({
                 </div>
               </div>
 
-              {isActive ? (
-                <div className="ml-7 mt-3" data-testid={`verification-stepper-content-${stage.id}`}>
-                  {stage.content}
-                  <div className="mt-4 flex flex-wrap justify-between gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={index === 0}
-                      onClick={goPrevious}
-                      data-testid="verification-stepper-previous"
-                    >
-                      {previousLabel}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={index === stages.length - 1}
-                      onClick={goNext}
-                      data-testid="verification-stepper-next"
-                    >
-                      {nextLabel}
-                    </Button>
-                  </div>
+              {isActive || stage.keepMounted ? (
+                <div
+                  className={cn("ml-7 mt-3", isActive ? "" : "hidden")}
+                  data-testid={`verification-stepper-content-${stage.id}`}
+                >
+                  {stage.content(isActive)}
+                  {isActive ? (
+                    <div className="mt-4 flex flex-wrap justify-between gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={index === 0}
+                        onClick={goPrevious}
+                        data-testid="verification-stepper-previous"
+                      >
+                        {previousLabel}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={index === stages.length - 1}
+                        onClick={goNext}
+                        data-testid="verification-stepper-next"
+                      >
+                        {nextLabel}
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </li>

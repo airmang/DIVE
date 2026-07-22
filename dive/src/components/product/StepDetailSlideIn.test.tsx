@@ -400,6 +400,220 @@ describe("StepDetailSlideIn supervisor-backed review cards", () => {
     expect(screen.getByTestId("step-detail-panel").hasAttribute("inert")).toBe(true);
   });
 
+  it("does not fire the verification coach guide while the panel is closed even if observe was the active stage at close (S-064 regression)", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+    const step = reviewStep({ testCommand: null });
+    const planContext = {
+      expectedFiles: ["src/App.tsx"],
+      verificationCommand: null,
+      verificationManualCheck: "파일 출력과 diff를 직접 확인한다",
+      verificationKind: "manual",
+      dependencies: [],
+      parallelGroup: null,
+      purpose: "저장 문구만 수정한다",
+    };
+
+    const view = renderStepDetail({ step, planContext });
+    openStepperStage("observe");
+    await screen.findByTestId("verification-coach-panel");
+    await waitFor(() => expect(coachMock).toHaveBeenCalledTimes(1));
+
+    // Close while "observe" remains the active stepper stage, then change an
+    // input that would otherwise change the coach's requestKey (e.g. a
+    // background verify run completing after close).
+    view.rerender(
+      stepDetailElement({
+        open: false,
+        step,
+        planContext,
+        verifyLog: {
+          intent_match: true,
+          test_result: "pass",
+          details: "Tests passed.",
+          model: "mock",
+          ran_at: 2,
+          test_command: "npm test",
+          test_exit_code: 0,
+        },
+      }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(coachMock).toHaveBeenCalledTimes(1);
+
+    // Reopening resumes generation for the now-current inputs.
+    view.rerender(
+      stepDetailElement({
+        open: true,
+        step,
+        planContext,
+        verifyLog: {
+          intent_match: true,
+          test_result: "pass",
+          details: "Tests passed.",
+          model: "mock",
+          ran_at: 2,
+          test_command: "npm test",
+          test_exit_code: 0,
+        },
+      }),
+    );
+    await waitFor(() => expect(coachMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not refire the supervisor evaluation on reopen with unchanged inputs, preserving cards and engagement (S-064 regression)", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "shown",
+      evaluationId: "eval-1",
+      card: supervisorCard(),
+    });
+
+    const view = renderStepDetail({ open: true });
+    await openReviewCardStage();
+    const callsWhileOpen = evaluateMock.mock.calls.length;
+
+    // Close then reopen with byte-identical inputs (new prop object
+    // identities each render, same content).
+    view.rerender(stepDetailElement({ open: false }));
+    view.rerender(stepDetailElement({ open: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // No new supervisor turn, and the card survives instead of being wiped to
+    // [] and never reappearing (the backend's per-session dedup would then
+    // drop the identical re-decision for good, per the finding).
+    expect(evaluateMock.mock.calls.length).toBe(callsWhileOpen);
+    expect(screen.getByTestId("provocation-card")).toBeTruthy();
+  });
+
+  it("invalidates the diff-viewed and criterion-confirm evidence latches when a step re-enters review after a revision round (S-064 regression)", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+
+    const view = renderStepDetail();
+
+    fireEvent.click(screen.getByTestId("step-detail-open-code"));
+    fireEvent.click(screen.getByTestId("step-detail-primary-verification-action"));
+    openStepperStage("observe");
+    fireEvent.click(screen.getByTestId("step-detail-confirm-preview"));
+    expect(screen.getByTestId("step-detail-criterion-evidence-ref").textContent).toContain(
+      "프리뷰",
+    );
+
+    openDecisionStage();
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(false);
+    openStepperStage("code");
+    expect(screen.getByTestId("verification-stepper-stage-code").dataset.stageState).toBe(
+      "current",
+    );
+
+    // Revision round: the step leaves review to be revised, then returns to
+    // review with a new diff — same step id, fresh round.
+    view.rerender(stepDetailElement({ step: reviewStep({ status: "in_progress" }) }));
+    view.rerender(
+      stepDetailElement({
+        step: reviewStep({ status: "review" }),
+        changedFiles: [{ path: "src/OtherFile.tsx", diff: null }],
+      }),
+    );
+
+    // Round 1's latches must not silently satisfy round 2's unseen diff.
+    expect(screen.queryByTestId("step-detail-criterion-evidence-ref")).toBeNull();
+    openStepperStage("observe");
+    openDecisionStage();
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
+    openStepperStage("code");
+    expect(screen.getByTestId("verification-stepper-stage-code").dataset.stageState).toBe(
+      "current",
+    );
+    openStepperStage("observe");
+    expect(screen.getByTestId("verification-stepper-stage-code").dataset.stageState).not.toBe(
+      "completed",
+    );
+    expect(screen.queryByTestId("verification-stepper-success-code")).toBeNull();
+  });
+
+  it("invalidates recorded observation evidence across a revision round (S-064 regression)", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+    const step = reviewStep({
+      linkedCriteria: [
+        { criterionId: "c1", text: "대소문자 무시 검색" },
+        { criterionId: "c2", text: "부분 일치 검색" },
+      ],
+    });
+
+    const view = renderStepDetail({ step });
+
+    fireEvent.click(screen.getByTestId("step-detail-primary-verification-action"));
+    openStepperStage("observe");
+    await screen.findByTestId("verification-coach-guide");
+    fireEvent.click(screen.getByTestId("verification-observation-select-all"));
+    fireEvent.change(screen.getByTestId("verification-observation-text"), {
+      target: { value: "대문자 Pasta와 Pas 부분 검색 모두 정상 동작하는 것을 확인함" },
+    });
+    fireEvent.click(screen.getByTestId("verification-observation-record"));
+    await screen.findByTestId("verification-observation-saved");
+
+    openDecisionStage();
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(false);
+
+    // Revision round for the SAME step id: leaves review, returns with a new
+    // diff. The round-1 recorded observations must not carry over.
+    view.rerender(stepDetailElement({ step: { ...step, status: "in_progress" } }));
+    view.rerender(
+      stepDetailElement({
+        step: { ...step, status: "review" },
+        changedFiles: [{ path: "src/OtherFile.tsx", diff: null }],
+      }),
+    );
+
+    openStepperStage("observe");
+    expect(screen.queryByTestId("verification-observation-saved")).toBeNull();
+    openDecisionStage();
+    expect((screen.getByTestId("decision-gate-approve") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("decision-gate-reasons").textContent).toContain("0/2");
+  });
+
+  it("revisiting the observe stage preserves the typed draft and does not refire guide generation (S-064 P2 regression)", async () => {
+    evaluateMock.mockResolvedValue({
+      status: "none",
+      evaluationId: "eval-none",
+      dropReason: "provoke_false",
+    });
+
+    renderStepDetail();
+
+    openStepperStage("observe");
+    await screen.findByTestId("verification-coach-guide");
+    expect(coachMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(screen.getByTestId("verification-observation-text"), {
+      target: { value: "아직 기록하지 않은 임시 초안" },
+    });
+
+    // Navigate away, then back — the draft must survive and the coach must
+    // not regenerate from scratch.
+    openStepperStage("code");
+    openStepperStage("observe");
+
+    expect((screen.getByTestId("verification-observation-text") as HTMLTextAreaElement).value).toBe(
+      "아직 기록하지 않은 임시 초안",
+    );
+    await Promise.resolve();
+    expect(coachMock).toHaveBeenCalledTimes(1);
+  });
+
   it("shows verification coach guidance near review without creating a review card", async () => {
     evaluateMock.mockResolvedValue({
       status: "none",
