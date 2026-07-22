@@ -29,9 +29,18 @@ pub fn roadmap_step_open_impl(
     if plan.status != "approved" {
         return Err("step cannot be opened until the plan is approved".to_string());
     }
-    if let Some(existing) = mapping_dao::get_by_step(conn, step_id).map_err(|e| e.to_string())? {
-        return Ok(existing);
-    }
+    // A mapping with session_id = NULL is a zombie: the schema's
+    // `ON DELETE SET NULL` fires on StepSessionMapping when its Session is
+    // deleted (and the mapping's Card cascade-deletes with it), leaving a
+    // row that still reports 'in_progress' but has no live session or card
+    // to resume. Returning it as-is silently no-ops step start and rejects
+    // step chat forever with no repair path — treat it as "no live session"
+    // and fall through to open a fresh one, same as a first-time open.
+    let zombie_mapping = match mapping_dao::get_by_step(conn, step_id).map_err(|e| e.to_string())? {
+        Some(existing) if existing.session_id.is_some() => return Ok(existing),
+        Some(existing) => Some(existing),
+        None => None,
+    };
 
     let steps = step_dao::list_active_by_plan(conn, step.plan_id).map_err(|e| e.to_string())?;
     let mappings = mappings_for_steps(conn, &steps)?;
@@ -101,28 +110,56 @@ pub fn roadmap_step_open_impl(
         },
     )
     .map_err(|e| e.to_string())?;
-    let mapping_id = mapping_dao::insert(
-        &tx,
-        &NewStepSessionMapping {
-            step_id,
-            session_id: Some(session_id),
-            card_id: Some(card_id),
-            state_path: Some(step.step_id.clone()),
-            status: "in_progress".into(),
-            started_at: Some(now_ms()),
-            completed_at: None,
-            checkpoint_ids: Some(serde_json::json!([])),
-            verification_status: None,
-            verification_evidence: None,
-            user_decision: None,
-        },
-    )
-    .map_err(|e| e.to_string())?;
+    // StepSessionMapping.step_id is UNIQUE, so a repair must UPDATE the
+    // zombie's existing row rather than INSERT a second one for this step.
+    // Verification fields recorded before the session was deleted are worth
+    // more than the stale session/card pointers, so they're carried forward
+    // instead of being wiped by the repair.
+    let mapping_id = match &zombie_mapping {
+        Some(zombie) => {
+            mapping_dao::update(
+                &tx,
+                zombie.id,
+                &NewStepSessionMapping {
+                    step_id,
+                    session_id: Some(session_id),
+                    card_id: Some(card_id),
+                    state_path: Some(step.step_id.clone()),
+                    status: "in_progress".into(),
+                    started_at: Some(now_ms()),
+                    completed_at: None,
+                    checkpoint_ids: Some(serde_json::json!([])),
+                    verification_status: zombie.verification_status.clone(),
+                    verification_evidence: zombie.verification_evidence.clone(),
+                    user_decision: zombie.user_decision.clone(),
+                },
+            )
+            .map_err(|e| e.to_string())?;
+            zombie.id
+        }
+        None => mapping_dao::insert(
+            &tx,
+            &NewStepSessionMapping {
+                step_id,
+                session_id: Some(session_id),
+                card_id: Some(card_id),
+                state_path: Some(step.step_id.clone()),
+                status: "in_progress".into(),
+                started_at: Some(now_ms()),
+                completed_at: None,
+                checkpoint_ids: Some(serde_json::json!([])),
+                verification_status: None,
+                verification_evidence: None,
+                user_decision: None,
+            },
+        )
+        .map_err(|e| e.to_string())?,
+    };
     tx.commit().map_err(|e| e.to_string())?;
 
     let mapping = mapping_dao::get_by_id(conn, mapping_id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| "mapping not found after insert".to_string())?;
+        .ok_or_else(|| "mapping not found after open".to_string())?;
     if let Err(err) = append_plan_activity(
         conn,
         &plan,
@@ -195,4 +232,130 @@ pub fn roadmap_step_update_state_impl(
         );
     }
     Ok(mapping)
+}
+
+#[cfg(test)]
+mod zombie_mapping_tests {
+    use super::*;
+    use crate::db::dao::{project as project_dao, session as session_dao};
+    use crate::db::models::{NewPlan, NewProject, NewStep};
+    use serde_json::json;
+
+    fn seed_approved_plan_with_step(state: &AppState, project_root: &std::path::Path) -> i64 {
+        let db = state.db.lock().unwrap();
+        let project_id = project_dao::insert(
+            db.conn(),
+            &NewProject {
+                name: "p".into(),
+                path: project_root.to_string_lossy().into(),
+                provider_default: None,
+                model_default: None,
+            },
+        )
+        .unwrap();
+        let plan_id = plan_dao::insert(
+            db.conn(),
+            &NewPlan {
+                project_id,
+                interview_id: None,
+                goal: "Build the thing".into(),
+                intent_summary: None,
+                scope: None,
+                non_goals: None,
+                constraints: None,
+                acceptance_criteria: None,
+                status: "approved".into(),
+            },
+        )
+        .unwrap();
+        step_dao::insert(
+            db.conn(),
+            &NewStep {
+                plan_id,
+                step_id: "step-001".into(),
+                title: "Step".into(),
+                summary: Some("Summary".into()),
+                instruction_seed: Some("Seed".into()),
+                expected_files: Some(json!([])),
+                acceptance_criteria: Some(json!(["Criterion"])),
+                step_kind: Default::default(),
+                verification_kind: Some("manual".into()),
+                verification_command: None,
+                verification_manual_check: None,
+                dependencies: Some(json!([])),
+                parallel_group: None,
+                position: 1,
+            },
+        )
+        .unwrap()
+    }
+
+    /// Regression for the P1 finding: deleting a step's mapped session leaves
+    /// a zombie StepSessionMapping (session_id/card_id NULLed by the schema's
+    /// `ON DELETE SET NULL`/cascade, status still 'in_progress'). Before the
+    /// fix, `roadmap_step_open_impl` returned that dead row as-is forever.
+    #[test]
+    fn roadmap_step_open_repairs_zombie_mapping_after_session_delete() {
+        let state = AppState::dev_mock();
+        let tmp = tempfile::tempdir().unwrap();
+        state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+        let step_db_id = seed_approved_plan_with_step(&state, tmp.path());
+
+        let first = roadmap_step_open_impl(&state, step_db_id).unwrap();
+        let original_session_id = first.session_id.expect("fresh open creates a session");
+
+        // Simulate the mapped session being deleted out from under the step.
+        {
+            let db = state.db.lock().unwrap();
+            db.conn()
+                .execute("DELETE FROM Session WHERE id = ?", [original_session_id])
+                .unwrap();
+        }
+        {
+            let db = state.db.lock().unwrap();
+            let zombie = mapping_dao::get_by_step(db.conn(), step_db_id)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                zombie.status, "in_progress",
+                "the mapping row itself must survive the session delete"
+            );
+            assert!(
+                zombie.session_id.is_none(),
+                "session_id must be NULLed by the FK's ON DELETE SET NULL"
+            );
+            assert!(
+                zombie.card_id.is_none(),
+                "card_id must be NULLed once its Card cascade-deletes with the session"
+            );
+        }
+
+        let repaired = roadmap_step_open_impl(&state, step_db_id).unwrap();
+        assert!(
+            repaired.session_id.is_some(),
+            "roadmap_step_open must recover an openable state, not return the dead mapping"
+        );
+        assert_eq!(repaired.status, "in_progress");
+        {
+            // SQLite's rowid can legitimately recycle the just-deleted
+            // session's id (no AUTOINCREMENT column here), so the meaningful
+            // check is that the repaired mapping points at a real, live
+            // Session row — not that the numeric id changed.
+            let db = state.db.lock().unwrap();
+            let live_session = session_dao::get_by_id(db.conn(), repaired.session_id.unwrap())
+                .unwrap()
+                .expect("repair must mint a session row that actually exists");
+            assert_eq!(live_session.status, "active");
+        }
+
+        let db = state.db.lock().unwrap();
+        // Exactly one mapping row for the step: repair must UPDATE the zombie
+        // in place — StepSessionMapping.step_id is UNIQUE, so a second INSERT
+        // for this step would fail.
+        let current = mapping_dao::get_by_step(db.conn(), step_db_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(current.id, repaired.id);
+        assert_eq!(current.id, first.id);
+    }
 }

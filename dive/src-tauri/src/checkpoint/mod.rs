@@ -775,6 +775,8 @@ fn write_tree_to_disk(
     // success. Collect the failures and surface them as an explicit error.
     let mut failures: Vec<String> = Vec::new();
     tree.walk(git2::TreeWalkMode::PreOrder, |dir, entry| {
+        // A symlink is still `ObjectType::Blob` in git — only `entry.filemode()`
+        // (read below) distinguishes it from a regular file.
         if entry.kind() != Some(ObjectType::Blob) {
             return git2::TreeWalkResult::Ok;
         }
@@ -796,7 +798,7 @@ fn write_tree_to_disk(
         match entry.to_object(repo) {
             Ok(obj) => {
                 if let Some(blob) = obj.as_blob() {
-                    if let Err(e) = std::fs::write(&abs, blob.content()) {
+                    if let Err(e) = write_blob_to_disk(&abs, blob.content(), entry.filemode()) {
                         failures.push(format!("{}: {e}", rel.display()));
                     }
                 }
@@ -812,6 +814,64 @@ fn write_tree_to_disk(
             failures.join("; ")
         )));
     }
+    Ok(())
+}
+
+const GIT_FILEMODE_LINK: i32 = 0o120000;
+const GIT_FILEMODE_BLOB_EXECUTABLE: i32 = 0o100755;
+
+/// Recreate one tracked blob on disk, honoring the git filemode captured at
+/// snapshot time (`commit_snapshot_opt`'s `index.add_all` already records
+/// symlinks as `GIT_FILEMODE_LINK`/120000 — with the link target as the blob
+/// content — and executables as `GIT_FILEMODE_BLOB_EXECUTABLE`/100755, via
+/// libgit2's ordinary workdir `lstat`). Previously restore always called
+/// `std::fs::write`, which materializes every entry as a fresh umask-default
+/// regular file — silently turning a symlink into a text file containing its
+/// target path, and dropping the exec bit an executable needs to run.
+fn write_blob_to_disk(abs: &Path, content: &[u8], filemode: i32) -> std::io::Result<()> {
+    // `clear_tracked_worktree` already removes every path tracked by the
+    // previous HEAD before restore calls this, so nothing should occupy
+    // `abs` yet — but best-effort clear any leftover here too, so a kind
+    // change (regular file <-> symlink) can never write through a stale
+    // symlink or fail with EEXIST creating a new one.
+    let _ = std::fs::remove_file(abs);
+
+    if filemode == GIT_FILEMODE_LINK {
+        let target = String::from_utf8_lossy(content).into_owned();
+        return symlink_to(&target, abs);
+    }
+
+    std::fs::write(abs, content)?;
+    if filemode == GIT_FILEMODE_BLOB_EXECUTABLE {
+        set_executable(abs)?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn symlink_to(target: &str, link: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(not(unix))]
+fn symlink_to(target: &str, link: &Path) -> std::io::Result<()> {
+    // Creating a real symlink on Windows needs elevated privilege/Developer
+    // Mode; fall back to writing the target path as plain text so restore
+    // still completes rather than failing outright over one tracked entry.
+    std::fs::write(link, target)
+}
+
+#[cfg(unix)]
+fn set_executable(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = std::fs::metadata(path)?.permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(path, perms)
+}
+
+#[cfg(not(unix))]
+fn set_executable(_path: &Path) -> std::io::Result<()> {
+    // Windows has no POSIX exec bit to restore.
     Ok(())
 }
 
@@ -1418,6 +1478,58 @@ mod tests {
         assert!(
             !found.iter().any(|n| n.contains("sqlite")),
             "expected no sqlite* in snapshot, got {found:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn restore_preserves_exec_bit_and_symlinks() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (engine, tmp, sid) = engine_with_tempdir();
+        engine.init().unwrap();
+
+        std::fs::write(tmp.path().join("run.sh"), "#!/bin/sh\necho hi\n").unwrap();
+        std::fs::set_permissions(
+            tmp.path().join("run.sh"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        std::fs::write(tmp.path().join("target.txt"), "target contents").unwrap();
+        std::os::unix::fs::symlink("target.txt", tmp.path().join("link.txt")).unwrap();
+
+        let cp = engine
+            .create_checkpoint(sid, None, "manual", Some("with mode and symlink"))
+            .unwrap();
+
+        // Mutate on disk so only a correct restore can bring the original
+        // kind/permissions back: drop the exec bit, and replace the symlink
+        // with a plain file of the same name.
+        std::fs::set_permissions(
+            tmp.path().join("run.sh"),
+            std::fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
+        std::fs::remove_file(tmp.path().join("link.txt")).unwrap();
+        std::fs::write(tmp.path().join("link.txt"), "not a symlink anymore").unwrap();
+
+        engine.restore_checkpoint(cp.id).unwrap();
+
+        let run_meta = std::fs::metadata(tmp.path().join("run.sh")).unwrap();
+        assert_eq!(
+            run_meta.permissions().mode() & 0o777,
+            0o755,
+            "restore must bring back the executable bit"
+        );
+
+        let link_meta = std::fs::symlink_metadata(tmp.path().join("link.txt")).unwrap();
+        assert!(
+            link_meta.file_type().is_symlink(),
+            "restore must recreate the tracked entry as a real symlink, not a text file"
+        );
+        assert_eq!(
+            std::fs::read_link(tmp.path().join("link.txt")).unwrap(),
+            std::path::PathBuf::from("target.txt")
         );
     }
 

@@ -654,6 +654,18 @@ pub fn workspace_plan_supersede_step_impl(
         )
         .map_err(|e| e.to_string())?;
 
+        // Supersede replaces the target in place, so any active step that
+        // depended on it must be re-pointed at the replacement's new
+        // step_id — the superseded step drops out of `list_active_by_plan`
+        // (and therefore `done_step_ids`), so a dependent left pointing at
+        // the retired id could never be satisfied and would stay blocked
+        // forever. Re-validate afterward: rewriting a dependent's edge onto
+        // the replacement is safe in the common case, but if the
+        // replacement's own (already-validated) dependencies happen to name
+        // that same dependent, the rewrite would close a cycle.
+        repoint_active_dependents(&tx, plan_id, &target.step_id, &new_row.step_id)?;
+        step_dao::validate_dependencies(&tx, plan_id).map_err(|e| e.to_string())?;
+
         // Record the target's change_step mutation + plan_step_changed event.
         let latest_prd =
             prd_dao::latest_version(&tx, plan.project_id).map_err(|e| e.to_string())?;
@@ -864,6 +876,61 @@ fn validate_no_active_dependents(
                 step.step_id
             ));
         }
+    }
+    Ok(())
+}
+
+/// Supersede fix: rewrite every active step's `dependencies` that names
+/// `target_step_id` to `replacement_step_id` instead, so the dependency
+/// graph stays satisfiable once the target is marked superseded (and
+/// therefore excluded from `list_active_by_plan`/`done_step_ids`). Leaves
+/// steps that don't depend on the target untouched.
+fn repoint_active_dependents(
+    conn: &rusqlite::Connection,
+    plan_id: i64,
+    target_step_id: &str,
+    replacement_step_id: &str,
+) -> Result<(), String> {
+    for step in step_dao::list_active_by_plan(conn, plan_id).map_err(|e| e.to_string())? {
+        let Some(deps) = step.dependencies.as_ref().and_then(Value::as_array) else {
+            continue;
+        };
+        let mut new_deps: Vec<String> = deps
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect();
+        if !new_deps.iter().any(|dep| dep == target_step_id) {
+            continue;
+        }
+        for dep in &mut new_deps {
+            if dep == target_step_id {
+                *dep = replacement_step_id.to_string();
+            }
+        }
+        new_deps.sort();
+        new_deps.dedup();
+        step_dao::update(
+            conn,
+            step.id,
+            &NewStep {
+                plan_id: step.plan_id,
+                step_id: step.step_id.clone(),
+                title: step.title.clone(),
+                summary: step.summary.clone(),
+                instruction_seed: step.instruction_seed.clone(),
+                expected_files: step.expected_files.clone(),
+                acceptance_criteria: step.acceptance_criteria.clone(),
+                step_kind: step.step_kind,
+                verification_kind: step.verification_kind.clone(),
+                verification_command: step.verification_command.clone(),
+                verification_manual_check: step.verification_manual_check.clone(),
+                dependencies: Some(json!(new_deps)),
+                parallel_group: step.parallel_group.clone(),
+                position: step.position,
+            },
+        )
+        .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1243,4 +1310,165 @@ fn json_criterion_text(value: &Value) -> Option<String> {
     }
     let text = value.get("text").and_then(Value::as_str)?.trim();
     (!text.is_empty()).then(|| text.to_string())
+}
+
+#[cfg(test)]
+mod supersede_repoint_tests {
+    use super::*;
+    use crate::db::dao::project as project_dao;
+    use crate::db::models::{NewPlan, NewProject};
+
+    /// Plan with an approved status, active step B (`step-001`), and active
+    /// step C (`step-002`) that depends on B. Returns `(plan_id, step_b_db_id)`.
+    fn seed_plan_with_dependent_chain(
+        state: &AppState,
+        project_root: &std::path::Path,
+    ) -> (i64, i64) {
+        let db = state.db.lock().unwrap();
+        let project_id = project_dao::insert(
+            db.conn(),
+            &NewProject {
+                name: "p".into(),
+                path: project_root.to_string_lossy().into(),
+                provider_default: None,
+                model_default: None,
+            },
+        )
+        .unwrap();
+        let plan_id = plan_dao::insert(
+            db.conn(),
+            &NewPlan {
+                project_id,
+                interview_id: None,
+                goal: "Build the thing".into(),
+                intent_summary: None,
+                scope: None,
+                non_goals: None,
+                constraints: None,
+                acceptance_criteria: None,
+                status: "approved".into(),
+            },
+        )
+        .unwrap();
+        let step_b_db_id = step_dao::insert(
+            db.conn(),
+            &NewStep {
+                plan_id,
+                step_id: "step-001".into(),
+                title: "Step B".into(),
+                summary: Some("Summary B".into()),
+                instruction_seed: Some("Seed B".into()),
+                expected_files: Some(json!(["src/b.rs"])),
+                acceptance_criteria: Some(json!(["Criterion B"])),
+                step_kind: Default::default(),
+                verification_kind: Some("manual".into()),
+                verification_command: None,
+                verification_manual_check: None,
+                dependencies: Some(json!([])),
+                parallel_group: None,
+                position: 1,
+            },
+        )
+        .unwrap();
+        step_dao::insert(
+            db.conn(),
+            &NewStep {
+                plan_id,
+                step_id: "step-002".into(),
+                title: "Step C".into(),
+                summary: Some("Summary C".into()),
+                instruction_seed: Some("Seed C".into()),
+                expected_files: Some(json!(["src/c.rs"])),
+                acceptance_criteria: Some(json!(["Criterion C"])),
+                step_kind: Default::default(),
+                verification_kind: Some("manual".into()),
+                verification_command: None,
+                verification_manual_check: None,
+                dependencies: Some(json!(["step-001"])),
+                parallel_group: None,
+                position: 2,
+            },
+        )
+        .unwrap();
+        (plan_id, step_b_db_id)
+    }
+
+    fn replacement_draft() -> StepDraftInput {
+        StepDraftInput {
+            title: "Step B replacement".into(),
+            summary: "Replacement summary".into(),
+            instruction_seed: "Replacement seed".into(),
+            expected_files: vec!["src/b2.rs".into()],
+            acceptance_criteria: vec![AcceptanceCriterionInput::Text(
+                "Replacement criterion".into(),
+            )],
+            linked_criterion_ids: Vec::new(),
+            rationale: None,
+            step_kind: None,
+            verification_command: None,
+            verification_type: Some("manual".into()),
+            dependencies: Vec::new(),
+            parallel_group: None,
+            position: 0,
+            step_id: String::new(),
+        }
+    }
+
+    /// Regression for the P1 finding: before the fix, superseding B left C
+    /// (which depends on B) permanently blocked — B drops out of
+    /// `list_active_by_plan` once superseded, so `done_step_ids` could never
+    /// contain it and C's dependency could never resolve. The fix re-points
+    /// C's dependency at B's replacement in the same transaction.
+    #[test]
+    fn supersede_repoints_active_dependents_to_replacement() {
+        let state = AppState::dev_mock();
+        let tmp = tempfile::tempdir().unwrap();
+        state.swap_project_root(tmp.path().to_path_buf()).unwrap();
+        let (plan_id, step_b_db_id) = seed_plan_with_dependent_chain(&state, tmp.path());
+
+        let replacement = workspace_plan_supersede_step_impl(
+            &state,
+            plan_id,
+            step_b_db_id,
+            replacement_draft(),
+            AppendStepOptions::default(),
+        )
+        .unwrap();
+
+        let db = state.db.lock().unwrap();
+        let active = step_dao::list_active_by_plan(db.conn(), plan_id).unwrap();
+        assert!(
+            !active.iter().any(|s| s.step_id == "step-001"),
+            "the superseded target must no longer be active"
+        );
+        let step_c = active
+            .iter()
+            .find(|s| s.step_id == "step-002")
+            .expect("dependent step C stays active");
+        let deps: Vec<&str> = step_c
+            .dependencies
+            .as_ref()
+            .and_then(Value::as_array)
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        assert_eq!(
+            deps,
+            vec![replacement.step_id.as_str()],
+            "C must now depend on the replacement, not the retired target"
+        );
+
+        // Unblockable: C's only blocking dependency must be the replacement —
+        // a real, still-active step whose completion can satisfy it — not the
+        // retired target, which dropped out of `list_active_by_plan` and
+        // could never appear in `done_step_ids`.
+        let mappings = mappings_for_steps(db.conn(), &active).unwrap();
+        let done_ids = done_step_ids(&active, &mappings);
+        assert_eq!(
+            blocked_dependency_ids(step_c, &done_ids),
+            vec![replacement.step_id.clone()],
+            "C must be blocked only on the resolvable replacement, not the retired target"
+        );
+    }
 }
