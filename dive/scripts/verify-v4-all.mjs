@@ -35,6 +35,10 @@ const followUpVerifiers = [
   ["Audit Fixes", "scripts/verify-audit-fixes.mjs"],
   ["Quality Follow-up", "scripts/verify-quality-followup.mjs"],
   ["Route-Chat Cancel Quality", "scripts/verify-route-chat-cancel-quality.mjs"],
+  // Version Sync was manual-only, so a stale README version badge or an
+  // out-of-sync package/Cargo/tauri version could ship green. Chaining it here
+  // makes it release-gating via release-gate.yml and build.yml, same as above.
+  ["Version Sync", "scripts/verify-version-sync.mjs"],
 ];
 
 for (const [label, script] of followUpVerifiers) {

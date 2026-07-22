@@ -130,4 +130,46 @@ export default tseslint.config(
       ],
     },
   },
+  // The .mjs verifiers (scripts/*.mjs) and Pi sidecar (pi-sidecar/**/*.mjs)
+  // otherwise match no rule-carrying config object, so `eslint .` lints them
+  // with an empty rule set — zero static analysis. Give them Node globals plus a
+  // curated "definite-bug" subset of eslint:recommended. The FULL recommended
+  // set is intentionally not enabled here: several of these files carry
+  // pre-existing patterns it would flag under `--max-warnings 0`, and those live
+  // in files outside this change's scope — empty catch blocks in
+  // release-gate-smoke.mjs (no-empty), and browser globals (document, window)
+  // referenced inside Playwright page.evaluate() callback bodies in
+  // release-gate-smoke.mjs / verify-rc1-migration.mjs / verify-a11y.mjs
+  // (no-undef, since those bodies run in the browser, not Node). The rules below
+  // are ones a working, exercised script effectively cannot violate, so they add
+  // real coverage without risking the gate. Widen toward js.configs.recommended
+  // once no-empty / no-undef / no-unused-vars are cleaned across the .mjs tree
+  // (root: confirm with `pnpm lint --max-warnings 0`).
+  {
+    files: ["**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: globals.node,
+    },
+    rules: {
+      "no-const-assign": "error",
+      "no-dupe-args": "error",
+      "no-dupe-keys": "error",
+      "no-dupe-else-if": "error",
+      "no-duplicate-case": "error",
+      "no-func-assign": "error",
+      "no-import-assign": "error",
+      "no-obj-calls": "error",
+      "no-self-assign": "error",
+      "no-self-compare": "error",
+      "no-unreachable": "error",
+      "no-unsafe-finally": "error",
+      "no-unsafe-negation": "error",
+      "no-compare-neg-zero": "error",
+      "getter-return": "error",
+      "use-isnan": "error",
+      "valid-typeof": "error",
+    },
+  },
 );

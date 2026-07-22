@@ -90,6 +90,15 @@ for (const id of requiredIds) {
 console.log("\n3. README / changelog markers");
 const readme = read("README.md");
 const changelog = read("CHANGELOG.md");
+// The shields.io version badge (README.md) must track `expected`; a normal
+// release bump that forgets it would otherwise pass §1 (files agree) with a
+// stale badge. shields.io escapes literal dashes by doubling them, so
+// `1.0.0-rc.9` renders as `version-1.0.0--rc.9-` in the badge URL.
+check(
+  "README version badge matches expected",
+  readme.includes(`version-${expected.replace(/-/g, "--")}-`),
+  `version-${expected.replace(/-/g, "--")}`,
+);
 check(
   "README old v1.0 2026-11~12 completed Phase 6 row removed",
   !/2026-11\s*~\s*12.*\*\*v1\.0\*\*.*(Phase 6|✅)/.test(readme),
