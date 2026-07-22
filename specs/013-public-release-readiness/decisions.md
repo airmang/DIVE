@@ -134,7 +134,7 @@ reason ("network fetch via process tool") that steers to DIVE's checked
 `web_fetch` (public docs, SSRF-validated) or Preview (local dev servers). The
 rule is anchored to command position (`^`/after a separator) so a source file
 merely named `curl_helper.js` is not blocked. The pre-existing guard test that
-asserted `curl -o … https://x` was *allowed* (guard.rs:498-499) was updated to
+asserted `curl -o … https://x` was _allowed_ (guard.rs:498-499) was updated to
 assert it is now blocked — this is the intended tightening, documented in the
 S-063 report. Wrapper reach (`xargs curl …`) is bounded by the same wrapper
 concern handled in F1's `detect_wrapper_shell_bypass` and the `env` block, and
@@ -279,4 +279,29 @@ found that two "clean" verifications recorded above were measured too narrowly:
    `.omc .omx .sisyphus .wily` to its `--invert-paths` set, rewrite the tags, and
    force-push; the public force-push remains the owner's to execute. Do not
    re-trust a "0 reachable" claim that greps filenames rather than enumerating
-   directory objects across all refs+tags.
+   directory objects across all refs+tags. **Resolved by D-013-18.**
+
+## D-013-18 (2026-07-22) — 4th filter-repo pass executed; internal dirs purged
+
+The D-013-17(2) exposure is closed. After the post-cleanup fixes merged to
+`main` (fast-forward, incl. the S-071 macOS commits), a single
+`git filter-repo --invert-paths --path .omc --path .omx --path .sisyphus
+--path .wily` was run on a fresh public clone (full backup bundle taken first)
+and force-pushed with owner authorization:
+
+- `origin/main` rewritten `9d4bdd5 → a5801b3`; all eight tags rc.2-internal..rc.9
+  rewritten; the stale already-merged `071-macos-distribution` branch (which
+  still carried pre-rewrite history) deleted from origin.
+- Verified from a fresh `git clone`: **0 objects** for each of
+  `.omc`/`.omx`/`.sisyphus`/`.wily` across `main` + all tags; prior purges
+  (references-pdf, omc/omx research) still 0; `refs/pull/*` = 0 (fresh repo, so
+  no GitHub Support ticket was needed — the D-013-13/16 PR-ref caveat does not
+  apply here); `.git` 44M → 7.6M. HEAD tree hash unchanged (`7b8cc3d…`) — no
+  current content was lost, only history objects removed.
+- The working clone was re-synced (`reset --hard origin/main`, stale local
+  branches/tags force-updated). Backup: scratchpad
+  `dive-pre-omc-purge-backup.bundle` (all refs, pre-rewrite).
+
+Residual (accepted, same as every prior rewrite): GitHub may keep unreachable
+old objects server-side until it GCs; they are not clone/PR-reachable. This was
+the last public-exposure blocker from the 2026-07-22 re-review.
