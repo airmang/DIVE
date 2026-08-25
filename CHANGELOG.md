@@ -4,6 +4,34 @@ All notable changes to DIVE are documented here. Format: [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Spec 014 — Unrestricted Project Kinds + PRD interview editability (2026-08-25, branch `014-unrestricted-project-kinds`)
+
+Driven by the 2026-08-24 team QA of the PRD flow (four items) and the owner
+principle it exposed.
+
+- **Constitution 1.2.0 — new Principle VII "Unrestricted Project Kinds"**: DIVE
+  never restricts what kinds of projects a student can build; classifications
+  are planning guidance, never exclusion rules. ADR
+  `specs/014-unrestricted-project-kinds/adr-unrestricted-project-kinds.md`;
+  supersedes S-047 Q1 (bounded form enum) and the S-049 form-scaffolding /
+  `plan_form_consistency` follow-up.
+- **S-072** — `ArchitectureDecision.form` → `forms[]` (multi-select with a
+  one-line definition per form, "여러 개여도 되고 '기타'에 직접 적어도 됩니다"),
+  legacy single-`form` PRDs still load; planner scaffolding is an additive union
+  ending with "planning hints, not limits"; the `plan.form_consistency`
+  contradiction check and EventLog event are removed. Fixes "웹앱 또는 API 둘 중
+  하나만 선택".
+- **S-073** — in-place PRD interview edits: `revise_*` / `remove_*` for scope,
+  non-goals and constraints (target-text addressed, exact > unique-normalized
+  matching, duplicate-merge, sequential validation) and
+  `retire_acceptance_criterion`; new `item_not_found` reason; parser accepts
+  common paraphrases. Fixes "수정하면 아래에 추가로 쌓임".
+- **S-074** — Enter sends (Shift+Enter newline, IME-composing guard) in the PRD
+  interview rail and the Socratic panel via a shared `composerKeys` helper; the
+  PRD confirm gate shows a "확정까지 N개 남음" chip with the reasons as tooltip
+  and click-to-scroll to the first missing field; retired criteria render as a
+  restorable read-only list. Fixes "Enter로 전송 안 됨" and "확정 버튼 비활성".
+
 32 commits sit on `main` past the `v1.0.0-rc.9` tag, not yet covered by a
 dedicated release entry. These are chiefly the spec 013 public-release-readiness
 round (Wily Stages S-058–S-070: Rust/FE dead-code sweeps, process-tool egress

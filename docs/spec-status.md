@@ -78,18 +78,21 @@ this repository.
 
 ## 014 Implementation Status
 
-As of 2026-08-25, `specs/014-unrestricted-project-kinds/` is approved and in
-progress on branch `014-unrestricted-project-kinds`. Stage numbers follow the Wily roadmap (S-072 is the separately
-tracked macOS-distribution restoration stage, registered 2026-07-21). It records the owner
+As of 2026-08-25, `specs/014-unrestricted-project-kinds/` is implemented on branch
+`014-unrestricted-project-kinds` (all three stages Done in Wily on 2026-08-25;
+live re-QA on a rebuilt release app by the reporting team member is the
+remaining follow-up). Stage numbers follow the Wily roadmap (S-072 is the separately
+tracked macOS-distribution restoration stage, registered 2026-07-21 and
+retro-completed in Wily on 2026-08-25 with the shipped rc.9 evidence). It records the owner
 principle **Constitution VII — Unrestricted Project Kinds** (1.2.0, ADR
 `adr-unrestricted-project-kinds.md`) and re-decides S-047 under it, alongside
 the other three items of the 2026-08-24 team QA of the PRD flow.
 
 | Wily Stage | Scope                                                                                                                                                                          | Status      |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
-| S-072      | Principle VII canonized; `ArchitectureDecision.form` → `forms[]` (legacy folded), per-form definitions + "several forms are fine" copy, additive-only scaffolding, `plan_form_consistency` removed | In progress |
-| S-073      | PRD patch ops `revise_*` / `remove_*` for scope, non-goals, constraints (target-text addressed) + `retire_acceptance_criterion`; prompt vocabulary; `item_not_found` reason        | In progress |
-| S-074      | Enter-to-send (IME-guarded) in the PRD interview rail and Socratic panel via shared `composerKeys`; confirm-gate remaining-count chip + tooltip + scroll-to-first-missing-field    | In progress |
+| S-072      | Principle VII canonized; `ArchitectureDecision.form` → `forms[]` (legacy folded), per-form definitions + "several forms are fine" copy, additive-only scaffolding, `plan_form_consistency` removed | Done        |
+| S-073      | PRD patch ops `revise_*` / `remove_*` for scope, non-goals, constraints (target-text addressed) + `retire_acceptance_criterion`; prompt vocabulary; `item_not_found` reason        | Done        |
+| S-074      | Enter-to-send (IME-guarded) in the PRD interview rail and Socratic panel via shared `composerKeys`; confirm-gate remaining-count chip + tooltip + scroll-to-first-missing-field    | Done        |
 
 Superseded by S-072: `specs/010-beginner-readiness-ux/design-s047.md` resolved
 decision Q1 (bounded form enum) and the S-049 closeout of its Q2 follow-up
@@ -181,7 +184,7 @@ composite at 4.66:1 AA (dark mode untouched), locked by two new `contrast.test`
 cases; (S-047 Q2) `buildPrdPlanGenerationPrompt` injects a deterministic per-form
 scaffolding block and a deterministic non-blocking `plan_form_consistency`
 annotation is logged to the EventLog (`plan.form_consistency`) with no user-facing
-card or gate; (S-045) a prefix-guarded `log_ui_event` IPC records
+card or gate — **both retired by spec 014 / S-072 (Constitution VII)**; (S-045) a prefix-guarded `log_ui_event` IPC records
 `permission_primer.shown`/`.dismissed` (variant `generic|web_fetch`), shown-once.
 The **process-tool plain-GET egress hardening (S-048 decision 6b) is NOT part of
 S-049** — it is tracked separately (below) and worked in its own session.
