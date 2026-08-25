@@ -42,9 +42,7 @@ pub(super) fn apply_prd_patch_to_draft(
     }
 
     let mut next = draft;
-    next.spec.scope = compact_unique_strings(next.spec.scope);
-    next.spec.non_goals = compact_unique_strings(next.spec.non_goals);
-    next.spec.constraints = compact_unique_strings(next.spec.constraints);
+    compact_spec_lists(&mut next.spec);
     next.last_patch_id = Some(patch.patch_id.clone());
     next.updated_at = now_ms();
     let mut applied_field_paths = Vec::new();
@@ -54,6 +52,10 @@ pub(super) fn apply_prd_patch_to_draft(
 
     for operation in &patch.operations {
         let field_path = field_path_for_prd_operation(operation);
+        // Constitution VI / D-014-09: the hold is PER OP, not per patch — the
+        // other ops still land (a whole-patch hold would stall the interview
+        // every time a student hand-edits one field). The caller audits the
+        // partial apply by emitting both the applied and the held event.
         if let Some(conflict) =
             conflicts_with_student_edit(&field_path, &next.student_edited_fields)
         {
@@ -62,118 +64,11 @@ pub(super) fn apply_prd_patch_to_draft(
             continue;
         }
 
-        match operation.op.as_str() {
-            "set_goal" => {
-                next.spec.goal = prd_operation_text(operation)
-                    .unwrap_or_default()
-                    .to_string();
-                push_unique(&mut applied_field_paths, "goal".into());
+        if let Some(applied) = apply_operation_to_spec(&mut next.spec, operation) {
+            push_unique(&mut applied_field_paths, applied.field_path);
+            if let Some(criterion_id) = applied.criterion_id_assigned {
+                push_unique(&mut criterion_ids_assigned, criterion_id);
             }
-            "set_intent_summary" => {
-                next.spec.intent_summary = prd_operation_text(operation).map(str::to_string);
-                push_unique(&mut applied_field_paths, "intentSummary".into());
-            }
-            "append_scope" => {
-                if let Some(value) = prd_operation_text(operation) {
-                    next.spec.scope = append_unique_string(next.spec.scope, value);
-                    push_unique(&mut applied_field_paths, "scope".into());
-                }
-            }
-            "append_non_goal" => {
-                if let Some(value) = prd_operation_text(operation) {
-                    next.spec.non_goals = append_unique_string(next.spec.non_goals, value);
-                    push_unique(&mut applied_field_paths, "nonGoals".into());
-                }
-            }
-            "append_constraint" => {
-                if let Some(value) = prd_operation_text(operation) {
-                    next.spec.constraints = append_unique_string(next.spec.constraints, value);
-                    push_unique(&mut applied_field_paths, "constraints".into());
-                }
-            }
-            "append_acceptance_criterion" => {
-                if let Some(text) = prd_operation_text(operation) {
-                    let criterion_id =
-                        allocate_acceptance_criterion_id(&next.spec.acceptance_criteria);
-                    next.spec.acceptance_criteria.push(AcceptanceCriterion {
-                        criterion_id: criterion_id.clone(),
-                        text: text.to_string(),
-                        source: AcceptanceCriterionSource::Interview,
-                        status: AcceptanceCriterionStatus::Active,
-                        created_in_version: next.spec.current_version.unwrap_or(1),
-                        retired_in_version: None,
-                    });
-                    push_unique(&mut criterion_ids_assigned, criterion_id);
-                    push_unique(&mut applied_field_paths, "acceptanceCriteria".into());
-                }
-            }
-            "revise_acceptance_criterion_text" => {
-                if let (Some(criterion_id), Some(text)) = (
-                    operation.criterion_id.as_ref(),
-                    prd_operation_text(operation),
-                ) {
-                    for criterion in &mut next.spec.acceptance_criteria {
-                        if criterion.criterion_id == *criterion_id {
-                            criterion.text = text.to_string();
-                        }
-                    }
-                    push_unique(
-                        &mut applied_field_paths,
-                        format!("acceptanceCriteria.{criterion_id}.text"),
-                    );
-                }
-            }
-            // S-072 (014 theme 2): in-place list edits. `target` addresses the
-            // current item by normalized text (D-014-05). Validation already
-            // proved a match against the incoming draft, so a miss here can
-            // only mean an earlier op in the same patch removed or reworded
-            // that item — skip rather than guess at a different item.
-            "revise_scope" | "revise_non_goal" | "revise_constraint" => {
-                if let (Some(root), Some(target), Some(value)) = (
-                    list_root_for_prd_operation(operation.op.as_str()),
-                    prd_operation_target(operation),
-                    prd_operation_text(operation),
-                ) {
-                    let list = list_for_root_mut(&mut next.spec, root);
-                    if let Some(index) = find_list_item_index(list, target) {
-                        list[index] = value.to_string();
-                        push_unique(&mut applied_field_paths, root.into());
-                    }
-                }
-            }
-            "remove_scope" | "remove_non_goal" | "remove_constraint" => {
-                if let (Some(root), Some(target)) = (
-                    list_root_for_prd_operation(operation.op.as_str()),
-                    prd_operation_target(operation),
-                ) {
-                    let list = list_for_root_mut(&mut next.spec, root);
-                    if let Some(index) = find_list_item_index(list, target) {
-                        list.remove(index);
-                        push_unique(&mut applied_field_paths, root.into());
-                    }
-                }
-            }
-            // D-014-06: criteria are retired, never deleted — the row stays in
-            // the snapshot for the versioned PRD / decomposition history and
-            // the active-count gate already ignores retired ones.
-            "retire_acceptance_criterion" => {
-                if let Some(criterion_id) = operation.criterion_id.as_deref() {
-                    let version = next.spec.current_version.unwrap_or(1);
-                    for criterion in &mut next.spec.acceptance_criteria {
-                        if criterion.criterion_id == criterion_id
-                            && matches!(criterion.status, AcceptanceCriterionStatus::Active)
-                        {
-                            criterion.status = AcceptanceCriterionStatus::Retired;
-                            criterion.retired_in_version = Some(version);
-                        }
-                    }
-                    push_unique(
-                        &mut applied_field_paths,
-                        format!("acceptanceCriteria.{criterion_id}.status"),
-                    );
-                }
-            }
-            _ => {}
         }
     }
 
@@ -213,43 +108,179 @@ pub(super) fn apply_prd_patch_to_draft(
     }
 }
 
+fn compact_spec_lists(spec: &mut ProjectSpecDraft) {
+    spec.scope = compact_unique_strings(std::mem::take(&mut spec.scope));
+    spec.non_goals = compact_unique_strings(std::mem::take(&mut spec.non_goals));
+    spec.constraints = compact_unique_strings(std::mem::take(&mut spec.constraints));
+}
+
+/// What one operation did to a spec: the field path it touched and, for
+/// `append_acceptance_criterion`, the id DIVE assigned.
+struct AppliedOperation {
+    field_path: String,
+    criterion_id_assigned: Option<String>,
+}
+
+/// The single executor for one patch operation, shared by the real apply and
+/// by validation's simulation so the two can never disagree about what an
+/// earlier op in the same patch did to the lists. Returns `None` when the op
+/// has nothing to apply (validation has already rejected every such case for
+/// a real apply; the simulation simply moves on).
+fn apply_operation_to_spec(
+    spec: &mut ProjectSpecDraft,
+    operation: &PrdPatchOperation,
+) -> Option<AppliedOperation> {
+    let applied = |field_path: String| {
+        Some(AppliedOperation {
+            field_path,
+            criterion_id_assigned: None,
+        })
+    };
+    match operation.op.as_str() {
+        "set_goal" => {
+            spec.goal = prd_operation_text(operation)
+                .unwrap_or_default()
+                .to_string();
+            applied("goal".into())
+        }
+        "set_intent_summary" => {
+            spec.intent_summary = prd_operation_text(operation).map(str::to_string);
+            applied("intentSummary".into())
+        }
+        "append_scope" | "append_non_goal" | "append_constraint" => {
+            let root = list_root_for_prd_operation(operation.op.as_str())?;
+            let value = prd_operation_text(operation)?;
+            let list = list_for_root_mut(spec, root);
+            *list = append_unique_string(std::mem::take(list), value);
+            applied(root.into())
+        }
+        "append_acceptance_criterion" => {
+            let text = prd_operation_text(operation)?;
+            let criterion_id = allocate_acceptance_criterion_id(&spec.acceptance_criteria);
+            spec.acceptance_criteria.push(AcceptanceCriterion {
+                criterion_id: criterion_id.clone(),
+                text: text.to_string(),
+                source: AcceptanceCriterionSource::Interview,
+                status: AcceptanceCriterionStatus::Active,
+                created_in_version: spec.current_version.unwrap_or(1),
+                retired_in_version: None,
+            });
+            Some(AppliedOperation {
+                field_path: "acceptanceCriteria".into(),
+                criterion_id_assigned: Some(criterion_id),
+            })
+        }
+        "revise_acceptance_criterion_text" => {
+            let criterion_id = operation.criterion_id.as_deref()?;
+            let text = prd_operation_text(operation)?;
+            for criterion in &mut spec.acceptance_criteria {
+                if criterion.criterion_id == criterion_id
+                    && matches!(criterion.status, AcceptanceCriterionStatus::Active)
+                {
+                    criterion.text = text.to_string();
+                }
+            }
+            applied(format!("acceptanceCriteria.{criterion_id}.text"))
+        }
+        // S-072 (014 theme 2): in-place list edits. `target` addresses the
+        // current item by text (D-014-05, see `find_list_item_index`).
+        "revise_scope" | "revise_non_goal" | "revise_constraint" => {
+            let root = list_root_for_prd_operation(operation.op.as_str())?;
+            let target = prd_operation_target(operation)?;
+            let value = prd_operation_text(operation)?;
+            let list = list_for_root_mut(spec, root);
+            let index = find_list_item_index(list, target)?;
+            // S-072 review (P2): revising an item INTO wording that already
+            // exists elsewhere in the list would leave a duplicate. Treat it
+            // as a merge — drop the target, keep the existing item as is.
+            if other_index_with_same_text(list, index, value).is_some() {
+                list.remove(index);
+            } else {
+                list[index] = value.to_string();
+            }
+            applied(root.into())
+        }
+        "remove_scope" | "remove_non_goal" | "remove_constraint" => {
+            let root = list_root_for_prd_operation(operation.op.as_str())?;
+            let target = prd_operation_target(operation)?;
+            let list = list_for_root_mut(spec, root);
+            let index = find_list_item_index(list, target)?;
+            list.remove(index);
+            applied(root.into())
+        }
+        // D-014-06: criteria are retired, never deleted — the row stays in
+        // the snapshot for the versioned PRD / decomposition history and
+        // the active-count gate already ignores retired ones.
+        "retire_acceptance_criterion" => {
+            let criterion_id = resolve_retire_criterion_id(spec, operation)?;
+            // `retiredInVersion` is stamped with the draft's current version,
+            // falling back to 1 for a never-saved draft — deliberately the
+            // same convention `created_in_version` uses above, so both
+            // version columns read on the same scale (a criterion created
+            // and retired in the same unsaved draft shows 1 / 1).
+            let version = spec.current_version.unwrap_or(1);
+            for criterion in &mut spec.acceptance_criteria {
+                if criterion.criterion_id == criterion_id
+                    && matches!(criterion.status, AcceptanceCriterionStatus::Active)
+                {
+                    criterion.status = AcceptanceCriterionStatus::Retired;
+                    criterion.retired_in_version = Some(version);
+                }
+            }
+            applied(format!("acceptanceCriteria.{criterion_id}.status"))
+        }
+        _ => None,
+    }
+}
+
 /// Per-op validation (S-072 made it per-op; before that every op was
 /// "requires text"). Any reason rejects the WHOLE patch — same all-or-nothing
 /// rule 004 applied to `criterion_not_found` (D-014-05).
 ///
-/// | op                                               | requires                                  | reason when unmet      |
-/// | ------------------------------------------------ | ----------------------------------------- | ---------------------- |
-/// | `set_*`, `append_*`                              | non-empty `value`/`text`                  | `missing_text`         |
-/// | `revise_acceptance_criterion_text`               | non-empty text; `criterionId` exists      | `missing_text` / `criterion_not_found` |
-/// | `revise_scope` / `_non_goal` / `_constraint`     | non-empty text; `target` matches an item  | `missing_text` / `item_not_found` |
-/// | `remove_scope` / `_non_goal` / `_constraint`     | `target` matches an item (no text)        | `item_not_found`       |
-/// | `retire_acceptance_criterion`                    | `criterionId` exists AND is `active`      | `criterion_not_found`  |
+/// | op                                               | requires                                              | reason when unmet      |
+/// | ------------------------------------------------ | ----------------------------------------------------- | ---------------------- |
+/// | `set_*`, `append_*`                              | non-empty `value`/`text`                              | `missing_text`         |
+/// | `revise_acceptance_criterion_text`               | non-empty text; `criterionId` exists AND is `active`  | `missing_text` / `criterion_not_found` |
+/// | `revise_scope` / `_non_goal` / `_constraint`     | non-empty text; `target` matches an item              | `missing_text` / `item_not_found` |
+/// | `remove_scope` / `_non_goal` / `_constraint`     | `target` matches an item (no text)                    | `item_not_found`       |
+/// | `retire_acceptance_criterion`                    | `criterionId` (or a text that resolves to exactly one active criterion) exists AND is `active` | `criterion_not_found` |
 ///
-/// `text_too_large` / `secret_like_text` are checked on every text field an
-/// op carries (`value`, `text`, `target`), whatever the op.
+/// `text_too_large` is checked on every text field an op carries (`value`,
+/// `text`, `target`). `secret_like_text` too — except the `target` of a
+/// `remove_*` op: that text is already IN the draft, and blocking its removal
+/// would keep a leaked secret there instead of letting the student drop it.
+///
+/// Ops are validated in order against a SIMULATED copy of the spec that is
+/// mutated exactly as apply would mutate it (held ops excluded), so a later
+/// op that addresses an item an earlier op already removed or reworded is
+/// caught here as `item_not_found` rather than no-op'ing at apply time.
 fn validate_prd_patch_for_draft(patch: &PrdPatch, draft: &LiveProjectSpecDraftRow) -> Vec<String> {
     let mut reasons = Vec::new();
     if patch.operations.len() > MAX_PRD_PATCH_OPERATIONS {
         push_unique(&mut reasons, "too_many_operations".into());
     }
+    let mut simulated = draft.spec.clone();
+    compact_spec_lists(&mut simulated);
     for operation in &patch.operations {
         let op = operation.op.as_str();
         if !is_supported_prd_operation(op) {
             push_unique(&mut reasons, "unsupported_operation".into());
             continue;
         }
-        for carried in [
-            operation.value.as_deref(),
-            operation.text.as_deref(),
-            operation.target.as_deref(),
-        ]
-        .into_iter()
-        .flatten()
-        {
+        let is_remove = matches!(op, "remove_scope" | "remove_non_goal" | "remove_constraint");
+        for (field, carried) in [
+            ("value", operation.value.as_deref()),
+            ("text", operation.text.as_deref()),
+            ("target", operation.target.as_deref()),
+        ] {
+            let Some(carried) = carried else {
+                continue;
+            };
             if carried.chars().count() > MAX_PRD_PATCH_TEXT_CHARS {
                 push_unique(&mut reasons, "text_too_large".into());
             }
-            if looks_secret_like(carried) {
+            let secret_gate_exempt = is_remove && field == "target";
+            if !secret_gate_exempt && looks_secret_like(carried) {
                 push_unique(&mut reasons, "secret_like_text".into());
             }
         }
@@ -262,24 +293,19 @@ fn validate_prd_patch_for_draft(patch: &PrdPatch, draft: &LiveProjectSpecDraftRo
         }
         match op {
             "revise_acceptance_criterion_text" => {
-                let found = operation.criterion_id.as_ref().is_some_and(|criterion_id| {
-                    draft
-                        .spec
-                        .acceptance_criteria
-                        .iter()
-                        .any(|criterion| criterion.criterion_id == *criterion_id)
-                });
+                // S-072 review (P1): a retired criterion is already dropped —
+                // revising it would resurrect wording the student let go of.
+                let found = operation
+                    .criterion_id
+                    .as_deref()
+                    .is_some_and(|criterion_id| is_active_criterion(&simulated, criterion_id));
                 if !found {
                     push_unique(&mut reasons, "criterion_not_found".into());
                 }
             }
             "retire_acceptance_criterion" => {
-                let found = operation.criterion_id.as_ref().is_some_and(|criterion_id| {
-                    draft.spec.acceptance_criteria.iter().any(|criterion| {
-                        criterion.criterion_id == *criterion_id
-                            && matches!(criterion.status, AcceptanceCriterionStatus::Active)
-                    })
-                });
+                let found = resolve_retire_criterion_id(&simulated, operation)
+                    .is_some_and(|criterion_id| is_active_criterion(&simulated, &criterion_id));
                 if !found {
                     push_unique(&mut reasons, "criterion_not_found".into());
                 }
@@ -289,7 +315,7 @@ fn validate_prd_patch_for_draft(patch: &PrdPatch, draft: &LiveProjectSpecDraftRo
                 let found = list_root_for_prd_operation(op).is_some_and(|root| {
                     prd_operation_target(operation)
                         .and_then(|target| {
-                            find_list_item_index(list_for_root(&draft.spec, root), target)
+                            find_list_item_index(list_for_root(&simulated, root), target)
                         })
                         .is_some()
                 });
@@ -299,8 +325,62 @@ fn validate_prd_patch_for_draft(patch: &PrdPatch, draft: &LiveProjectSpecDraftRo
             }
             _ => {}
         }
+        // Advance the simulation only for ops apply would actually run: a
+        // held op leaves the draft untouched, so it must leave the
+        // simulation untouched too.
+        let field_path = field_path_for_prd_operation(operation);
+        if conflicts_with_student_edit(&field_path, &draft.student_edited_fields).is_none() {
+            apply_operation_to_spec(&mut simulated, operation);
+        }
     }
     reasons
+}
+
+fn is_active_criterion(spec: &ProjectSpecDraft, criterion_id: &str) -> bool {
+    spec.acceptance_criteria.iter().any(|criterion| {
+        criterion.criterion_id == criterion_id
+            && matches!(criterion.status, AcceptanceCriterionStatus::Active)
+    })
+}
+
+/// The criterion a `retire_acceptance_criterion` op addresses. `criterionId`
+/// wins when present (its existence/status is checked by the caller). Without
+/// one, the op's `target`/`text` is resolved against the ACTIVE criteria only:
+/// first as a literal criterion id, then by criterion text with the same
+/// exact-then-unique-normalized matching the list ops use — so an ambiguous
+/// or retired-only match resolves to nothing (`criterion_not_found`).
+fn resolve_retire_criterion_id(
+    spec: &ProjectSpecDraft,
+    operation: &PrdPatchOperation,
+) -> Option<String> {
+    if let Some(criterion_id) = operation
+        .criterion_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        return Some(criterion_id.to_string());
+    }
+    let wanted = prd_operation_target(operation)
+        .or_else(|| prd_operation_text(operation))
+        .filter(|text| !text.is_empty())?;
+    let active: Vec<&AcceptanceCriterion> = spec
+        .acceptance_criteria
+        .iter()
+        .filter(|criterion| matches!(criterion.status, AcceptanceCriterionStatus::Active))
+        .collect();
+    if let Some(by_id) = active
+        .iter()
+        .find(|criterion| criterion.criterion_id == wanted)
+    {
+        return Some(by_id.criterion_id.clone());
+    }
+    let texts: Vec<String> = active
+        .iter()
+        .map(|criterion| criterion.text.clone())
+        .collect();
+    let index = find_list_item_index(&texts, wanted)?;
+    Some(active[index].criterion_id.clone())
 }
 
 fn is_supported_prd_operation(op: &str) -> bool {
@@ -359,11 +439,8 @@ fn prd_operation_target(operation: &PrdPatchOperation) -> Option<&str> {
         .filter(|target| !target.is_empty())
 }
 
-/// S-072 / D-014-05: the address of a scope / non-goal / constraint item is
-/// its text, normalized just enough to survive the model re-typing it — trim,
-/// collapse internal whitespace runs to a single space, case-insensitive.
-/// Anything fuzzier is deliberately NOT attempted: editing the wrong item is
-/// worse than a rejection.
+/// S-072 / D-014-05 strict normalization: trim, collapse internal whitespace
+/// runs to a single space, case-insensitive.
 fn normalize_list_item_text(text: &str) -> String {
     text.split_whitespace()
         .collect::<Vec<_>>()
@@ -371,25 +448,90 @@ fn normalize_list_item_text(text: &str) -> String {
         .to_lowercase()
 }
 
-/// Index of the first item whose normalized text equals the normalized
-/// `target`; `None` for a blank target or no match. First match wins.
-fn find_list_item_index(items: &[String], target: &str) -> Option<usize> {
-    let wanted = normalize_list_item_text(target);
-    if wanted.is_empty() {
-        return None;
-    }
-    items
-        .iter()
-        .position(|item| normalize_list_item_text(item) == wanted)
+/// S-072 review loose normalization for the drift a model introduces when it
+/// re-types a Korean/mixed item: curly quotes → straight, ALL whitespace
+/// removed (so `기능(구글, 카카오)` and `기능 (구글,카카오)` agree), trailing
+/// `.` / `。` / `,` dropped, case-insensitive. Unicode NFC normalization is
+/// NOT applied — the crate is not a dependency and adding one for this was
+/// out of scope; decomposed Hangul jamo input therefore still has to match
+/// byte-for-byte.
+fn loose_normalize_list_item_text(text: &str) -> String {
+    let unified: String = text
+        .chars()
+        .map(|ch| match ch {
+            '\u{2018}' | '\u{2019}' => '\'',
+            '\u{201C}' | '\u{201D}' => '"',
+            other => other,
+        })
+        .filter(|ch| !ch.is_whitespace())
+        .collect();
+    unified
+        .to_lowercase()
+        .trim_end_matches(['.', '\u{3002}', ','])
+        .to_string()
 }
 
-/// The list root (field-path root AND provenance key) a `revise_*` /
-/// `remove_*` op addresses; `None` for every other op.
+/// The single index satisfying `matches`, or `None` when zero OR MORE THAN
+/// ONE item does — an ambiguous address must never edit "whichever came
+/// first" (a wrong-item edit is worse than a rejection, D-014-05).
+fn unique_position(items: &[String], matches: impl Fn(&str) -> bool) -> Option<usize> {
+    let mut found = None;
+    for (index, item) in items.iter().enumerate() {
+        if matches(item) {
+            if found.is_some() {
+                return None;
+            }
+            found = Some(index);
+        }
+    }
+    found
+}
+
+/// Resolves a `target` to an index in three passes, each only consulted when
+/// the previous one found nothing:
+/// 1. exact trimmed equality — first match wins (an exact duplicate in the
+///    list is the list's own problem, not an addressing ambiguity);
+/// 2. strict normalization (`normalize_list_item_text`) — accepted only when
+///    it identifies exactly ONE item;
+/// 3. loose normalization (`loose_normalize_list_item_text`) — likewise only
+///    when unique.
+///
+/// A blank target never matches. Two items that collapse together under the
+/// pass that would otherwise match therefore yield `None` → `item_not_found`.
+fn find_list_item_index(items: &[String], target: &str) -> Option<usize> {
+    let target = target.trim();
+    if target.is_empty() {
+        return None;
+    }
+    if let Some(index) = items.iter().position(|item| item.trim() == target) {
+        return Some(index);
+    }
+    let strict = normalize_list_item_text(target);
+    if let Some(index) = unique_position(items, |item| normalize_list_item_text(item) == strict) {
+        return Some(index);
+    }
+    let loose = loose_normalize_list_item_text(target);
+    unique_position(items, |item| loose_normalize_list_item_text(item) == loose)
+}
+
+/// For a revise: another index whose item already carries `value` (exact
+/// trimmed or strict-normalized equal) — the merge case.
+fn other_index_with_same_text(list: &[String], index: usize, value: &str) -> Option<usize> {
+    let value = value.trim();
+    let wanted = normalize_list_item_text(value);
+    list.iter().enumerate().find_map(|(candidate, item)| {
+        (candidate != index && (item.trim() == value || normalize_list_item_text(item) == wanted))
+            .then_some(candidate)
+    })
+}
+
+/// The list root (field-path root AND provenance key) an `append_*` /
+/// `revise_*` / `remove_*` list op addresses; `None` for every other op.
 fn list_root_for_prd_operation(op: &str) -> Option<&'static str> {
     match op {
-        "revise_scope" | "remove_scope" => Some("scope"),
-        "revise_non_goal" | "remove_non_goal" => Some("nonGoals"),
-        "revise_constraint" | "remove_constraint" => Some("constraints"),
+        "append_scope" | "revise_scope" | "remove_scope" => Some("scope"),
+        "append_non_goal" | "revise_non_goal" | "remove_non_goal" => Some("nonGoals"),
+        "append_constraint" | "revise_constraint" | "remove_constraint" => Some("constraints"),
         _ => None,
     }
 }
@@ -428,6 +570,8 @@ fn field_path_for_prd_operation(operation: &PrdPatchOperation) -> String {
         "revise_scope" | "remove_scope" => "scope".into(),
         "revise_non_goal" | "remove_non_goal" => "nonGoals".into(),
         "revise_constraint" | "remove_constraint" => "constraints".into(),
+        // A retire addressed by text (no `criterionId`) resolves its id at
+        // apply time; the root is what the hold check needs here.
         "retire_acceptance_criterion" => operation
             .criterion_id
             .as_ref()
@@ -643,13 +787,296 @@ mod prd_patch_apply_tests {
     }
 
     #[test]
-    fn find_list_item_index_first_match_wins_and_blank_target_never_matches() {
+    fn find_list_item_index_prefers_exact_then_unique_normalized_match() {
         let items = vec!["Alpha".to_string(), "beta".to_string(), "ALPHA".to_string()];
-        assert_eq!(find_list_item_index(&items, "alpha"), Some(0));
+        // Exact trimmed match wins outright, even with a case-variant twin.
+        assert_eq!(find_list_item_index(&items, " Alpha "), Some(0));
+        assert_eq!(find_list_item_index(&items, "ALPHA"), Some(2));
+        // No exact match and TWO strict-normalized matches → ambiguous → None.
+        assert_eq!(find_list_item_index(&items, "alpha"), None);
+        // Unique normalized match is accepted.
         assert_eq!(find_list_item_index(&items, "  BETA "), Some(1));
         assert_eq!(find_list_item_index(&items, "gamma"), None);
         assert_eq!(find_list_item_index(&items, "   "), None);
         assert_eq!(find_list_item_index(&[], "alpha"), None);
+    }
+
+    #[test]
+    fn loose_normalize_unifies_quotes_strips_whitespace_and_trailing_punctuation() {
+        assert_eq!(
+            loose_normalize_list_item_text("로그인 기능 (구글,카카오)."),
+            "로그인기능(구글,카카오)"
+        );
+        assert_eq!(
+            loose_normalize_list_item_text("\u{201C}Today\u{2019}s\u{201D} classes。"),
+            "\"today's\"classes"
+        );
+        assert_eq!(
+            loose_normalize_list_item_text("Export as PDF,"),
+            "exportaspdf"
+        );
+    }
+
+    #[test]
+    fn find_list_item_index_loose_pass_matches_korean_spacing_drift_only_when_unique() {
+        let items = vec![
+            "로그인 기능(구글, 카카오)".to_string(),
+            "과제 알림".to_string(),
+        ];
+        assert_eq!(
+            find_list_item_index(&items, "로그인 기능 (구글,카카오)"),
+            Some(0)
+        );
+        assert_eq!(
+            find_list_item_index(&items, "로그인 기능(구글, 카카오)."),
+            Some(0)
+        );
+        // Two items that collapse together under the loose pass → None.
+        let ambiguous = vec!["Export as PDF.".to_string(), "Export as PDF,".to_string()];
+        assert_eq!(find_list_item_index(&ambiguous, "export as pdf"), None);
+        // ...but an exact hit on one of them still resolves.
+        assert_eq!(find_list_item_index(&ambiguous, "Export as PDF,"), Some(1));
+    }
+
+    #[test]
+    fn case_variant_duplicates_reject_with_item_not_found_unless_addressed_exactly() {
+        let mut draft = draft_with_lists();
+        draft.spec.scope = vec!["Login page".into(), "login page".into()];
+        let original = draft.clone();
+        let rejected = apply_prd_patch_to_draft(
+            draft.clone(),
+            &patch(vec![revise("revise_scope", "LOGIN PAGE", "Sign-in page")]),
+        );
+        assert_eq!(rejected.validation_outcome, "rejected");
+        assert_eq!(rejected.rejected_reasons, vec!["item_not_found"]);
+        assert_eq!(rejected.draft, original);
+
+        let exact = apply_prd_patch_to_draft(
+            draft,
+            &patch(vec![revise("revise_scope", "login page", "Sign-in page")]),
+        );
+        assert_eq!(exact.validation_outcome, "applied");
+        assert_eq!(
+            exact.draft.spec.scope,
+            vec!["Login page".to_string(), "Sign-in page".to_string()]
+        );
+    }
+
+    #[test]
+    fn loose_pass_rejects_when_two_items_collapse_equal() {
+        let mut draft = draft_with_lists();
+        draft.spec.constraints = vec!["Export as PDF.".into(), "Export as PDF,".into()];
+        let original = draft.clone();
+        let result = apply_prd_patch_to_draft(
+            draft,
+            &patch(vec![remove("remove_constraint", "export as pdf")]),
+        );
+        assert_eq!(result.validation_outcome, "rejected");
+        assert_eq!(result.rejected_reasons, vec!["item_not_found"]);
+        assert_eq!(result.draft, original);
+    }
+
+    #[test]
+    fn revise_korean_item_with_spacing_and_punctuation_drift_matches_in_place() {
+        let mut draft = draft_with_lists();
+        draft.spec.scope = vec!["로그인 기능(구글, 카카오)".into(), "과제 알림".into()];
+        let result = apply_prd_patch_to_draft(
+            draft,
+            &patch(vec![revise(
+                "revise_scope",
+                "로그인 기능 (구글,카카오)",
+                "로그인 기능(구글만)",
+            )]),
+        );
+        assert_eq!(result.validation_outcome, "applied");
+        assert_eq!(
+            result.draft.spec.scope,
+            vec!["로그인 기능(구글만)".to_string(), "과제 알림".to_string()]
+        );
+    }
+
+    #[test]
+    fn revise_to_an_existing_item_merges_instead_of_duplicating() {
+        let mut draft = draft_with_lists();
+        draft.spec.scope = vec!["A".into(), "B".into()];
+        let result = apply_prd_patch_to_draft(
+            draft.clone(),
+            &patch(vec![revise("revise_scope", "A", "B")]),
+        );
+        assert_eq!(result.validation_outcome, "applied");
+        assert_eq!(result.applied_field_paths, vec!["scope"]);
+        assert_eq!(result.draft.spec.scope, vec!["B".to_string()]);
+
+        // Normalized equality merges too, keeping the EXISTING wording.
+        let normalized =
+            apply_prd_patch_to_draft(draft, &patch(vec![revise("revise_scope", "A", "  b ")]));
+        assert_eq!(normalized.validation_outcome, "applied");
+        assert_eq!(normalized.draft.spec.scope, vec!["B".to_string()]);
+    }
+
+    #[test]
+    fn sequential_validation_rejects_reuse_of_a_removed_target() {
+        let original = draft_with_lists();
+        let result = apply_prd_patch_to_draft(
+            original.clone(),
+            &patch(vec![
+                remove("remove_scope", "Add and remove schedule items"),
+                revise(
+                    "revise_scope",
+                    "Add and remove schedule items",
+                    "Edit items",
+                ),
+            ]),
+        );
+        assert_eq!(result.validation_outcome, "rejected");
+        assert_eq!(result.rejected_reasons, vec!["item_not_found"]);
+        assert_eq!(result.draft, original);
+    }
+
+    #[test]
+    fn sequential_validation_rejects_double_revise_of_the_same_target() {
+        let original = draft_with_lists();
+        let result = apply_prd_patch_to_draft(
+            original.clone(),
+            &patch(vec![
+                revise(
+                    "revise_scope",
+                    "Show today's classes",
+                    "Show today's classes v1",
+                ),
+                revise(
+                    "revise_scope",
+                    "Show today's classes",
+                    "Show today's classes v2",
+                ),
+            ]),
+        );
+        assert_eq!(result.validation_outcome, "rejected");
+        assert_eq!(result.rejected_reasons, vec!["item_not_found"]);
+        assert_eq!(result.draft, original);
+    }
+
+    #[test]
+    fn sequential_validation_accepts_a_chained_revise_and_sees_appended_items() {
+        let result = apply_prd_patch_to_draft(
+            draft_with_lists(),
+            &patch(vec![
+                revise("revise_scope", "Show today's classes", "Show this week"),
+                revise("revise_scope", "Show this week", "Show this month"),
+                PrdPatchOperation {
+                    value: Some("Print a timetable".into()),
+                    ..op("append_non_goal")
+                },
+                remove("remove_non_goal", "Print a timetable"),
+            ]),
+        );
+        assert_eq!(result.validation_outcome, "applied");
+        assert_eq!(result.draft.spec.scope[1], "Show this month");
+        assert_eq!(result.draft.spec.non_goals.len(), 2);
+    }
+
+    #[test]
+    fn sequential_validation_resolves_a_criterion_appended_earlier_in_the_patch() {
+        let mut append = op("append_acceptance_criterion");
+        append.text = Some("Exports a CSV of the week".into());
+        let mut retire_by_text = op("retire_acceptance_criterion");
+        retire_by_text.text = Some("Exports a CSV of the week".into());
+        let result =
+            apply_prd_patch_to_draft(draft_with_lists(), &patch(vec![append, retire_by_text]));
+        assert_eq!(result.validation_outcome, "applied");
+        assert_eq!(result.criterion_ids_assigned, vec!["AC-003"]);
+        assert!(result
+            .applied_field_paths
+            .contains(&"acceptanceCriteria.AC-003.status".to_string()));
+        let added = &result.draft.spec.acceptance_criteria[2];
+        assert_eq!(added.criterion_id, "AC-003");
+        assert!(matches!(added.status, AcceptanceCriterionStatus::Retired));
+        assert_eq!(added.retired_in_version, Some(2));
+    }
+
+    #[test]
+    fn held_ops_do_not_advance_the_validation_simulation() {
+        // Both ops address the same (student-edited) item. Neither will
+        // apply, so the second must NOT be rejected as item_not_found on
+        // account of the first — the whole patch is held, not rejected.
+        let mut draft = draft_with_lists();
+        draft.student_edited_fields = vec!["scope".into()];
+        let result = apply_prd_patch_to_draft(
+            draft,
+            &patch(vec![
+                revise("revise_scope", "Show today's classes", "v1"),
+                revise("revise_scope", "Show today's classes", "v2"),
+            ]),
+        );
+        assert_eq!(result.validation_outcome, "held_for_student");
+        assert_eq!(result.rejected_reasons, vec!["student_edit_conflict"]);
+        assert_eq!(result.draft.spec.scope[1], "Show today's classes");
+    }
+
+    #[test]
+    fn revise_acceptance_criterion_text_on_retired_criterion_rejects() {
+        let original = draft_with_lists();
+        let mut revise_retired = op("revise_acceptance_criterion_text");
+        revise_retired.criterion_id = Some("AC-002".into());
+        revise_retired.text = Some("Resurrected wording".into());
+        let result = apply_prd_patch_to_draft(original.clone(), &patch(vec![revise_retired]));
+        assert_eq!(result.validation_outcome, "rejected");
+        assert_eq!(result.rejected_reasons, vec!["criterion_not_found"]);
+        assert_eq!(result.draft, original);
+
+        // The active one still revises.
+        let mut revise_active = op("revise_acceptance_criterion_text");
+        revise_active.criterion_id = Some("AC-001".into());
+        revise_active.text = Some("Schedules and tasks are listed separately".into());
+        let ok = apply_prd_patch_to_draft(original, &patch(vec![revise_active]));
+        assert_eq!(ok.validation_outcome, "applied");
+        assert_eq!(
+            ok.draft.spec.acceptance_criteria[0].text,
+            "Schedules and tasks are listed separately"
+        );
+    }
+
+    #[test]
+    fn retire_resolves_criterion_by_text_when_no_id_is_given() {
+        let mut by_text = op("retire_acceptance_criterion");
+        by_text.text = Some("  schedules and tasks appear in separate lists ".into());
+        let result = apply_prd_patch_to_draft(draft_with_lists(), &patch(vec![by_text]));
+        assert_eq!(result.validation_outcome, "applied");
+        assert_eq!(
+            result.applied_field_paths,
+            vec!["acceptanceCriteria.AC-001.status"]
+        );
+        assert!(matches!(
+            result.draft.spec.acceptance_criteria[0].status,
+            AcceptanceCriterionStatus::Retired
+        ));
+
+        // A literal id in `target` also resolves.
+        let mut by_id_in_target = op("retire_acceptance_criterion");
+        by_id_in_target.target = Some("AC-001".into());
+        let via_target =
+            apply_prd_patch_to_draft(draft_with_lists(), &patch(vec![by_id_in_target]));
+        assert_eq!(via_target.validation_outcome, "applied");
+
+        // Text of an already-retired criterion → nothing active matches.
+        let original = draft_with_lists();
+        let mut retired_text = op("retire_acceptance_criterion");
+        retired_text.text = Some("Old criterion already retired".into());
+        let miss = apply_prd_patch_to_draft(original.clone(), &patch(vec![retired_text]));
+        assert_eq!(miss.rejected_reasons, vec!["criterion_not_found"]);
+        assert_eq!(miss.draft, original);
+
+        // Ambiguous text (two active criteria collapse equal) → not found.
+        let mut ambiguous = draft_with_lists();
+        ambiguous.spec.acceptance_criteria.push(criterion(
+            "AC-003",
+            "SCHEDULES AND TASKS APPEAR IN SEPARATE LISTS",
+            true,
+        ));
+        let mut ambiguous_op = op("retire_acceptance_criterion");
+        ambiguous_op.text = Some("schedules and tasks appear in separate lists".into());
+        let dup = apply_prd_patch_to_draft(ambiguous, &patch(vec![ambiguous_op]));
+        assert_eq!(dup.rejected_reasons, vec!["criterion_not_found"]);
     }
 
     #[test]
@@ -936,26 +1363,54 @@ mod prd_patch_apply_tests {
     }
 
     #[test]
-    fn secret_like_target_rejects_with_secret_like_text() {
+    fn remove_with_secret_like_target_succeeds_but_revise_with_secret_like_value_rejects() {
+        // S-072 review (P2): a remove target is text ALREADY in the draft —
+        // the student is trying to get the secret out, so the gate must not
+        // keep it in.
         let mut draft = draft_with_lists();
         draft
             .spec
             .constraints
             .push("api_key=supersecretvalue".into());
-        let result = apply_prd_patch_to_draft(
-            draft,
+        let removed = apply_prd_patch_to_draft(
+            draft.clone(),
             &patch(vec![remove(
                 "remove_constraint",
                 "api_key=supersecretvalue",
             )]),
         );
-        assert_eq!(result.validation_outcome, "rejected");
-        assert!(result
-            .rejected_reasons
-            .contains(&"secret_like_text".to_string()));
-        assert!(!result
-            .rejected_reasons
-            .contains(&"item_not_found".to_string()));
+        assert_eq!(removed.validation_outcome, "applied");
+        assert_eq!(removed.applied_field_paths, vec!["constraints"]);
+        assert!(!removed
+            .draft
+            .spec
+            .constraints
+            .iter()
+            .any(|item| item.contains("supersecretvalue")));
+
+        // Every other text field keeps the gate: a revise whose NEW value is
+        // secret-like still rejects, and so does a secret-like revise target.
+        let revised = apply_prd_patch_to_draft(
+            draft.clone(),
+            &patch(vec![revise(
+                "revise_constraint",
+                "Must run offline",
+                "token=abc123XYZ",
+            )]),
+        );
+        assert_eq!(revised.validation_outcome, "rejected");
+        assert_eq!(revised.rejected_reasons, vec!["secret_like_text"]);
+
+        let revise_target = apply_prd_patch_to_draft(
+            draft,
+            &patch(vec![revise(
+                "revise_constraint",
+                "api_key=supersecretvalue",
+                "Keys live in the environment",
+            )]),
+        );
+        assert_eq!(revise_target.validation_outcome, "rejected");
+        assert_eq!(revise_target.rejected_reasons, vec!["secret_like_text"]);
     }
 
     #[test]

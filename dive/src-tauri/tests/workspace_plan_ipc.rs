@@ -606,6 +606,50 @@ fn prd_save_rejects_missing_or_half_decided_architecture() {
     )
     .unwrap_err();
     assert!(err.contains("architecture"), "unexpected error: {err}");
+
+    // S-072 (forms[] multi-select): the OTHER intermediate state — a stack typed
+    // before any form was picked — must be rejected by the server-side
+    // backstop (`architecture_is_decided` needs >=1 form AND a non-blank stack).
+    let mut stack_only = minimal_prd_draft(project_id);
+    stack_only.architecture = Some(ArchitectureDecision {
+        forms: Vec::new(),
+        form_other_label: None,
+        stack: Some("React + Vite".into()),
+        rationale: None,
+        decision_source: ArchitectureDecisionSource::StudentConfirmed,
+        decided_in_version: 1,
+    });
+    let err = workspace_prd_save_impl(
+        &state,
+        PrdSaveInput {
+            project_id,
+            spec: stack_only,
+            reason: "interview".into(),
+        },
+    )
+    .unwrap_err();
+    assert!(err.contains("architecture"), "unexpected error: {err}");
+
+    // A whitespace-only stack is not a decided stack either.
+    let mut blank_stack = minimal_prd_draft(project_id);
+    blank_stack.architecture = Some(ArchitectureDecision {
+        forms: vec![ArchitectureForm::WebApp],
+        form_other_label: None,
+        stack: Some("   ".into()),
+        rationale: None,
+        decision_source: ArchitectureDecisionSource::StudentConfirmed,
+        decided_in_version: 1,
+    });
+    let err = workspace_prd_save_impl(
+        &state,
+        PrdSaveInput {
+            project_id,
+            spec: blank_stack,
+            reason: "interview".into(),
+        },
+    )
+    .unwrap_err();
+    assert!(err.contains("architecture"), "unexpected error: {err}");
 }
 
 #[test]
@@ -3571,5 +3615,92 @@ fn approve_updates_linked_submitted_interview_status() {
             .unwrap()
             .status,
         "approved"
+    );
+}
+
+// S-072 review (P2): a `held_for_student` turn holds PER OP — the other ops
+// still land. The partial apply must be auditable: the applied event carries
+// what got in, the rejected(held=true) event marks what did not, the draft
+// persists the applied change, and the frontend sees `applied_field_paths`.
+#[tokio::test]
+async fn prd_interview_turn_held_for_student_audits_the_partial_apply() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(
+                r#"{"assistantMessage":"반영했어요.","patch":{"operations":[{"op":"set_goal","value":"AI-proposed goal"},{"op":"revise_scope","target":"Old scope item","value":"New scope item"}]}}"#
+                    .into(),
+            ),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+
+    // The student hand-edited the goal; the scope is untouched by them.
+    let mut draft =
+        workspace_prd_draft_get_impl(&state, project_id, Some("draft-held-audit".into())).unwrap();
+    draft.spec.goal = "Student's own goal".into();
+    draft.spec.scope = vec!["Old scope item".into()];
+    draft.dirty_fields = vec!["goal".into(), "scope".into()];
+    draft.student_edited_fields = vec!["goal".into()];
+    draft
+        .field_provenance
+        .insert("goal".to_string(), ProvenanceSource::Student);
+    workspace_prd_draft_save_impl(&state, PrdDraftSaveInput { project_id, draft }).unwrap();
+
+    let turn = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-held-audit".into(),
+            answer: "Change the scope item wording".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(turn.validation_outcome, "held_for_student");
+    assert_eq!(turn.rejected_reasons, vec!["student_edit_conflict"]);
+    assert_eq!(turn.applied_field_paths, vec!["scope"]);
+    assert_eq!(turn.live_draft.spec.goal, "Student's own goal");
+    assert_eq!(turn.live_draft.spec.scope, vec!["New scope item"]);
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    let applied = events
+        .iter()
+        .find(|event| event.r#type == "prd_patch_applied")
+        .expect("the applied event records what got in");
+    assert_eq!(
+        applied.payload["applied_field_paths"],
+        serde_json::json!(["scope"])
+    );
+    assert_eq!(
+        applied.payload["student_edited_fields_respected"],
+        serde_json::json!(["goal"])
+    );
+    let held = events
+        .iter()
+        .find(|event| event.r#type == "prd_patch_rejected")
+        .expect("the held marker records what did not");
+    assert_eq!(held.payload["held_for_student"], serde_json::json!(true));
+    assert_eq!(
+        held.payload["reason_codes"],
+        serde_json::json!(["student_edit_conflict"])
+    );
+    assert_eq!(applied.payload["patch_id"], held.payload["patch_id"]);
+
+    let persisted =
+        workspace_prd_draft_get_impl(&state, project_id, Some("draft-held-audit".into())).unwrap();
+    assert_eq!(persisted.spec.goal, "Student's own goal");
+    assert_eq!(persisted.spec.scope, vec!["New scope item"]);
+    assert_eq!(
+        persisted.field_provenance.get("scope"),
+        Some(&ProvenanceSource::AiPatch)
     );
 }

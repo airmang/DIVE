@@ -192,6 +192,32 @@ pub async fn workspace_prd_interview_turn_impl(
         } else if applied.validation_outcome == "rejected"
             || applied.validation_outcome == "held_for_student"
         {
+            let held_for_student = applied.validation_outcome == "held_for_student";
+            // S-072 review (P2): a hold is PER OP (Constitution VI / D-014-09
+            // — holding the whole patch would stall the interview whenever a
+            // student hand-edits one field), so a held turn can still have
+            // landed the other ops. Make that partial apply auditable: emit
+            // the applied event for what got in, then the held marker for
+            // what did not. The frontend already receives
+            // `applied_field_paths` on the held outcome (set above).
+            if held_for_student && !applied.applied_field_paths.is_empty() {
+                dive_event_log::append_to_conn(
+                    &tx,
+                    interview_session_id,
+                    dive_event_log::PRD_PATCH_APPLIED_EVENT,
+                    dive_event_log::prd_patch_applied_payload(
+                        input.project_id,
+                        project_spec_id_for_draft(&applied.draft),
+                        applied.draft.draft_id.clone(),
+                        turn_id.clone(),
+                        patch.patch_id.clone(),
+                        applied.applied_field_paths.clone(),
+                        applied.criterion_ids_assigned.clone(),
+                        applied.student_edited_fields_respected.clone(),
+                    ),
+                )
+                .map_err(|e| e.to_string())?;
+            }
             dive_event_log::append_to_conn(
                 &tx,
                 interview_session_id,
@@ -203,7 +229,7 @@ pub async fn workspace_prd_interview_turn_impl(
                     turn_id.clone(),
                     patch.patch_id,
                     applied.rejected_reasons,
-                    applied.validation_outcome == "held_for_student",
+                    held_for_student,
                 ),
             )
             .map_err(|e| e.to_string())?;
@@ -355,6 +381,7 @@ fn build_prd_interview_system_prompt() -> String {
         // the old one (QA: "수정하면 아래에 추가로 쌓이고 내용이 수정 안 됨").
         "For revise_scope / revise_non_goal / revise_constraint put the CURRENT item text in \"target\" (copy it exactly from the draft JSON) and the new wording in \"value\". For remove_scope / remove_non_goal / remove_constraint put the current item text in \"target\". For retire_acceptance_criterion put the criterion's id in \"criterionId\".",
         "When the student asks to change, correct, or drop something that is already in the draft, edit it in place with those operations — never append a corrected duplicate under the old item.",
+        "Acceptance criteria with status \"retired\" in the draft JSON are already dropped — ignore them, never revise or retire them again, and never treat them as active.",
         "Do not invent IDs for new criteria; DIVE assigns AC IDs.",
         "Never put the architecture (form or tech stack) in the patch — the student decides it by clicking a card, not you.",
         "When the suggested next focus is propose_architecture_form or propose_architecture_stack, ALSO return a \"proposals\" object recommending up to 2 options for that focus, each with a one-line beginner reason, and still ask the student to pick or change one in assistantMessage.",
@@ -539,6 +566,12 @@ struct RawPrdPatchOperation {
     // obvious synonyms and normalize to `target`.
     #[serde(alias = "old", alias = "oldText", alias = "old_text", alias = "from")]
     target: Option<String>,
+    // S-072 review: the NEW wording of a revise, when the model names it as
+    // the counterpart of `old`/`from` instead of `value`. Folded into `value`
+    // below. (serde rejects a payload carrying two spellings of one field —
+    // that surfaces as `undecodable_json`, never a crash.)
+    #[serde(alias = "new", alias = "newText", alias = "new_text", alias = "to")]
+    new_value: Option<String>,
 }
 
 impl RawPrdPatchOperation {
@@ -549,7 +582,19 @@ impl RawPrdPatchOperation {
             text,
             criterion_id,
             target,
+            new_value,
         } = self;
+        // S-072 review: canonicalize the op-name paraphrases models reach for.
+        let op = match op.as_str() {
+            "remove_acceptance_criterion" | "delete_acceptance_criterion" => {
+                "retire_acceptance_criterion".to_string()
+            }
+            "delete_scope" => "remove_scope".to_string(),
+            "delete_non_goal" => "remove_non_goal".to_string(),
+            "delete_constraint" => "remove_constraint".to_string(),
+            _ => op,
+        };
+        let value = value.or(new_value);
         let value = match op.as_str() {
             "set_goal" | "set_intent_summary" | "append_scope" | "append_non_goal"
             | "append_constraint" | "revise_scope" | "revise_non_goal" | "revise_constraint" => {
@@ -562,6 +607,15 @@ impl RawPrdPatchOperation {
                 text.or_else(|| value.clone())
             }
             _ => text,
+        };
+        // A remove only addresses an item: whatever text the model sent IS the
+        // target, and no other text field survives (so the secret-gate
+        // exemption on a remove target cannot be sidestepped via `value`).
+        let (value, text, target) = match op.as_str() {
+            "remove_scope" | "remove_non_goal" | "remove_constraint" => {
+                (None, None, target.or(value).or(text))
+            }
+            _ => (value, text, target),
         };
         // S-047: the AI interview patch never carries an architecture decision — the
         // architecture is set only through the student's draft-save path (no AI
@@ -1223,6 +1277,126 @@ mod prd_interview_prompt_tests {
         }
         assert!(prompt.contains("never append a corrected duplicate under the old item"));
         assert!(prompt.contains("copy it exactly from the draft JSON"));
+    }
+
+    // S-072 review (P1): retired criteria are already dropped; the model must
+    // not revise/retire them again or count them as active.
+    #[test]
+    fn interview_system_prompt_tells_model_to_ignore_retired_criteria() {
+        let prompt = build_prd_interview_system_prompt();
+        assert!(prompt.contains(
+            "Acceptance criteria with status \"retired\" in the draft JSON are already dropped — ignore them, never revise or retire them again, and never treat them as active."
+        ));
+    }
+
+    // S-072 review (P2): op-name and field-name paraphrases models reach for.
+
+    #[test]
+    fn parse_turn_response_maps_delete_and_remove_criterion_aliases_to_canonical_ops() {
+        let raw = r#"{"assistantMessage":"ok","patch":{"operations":[
+            {"op":"delete_scope","target":"a"},
+            {"op":"delete_non_goal","target":"b"},
+            {"op":"delete_constraint","target":"c"},
+            {"op":"remove_acceptance_criterion","criterionId":"AC-001"},
+            {"op":"delete_acceptance_criterion","criterionId":"AC-002"}
+        ]}}"#;
+        let patch = parse_prd_turn_response(raw, "turn-1")
+            .patch
+            .expect("patch parsed");
+        let ops: Vec<&str> = patch
+            .operations
+            .iter()
+            .map(|operation| operation.op.as_str())
+            .collect();
+        assert_eq!(
+            ops,
+            vec![
+                "remove_scope",
+                "remove_non_goal",
+                "remove_constraint",
+                "retire_acceptance_criterion",
+                "retire_acceptance_criterion",
+            ]
+        );
+        assert_eq!(patch.operations[0].target.as_deref(), Some("a"));
+        assert_eq!(patch.operations[3].criterion_id.as_deref(), Some("AC-001"));
+        assert_eq!(patch.operations[4].criterion_id.as_deref(), Some("AC-002"));
+    }
+
+    #[test]
+    fn parse_turn_response_folds_value_or_text_into_target_for_remove_ops() {
+        let raw = r#"{"assistantMessage":"ok","patch":{"operations":[
+            {"op":"remove_scope","value":"from value"},
+            {"op":"remove_non_goal","text":"from text"},
+            {"op":"delete_constraint","target":"explicit","value":"ignored"}
+        ]}}"#;
+        let patch = parse_prd_turn_response(raw, "turn-1")
+            .patch
+            .expect("patch parsed");
+        assert_eq!(patch.operations[0].target.as_deref(), Some("from value"));
+        assert_eq!(patch.operations[0].value, None);
+        assert_eq!(patch.operations[0].text, None);
+        assert_eq!(patch.operations[1].target.as_deref(), Some("from text"));
+        assert_eq!(patch.operations[1].text, None);
+        // An explicit target wins; the stray value is dropped, not kept.
+        assert_eq!(patch.operations[2].op, "remove_constraint");
+        assert_eq!(patch.operations[2].target.as_deref(), Some("explicit"));
+        assert_eq!(patch.operations[2].value, None);
+    }
+
+    #[test]
+    fn parse_turn_response_accepts_new_wording_aliases_for_value() {
+        let raw = r#"{"assistantMessage":"ok","patch":{"operations":[
+            {"op":"revise_scope","old":"a","new":"a1"},
+            {"op":"revise_non_goal","from":"b","to":"b1"},
+            {"op":"revise_constraint","oldText":"c","newText":"c1"},
+            {"op":"revise_constraint","old_text":"d","new_text":"d1"},
+            {"op":"revise_scope","target":"e","value":"explicit","new":"ignored"}
+        ]}}"#;
+        let patch = parse_prd_turn_response(raw, "turn-1")
+            .patch
+            .expect("patch parsed");
+        let pairs: Vec<(Option<&str>, Option<&str>)> = patch
+            .operations
+            .iter()
+            .map(|operation| (operation.target.as_deref(), operation.value.as_deref()))
+            .collect();
+        assert_eq!(
+            pairs,
+            vec![
+                (Some("a"), Some("a1")),
+                (Some("b"), Some("b1")),
+                (Some("c"), Some("c1")),
+                (Some("d"), Some("d1")),
+                // `value` wins over the alias when both are present.
+                (Some("e"), Some("explicit")),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_turn_response_keeps_text_for_retire_without_criterion_id() {
+        let raw = r#"{"assistantMessage":"ok","patch":{"operations":[
+            {"op":"retire_acceptance_criterion","text":"Exports a CSV"},
+            {"op":"remove_acceptance_criterion","target":"AC-002"}
+        ]}}"#;
+        let patch = parse_prd_turn_response(raw, "turn-1")
+            .patch
+            .expect("patch parsed");
+        assert_eq!(patch.operations[0].criterion_id, None);
+        assert_eq!(patch.operations[0].text.as_deref(), Some("Exports a CSV"));
+        assert_eq!(patch.operations[1].op, "retire_acceptance_criterion");
+        assert_eq!(patch.operations[1].target.as_deref(), Some("AC-002"));
+    }
+
+    #[test]
+    fn parse_turn_response_treats_two_spellings_of_one_field_as_undecodable_not_a_crash() {
+        // serde refuses `target` + `old` on one object; that must surface as
+        // the existing undecodable_json outcome.
+        let raw = r#"{"assistantMessage":"ok","patch":{"operations":[{"op":"revise_scope","target":"a","old":"a","value":"b"}]}}"#;
+        let parsed = parse_prd_turn_response(raw, "turn-1");
+        assert!(parsed.patch.is_none());
+        assert_eq!(parsed.parse_failure_kind, Some("undecodable_json"));
     }
 }
 
