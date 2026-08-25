@@ -168,7 +168,17 @@ export type PrdPatchOperation =
       criterionId: string;
       text?: string;
       value?: string;
-    };
+    }
+  // S-072 (014 theme 2): in-place edits. `target` is the CURRENT item text
+  // (normalized exact match on the backend, D-014-05); criteria are retired,
+  // never deleted (D-014-06).
+  | { op: "revise_scope"; target: string; value?: string; text?: string }
+  | { op: "revise_non_goal"; target: string; value?: string; text?: string }
+  | { op: "revise_constraint"; target: string; value?: string; text?: string }
+  | { op: "remove_scope"; target: string }
+  | { op: "remove_non_goal"; target: string }
+  | { op: "remove_constraint"; target: string }
+  | { op: "retire_acceptance_criterion"; criterionId: string };
 
 export interface PrdPatch {
   patchId: string;

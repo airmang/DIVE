@@ -63,7 +63,11 @@ type PrdPatchOperationPayload =
   | { op: "append_non_goal"; value: string }
   | { op: "append_constraint"; value: string }
   | { op: "append_acceptance_criterion"; text: string }
-  | { op: "revise_acceptance_criterion_text"; criterionId: string; text: string };
+  | { op: "revise_acceptance_criterion_text"; criterionId: string; text: string }
+  // 014 / S-073 — in-place edits (target = current item text, normalized match)
+  | { op: "revise_scope" | "revise_non_goal" | "revise_constraint"; target: string; value: string }
+  | { op: "remove_scope" | "remove_non_goal" | "remove_constraint"; target: string }
+  | { op: "retire_acceptance_criterion"; criterionId: string };
 ```
 
 Rules:

@@ -347,9 +347,14 @@ fn build_prd_interview_system_prompt() -> String {
         "The user message includes a 'Suggested next interview focus' computed from the real confirm gate. Follow it: while it names a missing field, ask exactly one concrete, plain-language question to draw that out — who it is for and why, what the first version should include, what to leave out for now, and concrete observable signs it works — never as jargon, a checklist, or field names.",
         "Only when the focus is ready_to_save is the PRD complete enough. Until then, do NOT tell the student it is ready or to confirm. When it is ready, stop asking required questions and tell the student it is ready, pointing them to the \"PRD 확정\" / \"Confirm PRD\" button by that exact name.",
         "Return a short conversational assistantMessage and an optional JSON patch.",
-        "The patch may only use these operation names: set_goal, set_intent_summary, append_scope, append_non_goal, append_constraint, append_acceptance_criterion, revise_acceptance_criterion_text.",
+        "The patch may only use these operation names: set_goal, set_intent_summary, append_scope, append_non_goal, append_constraint, append_acceptance_criterion, revise_acceptance_criterion_text, revise_scope, revise_non_goal, revise_constraint, remove_scope, remove_non_goal, remove_constraint, retire_acceptance_criterion.",
         "Each patch operation object MUST use the key \"op\" for the operation name; do not use \"operation\".",
         "For append_acceptance_criterion and revise_acceptance_criterion_text, put the criterion wording in \"text\".",
+        // S-072 (014 theme 2): in-place edits. Without these the model's only
+        // way to "change" an item was to append a corrected duplicate under
+        // the old one (QA: "수정하면 아래에 추가로 쌓이고 내용이 수정 안 됨").
+        "For revise_scope / revise_non_goal / revise_constraint put the CURRENT item text in \"target\" (copy it exactly from the draft JSON) and the new wording in \"value\". For remove_scope / remove_non_goal / remove_constraint put the current item text in \"target\". For retire_acceptance_criterion put the criterion's id in \"criterionId\".",
+        "When the student asks to change, correct, or drop something that is already in the draft, edit it in place with those operations — never append a corrected duplicate under the old item.",
         "Do not invent IDs for new criteria; DIVE assigns AC IDs.",
         "Never put the architecture (form or tech stack) in the patch — the student decides it by clicking a card, not you.",
         "When the suggested next focus is propose_architecture_form or propose_architecture_stack, ALSO return a \"proposals\" object recommending up to 2 options for that focus, each with a one-line beginner reason, and still ask the student to pick or change one in assistantMessage.",
@@ -524,6 +529,11 @@ struct RawPrdPatchOperation {
     text: Option<String>,
     #[serde(alias = "criterion_id")]
     criterion_id: Option<String>,
+    // S-072: tolerant parse of the current-item address for the revise_* /
+    // remove_* list ops — models paraphrase the key name, so accept the
+    // obvious synonyms and normalize to `target`.
+    #[serde(alias = "old", alias = "oldText", alias = "old_text", alias = "from")]
+    target: Option<String>,
 }
 
 impl RawPrdPatchOperation {
@@ -533,10 +543,13 @@ impl RawPrdPatchOperation {
             value,
             text,
             criterion_id,
+            target,
         } = self;
         let value = match op.as_str() {
             "set_goal" | "set_intent_summary" | "append_scope" | "append_non_goal"
-            | "append_constraint" => value.or_else(|| text.clone()),
+            | "append_constraint" | "revise_scope" | "revise_non_goal" | "revise_constraint" => {
+                value.or_else(|| text.clone())
+            }
             _ => value,
         };
         let text = match op.as_str() {
@@ -553,6 +566,7 @@ impl RawPrdPatchOperation {
             value,
             text,
             criterion_id,
+            target,
         }
     }
 }
@@ -1078,6 +1092,61 @@ mod prd_interview_prompt_tests {
         let parsed = parse_prd_turn_response(raw, "turn-1");
         assert!(parsed.patch.is_none());
         assert_eq!(parsed.parse_failure_kind, None);
+    }
+
+    // S-072 (014 theme 2): `target` is the current-item address for the
+    // revise_* / remove_* list ops. It must survive the raw parse verbatim, and
+    // `text` folds into `value` for revise_* exactly like the append_* ops.
+    #[test]
+    fn parse_turn_response_carries_target_for_revise_scope() {
+        let raw = r#"{"assistantMessage":"바꿨어요.","patch":{"operations":[{"op":"revise_scope","target":"old","value":"new"}]}}"#;
+        let parsed = parse_prd_turn_response(raw, "turn-1");
+        let patch = parsed.patch.expect("patch parsed");
+        assert_eq!(patch.operations.len(), 1);
+        let operation = &patch.operations[0];
+        assert_eq!(operation.op, "revise_scope");
+        assert_eq!(operation.target.as_deref(), Some("old"));
+        assert_eq!(operation.value.as_deref(), Some("new"));
+        assert_eq!(parsed.parse_failure_kind, None);
+    }
+
+    #[test]
+    fn parse_turn_response_accepts_target_aliases_and_folds_text_into_value() {
+        let raw = r#"{"assistantMessage":"ok","patch":{"operations":[
+            {"op":"revise_non_goal","oldText":"old wording","text":"new wording"},
+            {"op":"remove_constraint","from":"drop me"},
+            {"op":"retire_acceptance_criterion","criterion_id":"AC-002"}
+        ]}}"#;
+        let parsed = parse_prd_turn_response(raw, "turn-1");
+        let patch = parsed.patch.expect("patch parsed");
+        assert_eq!(patch.operations.len(), 3);
+        assert_eq!(patch.operations[0].op, "revise_non_goal");
+        assert_eq!(patch.operations[0].target.as_deref(), Some("old wording"));
+        assert_eq!(patch.operations[0].value.as_deref(), Some("new wording"));
+        assert_eq!(patch.operations[1].op, "remove_constraint");
+        assert_eq!(patch.operations[1].target.as_deref(), Some("drop me"));
+        assert_eq!(patch.operations[1].value, None);
+        assert_eq!(patch.operations[2].op, "retire_acceptance_criterion");
+        assert_eq!(patch.operations[2].criterion_id.as_deref(), Some("AC-002"));
+        assert_eq!(patch.operations[2].target, None);
+    }
+
+    #[test]
+    fn interview_system_prompt_lists_in_place_edit_ops_and_forbids_duplicates() {
+        let prompt = build_prd_interview_system_prompt();
+        for op in [
+            "revise_scope",
+            "revise_non_goal",
+            "revise_constraint",
+            "remove_scope",
+            "remove_non_goal",
+            "remove_constraint",
+            "retire_acceptance_criterion",
+        ] {
+            assert!(prompt.contains(op), "prompt must list {op}");
+        }
+        assert!(prompt.contains("never append a corrected duplicate under the old item"));
+        assert!(prompt.contains("copy it exactly from the draft JSON"));
     }
 }
 

@@ -617,6 +617,13 @@ pub struct PrdPatchOperation {
     pub text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub criterion_id: Option<String>,
+    /// S-072 (014 theme 2): for `revise_*` / `remove_*` list operations, the
+    /// CURRENT text of the scope / non-goal / constraint item being addressed.
+    /// List items carry no ids, so the item text is the addressing scheme
+    /// (D-014-05); matching is normalized (trim, collapse whitespace,
+    /// case-insensitive) exact equality.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
