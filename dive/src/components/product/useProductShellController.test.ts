@@ -177,7 +177,7 @@ describe("buildPrdPlanGenerationPrompt", () => {
     const withArchitecture: ProjectSpec = {
       ...projectSpec(),
       architecture: {
-        form: "web_app",
+        forms: ["web_app"],
         formOtherLabel: null,
         stack: "React + Vite",
         rationale: null,
@@ -195,7 +195,7 @@ describe("buildPrdPlanGenerationPrompt", () => {
     const withArchitecture: ProjectSpec = {
       ...projectSpec(),
       architecture: {
-        form: "static_page",
+        forms: ["static_page"],
         formOtherLabel: null,
         stack: "HTML + CSS + JavaScript",
         rationale: null,
@@ -206,8 +206,10 @@ describe("buildPrdPlanGenerationPrompt", () => {
     const prompt = buildPrdPlanGenerationPrompt(withArchitecture);
 
     expect(prompt).toContain("DIVE form-specific step scaffolding:");
-    expect(prompt).toContain("For static_page, steps should be static HTML/CSS/JS");
-    expect(prompt).toContain("avoid server, database, or backend-auth steps");
+    expect(prompt).toContain("For a static page, cover the HTML/CSS/JS pages");
+    // S-072 (Constitution VII): scaffolding is additive — never an "avoid" clause.
+    expect(prompt).toContain("These form notes are planning hints, not limits");
+    expect(prompt.toLowerCase()).not.toContain("avoid");
   });
 
   it("omits the architecture directive when none is decided", () => {
@@ -222,7 +224,7 @@ describe("draftFromProjectSpec", () => {
     const saved: ProjectSpec = {
       ...projectSpec(),
       architecture: {
-        form: "static_page",
+        forms: ["static_page"],
         formOtherLabel: null,
         stack: "HTML + CSS",
         rationale: "No build step keeps it simple.",

@@ -4,7 +4,6 @@ pub mod approval;
 pub mod assist;
 pub mod card_metrics;
 pub mod event_log;
-pub mod plan_form_consistency;
 pub mod plan_interview;
 pub mod plan_quality_constants;
 pub mod plan_router;

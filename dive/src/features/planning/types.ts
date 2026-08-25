@@ -42,11 +42,13 @@ export type AcceptanceCriterionInput = string | AcceptanceCriterion;
 
 export type VerificationType = "run" | "preview" | "manual" | "test";
 
-// S-047 (010 theme 7): a first-class, versioned architecture decision on the PRD.
-// The form is a bounded enum (so "a stack consistent with the form" is checkable
-// and the picker shows a small fixed set, not an open jargon prompt); the stack is
-// free text. `stack` is null in the intermediate two-stage state (form picked,
-// stack not decided yet). LLM proposes, DIVE records, the student decides.
+// S-047 (010 theme 7) → S-072 (014 theme 1): a first-class, versioned
+// architecture decision on the PRD. The six form values are *card-mappable
+// options* the AI can propose and the student can press — never the universe of
+// buildable things (Constitution VII / D-014-02). `forms` records every form
+// that applies, and `other` + `formOtherLabel` is the always-available free-text
+// escape hatch. The stack is free text. LLM proposes, DIVE records, the student
+// decides.
 export type ArchitectureForm =
   | "web_app"
   | "static_page"
@@ -65,7 +67,11 @@ export const ARCHITECTURE_FORMS: ArchitectureForm[] = [
 ];
 
 export interface ArchitectureDecision {
-  form: ArchitectureForm;
+  // Every form that applies, in the student's pick order (deduplicated). Empty
+  // while the student typed a stack before picking a form; `stack` is null in
+  // the other intermediate state (forms picked, stack not decided yet). Legacy
+  // `{ form }` payloads are folded into `forms` by normalizeArchitectureDecision.
+  forms: ArchitectureForm[];
   formOtherLabel?: string | null;
   stack: string | null;
   rationale?: string | null;

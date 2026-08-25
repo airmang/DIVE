@@ -18,6 +18,7 @@ import type {
 } from "./types";
 import type { PlanStepRow } from "../roadmap";
 import { loadTauri, type TauriApi } from "../../lib/tauri";
+import { liveDraftWithNormalizedArchitecture, withNormalizedArchitecture } from "./projectSpec";
 
 export const PLAN_DRAFT_REVIEW_REQUEST_EVENT = "dive:plan-draft-review-request";
 export const PLAN_ADJUSTMENT_REVIEW_REQUEST_EVENT = "dive:plan-adjustment-review-request";
@@ -262,18 +263,23 @@ export function usePlan(projectId: number | null) {
     return raw === null ? null : normalizeGeneratedDraft(raw);
   }, [api, projectId]);
 
+  // S-072: every PRD/draft payload crossing the IPC boundary gets its
+  // architecture normalized to the multi-valued `forms` shape (legacy single
+  // `form` folded in). Rust already does this; the client mirror is defensive.
   const getProjectSpec = useCallback(async () => {
     if (!api || projectId === null) return null;
-    return api.invoke<ProjectSpec | null>("workspace_prd_get", { projectId });
+    const spec = await api.invoke<ProjectSpec | null>("workspace_prd_get", { projectId });
+    return spec ? withNormalizedArchitecture(spec) : null;
   }, [api, projectId]);
 
   const getProjectSpecDraft = useCallback(
     async (draftId?: string | null) => {
       if (!api || projectId === null) return null;
-      return api.invoke<LiveProjectSpecDraft>("workspace_prd_draft_get", {
+      const draft = await api.invoke<LiveProjectSpecDraft | null>("workspace_prd_draft_get", {
         projectId,
         draftId: draftId ?? null,
       });
+      return draft ? liveDraftWithNormalizedArchitecture(draft) : null;
     },
     [api, projectId],
   );
@@ -288,7 +294,7 @@ export function usePlan(projectId: number | null) {
         },
       });
       await refreshPrdStatus();
-      return saved;
+      return liveDraftWithNormalizedArchitecture(saved);
     },
     [api, projectId, refreshPrdStatus],
   );
@@ -305,7 +311,9 @@ export function usePlan(projectId: number | null) {
         model: input.model,
       });
       await refreshPrdStatus();
-      return result;
+      return result.liveDraft
+        ? { ...result, liveDraft: liveDraftWithNormalizedArchitecture(result.liveDraft) }
+        : result;
     },
     [api, projectId, refreshPrdStatus],
   );
@@ -323,7 +331,7 @@ export function usePlan(projectId: number | null) {
       });
       await refresh();
       await refreshPrdStatus();
-      return saved;
+      return withNormalizedArchitecture(saved);
     },
     [api, projectId, refresh, refreshPrdStatus],
   );

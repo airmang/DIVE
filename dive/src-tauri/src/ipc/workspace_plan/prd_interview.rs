@@ -359,7 +359,12 @@ fn build_prd_interview_system_prompt() -> String {
         "Never put the architecture (form or tech stack) in the patch — the student decides it by clicking a card, not you.",
         "When the suggested next focus is propose_architecture_form or propose_architecture_stack, ALSO return a \"proposals\" object recommending up to 2 options for that focus, each with a one-line beginner reason, and still ask the student to pick or change one in assistantMessage.",
         "For propose_architecture_form, use \"proposals\":{\"kind\":\"form\",\"options\":[{\"value\":\"<one of: web_app, static_page, cli_tool, desktop_app, api_service, other>\",\"rationale\":\"...\"}]}.",
-        "For propose_architecture_stack, use \"proposals\":{\"kind\":\"stack\",\"options\":[{\"value\":\"<concise stack, e.g. React + Vite>\",\"rationale\":\"...\"}]}. Only recommend stacks that fit the already chosen form.",
+        // S-072 (014 theme 1, Constitution VII): the six values are card-mappable
+        // options, not the universe of buildable things. Define them so the model
+        // maps a project onto the right card(s), and never narrows the project.
+        "Form values mean: web_app = an app used in the browser, including any server, database, or API backend it needs; static_page = plain HTML/CSS/JS with no server; cli_tool = a program run from the terminal; desktop_app = an installed program that opens in its own window; api_service = a backend other programs call, with no screen of its own; other = anything else in the student's own words (games, bots, mobile apps, hardware, data analysis, ...).",
+        "A project may combine several forms; never tell the student to choose only one.",
+        "For propose_architecture_stack, use \"proposals\":{\"kind\":\"stack\",\"options\":[{\"value\":\"<concise stack, e.g. React + Vite>\",\"rationale\":\"...\"}]}. Recommend stacks that fit the forms the student already chose.",
         "Omit \"proposals\" entirely on any other focus.",
         "Use concise JSON with shape {\"assistantMessage\":\"...\",\"patch\":{\"operations\":[...],\"rationale\":\"...\"},\"proposals\":{\"kind\":\"...\",\"options\":[...]}}. Include only the keys you are using.",
         // 011 live-QA fix (tier1-run-log 2026-07-11 저니 C): without an
@@ -866,7 +871,7 @@ mod prd_interview_prompt_tests {
 
         // Once a form is picked but no stack yet, it asks for the stack next.
         draft.spec.architecture = Some(ArchitectureDecision {
-            form: ArchitectureForm::WebApp,
+            forms: vec![ArchitectureForm::WebApp],
             form_other_label: None,
             stack: None,
             rationale: Some("A web app fits a schedule the student opens in a browser".into()),
@@ -878,7 +883,7 @@ mod prd_interview_prompt_tests {
 
         // With both form and stack decided, the draft is ready to confirm.
         draft.spec.architecture = Some(ArchitectureDecision {
-            form: ArchitectureForm::WebApp,
+            forms: vec![ArchitectureForm::WebApp],
             form_other_label: None,
             stack: Some("React + Vite + TypeScript".into()),
             rationale: Some("A web app fits a schedule the student opens in a browser".into()),
@@ -934,7 +939,7 @@ mod prd_interview_prompt_tests {
 
         // Form picked, no stack -> stage two (stack).
         draft.spec.architecture = Some(ArchitectureDecision {
-            form: ArchitectureForm::WebApp,
+            forms: vec![ArchitectureForm::WebApp],
             form_other_label: None,
             stack: None,
             rationale: None,
@@ -948,7 +953,7 @@ mod prd_interview_prompt_tests {
 
         // Both decided -> no architecture focus, so no cards.
         draft.spec.architecture = Some(ArchitectureDecision {
-            form: ArchitectureForm::WebApp,
+            forms: vec![ArchitectureForm::WebApp],
             form_other_label: None,
             stack: Some("React + Vite".into()),
             rationale: None,
@@ -962,6 +967,77 @@ mod prd_interview_prompt_tests {
             expected_architecture_proposal_kind(&empty_draft().spec),
             None
         );
+    }
+
+    /// S-072 (014 theme 1, Constitution VII): the form stage needs *at least one*
+    /// form — any combination passes, `Other` needs no label — and a stack typed
+    /// before any form is picked still reports the form gap (never both gaps).
+    #[test]
+    fn confirmable_gaps_need_at_least_one_form_then_a_stack() {
+        let mut draft = draft_on_form_focus();
+
+        // Stack typed first, no form yet -> still the form gap (one gap only).
+        draft.spec.architecture = Some(ArchitectureDecision {
+            forms: Vec::new(),
+            form_other_label: None,
+            stack: Some("React + Vite".into()),
+            rationale: None,
+            decision_source: ArchitectureDecisionSource::StudentConfirmed,
+            decided_in_version: 1,
+        });
+        let gaps = confirmable_draft_gaps(&draft.spec);
+        assert_eq!(gaps.len(), 1);
+        assert_eq!(gaps[0].label, "architecture form");
+        assert!(gaps[0].focus.contains("the student may pick several"));
+        assert!(gaps[0]
+            .focus
+            .contains("'other' described in their own words"));
+        assert_eq!(
+            expected_architecture_proposal_kind(&draft.spec),
+            Some("form")
+        );
+
+        // Several forms at once, no stack -> the stack gap.
+        draft.spec.architecture = Some(ArchitectureDecision {
+            forms: vec![ArchitectureForm::WebApp, ArchitectureForm::ApiService],
+            form_other_label: None,
+            stack: Some("   ".into()),
+            rationale: None,
+            decision_source: ArchitectureDecisionSource::StudentConfirmed,
+            decided_in_version: 1,
+        });
+        let gaps = confirmable_draft_gaps(&draft.spec);
+        assert_eq!(gaps.len(), 1);
+        assert_eq!(gaps[0].label, "tech stack");
+        assert_eq!(
+            expected_architecture_proposal_kind(&draft.spec),
+            Some("stack")
+        );
+
+        // `Other` with no label plus a stack -> confirmable.
+        draft.spec.architecture = Some(ArchitectureDecision {
+            forms: vec![ArchitectureForm::Other],
+            form_other_label: None,
+            stack: Some("Python + discord.py".into()),
+            rationale: None,
+            decision_source: ArchitectureDecisionSource::StudentConfirmed,
+            decided_in_version: 1,
+        });
+        assert!(confirmable_draft_gaps(&draft.spec).is_empty());
+        assert_eq!(expected_architecture_proposal_kind(&draft.spec), None);
+    }
+
+    #[test]
+    fn system_prompt_defines_forms_and_never_limits_to_one() {
+        let prompt = build_prd_interview_system_prompt();
+        assert!(prompt.contains("web_app = an app used in the browser"));
+        assert!(prompt.contains("other = anything else in the student's own words"));
+        assert!(prompt.contains(
+            "A project may combine several forms; never tell the student to choose only one."
+        ));
+        assert!(prompt
+            .contains("<one of: web_app, static_page, cli_tool, desktop_app, api_service, other>"));
+        assert!(!prompt.to_lowercase().contains("avoid "));
     }
 
     #[test]

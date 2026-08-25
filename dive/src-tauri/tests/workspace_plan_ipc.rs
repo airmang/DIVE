@@ -424,7 +424,7 @@ fn minimal_prd_draft(project_id: i64) -> ProjectSpecDraft {
         acceptance_criteria: vec![prd_criterion("A saved PRD unlocks plan generation")],
         // S-047: a confirmable save now requires a decided architecture (form + stack).
         architecture: Some(ArchitectureDecision {
-            form: ArchitectureForm::WebApp,
+            forms: vec![ArchitectureForm::WebApp],
             form_other_label: None,
             stack: Some("React + Vite".into()),
             rationale: None,
@@ -441,27 +441,6 @@ fn seed_minimal_prd(state: &AppState, project_id: i64) {
         PrdSaveInput {
             project_id,
             spec: minimal_prd_draft(project_id),
-            reason: "interview".into(),
-        },
-    )
-    .unwrap();
-}
-
-fn seed_minimal_prd_with_form(state: &AppState, project_id: i64, form: ArchitectureForm) {
-    let mut draft = minimal_prd_draft(project_id);
-    draft.architecture = Some(ArchitectureDecision {
-        form,
-        form_other_label: None,
-        stack: Some("Confirmed stack".into()),
-        rationale: None,
-        decision_source: ArchitectureDecisionSource::StudentConfirmed,
-        decided_in_version: 1,
-    });
-    workspace_prd_save_impl(
-        state,
-        PrdSaveInput {
-            project_id,
-            spec: draft,
             reason: "interview".into(),
         },
     )
@@ -610,7 +589,7 @@ fn prd_save_rejects_missing_or_half_decided_architecture() {
     // Form picked but no stack yet (the intermediate two-stage state) is also rejected.
     let mut form_only = minimal_prd_draft(project_id);
     form_only.architecture = Some(ArchitectureDecision {
-        form: ArchitectureForm::CliTool,
+        forms: vec![ArchitectureForm::CliTool],
         form_other_label: None,
         stack: None,
         rationale: None,
@@ -1451,56 +1430,8 @@ fn generate_draft_accepts_legacy_criteria_with_step_links_and_rationale() {
     );
 }
 
-#[test]
-fn generate_draft_logs_form_consistency_annotation_without_blocking() {
-    let tmp = tempfile::tempdir().unwrap();
-    let state = mk_state(&tmp);
-    let project_id = seed_project(&state);
-    let session_id = seed_session(&state, project_id);
-    seed_minimal_prd_with_form(&state, project_id, ArchitectureForm::CliTool);
-    let interview =
-        workspace_plan_start_interview_impl(&state, project_id, "Build a roadmap".into()).unwrap();
-    let submitted =
-        workspace_plan_submit_interview_impl(&state, interview.id, "Summary".into(), vec![])
-            .unwrap();
-    let mut input = draft_input();
-    input.steps.truncate(1);
-    input.steps[0].title = "Build browser UI".into();
-    input.steps[0].summary = "Create a DOM page for the browser.".into();
-    input.steps[0].instruction_seed = "Implement a React component with a button.".into();
-    input.steps[0].expected_files = vec!["src/App.tsx".into()];
-    input.steps[0].verification_command = None;
-    input.steps[0].verification_type = Some("manual".into());
-
-    let (plan, steps) =
-        workspace_plan_generate_draft_impl(&state, submitted.id, input, false).unwrap();
-
-    assert_eq!(steps.len(), 1);
-    let db = state.db.lock().unwrap();
-    let events = event_log::list(db.conn()).unwrap();
-    let annotation = events
-        .iter()
-        .find(|event| event.r#type == dive_lib::dive::event_log::PLAN_FORM_CONSISTENCY_EVENT)
-        .expect("form consistency annotation should be logged");
-    assert_eq!(annotation.session_id, Some(session_id));
-    assert_eq!(annotation.payload["project_id"], json!(project_id));
-    assert_eq!(annotation.payload["plan_id"], json!(plan.id));
-    assert_eq!(annotation.payload["form"], json!("cli_tool"));
-    assert_eq!(annotation.payload["step_id"], json!("step-001"));
-    assert_eq!(annotation.payload["blocking"], json!(false));
-    assert_eq!(annotation.payload["annotation"], json!(true));
-    drop(db);
-
-    let exported = ExportEngine::new(state.db.clone())
-        .export_session_with_salt(session_id, &ExportOptions::default(), "test-salt")
-        .unwrap();
-    assert!(exported.contains("\"type\":\"plan.form_consistency\""));
-    assert!(exported.contains("\"blocking\":false"));
-}
-
 // S-050 P3: marker-less non-junk criteria on an accepted draft are logged as
-// `plan.criterion_quality_advisory` annotations, one per advisory, mirroring
-// the form-consistency precedent above.
+// `plan.criterion_quality_advisory` annotations, one per advisory.
 #[test]
 fn generate_draft_logs_criterion_quality_advisories_for_marker_less_criteria() {
     let tmp = tempfile::tempdir().unwrap();

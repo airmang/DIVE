@@ -34,7 +34,7 @@ function spec(): ProjectSpec {
       },
     ],
     architecture: {
-      form: "web_app",
+      forms: ["web_app"],
       formOtherLabel: null,
       stack: "React + Vite",
       rationale: "Runs in the browser with no install.",
@@ -88,6 +88,45 @@ describe("FinalPrdReadView", () => {
     expect(screen.getByTestId("final-prd-architecture-form").textContent).toBe("Web app");
     expect(screen.getByTestId("final-prd-architecture-stack").textContent).toBe("React + Vite");
     expect(screen.getByText("Runs in the browser with no install.")).toBeTruthy();
+  });
+
+  // S-072 (014 theme 1): every chosen form is shown, comma-joined in pick
+  // order; `other` shows the student's own label.
+  it("joins several decided forms and shows the student's own label for other", () => {
+    renderView({
+      projectSpec: {
+        ...spec(),
+        architecture: {
+          forms: ["web_app", "api_service"],
+          formOtherLabel: null,
+          stack: "React + Express",
+          rationale: null,
+          decisionSource: "student_changed",
+          decidedInVersion: 2,
+        },
+      },
+    });
+    expect(screen.getByTestId("final-prd-architecture-form").textContent).toBe(
+      "Web app, API service",
+    );
+
+    cleanup();
+    renderView({
+      projectSpec: {
+        ...spec(),
+        architecture: {
+          forms: ["other", "cli_tool"],
+          formOtherLabel: "Discord bot",
+          stack: "Python + discord.py",
+          rationale: null,
+          decisionSource: "student_confirmed",
+          decidedInVersion: 2,
+        },
+      },
+    });
+    expect(screen.getByTestId("final-prd-architecture-form").textContent).toBe(
+      "Discord bot, Command-line tool (CLI)",
+    );
   });
 
   it("omits the architecture block when none is decided", () => {

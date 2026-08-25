@@ -15,7 +15,6 @@ use crate::db::models::{
     NewInterview, NewPlan, NewStep, PlanRow, ProjectSpec, ProjectSpecVersionRow, StepRow,
 };
 use crate::dive::event_log as dive_event_log;
-use crate::dive::plan_form_consistency::{form_consistency_annotation, PlanFormStep};
 use crate::ipc::AppState;
 use crate::workspace_plan as workspace_plan_service;
 
@@ -384,14 +383,6 @@ pub fn workspace_plan_generate_draft_impl(
 
     let step_count = plan_input.steps.len();
     let annotation_session_id = latest_session_id_for_project(&tx, interview.project_id);
-    log_form_consistency_annotations(
-        &tx,
-        annotation_session_id,
-        interview.project_id,
-        plan_id,
-        &project_prd,
-        &plan_input.steps,
-    );
     log_criterion_quality_advisories(
         &tx,
         annotation_session_id,
@@ -506,66 +497,13 @@ pub(super) fn require_plan_matches_ambient_project_root(
     Ok(())
 }
 
-fn log_form_consistency_annotations(
-    conn: &rusqlite::Connection,
-    session_id: Option<i64>,
-    project_id: i64,
-    plan_id: i64,
-    project_prd: &ProjectSpec,
-    steps: &[StepDraftInput],
-) {
-    let form = project_prd
-        .architecture
-        .as_ref()
-        .map(|architecture| architecture.form);
-    for step in steps {
-        let annotation = form_consistency_annotation(
-            form,
-            PlanFormStep {
-                title: &step.title,
-                summary: &step.summary,
-                instruction_seed: &step.instruction_seed,
-                expected_files: &step.expected_files,
-            },
-        );
-        let Some(reason) = annotation else {
-            continue;
-        };
-        let Some(form) = form else {
-            continue;
-        };
-        let payload = dive_event_log::plan_form_consistency_payload(
-            dive_event_log::PlanFormConsistencyPayloadInput {
-                project_id,
-                plan_id,
-                project_spec_id: &project_prd.project_spec_id,
-                project_spec_version: project_prd.current_version,
-                form: architecture_form_code(form),
-                step_id: &step.step_id,
-                step_title: &step.title,
-                expected_files: &step.expected_files,
-                reason: &reason,
-            },
-        );
-        if let Err(err) = dive_event_log::append_to_conn(
-            conn,
-            session_id,
-            dive_event_log::PLAN_FORM_CONSISTENCY_EVENT,
-            payload,
-        ) {
-            tracing::warn!(
-                error = %crate::telemetry::redact_log_text(&err.to_string()),
-                "failed to append plan form consistency annotation"
-            );
-        }
-    }
-}
-
 /// S-050 D1/P3: logs the accepted draft's non-blocking criterion-quality
-/// findings as `plan.criterion_quality_advisory` annotations, mirroring
-/// `log_form_consistency_annotations` above (S-049 precedent). Called inside
+/// findings as `plan.criterion_quality_advisory` annotations. Called inside
 /// the same transaction as the plan/step insert so a rolled-back draft never
-/// leaves advisory rows behind.
+/// leaves advisory rows behind. (The S-049 form/step contradiction annotation
+/// that used to sit beside this was removed by S-072 / D-014-03: no
+/// deterministic check may annotate a step as contradicting the project's
+/// kind — Constitution VII.)
 pub(super) fn log_criterion_quality_advisories(
     conn: &rusqlite::Connection,
     session_id: Option<i64>,
@@ -594,17 +532,6 @@ pub(super) fn log_criterion_quality_advisories(
                 "failed to append criterion quality advisory annotation"
             );
         }
-    }
-}
-
-fn architecture_form_code(form: crate::db::models::ArchitectureForm) -> &'static str {
-    match form {
-        crate::db::models::ArchitectureForm::WebApp => "web_app",
-        crate::db::models::ArchitectureForm::StaticPage => "static_page",
-        crate::db::models::ArchitectureForm::CliTool => "cli_tool",
-        crate::db::models::ArchitectureForm::DesktopApp => "desktop_app",
-        crate::db::models::ArchitectureForm::ApiService => "api_service",
-        crate::db::models::ArchitectureForm::Other => "other",
     }
 }
 

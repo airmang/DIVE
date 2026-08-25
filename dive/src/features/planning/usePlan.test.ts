@@ -137,6 +137,36 @@ describe("usePlan PRD IPC methods", () => {
     delete window.__TAURI_INTERNALS__;
   });
 
+  // S-072 (D-014-02): a saved PRD that still carries the legacy S-047 single
+  // `form` is normalized to `forms` as it crosses the IPC boundary.
+  it("normalizes a legacy single-form architecture on workspace_prd_get", async () => {
+    const base = mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === "workspace_prd_get") {
+        return {
+          ...savedSpec(),
+          architecture: {
+            form: "web_app",
+            formOtherLabel: null,
+            stack: "React + Vite",
+            rationale: null,
+            decisionSource: "student_confirmed",
+            decidedInVersion: 1,
+          },
+        };
+      }
+      return base(cmd, args);
+    });
+    const { result } = renderHook(() => usePlan(42));
+    await waitFor(() => expect(result.current.prdStatus?.status).toBe("draft"));
+
+    await expect(result.current.getProjectSpec()).resolves.toMatchObject({
+      architecture: { forms: ["web_app"], stack: "React + Vite" },
+    });
+    const spec = await result.current.getProjectSpec();
+    expect(spec?.architecture).not.toHaveProperty("form");
+  });
+
   it("normalizes PRD draft status alongside workspace plan status", async () => {
     const { result } = renderHook(() => usePlan(42));
 

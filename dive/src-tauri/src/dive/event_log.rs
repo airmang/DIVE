@@ -37,7 +37,6 @@ pub const PLAN_ADJUSTMENT_DISMISSED_EVENT: &str = "plan_adjustment_dismissed";
 pub const PLAN_STEP_APPENDED_EVENT: &str = "plan_step_appended";
 pub const PLAN_STEP_CHANGED_EVENT: &str = "plan_step_changed";
 pub const PLAN_STEP_RETIRED_EVENT: &str = "plan_step_retired";
-pub const PLAN_FORM_CONSISTENCY_EVENT: &str = "plan.form_consistency";
 pub const PLAN_CRITERION_QUALITY_ADVISORY_EVENT: &str = "plan.criterion_quality_advisory";
 pub const PERMISSION_PRIMER_SHOWN_EVENT: &str = "permission_primer.shown";
 pub const PERMISSION_PRIMER_DISMISSED_EVENT: &str = "permission_primer.dismissed";
@@ -226,36 +225,6 @@ pub fn web_fetch_blocked_payload(
     })
 }
 
-pub struct PlanFormConsistencyPayloadInput<'a> {
-    pub project_id: i64,
-    pub plan_id: i64,
-    pub project_spec_id: &'a str,
-    pub project_spec_version: i64,
-    pub form: &'a str,
-    pub step_id: &'a str,
-    pub step_title: &'a str,
-    pub expected_files: &'a [String],
-    pub reason: &'a str,
-}
-
-pub fn plan_form_consistency_payload(input: PlanFormConsistencyPayloadInput<'_>) -> Value {
-    json!({
-        "project_id": input.project_id,
-        "plan_id": input.plan_id,
-        "project_spec_id": input.project_spec_id,
-        "project_spec_version": input.project_spec_version,
-        "form": input.form,
-        "step_id": input.step_id,
-        "step_title": input.step_title,
-        "expected_files": input.expected_files,
-        "reason": input.reason,
-        "source": "deterministic_step_form_check",
-        "blocking": false,
-        "annotation": true,
-        "createdAt": crate::db::now_ms(),
-    })
-}
-
 pub struct PlanCriterionQualityAdvisoryPayloadInput<'a> {
     pub project_id: i64,
     pub plan_id: i64,
@@ -265,8 +234,11 @@ pub struct PlanCriterionQualityAdvisoryPayloadInput<'a> {
 }
 
 /// S-050 D1/P3: non-blocking advisory annotation for an accepted plan draft
-/// (`plan.criterion_quality_advisory`), following the `plan.form_consistency`
-/// precedent above. `criterion_preview` is expected to already be truncated
+/// (`plan.criterion_quality_advisory`). (Its S-049 sibling, the form/step
+/// contradiction annotation, was retired by S-072 / D-014-03 — Constitution VII
+/// forbids annotating a step as contradicting the project's kind; historical
+/// exports that contain that event remain valid history, nothing reads it.)
+/// `criterion_preview` is expected to already be truncated
 /// by the caller's `compact_preview` (96 chars) — this builder does not
 /// re-truncate, matching the privacy posture of the other plan events.
 pub fn plan_criterion_quality_advisory_payload(
@@ -427,7 +399,6 @@ fn infer_agency_component(event_type: &str, payload: &Value) -> Option<&'static 
         | PRD_AUTHORED_EVENT
         | PRD_EDITED_EVENT
         | PRD_VERSION_CREATED_EVENT
-        | PLAN_FORM_CONSISTENCY_EVENT
         | PLAN_CRITERION_QUALITY_ADVISORY_EVENT => return Some("plan"),
         PERMISSION_PRIMER_SHOWN_EVENT | PERMISSION_PRIMER_DISMISSED_EVENT => return Some("action"),
         "checkpoint_create" | "checkpoint_restore" => return Some("rollback"),

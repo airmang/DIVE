@@ -11,10 +11,10 @@ use crate::db::dao::{
     step as step_dao,
 };
 use crate::db::models::{
-    AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus,
-    LiveProjectSpecDraftRow, NewLiveProjectSpecDraft, NewProjectSpecVersion,
-    PrdPatchValidationOutcome, ProjectSpec, ProjectSpecDraft, ProjectSpecStatus,
-    ProjectSpecVersionRow, ProvenanceSource,
+    dedupe_architecture_forms, AcceptanceCriterion, AcceptanceCriterionSource,
+    AcceptanceCriterionStatus, LiveProjectSpecDraftRow, NewLiveProjectSpecDraft,
+    NewProjectSpecVersion, PrdPatchValidationOutcome, ProjectSpec, ProjectSpecDraft,
+    ProjectSpecStatus, ProjectSpecVersionRow, ProvenanceSource,
 };
 use crate::db::now_ms;
 use crate::dive::event_log as dive_event_log;
@@ -176,7 +176,7 @@ pub fn workspace_prd_save_impl(
         project_spec_from_save_input(input, latest.as_ref(), &save_reason, draft_field_provenance)?;
     if !is_confirmable_project_spec(&snapshot) {
         return Err(
-            "PRD confirmation requires a goal, at least one acceptance criterion, and a decided architecture (form and tech stack)"
+            "PRD confirmation requires a goal, at least one acceptance criterion, and a decided architecture (at least one application form and a tech stack)"
                 .into(),
         );
     }
@@ -368,7 +368,9 @@ fn project_spec_from_save_input(
         acceptance_criteria,
         // S-047: carry the student's architecture decision onto the saved spec,
         // normalizing the stack and stamping the version DIVE recorded it at.
+        // S-072: `forms` is multi-valued — dedupe it (pick order preserved).
         architecture: input.spec.architecture.map(|mut architecture| {
+            architecture.forms = dedupe_architecture_forms(&architecture.forms);
             architecture.stack = architecture
                 .stack
                 .map(|stack| stack.trim().to_string())
@@ -576,14 +578,19 @@ pub(super) fn is_minimal_project_spec(spec: &ProjectSpec) -> bool {
         })
 }
 
-/// S-047 (010 theme 7): an architecture is "decided" once a form is picked AND a
-/// non-empty stack is set (the two-stage bar). Mirrors the draft gate in
-/// `confirmable_draft_gaps` and the TS `validateConfirmableProjectSpec` stack check.
+/// S-047 (010 theme 7) / S-072 (014 theme 1): an architecture is "decided" once
+/// at least one form is picked AND a non-empty stack is set (the two-stage bar).
+/// Any combination of forms passes, and `Other` needs no label (Constitution
+/// VII). Mirrors the draft gate in `confirmable_draft_gaps` and the TS
+/// `validateConfirmableProjectSpec` check.
 fn architecture_is_decided(spec: &ProjectSpec) -> bool {
-    spec.architecture
-        .as_ref()
-        .and_then(|arch| arch.stack.as_deref())
-        .is_some_and(|stack| !stack.trim().is_empty())
+    spec.architecture.as_ref().is_some_and(|arch| {
+        !arch.forms.is_empty()
+            && arch
+                .stack
+                .as_deref()
+                .is_some_and(|stack| !stack.trim().is_empty())
+    })
 }
 
 fn is_confirmable_project_spec(spec: &ProjectSpec) -> bool {
@@ -712,24 +719,27 @@ pub(super) fn confirmable_draft_gaps(spec: &ProjectSpecDraft) -> Vec<Confirmable
     }
     // S-047: two-stage architecture decision, last (grounded on the goal/scope
     // above). The AI proposes <=2 options with plain rationale; the student decides.
+    // S-072 (Constitution VII): the form stage is "at least one form" — the six
+    // named forms are examples the student may combine, and "other" in their own
+    // words is always acceptable. Only one gap is reported per stage.
     match spec.architecture.as_ref() {
-        None => gaps.push(ConfirmableGap {
-            label: "architecture form",
-            focus: "propose_architecture_form: recommend up to 2 application forms that fit this goal (web app / static page / CLI tool / desktop app / API service), each with a one-line plain-language reason a beginner understands, then ask the student to pick or change one in the PRD board — never decide for them",
-        }),
-        Some(arch)
+        Some(arch) if !arch.forms.is_empty() => {
             if arch
                 .stack
                 .as_deref()
                 .map(|stack| stack.trim().is_empty())
-                .unwrap_or(true) =>
-        {
-            gaps.push(ConfirmableGap {
-                label: "tech stack",
-                focus: "propose_architecture_stack: recommend up to 2 concrete tech stacks that fit the chosen application form, each with a one-line beginner reason, then ask the student to pick or change one",
-            })
+                .unwrap_or(true)
+            {
+                gaps.push(ConfirmableGap {
+                    label: "tech stack",
+                    focus: "propose_architecture_stack: recommend up to 2 concrete tech stacks that fit the application forms the student chose, each with a one-line beginner reason, then ask the student to pick or change one",
+                })
+            }
         }
-        Some(_) => {}
+        _ => gaps.push(ConfirmableGap {
+            label: "architecture form",
+            focus: "propose_architecture_form: recommend up to 2 application forms that fit this goal (web app / static page / CLI tool / desktop app / API service — the student may pick several, and 'other' described in their own words is always fine), each with a one-line plain-language reason a beginner understands, then ask the student to pick or change in the PRD board — never decide for them",
+        }),
     }
     gaps
 }

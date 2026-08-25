@@ -1,10 +1,14 @@
-import type {
-  AcceptanceCriterion,
-  AcceptanceCriterionInput,
-  AcceptanceCriterionSource,
-  LiveProjectSpecDraft,
-  ProjectSpecDraft,
-  ProvenanceSource,
+import {
+  ARCHITECTURE_FORMS,
+  type AcceptanceCriterion,
+  type AcceptanceCriterionInput,
+  type AcceptanceCriterionSource,
+  type ArchitectureDecision,
+  type ArchitectureDecisionSource,
+  type ArchitectureForm,
+  type LiveProjectSpecDraft,
+  type ProjectSpecDraft,
+  type ProvenanceSource,
 } from "./types";
 
 export const DEFAULT_PROJECT_SPEC_VERSION = 1;
@@ -304,6 +308,67 @@ export function criterionInputsToCriteria(
   return adaptAcceptanceCriteria(value);
 }
 
+const ARCHITECTURE_DECISION_SOURCES: ArchitectureDecisionSource[] = [
+  "student_confirmed",
+  "student_changed",
+  "migration",
+];
+
+export function isArchitectureForm(value: unknown): value is ArchitectureForm {
+  return typeof value === "string" && (ARCHITECTURE_FORMS as string[]).includes(value);
+}
+
+/**
+ * S-072 (014 theme 1, D-014-02): normalize an architecture decision arriving
+ * over IPC into the multi-valued `forms` shape. Rust already folds the legacy
+ * S-047 single `form` into `forms`, so this is a defensive mirror for any
+ * payload that bypassed it (older draft snapshots restored client-side, test
+ * fixtures): a legacy `form` is folded in when `forms` is absent/empty,
+ * `forms` wins when both are present, unknown form values are dropped, and
+ * duplicates are removed preserving pick order. Returns null for a null /
+ * non-object input.
+ */
+export function normalizeArchitectureDecision(raw: unknown): ArchitectureDecision | null {
+  if (!raw || typeof raw !== "object") return null;
+  const record = raw as Record<string, unknown>;
+  const forms: ArchitectureForm[] = [];
+  const pushForm = (value: unknown) => {
+    if (isArchitectureForm(value) && !forms.includes(value)) forms.push(value);
+  };
+  if (Array.isArray(record.forms)) record.forms.forEach(pushForm);
+  if (forms.length === 0) pushForm(record.form);
+  const decisionSource = record.decisionSource;
+  return {
+    forms,
+    formOtherLabel: typeof record.formOtherLabel === "string" ? record.formOtherLabel : null,
+    stack: typeof record.stack === "string" ? record.stack : null,
+    rationale: typeof record.rationale === "string" ? record.rationale : null,
+    decisionSource:
+      typeof decisionSource === "string" &&
+      (ARCHITECTURE_DECISION_SOURCES as string[]).includes(decisionSource)
+        ? (decisionSource as ArchitectureDecisionSource)
+        : "migration",
+    decidedInVersion:
+      typeof record.decidedInVersion === "number"
+        ? record.decidedInVersion
+        : DEFAULT_PROJECT_SPEC_VERSION,
+  };
+}
+
+/** Same normalization applied to a spec-shaped object's `architecture` field. */
+export function withNormalizedArchitecture<
+  T extends { architecture?: ArchitectureDecision | null },
+>(spec: T): T {
+  return { ...spec, architecture: normalizeArchitectureDecision(spec.architecture ?? null) };
+}
+
+/** Same normalization for a live draft (its spec carries the architecture). */
+export function liveDraftWithNormalizedArchitecture(
+  draft: LiveProjectSpecDraft,
+): LiveProjectSpecDraft {
+  return { ...draft, spec: withNormalizedArchitecture(draft.spec) };
+}
+
 export function createLiveProjectSpecDraft(
   projectId: number,
   overrides: CreateLiveProjectSpecDraftOverrides = {},
@@ -432,10 +497,11 @@ export function validateConfirmableProjectSpec(
     reasonCodes.push("insufficient_acceptance_criteria");
   }
 
-  // Two-stage architecture gate (mirrors Rust confirmable_draft_gaps): a null
-  // architecture still needs a form; a decided form still needs a stack.
+  // Two-stage architecture gate (mirrors Rust confirmable_draft_gaps): at least
+  // one form (any combination; `other` needs no label — Constitution VII), then a
+  // stack. A stack typed before any form still reports the form gap, never both.
   const architecture = spec.architecture ?? null;
-  if (!architecture) {
+  if (!architecture || architecture.forms.length === 0) {
     reasonCodes.push("missing_architecture_form");
   } else if (!isSubstantiveText(architecture.stack, 1)) {
     reasonCodes.push("missing_architecture_stack");

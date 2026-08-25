@@ -22,6 +22,24 @@ export function architectureFormLabel(
   return t(`prd.architecture.form.${form}`);
 }
 
+/**
+ * S-072 (014 theme 1): every chosen form, comma-joined, in the student's pick
+ * order. `other` shows the student's own label when present. Empty string when
+ * no form is chosen (callers decide the "not decided yet" fallback).
+ */
+export function architectureFormsLabel(
+  t: Translate,
+  forms: ArchitectureForm[],
+  formOtherLabel?: string | null,
+): string {
+  return forms.map((form) => architectureFormLabel(t, form, formOtherLabel)).join(", ");
+}
+
+/** One-line plain-language definition of a form (`prd.architecture.form_help.*`). */
+export function architectureFormHelp(t: Translate, form: ArchitectureForm): string {
+  return t(`prd.architecture.form_help.${form}`);
+}
+
 export interface ArchitectureFormOption {
   form: ArchitectureForm;
   label: string;
