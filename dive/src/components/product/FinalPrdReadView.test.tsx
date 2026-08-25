@@ -129,6 +129,73 @@ describe("FinalPrdReadView", () => {
     );
   });
 
+  // S-074 review (A): a criterion the interview retired never shows in the
+  // saved read view — only active ones are the PRD's done criteria.
+  it("omits retired acceptance criteria", () => {
+    const base = spec();
+    renderView({
+      projectSpec: {
+        ...base,
+        acceptanceCriteria: [
+          ...base.acceptanceCriteria,
+          {
+            criterionId: "AC-003",
+            text: "Retired: export to CSV",
+            source: "interview",
+            status: "retired",
+            createdInVersion: 1,
+            retiredInVersion: 2,
+          },
+        ],
+      },
+    });
+
+    expect(screen.getByText("AC-002")).toBeTruthy();
+    expect(screen.queryByText("AC-003")).toBeNull();
+    expect(screen.queryByText("Retired: export to CSV")).toBeNull();
+  });
+
+  // S-072 review follow-ups 4 and 8: a decided "other" without a label reads as
+  // plain "Other" (never the picker's "Other (describe it)" instruction), and an
+  // empty form set reads as the not-decided placeholder.
+  it("falls back to plain Other for an unlabeled other form", () => {
+    renderView({
+      projectSpec: {
+        ...spec(),
+        architecture: {
+          forms: ["other"],
+          formOtherLabel: null,
+          stack: "Python",
+          rationale: null,
+          decisionSource: "student_confirmed",
+          decidedInVersion: 2,
+        },
+      },
+    });
+
+    expect(screen.getByTestId("final-prd-architecture-form").textContent).toBe("Other");
+    expect(screen.queryByText("Other (describe it)")).toBeNull();
+  });
+
+  it("shows the not-decided placeholder when the form set is empty", () => {
+    renderView({
+      projectSpec: {
+        ...spec(),
+        architecture: {
+          forms: [],
+          formOtherLabel: null,
+          stack: "Python",
+          rationale: null,
+          decisionSource: "student_confirmed",
+          decidedInVersion: 2,
+        },
+      },
+    });
+
+    expect(screen.getByTestId("final-prd-architecture-form").textContent).toBe("Not decided yet");
+    expect(screen.getByTestId("final-prd-architecture-stack").textContent).toBe("Python");
+  });
+
   it("omits the architecture block when none is decided", () => {
     renderView({ projectSpec: { ...spec(), architecture: null } });
 

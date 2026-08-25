@@ -189,6 +189,10 @@ describe("buildPrdPlanGenerationPrompt", () => {
 
     expect(prompt).toContain("React + Vite");
     expect(prompt).toContain("do not switch to a different framework or stack");
+    // S-072 review follow-up (Constitution VII): only the stack is binding —
+    // the directive must not ask for steps to stay "consistent with" the forms.
+    expect(prompt).not.toContain("consistent with");
+    expect(prompt).toContain("Any form notes are planning hints, not limits.");
   });
 
   it("adds deterministic form-specific scaffolding for the decided form", () => {

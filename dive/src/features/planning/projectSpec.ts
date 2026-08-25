@@ -501,7 +501,10 @@ export function validateConfirmableProjectSpec(
   // one form (any combination; `other` needs no label — Constitution VII), then a
   // stack. A stack typed before any form still reports the form gap, never both.
   const architecture = spec.architecture ?? null;
-  if (!architecture || architecture.forms.length === 0) {
+  // `?? []` guards a not-yet-normalized object (e.g. a pre-S-072 `form` shape
+  // that skipped normalizeArchitectureDecision) so the gate reports a gap
+  // instead of throwing.
+  if (!architecture || (architecture.forms ?? []).length === 0) {
     reasonCodes.push("missing_architecture_form");
   } else if (!isSubstantiveText(architecture.stack, 1)) {
     reasonCodes.push("missing_architecture_stack");

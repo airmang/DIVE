@@ -342,6 +342,30 @@ describe("PrdAuthoringBoard", () => {
       expect(latestDraft(props).spec.architecture?.forms).toEqual(["api_service"]);
     });
 
+    it("keeps offering the remaining AI form cards after one is added (S-072 review follow-up)", () => {
+      const props = renderBoard({
+        draft: concreteDraft(),
+        architectureProposals: {
+          kind: "form",
+          options: [
+            { value: "web_app", rationale: "Runs in the browser" },
+            { value: "api_service", rationale: "Other programs can call it" },
+          ],
+        },
+      });
+
+      fireEvent.click(screen.getByTestId("prd-architecture-form-proposal-web_app"));
+      // The added form's card is gone; the other recommendation is still offered.
+      expect(screen.queryByTestId("prd-architecture-form-proposal-web_app")).toBeNull();
+      expect(screen.getByTestId("prd-architecture-form-proposal-api_service")).toBeTruthy();
+      expect(latestDraft(props).spec.architecture?.forms).toEqual(["web_app"]);
+
+      fireEvent.click(screen.getByTestId("prd-architecture-form-proposal-api_service"));
+      expect(latestDraft(props).spec.architecture?.forms).toEqual(["web_app", "api_service"]);
+      // Nothing left to recommend: the card block disappears entirely.
+      expect(screen.queryByTestId("prd-architecture-form-proposals")).toBeNull();
+    });
+
     it("renders a plain-language definition under every form and a no-limits section help", () => {
       renderBoard({ draft: concreteDraft() });
 
@@ -359,16 +383,13 @@ describe("PrdAuthoringBoard", () => {
       expect(section.textContent).not.toMatch(/only one/i);
     });
 
-    it("shows the free-text input while 'other' is among the chosen forms", () => {
+    it("shows the free-text input while 'other' is among the chosen forms and keeps its label", () => {
       const props = renderBoard({ draft: concreteDraft() });
-      // The free-text input shares its test id with the "other" toggle button
-      // (both S-047 ids are load-bearing), so the input is queried by placeholder
-      // and the toggle by tag.
-      const otherInput = () => screen.queryByPlaceholderText("Describe the form yourself");
-      const otherToggle = () =>
-        screen
-          .getAllByTestId("prd-architecture-form-other")
-          .find((element) => element.tagName === "BUTTON")!;
+      // S-072 review follow-up 7: the toggle button keeps the S-047 id; the
+      // free-text input has its own, so neither query needs tag filtering.
+      const otherInput = () => screen.queryByTestId("prd-architecture-form-other-label");
+      const otherToggle = () => screen.getByTestId("prd-architecture-form-other");
+      expect(otherToggle().tagName).toBe("BUTTON");
 
       expect(otherInput()).toBeNull();
       fireEvent.click(screen.getByTestId("prd-architecture-form-web_app"));
@@ -381,12 +402,20 @@ describe("PrdAuthoringBoard", () => {
         formOtherLabel: "Discord bot",
       });
 
-      // Untoggling "other" hides the input again and clears its label.
+      // Untoggling "other" hides the input, but the label stays (spec theme 1)...
       fireEvent.click(otherToggle());
       expect(otherInput()).toBeNull();
       expect(latestDraft(props).spec.architecture).toMatchObject({
         forms: ["web_app"],
-        formOtherLabel: null,
+        formOtherLabel: "Discord bot",
+      });
+
+      // ...so re-toggling shows the previous text instead of an empty field.
+      fireEvent.click(otherToggle());
+      expect(otherInput()).toHaveProperty("value", "Discord bot");
+      expect(latestDraft(props).spec.architecture).toMatchObject({
+        forms: ["web_app", "other"],
+        formOtherLabel: "Discord bot",
       });
     });
   });
@@ -416,8 +445,10 @@ describe("PrdAuthoringBoard", () => {
       "true",
     );
     expect(screen.getByTestId("prd-architecture-stack-input")).toHaveProperty("disabled", false);
-    // A decided form clears its recommendation cards (no stale options linger).
-    expect(screen.queryByTestId("prd-architecture-form-proposals")).toBeNull();
+    // The picked card is gone, but the other recommendation stays offered —
+    // several forms are fine (S-072 review follow-up).
+    expect(screen.queryByTestId("prd-architecture-form-proposal-web_app")).toBeNull();
+    expect(screen.getByTestId("prd-architecture-form-proposal-static_page")).toBeTruthy();
   });
 
   it("renders AI stack proposals as cards and fills the stack on pick (S-047)", () => {
@@ -640,7 +671,9 @@ describe("PrdAuthoringBoard", () => {
       );
 
       fireEvent.change(input, { target: { value: "  Teachers need a quick handoff list.  " } });
-      fireEvent.keyDown(input, { key: "Enter" });
+      // dispatchEvent returns false when the handler called preventDefault —
+      // the send must swallow the Enter so no newline lands in the textarea.
+      expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
 
       expect(props.onSubmitAnswer).toHaveBeenCalledTimes(1);
       expect(vi.mocked(props.onSubmitAnswer).mock.calls[0][0]).toBe(
@@ -655,13 +688,16 @@ describe("PrdAuthoringBoard", () => {
       const input = within(rail).getByTestId("prd-interview-input");
 
       fireEvent.change(input, { target: { value: "첫 줄" } });
-      fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+      // Shift+Enter keeps its default (the newline): dispatchEvent returns true
+      // only when nothing called preventDefault.
+      expect(fireEvent.keyDown(input, { key: "Enter", shiftKey: true })).toBe(true);
       expect(props.onSubmitAnswer).not.toHaveBeenCalled();
 
       fireEvent.keyDown(input, { key: "Enter", isComposing: true });
       expect(props.onSubmitAnswer).not.toHaveBeenCalled();
 
-      fireEvent.keyDown(input, { key: "Process", keyCode: 229 });
+      // Legacy IME placeholder: the key IS "Enter"; only keyCode says composing.
+      fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
       expect(props.onSubmitAnswer).not.toHaveBeenCalled();
       expect(input).toHaveProperty("value", "첫 줄");
     });
@@ -705,24 +741,53 @@ describe("PrdAuthoringBoard", () => {
       };
     }
 
+    function confirmableDraft() {
+      return createLiveProjectSpecDraft(42, {
+        goal: "Build a PRD-first planning flow for students",
+        intentSummary: "Students see and confirm the PRD before any plan is made",
+        scope: ["Single PRD authoring board with a live draft"],
+        nonGoals: ["No automatic plan generation without confirmation"],
+        acceptanceCriteria: [
+          "Saved PRD opens the final read view",
+          "Confirm stays disabled until every required field is filled",
+        ],
+        architecture: {
+          forms: ["web_app"],
+          formOtherLabel: null,
+          stack: "React + Vite",
+          rationale: null,
+          decisionSource: "student_confirmed",
+          decidedInVersion: 1,
+        },
+      });
+    }
+
     it("shows the remaining count and points both confirm buttons at the footer hint", () => {
       renderBoard();
 
       const chip = screen.getByTestId("prd-confirm-remaining");
-      // A blank draft misses goal, intent, scope, non-goals, 2 criteria, and a form.
-      expect(chip.dataset.count).toBe("6");
-      expect(chip.textContent).toBe("6 to go before confirming");
+      // A blank draft misses goal, intent, scope, non-goals, 2 criteria, and a
+      // form — plus the stack the gate will ask for once a form exists (S-074
+      // review D), so the count reads 7, not 6.
+      expect(chip.dataset.count).toBe("7");
+      expect(chip.textContent).toBe("7 to go before confirming");
       expect(chip).toHaveProperty("disabled", false);
       expect(chip.getAttribute("title")).toContain("The goal is still empty.");
       expect(chip.getAttribute("title")).toContain(
         "Pick at least one form for what you're building — 'Other' in your own words works too.",
       );
       expect(chip.getAttribute("aria-describedby")).toBe("prd-validation-hint");
+      // S-074 review (E): the short count is the live region, not the footer.
+      expect(chip.querySelector('[aria-live="polite"]')?.textContent).toBe(
+        "7 to go before confirming",
+      );
 
       const hint = screen.getByTestId("prd-validation-hint");
       expect(hint.id).toBe("prd-validation-hint");
-      expect(hint.getAttribute("role")).toBe("status");
-      expect(hint.textContent).toBe(chip.getAttribute("title"));
+      expect(hint.getAttribute("role")).toBeNull();
+      // Same six sentences: one per line in the tooltip, " / "-joined in the footer.
+      expect(chip.getAttribute("title")?.split("\n")).toEqual(hint.textContent?.split(" / "));
+      expect(chip.getAttribute("title")?.split("\n")).toHaveLength(6);
 
       expect(screen.getByTestId("prd-confirm-header").getAttribute("aria-describedby")).toBe(
         "prd-validation-hint",
@@ -736,7 +801,7 @@ describe("PrdAuthoringBoard", () => {
       useLocaleStore.setState({ locale: "ko" });
       renderBoard();
 
-      expect(screen.getByTestId("prd-confirm-remaining").textContent).toBe("확정까지 6개 남음");
+      expect(screen.getByTestId("prd-confirm-remaining").textContent).toBe("확정까지 7개 남음");
     });
 
     it("scrolls to and focuses the first missing field when the chip is clicked", () => {
@@ -750,8 +815,9 @@ describe("PrdAuthoringBoard", () => {
         });
 
         const chip = screen.getByTestId("prd-confirm-remaining");
-        // Goal + intent are done: scope, non-goals, criteria, form remain.
-        expect(chip.dataset.count).toBe("4");
+        // Goal + intent are done: scope, non-goals, criteria, form remain (+ the
+        // stack counted up front while no form exists).
+        expect(chip.dataset.count).toBe("5");
 
         fireEvent.click(chip);
 
@@ -803,7 +869,9 @@ describe("PrdAuthoringBoard", () => {
 
         const chip = screen.getByTestId("prd-confirm-remaining");
         expect(chip.dataset.count).toBe("1");
-        expect(chip.getAttribute("title")).toBe("Decide a tech stack that fits the form.");
+        expect(chip.getAttribute("title")).toBe(
+          "Decide a tech stack that fits the forms you picked.",
+        );
 
         fireEvent.click(chip);
 
@@ -851,6 +919,251 @@ describe("PrdAuthoringBoard", () => {
       expect(
         screen.getByTestId("prd-save-create-plan").getAttribute("aria-describedby"),
       ).toBeNull();
+    });
+
+    it("counts the stack up front so picking a form goes 2 → 1, and focuses a form button first (S-074 review D)", () => {
+      const scroll = stubScrollIntoView();
+      try {
+        renderBoard({
+          draft: createLiveProjectSpecDraft(42, {
+            goal: "Build a PRD-first planning flow for students",
+            intentSummary: "Students see and confirm the PRD before any plan is made",
+            scope: ["Single PRD authoring board with a live draft"],
+            nonGoals: ["No automatic plan generation without confirmation"],
+            acceptanceCriteria: [
+              "Saved PRD opens the final read view",
+              "Confirm stays disabled until every required field is filled",
+            ],
+          }),
+        });
+
+        const chip = screen.getByTestId("prd-confirm-remaining");
+        // Only the form is reported yet, but the stack will be asked for next.
+        expect(chip.dataset.count).toBe("2");
+        expect(chip.textContent).toBe("2 to go before confirming");
+
+        fireEvent.click(chip);
+        expect(scroll.calls[0]?.target).toBe(screen.getByTestId("prd-field-architecture"));
+        const focused = document.activeElement as HTMLElement;
+        expect(focused.tagName).toBe("BUTTON");
+        expect(focused.getAttribute("data-testid")).toMatch(/^prd-architecture-form-/);
+        expect(focused.getAttribute("aria-pressed")).toBe("false");
+
+        fireEvent.click(screen.getByTestId("prd-architecture-form-web_app"));
+        expect(screen.getByTestId("prd-confirm-remaining").dataset.count).toBe("1");
+        expect(screen.getByTestId("prd-confirm-remaining").textContent).toBe(
+          "1 to go before confirming",
+        );
+      } finally {
+        scroll.restore();
+      }
+    });
+
+    it("describes a valid-but-busy PRD with a wait tooltip, not the ready hint (S-074 review C)", () => {
+      renderBoard({ draft: confirmableDraft(), busy: true });
+
+      const header = screen.getByTestId("prd-confirm-header");
+      const footer = screen.getByTestId("prd-save-create-plan");
+      expect(header).toHaveProperty("disabled", true);
+      expect(footer).toHaveProperty("disabled", true);
+      // The gate is satisfied, so nothing points at "ready to confirm"...
+      expect(header.getAttribute("aria-describedby")).toBeNull();
+      expect(footer.getAttribute("aria-describedby")).toBeNull();
+      expect(screen.queryByTestId("prd-confirm-remaining")).toBeNull();
+      // ...and the buttons explain the wait instead.
+      expect(header.getAttribute("title")).toBe("Please wait while the AI finishes this turn");
+      expect(footer.getAttribute("title")).toBe("Please wait while the AI finishes this turn");
+    });
+
+    it("keeps the gate description and no wait tooltip while busy but still invalid", () => {
+      renderBoard({ busy: true });
+
+      const header = screen.getByTestId("prd-confirm-header");
+      expect(header).toHaveProperty("disabled", true);
+      expect(header.getAttribute("aria-describedby")).toBe("prd-validation-hint");
+      expect(header.getAttribute("title")).toBeNull();
+      expect(screen.getByTestId("prd-confirm-remaining")).toBeTruthy();
+    });
+  });
+
+  // S-074 review (A): since S-073 the interview can retire a criterion. A
+  // retired one must not look like — or edit like — an active row, and must
+  // never count toward the two-criteria gate.
+  describe("retired acceptance criteria (S-074 review A)", () => {
+    const active = (criterionId: string, text: string) => ({
+      criterionId,
+      text,
+      source: "interview" as const,
+      status: "active" as const,
+      createdInVersion: 1,
+      retiredInVersion: null,
+    });
+    const retired = (criterionId: string, text: string) => ({
+      criterionId,
+      text,
+      source: "interview" as const,
+      status: "retired" as const,
+      createdInVersion: 1,
+      retiredInVersion: 2,
+    });
+    function draftWithCriteria(criteria: unknown[]) {
+      return createLiveProjectSpecDraft(42, {
+        goal: "Build a PRD-first planning flow for students",
+        intentSummary: "Students see and confirm the PRD before any plan is made",
+        scope: ["Single PRD authoring board with a live draft"],
+        nonGoals: ["No automatic plan generation without confirmation"],
+        acceptanceCriteria: criteria,
+        architecture: {
+          forms: ["web_app"],
+          formOtherLabel: null,
+          stack: "React + Vite",
+          rationale: null,
+          decisionSource: "student_confirmed",
+          decidedInVersion: 1,
+        },
+      });
+    }
+    function latestDraft(props: ReturnType<typeof renderBoard>) {
+      const calls = vi.mocked(props.onDraftChange).mock.calls;
+      return calls[calls.length - 1][0];
+    }
+
+    it("renders retired criteria read-only below the rows and leaves them out of the gate", () => {
+      renderBoard({
+        draft: draftWithCriteria([
+          active("AC-001", "Saved PRD opens the final read view"),
+          retired("AC-002", "Old criterion that no longer applies"),
+        ]),
+      });
+
+      // Editable rows: the one active criterion plus the trailing placeholder.
+      expect(screen.getByTestId("prd-criterion-input-0")).toHaveProperty(
+        "value",
+        "Saved PRD opens the final read view",
+      );
+      expect(screen.getByTestId("prd-criterion-input-1")).toHaveProperty("value", "");
+      expect(screen.queryByTestId("prd-criterion-input-2")).toBeNull();
+      expect(screen.queryByDisplayValue("Old criterion that no longer applies")).toBeNull();
+
+      const retiredList = screen.getByTestId("prd-retired-criteria");
+      expect(within(retiredList).getByText("Retired done criteria")).toBeTruthy();
+      expect(within(retiredList).getByText("AC-002")).toBeTruthy();
+      expect(
+        within(retiredList).getByText("Old criterion that no longer applies").className,
+      ).toContain("line-through");
+
+      // One active criterion: the gate still wants a second one.
+      const chip = screen.getByTestId("prd-confirm-remaining");
+      expect(chip.dataset.count).toBe("1");
+      expect(chip.getAttribute("title")).toBe(
+        "Add at least two concrete, checkable done criteria.",
+      );
+      expect(screen.getByTestId("prd-confirm-header")).toHaveProperty("disabled", true);
+    });
+
+    it("restores a retired criterion through the student-edit path and satisfies the gate", () => {
+      const props = renderBoard({
+        draft: draftWithCriteria([
+          active("AC-001", "Saved PRD opens the final read view"),
+          retired("AC-002", "Old criterion that no longer applies"),
+        ]),
+      });
+
+      fireEvent.click(screen.getByTestId("prd-restore-criterion-AC-002"));
+
+      const last = latestDraft(props);
+      expect(last.spec.acceptanceCriteria[1]).toMatchObject({
+        criterionId: "AC-002",
+        text: "Old criterion that no longer applies",
+        status: "active",
+        retiredInVersion: null,
+      });
+      expect(last.studentEditedFields).toContain("acceptanceCriteria");
+      // Now an editable row, no longer listed as retired, and the gate is met.
+      expect(screen.getByTestId("prd-criterion-input-1")).toHaveProperty(
+        "value",
+        "Old criterion that no longer applies",
+      );
+      expect(screen.queryByTestId("prd-retired-criteria")).toBeNull();
+      expect(screen.queryByTestId("prd-confirm-remaining")).toBeNull();
+      expect(screen.getByTestId("prd-confirm-header")).toHaveProperty("disabled", false);
+    });
+
+    it("edits the right criterion when a retired one sits between active rows", () => {
+      const props = renderBoard({
+        draft: draftWithCriteria([
+          active("AC-001", "First criterion"),
+          retired("AC-002", "Retired middle criterion"),
+          active("AC-003", "Third criterion"),
+        ]),
+      });
+
+      // Display row 1 is AC-003: the retired AC-002 is skipped, not shifted onto.
+      const row1 = screen.getByTestId("prd-criterion-input-1");
+      expect(row1.getAttribute("data-criterion-id")).toBe("AC-003");
+      fireEvent.change(row1, { target: { value: "Third criterion, revised" } });
+
+      expect(
+        latestDraft(props).spec.acceptanceCriteria.map((criterion) => [
+          criterion.criterionId,
+          criterion.text,
+          criterion.status,
+        ]),
+      ).toEqual([
+        ["AC-001", "First criterion", "active"],
+        ["AC-002", "Retired middle criterion", "retired"],
+        ["AC-003", "Third criterion, revised", "active"],
+      ]);
+      // The trailing placeholder is keyed by the next free id, past the retired one.
+      expect(screen.getByTestId("prd-criterion-input-2").getAttribute("data-criterion-id")).toBe(
+        "AC-004",
+      );
+    });
+
+    it("allocates an id on the first text typed into a button-added blank row", () => {
+      const props = renderBoard({
+        draft: draftWithCriteria([active("AC-001", "First criterion")]),
+      });
+
+      fireEvent.click(screen.getByTestId("prd-add-criterion"));
+      const blank = screen.getByTestId("prd-criterion-input-1") as HTMLInputElement;
+      expect(latestDraft(props).spec.acceptanceCriteria[1].criterionId).toBe("");
+      expect(blank.getAttribute("data-criterion-id")).toBe("AC-002");
+
+      blank.focus();
+      fireEvent.change(blank, { target: { value: "S" } });
+      fireEvent.change(blank, { target: { value: "Se" } });
+
+      expect(latestDraft(props).spec.acceptanceCriteria[1].criterionId).toBe("AC-002");
+      // Same node, never remounted: the pre-allocated key matched the real id.
+      expect(screen.getByTestId("prd-criterion-input-1")).toBe(blank);
+      expect(document.activeElement).toBe(blank);
+    });
+  });
+
+  // S-074 review (B): a held turn may still have applied some ops; the copy
+  // must not imply nothing landed.
+  describe("held_for_student copy (S-074 review B)", () => {
+    const held = (appliedFieldPaths: string[]) => ({
+      validationOutcome: "held_for_student" as const,
+      appliedFieldPaths,
+      rejectedReasons: ["student_edit_conflict"],
+    });
+
+    it("says the suggestion was held when nothing was applied", () => {
+      renderBoard({ patchFeedback: held([]) });
+
+      expect(screen.getByTestId("prd-patch-feedback").textContent).toBe(
+        "Student-edited fields stayed intact; the new suggestion was held separately.",
+      );
+    });
+
+    it("says some changes were applied when the turn was only partly held", () => {
+      renderBoard({ patchFeedback: held(["scope"]) });
+
+      expect(screen.getByTestId("prd-patch-feedback").textContent).toBe(
+        "Some changes were applied; the parts that overlapped a field you edited yourself were held.",
+      );
     });
   });
 

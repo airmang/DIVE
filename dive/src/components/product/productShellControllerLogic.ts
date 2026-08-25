@@ -113,7 +113,10 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
     "acceptance_criteria entries must be full observable criterion sentences (copy the PRD criterion text or write a new concrete sentence); never put bare criterion IDs like AC-001 in acceptance_criteria — IDs belong only in linked_criterion_ids.",
     ...(architecture
       ? [
-          "The PRD includes the student's confirmed architecture (forms + tech stack). Decompose for those forms and that stack: keep every step, expected_files, and verification consistent with it, and do not switch to a different framework or stack.",
+          // S-072 review follow-up (Constitution VII): only the STACK is
+          // binding. Forms are planning hints — a "keep every step consistent
+          // with the forms" clause would contradict the not-limits line below.
+          "The PRD includes the student's confirmed architecture (forms + tech stack). Decompose using the chosen tech stack — do not switch to a different framework or stack. Any form notes are planning hints, not limits.",
         ]
       : []),
     ...(formScaffolding ? ["DIVE form-specific step scaffolding:", formScaffolding] : []),

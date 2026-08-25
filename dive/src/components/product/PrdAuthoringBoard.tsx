@@ -86,19 +86,13 @@ export interface PrdAuthoringBoardProps {
   onOpenHistory?: () => void;
 }
 
-function normalizeCriteria(criteria: AcceptanceCriterion[]): AcceptanceCriterion[] {
-  return criteria.length > 0
-    ? criteria
-    : [
-        {
-          criterionId: "",
-          text: "",
-          source: "student_edit",
-          status: "active",
-          createdInVersion: 1,
-          retiredInVersion: null,
-        },
-      ];
+// S-074 review (A): one editable row on the canvas. `realIndex` is the row's
+// position in the draft's full acceptanceCriteria array (retired ones
+// included); `null` marks the trailing placeholder row that does not exist in
+// the array until its first keystroke.
+interface CriterionRow {
+  criterion: AcceptanceCriterion;
+  realIndex: number | null;
 }
 
 function nextCriterion(
@@ -292,7 +286,9 @@ function focusValidationField(root: HTMLElement | null, code: string): HTMLEleme
   const control =
     (target.focus ? container.querySelector<HTMLElement>(target.focus) : null) ??
     container.querySelector<HTMLElement>(FIRST_FOCUSABLE_SELECTOR);
-  control?.focus();
+  // preventScroll: focus() would otherwise jump to the control and cancel the
+  // smooth centering scroll started above.
+  control?.focus({ preventScroll: true });
   return control ?? null;
 }
 
@@ -440,18 +436,22 @@ export function PrdAuthoringBoard({
     () => validateConfirmableProjectSpec(localDraft.spec),
     [localDraft.spec],
   );
-  const criteria = normalizeCriteria(localDraft.spec.acceptanceCriteria);
   const architecture = localDraft.spec.architecture;
   // S-072 (014 theme 1): `forms` is multi-valued — every form that applies.
   const chosenForms = architecture?.forms ?? [];
   const formOptions = useMemo(() => architectureFormOptions(t), [t]);
   // S-047: the AI's recommend-then-confirm cards for the current two-stage
-  // focus. Form cards show only until at least one form is picked; stack cards
-  // show only once a form exists and no stack is chosen yet, so a decided field
-  // never keeps stale cards. The student's click authors the decision.
+  // focus. Form cards keep showing for every recommended form the student has
+  // not added yet (the heading promises "several are fine" — S-072 review
+  // follow-up), so a chosen form's card disappears while the others stay
+  // offered; stack cards show only once a form exists and no stack is chosen
+  // yet, so a decided field never keeps stale cards. The student's click
+  // authors the decision.
   const formProposals =
-    architectureProposals?.kind === "form" && chosenForms.length === 0
-      ? architectureProposals.options
+    architectureProposals?.kind === "form"
+      ? architectureProposals.options.filter(
+          (option) => !chosenForms.includes(option.value as ArchitectureForm),
+        )
       : [];
   const stackProposals =
     architectureProposals?.kind === "stack" &&
@@ -459,12 +459,35 @@ export function PrdAuthoringBoard({
     !(architecture?.stack ?? "").trim()
       ? architectureProposals.options
       : [];
+  // S-074 review (A): since S-073 the interview can retire a criterion
+  // (`status: "retired"`). Only active criteria are editable rows — a retired
+  // one rendered as an ordinary row looked unchanged (QA "수정 안 됨") and
+  // editing it kept it retired, so two filled rows could be visible while the
+  // active-count gate saw one. Retired criteria render read-only below with a
+  // Restore control instead.
+  const allCriteria = localDraft.spec.acceptanceCriteria;
+  const activeCriterionRows: CriterionRow[] = allCriteria
+    .map((criterion, realIndex) => ({ criterion, realIndex }))
+    .filter((row) => row.criterion.status === "active");
+  const retiredCriteria = allCriteria.filter((criterion) => criterion.status === "retired");
   // Always offer a trailing empty row so the student can author the 2nd criterion
   // by hand when the AI won't extend it (round-2 P1-30 / S-041 dead-end escape).
-  const displayCriteria =
-    criteria.length > 0 && criteria[criteria.length - 1].text.trim()
-      ? [...criteria, emptyCriterion(localDraft.spec.currentVersion)]
-      : criteria;
+  const lastActiveRow = activeCriterionRows[activeCriterionRows.length - 1];
+  const criterionRows: CriterionRow[] =
+    lastActiveRow && !lastActiveRow.criterion.text.trim()
+      ? activeCriterionRows
+      : [
+          ...activeCriterionRows,
+          { criterion: emptyCriterion(localDraft.spec.currentVersion), realIndex: null },
+        ];
+  // Rows are keyed by criterionId. A row that has no id yet (the trailing
+  // placeholder, or a blank added with the button) is keyed by the id it WILL
+  // get on its first keystroke — allocateCriterionId is deterministic over the
+  // same array — so the key never flips mid-typing and React never remounts the
+  // input under the student's cursor (round-2 lost-focus bug). At most one
+  // id-less row exists at a time (updateCriterion allocates on first text), so
+  // the pre-allocated key cannot collide.
+  const pendingCriterionId = allocateCriterionId(allCriteria);
   const isAnswerBusy = busy || submittingAnswer;
   const canConfirmPrd = validation.valid && !busy;
   const confirmPrd = () => {
@@ -474,6 +497,12 @@ export function PrdAuthoringBoard({
   // S-073 (D-014-08): the same reason sentences feed the footer hint and the
   // remaining-count chip's tooltip, so the two can never disagree.
   const validationReasonTexts = validation.reasonCodes.map((code) => t(validationReasonKey(code)));
+  // S-074 review (D): the stack requirement is only reported once a form
+  // exists, so count it up front — a blank draft reads 7 and picking a form
+  // goes 2 → 1, never 1 → 1.
+  const remainingCount =
+    validation.reasonCodes.length +
+    (validation.reasonCodes.includes("missing_architecture_form") ? 1 : 0);
   const boardRef = useRef<HTMLElement>(null);
   const focusFirstMissingField = () => {
     const code = validation.reasonCodes[0];
@@ -481,12 +510,18 @@ export function PrdAuthoringBoard({
   };
   // A disabled <button> cannot reliably show a tooltip across WebKit/Chromium,
   // so the enabled chip carries the reasons; the buttons point at the footer
-  // hint for assistive tech while they are disabled.
-  const confirmDescribedBy = canConfirmPrd ? undefined : "prd-validation-hint";
+  // hint for assistive tech while the gate is what blocks them. S-074 review
+  // (C): keyed on validation.valid, not canConfirmPrd — a valid PRD during a
+  // busy turn must not be described as "ready to confirm"; it gets a wait
+  // tooltip instead.
+  const confirmDescribedBy = validation.valid ? undefined : "prd-validation-hint";
+  const confirmTitle = busy && validation.valid ? t("prd.authoring.confirm_busy") : undefined;
   const addCriterion = () => {
     const current = localDraft.spec.acceptanceCriteria;
-    // A trailing empty row already exists to type into; don't stack blanks.
-    if (current.some((criterion) => !criterion.text.trim())) return;
+    // A blank active row already exists to type into; don't stack blanks.
+    if (current.some((criterion) => criterion.status === "active" && !criterion.text.trim())) {
+      return;
+    }
     updateSpecField(
       "acceptanceCriteria",
       [...current, emptyCriterion(localDraft.spec.currentVersion)],
@@ -594,12 +629,14 @@ export function PrdAuthoringBoard({
     const prev = localDraft.spec.architecture;
     const prevForms = prev?.forms ?? [];
     // The first pick confirms; any change to a non-empty set after that is a
-    // student change. Toggling the last form off keeps stack/rationale intact.
+    // student change. Toggling the last form off keeps stack/rationale intact,
+    // and untoggling "other" keeps its label too (spec theme 1: it "stays"), so
+    // re-toggling shows the student's previous text instead of an empty field.
     const decisionSource: ArchitectureDecision["decisionSource"] =
       prevForms.length > 0 ? "student_changed" : (prev?.decisionSource ?? "student_confirmed");
     writeArchitecture({
       forms: nextForms,
-      formOtherLabel: nextForms.includes("other") ? (prev?.formOtherLabel ?? null) : null,
+      formOtherLabel: prev?.formOtherLabel ?? null,
       decisionSource,
     });
   };
@@ -621,15 +658,35 @@ export function PrdAuthoringBoard({
     writeArchitecture(patch);
   };
 
-  const updateCriterion = (index: number, text: string) => {
+  const updateCriterion = (row: CriterionRow, text: string) => {
     const current = localDraft.spec.acceptanceCriteria;
     const next = [...current];
-    const existing = next[index];
-    if (existing) {
-      next[index] = { ...existing, text };
-    } else if (text.trim()) {
-      next[index] = nextCriterion(next, text, localDraft.spec.currentVersion);
+    if (row.realIndex === null) {
+      // The trailing placeholder: the first real keystroke creates the criterion
+      // (with the same id the row was already keyed by — see pendingCriterionId).
+      if (!text.trim()) return;
+      next.push(nextCriterion(next, text, localDraft.spec.currentVersion));
+    } else {
+      const existing = current[row.realIndex];
+      next[row.realIndex] = {
+        ...existing,
+        text,
+        // A blank row added with the button has no id yet; allocate it with the
+        // first text so no two id-less rows can ever coexist.
+        criterionId: existing.criterionId || (text.trim() ? allocateCriterionId(current) : ""),
+      };
     }
+    updateSpecField("acceptanceCriteria", next, "acceptanceCriteria");
+  };
+
+  // S-074 review (A): un-retire through the ordinary student-edit path, so the
+  // draft is marked student-edited exactly like typing into the row would.
+  const restoreCriterion = (criterionId: string) => {
+    const next = localDraft.spec.acceptanceCriteria.map((criterion) =>
+      criterion.criterionId === criterionId && criterion.status === "retired"
+        ? { ...criterion, status: "active" as const, retiredInVersion: null }
+        : criterion,
+    );
     updateSpecField("acceptanceCriteria", next, "acceptanceCriteria");
   };
 
@@ -762,13 +819,17 @@ export function PrdAuthoringBoard({
             <button
               type="button"
               onClick={focusFirstMissingField}
-              title={validationReasonTexts.join(" / ")}
+              title={validationReasonTexts.join("\n")}
               aria-describedby="prd-validation-hint"
               className="inline-flex h-8 items-center whitespace-nowrap rounded-full border border-warn/50 bg-warn/10 px-3 text-xs font-medium text-fg transition-colors hover:bg-warn/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
               data-testid="prd-confirm-remaining"
-              data-count={validation.reasonCodes.length}
+              data-count={remainingCount}
             >
-              {t("prd.authoring.confirm_remaining", { count: validation.reasonCodes.length })}
+              {/* S-074 review (E): the short count is the live region — not the
+                  footer's full sentence list, which re-announced on every keystroke. */}
+              <span aria-live="polite">
+                {t("prd.authoring.confirm_remaining", { count: remainingCount })}
+              </span>
             </button>
           )}
           <Button
@@ -777,6 +838,7 @@ export function PrdAuthoringBoard({
             onClick={confirmPrd}
             disabled={!canConfirmPrd}
             aria-describedby={confirmDescribedBy}
+            title={confirmTitle}
             data-testid="prd-confirm-header"
           >
             <CheckCircle2 />
@@ -879,7 +941,13 @@ export function PrdAuthoringBoard({
               {patchFeedback.validationOutcome === "applied" ? (
                 t("prd.authoring.patch_applied")
               ) : patchFeedback.validationOutcome === "held_for_student" ? (
-                t("prd.authoring.patch_held")
+                // S-074 review (B): a turn can apply some ops and hold the rest;
+                // say so instead of implying nothing landed.
+                t(
+                  patchFeedback.appliedFieldPaths.length > 0
+                    ? "prd.authoring.patch_held_partial"
+                    : "prd.authoring.patch_held",
+                )
               ) : patchFeedback.validationOutcome === "not_structured" ? (
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span>{t("prd.authoring.patch_not_structured")}</span>
@@ -1013,26 +1081,25 @@ export function PrdAuthoringBoard({
               <span className="text-[11px] font-normal text-fg-subtle">
                 {t("prd.fields.acceptance_criteria_help")}
               </span>
-              {displayCriteria.map((criterion, index) => (
-                // Key by array index only. A brand-new row starts with an empty
-                // criterionId; the first keystroke allocates one (e.g. "AC-001"),
-                // and keying by that id would flip the key mid-typing, remounting
-                // the input and dropping focus after one character (round-2 QA).
-                // The list is only ever appended-to/edited in place, so the index
-                // is a stable identity here.
-                <label key={index} className="flex items-center gap-2">
-                  <span className="w-14 shrink-0 text-xs font-semibold text-accent">
-                    {criterion.criterionId || `AC-${String(index + 1).padStart(3, "0")}`}
-                  </span>
-                  <input
-                    value={criterion.text}
-                    onChange={(event) => updateCriterion(index, event.target.value)}
-                    className="min-w-0 flex-1 rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg"
-                    placeholder={t("prd.authoring.criterion_placeholder")}
-                    data-testid={`prd-criterion-input-${index}`}
-                  />
-                </label>
-              ))}
+              {criterionRows.map((row, index) => {
+                // Keyed by the row's id, or the id it will get on its first
+                // keystroke — see pendingCriterionId. The test id stays
+                // positional (it is what tests and QA scripts type into).
+                const rowId = row.criterion.criterionId || pendingCriterionId;
+                return (
+                  <label key={rowId} className="flex items-center gap-2">
+                    <span className="w-14 shrink-0 text-xs font-semibold text-accent">{rowId}</span>
+                    <input
+                      value={row.criterion.text}
+                      onChange={(event) => updateCriterion(row, event.target.value)}
+                      className="min-w-0 flex-1 rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg"
+                      placeholder={t("prd.authoring.criterion_placeholder")}
+                      data-testid={`prd-criterion-input-${index}`}
+                      data-criterion-id={rowId}
+                    />
+                  </label>
+                );
+              })}
               <button
                 type="button"
                 onClick={addCriterion}
@@ -1042,6 +1109,36 @@ export function PrdAuthoringBoard({
                 <Plus className="h-3.5 w-3.5" />
                 {t("prd.authoring.add_criterion")}
               </button>
+              {/* S-074 review (A): criteria the interview retired stay visible
+                  but read-only, struck through, with a Restore that re-activates
+                  them through the student-edit path. */}
+              {retiredCriteria.length > 0 ? (
+                <div className="mt-2 flex flex-col gap-1" data-testid="prd-retired-criteria">
+                  <span className="text-[11px] font-semibold text-fg-muted">
+                    {t("prd.authoring.retired_criteria_heading")}
+                  </span>
+                  <ul className="flex flex-col gap-1">
+                    {retiredCriteria.map((criterion, index) => (
+                      <li
+                        key={criterion.criterionId || `retired-${index}`}
+                        className="flex items-center gap-2 text-xs text-fg-muted"
+                        data-testid={`prd-retired-criterion-${criterion.criterionId}`}
+                      >
+                        <span className="w-14 shrink-0 font-semibold">{criterion.criterionId}</span>
+                        <span className="min-w-0 flex-1 line-through">{criterion.text}</span>
+                        <button
+                          type="button"
+                          onClick={() => restoreCriterion(criterion.criterionId)}
+                          className="shrink-0 font-medium text-accent hover:underline"
+                          data-testid={`prd-restore-criterion-${criterion.criterionId}`}
+                        >
+                          {t("prd.authoring.restore_criterion")}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
 
             {/* S-047 (010 theme 7): the student decides the architecture — the
@@ -1131,7 +1228,7 @@ export function PrdAuthoringBoard({
                   }
                   className="rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg"
                   placeholder={t("prd.authoring.architecture_other_placeholder")}
-                  data-testid="prd-architecture-form-other"
+                  data-testid="prd-architecture-form-other-label"
                   aria-label={t("prd.authoring.architecture_other_placeholder")}
                 />
               ) : null}
@@ -1215,9 +1312,11 @@ export function PrdAuthoringBoard({
         className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t bg-bg-panel px-6 py-3"
         data-testid="prd-bottom-action-bar"
       >
+        {/* S-074 review (E): no live-region role here — this line can be five
+            sentences long and changes on every keystroke; the chip's short
+            count is the live region. The id stays for aria-describedby. */}
         <div
           id="prd-validation-hint"
-          role="status"
           className="text-xs text-fg-muted"
           data-testid="prd-validation-hint"
         >
@@ -1244,6 +1343,7 @@ export function PrdAuthoringBoard({
             onClick={confirmPrd}
             disabled={!canConfirmPrd}
             aria-describedby={confirmDescribedBy}
+            title={confirmTitle}
             data-testid="prd-save-create-plan"
           >
             <CheckCircle2 />

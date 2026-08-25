@@ -122,12 +122,19 @@ describe("SocraticInterviewPanel", () => {
       const input = screen.getByTestId("interview-input");
 
       fireEvent.change(input, { target: { value: "학생들이 씁니다" } });
-      fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+      // Shift+Enter keeps its default (the newline): dispatchEvent returns true
+      // only when nothing called preventDefault.
+      expect(fireEvent.keyDown(input, { key: "Enter", shiftKey: true })).toBe(true);
       fireEvent.keyDown(input, { key: "Enter", isComposing: true });
-      fireEvent.keyDown(input, { key: "Process", keyCode: 229 });
+      // Legacy IME placeholder: the key IS "Enter"; only keyCode says composing.
+      fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
 
       expect(props.onSubmitAnswer).not.toHaveBeenCalled();
       expect(input).toHaveProperty("value", "학생들이 씁니다");
+
+      // And the plain Enter that does send swallows its default.
+      expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
+      expect(props.onSubmitAnswer).toHaveBeenCalledWith("학생들이 씁니다");
     });
 
     it("keeps Cmd/Ctrl+Enter as a send gesture", () => {
@@ -145,12 +152,32 @@ describe("SocraticInterviewPanel", () => {
     });
 
     it("ignores Enter while loading or disabled", () => {
-      const props = renderPanel({ loading: true });
+      // Type first (while enabled), then flip the flags: an empty textarea
+      // would be ignored for the wrong reason.
+      const onSubmitAnswer = vi.fn();
+      const base = {
+        started: true,
+        onSubmitGoal: vi.fn(),
+        onSubmitAnswer,
+        onComplete: vi.fn(),
+      };
+      const { rerender } = render(<SocraticInterviewPanel {...base} />);
       const input = screen.getByTestId("interview-input");
+      fireEvent.change(input, { target: { value: "Students using the app" } });
 
+      rerender(<SocraticInterviewPanel {...base} loading />);
       fireEvent.keyDown(input, { key: "Enter" });
+      expect(onSubmitAnswer).not.toHaveBeenCalled();
 
-      expect(props.onSubmitAnswer).not.toHaveBeenCalled();
+      rerender(<SocraticInterviewPanel {...base} disabled />);
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(onSubmitAnswer).not.toHaveBeenCalled();
+      expect(input).toHaveProperty("value", "Students using the app");
+
+      // Sanity: with neither flag the very same Enter sends.
+      rerender(<SocraticInterviewPanel {...base} />);
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(onSubmitAnswer).toHaveBeenCalledWith("Students using the app");
     });
   });
 });

@@ -39,14 +39,43 @@ describe("ChatInput ambiguity hints", () => {
     const textarea = screen.getByTestId("chat-input-textarea");
 
     fireEvent.change(textarea, { target: { value: "first line" } });
-    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
+    // Shift+Enter keeps its default (the newline): dispatchEvent returns true
+    // only when nothing called preventDefault.
+    expect(fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true })).toBe(true);
     fireEvent.keyDown(textarea, { key: "Enter", isComposing: true });
-    fireEvent.keyDown(textarea, { key: "Process", keyCode: 229 });
+    // Legacy IME placeholder: the key IS "Enter"; only keyCode says composing.
+    fireEvent.keyDown(textarea, { key: "Enter", keyCode: 229 });
     expect(onSend).not.toHaveBeenCalled();
 
-    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(fireEvent.keyDown(textarea, { key: "Enter" })).toBe(false);
     expect(onSend).toHaveBeenCalledWith("first line");
     expect(textarea).toHaveProperty("value", "");
+  });
+
+  it("opens the pre-send check on Ctrl/Cmd+Shift+Enter instead of sending", () => {
+    useLocaleStore.setState({ locale: "en" });
+    const onSend = vi.fn();
+    render(
+      <ChatInput
+        onSend={onSend}
+        modelLabel="Test model"
+        promptCheckMock={{ issues: [], refined_text: "checked", approximate_tokens: 1 }}
+      />,
+    );
+    const textarea = screen.getByTestId("chat-input-textarea");
+
+    // Nothing to check yet: neither opens nor sends, and the default stands.
+    expect(fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true, ctrlKey: true })).toBe(true);
+    expect(screen.queryByTestId("prompt-check-dialog")).toBeNull();
+
+    fireEvent.change(textarea, { target: { value: "make the list sortable" } });
+    expect(fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true, metaKey: true })).toBe(
+      false,
+    );
+
+    expect(screen.getByTestId("prompt-check-dialog")).toBeTruthy();
+    expect(onSend).not.toHaveBeenCalled();
+    expect(textarea).toHaveProperty("value", "make the list sortable");
   });
 
   it("surfaces English vague-input hints under the English locale", () => {
