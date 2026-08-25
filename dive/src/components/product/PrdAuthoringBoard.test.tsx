@@ -453,6 +453,231 @@ describe("PrdAuthoringBoard", () => {
     );
   });
 
+  // S-073 (D-014-07): the interview rail is a chat composer — Enter sends,
+  // Shift+Enter is a newline, and an IME-composing Enter never sends.
+  describe("interview rail Enter-to-send (S-073)", () => {
+    it("submits the trimmed answer on a plain Enter and shows the hint line", () => {
+      const props = renderBoard();
+      const rail = screen.getByTestId("prd-interview-rail");
+      const input = within(rail).getByTestId("prd-interview-input");
+
+      expect(within(rail).getByTestId("prd-interview-enter-hint").textContent).toContain(
+        "Enter to send",
+      );
+
+      fireEvent.change(input, { target: { value: "  Teachers need a quick handoff list.  " } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(props.onSubmitAnswer).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(props.onSubmitAnswer).mock.calls[0][0]).toBe(
+        "Teachers need a quick handoff list.",
+      );
+      expect(input).toHaveProperty("value", "");
+    });
+
+    it("does not submit on Shift+Enter (newline) or while an IME composition is open", () => {
+      const props = renderBoard();
+      const rail = screen.getByTestId("prd-interview-rail");
+      const input = within(rail).getByTestId("prd-interview-input");
+
+      fireEvent.change(input, { target: { value: "첫 줄" } });
+      fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+      expect(props.onSubmitAnswer).not.toHaveBeenCalled();
+
+      fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+      expect(props.onSubmitAnswer).not.toHaveBeenCalled();
+
+      fireEvent.keyDown(input, { key: "Process", keyCode: 229 });
+      expect(props.onSubmitAnswer).not.toHaveBeenCalled();
+      expect(input).toHaveProperty("value", "첫 줄");
+    });
+
+    it("does not submit an empty answer on Enter", () => {
+      const props = renderBoard();
+      const input = within(screen.getByTestId("prd-interview-rail")).getByTestId(
+        "prd-interview-input",
+      );
+
+      fireEvent.change(input, { target: { value: "   " } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(props.onSubmitAnswer).not.toHaveBeenCalled();
+    });
+  });
+
+  // S-073 (D-014-08): the gate is unchanged; what changes is that a student can
+  // see how many requirements remain and jump to the first missing field.
+  describe("confirm-gate legibility (S-073)", () => {
+    interface ScrollStub {
+      calls: Array<{ target: Element; options: unknown }>;
+      restore: () => void;
+    }
+
+    // jsdom has no Element.prototype.scrollIntoView; install one that records
+    // the receiver so the test can assert *which* container was scrolled.
+    function stubScrollIntoView(): ScrollStub {
+      const proto = Element.prototype as unknown as { scrollIntoView?: unknown };
+      const original = proto.scrollIntoView;
+      const calls: ScrollStub["calls"] = [];
+      proto.scrollIntoView = function (this: Element, options: unknown) {
+        calls.push({ target: this, options });
+      };
+      return {
+        calls,
+        restore: () => {
+          if (original === undefined) delete proto.scrollIntoView;
+          else proto.scrollIntoView = original;
+        },
+      };
+    }
+
+    it("shows the remaining count and points both confirm buttons at the footer hint", () => {
+      renderBoard();
+
+      const chip = screen.getByTestId("prd-confirm-remaining");
+      // A blank draft misses goal, intent, scope, non-goals, 2 criteria, and a form.
+      expect(chip.dataset.count).toBe("6");
+      expect(chip.textContent).toBe("6 to go before confirming");
+      expect(chip).toHaveProperty("disabled", false);
+      expect(chip.getAttribute("title")).toContain("The goal is still empty.");
+      expect(chip.getAttribute("title")).toContain("Pick what you're building (the form) first.");
+      expect(chip.getAttribute("aria-describedby")).toBe("prd-validation-hint");
+
+      const hint = screen.getByTestId("prd-validation-hint");
+      expect(hint.id).toBe("prd-validation-hint");
+      expect(hint.getAttribute("role")).toBe("status");
+      expect(hint.textContent).toBe(chip.getAttribute("title"));
+
+      expect(screen.getByTestId("prd-confirm-header").getAttribute("aria-describedby")).toBe(
+        "prd-validation-hint",
+      );
+      expect(screen.getByTestId("prd-save-create-plan").getAttribute("aria-describedby")).toBe(
+        "prd-validation-hint",
+      );
+    });
+
+    it("renders the Korean count copy under the Korean locale", () => {
+      useLocaleStore.setState({ locale: "ko" });
+      renderBoard();
+
+      expect(screen.getByTestId("prd-confirm-remaining").textContent).toBe("확정까지 6개 남음");
+    });
+
+    it("scrolls to and focuses the first missing field when the chip is clicked", () => {
+      const scroll = stubScrollIntoView();
+      try {
+        renderBoard({
+          draft: createLiveProjectSpecDraft(42, {
+            goal: "Build a PRD-first planning flow for students",
+            intentSummary: "Students see and confirm the PRD before any plan is made",
+          }),
+        });
+
+        const chip = screen.getByTestId("prd-confirm-remaining");
+        // Goal + intent are done: scope, non-goals, criteria, form remain.
+        expect(chip.dataset.count).toBe("4");
+
+        fireEvent.click(chip);
+
+        expect(scroll.calls).toHaveLength(1);
+        expect(scroll.calls[0].target).toBe(screen.getByTestId("prd-field-scope"));
+        expect(scroll.calls[0].options).toEqual({ block: "center", behavior: "smooth" });
+        expect(document.activeElement).toBe(screen.getByTestId("prd-scope-input"));
+      } finally {
+        scroll.restore();
+      }
+    });
+
+    it("targets the goal field first on a blank draft", () => {
+      const scroll = stubScrollIntoView();
+      try {
+        renderBoard();
+        fireEvent.click(screen.getByTestId("prd-confirm-remaining"));
+
+        expect(scroll.calls[0]?.target).toBe(screen.getByTestId("prd-field-goal"));
+        expect(document.activeElement).toBe(screen.getByTestId("prd-goal-input"));
+      } finally {
+        scroll.restore();
+      }
+    });
+
+    it("focuses the stack input when only the architecture stack is missing", () => {
+      const scroll = stubScrollIntoView();
+      try {
+        renderBoard({
+          draft: createLiveProjectSpecDraft(42, {
+            goal: "Build a PRD-first planning flow for students",
+            intentSummary: "Students see and confirm the PRD before any plan is made",
+            scope: ["Single PRD authoring board with a live draft"],
+            nonGoals: ["No automatic plan generation without confirmation"],
+            acceptanceCriteria: [
+              "Saved PRD opens the final read view",
+              "Confirm stays disabled until every required field is filled",
+            ],
+            architecture: {
+              form: "web_app",
+              formOtherLabel: null,
+              stack: null,
+              rationale: null,
+              decisionSource: "student_confirmed",
+              decidedInVersion: 1,
+            },
+          }),
+        });
+
+        const chip = screen.getByTestId("prd-confirm-remaining");
+        expect(chip.dataset.count).toBe("1");
+        expect(chip.getAttribute("title")).toBe("Decide a tech stack that fits the form.");
+
+        fireEvent.click(chip);
+
+        expect(scroll.calls[0]?.target).toBe(screen.getByTestId("prd-field-architecture"));
+        expect(document.activeElement).toBe(screen.getByTestId("prd-architecture-stack-input"));
+      } finally {
+        scroll.restore();
+      }
+    });
+
+    it("survives a missing scrollIntoView (jsdom) and still focuses the field", () => {
+      renderBoard();
+      fireEvent.click(screen.getByTestId("prd-confirm-remaining"));
+
+      expect(document.activeElement).toBe(screen.getByTestId("prd-goal-input"));
+    });
+
+    it("hides the chip and drops aria-describedby once the PRD is confirmable", () => {
+      renderBoard({
+        draft: createLiveProjectSpecDraft(42, {
+          goal: "Build a PRD-first planning flow for students",
+          intentSummary: "Students see and confirm the PRD before any plan is made",
+          scope: ["Single PRD authoring board with a live draft"],
+          nonGoals: ["No automatic plan generation without confirmation"],
+          acceptanceCriteria: [
+            "Saved PRD opens the final read view",
+            "Confirm stays disabled until every required field is filled",
+          ],
+          architecture: {
+            form: "web_app",
+            formOtherLabel: null,
+            stack: "React + Vite",
+            rationale: null,
+            decisionSource: "student_confirmed",
+            decidedInVersion: 1,
+          },
+        }),
+      });
+
+      expect(screen.queryByTestId("prd-confirm-remaining")).toBeNull();
+      expect(screen.getByTestId("prd-validation-hint").textContent).toBe(
+        "Ready to confirm the PRD.",
+      );
+      expect(screen.getByTestId("prd-confirm-header").getAttribute("aria-describedby")).toBeNull();
+      expect(
+        screen.getByTestId("prd-save-create-plan").getAttribute("aria-describedby"),
+      ).toBeNull();
+    });
+  });
+
   it("offers an Add-criterion button and a trailing empty row for manual authoring", () => {
     const props = renderBoard({
       draft: createLiveProjectSpecDraft(42, {

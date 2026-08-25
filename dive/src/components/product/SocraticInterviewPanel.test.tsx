@@ -88,4 +88,69 @@ describe("SocraticInterviewPanel", () => {
       "whatever you think is best for the layout, up to you",
     );
   });
+
+  // S-073 (D-014-07): the panel is a chat composer — Enter sends, Shift+Enter
+  // is a newline, IME composition never sends, Cmd/Ctrl+Enter still works.
+  describe("Enter-to-send (S-073)", () => {
+    it("submits the trimmed answer on a plain Enter and shows the hint line", () => {
+      const props = renderPanel();
+      const input = screen.getByTestId("interview-input");
+
+      expect(screen.getByTestId("interview-enter-hint").textContent).toContain("Enter to send");
+
+      fireEvent.change(input, { target: { value: "  Students using the app  " } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(props.onSubmitAnswer).toHaveBeenCalledWith("Students using the app");
+      expect(props.onSubmitGoal).not.toHaveBeenCalled();
+      expect(input).toHaveProperty("value", "");
+    });
+
+    it("submits the goal on Enter before the interview has started", () => {
+      const props = renderPanel({ started: false });
+      const input = screen.getByTestId("interview-input");
+
+      fireEvent.change(input, { target: { value: "Build a bakery menu page" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(props.onSubmitGoal).toHaveBeenCalledWith("Build a bakery menu page");
+      expect(props.onSubmitAnswer).not.toHaveBeenCalled();
+    });
+
+    it("does not submit on Shift+Enter or during an IME composition", () => {
+      const props = renderPanel();
+      const input = screen.getByTestId("interview-input");
+
+      fireEvent.change(input, { target: { value: "학생들이 씁니다" } });
+      fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+      fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+      fireEvent.keyDown(input, { key: "Process", keyCode: 229 });
+
+      expect(props.onSubmitAnswer).not.toHaveBeenCalled();
+      expect(input).toHaveProperty("value", "학생들이 씁니다");
+    });
+
+    it("keeps Cmd/Ctrl+Enter as a send gesture", () => {
+      const props = renderPanel();
+      const input = screen.getByTestId("interview-input");
+
+      fireEvent.change(input, { target: { value: "Teachers review submissions" } });
+      fireEvent.keyDown(input, { key: "Enter", metaKey: true });
+      expect(props.onSubmitAnswer).toHaveBeenCalledTimes(1);
+
+      fireEvent.change(input, { target: { value: "Parents get a weekly digest" } });
+      fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+      expect(props.onSubmitAnswer).toHaveBeenCalledTimes(2);
+      expect(props.onSubmitAnswer).toHaveBeenLastCalledWith("Parents get a weekly digest");
+    });
+
+    it("ignores Enter while loading or disabled", () => {
+      const props = renderPanel({ loading: true });
+      const input = screen.getByTestId("interview-input");
+
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(props.onSubmitAnswer).not.toHaveBeenCalled();
+    });
+  });
 });

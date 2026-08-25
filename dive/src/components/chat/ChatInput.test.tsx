@@ -30,6 +30,25 @@ describe("ChatInput ambiguity hints", () => {
     expect(hint.textContent).toContain("Shift+Enter");
   });
 
+  // S-073: the Enter branch now goes through the shared composerKeys contract;
+  // the observable behavior must be exactly what it was before.
+  it("sends on plain Enter but not on Shift+Enter or an IME-composing Enter", () => {
+    useLocaleStore.setState({ locale: "en" });
+    const onSend = vi.fn();
+    render(<ChatInput onSend={onSend} modelLabel="Test model" />);
+    const textarea = screen.getByTestId("chat-input-textarea");
+
+    fireEvent.change(textarea, { target: { value: "first line" } });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
+    fireEvent.keyDown(textarea, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(textarea, { key: "Process", keyCode: 229 });
+    expect(onSend).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("first line");
+    expect(textarea).toHaveProperty("value", "");
+  });
+
   it("surfaces English vague-input hints under the English locale", () => {
     useLocaleStore.setState({ locale: "en" });
     renderChatInput();

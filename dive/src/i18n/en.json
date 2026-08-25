@@ -153,6 +153,7 @@
         "text_too_large": "The proposed text was too long to apply.",
         "secret_like_text": "The text looked like it might contain a password or key.",
         "criterion_not_found": "It referred to a done criterion that no longer exists.",
+        "item_not_found": "It referred to a PRD item that no longer exists.",
         "student_edit_conflict": "It conflicted with a field you edited yourself.",
         "unknown": "It was not applied for another reason."
       },
@@ -197,6 +198,7 @@
       "quick_intake_incomplete_title": "A little more is needed",
       "quick_intake_incomplete_description": "To confirm the PRD it needs a goal, intent, scope, what to leave out, and 2 done-state criteria. Finish it in the conversation, then confirm.",
       "confirm_prd": "Confirm PRD",
+      "confirm_remaining": "{{count}} to go before confirming",
       "save_draft": "Save draft",
       "save_create_plan": "Confirm PRD",
       "save_prd": "Save PRD",

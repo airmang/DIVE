@@ -6,6 +6,7 @@ import type { ScaffoldMode } from "../../features/provocation";
 import type { InterviewAnswer } from "../../features/planning";
 import { remainingInterviewDimensions } from "../../features/planning/remainingInterviewDimensions";
 import { detectAmbiguity, type AmbiguityKind } from "../../lib/ambiguity";
+import { shouldSendOnEnter } from "../../lib/composerKeys";
 
 interface SocraticInterviewPanelProps {
   started: boolean;
@@ -114,26 +115,37 @@ export function SocraticInterviewPanel({
           </Button>
         </div>
         <div className="flex items-end gap-2">
-          <textarea
-            className="min-h-16 flex-1 resize-none rounded-md border bg-bg px-3 py-2 text-sm text-fg placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-            value={text}
-            onChange={(event) => {
-              setText(event.target.value);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                submit();
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <textarea
+              className="min-h-16 w-full resize-none rounded-md border bg-bg px-3 py-2 text-sm text-fg placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              value={text}
+              onChange={(event) => {
+                setText(event.target.value);
+              }}
+              onKeyDown={(event) => {
+                // S-073 (D-014-07): same contract as the main chat — Enter
+                // sends, Shift+Enter is a newline, IME composition never sends.
+                // Cmd/Ctrl+Enter keeps working for anyone who learned it first.
+                if (
+                  shouldSendOnEnter(event) ||
+                  (event.key === "Enter" && (event.metaKey || event.ctrlKey))
+                ) {
+                  event.preventDefault();
+                  submit();
+                }
+              }}
+              placeholder={
+                started
+                  ? t("planning.interview.answer_placeholder")
+                  : t("planning.interview.goal_placeholder")
               }
-            }}
-            placeholder={
-              started
-                ? t("planning.interview.answer_placeholder")
-                : t("planning.interview.goal_placeholder")
-            }
-            disabled={disabled || loading}
-            data-testid="interview-input"
-          />
+              disabled={disabled || loading}
+              data-testid="interview-input"
+            />
+            <p className="px-1 text-[11px] text-fg-muted" data-testid="interview-enter-hint">
+              {t("chat.input.enter_hint")}
+            </p>
+          </div>
           <Button
             variant="primary"
             size="sm"

@@ -11,6 +11,7 @@ import {
   type ArchitectureDecision,
   type ArchitectureForm,
   type ArchitectureProposals,
+  type ConfirmableProjectSpecReasonCode,
   type LiveProjectSpecDraft,
   type PrdIntentCheckFraming,
   type PrdPatchValidationOutcome,
@@ -29,6 +30,7 @@ import { buildPrdIntentCheckCard } from "../../features/provocation/rules";
 import { Button } from "../ui/button";
 import { RuntimeModelSelector } from "../chat/RuntimeModelSelector";
 import { cn } from "../../lib/utils";
+import { shouldSendOnEnter } from "../../lib/composerKeys";
 import { QuickIntakePanel } from "./QuickIntakePanel";
 
 export type PrdAuthoringState = "missing" | "draft" | "minimal" | "saved" | "editing";
@@ -192,11 +194,13 @@ function prdConversationContext(turns: PrdConversationTurn[]): PrdInterviewConve
     .map((turn) => ({ role: turn.role, text: turn.text.trim() }));
 }
 
-// S-053 D2: the six patch-rejection reason codes `validate_prd_patch_for_draft`
-// (workspace_plan.rs) can emit, plus the one `apply_prd_patch_to_draft` uses for
-// a held-for-student conflict (surfaced separately via `patch_held`, kept here
-// only so an unexpected code never falls through silently). `unknown` is the
-// fallback for any future additive code this UI has not been taught yet.
+// S-053 D2: the patch-rejection reason codes `validate_prd_patch_for_draft`
+// (workspace_plan/prd_patch.rs) can emit — six from S-053 plus S-072's
+// `item_not_found` (a revise_*/remove_* target that matched no list item) —
+// plus the one `apply_prd_patch_to_draft` uses for a held-for-student conflict
+// (surfaced separately via `patch_held`, kept here only so an unexpected code
+// never falls through silently). `unknown` is the fallback for any future
+// additive code this UI has not been taught yet.
 const PRD_REJECTED_REASON_CODES = [
   "too_many_operations",
   "unsupported_operation",
@@ -204,12 +208,88 @@ const PRD_REJECTED_REASON_CODES = [
   "text_too_large",
   "secret_like_text",
   "criterion_not_found",
+  "item_not_found",
   "student_edit_conflict",
 ] as const;
 
 function rejectedReasonKey(code: string): string {
   const known = (PRD_REJECTED_REASON_CODES as readonly string[]).includes(code);
   return `prd.authoring.rejected_reasons.${known ? code : "unknown"}`;
+}
+
+// S-073 (D-014-08): confirm-gate legibility. The gate itself
+// (validateConfirmableProjectSpec) is untouched; these two maps only decide how
+// each of its reason codes is *shown* — the sentence in the footer hint / chip
+// tooltip, and which canvas field the remaining-count chip scrolls to.
+const PRD_VALIDATION_REASON_KEYS: Record<ConfirmableProjectSpecReasonCode, string> = {
+  missing_goal: "prd.authoring.validation_goal_required",
+  vague_goal: "prd.authoring.validation_goal_vague",
+  missing_intent_summary: "prd.authoring.validation_intent_required",
+  missing_scope: "prd.authoring.validation_scope_required",
+  missing_non_goals: "prd.authoring.validation_non_goals_required",
+  insufficient_acceptance_criteria: "prd.authoring.validation_criteria_insufficient",
+  missing_acceptance_criterion: "prd.authoring.validation_criterion_required",
+  missing_architecture_form: "prd.authoring.validation_architecture_form_required",
+  missing_architecture_stack: "prd.authoring.validation_architecture_stack_required",
+};
+
+function validationReasonKey(code: string): string {
+  return (
+    PRD_VALIDATION_REASON_KEYS[code as ConfirmableProjectSpecReasonCode] ??
+    "prd.authoring.validation_criterion_required"
+  );
+}
+
+interface PrdValidationFieldTarget {
+  /** data-testid of the canvas field container the reason belongs to. */
+  container: string;
+  /** Optional selector (inside the container) for the control to focus; falls
+   *  back to the first enabled input / textarea / button in the container. */
+  focus?: string;
+}
+
+const PRD_VALIDATION_REASON_FIELDS: Record<
+  ConfirmableProjectSpecReasonCode,
+  PrdValidationFieldTarget
+> = {
+  missing_goal: { container: "prd-field-goal" },
+  vague_goal: { container: "prd-field-goal" },
+  missing_intent_summary: { container: "prd-field-intent-summary" },
+  missing_scope: { container: "prd-field-scope" },
+  missing_non_goals: { container: "prd-field-non-goals" },
+  insufficient_acceptance_criteria: { container: "prd-field-acceptanceCriteria" },
+  missing_acceptance_criterion: { container: "prd-field-acceptanceCriteria" },
+  missing_architecture_form: { container: "prd-field-architecture" },
+  missing_architecture_stack: {
+    container: "prd-field-architecture",
+    focus: '[data-testid="prd-architecture-stack-input"]',
+  },
+};
+
+function validationReasonField(code: string): PrdValidationFieldTarget | null {
+  return PRD_VALIDATION_REASON_FIELDS[code as ConfirmableProjectSpecReasonCode] ?? null;
+}
+
+const FIRST_FOCUSABLE_SELECTOR =
+  "input:not([disabled]), textarea:not([disabled]), button:not([disabled])";
+
+/** Scrolls the field container for `code` into view and focuses its control.
+ *  Returns the focused element (null when nothing matched) so tests can assert
+ *  the target without reaching into the DOM themselves. */
+function focusValidationField(root: HTMLElement | null, code: string): HTMLElement | null {
+  const target = validationReasonField(code);
+  if (!root || !target) return null;
+  const container = root.querySelector<HTMLElement>(`[data-testid="${target.container}"]`);
+  if (!container) return null;
+  // jsdom has no scrollIntoView; the real app always does.
+  if (typeof container.scrollIntoView === "function") {
+    container.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+  const control =
+    (target.focus ? container.querySelector<HTMLElement>(target.focus) : null) ??
+    container.querySelector<HTMLElement>(FIRST_FOCUSABLE_SELECTOR);
+  control?.focus();
+  return control ?? null;
 }
 
 // S-053 D3: maps a field_provenance root key to its existing field-label i18n
@@ -381,6 +461,18 @@ export function PrdAuthoringBoard({
     if (!canConfirmPrd) return;
     onSavePrdAndCreatePlan(withNonEmptyCriteria(localDraft));
   };
+  // S-073 (D-014-08): the same reason sentences feed the footer hint and the
+  // remaining-count chip's tooltip, so the two can never disagree.
+  const validationReasonTexts = validation.reasonCodes.map((code) => t(validationReasonKey(code)));
+  const boardRef = useRef<HTMLElement>(null);
+  const focusFirstMissingField = () => {
+    const code = validation.reasonCodes[0];
+    if (code) focusValidationField(boardRef.current, code);
+  };
+  // A disabled <button> cannot reliably show a tooltip across WebKit/Chromium,
+  // so the enabled chip carries the reasons; the buttons point at the footer
+  // hint for assistive tech while they are disabled.
+  const confirmDescribedBy = canConfirmPrd ? undefined : "prd-validation-hint";
   const addCriterion = () => {
     const current = localDraft.spec.acceptanceCriteria;
     // A trailing empty row already exists to type into; don't stack blanks.
@@ -605,6 +697,7 @@ export function PrdAuthoringBoard({
 
   return (
     <section
+      ref={boardRef}
       className="flex h-full min-h-0 flex-col bg-bg"
       data-testid="prd-authoring-board"
       aria-label={t("prd.authoring.title")}
@@ -629,11 +722,25 @@ export function PrdAuthoringBoard({
               {t("prd.authoring.history")}
             </Button>
           ) : null}
+          {validation.valid ? null : (
+            <button
+              type="button"
+              onClick={focusFirstMissingField}
+              title={validationReasonTexts.join(" / ")}
+              aria-describedby="prd-validation-hint"
+              className="inline-flex h-8 items-center whitespace-nowrap rounded-full border border-warn/50 bg-warn/10 px-3 text-xs font-medium text-fg transition-colors hover:bg-warn/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+              data-testid="prd-confirm-remaining"
+              data-count={validation.reasonCodes.length}
+            >
+              {t("prd.authoring.confirm_remaining", { count: validation.reasonCodes.length })}
+            </button>
+          )}
           <Button
             variant="primary"
             size="sm"
             onClick={confirmPrd}
             disabled={!canConfirmPrd}
+            aria-describedby={confirmDescribedBy}
             data-testid="prd-confirm-header"
           >
             <CheckCircle2 />
@@ -683,12 +790,26 @@ export function PrdAuthoringBoard({
               ref={interviewInputRef}
               value={answer}
               onChange={(event) => setAnswer(event.target.value)}
+              onKeyDown={(event) => {
+                // S-073 (D-014-07): same contract as the main chat — Enter
+                // sends, Shift+Enter is a newline, IME composition never sends.
+                if (shouldSendOnEnter(event)) {
+                  event.preventDefault();
+                  void submitAnswer();
+                }
+              }}
               disabled={isAnswerBusy}
               rows={3}
               className="w-full resize-none rounded-md border bg-bg px-3 py-2 text-sm text-fg placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
               placeholder={t("prd.authoring.answer_placeholder")}
               data-testid="prd-interview-input"
             />
+            <p
+              className="mt-1 px-1 text-[11px] text-fg-muted"
+              data-testid="prd-interview-enter-hint"
+            >
+              {t("chat.input.enter_hint")}
+            </p>
             <Button
               variant="primary"
               size="sm"
@@ -773,7 +894,10 @@ export function PrdAuthoringBoard({
               />
             </label>
 
-            <label className="flex flex-col gap-1 xl:col-span-2">
+            <label
+              className="flex flex-col gap-1 xl:col-span-2"
+              data-testid="prd-field-intent-summary"
+            >
               <span className="text-xs font-semibold text-fg-muted">
                 {t("prd.fields.intent_summary")}
               </span>
@@ -797,7 +921,7 @@ export function PrdAuthoringBoard({
               />
             </label>
 
-            <label className="flex flex-col gap-1">
+            <label className="flex flex-col gap-1" data-testid="prd-field-scope">
               <span className="text-xs font-semibold text-fg-muted">{t("prd.fields.scope")}</span>
               <textarea
                 value={localDraft.spec.scope.join("\n")}
@@ -809,7 +933,7 @@ export function PrdAuthoringBoard({
               />
             </label>
 
-            <label className="flex flex-col gap-1">
+            <label className="flex flex-col gap-1" data-testid="prd-field-non-goals">
               <span className="text-xs font-semibold text-fg-muted">
                 {t("prd.fields.non_goals")}
               </span>
@@ -823,7 +947,7 @@ export function PrdAuthoringBoard({
               />
             </label>
 
-            <label className="flex flex-col gap-1">
+            <label className="flex flex-col gap-1" data-testid="prd-field-constraints">
               <span className="text-xs font-semibold text-fg-muted">
                 {t("prd.fields.constraints")}
               </span>
@@ -1048,30 +1172,15 @@ export function PrdAuthoringBoard({
         className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t bg-bg-panel px-6 py-3"
         data-testid="prd-bottom-action-bar"
       >
-        <div className="text-xs text-fg-muted" data-testid="prd-validation-hint">
+        <div
+          id="prd-validation-hint"
+          role="status"
+          className="text-xs text-fg-muted"
+          data-testid="prd-validation-hint"
+        >
           {validation.valid
             ? t("prd.authoring.validation_ready")
-            : validation.reasonCodes
-                .map((code) =>
-                  code === "missing_goal"
-                    ? t("prd.authoring.validation_goal_required")
-                    : code === "vague_goal"
-                      ? t("prd.authoring.validation_goal_vague")
-                      : code === "missing_intent_summary"
-                        ? t("prd.authoring.validation_intent_required")
-                        : code === "missing_scope"
-                          ? t("prd.authoring.validation_scope_required")
-                          : code === "missing_non_goals"
-                            ? t("prd.authoring.validation_non_goals_required")
-                            : code === "insufficient_acceptance_criteria"
-                              ? t("prd.authoring.validation_criteria_insufficient")
-                              : code === "missing_architecture_form"
-                                ? t("prd.authoring.validation_architecture_form_required")
-                                : code === "missing_architecture_stack"
-                                  ? t("prd.authoring.validation_architecture_stack_required")
-                                  : t("prd.authoring.validation_criterion_required"),
-                )
-                .join(" / ")}
+            : validationReasonTexts.join(" / ")}
         </div>
         <div className="flex items-center gap-2">
           {onSaveDraft ? (
@@ -1091,6 +1200,7 @@ export function PrdAuthoringBoard({
             size="sm"
             onClick={confirmPrd}
             disabled={!canConfirmPrd}
+            aria-describedby={confirmDescribedBy}
             data-testid="prd-save-create-plan"
           >
             <CheckCircle2 />
