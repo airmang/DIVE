@@ -33,6 +33,21 @@ import { QuickIntakePanel } from "./QuickIntakePanel";
 
 export type PrdAuthoringState = "missing" | "draft" | "minimal" | "saved" | "editing";
 
+/** The stack currently "in place" for decisionSource purposes (S-075). */
+interface CommittedStack {
+  stack: string;
+  source: ArchitectureDecision["decisionSource"];
+}
+
+function committedStackFromArchitecture(
+  architecture: ArchitectureDecision | null | undefined,
+): CommittedStack {
+  return {
+    stack: (architecture?.stack ?? "").trim(),
+    source: architecture?.decisionSource ?? "student_confirmed",
+  };
+}
+
 export interface PrdPatchFeedback {
   validationOutcome: PrdPatchValidationOutcome;
   appliedFieldPaths: string[];
@@ -412,16 +427,20 @@ export function PrdAuthoringBoard({
   // accepted (card) or typed stack is `student_confirmed`; editing a stack that
   // was already in place — accepted from a card, restored with the draft, or
   // typed and then left — is `student_changed`. This ref holds that in-place
-  // value so typing a fresh stack character by character never flips to
-  // "changed" on the second keystroke. It is re-seeded when a different draft
-  // arrives (the parent echoes every edit back through `draft`, so the id is
-  // the signal, not the object).
-  const committedStackRef = useRef((draft.spec.architecture?.stack ?? "").trim());
-  const committedDraftIdRef = useRef(draft.draftId);
+  // stack (and the source it carried) so typing a fresh stack character by
+  // character never flips to "changed" on the second keystroke.
+  // S-075 review (P2): the parent echoes every draft this board emits back
+  // through `draft` as the SAME reference, while an external restore (reopen →
+  // getProjectSpecDraft → restorePrdDraftIfCurrent) arrives as a different
+  // object under the SAME draftId — so "is this the object we emitted?" is the
+  // re-seed signal, never the id.
+  const committedStackRef = useRef<CommittedStack>(
+    committedStackFromArchitecture(draft.spec.architecture),
+  );
+  const lastEmittedDraftRef = useRef<LiveProjectSpecDraft | null>(null);
   useEffect(() => {
-    if (committedDraftIdRef.current === draft.draftId) return;
-    committedDraftIdRef.current = draft.draftId;
-    committedStackRef.current = (draft.spec.architecture?.stack ?? "").trim();
+    if (draft === lastEmittedDraftRef.current) return;
+    committedStackRef.current = committedStackFromArchitecture(draft.spec.architecture);
   }, [draft]);
 
   useEffect(() => {
@@ -445,13 +464,14 @@ export function PrdAuthoringBoard({
     [localDraft.spec],
   );
   const architecture = localDraft.spec.architecture;
-  // S-047 → S-075 (D-014-16): the AI's recommend-then-confirm stack cards show
-  // while no stack is confirmed yet, so a decided field never keeps stale
-  // cards. The student's tap (or typing) authors the decision.
+  const currentStack = (architecture?.stack ?? "").trim();
+  // S-047 → S-075 (D-014-16): the AI's recommend-then-confirm stack cards. They
+  // stay visible while this turn's proposals exist — even after a tap, so the
+  // student can switch between the two (the card matching the current stack is
+  // shown pressed) — and clear on the next turn as before. The student's tap
+  // (or typing) authors the decision.
   const stackProposals =
-    architectureProposals?.kind === "stack" && !(architecture?.stack ?? "").trim()
-      ? architectureProposals.options
-      : [];
+    architectureProposals?.kind === "stack" ? architectureProposals.options : [];
   // S-074 review (A): since S-073 the interview can retire a criterion
   // (`status: "retired"`). Only active criteria are editable rows — a retired
   // one rendered as an ordinary row looked unchanged (QA "수정 안 됨") and
@@ -560,10 +580,17 @@ export function PrdAuthoringBoard({
     }
   };
 
+  // Every draft leaving this board goes through here so the `[draft]` effect
+  // above can tell the parent's echo apart from an external restore.
+  const emitDraft = (next: LiveProjectSpecDraft) => {
+    lastEmittedDraftRef.current = next;
+    onDraftChange(next);
+  };
+
   const updateDraft = (next: LiveProjectSpecDraft, changedFields: string[]) => {
     const marked = markDraftStudentEdited(next, changedFields);
     setLocalDraft(marked);
-    onDraftChange(marked);
+    emitDraft(marked);
   };
 
   const updateSpecField = <K extends keyof LiveProjectSpecDraft["spec"]>(
@@ -611,28 +638,41 @@ export function PrdAuthoringBoard({
     updateSpecField("architecture", next, "architecture");
   };
 
-  // Tapping an AI card accepts that stack as-is: `student_confirmed`.
-  const acceptStackProposal = (value: string) => {
-    committedStackRef.current = value.trim();
-    writeArchitecture({ stack: value.trim() ? value : null, decisionSource: "student_confirmed" });
+  // A fresh stack (nothing in place yet) confirms; a different stack than the
+  // one in place is a student change; the in-place stack verbatim keeps the
+  // source it was committed with.
+  const stackDecisionSource = (value: string): ArchitectureDecision["decisionSource"] => {
+    const committed = committedStackRef.current;
+    if (!committed.stack) return "student_confirmed";
+    return value.trim() === committed.stack ? committed.source : "student_changed";
   };
 
-  // Typing: a fresh stack (nothing in place yet) confirms; editing the stack
-  // that was in place is a student change; typing it back verbatim restores
-  // the prior source.
-  const typeStack = (value: string) => {
-    const prev = localDraft.spec.architecture;
-    const committed = committedStackRef.current;
-    const decisionSource: ArchitectureDecision["decisionSource"] = !committed
-      ? "student_confirmed"
-      : value.trim() !== committed
-        ? "student_changed"
-        : (prev?.decisionSource ?? "student_confirmed");
+  // Tapping an AI card accepts that stack: `student_confirmed` for the first
+  // one, `student_changed` when it replaces a stack already in place.
+  const acceptStackProposal = (value: string) => {
+    const decisionSource = stackDecisionSource(value);
+    committedStackRef.current = { stack: value.trim(), source: decisionSource };
     writeArchitecture({ stack: value.trim() ? value : null, decisionSource });
   };
 
+  const typeStack = (value: string) => {
+    writeArchitecture({
+      stack: value.trim() ? value : null,
+      decisionSource: stackDecisionSource(value),
+    });
+  };
+
+  // Leaving the field commits what was typed. S-075 review (P2): a blank field
+  // never downgrades the committed stack, so confirmed A → clear → blur →
+  // type B is still a change from A.
   const commitTypedStack = () => {
-    committedStackRef.current = (localDraft.spec.architecture?.stack ?? "").trim();
+    const current = localDraft.spec.architecture;
+    const stack = (current?.stack ?? "").trim();
+    if (!stack) return;
+    committedStackRef.current = {
+      stack,
+      source: current?.decisionSource ?? "student_confirmed",
+    };
   };
 
   const patchArchitecture = (patch: Partial<ArchitectureDecision>) => {
@@ -674,7 +714,7 @@ export function PrdAuthoringBoard({
   const submitQuickIntake = (input: QuickIntakeInput) => {
     const next = applyQuickIntakeToDraft(localDraft, input);
     setLocalDraft(next);
-    onDraftChange(next);
+    emitDraft(next);
     onQuickIntakeSubmit?.(next, input);
   };
 
@@ -1140,28 +1180,48 @@ export function PrdAuthoringBoard({
               <span className="text-[11px] font-normal text-fg-subtle">
                 {t("prd.fields.architecture_help")}
               </span>
+              {/* S-075 review (P2): the help promises a proposal; until one
+                  arrives (and nothing is typed) say so, so the student is not
+                  left waiting for a card. */}
+              {stackProposals.length === 0 && !currentStack ? (
+                <span
+                  className="text-[11px] font-normal italic text-fg-subtle"
+                  data-testid="prd-architecture-no-proposal"
+                >
+                  {t("prd.architecture.no_proposal_yet")}
+                </span>
+              ) : null}
 
               {stackProposals.length > 0 ? (
                 <div className="flex flex-col gap-2" data-testid="prd-architecture-stack-proposals">
                   <span className="text-[11px] font-normal text-fg-subtle">
                     {t("prd.architecture.proposals_heading_stack")}
                   </span>
-                  {stackProposals.map((option, index) => (
-                    <button
-                      key={`${option.value}-${index}`}
-                      type="button"
-                      onClick={() => acceptStackProposal(option.value)}
-                      className="flex flex-col gap-0.5 rounded-md border border-border bg-bg-panel2 px-3 py-2 text-left text-sm transition-colors hover:border-accent hover:bg-accent-subtle"
-                      data-testid={`prd-architecture-stack-proposal-${index}`}
-                    >
-                      <span className="font-medium text-fg">{option.value}</span>
-                      {option.rationale ? (
-                        <span className="text-[11px] font-normal text-fg-subtle">
-                          {option.rationale}
-                        </span>
-                      ) : null}
-                    </button>
-                  ))}
+                  {stackProposals.map((option, index) => {
+                    const selected = option.value.trim() === currentStack;
+                    return (
+                      <button
+                        key={`${option.value}-${index}`}
+                        type="button"
+                        onClick={() => acceptStackProposal(option.value)}
+                        aria-pressed={selected}
+                        className={cn(
+                          "flex flex-col gap-0.5 rounded-md border px-3 py-2 text-left text-sm transition-colors",
+                          selected
+                            ? "border-accent bg-accent-subtle"
+                            : "border-border bg-bg-panel2 hover:border-accent hover:bg-accent-subtle",
+                        )}
+                        data-testid={`prd-architecture-stack-proposal-${index}`}
+                      >
+                        <span className="font-medium text-fg">{option.value}</span>
+                        {option.rationale ? (
+                          <span className="text-[11px] font-normal text-fg-subtle">
+                            {option.rationale}
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
                 </div>
               ) : null}
 

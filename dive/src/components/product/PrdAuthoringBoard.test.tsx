@@ -281,9 +281,149 @@ describe("PrdAuthoringBoard", () => {
         decisionSource: "student_confirmed",
       });
       expect(latestDraft(props).spec.architecture).not.toHaveProperty("forms");
-      // The accepted stack clears the cards and unblocks confirmation.
-      expect(screen.queryByTestId("prd-architecture-stack-proposals")).toBeNull();
+      // The cards stay for this turn with the accepted one pressed (S-075
+      // review nit), and confirmation is unblocked.
+      expect(screen.getByTestId("prd-architecture-stack-proposals")).toBeTruthy();
+      expect(
+        screen.getByTestId("prd-architecture-stack-proposal-1").getAttribute("aria-pressed"),
+      ).toBe("true");
+      expect(
+        screen.getByTestId("prd-architecture-stack-proposal-0").getAttribute("aria-pressed"),
+      ).toBe("false");
+      expect(screen.queryByTestId("prd-architecture-no-proposal")).toBeNull();
       expect(screen.getByTestId("prd-confirm-header")).toHaveProperty("disabled", false);
+    });
+
+    it("lets the student switch to the other card, marking the replacement as student_changed", () => {
+      const props = renderBoard({
+        draft: concreteDraft(),
+        architectureProposals: {
+          kind: "stack",
+          options: [
+            { value: "React + Vite", rationale: "A browser app" },
+            { value: "Python + Flask", rationale: "A small web server" },
+          ],
+        },
+      });
+
+      fireEvent.click(screen.getByTestId("prd-architecture-stack-proposal-0"));
+      expect(latestDraft(props).spec.architecture).toMatchObject({
+        stack: "React + Vite",
+        decisionSource: "student_confirmed",
+      });
+
+      fireEvent.click(screen.getByTestId("prd-architecture-stack-proposal-1"));
+      expect(screen.getByTestId("prd-architecture-stack-input")).toHaveProperty(
+        "value",
+        "Python + Flask",
+      );
+      expect(latestDraft(props).spec.architecture).toMatchObject({
+        stack: "Python + Flask",
+        decisionSource: "student_changed",
+      });
+      expect(
+        screen.getByTestId("prd-architecture-stack-proposal-1").getAttribute("aria-pressed"),
+      ).toBe("true");
+      expect(
+        screen.getByTestId("prd-architecture-stack-proposal-0").getAttribute("aria-pressed"),
+      ).toBe("false");
+    });
+
+    it("says there is no proposal yet only while no cards exist and nothing is typed", () => {
+      renderBoard({ draft: concreteDraft() });
+      expect(screen.getByTestId("prd-architecture-no-proposal").textContent).toBe(
+        "No proposal yet — keep the conversation going and the AI will propose one, or write your own.",
+      );
+
+      // Typing a stack removes the line.
+      fireEvent.change(screen.getByTestId("prd-architecture-stack-input"), {
+        target: { value: "Rust" },
+      });
+      expect(screen.queryByTestId("prd-architecture-no-proposal")).toBeNull();
+
+      // Cards present: the line is not shown even with a blank stack.
+      cleanup();
+      renderBoard({
+        draft: concreteDraft(),
+        architectureProposals: {
+          kind: "stack",
+          options: [{ value: "React + Vite", rationale: "A browser app" }],
+        },
+      });
+      expect(screen.queryByTestId("prd-architecture-no-proposal")).toBeNull();
+      expect(screen.getByTestId("prd-architecture-stack-proposals")).toBeTruthy();
+    });
+
+    it("treats a draft restored under the same draftId as the in-place stack (S-075 review P2)", () => {
+      const onDraftChange = vi.fn();
+      const baseProps: Parameters<typeof PrdAuthoringBoard>[0] = {
+        projectName: "DIVE",
+        projectPath: "/tmp/dive",
+        prdState: "draft",
+        draft: concreteDraft(),
+        busy: false,
+        recentlyChangedFields: [],
+        patchFeedback: null,
+        onDraftChange,
+        onSubmitAnswer: vi.fn(),
+        onSaveDraft: vi.fn(),
+        onSavePrdAndCreatePlan: vi.fn(),
+        onOpenHistory: vi.fn(),
+      };
+      const { rerender } = render(<PrdAuthoringBoard {...baseProps} />);
+      expect(screen.getByTestId("prd-architecture-stack-input")).toHaveProperty("value", "");
+
+      // The async reopen path delivers a restored draft: a different object,
+      // the SAME draftId, carrying the stack the student confirmed earlier.
+      const restored = concreteDraft({
+        stack: "React + Vite",
+        rationale: null,
+        decisionSource: "student_confirmed",
+        decidedInVersion: 1,
+      });
+      expect(restored.draftId).toBe(baseProps.draft.draftId);
+      rerender(<PrdAuthoringBoard {...baseProps} draft={restored} />);
+      expect(screen.getByTestId("prd-architecture-stack-input")).toHaveProperty(
+        "value",
+        "React + Vite",
+      );
+
+      fireEvent.change(screen.getByTestId("prd-architecture-stack-input"), {
+        target: { value: "React + Vite + TypeScript" },
+      });
+      const calls = onDraftChange.mock.calls;
+      expect(calls[calls.length - 1][0].spec.architecture).toMatchObject({
+        stack: "React + Vite + TypeScript",
+        decisionSource: "student_changed",
+      });
+    });
+
+    it("keeps the committed stack through clear-then-retype (S-075 review P2)", () => {
+      const props = renderBoard({ draft: concreteDraft() });
+      const input = screen.getByTestId("prd-architecture-stack-input");
+
+      fireEvent.change(input, { target: { value: "React + Vite" } });
+      fireEvent.blur(input);
+      expect(latestDraft(props).spec.architecture).toMatchObject({
+        stack: "React + Vite",
+        decisionSource: "student_confirmed",
+      });
+
+      // Clearing and leaving the field must not forget what was confirmed.
+      fireEvent.change(input, { target: { value: "" } });
+      fireEvent.blur(input);
+      fireEvent.change(input, { target: { value: "Svelte" } });
+      expect(latestDraft(props).spec.architecture).toMatchObject({
+        stack: "Svelte",
+        decisionSource: "student_changed",
+      });
+
+      // Typing the confirmed stack back verbatim restores its source.
+      fireEvent.change(input, { target: { value: "React + Vite" } });
+      expect(latestDraft(props).spec.architecture).toMatchObject({
+        stack: "React + Vite",
+        decisionSource: "student_confirmed",
+      });
     });
 
     it("marks an edit after accepting a card as student_changed", () => {
@@ -386,8 +526,11 @@ describe("PrdAuthoringBoard", () => {
       "value",
       "React + Vite",
     );
-    // The chosen stack clears the recommendation cards.
-    expect(screen.queryByTestId("prd-architecture-stack-proposals")).toBeNull();
+    // The cards stay for this turn (they clear on the next turn), with the
+    // chosen one shown pressed (S-075 review nit).
+    expect(
+      screen.getByTestId("prd-architecture-stack-proposal-0").getAttribute("aria-pressed"),
+    ).toBe("true");
   });
 
   it("highlights fields changed by an applied interview-turn patch", () => {

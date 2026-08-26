@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
 import type { ProjectSpec } from "../../features/planning";
@@ -85,8 +85,11 @@ describe("FinalPrdReadView", () => {
     renderView();
 
     const block = screen.getByTestId("final-prd-architecture");
-    expect(block.textContent).toContain("Tech stack");
-    expect(screen.getByTestId("final-prd-architecture-stack").textContent).toBe("React + Vite");
+    // Section heading and row label are distinct (S-075 review nit).
+    expect(within(block).getByRole("heading").textContent).toBe("How it's built");
+    const stackValue = screen.getByTestId("final-prd-architecture-stack");
+    expect(stackValue.previousElementSibling?.textContent).toBe("Tech stack");
+    expect(stackValue.textContent).toBe("React + Vite");
     expect(screen.getByText("Runs in the browser with no install.")).toBeTruthy();
     expect(screen.queryByTestId("final-prd-architecture-form")).toBeNull();
     expect(block.textContent).not.toContain("Form");

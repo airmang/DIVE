@@ -384,6 +384,9 @@ fn build_prd_interview_system_prompt() -> String {
         "Acceptance criteria with status \"retired\" in the draft JSON are already dropped — ignore them, never revise or retire them again, and never treat them as active.",
         "Do not invent IDs for new criteria; DIVE assigns AC IDs.",
         "Never put the architecture (tech stack) in the patch — the student decides it by clicking a card or typing, not you.",
+        // S-075 review (P2): a student who agrees in chat must be pointed at the
+        // board, or the turn dead-ends with nothing recorded.
+        "If the student agrees with a proposed stack in chat, tell them to tap that card (or type the stack) in the PRD board — you cannot record the architecture yourself.",
         // S-075 (014 theme 4, D-014-16): the architecture decision is one stack
         // confirmation. No form taxonomy — the rationale itself says, in plain
         // words, what the finished thing is (Constitution VII).
@@ -1021,6 +1024,9 @@ mod prd_interview_prompt_tests {
         let prompt = build_prd_interview_system_prompt();
         assert!(prompt.contains(
             "Never put the architecture (tech stack) in the patch — the student decides it by clicking a card or typing, not you."
+        ));
+        assert!(prompt.contains(
+            "If the student agrees with a proposed stack in chat, tell them to tap that card (or type the stack) in the PRD board — you cannot record the architecture yourself."
         ));
         assert!(prompt.contains("When the suggested next focus is propose_architecture_stack, ALSO return \"proposals\":{\"kind\":\"stack\""));
         assert!(prompt.contains("what the finished thing is (a browser app, a command-line tool, a bot…) and why this stack"));

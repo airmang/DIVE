@@ -221,10 +221,11 @@
       "architecture_rationale": "선택 이유 (선택)"
     },
     "architecture": {
-      "title": "기술 스택",
+      "title": "만드는 방법",
       "stack_label": "기술 스택",
       "empty": "아직 정하지 않음",
-      "proposals_heading_stack": "AI 추천 — 눌러서 선택하거나 직접 고쳐 쓰세요"
+      "proposals_heading_stack": "AI 추천 — 눌러서 선택하거나 직접 고쳐 쓰세요",
+      "no_proposal_yet": "아직 제안이 없어요 — 대화를 이어가면 AI가 제안하거나, 직접 적어도 됩니다."
     },
     "read_view": {
       "title": "최종 PRD",

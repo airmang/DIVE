@@ -532,8 +532,20 @@ pub struct ArchitectureDecision {
     pub stack: Option<String>,
     #[serde(default)]
     pub rationale: Option<String>,
+    // S-075 review: defaults mirror the TS normalizer (unknown/missing source →
+    // `Migration`, missing version → 1) so a partial legacy row still loads.
+    #[serde(default = "default_architecture_decision_source")]
     pub decision_source: ArchitectureDecisionSource,
+    #[serde(default = "default_architecture_decided_in_version")]
     pub decided_in_version: i64,
+}
+
+fn default_architecture_decision_source() -> ArchitectureDecisionSource {
+    ArchitectureDecisionSource::Migration
+}
+
+fn default_architecture_decided_in_version() -> i64 {
+    1
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1076,6 +1088,21 @@ mod tests {
         }
         let parsed: ArchitectureDecision = serde_json::from_value(value).unwrap();
         assert_eq!(parsed, decision);
+    }
+
+    #[test]
+    fn architecture_decision_missing_source_and_version_default_like_the_ts_normalizer() {
+        let parsed: ArchitectureDecision =
+            serde_json::from_value(serde_json::json!({ "stack": "Python" })).unwrap();
+        assert_eq!(
+            parsed,
+            ArchitectureDecision {
+                stack: Some("Python".into()),
+                rationale: None,
+                decision_source: ArchitectureDecisionSource::Migration,
+                decided_in_version: 1,
+            }
+        );
     }
 
     #[test]
