@@ -7,8 +7,9 @@
 **Status**: Approved (owner, 2026-08-25 — "만들 수 있는 프로젝트 종류를 제한하지
 않아야 해. 이거 정말 중요해"; staged via Wily S-072–S-074, implemented in stage
 order by subagents under root verification; **implemented 2026-08-25** — commits
-bb05d33c, 0766a7ac, dc65ef06, 6b4fea7d, 8939b24c, 5c118359; live re-QA on a
-rebuilt release app pending)
+bb05d33c, 0766a7ac, dc65ef06, 6b4fea7d, 8939b24c, 5c118359, then S-075 on
+2026-08-26 — 0d9790a0, 17346c5c + review pack; live re-QA on a rebuilt
+release app pending)
 
 **Input**: Team-member QA feedback on the rc.9-era PRD flow (2026-08-24, four
 items) plus the owner principle that the feedback exposed:

@@ -15,12 +15,17 @@ principle it exposed.
   `specs/014-unrestricted-project-kinds/adr-unrestricted-project-kinds.md`;
   supersedes S-047 Q1 (bounded form enum) and the S-049 form-scaffolding /
   `plan_form_consistency` follow-up.
-- **S-072** — `ArchitectureDecision.form` → `forms[]` (multi-select with a
-  one-line definition per form, "여러 개여도 되고 '기타'에 직접 적어도 됩니다"),
-  legacy single-`form` PRDs still load; planner scaffolding is an additive union
-  ending with "planning hints, not limits"; the `plan.form_consistency`
-  contradiction check and EventLog event are removed. Fixes "웹앱 또는 API 둘 중
-  하나만 선택".
+- **S-072** — Principle VII applied to the S-047 architecture decision: the
+  S-049 per-form "avoid X" planner scaffolding and the `plan.form_consistency`
+  contradiction check / EventLog event are removed; legacy single-`form` PRDs
+  still load. (Its interim multi-select `forms[]` picker was superseded the
+  next day by S-075.)
+- **S-075** — the architecture decision is one **stack confirmation**: the AI
+  proposes ≤2 tech stacks with a one-line plain reason ("AI가 이렇게 만들
+  계획이에요"), the student confirms or rewrites it; the web-app / API-service
+  form taxonomy (`ArchitectureForm`, form picker, definitions, form focus)
+  is gone from TS and Rust. Fixes "웹앱 또는 API 둘 중 하나만 선택" at the root:
+  there is no longer a kind to pick.
 - **S-073** — in-place PRD interview edits: `revise_*` / `remove_*` for scope,
   non-goals and constraints (target-text addressed, exact > unique-normalized
   matching, duplicate-merge, sequential validation) and

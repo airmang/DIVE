@@ -63,7 +63,7 @@ archived-status sections below).
 | `specs/010-beginner-readiness-ux/adr-s048-network-egress.md`          | Accepted ADR            | Constitution 1.0.0→1.1.0 amendment admitting the Rust-validated network-egress capability class (Principle III).                                                                                                                        |
 | `specs/011-conference-demo-readiness/spec.md`                         | Canonical               | Defines the round-3 conference-demo-readiness scope (8 themes → Wily Stages S-050–S-057) from the 2026-07-10 QA NO-GO verdict, targeting the 2026-08-14 presentation (Windows demo machine).                                            |
 | `specs/013-public-release-readiness/spec.md`                          | Canonical               | Defines the round-4 public-release readiness scope (13 themes → Wily Stages S-058–S-070) from the 2026-07-20 full-repo code review (124 confirmed findings), gating the public repo flip synchronized with the 2026-08-14 presentation. |
-| `specs/014-unrestricted-project-kinds/spec.md`                        | Canonical               | Round-5 umbrella (S-072–S-074): records Constitution VII (unrestricted project kinds) and re-decides S-047 under it — multi-valued `ArchitectureDecision.forms`, additive-only planner scaffolding, `plan_form_consistency` removed; in-place PRD patch edits; Enter-to-send + legible confirm gate. |
+| `specs/014-unrestricted-project-kinds/spec.md`                        | Canonical               | Round-5 umbrella (S-072–S-075): records Constitution VII (unrestricted project kinds) and re-decides S-047 under it — S-049 exclusionary scaffolding + `plan_form_consistency` removed (S-072), then the form taxonomy itself, leaving one stack confirmation (S-075); in-place PRD patch edits (S-073); Enter-to-send + legible confirm gate (S-074). |
 | `specs/014-unrestricted-project-kinds/decisions.md`                   | Canonical               | Records 014 stage-scoped decisions (D-014-xx).                                                                                                                                                                                          |
 | `specs/014-unrestricted-project-kinds/adr-unrestricted-project-kinds.md` | Canonical ADR        | Constitution 1.1.0 → 1.2.0 amendment: new Principle VII; supersedes design-s047.md Q1 and the S-049 form-scaffolding/consistency follow-up.                                                                                              |
 
@@ -79,7 +79,7 @@ this repository.
 ## 014 Implementation Status
 
 As of 2026-08-25, `specs/014-unrestricted-project-kinds/` is implemented on branch
-`014-unrestricted-project-kinds` (all three stages Done in Wily on 2026-08-25;
+`014-unrestricted-project-kinds` (S-072–S-074 Done in Wily on 2026-08-25, S-075 Done 2026-08-26;
 live re-QA on a rebuilt release app by the reporting team member is the
 remaining follow-up). Stage numbers follow the Wily roadmap (S-072 is the separately
 tracked macOS-distribution restoration stage, registered 2026-07-21 and
@@ -90,9 +90,10 @@ the other three items of the 2026-08-24 team QA of the PRD flow.
 
 | Wily Stage | Scope                                                                                                                                                                          | Status      |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
-| S-072      | Principle VII canonized; `ArchitectureDecision.form` → `forms[]` (legacy folded), per-form definitions + "several forms are fine" copy, additive-only scaffolding, `plan_form_consistency` removed | Done        |
+| S-072      | Principle VII canonized; S-049 exclusionary scaffolding + `plan_form_consistency` removed; legacy single `form` still loads (its interim `forms[]` multi-select picker was superseded by S-075)                     | Done        |
 | S-073      | PRD patch ops `revise_*` / `remove_*` for scope, non-goals, constraints (target-text addressed) + `retire_acceptance_criterion`; prompt vocabulary; `item_not_found` reason        | Done        |
 | S-074      | Enter-to-send (IME-guarded) in the PRD interview rail and Socratic panel via shared `composerKeys`; confirm-gate remaining-count chip + tooltip + scroll-to-first-missing-field    | Done        |
+| S-075      | Architecture decision = one stack confirmation ("AI가 이렇게 만들 계획이에요"); `ArchitectureForm` taxonomy, form picker/definitions/focus and `planScaffoldingForForms` removed from TS + Rust; legacy `form`/`forms` keys ignored (owner-added 2026-08-26, D-014-16) | Done        |
 
 Superseded by S-072: `specs/010-beginner-readiness-ux/design-s047.md` resolved
 decision Q1 (bounded form enum) and the S-049 closeout of its Q2 follow-up

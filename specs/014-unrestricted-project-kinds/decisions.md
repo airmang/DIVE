@@ -181,3 +181,21 @@ evaluate. Legacy `form` / `forms` / `formOtherLabel` keys are ignored on
 load; no migration. `decisionSource` keeps its meaning: `student_confirmed`
 on the first accepted/typed stack, `student_changed` when it is edited
 afterwards.
+
+## D-014-17 (S-075) — Stack confirmation provenance and the chat-agreement path
+
+Review of 17346c5c: `decisionSource` bookkeeping in the board mis-stamped two
+sequences (`student_confirmed` after an async same-id draft restore, and
+after clear → blur → retype). The board now re-seeds its committed-stack
+reference whenever an external draft arrives and never downgrades a
+committed value to empty, so "edited afterwards" reliably records
+`student_changed`; Rust mirrors the TS normalizer's defaults
+(`decisionSource` → migration, `decidedInVersion` → 1) for rows missing
+them. Because the AI cannot record the stack (Constitution VI), the prompt
+now tells the model what to do when the student agrees in chat — point them
+at the card or the input — instead of re-proposing every turn. Proposal
+cards stay visible after a tap (the accepted one marked) until the next turn
+so switching is discoverable, and the section says "아직 제안이 없어요 …
+직접 적어도 됩니다" when nothing has been proposed yet, so the copy never
+promises a proposal the student cannot see. Read view section title is
+"만드는 방법 / How it's built" to avoid "기술 스택 / 기술 스택".
