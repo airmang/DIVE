@@ -161,3 +161,23 @@ proposal cards stay visible while any proposed form is still unchosen, so
 "여러 개 가능" is true from the cards as well as the toggles. The plan
 generation directive binds the model to the chosen *stack* only; form
 guidance lives solely in the additive scaffolding block.
+
+## D-014-16 (S-075) — The architecture decision is one stack confirmation; the form taxonomy is removed
+
+Owner question (2026-08-26): is the web-app / API-service picker a necessary
+step at all? Fresh look: the 2026-06-29 requirement was student agency over
+*how it is built* — the stack the AI will use — not a classification of the
+product. The form layer (S-047 Q1) restates what the goal already says, is
+the only reason the picker needs six buttons and definitions, and after
+Constitution VII performs no downstream work (its scaffolding and
+consistency check are gone). It is removed entirely, superseding S-072's
+`forms[]` re-model one day after it landed; the S-072 work that survives is
+Principle VII itself, the removal of the exclusionary machinery, and the
+legacy-tolerant deserialization. The mandatory decision remains but is
+reframed for a novice as confirmation — "AI가 이렇게 만들 계획이에요: <stack>
+(<one-line why>) — 괜찮으면 확정, 아니면 고쳐 쓰세요" — because the value of
+the step is transparency and consent, not a choice a beginner cannot
+evaluate. Legacy `form` / `forms` / `formOtherLabel` keys are ignored on
+load; no migration. `decisionSource` keeps its meaning: `student_confirmed`
+on the first accepted/typed stack, `student_changed` when it is edited
+afterwards.

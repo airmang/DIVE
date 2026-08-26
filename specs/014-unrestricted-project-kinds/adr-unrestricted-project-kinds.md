@@ -92,3 +92,11 @@ selectable and unpenalised downstream.
   S-049 research-ledger annotation, i18n additions in ko/en.
 - Follow-up: any future classification (domain, size, audience) must be
   designed against VII from the start.
+
+## 6. Post-script (2026-08-26, S-075)
+
+The multi-valued `forms[]` in §2 was itself superseded one day later: the
+owner judged the form taxonomy an unnecessary step, and D-014-16 removed it
+in favour of a single stack confirmation. Principle VII is unchanged — with
+no project-kind taxonomy left, VII is satisfied trivially and remains the
+guard against reintroducing one.

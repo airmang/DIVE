@@ -185,11 +185,64 @@ reason rendering, type coverage.
 board test: Enter submits, Shift+Enter does not, chip count + scroll target;
 Socratic panel test: Enter submits.
 
+### Theme 4 — Architecture decision = one stack confirmation, no form taxonomy → Stage **S-075** (owner-added 2026-08-26)
+
+Owner, looking at the S-072 result: "웹 앱 / API 서비스 고르는 게 꼭 필요한 단계인가?
+굳이 저렇게 해야 하나?" Fresh-look verdict (D-014-16): the 2026-06-29 ask was
+that the AI must not pick how the project is built without the student —
+that is the **stack**. The form taxonomy was an agent-introduced middle layer
+(S-047 Q1) that restates the goal, adds friction before any code (V), and
+after VII no longer does any downstream work. It is removed; the mandatory
+decision stays, reframed as a confirmation.
+
+- **Data model**: `ArchitectureDecision { stack, rationale?, decisionSource,
+  decidedInVersion }`. `forms`, `form`, `formOtherLabel` and the
+  `ArchitectureForm` enum are gone from TS and Rust; legacy JSON keys are
+  ignored on deserialize (no migration; serde ignores unknown fields, TS
+  normalizer strips them). Wire shape of `architectureProposals` stays
+  `{ kind: "stack", options: [{ value, rationale }] }` — `kind` is always
+  `"stack"`; a `"form"` proposal is dropped by the sanitizer.
+- **Gate**: `missing_architecture_stack` only (TS + Rust
+  `architecture_is_decided` = non-empty trimmed stack). The
+  `missing_architecture_form` reason code, its i18n, the S-074 chip's hidden-
+  stack count adjustment, and the form focus mapping are removed (blank draft
+  = 6 remaining).
+- **Interview**: one architecture gap/focus — `propose_architecture_stack`:
+  recommend ≤2 concrete stacks that fit the goal; each rationale is one plain
+  line that says what the finished thing is (a browser app, a command-line
+  tool, a bot…) and why this stack; then ask the student to confirm or change
+  — never decide for them. Form definitions and "may combine several forms"
+  prompt lines go; "never put the architecture in the patch" stays (VI).
+- **Board**: the section is titled "AI가 이렇게 만들 계획이에요" — help copy
+  says the AI proposes a stack from the goal, confirm it or rewrite it, and
+  nothing you build is restricted. ≤2 stack cards (stack + reason) fill the
+  stack input on click; the stack input is always editable; rationale stays
+  optional. No form toggles, definitions, or "other" input. Test ids kept:
+  `prd-field-architecture`, `prd-architecture-stack-input`,
+  `prd-architecture-stack-proposal-{i}`, `prd-architecture-rationale-input`.
+- **Read view**: "기술 스택" row (+ rationale); no form row.
+- **Planner**: prompt architecture context = `{ stack }`; directive binds to
+  the stack only ("do not switch to a different framework or stack"); the
+  S-072 `planScaffoldingForForms` block and `architectureLabels.ts` are
+  deleted. Nothing in the planner mentions a form.
+- **Copy**: remove `prd.architecture.form.*`, `form_help.*`, `form_other_plain`,
+  `form_label`, `proposals_heading_form`, `architecture_other_placeholder`,
+  `validation_architecture_form_required`; rewrite `prd.fields.architecture`,
+  `architecture_help`, `prd.architecture.title`, `proposals_heading_stack`,
+  `validation_architecture_stack_required`, `architecture_stack_placeholder`
+  (ko/en, parity).
+- **Tests**: Rust models (legacy `form`/`forms` keys ignored, stack kept),
+  gaps (stack-only), sanitizer drops `kind: "form"`, IPC save backstop
+  (None / blank stack rejected); TS gate, normalizer, board (cards fill the
+  stack, edit after card, chip count 6, stack focus), read view, planner
+  prompt context.
+
 ## Constraints (all stages)
 
 - Constitution I–VII binding. VII is the reason this spec exists: no stage may
   introduce a single-choice taxonomy, an "avoid X" scaffold, or a form/step
-  contradiction check anywhere.
+  contradiction check anywhere. After S-075 there is no project-kind
+  taxonomy at all — the simplest compliance.
 - Architecture is still authored only by the student's click/typing (no
   `set_architecture` patch op; Constitution VI).
 - ko/en key parity (`src/i18n/parity.test.ts`) must stay green.
