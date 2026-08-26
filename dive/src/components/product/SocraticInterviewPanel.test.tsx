@@ -121,7 +121,7 @@ describe("SocraticInterviewPanel", () => {
       const props = renderPanel();
       const input = screen.getByTestId("interview-input");
 
-      fireEvent.change(input, { target: { value: "학생들이 씁니다" } });
+      fireEvent.change(input, { target: { value: "동아리 친구들이 씁니다" } });
       // Shift+Enter keeps its default (the newline): dispatchEvent returns true
       // only when nothing called preventDefault.
       expect(fireEvent.keyDown(input, { key: "Enter", shiftKey: true })).toBe(true);
@@ -130,11 +130,11 @@ describe("SocraticInterviewPanel", () => {
       fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
 
       expect(props.onSubmitAnswer).not.toHaveBeenCalled();
-      expect(input).toHaveProperty("value", "학생들이 씁니다");
+      expect(input).toHaveProperty("value", "동아리 친구들이 씁니다");
 
       // And the plain Enter that does send swallows its default.
       expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
-      expect(props.onSubmitAnswer).toHaveBeenCalledWith("학생들이 씁니다");
+      expect(props.onSubmitAnswer).toHaveBeenCalledWith("동아리 친구들이 씁니다");
     });
 
     it("keeps Cmd/Ctrl+Enter as a send gesture", () => {
