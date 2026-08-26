@@ -508,22 +508,13 @@ pub struct AcceptanceCriterion {
     pub retired_in_version: Option<i64>,
 }
 
-// S-047 (010 theme 7): a first-class, versioned architecture decision on the PRD.
-// The application form is a bounded enum (so "a stack consistent with the form" is
-// checkable and the UI shows a small fixed set, not an open jargon prompt); the
-// stack is free text (AI-proposed, student-editable). LLM proposes, DIVE records,
-// the student decides (Constitution VI).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ArchitectureForm {
-    WebApp,
-    StaticPage,
-    CliTool,
-    DesktopApp,
-    ApiService,
-    Other,
-}
-
+// S-047 (010 theme 7) → S-075 (014 theme 4, D-014-16): a first-class, versioned
+// architecture decision on the PRD — one tech-stack confirmation. The AI proposes
+// a stack from the goal, DIVE records it, and the student confirms or rewrites
+// it (Constitution VI). There is no project-kind taxonomy (Constitution VII).
+// Legacy rows/snapshots may still carry the S-047/S-072 `form` / `forms` /
+// `formOtherLabel` keys — serde ignores unknown fields (no `deny_unknown_fields`
+// anywhere in this crate), so they load with the stack preserved. No migration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ArchitectureDecisionSource {
@@ -535,17 +526,26 @@ pub enum ArchitectureDecisionSource {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchitectureDecision {
-    // `form` is always set once an architecture exists; `stack` stays `None` in the
-    // intermediate two-stage state (form picked, stack not decided yet).
-    pub form: ArchitectureForm,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub form_other_label: Option<String>,
+    // `None`/blank until the student accepts a proposed stack or types one; the
+    // confirm gate needs a non-empty trimmed stack.
     #[serde(default)]
     pub stack: Option<String>,
     #[serde(default)]
     pub rationale: Option<String>,
+    // S-075 review: defaults mirror the TS normalizer (unknown/missing source →
+    // `Migration`, missing version → 1) so a partial legacy row still loads.
+    #[serde(default = "default_architecture_decision_source")]
     pub decision_source: ArchitectureDecisionSource,
+    #[serde(default = "default_architecture_decided_in_version")]
     pub decided_in_version: i64,
+}
+
+fn default_architecture_decision_source() -> ArchitectureDecisionSource {
+    ArchitectureDecisionSource::Migration
+}
+
+fn default_architecture_decided_in_version() -> i64 {
+    1
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -617,6 +617,13 @@ pub struct PrdPatchOperation {
     pub text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub criterion_id: Option<String>,
+    /// S-072 (014 theme 2): for `revise_*` / `remove_*` list operations, the
+    /// CURRENT text of the scope / non-goal / constraint item being addressed.
+    /// List items carry no ids, so the item text is the addressing scheme
+    /// (D-014-05); matching is normalized (trim, collapse whitespace,
+    /// case-insensitive) exact equality.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1013,9 +1020,102 @@ pub struct StepSessionMappingRow {
 #[cfg(test)]
 mod tests {
     use super::{
-        LiveProjectSpecDraftRow, PrdPatchValidationOutcome, ProjectSpec, ProjectSpecStatus,
-        ProvenanceSource,
+        ArchitectureDecision, ArchitectureDecisionSource, LiveProjectSpecDraftRow,
+        PrdPatchValidationOutcome, ProjectSpec, ProjectSpecStatus, ProvenanceSource,
     };
+
+    // S-075 (014 theme 4, D-014-16): the architecture decision is a stack-only
+    // record. Legacy rows/snapshots carrying the S-047 single `form` or the
+    // S-072 `forms` / `formOtherLabel` keys MUST still load, stack preserved.
+    #[test]
+    fn architecture_decision_ignores_legacy_form_key_and_keeps_stack() {
+        let parsed: ArchitectureDecision = serde_json::from_value(serde_json::json!({
+            "form": "web_app",
+            "stack": "React + Vite",
+            "decisionSource": "student_confirmed",
+            "decidedInVersion": 1
+        }))
+        .unwrap();
+        assert_eq!(
+            parsed,
+            ArchitectureDecision {
+                stack: Some("React + Vite".into()),
+                rationale: None,
+                decision_source: ArchitectureDecisionSource::StudentConfirmed,
+                decided_in_version: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn architecture_decision_ignores_legacy_forms_and_other_label_keys() {
+        let parsed: ArchitectureDecision = serde_json::from_value(serde_json::json!({
+            "forms": ["web_app", "api_service"],
+            "formOtherLabel": "Discord bot",
+            "stack": "React + Express",
+            "rationale": "One repo for the UI and the API",
+            "decisionSource": "student_changed",
+            "decidedInVersion": 2
+        }))
+        .unwrap();
+        assert_eq!(parsed.stack.as_deref(), Some("React + Express"));
+        assert_eq!(
+            parsed.rationale.as_deref(),
+            Some("One repo for the UI and the API")
+        );
+        assert_eq!(
+            parsed.decision_source,
+            ArchitectureDecisionSource::StudentChanged
+        );
+        assert_eq!(parsed.decided_in_version, 2);
+    }
+
+    #[test]
+    fn architecture_decision_round_trip_writes_only_stack_fields() {
+        let decision = ArchitectureDecision {
+            stack: Some("Python + Flask".into()),
+            rationale: None,
+            decision_source: ArchitectureDecisionSource::StudentConfirmed,
+            decided_in_version: 3,
+        };
+        let value = serde_json::to_value(&decision).unwrap();
+        assert_eq!(value["stack"], serde_json::json!("Python + Flask"));
+        for legacy in ["form", "forms", "formOtherLabel"] {
+            assert!(
+                value.get(legacy).is_none(),
+                "legacy key {legacy:?} must never be written"
+            );
+        }
+        let parsed: ArchitectureDecision = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed, decision);
+    }
+
+    #[test]
+    fn architecture_decision_missing_source_and_version_default_like_the_ts_normalizer() {
+        let parsed: ArchitectureDecision =
+            serde_json::from_value(serde_json::json!({ "stack": "Python" })).unwrap();
+        assert_eq!(
+            parsed,
+            ArchitectureDecision {
+                stack: Some("Python".into()),
+                rationale: None,
+                decision_source: ArchitectureDecisionSource::Migration,
+                decided_in_version: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn architecture_decision_missing_stack_defaults_to_none() {
+        // A decision row written before any stack was accepted/typed.
+        let parsed: ArchitectureDecision = serde_json::from_value(serde_json::json!({
+            "decisionSource": "student_confirmed",
+            "decidedInVersion": 1
+        }))
+        .unwrap();
+        assert!(parsed.stack.is_none());
+        assert!(parsed.rationale.is_none());
+    }
 
     // S-053 D1: `not_structured` is additive to the wire representation — the
     // new variant serializes to the expected snake_case string, and every

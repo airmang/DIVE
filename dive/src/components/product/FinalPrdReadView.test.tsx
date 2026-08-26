@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLocaleStore } from "../../i18n";
 import type { ProjectSpec } from "../../features/planning";
@@ -34,8 +34,6 @@ function spec(): ProjectSpec {
       },
     ],
     architecture: {
-      form: "web_app",
-      formOtherLabel: null,
       stack: "React + Vite",
       rationale: "Runs in the browser with no install.",
       decisionSource: "student_confirmed",
@@ -81,13 +79,62 @@ describe("FinalPrdReadView", () => {
     expect(screen.getByText("No wizard")).toBeTruthy();
   });
 
-  it("shows the decided architecture form and stack", () => {
+  // S-075 (D-014-16): the architecture block is the confirmed tech stack (+
+  // rationale) — there is no form row.
+  it("shows the confirmed tech stack and rationale", () => {
     renderView();
 
-    expect(screen.getByTestId("final-prd-architecture")).toBeTruthy();
-    expect(screen.getByTestId("final-prd-architecture-form").textContent).toBe("Web app");
-    expect(screen.getByTestId("final-prd-architecture-stack").textContent).toBe("React + Vite");
+    const block = screen.getByTestId("final-prd-architecture");
+    // Section heading and row label are distinct (S-075 review nit).
+    expect(within(block).getByRole("heading").textContent).toBe("How it's built");
+    const stackValue = screen.getByTestId("final-prd-architecture-stack");
+    expect(stackValue.previousElementSibling?.textContent).toBe("Tech stack");
+    expect(stackValue.textContent).toBe("React + Vite");
     expect(screen.getByText("Runs in the browser with no install.")).toBeTruthy();
+    expect(screen.queryByTestId("final-prd-architecture-form")).toBeNull();
+    expect(block.textContent).not.toContain("Form");
+  });
+
+  // S-074 review (A): a criterion the interview retired never shows in the
+  // saved read view — only active ones are the PRD's done criteria.
+  it("omits retired acceptance criteria", () => {
+    const base = spec();
+    renderView({
+      projectSpec: {
+        ...base,
+        acceptanceCriteria: [
+          ...base.acceptanceCriteria,
+          {
+            criterionId: "AC-003",
+            text: "Retired: export to CSV",
+            source: "interview",
+            status: "retired",
+            createdInVersion: 1,
+            retiredInVersion: 2,
+          },
+        ],
+      },
+    });
+
+    expect(screen.getByText("AC-002")).toBeTruthy();
+    expect(screen.queryByText("AC-003")).toBeNull();
+    expect(screen.queryByText("Retired: export to CSV")).toBeNull();
+  });
+
+  it("shows the not-decided placeholder when the stack is blank", () => {
+    renderView({
+      projectSpec: {
+        ...spec(),
+        architecture: {
+          stack: "   ",
+          rationale: null,
+          decisionSource: "student_confirmed",
+          decidedInVersion: 2,
+        },
+      },
+    });
+
+    expect(screen.getByTestId("final-prd-architecture-stack").textContent).toBe("Not decided yet");
   });
 
   it("omits the architecture block when none is decided", () => {

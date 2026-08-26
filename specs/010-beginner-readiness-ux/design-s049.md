@@ -1,5 +1,7 @@
 # S-049 Design — 010 deferred-tail closeout (P2-38 preview i18n · `--color-info` AA · S-047 Q2 form-step · S-045 primer EventLog)
 
+> **Superseded in part (2026-08-25, spec 014 / S-072).** The S-047 Q2 follow-up this stage closed — the per-form plan scaffolding block with "avoid …" clauses and the deterministic non-blocking `plan_form_consistency` EventLog annotation (`plan.form_consistency`) — is removed under Constitution **VII Unrestricted Project Kinds** (1.2.0): scaffolding is now an additive union with a "planning hints, not limits" line (`planScaffoldingForForms`) and no check annotates a step as contradicting the form. See `specs/014-unrestricted-project-kinds/adr-unrestricted-project-kinds.md` and D-014-03/04. The other three S-049 items (P2-38 preview i18n, `--color-info` AA, S-045 primer EventLog) stand.
+
 **Status**: Approved (2026-07-02) — closes the four items the S-043/S-044/S-045/S-047 designs explicitly deferred to a follow-up. Not new product scope; it finishes the tail of the 010 round-2 umbrella.
 **Stage**: Wily `S-049` (dive-2, `STG-5c95f8e6d08a`) · **Branch**: `010-beginner-readiness-ux`
 **Out of scope (excluded on purpose)**: the S-048 process-tool plain-GET egress hardening (locked decision 6b) is running in a **separate session** (`task_f00a0561`); this stage must not touch `tools/guard.rs` or that follow-up.

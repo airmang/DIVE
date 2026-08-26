@@ -2,6 +2,8 @@ import type {
   AcceptanceCriterion,
   AcceptanceCriterionInput,
   AcceptanceCriterionSource,
+  ArchitectureDecision,
+  ArchitectureDecisionSource,
   LiveProjectSpecDraft,
   ProjectSpecDraft,
   ProvenanceSource,
@@ -34,11 +36,9 @@ export type ConfirmableProjectSpecReasonCode =
   | "missing_scope"
   | "missing_non_goals"
   | "insufficient_acceptance_criteria"
-  // S-047 (010 theme 7): architecture is a two-stage decision — the student picks
-  // a form first, then decides a stack. Both are part of the confirmable bar so a
-  // PRD cannot be saved with the shape left implicit. Mirrors the Rust
-  // confirmable_draft_gaps() ordering (form gap, then stack gap).
-  | "missing_architecture_form"
+  // S-047 (010 theme 7) → S-075 (D-014-16): the architecture decision is one
+  // tech-stack confirmation, part of the confirmable bar so a PRD cannot be
+  // saved with how-it-is-built left implicit. Mirrors Rust confirmable_draft_gaps().
   | "missing_architecture_stack";
 
 export interface MinimalProjectSpecValidation {
@@ -304,6 +304,53 @@ export function criterionInputsToCriteria(
   return adaptAcceptanceCriteria(value);
 }
 
+const ARCHITECTURE_DECISION_SOURCES: ArchitectureDecisionSource[] = [
+  "student_confirmed",
+  "student_changed",
+  "migration",
+];
+
+/**
+ * S-075 (014 theme 4, D-014-16): normalize an architecture decision arriving
+ * over IPC into the stack-only shape. Legacy S-047/S-072 payloads may still
+ * carry `form` / `forms` / `formOtherLabel`; Rust ignores them on load and this
+ * client mirror strips them too, keeping `stack` / `rationale` /
+ * `decisionSource` / `decidedInVersion` (unknown source → "migration", missing
+ * version → 1). Returns null for a null / non-object input.
+ */
+export function normalizeArchitectureDecision(raw: unknown): ArchitectureDecision | null {
+  if (!raw || typeof raw !== "object") return null;
+  const record = raw as Record<string, unknown>;
+  const decisionSource = record.decisionSource;
+  return {
+    stack: typeof record.stack === "string" ? record.stack : null,
+    rationale: typeof record.rationale === "string" ? record.rationale : null,
+    decisionSource:
+      typeof decisionSource === "string" &&
+      (ARCHITECTURE_DECISION_SOURCES as string[]).includes(decisionSource)
+        ? (decisionSource as ArchitectureDecisionSource)
+        : "migration",
+    decidedInVersion:
+      typeof record.decidedInVersion === "number"
+        ? record.decidedInVersion
+        : DEFAULT_PROJECT_SPEC_VERSION,
+  };
+}
+
+/** Same normalization applied to a spec-shaped object's `architecture` field. */
+export function withNormalizedArchitecture<
+  T extends { architecture?: ArchitectureDecision | null },
+>(spec: T): T {
+  return { ...spec, architecture: normalizeArchitectureDecision(spec.architecture ?? null) };
+}
+
+/** Same normalization for a live draft (its spec carries the architecture). */
+export function liveDraftWithNormalizedArchitecture(
+  draft: LiveProjectSpecDraft,
+): LiveProjectSpecDraft {
+  return { ...draft, spec: withNormalizedArchitecture(draft.spec) };
+}
+
 export function createLiveProjectSpecDraft(
   projectId: number,
   overrides: CreateLiveProjectSpecDraftOverrides = {},
@@ -432,12 +479,10 @@ export function validateConfirmableProjectSpec(
     reasonCodes.push("insufficient_acceptance_criteria");
   }
 
-  // Two-stage architecture gate (mirrors Rust confirmable_draft_gaps): a null
-  // architecture still needs a form; a decided form still needs a stack.
+  // S-075 (D-014-16): the architecture gate is one confirmed tech stack
+  // (mirrors Rust confirmable_draft_gaps / architecture_is_decided).
   const architecture = spec.architecture ?? null;
-  if (!architecture) {
-    reasonCodes.push("missing_architecture_form");
-  } else if (!isSubstantiveText(architecture.stack, 1)) {
+  if (!architecture || !isSubstantiveText(architecture.stack, 1)) {
     reasonCodes.push("missing_architecture_stack");
   }
 

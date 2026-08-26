@@ -137,6 +137,40 @@ describe("usePlan PRD IPC methods", () => {
     delete window.__TAURI_INTERNALS__;
   });
 
+  // S-075 (D-014-16): a saved PRD that still carries the legacy S-047/S-072
+  // form keys is normalized to the stack-only shape as it crosses the IPC
+  // boundary.
+  it("strips legacy form keys from the architecture on workspace_prd_get", async () => {
+    const base = mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === "workspace_prd_get") {
+        return {
+          ...savedSpec(),
+          architecture: {
+            form: "web_app",
+            forms: ["web_app", "api_service"],
+            formOtherLabel: null,
+            stack: "React + Vite",
+            rationale: null,
+            decisionSource: "student_confirmed",
+            decidedInVersion: 1,
+          },
+        };
+      }
+      return base(cmd, args);
+    });
+    const { result } = renderHook(() => usePlan(42));
+    await waitFor(() => expect(result.current.prdStatus?.status).toBe("draft"));
+
+    await expect(result.current.getProjectSpec()).resolves.toMatchObject({
+      architecture: { stack: "React + Vite", decisionSource: "student_confirmed" },
+    });
+    const spec = await result.current.getProjectSpec();
+    expect(spec?.architecture).not.toHaveProperty("form");
+    expect(spec?.architecture).not.toHaveProperty("forms");
+    expect(spec?.architecture).not.toHaveProperty("formOtherLabel");
+  });
+
   it("normalizes PRD draft status alongside workspace plan status", async () => {
     const { result } = renderHook(() => usePlan(42));
 

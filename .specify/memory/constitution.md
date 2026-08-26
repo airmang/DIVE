@@ -1,5 +1,15 @@
 <!--
 Sync Impact Report
+Version change: 1.1.0 -> 1.2.0 (MINOR): new Principle VII "Unrestricted
+Project Kinds" (owner principle, recorded 2026-08-25). Product Boundaries gain
+a matching bullet. Templates reviewed: plan-template.md updated (new
+Constitution Check gate "Unrestricted project kinds (VII)"); spec-template.md
+and tasks-template.md reviewed, no change required. ADR:
+specs/014-unrestricted-project-kinds/adr-unrestricted-project-kinds.md.
+Driver: spec 014 (S-072..S-074) — supersedes design-s047.md Q1 (bounded form
+enum) and the S-049 form-scaffolding / plan_form_consistency follow-up.
+
+Prior report (1.0.0 -> 1.1.0):
 Version change: 1.0.0 -> 1.1.0 (MINOR): Principle III expanded with a
 Rust-validated network-egress capability class (S-048), which also binds
 pre-existing process-tool egress to the safe-egress policy; templates reviewed:
@@ -145,11 +155,40 @@ being preserved, removed, or replaced.
 Rationale: v2 should be clean because its boundaries are explicit, not merely
 because it starts in an empty directory.
 
+### VII. Unrestricted Project Kinds
+DIVE MUST NOT restrict what kinds of projects a student can build. Any
+classification DIVE records about a project — application form, tech stack,
+domain, size, or anything similar — exists only to help the student decide and
+to give the planner context. It MUST NEVER function as an exclusion rule.
+Concretely:
+
+- A project-kind taxonomy MUST allow several values at once and MUST keep a
+  free-text escape hatch so the student's own words are always an option.
+- Prompt scaffolding derived from a classification MUST be additive ("also
+  cover X for this form"), never exclusionary ("avoid Y"), and MUST say that it
+  is guidance while the goal and criteria decide what the plan contains.
+- No deterministic check may flag, warn, gate, or annotate a plan step or a
+  PRD field as contradicting the project's kind.
+- No product surface or copy may present project kinds as "one of these only".
+- A mandatory decision (such as "decide how it is built before confirming the
+  PRD") stays compatible with this principle only while every option —
+  including a combination and the student's own description — remains
+  selectable and none is penalised downstream.
+
+Rationale: DIVE supervises whatever the student chooses to build. The moment a
+taxonomy narrows what can be built, DIVE stops being a supervision tool and
+becomes a curriculum. This owner principle predates S-047 but was not in canon
+when S-047 (bounded single-choice form) and S-049 (exclusionary per-form
+scaffolding plus a form/step contradiction check) landed; recording it here is
+what prevents that drift from recurring.
+
 ## DIVE v2 Product Boundaries
 
 DIVE v2 is defined by these mandatory boundaries:
 
 - The primary workflow is Decompose -> Instruct -> Execute -> Verify -> Extend.
+- DIVE does not restrict what kinds of projects a student may build;
+  classifications are planning guidance, never exclusion rules (VII).
 - The existing DIVE UI/UX is the behavioral baseline, but internal contracts may
   be rewritten when a spec explicitly defines the replacement.
 - Pi runtime is required and bundled for classroom builds; Node must not be a
@@ -207,4 +246,4 @@ Every plan and review MUST include a Constitution Check. Any violation must be
 documented with why it is necessary and what simpler compliant alternative was
 rejected. Unjustified violations block implementation.
 
-**Version**: 1.1.0 | **Ratified**: 2026-06-14 | **Last Amended**: 2026-07-02
+**Version**: 1.2.0 | **Ratified**: 2026-06-14 | **Last Amended**: 2026-08-25

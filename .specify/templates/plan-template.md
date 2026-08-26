@@ -59,6 +59,10 @@ The plan MUST answer each DIVE v2 gate:
 - **Typed/testable seams**: Name the typed contracts and deterministic tests
   that cover lifecycle triggers, evidence collection, parsing, drop rules,
   deduplication, cooldown, runtime boundaries, and export behavior.
+- **Unrestricted project kinds (VII)**: Confirm nothing in the feature narrows
+  what a student can build — any taxonomy is multi-valued with a free-text
+  escape hatch, classification-derived scaffolding is additive only, and no
+  check flags a step or field as contradicting the project's kind.
 
 If any gate does not apply, state why. Any violation MUST be listed in
 Complexity Tracking with a simpler compliant alternative.

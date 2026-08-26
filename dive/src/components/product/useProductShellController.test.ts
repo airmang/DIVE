@@ -177,8 +177,6 @@ describe("buildPrdPlanGenerationPrompt", () => {
     const withArchitecture: ProjectSpec = {
       ...projectSpec(),
       architecture: {
-        form: "web_app",
-        formOtherLabel: null,
         stack: "React + Vite",
         rationale: null,
         decisionSource: "student_confirmed",
@@ -188,32 +186,18 @@ describe("buildPrdPlanGenerationPrompt", () => {
     const prompt = buildPrdPlanGenerationPrompt(withArchitecture);
 
     expect(prompt).toContain("React + Vite");
+    expect(prompt).toContain("The PRD includes the student's confirmed tech stack.");
     expect(prompt).toContain("do not switch to a different framework or stack");
-  });
-
-  it("adds deterministic form-specific scaffolding for the decided form", () => {
-    const withArchitecture: ProjectSpec = {
-      ...projectSpec(),
-      architecture: {
-        form: "static_page",
-        formOtherLabel: null,
-        stack: "HTML + CSS + JavaScript",
-        rationale: null,
-        decisionSource: "student_confirmed",
-        decidedInVersion: 1,
-      },
-    };
-    const prompt = buildPrdPlanGenerationPrompt(withArchitecture);
-
-    expect(prompt).toContain("DIVE form-specific step scaffolding:");
-    expect(prompt).toContain("For static_page, steps should be static HTML/CSS/JS");
-    expect(prompt).toContain("avoid server, database, or backend-auth steps");
+    // S-075 (Constitution VII): the stack is the whole architecture context —
+    // no project-kind classification or form scaffolding reaches the planner.
+    expect(prompt).not.toContain("form-specific");
+    expect(prompt).not.toContain("forms");
   });
 
   it("omits the architecture directive when none is decided", () => {
     const prompt = buildPrdPlanGenerationPrompt(projectSpec());
     expect(prompt).not.toContain("do not switch to a different framework or stack");
-    expect(prompt).not.toContain("DIVE form-specific step scaffolding");
+    expect(prompt).not.toContain("confirmed tech stack");
   });
 });
 
@@ -222,8 +206,6 @@ describe("draftFromProjectSpec", () => {
     const saved: ProjectSpec = {
       ...projectSpec(),
       architecture: {
-        form: "static_page",
-        formOtherLabel: null,
         stack: "HTML + CSS",
         rationale: "No build step keeps it simple.",
         decisionSource: "student_confirmed",

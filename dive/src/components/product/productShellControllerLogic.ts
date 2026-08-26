@@ -2,7 +2,6 @@ import { matchSidecarModelNotFoundError } from "../../lib/error-classify";
 import type { ProviderSummary } from "../../stores/project-session";
 import {
   createLiveProjectSpecDraft,
-  type ArchitectureForm,
   type InterviewAnswer,
   type LiveProjectSpecDraft,
   type ProjectSpec,
@@ -13,23 +12,6 @@ export type PrdMode = "authoring" | "read" | null;
 
 type Translate = (key: string, values?: Record<string, string | number>) => string;
 
-function planScaffoldingForForm(form: ArchitectureForm): string | null {
-  switch (form) {
-    case "web_app":
-      return "For web_app, steps should cover browser UI screens/components, client state, user interactions, and frontend verification; avoid CLI-only deliverables unless they directly support the web app.";
-    case "static_page":
-      return "For static_page, steps should be static HTML/CSS/JS; avoid server, database, or backend-auth steps.";
-    case "cli_tool":
-      return "For cli_tool, steps should cover command parsing, terminal input/output, files/config if needed, and command verification; avoid DOM, browser page, or UI component steps.";
-    case "desktop_app":
-      return "For desktop_app, steps should cover desktop window/app shell, local UI flows, packaging/runtime integration, and local persistence when needed; avoid API-service-only endpoint steps.";
-    case "api_service":
-      return "For api_service, steps should cover endpoints, request/response schemas, validation, data/storage boundaries, and API tests; avoid UI/DOM/browser-page steps.";
-    case "other":
-      return null;
-  }
-}
-
 export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
   const activeCriteria = projectSpec.acceptanceCriteria
     .filter((criterion) => criterion.status === "active" && criterion.text.trim().length > 0)
@@ -37,15 +19,12 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
       criterionId: criterion.criterionId,
       text: criterion.text,
     }));
-  // S-047 (010 theme 7): the student's confirmed architecture (form + stack) is
-  // decomposition context — the model decomposes *for* that form/stack rather than
-  // re-choosing one. This is context-only: it shapes the prose, not the plan schema.
+  // S-047 (010 theme 7) → S-075 (D-014-16): the student's confirmed tech stack
+  // is decomposition context — the model decomposes *using* that stack rather
+  // than re-choosing one. Context-only: it shapes the prose, not the plan
+  // schema. There is no project-kind classification to pass (Constitution VII).
   const architecture = projectSpec.architecture
-    ? {
-        form: projectSpec.architecture.form,
-        formLabel: projectSpec.architecture.formOtherLabel?.trim() || projectSpec.architecture.form,
-        stack: projectSpec.architecture.stack ?? "",
-      }
+    ? { stack: projectSpec.architecture.stack ?? "" }
     : null;
   const prd = {
     goal: projectSpec.goal,
@@ -56,10 +35,6 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
     acceptanceCriteria: activeCriteria,
     ...(architecture ? { architecture } : {}),
   };
-  const formScaffolding = projectSpec.architecture
-    ? planScaffoldingForForm(projectSpec.architecture.form)
-    : null;
-
   return [
     "[PRD_PLAN_GENERATION]",
     "Use the saved PRD below as the source of truth and return compact JSON only.",
@@ -73,10 +48,9 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
     "acceptance_criteria entries must be full observable criterion sentences (copy the PRD criterion text or write a new concrete sentence); never put bare criterion IDs like AC-001 in acceptance_criteria — IDs belong only in linked_criterion_ids.",
     ...(architecture
       ? [
-          "The PRD includes the student's confirmed architecture (form + tech stack). Decompose for that form and stack: keep every step, expected_files, and verification consistent with it, and do not switch to a different framework or stack.",
+          "The PRD includes the student's confirmed tech stack. Decompose using that stack — do not switch to a different framework or stack.",
         ]
       : []),
-    ...(formScaffolding ? ["DIVE form-specific step scaffolding:", formScaffolding] : []),
     "verification_command must be one no-shell command with explicit args when a command is appropriate, otherwise null with a clear manual verification summary in the step text.",
     "Do not include Markdown fences or prose.",
     "",

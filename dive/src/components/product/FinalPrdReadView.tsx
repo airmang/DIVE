@@ -2,7 +2,6 @@ import { CheckCircle2, Edit3, History, Layers, ListChecks, Play } from "lucide-r
 import type { ProjectSpec } from "../../features/planning";
 import { useT } from "../../i18n";
 import { Button } from "../ui/button";
-import { architectureFormLabel } from "./architectureLabels";
 
 export interface FinalPrdReadViewProps {
   projectName: string;
@@ -118,10 +117,6 @@ export function FinalPrdReadView({
                 <h3 className="text-sm font-semibold text-fg">{t("prd.architecture.title")}</h3>
               </div>
               <dl className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-md border bg-bg-panel2 px-3 py-2 text-sm">
-                <dt className="text-fg-muted">{t("prd.architecture.form_label")}</dt>
-                <dd className="text-fg" data-testid="final-prd-architecture-form">
-                  {architectureFormLabel(t, architecture.form, architecture.formOtherLabel)}
-                </dd>
                 <dt className="text-fg-muted">{t("prd.architecture.stack_label")}</dt>
                 <dd className="text-fg" data-testid="final-prd-architecture-stack">
                   {architecture.stack?.trim() || t("prd.architecture.empty")}

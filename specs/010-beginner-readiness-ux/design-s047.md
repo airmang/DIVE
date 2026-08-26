@@ -2,6 +2,8 @@
 
 **Stage**: Wily `S-047` (dive-2, owner-added; register via `design_stage` **after owner approves this design**) · **Spec**: [spec.md](spec.md) Theme 7 · **Branch**: `010-beginner-readiness-ux`
 
+> **Superseded in part (2026-08-25, spec 014 / S-072).** Resolved decision **Q1** (bounded single-choice form enum) and the S-049 closeout of the **Q2** follow-up (per-form scaffolding with "avoid" clauses + `plan_form_consistency`) are superseded by Constitution **VII Unrestricted Project Kinds** (1.2.0): `ArchitectureDecision.form` → `forms[]`, additive-only scaffolding, contradiction check removed. See `specs/014-unrestricted-project-kinds/adr-unrestricted-project-kinds.md`. The mandatory decision itself, the recommend-then-confirm flow, and the student-only authoring path (no `set_architecture` op) stand. **2026-08-26 (S-075, D-014-16): the form taxonomy is removed altogether — the decision is a single stack confirmation (`ArchitectureDecision { stack, rationale, decisionSource, decidedInVersion }`).**
+
 **Status**: **APPROVED (owner 2026-07-01)** — decisions locked: **Q1 = bounded form enum + free-text stack**; **Q2 = decomposition context-only**; **Q3 = single Stage S-047** (full cross-language feature in one Stage). Implementing autonomously.
 
 **Evidence/source**: owner feedback 2026-06-29 ("반드시 어느 아키텍처로 만들건지 정해야 할 것 같은데 그걸 안 정하고 넘어가네"). Reuses specs/004 PRD patch/validation/versioning + Final PRD Read View. Part (b) (neutralize the biased answer placeholder) is **already done** — this Stage is part (a) only.

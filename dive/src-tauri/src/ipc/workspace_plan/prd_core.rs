@@ -176,7 +176,7 @@ pub fn workspace_prd_save_impl(
         project_spec_from_save_input(input, latest.as_ref(), &save_reason, draft_field_provenance)?;
     if !is_confirmable_project_spec(&snapshot) {
         return Err(
-            "PRD confirmation requires a goal, at least one acceptance criterion, and a decided architecture (form and tech stack)"
+            "PRD confirmation requires a goal, at least one acceptance criterion, and a confirmed tech stack"
                 .into(),
         );
     }
@@ -576,9 +576,11 @@ pub(super) fn is_minimal_project_spec(spec: &ProjectSpec) -> bool {
         })
 }
 
-/// S-047 (010 theme 7): an architecture is "decided" once a form is picked AND a
-/// non-empty stack is set (the two-stage bar). Mirrors the draft gate in
-/// `confirmable_draft_gaps` and the TS `validateConfirmableProjectSpec` stack check.
+/// S-047 (010 theme 7) / S-075 (014 theme 4, D-014-16): an architecture is
+/// "decided" once a non-empty trimmed tech stack is confirmed — that is the
+/// whole decision; there is no project-kind classification (Constitution VII).
+/// Mirrors the draft gate in `confirmable_draft_gaps` and the TS
+/// `validateConfirmableProjectSpec` check.
 fn architecture_is_decided(spec: &ProjectSpec) -> bool {
     spec.architecture
         .as_ref()
@@ -588,9 +590,9 @@ fn architecture_is_decided(spec: &ProjectSpec) -> bool {
 
 fn is_confirmable_project_spec(spec: &ProjectSpec) -> bool {
     // Server-side backstop for the confirm/version-commit path: a saved PRD must
-    // clear the minimal bar AND carry a student-decided architecture (form + stack).
-    // The frontend already blocks confirmation earlier; this defends a direct
-    // `workspace_prd_save` call from persisting a half-decided architecture.
+    // clear the minimal bar AND carry a student-confirmed tech stack. The
+    // frontend already blocks confirmation earlier; this defends a direct
+    // `workspace_prd_save` call from persisting an undecided architecture.
     is_minimal_project_spec(spec) && architecture_is_decided(spec)
 }
 
@@ -710,26 +712,21 @@ pub(super) fn confirmable_draft_gaps(spec: &ProjectSpecDraft) -> Vec<Confirmable
         }),
         _ => {}
     }
-    // S-047: two-stage architecture decision, last (grounded on the goal/scope
-    // above). The AI proposes <=2 options with plain rationale; the student decides.
-    match spec.architecture.as_ref() {
-        None => gaps.push(ConfirmableGap {
-            label: "architecture form",
-            focus: "propose_architecture_form: recommend up to 2 application forms that fit this goal (web app / static page / CLI tool / desktop app / API service), each with a one-line plain-language reason a beginner understands, then ask the student to pick or change one in the PRD board — never decide for them",
-        }),
-        Some(arch)
-            if arch
-                .stack
-                .as_deref()
-                .map(|stack| stack.trim().is_empty())
-                .unwrap_or(true) =>
-        {
-            gaps.push(ConfirmableGap {
-                label: "tech stack",
-                focus: "propose_architecture_stack: recommend up to 2 concrete tech stacks that fit the chosen application form, each with a one-line beginner reason, then ask the student to pick or change one",
-            })
-        }
-        Some(_) => {}
+    // S-047 → S-075 (D-014-16): the architecture decision is one tech-stack
+    // confirmation, last (grounded on the goal/scope above). The AI proposes <=2
+    // stacks, each with a plain line on what the finished thing is and why this
+    // stack; the student confirms or rewrites it — never decided for them.
+    if spec
+        .architecture
+        .as_ref()
+        .and_then(|arch| arch.stack.as_deref())
+        .map(|stack| stack.trim().is_empty())
+        .unwrap_or(true)
+    {
+        gaps.push(ConfirmableGap {
+            label: "tech stack",
+            focus: "propose_architecture_stack: recommend up to 2 concrete tech stacks that fit this goal — each with one plain line saying what the finished thing is (a browser app, a command-line tool, a bot…) and why this stack — then ask the student to confirm or change it in the PRD board; never decide for them",
+        });
     }
     gaps
 }

@@ -1,6 +1,6 @@
 # DIVE Spec Status
 
-**Last updated**: 2026-07-20
+**Last updated**: 2026-08-25
 
 This file prevents agents from treating old design notes as active product
 authority. The canonical DIVE v2 source of truth lives in `.specify/` and
@@ -63,6 +63,9 @@ archived-status sections below).
 | `specs/010-beginner-readiness-ux/adr-s048-network-egress.md`          | Accepted ADR            | Constitution 1.0.0→1.1.0 amendment admitting the Rust-validated network-egress capability class (Principle III).                                                                                                                        |
 | `specs/011-conference-demo-readiness/spec.md`                         | Canonical               | Defines the round-3 conference-demo-readiness scope (8 themes → Wily Stages S-050–S-057) from the 2026-07-10 QA NO-GO verdict, targeting the 2026-08-14 presentation (Windows demo machine).                                            |
 | `specs/013-public-release-readiness/spec.md`                          | Canonical               | Defines the round-4 public-release readiness scope (13 themes → Wily Stages S-058–S-070) from the 2026-07-20 full-repo code review (124 confirmed findings), gating the public repo flip synchronized with the 2026-08-14 presentation. |
+| `specs/014-unrestricted-project-kinds/spec.md`                        | Canonical               | Round-5 umbrella (S-072–S-075): records Constitution VII (unrestricted project kinds) and re-decides S-047 under it — S-049 exclusionary scaffolding + `plan_form_consistency` removed (S-072), then the form taxonomy itself, leaving one stack confirmation (S-075); in-place PRD patch edits (S-073); Enter-to-send + legible confirm gate (S-074). |
+| `specs/014-unrestricted-project-kinds/decisions.md`                   | Canonical               | Records 014 stage-scoped decisions (D-014-xx).                                                                                                                                                                                          |
+| `specs/014-unrestricted-project-kinds/adr-unrestricted-project-kinds.md` | Canonical ADR        | Constitution 1.1.0 → 1.2.0 amendment: new Principle VII; supersedes design-s047.md Q1 and the S-049 form-scaffolding/consistency follow-up.                                                                                              |
 
 ## External Product Extraction
 
@@ -72,6 +75,31 @@ plugin manifest, feature 001 spec, and future implementation authority live in
 that repository. DIVE-2 retains only the extraction record at
 `docs/product-extractions/dive-plugin.md`; there is no active 012 feature in
 this repository.
+
+## 014 Implementation Status
+
+As of 2026-08-25, `specs/014-unrestricted-project-kinds/` is implemented on branch
+`014-unrestricted-project-kinds` (S-072–S-074 Done in Wily on 2026-08-25, S-075 Done 2026-08-26;
+live re-QA on a rebuilt release app by the reporting team member is the
+remaining follow-up). Stage numbers follow the Wily roadmap (S-072 is the separately
+tracked macOS-distribution restoration stage, registered 2026-07-21 and
+retro-completed in Wily on 2026-08-25 with the shipped rc.9 evidence). It records the owner
+principle **Constitution VII — Unrestricted Project Kinds** (1.2.0, ADR
+`adr-unrestricted-project-kinds.md`) and re-decides S-047 under it, alongside
+the other three items of the 2026-08-24 team QA of the PRD flow.
+
+| Wily Stage | Scope                                                                                                                                                                          | Status      |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
+| S-072      | Principle VII canonized; S-049 exclusionary scaffolding + `plan_form_consistency` removed; legacy single `form` still loads (its interim `forms[]` multi-select picker was superseded by S-075)                     | Done        |
+| S-073      | PRD patch ops `revise_*` / `remove_*` for scope, non-goals, constraints (target-text addressed) + `retire_acceptance_criterion`; prompt vocabulary; `item_not_found` reason        | Done        |
+| S-074      | Enter-to-send (IME-guarded) in the PRD interview rail and Socratic panel via shared `composerKeys`; confirm-gate remaining-count chip + tooltip + scroll-to-first-missing-field    | Done        |
+| S-075      | Architecture decision = one stack confirmation ("AI가 이렇게 만들 계획이에요"); `ArchitectureForm` taxonomy, form picker/definitions/focus and `planScaffoldingForForms` removed from TS + Rust; legacy `form`/`forms` keys ignored (owner-added 2026-08-26, D-014-16) | Done        |
+
+Superseded by S-072: `specs/010-beginner-readiness-ux/design-s047.md` resolved
+decision Q1 (bounded form enum) and the S-049 closeout of its Q2 follow-up
+(per-form scaffolding block with "avoid" clauses + the non-blocking
+`plan.form_consistency` EventLog annotation). The `plan.form_consistency`
+event type is retired; historical exports keep it as history.
 
 ## 013 Implementation Status
 
@@ -157,7 +185,7 @@ composite at 4.66:1 AA (dark mode untouched), locked by two new `contrast.test`
 cases; (S-047 Q2) `buildPrdPlanGenerationPrompt` injects a deterministic per-form
 scaffolding block and a deterministic non-blocking `plan_form_consistency`
 annotation is logged to the EventLog (`plan.form_consistency`) with no user-facing
-card or gate; (S-045) a prefix-guarded `log_ui_event` IPC records
+card or gate — **both retired by spec 014 / S-072 (Constitution VII)**; (S-045) a prefix-guarded `log_ui_event` IPC records
 `permission_primer.shown`/`.dismissed` (variant `generic|web_fetch`), shown-once.
 The **process-tool plain-GET egress hardening (S-048 decision 6b) is NOT part of
 S-049** — it is tracked separately (below) and worked in its own session.

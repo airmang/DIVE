@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { Send, Sparkles, ClipboardCheck } from "lucide-react";
 import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
+import { shouldSendOnEnter } from "../../lib/composerKeys";
 import type { AmbiguityHit } from "../../lib/ambiguity";
 import type { PromptContext } from "../../lib/prompt-templates";
 import { AmbiguityHintList, AmbiguityUnderlay } from "../prompt-helper/AmbiguityHinter";
@@ -96,7 +97,7 @@ export function ChatInput({
       }
       return;
     }
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    if (shouldSendOnEnter(e)) {
       e.preventDefault();
       handleSend();
     }

@@ -77,8 +77,19 @@ Allowed operations:
 - `append_constraint`
 - `append_acceptance_criterion`
 - `revise_acceptance_criterion_text`
+- `revise_scope` / `revise_non_goal` / `revise_constraint` — `target` (current
+  item text, matched trim + whitespace-collapsed + case-insensitive) → `value`
+  replaces the item in place (014 / S-073)
+- `remove_scope` / `remove_non_goal` / `remove_constraint` — `target` deletes
+  the matching item (014 / S-073)
+- `retire_acceptance_criterion` — `criterionId`; sets `status = retired` and
+  `retiredInVersion`, never deletes (014 / S-073)
 
 Validation:
+
+- A `revise_*` / `remove_*` whose `target` matches no item, or a
+  `retire_acceptance_criterion` whose criterion is unknown or already retired,
+  rejects the whole patch (`item_not_found` / `criterion_not_found`).
 
 - Unknown fields and unsupported operations are rejected.
 - Operation count and text size are bounded.

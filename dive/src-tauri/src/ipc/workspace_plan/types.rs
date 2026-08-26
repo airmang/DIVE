@@ -64,32 +64,31 @@ pub struct PrdInterviewTurnOutput {
     pub applied_field_paths: Vec<String>,
     pub rejected_reasons: Vec<String>,
     pub live_draft: LiveProjectSpecDraftRow,
-    // S-047 (010 theme 7): the AI's architecture recommendation for the current
-    // two-stage focus (form, then stack), surfaced to the board as selectable
-    // option cards. This is NOT an applied patch — the architecture is authored
-    // only by the student's click (recommend-then-confirm), preserving agency.
-    // `None` when the interview is not on an architecture focus or the AI made no
-    // usable proposal.
+    // S-047 (010 theme 7) → S-075 (D-014-16): the AI's tech-stack recommendation
+    // for the stack focus, surfaced to the board as selectable option cards. This
+    // is NOT an applied patch — the architecture is authored only by the student's
+    // click or typing (recommend-then-confirm), preserving agency. `None` when the
+    // interview is not on the stack focus or the AI made no usable proposal.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub architecture_proposals: Option<ArchitectureProposals>,
 }
 
-/// A single AI-recommended architecture option (one form or one stack) with a
-/// one-line beginner rationale. Rendered as a selectable card in the board.
+/// A single AI-recommended tech stack with a one-line beginner rationale (what
+/// the finished thing is and why this stack). Rendered as a selectable card.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchitectureProposalOption {
-    /// For `kind == "form"`, a valid `ArchitectureForm` value (e.g. `web_app`).
-    /// For `kind == "stack"`, free-text stack wording (e.g. `React + Vite`).
+    /// Free-text stack wording (e.g. `React + Vite`).
     pub value: String,
     pub rationale: String,
 }
 
-/// The AI's ≤2 architecture recommendations for the current two-stage focus.
+/// The AI's ≤2 tech-stack recommendations for the stack focus.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchitectureProposals {
-    /// `"form"` or `"stack"` — the two-stage focus these options answer.
+    /// Always `"stack"` since S-075 (the sanitizer drops any other kind); kept
+    /// as a string for wire compatibility with the TS `ArchitectureProposals`.
     pub kind: String,
     pub options: Vec<ArchitectureProposalOption>,
 }

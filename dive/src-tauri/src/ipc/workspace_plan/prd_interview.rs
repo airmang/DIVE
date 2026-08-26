@@ -192,6 +192,32 @@ pub async fn workspace_prd_interview_turn_impl(
         } else if applied.validation_outcome == "rejected"
             || applied.validation_outcome == "held_for_student"
         {
+            let held_for_student = applied.validation_outcome == "held_for_student";
+            // S-072 review (P2): a hold is PER OP (Constitution VI / D-014-09
+            // — holding the whole patch would stall the interview whenever a
+            // student hand-edits one field), so a held turn can still have
+            // landed the other ops. Make that partial apply auditable: emit
+            // the applied event for what got in, then the held marker for
+            // what did not. The frontend already receives
+            // `applied_field_paths` on the held outcome (set above).
+            if held_for_student && !applied.applied_field_paths.is_empty() {
+                dive_event_log::append_to_conn(
+                    &tx,
+                    interview_session_id,
+                    dive_event_log::PRD_PATCH_APPLIED_EVENT,
+                    dive_event_log::prd_patch_applied_payload(
+                        input.project_id,
+                        project_spec_id_for_draft(&applied.draft),
+                        applied.draft.draft_id.clone(),
+                        turn_id.clone(),
+                        patch.patch_id.clone(),
+                        applied.applied_field_paths.clone(),
+                        applied.criterion_ids_assigned.clone(),
+                        applied.student_edited_fields_respected.clone(),
+                    ),
+                )
+                .map_err(|e| e.to_string())?;
+            }
             dive_event_log::append_to_conn(
                 &tx,
                 interview_session_id,
@@ -203,7 +229,7 @@ pub async fn workspace_prd_interview_turn_impl(
                     turn_id.clone(),
                     patch.patch_id,
                     applied.rejected_reasons,
-                    applied.validation_outcome == "held_for_student",
+                    held_for_student,
                 ),
             )
             .map_err(|e| e.to_string())?;
@@ -347,15 +373,24 @@ fn build_prd_interview_system_prompt() -> String {
         "The user message includes a 'Suggested next interview focus' computed from the real confirm gate. Follow it: while it names a missing field, ask exactly one concrete, plain-language question to draw that out — who it is for and why, what the first version should include, what to leave out for now, and concrete observable signs it works — never as jargon, a checklist, or field names.",
         "Only when the focus is ready_to_save is the PRD complete enough. Until then, do NOT tell the student it is ready or to confirm. When it is ready, stop asking required questions and tell the student it is ready, pointing them to the \"PRD 확정\" / \"Confirm PRD\" button by that exact name.",
         "Return a short conversational assistantMessage and an optional JSON patch.",
-        "The patch may only use these operation names: set_goal, set_intent_summary, append_scope, append_non_goal, append_constraint, append_acceptance_criterion, revise_acceptance_criterion_text.",
+        "The patch may only use these operation names: set_goal, set_intent_summary, append_scope, append_non_goal, append_constraint, append_acceptance_criterion, revise_acceptance_criterion_text, revise_scope, revise_non_goal, revise_constraint, remove_scope, remove_non_goal, remove_constraint, retire_acceptance_criterion.",
         "Each patch operation object MUST use the key \"op\" for the operation name; do not use \"operation\".",
         "For append_acceptance_criterion and revise_acceptance_criterion_text, put the criterion wording in \"text\".",
+        // S-072 (014 theme 2): in-place edits. Without these the model's only
+        // way to "change" an item was to append a corrected duplicate under
+        // the old one (QA: "수정하면 아래에 추가로 쌓이고 내용이 수정 안 됨").
+        "For revise_scope / revise_non_goal / revise_constraint put the CURRENT item text in \"target\" (copy it exactly from the draft JSON) and the new wording in \"value\". For remove_scope / remove_non_goal / remove_constraint put the current item text in \"target\". For retire_acceptance_criterion put the criterion's id in \"criterionId\".",
+        "When the student asks to change, correct, or drop something that is already in the draft, edit it in place with those operations — never append a corrected duplicate under the old item.",
+        "Acceptance criteria with status \"retired\" in the draft JSON are already dropped — ignore them, never revise or retire them again, and never treat them as active.",
         "Do not invent IDs for new criteria; DIVE assigns AC IDs.",
-        "Never put the architecture (form or tech stack) in the patch — the student decides it by clicking a card, not you.",
-        "When the suggested next focus is propose_architecture_form or propose_architecture_stack, ALSO return a \"proposals\" object recommending up to 2 options for that focus, each with a one-line beginner reason, and still ask the student to pick or change one in assistantMessage.",
-        "For propose_architecture_form, use \"proposals\":{\"kind\":\"form\",\"options\":[{\"value\":\"<one of: web_app, static_page, cli_tool, desktop_app, api_service, other>\",\"rationale\":\"...\"}]}.",
-        "For propose_architecture_stack, use \"proposals\":{\"kind\":\"stack\",\"options\":[{\"value\":\"<concise stack, e.g. React + Vite>\",\"rationale\":\"...\"}]}. Only recommend stacks that fit the already chosen form.",
-        "Omit \"proposals\" entirely on any other focus.",
+        "Never put the architecture (tech stack) in the patch — the student decides it by clicking a card or typing, not you.",
+        // S-075 review (P2): a student who agrees in chat must be pointed at the
+        // board, or the turn dead-ends with nothing recorded.
+        "If the student agrees with a proposed stack in chat, tell them to tap that card (or type the stack) in the PRD board — you cannot record the architecture yourself.",
+        // S-075 (014 theme 4, D-014-16): the architecture decision is one stack
+        // confirmation. No form taxonomy — the rationale itself says, in plain
+        // words, what the finished thing is (Constitution VII).
+        "When the suggested next focus is propose_architecture_stack, ALSO return \"proposals\":{\"kind\":\"stack\",\"options\":[{\"value\":\"<concise stack, e.g. React + Vite>\",\"rationale\":\"<one plain line: what the finished thing is (a browser app, a command-line tool, a bot…) and why this stack>\"}]} with up to 2 options, and still ask the student to confirm or change it in assistantMessage. Omit \"proposals\" on any other focus.",
         "Use concise JSON with shape {\"assistantMessage\":\"...\",\"patch\":{\"operations\":[...],\"rationale\":\"...\"},\"proposals\":{\"kind\":\"...\",\"options\":[...]}}. Include only the keys you are using.",
         // 011 live-QA fix (tier1-run-log 2026-07-11 저니 C): without an
         // explicit whole-response contract, some models (observed with
@@ -426,8 +461,8 @@ pub(super) fn prd_interview_next_focus(spec: &ProjectSpecDraft) -> &'static str 
 struct RawPrdTurnResponse {
     assistant_message: Option<String>,
     patch: Option<RawPrdPatch>,
-    // S-047: optional architecture recommendation surface (form/stack). Never a
-    // patch — the architecture is applied only by the student's card click.
+    // S-047: optional tech-stack recommendation surface. Never a patch — the
+    // architecture is applied only by the student's card click or typing.
     proposals: Option<RawPrdProposals>,
 }
 
@@ -447,26 +482,20 @@ struct RawPrdProposalOption {
 }
 
 impl RawPrdProposals {
-    /// Shape-validate the AI's raw proposals: keep only `form`/`stack` kinds,
-    /// drop options with an empty value, coerce `form` values to the bounded
-    /// `ArchitectureForm` enum (dropping unknown forms), trim wording, and cap
-    /// at two options. Returns `None` when nothing usable remains. The
-    /// current-focus gate is applied separately by the caller.
+    /// Shape-validate the AI's raw proposals: keep only the `stack` kind (S-075
+    /// — a legacy `form` proposal is dropped), drop options with an empty value,
+    /// trim wording, and cap at two options. Returns `None` when nothing usable
+    /// remains. The current-focus gate is applied separately by the caller.
     fn into_sanitized(self) -> Option<ArchitectureProposals> {
-        let kind = match self.kind.as_deref().map(str::trim) {
-            Some("form") => "form",
-            Some("stack") => "stack",
-            _ => return None,
-        };
+        if self.kind.as_deref().map(str::trim) != Some("stack") {
+            return None;
+        }
         let options: Vec<ArchitectureProposalOption> = self
             .options
             .into_iter()
             .filter_map(|option| {
                 let value = option.value?.trim().to_string();
                 if value.is_empty() {
-                    return None;
-                }
-                if kind == "form" && !is_valid_architecture_form_value(&value) {
                     return None;
                 }
                 let rationale = option
@@ -481,28 +510,17 @@ impl RawPrdProposals {
             return None;
         }
         Some(ArchitectureProposals {
-            kind: kind.to_string(),
+            kind: "stack".to_string(),
             options,
         })
     }
 }
 
-/// True when `value` is one of the bounded `ArchitectureForm` snake_case values,
-/// so an AI form recommendation maps onto a card the student can actually pick.
-fn is_valid_architecture_form_value(value: &str) -> bool {
-    matches!(
-        value,
-        "web_app" | "static_page" | "cli_tool" | "desktop_app" | "api_service" | "other"
-    )
-}
-
-/// The architecture focus the current draft is on, if any: `Some("form")` when
-/// the next confirm gap is the architecture form, `Some("stack")` when it is the
-/// tech stack, else `None`. Used to gate AI proposals to the deterministic focus
-/// the model was asked to answer, so stale/off-focus cards never surface.
+/// `Some("stack")` when the next confirm gap is the tech stack, else `None`.
+/// Used to gate AI proposals to the deterministic focus the model was asked to
+/// answer, so stale/off-focus cards never surface.
 fn expected_architecture_proposal_kind(spec: &ProjectSpecDraft) -> Option<&'static str> {
     match confirmable_draft_gaps(spec).first() {
-        Some(gap) if gap.focus.starts_with("propose_architecture_form") => Some("form"),
         Some(gap) if gap.focus.starts_with("propose_architecture_stack") => Some("stack"),
         _ => None,
     }
@@ -524,6 +542,17 @@ struct RawPrdPatchOperation {
     text: Option<String>,
     #[serde(alias = "criterion_id")]
     criterion_id: Option<String>,
+    // S-072: tolerant parse of the current-item address for the revise_* /
+    // remove_* list ops — models paraphrase the key name, so accept the
+    // obvious synonyms and normalize to `target`.
+    #[serde(alias = "old", alias = "oldText", alias = "old_text", alias = "from")]
+    target: Option<String>,
+    // S-072 review: the NEW wording of a revise, when the model names it as
+    // the counterpart of `old`/`from` instead of `value`. Folded into `value`
+    // below. (serde rejects a payload carrying two spellings of one field —
+    // that surfaces as `undecodable_json`, never a crash.)
+    #[serde(alias = "new", alias = "newText", alias = "new_text", alias = "to")]
+    new_value: Option<String>,
 }
 
 impl RawPrdPatchOperation {
@@ -533,10 +562,25 @@ impl RawPrdPatchOperation {
             value,
             text,
             criterion_id,
+            target,
+            new_value,
         } = self;
+        // S-072 review: canonicalize the op-name paraphrases models reach for.
+        let op = match op.as_str() {
+            "remove_acceptance_criterion" | "delete_acceptance_criterion" => {
+                "retire_acceptance_criterion".to_string()
+            }
+            "delete_scope" => "remove_scope".to_string(),
+            "delete_non_goal" => "remove_non_goal".to_string(),
+            "delete_constraint" => "remove_constraint".to_string(),
+            _ => op,
+        };
+        let value = value.or(new_value);
         let value = match op.as_str() {
             "set_goal" | "set_intent_summary" | "append_scope" | "append_non_goal"
-            | "append_constraint" => value.or_else(|| text.clone()),
+            | "append_constraint" | "revise_scope" | "revise_non_goal" | "revise_constraint" => {
+                value.or_else(|| text.clone())
+            }
             _ => value,
         };
         let text = match op.as_str() {
@@ -544,6 +588,15 @@ impl RawPrdPatchOperation {
                 text.or_else(|| value.clone())
             }
             _ => text,
+        };
+        // A remove only addresses an item: whatever text the model sent IS the
+        // target, and no other text field survives (so the secret-gate
+        // exemption on a remove target cannot be sidestepped via `value`).
+        let (value, text, target) = match op.as_str() {
+            "remove_scope" | "remove_non_goal" | "remove_constraint" => {
+                (None, None, target.or(value).or(text))
+            }
+            _ => (value, text, target),
         };
         // S-047: the AI interview patch never carries an architecture decision — the
         // architecture is set only through the student's draft-save path (no AI
@@ -553,6 +606,7 @@ impl RawPrdPatchOperation {
             value,
             text,
             criterion_id,
+            target,
         }
     }
 }
@@ -735,8 +789,7 @@ fn clean_prd_assistant_message(raw: &str) -> Option<String> {
 mod prd_interview_prompt_tests {
     use super::*;
     use crate::db::models::{
-        ArchitectureDecision, ArchitectureDecisionSource, ArchitectureForm, ProjectSpecDraft,
-        ProjectSpecStatus,
+        ArchitectureDecision, ArchitectureDecisionSource, ProjectSpecDraft, ProjectSpecStatus,
     };
 
     fn empty_draft() -> LiveProjectSpecDraftRow {
@@ -846,28 +899,24 @@ mod prd_interview_prompt_tests {
             });
         }
 
-        // S-047: after the 5 confirmable fields, the interview asks for the
-        // architecture — a draft without one is NOT yet ready to confirm.
-        assert!(prd_interview_next_focus(&draft.spec).starts_with("propose_architecture_form"));
+        // S-047 → S-075: after the 5 confirmable fields, the interview asks for
+        // the tech stack — a draft without one is NOT yet ready to confirm.
+        assert!(prd_interview_next_focus(&draft.spec).starts_with("propose_architecture_stack"));
+        assert!(missing_confirmable_prd_fields(&draft.spec).contains(&"tech stack"));
 
-        // Once a form is picked but no stack yet, it asks for the stack next.
+        // A blank stack is not a confirmed stack either.
         draft.spec.architecture = Some(ArchitectureDecision {
-            form: ArchitectureForm::WebApp,
-            form_other_label: None,
-            stack: None,
-            rationale: Some("A web app fits a schedule the student opens in a browser".into()),
+            stack: Some("   ".into()),
+            rationale: None,
             decision_source: ArchitectureDecisionSource::StudentConfirmed,
             decided_in_version: 1,
         });
         assert!(prd_interview_next_focus(&draft.spec).starts_with("propose_architecture_stack"));
-        assert!(missing_confirmable_prd_fields(&draft.spec).contains(&"tech stack"));
 
-        // With both form and stack decided, the draft is ready to confirm.
+        // With the stack confirmed, the draft is ready to confirm.
         draft.spec.architecture = Some(ArchitectureDecision {
-            form: ArchitectureForm::WebApp,
-            form_other_label: None,
             stack: Some("React + Vite + TypeScript".into()),
-            rationale: Some("A web app fits a schedule the student opens in a browser".into()),
+            rationale: Some("A browser app the student can open anywhere".into()),
             decision_source: ArchitectureDecisionSource::StudentConfirmed,
             decided_in_version: 1,
         });
@@ -882,8 +931,8 @@ mod prd_interview_prompt_tests {
     }
 
     /// A draft that has cleared the five confirmable fields, so the interview is
-    /// on the architecture-form focus (S-047 stage one).
-    fn draft_on_form_focus() -> LiveProjectSpecDraftRow {
+    /// on the tech-stack focus (S-075: the one architecture focus).
+    fn draft_on_stack_focus() -> LiveProjectSpecDraftRow {
         let mut draft = empty_draft();
         draft.spec.goal = "Build a personal schedule app for students".into();
         draft.spec.intent_summary =
@@ -910,19 +959,17 @@ mod prd_interview_prompt_tests {
     }
 
     #[test]
-    fn expected_proposal_kind_tracks_two_stage_focus() {
-        // No architecture yet -> stage one (form).
-        let mut draft = draft_on_form_focus();
+    fn expected_proposal_kind_is_stack_only_on_the_stack_focus() {
+        // No architecture yet -> the stack focus.
+        let mut draft = draft_on_stack_focus();
         assert_eq!(
             expected_architecture_proposal_kind(&draft.spec),
-            Some("form")
+            Some("stack")
         );
 
-        // Form picked, no stack -> stage two (stack).
+        // A decision row with a blank stack is still on the stack focus.
         draft.spec.architecture = Some(ArchitectureDecision {
-            form: ArchitectureForm::WebApp,
-            form_other_label: None,
-            stack: None,
+            stack: Some("  ".into()),
             rationale: None,
             decision_source: ArchitectureDecisionSource::StudentConfirmed,
             decided_in_version: 1,
@@ -932,10 +979,8 @@ mod prd_interview_prompt_tests {
             Some("stack")
         );
 
-        // Both decided -> no architecture focus, so no cards.
+        // Stack confirmed -> no architecture focus, so no cards.
         draft.spec.architecture = Some(ArchitectureDecision {
-            form: ArchitectureForm::WebApp,
-            form_other_label: None,
             stack: Some("React + Vite".into()),
             rationale: None,
             decision_source: ArchitectureDecisionSource::StudentConfirmed,
@@ -950,36 +995,90 @@ mod prd_interview_prompt_tests {
         );
     }
 
+    /// S-075 (014 theme 4, D-014-16): exactly one architecture gap — the tech
+    /// stack — whose focus asks for ≤2 stacks with a plain "what the finished
+    /// thing is" line and tells the model never to decide for the student.
     #[test]
-    fn sanitize_form_proposals_keeps_valid_forms_and_caps_two() {
+    fn confirmable_gaps_report_one_stack_gap_only() {
+        let mut draft = draft_on_stack_focus();
+
+        let gaps = confirmable_draft_gaps(&draft.spec);
+        assert_eq!(gaps.len(), 1);
+        assert_eq!(gaps[0].label, "tech stack");
+        assert!(gaps[0].focus.starts_with("propose_architecture_stack:"));
+        assert!(gaps[0].focus.contains("what the finished thing is"));
+        assert!(gaps[0].focus.contains("never decide for them"));
+        assert!(!gaps[0].focus.contains("form"));
+
+        draft.spec.architecture = Some(ArchitectureDecision {
+            stack: Some("Python + discord.py".into()),
+            rationale: None,
+            decision_source: ArchitectureDecisionSource::StudentConfirmed,
+            decided_in_version: 1,
+        });
+        assert!(confirmable_draft_gaps(&draft.spec).is_empty());
+    }
+
+    #[test]
+    fn system_prompt_asks_for_stack_proposals_only() {
+        let prompt = build_prd_interview_system_prompt();
+        assert!(prompt.contains(
+            "Never put the architecture (tech stack) in the patch — the student decides it by clicking a card or typing, not you."
+        ));
+        assert!(prompt.contains(
+            "If the student agrees with a proposed stack in chat, tell them to tap that card (or type the stack) in the PRD board — you cannot record the architecture yourself."
+        ));
+        assert!(prompt.contains("When the suggested next focus is propose_architecture_stack, ALSO return \"proposals\":{\"kind\":\"stack\""));
+        assert!(prompt.contains("what the finished thing is (a browser app, a command-line tool, a bot…) and why this stack"));
+        assert!(prompt.contains("Omit \"proposals\" on any other focus."));
+        assert!(!prompt.contains("propose_architecture_form"));
+        assert!(!prompt.contains("\"kind\":\"form\""));
+        assert!(!prompt.contains("web_app"));
+        assert!(!prompt.contains("combine several forms"));
+    }
+
+    #[test]
+    fn sanitize_drops_form_kind_proposals() {
+        // S-075: the form taxonomy is gone — a stale model still answering with
+        // `kind: "form"` produces no cards at all.
         let raw = RawPrdProposals {
             kind: Some("form".into()),
+            options: vec![RawPrdProposalOption {
+                value: Some("web_app".into()),
+                rationale: Some("Opens in a browser".into()),
+            }],
+        };
+        assert!(raw.into_sanitized().is_none());
+    }
+
+    #[test]
+    fn sanitize_stack_proposals_trim_and_cap_two() {
+        let raw = RawPrdProposals {
+            kind: Some(" stack ".into()),
             options: vec![
                 RawPrdProposalOption {
-                    value: Some("  web_app ".into()),
-                    rationale: Some(" Opens in a browser ".into()),
+                    value: Some("  React + Vite ".into()),
+                    rationale: Some(" A browser app; easy to share ".into()),
                 },
                 RawPrdProposalOption {
-                    // Unknown form value is dropped, not coerced.
-                    value: Some("mobile_app".into()),
-                    rationale: Some("n/a".into()),
-                },
-                RawPrdProposalOption {
-                    value: Some("static_page".into()),
+                    value: Some("Python + Flask".into()),
                     rationale: None,
                 },
                 RawPrdProposalOption {
-                    value: Some("cli_tool".into()),
+                    value: Some("Node script".into()),
                     rationale: Some("would be third".into()),
                 },
             ],
         };
-        let sanitized = raw.into_sanitized().expect("valid form options remain");
-        assert_eq!(sanitized.kind, "form");
+        let sanitized = raw.into_sanitized().expect("stack options remain");
+        assert_eq!(sanitized.kind, "stack");
         assert_eq!(sanitized.options.len(), 2);
-        assert_eq!(sanitized.options[0].value, "web_app");
-        assert_eq!(sanitized.options[0].rationale, "Opens in a browser");
-        assert_eq!(sanitized.options[1].value, "static_page");
+        assert_eq!(sanitized.options[0].value, "React + Vite");
+        assert_eq!(
+            sanitized.options[0].rationale,
+            "A browser app; easy to share"
+        );
+        assert_eq!(sanitized.options[1].value, "Python + Flask");
         assert_eq!(sanitized.options[1].rationale, "");
     }
 
@@ -1017,11 +1116,17 @@ mod prd_interview_prompt_tests {
         .is_none());
 
         assert!(RawPrdProposals {
-            kind: Some("form".into()),
-            options: vec![RawPrdProposalOption {
-                value: Some("mobile_app".into()),
-                rationale: None,
-            }],
+            kind: Some("stack".into()),
+            options: vec![
+                RawPrdProposalOption {
+                    value: Some("   ".into()),
+                    rationale: None,
+                },
+                RawPrdProposalOption {
+                    value: None,
+                    rationale: Some("no value".into()),
+                },
+            ],
         }
         .into_sanitized()
         .is_none());
@@ -1029,16 +1134,16 @@ mod prd_interview_prompt_tests {
 
     #[test]
     fn parse_turn_response_extracts_proposals_alongside_message() {
-        let raw = r#"{"assistantMessage":"어떤 형태가 좋을까요?","proposals":{"kind":"form","options":[{"value":"web_app","rationale":"브라우저에서 열려요"},{"value":"static_page","rationale":"간단한 안내 페이지면 충분해요"}]}}"#;
+        let raw = r#"{"assistantMessage":"이렇게 만들 계획이에요 — 괜찮을까요?","proposals":{"kind":"stack","options":[{"value":"React + Vite","rationale":"브라우저에서 여는 앱 — 설치 없이 바로 공유"},{"value":"Python + Flask","rationale":"간단한 서버 하나로 충분한 웹앱"}]}}"#;
         let parsed = parse_prd_turn_response(raw, "turn-1");
         let proposals = parsed.proposals.expect("proposals parsed");
-        assert_eq!(proposals.kind, "form");
+        assert_eq!(proposals.kind, "stack");
         assert_eq!(proposals.options.len(), 2);
         // The proposals JSON must not leak into the shown assistant message.
         let message = parsed.assistant_message.unwrap_or_default();
-        assert!(message.contains("어떤 형태가 좋을까요?"));
+        assert!(message.contains("이렇게 만들 계획이에요"));
         assert!(!message.contains("proposals"));
-        assert!(!message.contains("web_app"));
+        assert!(!message.contains("React + Vite"));
         assert_eq!(parsed.parse_failure_kind, None);
     }
 
@@ -1078,6 +1183,181 @@ mod prd_interview_prompt_tests {
         let parsed = parse_prd_turn_response(raw, "turn-1");
         assert!(parsed.patch.is_none());
         assert_eq!(parsed.parse_failure_kind, None);
+    }
+
+    // S-072 (014 theme 2): `target` is the current-item address for the
+    // revise_* / remove_* list ops. It must survive the raw parse verbatim, and
+    // `text` folds into `value` for revise_* exactly like the append_* ops.
+    #[test]
+    fn parse_turn_response_carries_target_for_revise_scope() {
+        let raw = r#"{"assistantMessage":"바꿨어요.","patch":{"operations":[{"op":"revise_scope","target":"old","value":"new"}]}}"#;
+        let parsed = parse_prd_turn_response(raw, "turn-1");
+        let patch = parsed.patch.expect("patch parsed");
+        assert_eq!(patch.operations.len(), 1);
+        let operation = &patch.operations[0];
+        assert_eq!(operation.op, "revise_scope");
+        assert_eq!(operation.target.as_deref(), Some("old"));
+        assert_eq!(operation.value.as_deref(), Some("new"));
+        assert_eq!(parsed.parse_failure_kind, None);
+    }
+
+    #[test]
+    fn parse_turn_response_accepts_target_aliases_and_folds_text_into_value() {
+        let raw = r#"{"assistantMessage":"ok","patch":{"operations":[
+            {"op":"revise_non_goal","oldText":"old wording","text":"new wording"},
+            {"op":"remove_constraint","from":"drop me"},
+            {"op":"retire_acceptance_criterion","criterion_id":"AC-002"}
+        ]}}"#;
+        let parsed = parse_prd_turn_response(raw, "turn-1");
+        let patch = parsed.patch.expect("patch parsed");
+        assert_eq!(patch.operations.len(), 3);
+        assert_eq!(patch.operations[0].op, "revise_non_goal");
+        assert_eq!(patch.operations[0].target.as_deref(), Some("old wording"));
+        assert_eq!(patch.operations[0].value.as_deref(), Some("new wording"));
+        assert_eq!(patch.operations[1].op, "remove_constraint");
+        assert_eq!(patch.operations[1].target.as_deref(), Some("drop me"));
+        assert_eq!(patch.operations[1].value, None);
+        assert_eq!(patch.operations[2].op, "retire_acceptance_criterion");
+        assert_eq!(patch.operations[2].criterion_id.as_deref(), Some("AC-002"));
+        assert_eq!(patch.operations[2].target, None);
+    }
+
+    #[test]
+    fn interview_system_prompt_lists_in_place_edit_ops_and_forbids_duplicates() {
+        let prompt = build_prd_interview_system_prompt();
+        for op in [
+            "revise_scope",
+            "revise_non_goal",
+            "revise_constraint",
+            "remove_scope",
+            "remove_non_goal",
+            "remove_constraint",
+            "retire_acceptance_criterion",
+        ] {
+            assert!(prompt.contains(op), "prompt must list {op}");
+        }
+        assert!(prompt.contains("never append a corrected duplicate under the old item"));
+        assert!(prompt.contains("copy it exactly from the draft JSON"));
+    }
+
+    // S-072 review (P1): retired criteria are already dropped; the model must
+    // not revise/retire them again or count them as active.
+    #[test]
+    fn interview_system_prompt_tells_model_to_ignore_retired_criteria() {
+        let prompt = build_prd_interview_system_prompt();
+        assert!(prompt.contains(
+            "Acceptance criteria with status \"retired\" in the draft JSON are already dropped — ignore them, never revise or retire them again, and never treat them as active."
+        ));
+    }
+
+    // S-072 review (P2): op-name and field-name paraphrases models reach for.
+
+    #[test]
+    fn parse_turn_response_maps_delete_and_remove_criterion_aliases_to_canonical_ops() {
+        let raw = r#"{"assistantMessage":"ok","patch":{"operations":[
+            {"op":"delete_scope","target":"a"},
+            {"op":"delete_non_goal","target":"b"},
+            {"op":"delete_constraint","target":"c"},
+            {"op":"remove_acceptance_criterion","criterionId":"AC-001"},
+            {"op":"delete_acceptance_criterion","criterionId":"AC-002"}
+        ]}}"#;
+        let patch = parse_prd_turn_response(raw, "turn-1")
+            .patch
+            .expect("patch parsed");
+        let ops: Vec<&str> = patch
+            .operations
+            .iter()
+            .map(|operation| operation.op.as_str())
+            .collect();
+        assert_eq!(
+            ops,
+            vec![
+                "remove_scope",
+                "remove_non_goal",
+                "remove_constraint",
+                "retire_acceptance_criterion",
+                "retire_acceptance_criterion",
+            ]
+        );
+        assert_eq!(patch.operations[0].target.as_deref(), Some("a"));
+        assert_eq!(patch.operations[3].criterion_id.as_deref(), Some("AC-001"));
+        assert_eq!(patch.operations[4].criterion_id.as_deref(), Some("AC-002"));
+    }
+
+    #[test]
+    fn parse_turn_response_folds_value_or_text_into_target_for_remove_ops() {
+        let raw = r#"{"assistantMessage":"ok","patch":{"operations":[
+            {"op":"remove_scope","value":"from value"},
+            {"op":"remove_non_goal","text":"from text"},
+            {"op":"delete_constraint","target":"explicit","value":"ignored"}
+        ]}}"#;
+        let patch = parse_prd_turn_response(raw, "turn-1")
+            .patch
+            .expect("patch parsed");
+        assert_eq!(patch.operations[0].target.as_deref(), Some("from value"));
+        assert_eq!(patch.operations[0].value, None);
+        assert_eq!(patch.operations[0].text, None);
+        assert_eq!(patch.operations[1].target.as_deref(), Some("from text"));
+        assert_eq!(patch.operations[1].text, None);
+        // An explicit target wins; the stray value is dropped, not kept.
+        assert_eq!(patch.operations[2].op, "remove_constraint");
+        assert_eq!(patch.operations[2].target.as_deref(), Some("explicit"));
+        assert_eq!(patch.operations[2].value, None);
+    }
+
+    #[test]
+    fn parse_turn_response_accepts_new_wording_aliases_for_value() {
+        let raw = r#"{"assistantMessage":"ok","patch":{"operations":[
+            {"op":"revise_scope","old":"a","new":"a1"},
+            {"op":"revise_non_goal","from":"b","to":"b1"},
+            {"op":"revise_constraint","oldText":"c","newText":"c1"},
+            {"op":"revise_constraint","old_text":"d","new_text":"d1"},
+            {"op":"revise_scope","target":"e","value":"explicit","new":"ignored"}
+        ]}}"#;
+        let patch = parse_prd_turn_response(raw, "turn-1")
+            .patch
+            .expect("patch parsed");
+        let pairs: Vec<(Option<&str>, Option<&str>)> = patch
+            .operations
+            .iter()
+            .map(|operation| (operation.target.as_deref(), operation.value.as_deref()))
+            .collect();
+        assert_eq!(
+            pairs,
+            vec![
+                (Some("a"), Some("a1")),
+                (Some("b"), Some("b1")),
+                (Some("c"), Some("c1")),
+                (Some("d"), Some("d1")),
+                // `value` wins over the alias when both are present.
+                (Some("e"), Some("explicit")),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_turn_response_keeps_text_for_retire_without_criterion_id() {
+        let raw = r#"{"assistantMessage":"ok","patch":{"operations":[
+            {"op":"retire_acceptance_criterion","text":"Exports a CSV"},
+            {"op":"remove_acceptance_criterion","target":"AC-002"}
+        ]}}"#;
+        let patch = parse_prd_turn_response(raw, "turn-1")
+            .patch
+            .expect("patch parsed");
+        assert_eq!(patch.operations[0].criterion_id, None);
+        assert_eq!(patch.operations[0].text.as_deref(), Some("Exports a CSV"));
+        assert_eq!(patch.operations[1].op, "retire_acceptance_criterion");
+        assert_eq!(patch.operations[1].target.as_deref(), Some("AC-002"));
+    }
+
+    #[test]
+    fn parse_turn_response_treats_two_spellings_of_one_field_as_undecodable_not_a_crash() {
+        // serde refuses `target` + `old` on one object; that must surface as
+        // the existing undecodable_json outcome.
+        let raw = r#"{"assistantMessage":"ok","patch":{"operations":[{"op":"revise_scope","target":"a","old":"a","value":"b"}]}}"#;
+        let parsed = parse_prd_turn_response(raw, "turn-1");
+        assert!(parsed.patch.is_none());
+        assert_eq!(parsed.parse_failure_kind, Some("undecodable_json"));
     }
 }
 

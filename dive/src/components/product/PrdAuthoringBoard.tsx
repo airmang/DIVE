@@ -9,8 +9,8 @@ import {
   applyQuickIntakeToDraft,
   type AcceptanceCriterion,
   type ArchitectureDecision,
-  type ArchitectureForm,
   type ArchitectureProposals,
+  type ConfirmableProjectSpecReasonCode,
   type LiveProjectSpecDraft,
   type PrdIntentCheckFraming,
   type PrdPatchValidationOutcome,
@@ -19,7 +19,6 @@ import {
   type QuickIntakeInput,
 } from "../../features/planning";
 import { useT } from "../../i18n";
-import { architectureFormLabel, architectureFormOptions } from "./architectureLabels";
 import {
   ProvocationCardHost,
   type ProvocationAction,
@@ -29,9 +28,25 @@ import { buildPrdIntentCheckCard } from "../../features/provocation/rules";
 import { Button } from "../ui/button";
 import { RuntimeModelSelector } from "../chat/RuntimeModelSelector";
 import { cn } from "../../lib/utils";
+import { shouldSendOnEnter } from "../../lib/composerKeys";
 import { QuickIntakePanel } from "./QuickIntakePanel";
 
 export type PrdAuthoringState = "missing" | "draft" | "minimal" | "saved" | "editing";
+
+/** The stack currently "in place" for decisionSource purposes (S-075). */
+interface CommittedStack {
+  stack: string;
+  source: ArchitectureDecision["decisionSource"];
+}
+
+function committedStackFromArchitecture(
+  architecture: ArchitectureDecision | null | undefined,
+): CommittedStack {
+  return {
+    stack: (architecture?.stack ?? "").trim(),
+    source: architecture?.decisionSource ?? "student_confirmed",
+  };
+}
 
 export interface PrdPatchFeedback {
   validationOutcome: PrdPatchValidationOutcome;
@@ -80,19 +95,13 @@ export interface PrdAuthoringBoardProps {
   onOpenHistory?: () => void;
 }
 
-function normalizeCriteria(criteria: AcceptanceCriterion[]): AcceptanceCriterion[] {
-  return criteria.length > 0
-    ? criteria
-    : [
-        {
-          criterionId: "",
-          text: "",
-          source: "student_edit",
-          status: "active",
-          createdInVersion: 1,
-          retiredInVersion: null,
-        },
-      ];
+// S-074 review (A): one editable row on the canvas. `realIndex` is the row's
+// position in the draft's full acceptanceCriteria array (retired ones
+// included); `null` marks the trailing placeholder row that does not exist in
+// the array until its first keystroke.
+interface CriterionRow {
+  criterion: AcceptanceCriterion;
+  realIndex: number | null;
 }
 
 function nextCriterion(
@@ -192,11 +201,13 @@ function prdConversationContext(turns: PrdConversationTurn[]): PrdInterviewConve
     .map((turn) => ({ role: turn.role, text: turn.text.trim() }));
 }
 
-// S-053 D2: the six patch-rejection reason codes `validate_prd_patch_for_draft`
-// (workspace_plan.rs) can emit, plus the one `apply_prd_patch_to_draft` uses for
-// a held-for-student conflict (surfaced separately via `patch_held`, kept here
-// only so an unexpected code never falls through silently). `unknown` is the
-// fallback for any future additive code this UI has not been taught yet.
+// S-053 D2: the patch-rejection reason codes `validate_prd_patch_for_draft`
+// (workspace_plan/prd_patch.rs) can emit — six from S-053 plus S-072's
+// `item_not_found` (a revise_*/remove_* target that matched no list item) —
+// plus the one `apply_prd_patch_to_draft` uses for a held-for-student conflict
+// (surfaced separately via `patch_held`, kept here only so an unexpected code
+// never falls through silently). `unknown` is the fallback for any future
+// additive code this UI has not been taught yet.
 const PRD_REJECTED_REASON_CODES = [
   "too_many_operations",
   "unsupported_operation",
@@ -204,12 +215,88 @@ const PRD_REJECTED_REASON_CODES = [
   "text_too_large",
   "secret_like_text",
   "criterion_not_found",
+  "item_not_found",
   "student_edit_conflict",
 ] as const;
 
 function rejectedReasonKey(code: string): string {
   const known = (PRD_REJECTED_REASON_CODES as readonly string[]).includes(code);
   return `prd.authoring.rejected_reasons.${known ? code : "unknown"}`;
+}
+
+// S-073 (D-014-08): confirm-gate legibility. The gate itself
+// (validateConfirmableProjectSpec) is untouched; these two maps only decide how
+// each of its reason codes is *shown* — the sentence in the footer hint / chip
+// tooltip, and which canvas field the remaining-count chip scrolls to.
+const PRD_VALIDATION_REASON_KEYS: Record<ConfirmableProjectSpecReasonCode, string> = {
+  missing_goal: "prd.authoring.validation_goal_required",
+  vague_goal: "prd.authoring.validation_goal_vague",
+  missing_intent_summary: "prd.authoring.validation_intent_required",
+  missing_scope: "prd.authoring.validation_scope_required",
+  missing_non_goals: "prd.authoring.validation_non_goals_required",
+  insufficient_acceptance_criteria: "prd.authoring.validation_criteria_insufficient",
+  missing_acceptance_criterion: "prd.authoring.validation_criterion_required",
+  missing_architecture_stack: "prd.authoring.validation_architecture_stack_required",
+};
+
+function validationReasonKey(code: string): string {
+  return (
+    PRD_VALIDATION_REASON_KEYS[code as ConfirmableProjectSpecReasonCode] ??
+    "prd.authoring.validation_criterion_required"
+  );
+}
+
+interface PrdValidationFieldTarget {
+  /** data-testid of the canvas field container the reason belongs to. */
+  container: string;
+  /** Optional selector (inside the container) for the control to focus; falls
+   *  back to the first enabled input / textarea / button in the container. */
+  focus?: string;
+}
+
+const PRD_VALIDATION_REASON_FIELDS: Record<
+  ConfirmableProjectSpecReasonCode,
+  PrdValidationFieldTarget
+> = {
+  missing_goal: { container: "prd-field-goal" },
+  vague_goal: { container: "prd-field-goal" },
+  missing_intent_summary: { container: "prd-field-intent-summary" },
+  missing_scope: { container: "prd-field-scope" },
+  missing_non_goals: { container: "prd-field-non-goals" },
+  insufficient_acceptance_criteria: { container: "prd-field-acceptanceCriteria" },
+  missing_acceptance_criterion: { container: "prd-field-acceptanceCriteria" },
+  missing_architecture_stack: {
+    container: "prd-field-architecture",
+    focus: '[data-testid="prd-architecture-stack-input"]',
+  },
+};
+
+function validationReasonField(code: string): PrdValidationFieldTarget | null {
+  return PRD_VALIDATION_REASON_FIELDS[code as ConfirmableProjectSpecReasonCode] ?? null;
+}
+
+const FIRST_FOCUSABLE_SELECTOR =
+  "input:not([disabled]), textarea:not([disabled]), button:not([disabled])";
+
+/** Scrolls the field container for `code` into view and focuses its control.
+ *  Returns the focused element (null when nothing matched) so tests can assert
+ *  the target without reaching into the DOM themselves. */
+function focusValidationField(root: HTMLElement | null, code: string): HTMLElement | null {
+  const target = validationReasonField(code);
+  if (!root || !target) return null;
+  const container = root.querySelector<HTMLElement>(`[data-testid="${target.container}"]`);
+  if (!container) return null;
+  // jsdom has no scrollIntoView; the real app always does.
+  if (typeof container.scrollIntoView === "function") {
+    container.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+  const control =
+    (target.focus ? container.querySelector<HTMLElement>(target.focus) : null) ??
+    container.querySelector<HTMLElement>(FIRST_FOCUSABLE_SELECTOR);
+  // preventScroll: focus() would otherwise jump to the control and cancel the
+  // smooth centering scroll started above.
+  control?.focus({ preventScroll: true });
+  return control ?? null;
 }
 
 // S-053 D3: maps a field_provenance root key to its existing field-label i18n
@@ -336,6 +423,26 @@ export function PrdAuthoringBoard({
     setLocalDraft(draft);
   }, [draft]);
 
+  // S-075 (D-014-16): `decisionSource` for the stack-only decision. The first
+  // accepted (card) or typed stack is `student_confirmed`; editing a stack that
+  // was already in place — accepted from a card, restored with the draft, or
+  // typed and then left — is `student_changed`. This ref holds that in-place
+  // stack (and the source it carried) so typing a fresh stack character by
+  // character never flips to "changed" on the second keystroke.
+  // S-075 review (P2): the parent echoes every draft this board emits back
+  // through `draft` as the SAME reference, while an external restore (reopen →
+  // getProjectSpecDraft → restorePrdDraftIfCurrent) arrives as a different
+  // object under the SAME draftId — so "is this the object we emitted?" is the
+  // re-seed signal, never the id.
+  const committedStackRef = useRef<CommittedStack>(
+    committedStackFromArchitecture(draft.spec.architecture),
+  );
+  const lastEmittedDraftRef = useRef<LiveProjectSpecDraft | null>(null);
+  useEffect(() => {
+    if (draft === lastEmittedDraftRef.current) return;
+    committedStackRef.current = committedStackFromArchitecture(draft.spec.architecture);
+  }, [draft]);
+
   useEffect(() => {
     const nextKey = conversationStorageKeyForDraft(draft);
     if (conversationStorageKey === nextKey) return;
@@ -356,35 +463,75 @@ export function PrdAuthoringBoard({
     () => validateConfirmableProjectSpec(localDraft.spec),
     [localDraft.spec],
   );
-  const criteria = normalizeCriteria(localDraft.spec.acceptanceCriteria);
   const architecture = localDraft.spec.architecture;
-  const formOptions = useMemo(() => architectureFormOptions(t), [t]);
-  // S-047: the AI's recommend-then-confirm cards for the current two-stage
-  // focus. Form cards show only until a form is picked; stack cards show only
-  // once a form exists and no stack is chosen yet, so a decided field never
-  // keeps stale cards. The student's click authors the decision.
-  const formProposals =
-    architectureProposals?.kind === "form" && !architecture ? architectureProposals.options : [];
+  const currentStack = (architecture?.stack ?? "").trim();
+  // S-047 → S-075 (D-014-16): the AI's recommend-then-confirm stack cards. They
+  // stay visible while this turn's proposals exist — even after a tap, so the
+  // student can switch between the two (the card matching the current stack is
+  // shown pressed) — and clear on the next turn as before. The student's tap
+  // (or typing) authors the decision.
   const stackProposals =
-    architectureProposals?.kind === "stack" && architecture && !(architecture.stack ?? "").trim()
-      ? architectureProposals.options
-      : [];
+    architectureProposals?.kind === "stack" ? architectureProposals.options : [];
+  // S-074 review (A): since S-073 the interview can retire a criterion
+  // (`status: "retired"`). Only active criteria are editable rows — a retired
+  // one rendered as an ordinary row looked unchanged (QA "수정 안 됨") and
+  // editing it kept it retired, so two filled rows could be visible while the
+  // active-count gate saw one. Retired criteria render read-only below with a
+  // Restore control instead.
+  const allCriteria = localDraft.spec.acceptanceCriteria;
+  const activeCriterionRows: CriterionRow[] = allCriteria
+    .map((criterion, realIndex) => ({ criterion, realIndex }))
+    .filter((row) => row.criterion.status === "active");
+  const retiredCriteria = allCriteria.filter((criterion) => criterion.status === "retired");
   // Always offer a trailing empty row so the student can author the 2nd criterion
   // by hand when the AI won't extend it (round-2 P1-30 / S-041 dead-end escape).
-  const displayCriteria =
-    criteria.length > 0 && criteria[criteria.length - 1].text.trim()
-      ? [...criteria, emptyCriterion(localDraft.spec.currentVersion)]
-      : criteria;
+  const lastActiveRow = activeCriterionRows[activeCriterionRows.length - 1];
+  const criterionRows: CriterionRow[] =
+    lastActiveRow && !lastActiveRow.criterion.text.trim()
+      ? activeCriterionRows
+      : [
+          ...activeCriterionRows,
+          { criterion: emptyCriterion(localDraft.spec.currentVersion), realIndex: null },
+        ];
+  // Rows are keyed by criterionId. A row that has no id yet (the trailing
+  // placeholder, or a blank added with the button) is keyed by the id it WILL
+  // get on its first keystroke — allocateCriterionId is deterministic over the
+  // same array — so the key never flips mid-typing and React never remounts the
+  // input under the student's cursor (round-2 lost-focus bug). At most one
+  // id-less row exists at a time (updateCriterion allocates on first text), so
+  // the pre-allocated key cannot collide.
+  const pendingCriterionId = allocateCriterionId(allCriteria);
   const isAnswerBusy = busy || submittingAnswer;
   const canConfirmPrd = validation.valid && !busy;
   const confirmPrd = () => {
     if (!canConfirmPrd) return;
     onSavePrdAndCreatePlan(withNonEmptyCriteria(localDraft));
   };
+  // S-073 (D-014-08): the same reason sentences feed the footer hint and the
+  // remaining-count chip's tooltip, so the two can never disagree.
+  const validationReasonTexts = validation.reasonCodes.map((code) => t(validationReasonKey(code)));
+  // S-075: one reason code per remaining gap (the stack is the whole
+  // architecture decision), so the count is simply the code count.
+  const remainingCount = validation.reasonCodes.length;
+  const boardRef = useRef<HTMLElement>(null);
+  const focusFirstMissingField = () => {
+    const code = validation.reasonCodes[0];
+    if (code) focusValidationField(boardRef.current, code);
+  };
+  // A disabled <button> cannot reliably show a tooltip across WebKit/Chromium,
+  // so the enabled chip carries the reasons; the buttons point at the footer
+  // hint for assistive tech while the gate is what blocks them. S-074 review
+  // (C): keyed on validation.valid, not canConfirmPrd — a valid PRD during a
+  // busy turn must not be described as "ready to confirm"; it gets a wait
+  // tooltip instead.
+  const confirmDescribedBy = validation.valid ? undefined : "prd-validation-hint";
+  const confirmTitle = busy && validation.valid ? t("prd.authoring.confirm_busy") : undefined;
   const addCriterion = () => {
     const current = localDraft.spec.acceptanceCriteria;
-    // A trailing empty row already exists to type into; don't stack blanks.
-    if (current.some((criterion) => !criterion.text.trim())) return;
+    // A blank active row already exists to type into; don't stack blanks.
+    if (current.some((criterion) => criterion.status === "active" && !criterion.text.trim())) {
+      return;
+    }
     updateSpecField(
       "acceptanceCriteria",
       [...current, emptyCriterion(localDraft.spec.currentVersion)],
@@ -433,10 +580,17 @@ export function PrdAuthoringBoard({
     }
   };
 
+  // Every draft leaving this board goes through here so the `[draft]` effect
+  // above can tell the parent's echo apart from an external restore.
+  const emitDraft = (next: LiveProjectSpecDraft) => {
+    lastEmittedDraftRef.current = next;
+    onDraftChange(next);
+  };
+
   const updateDraft = (next: LiveProjectSpecDraft, changedFields: string[]) => {
     const marked = markDraftStudentEdited(next, changedFields);
     setLocalDraft(marked);
-    onDraftChange(marked);
+    emitDraft(marked);
   };
 
   const updateSpecField = <K extends keyof LiveProjectSpecDraft["spec"]>(
@@ -468,47 +622,99 @@ export function PrdAuthoringBoard({
     updateSpecField(field, lines, fieldPath);
   };
 
-  // S-047: the student picks the form first, then decides a stack. Both writes
-  // land on localDraft.spec.architecture via the ordinary draft-save path — never
-  // an AI patch — so the shape is a student-confirmed decision, not auto-filled.
-  const setArchitectureForm = (form: ArchitectureForm) => {
+  // S-047 → S-075 (D-014-16): the architecture decision is one tech-stack
+  // confirmation. Every write lands on localDraft.spec.architecture via the
+  // ordinary draft-save path — never an AI patch (Constitution VI) — and nothing
+  // here classifies or restricts what the student builds (Constitution VII).
+  const writeArchitecture = (patch: Partial<ArchitectureDecision>) => {
     const prev = localDraft.spec.architecture;
-    const changingForm = !!prev && prev.form !== form;
     const next: ArchitectureDecision = {
-      form,
-      formOtherLabel: form === "other" ? (prev?.formOtherLabel ?? null) : null,
       stack: prev?.stack ?? null,
       rationale: prev?.rationale ?? null,
-      decisionSource: changingForm
-        ? "student_changed"
-        : (prev?.decisionSource ?? "student_confirmed"),
+      decisionSource: prev?.decisionSource ?? "student_confirmed",
       decidedInVersion: localDraft.spec.currentVersion ?? 1,
+      ...patch,
     };
     updateSpecField("architecture", next, "architecture");
   };
 
-  const patchArchitecture = (patch: Partial<ArchitectureDecision>) => {
-    const prev = localDraft.spec.architecture;
-    if (!prev) return;
-    updateSpecField("architecture", { ...prev, ...patch }, "architecture");
+  // A fresh stack (nothing in place yet) confirms; a different stack than the
+  // one in place is a student change; the in-place stack verbatim keeps the
+  // source it was committed with.
+  const stackDecisionSource = (value: string): ArchitectureDecision["decisionSource"] => {
+    const committed = committedStackRef.current;
+    if (!committed.stack) return "student_confirmed";
+    return value.trim() === committed.stack ? committed.source : "student_changed";
   };
 
-  const updateCriterion = (index: number, text: string) => {
+  // Tapping an AI card accepts that stack: `student_confirmed` for the first
+  // one, `student_changed` when it replaces a stack already in place.
+  const acceptStackProposal = (value: string) => {
+    const decisionSource = stackDecisionSource(value);
+    committedStackRef.current = { stack: value.trim(), source: decisionSource };
+    writeArchitecture({ stack: value.trim() ? value : null, decisionSource });
+  };
+
+  const typeStack = (value: string) => {
+    writeArchitecture({
+      stack: value.trim() ? value : null,
+      decisionSource: stackDecisionSource(value),
+    });
+  };
+
+  // Leaving the field commits what was typed. S-075 review (P2): a blank field
+  // never downgrades the committed stack, so confirmed A → clear → blur →
+  // type B is still a change from A.
+  const commitTypedStack = () => {
+    const current = localDraft.spec.architecture;
+    const stack = (current?.stack ?? "").trim();
+    if (!stack) return;
+    committedStackRef.current = {
+      stack,
+      source: current?.decisionSource ?? "student_confirmed",
+    };
+  };
+
+  const patchArchitecture = (patch: Partial<ArchitectureDecision>) => {
+    writeArchitecture(patch);
+  };
+
+  const updateCriterion = (row: CriterionRow, text: string) => {
     const current = localDraft.spec.acceptanceCriteria;
     const next = [...current];
-    const existing = next[index];
-    if (existing) {
-      next[index] = { ...existing, text };
-    } else if (text.trim()) {
-      next[index] = nextCriterion(next, text, localDraft.spec.currentVersion);
+    if (row.realIndex === null) {
+      // The trailing placeholder: the first real keystroke creates the criterion
+      // (with the same id the row was already keyed by — see pendingCriterionId).
+      if (!text.trim()) return;
+      next.push(nextCriterion(next, text, localDraft.spec.currentVersion));
+    } else {
+      const existing = current[row.realIndex];
+      next[row.realIndex] = {
+        ...existing,
+        text,
+        // A blank row added with the button has no id yet; allocate it with the
+        // first text so no two id-less rows can ever coexist.
+        criterionId: existing.criterionId || (text.trim() ? allocateCriterionId(current) : ""),
+      };
     }
+    updateSpecField("acceptanceCriteria", next, "acceptanceCriteria");
+  };
+
+  // S-074 review (A): un-retire through the ordinary student-edit path, so the
+  // draft is marked student-edited exactly like typing into the row would.
+  const restoreCriterion = (criterionId: string) => {
+    const next = localDraft.spec.acceptanceCriteria.map((criterion) =>
+      criterion.criterionId === criterionId && criterion.status === "retired"
+        ? { ...criterion, status: "active" as const, retiredInVersion: null }
+        : criterion,
+    );
     updateSpecField("acceptanceCriteria", next, "acceptanceCriteria");
   };
 
   const submitQuickIntake = (input: QuickIntakeInput) => {
     const next = applyQuickIntakeToDraft(localDraft, input);
     setLocalDraft(next);
-    onDraftChange(next);
+    emitDraft(next);
     onQuickIntakeSubmit?.(next, input);
   };
 
@@ -605,6 +811,7 @@ export function PrdAuthoringBoard({
 
   return (
     <section
+      ref={boardRef}
       className="flex h-full min-h-0 flex-col bg-bg"
       data-testid="prd-authoring-board"
       aria-label={t("prd.authoring.title")}
@@ -629,11 +836,30 @@ export function PrdAuthoringBoard({
               {t("prd.authoring.history")}
             </Button>
           ) : null}
+          {validation.valid ? null : (
+            <button
+              type="button"
+              onClick={focusFirstMissingField}
+              title={validationReasonTexts.join("\n")}
+              aria-describedby="prd-validation-hint"
+              className="inline-flex h-8 items-center whitespace-nowrap rounded-full border border-warn/50 bg-warn/10 px-3 text-xs font-medium text-fg transition-colors hover:bg-warn/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+              data-testid="prd-confirm-remaining"
+              data-count={remainingCount}
+            >
+              {/* S-074 review (E): the short count is the live region — not the
+                  footer's full sentence list, which re-announced on every keystroke. */}
+              <span aria-live="polite">
+                {t("prd.authoring.confirm_remaining", { count: remainingCount })}
+              </span>
+            </button>
+          )}
           <Button
             variant="primary"
             size="sm"
             onClick={confirmPrd}
             disabled={!canConfirmPrd}
+            aria-describedby={confirmDescribedBy}
+            title={confirmTitle}
             data-testid="prd-confirm-header"
           >
             <CheckCircle2 />
@@ -683,12 +909,26 @@ export function PrdAuthoringBoard({
               ref={interviewInputRef}
               value={answer}
               onChange={(event) => setAnswer(event.target.value)}
+              onKeyDown={(event) => {
+                // S-073 (D-014-07): same contract as the main chat — Enter
+                // sends, Shift+Enter is a newline, IME composition never sends.
+                if (shouldSendOnEnter(event)) {
+                  event.preventDefault();
+                  void submitAnswer();
+                }
+              }}
               disabled={isAnswerBusy}
               rows={3}
               className="w-full resize-none rounded-md border bg-bg px-3 py-2 text-sm text-fg placeholder:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
               placeholder={t("prd.authoring.answer_placeholder")}
               data-testid="prd-interview-input"
             />
+            <p
+              className="mt-1 px-1 text-[11px] text-fg-muted"
+              data-testid="prd-interview-enter-hint"
+            >
+              {t("chat.input.enter_hint")}
+            </p>
             <Button
               variant="primary"
               size="sm"
@@ -722,7 +962,13 @@ export function PrdAuthoringBoard({
               {patchFeedback.validationOutcome === "applied" ? (
                 t("prd.authoring.patch_applied")
               ) : patchFeedback.validationOutcome === "held_for_student" ? (
-                t("prd.authoring.patch_held")
+                // S-074 review (B): a turn can apply some ops and hold the rest;
+                // say so instead of implying nothing landed.
+                t(
+                  patchFeedback.appliedFieldPaths.length > 0
+                    ? "prd.authoring.patch_held_partial"
+                    : "prd.authoring.patch_held",
+                )
               ) : patchFeedback.validationOutcome === "not_structured" ? (
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span>{t("prd.authoring.patch_not_structured")}</span>
@@ -773,7 +1019,10 @@ export function PrdAuthoringBoard({
               />
             </label>
 
-            <label className="flex flex-col gap-1 xl:col-span-2">
+            <label
+              className="flex flex-col gap-1 xl:col-span-2"
+              data-testid="prd-field-intent-summary"
+            >
               <span className="text-xs font-semibold text-fg-muted">
                 {t("prd.fields.intent_summary")}
               </span>
@@ -797,7 +1046,7 @@ export function PrdAuthoringBoard({
               />
             </label>
 
-            <label className="flex flex-col gap-1">
+            <label className="flex flex-col gap-1" data-testid="prd-field-scope">
               <span className="text-xs font-semibold text-fg-muted">{t("prd.fields.scope")}</span>
               <textarea
                 value={localDraft.spec.scope.join("\n")}
@@ -809,7 +1058,7 @@ export function PrdAuthoringBoard({
               />
             </label>
 
-            <label className="flex flex-col gap-1">
+            <label className="flex flex-col gap-1" data-testid="prd-field-non-goals">
               <span className="text-xs font-semibold text-fg-muted">
                 {t("prd.fields.non_goals")}
               </span>
@@ -823,7 +1072,7 @@ export function PrdAuthoringBoard({
               />
             </label>
 
-            <label className="flex flex-col gap-1">
+            <label className="flex flex-col gap-1" data-testid="prd-field-constraints">
               <span className="text-xs font-semibold text-fg-muted">
                 {t("prd.fields.constraints")}
               </span>
@@ -853,26 +1102,25 @@ export function PrdAuthoringBoard({
               <span className="text-[11px] font-normal text-fg-subtle">
                 {t("prd.fields.acceptance_criteria_help")}
               </span>
-              {displayCriteria.map((criterion, index) => (
-                // Key by array index only. A brand-new row starts with an empty
-                // criterionId; the first keystroke allocates one (e.g. "AC-001"),
-                // and keying by that id would flip the key mid-typing, remounting
-                // the input and dropping focus after one character (round-2 QA).
-                // The list is only ever appended-to/edited in place, so the index
-                // is a stable identity here.
-                <label key={index} className="flex items-center gap-2">
-                  <span className="w-14 shrink-0 text-xs font-semibold text-accent">
-                    {criterion.criterionId || `AC-${String(index + 1).padStart(3, "0")}`}
-                  </span>
-                  <input
-                    value={criterion.text}
-                    onChange={(event) => updateCriterion(index, event.target.value)}
-                    className="min-w-0 flex-1 rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg"
-                    placeholder={t("prd.authoring.criterion_placeholder")}
-                    data-testid={`prd-criterion-input-${index}`}
-                  />
-                </label>
-              ))}
+              {criterionRows.map((row, index) => {
+                // Keyed by the row's id, or the id it will get on its first
+                // keystroke — see pendingCriterionId. The test id stays
+                // positional (it is what tests and QA scripts type into).
+                const rowId = row.criterion.criterionId || pendingCriterionId;
+                return (
+                  <label key={rowId} className="flex items-center gap-2">
+                    <span className="w-14 shrink-0 text-xs font-semibold text-accent">{rowId}</span>
+                    <input
+                      value={row.criterion.text}
+                      onChange={(event) => updateCriterion(row, event.target.value)}
+                      className="min-w-0 flex-1 rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg"
+                      placeholder={t("prd.authoring.criterion_placeholder")}
+                      data-testid={`prd-criterion-input-${index}`}
+                      data-criterion-id={rowId}
+                    />
+                  </label>
+                );
+              })}
               <button
                 type="button"
                 onClick={addCriterion}
@@ -882,11 +1130,45 @@ export function PrdAuthoringBoard({
                 <Plus className="h-3.5 w-3.5" />
                 {t("prd.authoring.add_criterion")}
               </button>
+              {/* S-074 review (A): criteria the interview retired stay visible
+                  but read-only, struck through, with a Restore that re-activates
+                  them through the student-edit path. */}
+              {retiredCriteria.length > 0 ? (
+                <div className="mt-2 flex flex-col gap-1" data-testid="prd-retired-criteria">
+                  <span className="text-[11px] font-semibold text-fg-muted">
+                    {t("prd.authoring.retired_criteria_heading")}
+                  </span>
+                  <ul className="flex flex-col gap-1">
+                    {retiredCriteria.map((criterion, index) => (
+                      <li
+                        key={criterion.criterionId || `retired-${index}`}
+                        className="flex items-center gap-2 text-xs text-fg-muted"
+                        data-testid={`prd-retired-criterion-${criterion.criterionId}`}
+                      >
+                        <span className="w-14 shrink-0 font-semibold">{criterion.criterionId}</span>
+                        <span className="min-w-0 flex-1 line-through">{criterion.text}</span>
+                        <button
+                          type="button"
+                          onClick={() => restoreCriterion(criterion.criterionId)}
+                          className="shrink-0 font-medium text-accent hover:underline"
+                          data-testid={`prd-restore-criterion-${criterion.criterionId}`}
+                        >
+                          {t("prd.authoring.restore_criterion")}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
 
-            {/* S-047 (010 theme 7): the student decides the architecture — form
-                first, then a stack. The AI proposes both in the interview rail;
-                this is where the student confirms, so it is never auto-filled. */}
+            {/* S-047 (010 theme 7) → S-075 (014 theme 4, D-014-16): the
+                architecture decision is one tech-stack confirmation, framed for
+                a novice as "AI가 이렇게 만들 계획이에요". The AI proposes ≤2
+                stacks in the interview rail (each with a plain line on what the
+                finished thing is and why this stack); the student confirms one
+                by tapping it or writes their own. Never auto-filled
+                (Constitution VI); nothing here restricts what gets built (VII). */}
             <div
               className="flex flex-col gap-2 xl:col-span-2"
               data-testid="prd-field-architecture"
@@ -898,98 +1180,48 @@ export function PrdAuthoringBoard({
               <span className="text-[11px] font-normal text-fg-subtle">
                 {t("prd.fields.architecture_help")}
               </span>
-              {/* S-047: the AI's recommended forms as selectable cards (recommend-
-                  then-confirm). The click below is the student's decision. */}
-              {formProposals.length > 0 ? (
-                <div className="flex flex-col gap-2" data-testid="prd-architecture-form-proposals">
-                  <span className="text-[11px] font-normal text-fg-subtle">
-                    {t("prd.architecture.proposals_heading_form")}
-                  </span>
-                  {formProposals.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setArchitectureForm(option.value as ArchitectureForm)}
-                      className="flex flex-col gap-0.5 rounded-md border border-border bg-bg-panel2 px-3 py-2 text-left text-sm transition-colors hover:border-accent hover:bg-accent-subtle"
-                      data-testid={`prd-architecture-form-proposal-${option.value}`}
-                    >
-                      <span className="font-medium text-fg">
-                        {architectureFormLabel(t, option.value as ArchitectureForm)}
-                      </span>
-                      {option.rationale ? (
-                        <span className="text-[11px] font-normal text-fg-subtle">
-                          {option.rationale}
-                        </span>
-                      ) : null}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-              <div
-                className="flex flex-wrap gap-2"
-                role="group"
-                aria-label={t("prd.fields.architecture")}
-              >
-                {formOptions.map((option) => {
-                  const selected = architecture?.form === option.form;
-                  return (
-                    <button
-                      key={option.form}
-                      type="button"
-                      onClick={() => setArchitectureForm(option.form)}
-                      aria-pressed={selected}
-                      className={cn(
-                        "rounded-md border px-3 py-1.5 text-sm transition-colors",
-                        selected
-                          ? "border-accent bg-accent-subtle font-medium text-fg"
-                          : "border-border bg-bg-panel2 text-fg-muted hover:text-fg",
-                      )}
-                      data-testid={`prd-architecture-form-${option.form}`}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {architecture?.form === "other" ? (
-                <input
-                  value={architecture.formOtherLabel ?? ""}
-                  onChange={(event) =>
-                    patchArchitecture({
-                      formOtherLabel: event.target.value.trim() ? event.target.value : null,
-                    })
-                  }
-                  className="rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg"
-                  placeholder={t("prd.authoring.architecture_other_placeholder")}
-                  data-testid="prd-architecture-form-other"
-                  aria-label={t("prd.authoring.architecture_other_placeholder")}
-                />
+              {/* S-075 review (P2): the help promises a proposal; until one
+                  arrives (and nothing is typed) say so, so the student is not
+                  left waiting for a card. */}
+              {stackProposals.length === 0 && !currentStack ? (
+                <span
+                  className="text-[11px] font-normal italic text-fg-subtle"
+                  data-testid="prd-architecture-no-proposal"
+                >
+                  {t("prd.architecture.no_proposal_yet")}
+                </span>
               ) : null}
 
-              {/* S-047: the AI's recommended stacks as selectable cards. The
-                  click fills the stack field the student can still edit below. */}
               {stackProposals.length > 0 ? (
                 <div className="flex flex-col gap-2" data-testid="prd-architecture-stack-proposals">
                   <span className="text-[11px] font-normal text-fg-subtle">
                     {t("prd.architecture.proposals_heading_stack")}
                   </span>
-                  {stackProposals.map((option, index) => (
-                    <button
-                      key={`${option.value}-${index}`}
-                      type="button"
-                      onClick={() => patchArchitecture({ stack: option.value })}
-                      className="flex flex-col gap-0.5 rounded-md border border-border bg-bg-panel2 px-3 py-2 text-left text-sm transition-colors hover:border-accent hover:bg-accent-subtle"
-                      data-testid={`prd-architecture-stack-proposal-${index}`}
-                    >
-                      <span className="font-medium text-fg">{option.value}</span>
-                      {option.rationale ? (
-                        <span className="text-[11px] font-normal text-fg-subtle">
-                          {option.rationale}
-                        </span>
-                      ) : null}
-                    </button>
-                  ))}
+                  {stackProposals.map((option, index) => {
+                    const selected = option.value.trim() === currentStack;
+                    return (
+                      <button
+                        key={`${option.value}-${index}`}
+                        type="button"
+                        onClick={() => acceptStackProposal(option.value)}
+                        aria-pressed={selected}
+                        className={cn(
+                          "flex flex-col gap-0.5 rounded-md border px-3 py-2 text-left text-sm transition-colors",
+                          selected
+                            ? "border-accent bg-accent-subtle"
+                            : "border-border bg-bg-panel2 hover:border-accent hover:bg-accent-subtle",
+                        )}
+                        data-testid={`prd-architecture-stack-proposal-${index}`}
+                      >
+                        <span className="font-medium text-fg">{option.value}</span>
+                        {option.rationale ? (
+                          <span className="text-[11px] font-normal text-fg-subtle">
+                            {option.rationale}
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
                 </div>
               ) : null}
 
@@ -999,13 +1231,9 @@ export function PrdAuthoringBoard({
                 </span>
                 <input
                   value={architecture?.stack ?? ""}
-                  onChange={(event) =>
-                    patchArchitecture({
-                      stack: event.target.value.trim() ? event.target.value : null,
-                    })
-                  }
-                  disabled={!architecture}
-                  className="rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg disabled:opacity-50"
+                  onChange={(event) => typeStack(event.target.value)}
+                  onBlur={commitTypedStack}
+                  className="rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg"
                   placeholder={t("prd.authoring.architecture_stack_placeholder")}
                   data-testid="prd-architecture-stack-input"
                 />
@@ -1022,8 +1250,7 @@ export function PrdAuthoringBoard({
                       rationale: event.target.value.trim() ? event.target.value : null,
                     })
                   }
-                  disabled={!architecture}
-                  className="rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg disabled:opacity-50"
+                  className="rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg"
                   placeholder={t("prd.authoring.architecture_rationale_placeholder")}
                   data-testid="prd-architecture-rationale-input"
                 />
@@ -1048,30 +1275,17 @@ export function PrdAuthoringBoard({
         className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t bg-bg-panel px-6 py-3"
         data-testid="prd-bottom-action-bar"
       >
-        <div className="text-xs text-fg-muted" data-testid="prd-validation-hint">
+        {/* S-074 review (E): no live-region role here — this line can be five
+            sentences long and changes on every keystroke; the chip's short
+            count is the live region. The id stays for aria-describedby. */}
+        <div
+          id="prd-validation-hint"
+          className="text-xs text-fg-muted"
+          data-testid="prd-validation-hint"
+        >
           {validation.valid
             ? t("prd.authoring.validation_ready")
-            : validation.reasonCodes
-                .map((code) =>
-                  code === "missing_goal"
-                    ? t("prd.authoring.validation_goal_required")
-                    : code === "vague_goal"
-                      ? t("prd.authoring.validation_goal_vague")
-                      : code === "missing_intent_summary"
-                        ? t("prd.authoring.validation_intent_required")
-                        : code === "missing_scope"
-                          ? t("prd.authoring.validation_scope_required")
-                          : code === "missing_non_goals"
-                            ? t("prd.authoring.validation_non_goals_required")
-                            : code === "insufficient_acceptance_criteria"
-                              ? t("prd.authoring.validation_criteria_insufficient")
-                              : code === "missing_architecture_form"
-                                ? t("prd.authoring.validation_architecture_form_required")
-                                : code === "missing_architecture_stack"
-                                  ? t("prd.authoring.validation_architecture_stack_required")
-                                  : t("prd.authoring.validation_criterion_required"),
-                )
-                .join(" / ")}
+            : validationReasonTexts.join(" / ")}
         </div>
         <div className="flex items-center gap-2">
           {onSaveDraft ? (
@@ -1091,6 +1305,8 @@ export function PrdAuthoringBoard({
             size="sm"
             onClick={confirmPrd}
             disabled={!canConfirmPrd}
+            aria-describedby={confirmDescribedBy}
+            title={confirmTitle}
             data-testid="prd-save-create-plan"
           >
             <CheckCircle2 />

@@ -6,6 +6,7 @@ import type { ScaffoldMode } from "../../features/provocation";
 import type { InterviewAnswer } from "../../features/planning";
 import { remainingInterviewDimensions } from "../../features/planning/remainingInterviewDimensions";
 import { detectAmbiguity, type AmbiguityKind } from "../../lib/ambiguity";
+import { shouldSendOnEnter } from "../../lib/composerKeys";
 
 interface SocraticInterviewPanelProps {
   started: boolean;
@@ -121,7 +122,13 @@ export function SocraticInterviewPanel({
               setText(event.target.value);
             }}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              // S-073 (D-014-07): same contract as the main chat — Enter
+              // sends, Shift+Enter is a newline, IME composition never sends.
+              // Cmd/Ctrl+Enter keeps working for anyone who learned it first.
+              if (
+                shouldSendOnEnter(event) ||
+                (event.key === "Enter" && (event.metaKey || event.ctrlKey))
+              ) {
                 event.preventDefault();
                 submit();
               }
@@ -145,6 +152,11 @@ export function SocraticInterviewPanel({
             {started ? t("planning.interview.send_answer") : t("planning.interview.start")}
           </Button>
         </div>
+        {/* Below the composer row (not inside it) so the Send button stays
+            bottom-aligned with the textarea. */}
+        <p className="mt-1 px-1 text-[11px] text-fg-muted" data-testid="interview-enter-hint">
+          {t("chat.input.enter_hint")}
+        </p>
         {vagueHintVisible ? (
           <p className="mt-2 text-xs text-warn" role="note" data-testid="interview-vague-hint">
             {t("planning.interview.vague_answer_error")}

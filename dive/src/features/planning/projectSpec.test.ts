@@ -4,12 +4,16 @@ import {
   adaptAcceptanceCriteria,
   allocateCriterionId,
   createLiveProjectSpecDraft,
+  liveDraftWithNormalizedArchitecture,
   markDraftStudentEdited,
+  normalizeArchitectureDecision,
   prdIntentCheckFraming,
   studentAuthoredFieldPaths,
   validateMinimalProjectSpec,
   validateConfirmableProjectSpec,
+  withNormalizedArchitecture,
 } from "./projectSpec";
+import type { ArchitectureDecision } from "./types";
 
 describe("project spec helpers", () => {
   it("adapts legacy string acceptance criteria into stable migration objects", () => {
@@ -134,7 +138,7 @@ describe("project spec helpers", () => {
         "missing_scope",
         "missing_non_goals",
         "insufficient_acceptance_criteria",
-        "missing_architecture_form",
+        "missing_architecture_stack",
       ],
     });
   });
@@ -147,8 +151,6 @@ describe("project spec helpers", () => {
       nonGoals: ["No accounts or login"],
       acceptanceCriteria: ["Can add a task", "Completed tasks show a checkmark"],
       architecture: {
-        form: "web_app",
-        formOtherLabel: null,
         stack: "React + Vite",
         rationale: null,
         decisionSource: "student_confirmed",
@@ -162,7 +164,9 @@ describe("project spec helpers", () => {
     });
   });
 
-  it("requires an architecture form, then a stack, before confirming", () => {
+  // S-075 (014 theme 4, D-014-16): the architecture gate is one confirmed tech
+  // stack — no project-kind classification (Constitution VII).
+  it("requires a confirmed tech stack before confirming", () => {
     const draft = createLiveProjectSpecDraft(42, {
       goal: "Build a focused todo app for students",
       intentSummary: "Students track daily tasks and see what is still left",
@@ -171,33 +175,31 @@ describe("project spec helpers", () => {
       acceptanceCriteria: ["Can add a task", "Completed tasks show a checkmark"],
     });
 
-    // No architecture decided yet: the form gap is what blocks confirmation.
+    // No architecture decided yet: the stack gap is what blocks confirmation.
     expect(validateConfirmableProjectSpec(draft.spec)).toEqual({
       valid: false,
-      reasonCodes: ["missing_architecture_form"],
+      reasonCodes: ["missing_architecture_stack"],
     });
 
-    // Form picked but stack still undecided (the intermediate two-stage state).
-    const formOnly = {
+    // A decision row with a blank stack is still undecided.
+    const blankStack = {
       ...draft.spec,
       architecture: {
-        form: "web_app" as const,
-        formOtherLabel: null,
-        stack: null,
+        stack: "   ",
         rationale: null,
         decisionSource: "student_confirmed" as const,
         decidedInVersion: 1,
       },
     };
-    expect(validateConfirmableProjectSpec(formOnly)).toEqual({
+    expect(validateConfirmableProjectSpec(blankStack)).toEqual({
       valid: false,
       reasonCodes: ["missing_architecture_stack"],
     });
 
-    // Stack decided: the PRD is now confirmable.
+    // Stack confirmed (accepted or typed): the PRD is now confirmable.
     const withStack = {
-      ...formOnly,
-      architecture: { ...formOnly.architecture, stack: "React + Vite" },
+      ...blankStack,
+      architecture: { ...blankStack.architecture, stack: "React + Vite" },
     };
     expect(validateConfirmableProjectSpec(withStack)).toEqual({
       valid: true,
@@ -213,8 +215,6 @@ describe("project spec helpers", () => {
       nonGoals: ["No accounts or login"],
       acceptanceCriteria: ["Can add a task", "Completed tasks show a checkmark"],
       architecture: {
-        form: "web_app",
-        formOtherLabel: null,
         stack: "React + Vite",
         rationale: null,
         decisionSource: "student_confirmed",
@@ -321,5 +321,84 @@ describe("studentAuthoredFieldPaths", () => {
   it("returns an empty list for an empty or undefined map", () => {
     expect(studentAuthoredFieldPaths(undefined)).toEqual([]);
     expect(studentAuthoredFieldPaths({})).toEqual([]);
+  });
+});
+
+// S-075 (D-014-16): legacy S-047/S-072 payloads carry `form` / `forms` /
+// `formOtherLabel`; the client mirror of the Rust load strips them and keeps
+// the stack-only decision.
+describe("normalizeArchitectureDecision", () => {
+  it("strips a legacy single form and keeps the stack fields", () => {
+    expect(
+      normalizeArchitectureDecision({
+        form: "web_app",
+        stack: "React + Vite",
+        rationale: "Runs in the browser",
+        decisionSource: "student_confirmed",
+        decidedInVersion: 3,
+      }),
+    ).toEqual({
+      stack: "React + Vite",
+      rationale: "Runs in the browser",
+      decisionSource: "student_confirmed",
+      decidedInVersion: 3,
+    });
+  });
+
+  it("strips legacy forms and formOtherLabel keys", () => {
+    const normalized = normalizeArchitectureDecision({
+      stack: "React + Express",
+      rationale: null,
+      decisionSource: "student_changed",
+      decidedInVersion: 2,
+    });
+    expect(normalized).toEqual({
+      stack: "React + Express",
+      rationale: null,
+      decisionSource: "student_changed",
+      decidedInVersion: 2,
+    });
+    expect(normalized).not.toHaveProperty("forms");
+    expect(normalized).not.toHaveProperty("formOtherLabel");
+  });
+
+  it("defaults an unknown source to migration and a missing version to 1", () => {
+    expect(
+      normalizeArchitectureDecision({
+        stack: "Python",
+        decisionSource: "bogus",
+      }),
+    ).toEqual({
+      stack: "Python",
+      rationale: null,
+      decisionSource: "migration",
+      decidedInVersion: 1,
+    });
+  });
+
+  it("returns null for null or non-object input", () => {
+    expect(normalizeArchitectureDecision(null)).toBeNull();
+    expect(normalizeArchitectureDecision(undefined)).toBeNull();
+    expect(normalizeArchitectureDecision("React")).toBeNull();
+  });
+
+  it("normalizes through the spec and live-draft helpers", () => {
+    const draft = createLiveProjectSpecDraft(42, { goal: "Build a bot" });
+    const legacyDraft = {
+      ...draft,
+      spec: {
+        ...draft.spec,
+        architecture: {
+          form: "static_page",
+          stack: "HTML",
+          decisionSource: "student_confirmed",
+          decidedInVersion: 1,
+        } as unknown as ArchitectureDecision,
+      },
+    };
+    const normalized = liveDraftWithNormalizedArchitecture(legacyDraft).spec.architecture;
+    expect(normalized?.stack).toBe("HTML");
+    expect(normalized).not.toHaveProperty("form");
+    expect(withNormalizedArchitecture({ architecture: null }).architecture).toBeNull();
   });
 });

@@ -42,48 +42,36 @@ export type AcceptanceCriterionInput = string | AcceptanceCriterion;
 
 export type VerificationType = "run" | "preview" | "manual" | "test";
 
-// S-047 (010 theme 7): a first-class, versioned architecture decision on the PRD.
-// The form is a bounded enum (so "a stack consistent with the form" is checkable
-// and the picker shows a small fixed set, not an open jargon prompt); the stack is
-// free text. `stack` is null in the intermediate two-stage state (form picked,
-// stack not decided yet). LLM proposes, DIVE records, the student decides.
-export type ArchitectureForm =
-  | "web_app"
-  | "static_page"
-  | "cli_tool"
-  | "desktop_app"
-  | "api_service"
-  | "other";
+// S-047 (010 theme 7) → S-075 (014 theme 4, D-014-16): a first-class, versioned
+// architecture decision on the PRD — one tech-stack confirmation. The AI
+// proposes a stack from the goal, DIVE records it, and the student confirms or
+// rewrites it (Constitution VI). There is no project-kind taxonomy (VII); legacy
+// `form` / `forms` / `formOtherLabel` keys are stripped by
+// normalizeArchitectureDecision. `stack` is null until a stack is accepted or
+// typed. `decisionSource`: `student_confirmed` on the first accepted/typed
+// stack, `student_changed` when it is edited afterwards.
 export type ArchitectureDecisionSource = "student_confirmed" | "student_changed" | "migration";
-export const ARCHITECTURE_FORMS: ArchitectureForm[] = [
-  "web_app",
-  "static_page",
-  "cli_tool",
-  "desktop_app",
-  "api_service",
-  "other",
-];
 
 export interface ArchitectureDecision {
-  form: ArchitectureForm;
-  formOtherLabel?: string | null;
   stack: string | null;
   rationale?: string | null;
   decisionSource: ArchitectureDecisionSource;
   decidedInVersion: number;
 }
 
-// S-047 (010 theme 7): the AI's recommend-then-confirm architecture options for
-// the current two-stage focus. `value` is an `ArchitectureForm` when
-// `kind === "form"`, otherwise free-text stack wording. Surfaced as selectable
-// cards; the student's click is what authors the decision (never an AI patch).
+// S-047 (010 theme 7): the AI's recommend-then-confirm tech-stack options for
+// the stack focus. `value` is free-text stack wording; `rationale` is one plain
+// line saying what the finished thing is and why this stack. Surfaced as
+// selectable cards; the student's click (or typing) is what authors the
+// decision (never an AI patch).
 export interface ArchitectureProposalOption {
   value: string;
   rationale: string;
 }
 
 export interface ArchitectureProposals {
-  kind: "form" | "stack";
+  // Always "stack" since S-075 (Rust drops any other kind at the sanitizer).
+  kind: "stack";
   options: ArchitectureProposalOption[];
 }
 
@@ -168,7 +156,17 @@ export type PrdPatchOperation =
       criterionId: string;
       text?: string;
       value?: string;
-    };
+    }
+  // S-072 (014 theme 2): in-place edits. `target` is the CURRENT item text
+  // (normalized exact match on the backend, D-014-05); criteria are retired,
+  // never deleted (D-014-06).
+  | { op: "revise_scope"; target: string; value?: string; text?: string }
+  | { op: "revise_non_goal"; target: string; value?: string; text?: string }
+  | { op: "revise_constraint"; target: string; value?: string; text?: string }
+  | { op: "remove_scope"; target: string }
+  | { op: "remove_non_goal"; target: string }
+  | { op: "remove_constraint"; target: string }
+  | { op: "retire_acceptance_criterion"; criterionId: string };
 
 export interface PrdPatch {
   patchId: string;
