@@ -34,8 +34,6 @@ function spec(): ProjectSpec {
       },
     ],
     architecture: {
-      forms: ["web_app"],
-      formOtherLabel: null,
       stack: "React + Vite",
       rationale: "Runs in the browser with no install.",
       decisionSource: "student_confirmed",
@@ -81,52 +79,17 @@ describe("FinalPrdReadView", () => {
     expect(screen.getByText("No wizard")).toBeTruthy();
   });
 
-  it("shows the decided architecture form and stack", () => {
+  // S-075 (D-014-16): the architecture block is the confirmed tech stack (+
+  // rationale) — there is no form row.
+  it("shows the confirmed tech stack and rationale", () => {
     renderView();
 
-    expect(screen.getByTestId("final-prd-architecture")).toBeTruthy();
-    expect(screen.getByTestId("final-prd-architecture-form").textContent).toBe("Web app");
+    const block = screen.getByTestId("final-prd-architecture");
+    expect(block.textContent).toContain("Tech stack");
     expect(screen.getByTestId("final-prd-architecture-stack").textContent).toBe("React + Vite");
     expect(screen.getByText("Runs in the browser with no install.")).toBeTruthy();
-  });
-
-  // S-072 (014 theme 1): every chosen form is shown, comma-joined in pick
-  // order; `other` shows the student's own label.
-  it("joins several decided forms and shows the student's own label for other", () => {
-    renderView({
-      projectSpec: {
-        ...spec(),
-        architecture: {
-          forms: ["web_app", "api_service"],
-          formOtherLabel: null,
-          stack: "React + Express",
-          rationale: null,
-          decisionSource: "student_changed",
-          decidedInVersion: 2,
-        },
-      },
-    });
-    expect(screen.getByTestId("final-prd-architecture-form").textContent).toBe(
-      "Web app, API service",
-    );
-
-    cleanup();
-    renderView({
-      projectSpec: {
-        ...spec(),
-        architecture: {
-          forms: ["other", "cli_tool"],
-          formOtherLabel: "Discord bot",
-          stack: "Python + discord.py",
-          rationale: null,
-          decisionSource: "student_confirmed",
-          decidedInVersion: 2,
-        },
-      },
-    });
-    expect(screen.getByTestId("final-prd-architecture-form").textContent).toBe(
-      "Discord bot, Command-line tool (CLI)",
-    );
+    expect(screen.queryByTestId("final-prd-architecture-form")).toBeNull();
+    expect(block.textContent).not.toContain("Form");
   });
 
   // S-074 review (A): a criterion the interview retired never shows in the
@@ -155,17 +118,12 @@ describe("FinalPrdReadView", () => {
     expect(screen.queryByText("Retired: export to CSV")).toBeNull();
   });
 
-  // S-072 review follow-ups 4 and 8: a decided "other" without a label reads as
-  // plain "Other" (never the picker's "Other (describe it)" instruction), and an
-  // empty form set reads as the not-decided placeholder.
-  it("falls back to plain Other for an unlabeled other form", () => {
+  it("shows the not-decided placeholder when the stack is blank", () => {
     renderView({
       projectSpec: {
         ...spec(),
         architecture: {
-          forms: ["other"],
-          formOtherLabel: null,
-          stack: "Python",
+          stack: "   ",
           rationale: null,
           decisionSource: "student_confirmed",
           decidedInVersion: 2,
@@ -173,27 +131,7 @@ describe("FinalPrdReadView", () => {
       },
     });
 
-    expect(screen.getByTestId("final-prd-architecture-form").textContent).toBe("Other");
-    expect(screen.queryByText("Other (describe it)")).toBeNull();
-  });
-
-  it("shows the not-decided placeholder when the form set is empty", () => {
-    renderView({
-      projectSpec: {
-        ...spec(),
-        architecture: {
-          forms: [],
-          formOtherLabel: null,
-          stack: "Python",
-          rationale: null,
-          decisionSource: "student_confirmed",
-          decidedInVersion: 2,
-        },
-      },
-    });
-
-    expect(screen.getByTestId("final-prd-architecture-form").textContent).toBe("Not decided yet");
-    expect(screen.getByTestId("final-prd-architecture-stack").textContent).toBe("Python");
+    expect(screen.getByTestId("final-prd-architecture-stack").textContent).toBe("Not decided yet");
   });
 
   it("omits the architecture block when none is decided", () => {

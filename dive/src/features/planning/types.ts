@@ -42,54 +42,36 @@ export type AcceptanceCriterionInput = string | AcceptanceCriterion;
 
 export type VerificationType = "run" | "preview" | "manual" | "test";
 
-// S-047 (010 theme 7) → S-072 (014 theme 1): a first-class, versioned
-// architecture decision on the PRD. The six form values are *card-mappable
-// options* the AI can propose and the student can press — never the universe of
-// buildable things (Constitution VII / D-014-02). `forms` records every form
-// that applies, and `other` + `formOtherLabel` is the always-available free-text
-// escape hatch. The stack is free text. LLM proposes, DIVE records, the student
-// decides.
-export type ArchitectureForm =
-  | "web_app"
-  | "static_page"
-  | "cli_tool"
-  | "desktop_app"
-  | "api_service"
-  | "other";
+// S-047 (010 theme 7) → S-075 (014 theme 4, D-014-16): a first-class, versioned
+// architecture decision on the PRD — one tech-stack confirmation. The AI
+// proposes a stack from the goal, DIVE records it, and the student confirms or
+// rewrites it (Constitution VI). There is no project-kind taxonomy (VII); legacy
+// `form` / `forms` / `formOtherLabel` keys are stripped by
+// normalizeArchitectureDecision. `stack` is null until a stack is accepted or
+// typed. `decisionSource`: `student_confirmed` on the first accepted/typed
+// stack, `student_changed` when it is edited afterwards.
 export type ArchitectureDecisionSource = "student_confirmed" | "student_changed" | "migration";
-export const ARCHITECTURE_FORMS: ArchitectureForm[] = [
-  "web_app",
-  "static_page",
-  "cli_tool",
-  "desktop_app",
-  "api_service",
-  "other",
-];
 
 export interface ArchitectureDecision {
-  // Every form that applies, in the student's pick order (deduplicated). Empty
-  // while the student typed a stack before picking a form; `stack` is null in
-  // the other intermediate state (forms picked, stack not decided yet). Legacy
-  // `{ form }` payloads are folded into `forms` by normalizeArchitectureDecision.
-  forms: ArchitectureForm[];
-  formOtherLabel?: string | null;
   stack: string | null;
   rationale?: string | null;
   decisionSource: ArchitectureDecisionSource;
   decidedInVersion: number;
 }
 
-// S-047 (010 theme 7): the AI's recommend-then-confirm architecture options for
-// the current two-stage focus. `value` is an `ArchitectureForm` when
-// `kind === "form"`, otherwise free-text stack wording. Surfaced as selectable
-// cards; the student's click is what authors the decision (never an AI patch).
+// S-047 (010 theme 7): the AI's recommend-then-confirm tech-stack options for
+// the stack focus. `value` is free-text stack wording; `rationale` is one plain
+// line saying what the finished thing is and why this stack. Surfaced as
+// selectable cards; the student's click (or typing) is what authors the
+// decision (never an AI patch).
 export interface ArchitectureProposalOption {
   value: string;
   rationale: string;
 }
 
 export interface ArchitectureProposals {
-  kind: "form" | "stack";
+  // Always "stack" since S-075 (Rust drops any other kind at the sanitizer).
+  kind: "stack";
   options: ArchitectureProposalOption[];
 }
 

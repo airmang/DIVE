@@ -383,16 +383,11 @@ fn build_prd_interview_system_prompt() -> String {
         "When the student asks to change, correct, or drop something that is already in the draft, edit it in place with those operations — never append a corrected duplicate under the old item.",
         "Acceptance criteria with status \"retired\" in the draft JSON are already dropped — ignore them, never revise or retire them again, and never treat them as active.",
         "Do not invent IDs for new criteria; DIVE assigns AC IDs.",
-        "Never put the architecture (form or tech stack) in the patch — the student decides it by clicking a card, not you.",
-        "When the suggested next focus is propose_architecture_form or propose_architecture_stack, ALSO return a \"proposals\" object recommending up to 2 options for that focus, each with a one-line beginner reason, and still ask the student to pick or change one in assistantMessage.",
-        "For propose_architecture_form, use \"proposals\":{\"kind\":\"form\",\"options\":[{\"value\":\"<one of: web_app, static_page, cli_tool, desktop_app, api_service, other>\",\"rationale\":\"...\"}]}.",
-        // S-072 (014 theme 1, Constitution VII): the six values are card-mappable
-        // options, not the universe of buildable things. Define them so the model
-        // maps a project onto the right card(s), and never narrows the project.
-        "Form values mean: web_app = an app used in the browser, including any server, database, or API backend it needs; static_page = plain HTML/CSS/JS with no server; cli_tool = a program run from the terminal; desktop_app = an installed program that opens in its own window; api_service = a backend other programs call, with no screen of its own; other = anything else in the student's own words (games, bots, mobile apps, hardware, data analysis, ...).",
-        "A project may combine several forms; never tell the student to choose only one.",
-        "For propose_architecture_stack, use \"proposals\":{\"kind\":\"stack\",\"options\":[{\"value\":\"<concise stack, e.g. React + Vite>\",\"rationale\":\"...\"}]}. Recommend stacks that fit the forms the student already chose.",
-        "Omit \"proposals\" entirely on any other focus.",
+        "Never put the architecture (tech stack) in the patch — the student decides it by clicking a card or typing, not you.",
+        // S-075 (014 theme 4, D-014-16): the architecture decision is one stack
+        // confirmation. No form taxonomy — the rationale itself says, in plain
+        // words, what the finished thing is (Constitution VII).
+        "When the suggested next focus is propose_architecture_stack, ALSO return \"proposals\":{\"kind\":\"stack\",\"options\":[{\"value\":\"<concise stack, e.g. React + Vite>\",\"rationale\":\"<one plain line: what the finished thing is (a browser app, a command-line tool, a bot…) and why this stack>\"}]} with up to 2 options, and still ask the student to confirm or change it in assistantMessage. Omit \"proposals\" on any other focus.",
         "Use concise JSON with shape {\"assistantMessage\":\"...\",\"patch\":{\"operations\":[...],\"rationale\":\"...\"},\"proposals\":{\"kind\":\"...\",\"options\":[...]}}. Include only the keys you are using.",
         // 011 live-QA fix (tier1-run-log 2026-07-11 저니 C): without an
         // explicit whole-response contract, some models (observed with
@@ -463,8 +458,8 @@ pub(super) fn prd_interview_next_focus(spec: &ProjectSpecDraft) -> &'static str 
 struct RawPrdTurnResponse {
     assistant_message: Option<String>,
     patch: Option<RawPrdPatch>,
-    // S-047: optional architecture recommendation surface (form/stack). Never a
-    // patch — the architecture is applied only by the student's card click.
+    // S-047: optional tech-stack recommendation surface. Never a patch — the
+    // architecture is applied only by the student's card click or typing.
     proposals: Option<RawPrdProposals>,
 }
 
@@ -484,26 +479,20 @@ struct RawPrdProposalOption {
 }
 
 impl RawPrdProposals {
-    /// Shape-validate the AI's raw proposals: keep only `form`/`stack` kinds,
-    /// drop options with an empty value, coerce `form` values to the bounded
-    /// `ArchitectureForm` enum (dropping unknown forms), trim wording, and cap
-    /// at two options. Returns `None` when nothing usable remains. The
-    /// current-focus gate is applied separately by the caller.
+    /// Shape-validate the AI's raw proposals: keep only the `stack` kind (S-075
+    /// — a legacy `form` proposal is dropped), drop options with an empty value,
+    /// trim wording, and cap at two options. Returns `None` when nothing usable
+    /// remains. The current-focus gate is applied separately by the caller.
     fn into_sanitized(self) -> Option<ArchitectureProposals> {
-        let kind = match self.kind.as_deref().map(str::trim) {
-            Some("form") => "form",
-            Some("stack") => "stack",
-            _ => return None,
-        };
+        if self.kind.as_deref().map(str::trim) != Some("stack") {
+            return None;
+        }
         let options: Vec<ArchitectureProposalOption> = self
             .options
             .into_iter()
             .filter_map(|option| {
                 let value = option.value?.trim().to_string();
                 if value.is_empty() {
-                    return None;
-                }
-                if kind == "form" && !is_valid_architecture_form_value(&value) {
                     return None;
                 }
                 let rationale = option
@@ -518,28 +507,17 @@ impl RawPrdProposals {
             return None;
         }
         Some(ArchitectureProposals {
-            kind: kind.to_string(),
+            kind: "stack".to_string(),
             options,
         })
     }
 }
 
-/// True when `value` is one of the bounded `ArchitectureForm` snake_case values,
-/// so an AI form recommendation maps onto a card the student can actually pick.
-fn is_valid_architecture_form_value(value: &str) -> bool {
-    matches!(
-        value,
-        "web_app" | "static_page" | "cli_tool" | "desktop_app" | "api_service" | "other"
-    )
-}
-
-/// The architecture focus the current draft is on, if any: `Some("form")` when
-/// the next confirm gap is the architecture form, `Some("stack")` when it is the
-/// tech stack, else `None`. Used to gate AI proposals to the deterministic focus
-/// the model was asked to answer, so stale/off-focus cards never surface.
+/// `Some("stack")` when the next confirm gap is the tech stack, else `None`.
+/// Used to gate AI proposals to the deterministic focus the model was asked to
+/// answer, so stale/off-focus cards never surface.
 fn expected_architecture_proposal_kind(spec: &ProjectSpecDraft) -> Option<&'static str> {
     match confirmable_draft_gaps(spec).first() {
-        Some(gap) if gap.focus.starts_with("propose_architecture_form") => Some("form"),
         Some(gap) if gap.focus.starts_with("propose_architecture_stack") => Some("stack"),
         _ => None,
     }
@@ -808,8 +786,7 @@ fn clean_prd_assistant_message(raw: &str) -> Option<String> {
 mod prd_interview_prompt_tests {
     use super::*;
     use crate::db::models::{
-        ArchitectureDecision, ArchitectureDecisionSource, ArchitectureForm, ProjectSpecDraft,
-        ProjectSpecStatus,
+        ArchitectureDecision, ArchitectureDecisionSource, ProjectSpecDraft, ProjectSpecStatus,
     };
 
     fn empty_draft() -> LiveProjectSpecDraftRow {
@@ -919,28 +896,24 @@ mod prd_interview_prompt_tests {
             });
         }
 
-        // S-047: after the 5 confirmable fields, the interview asks for the
-        // architecture — a draft without one is NOT yet ready to confirm.
-        assert!(prd_interview_next_focus(&draft.spec).starts_with("propose_architecture_form"));
+        // S-047 → S-075: after the 5 confirmable fields, the interview asks for
+        // the tech stack — a draft without one is NOT yet ready to confirm.
+        assert!(prd_interview_next_focus(&draft.spec).starts_with("propose_architecture_stack"));
+        assert!(missing_confirmable_prd_fields(&draft.spec).contains(&"tech stack"));
 
-        // Once a form is picked but no stack yet, it asks for the stack next.
+        // A blank stack is not a confirmed stack either.
         draft.spec.architecture = Some(ArchitectureDecision {
-            forms: vec![ArchitectureForm::WebApp],
-            form_other_label: None,
-            stack: None,
-            rationale: Some("A web app fits a schedule the student opens in a browser".into()),
+            stack: Some("   ".into()),
+            rationale: None,
             decision_source: ArchitectureDecisionSource::StudentConfirmed,
             decided_in_version: 1,
         });
         assert!(prd_interview_next_focus(&draft.spec).starts_with("propose_architecture_stack"));
-        assert!(missing_confirmable_prd_fields(&draft.spec).contains(&"tech stack"));
 
-        // With both form and stack decided, the draft is ready to confirm.
+        // With the stack confirmed, the draft is ready to confirm.
         draft.spec.architecture = Some(ArchitectureDecision {
-            forms: vec![ArchitectureForm::WebApp],
-            form_other_label: None,
             stack: Some("React + Vite + TypeScript".into()),
-            rationale: Some("A web app fits a schedule the student opens in a browser".into()),
+            rationale: Some("A browser app the student can open anywhere".into()),
             decision_source: ArchitectureDecisionSource::StudentConfirmed,
             decided_in_version: 1,
         });
@@ -955,8 +928,8 @@ mod prd_interview_prompt_tests {
     }
 
     /// A draft that has cleared the five confirmable fields, so the interview is
-    /// on the architecture-form focus (S-047 stage one).
-    fn draft_on_form_focus() -> LiveProjectSpecDraftRow {
+    /// on the tech-stack focus (S-075: the one architecture focus).
+    fn draft_on_stack_focus() -> LiveProjectSpecDraftRow {
         let mut draft = empty_draft();
         draft.spec.goal = "Build a personal schedule app for students".into();
         draft.spec.intent_summary =
@@ -983,19 +956,17 @@ mod prd_interview_prompt_tests {
     }
 
     #[test]
-    fn expected_proposal_kind_tracks_two_stage_focus() {
-        // No architecture yet -> stage one (form).
-        let mut draft = draft_on_form_focus();
+    fn expected_proposal_kind_is_stack_only_on_the_stack_focus() {
+        // No architecture yet -> the stack focus.
+        let mut draft = draft_on_stack_focus();
         assert_eq!(
             expected_architecture_proposal_kind(&draft.spec),
-            Some("form")
+            Some("stack")
         );
 
-        // Form picked, no stack -> stage two (stack).
+        // A decision row with a blank stack is still on the stack focus.
         draft.spec.architecture = Some(ArchitectureDecision {
-            forms: vec![ArchitectureForm::WebApp],
-            form_other_label: None,
-            stack: None,
+            stack: Some("  ".into()),
             rationale: None,
             decision_source: ArchitectureDecisionSource::StudentConfirmed,
             decided_in_version: 1,
@@ -1005,10 +976,8 @@ mod prd_interview_prompt_tests {
             Some("stack")
         );
 
-        // Both decided -> no architecture focus, so no cards.
+        // Stack confirmed -> no architecture focus, so no cards.
         draft.spec.architecture = Some(ArchitectureDecision {
-            forms: vec![ArchitectureForm::WebApp],
-            form_other_label: None,
             stack: Some("React + Vite".into()),
             rationale: None,
             decision_source: ArchitectureDecisionSource::StudentConfirmed,
@@ -1023,107 +992,87 @@ mod prd_interview_prompt_tests {
         );
     }
 
-    /// S-072 (014 theme 1, Constitution VII): the form stage needs *at least one*
-    /// form — any combination passes, `Other` needs no label — and a stack typed
-    /// before any form is picked still reports the form gap (never both gaps).
+    /// S-075 (014 theme 4, D-014-16): exactly one architecture gap — the tech
+    /// stack — whose focus asks for ≤2 stacks with a plain "what the finished
+    /// thing is" line and tells the model never to decide for the student.
     #[test]
-    fn confirmable_gaps_need_at_least_one_form_then_a_stack() {
-        let mut draft = draft_on_form_focus();
+    fn confirmable_gaps_report_one_stack_gap_only() {
+        let mut draft = draft_on_stack_focus();
 
-        // Stack typed first, no form yet -> still the form gap (one gap only).
-        draft.spec.architecture = Some(ArchitectureDecision {
-            forms: Vec::new(),
-            form_other_label: None,
-            stack: Some("React + Vite".into()),
-            rationale: None,
-            decision_source: ArchitectureDecisionSource::StudentConfirmed,
-            decided_in_version: 1,
-        });
-        let gaps = confirmable_draft_gaps(&draft.spec);
-        assert_eq!(gaps.len(), 1);
-        assert_eq!(gaps[0].label, "architecture form");
-        assert!(gaps[0].focus.contains("the student may pick several"));
-        assert!(gaps[0]
-            .focus
-            .contains("'other' described in their own words"));
-        assert_eq!(
-            expected_architecture_proposal_kind(&draft.spec),
-            Some("form")
-        );
-
-        // Several forms at once, no stack -> the stack gap.
-        draft.spec.architecture = Some(ArchitectureDecision {
-            forms: vec![ArchitectureForm::WebApp, ArchitectureForm::ApiService],
-            form_other_label: None,
-            stack: Some("   ".into()),
-            rationale: None,
-            decision_source: ArchitectureDecisionSource::StudentConfirmed,
-            decided_in_version: 1,
-        });
         let gaps = confirmable_draft_gaps(&draft.spec);
         assert_eq!(gaps.len(), 1);
         assert_eq!(gaps[0].label, "tech stack");
-        assert_eq!(
-            expected_architecture_proposal_kind(&draft.spec),
-            Some("stack")
-        );
+        assert!(gaps[0].focus.starts_with("propose_architecture_stack:"));
+        assert!(gaps[0].focus.contains("what the finished thing is"));
+        assert!(gaps[0].focus.contains("never decide for them"));
+        assert!(!gaps[0].focus.contains("form"));
 
-        // `Other` with no label plus a stack -> confirmable.
         draft.spec.architecture = Some(ArchitectureDecision {
-            forms: vec![ArchitectureForm::Other],
-            form_other_label: None,
             stack: Some("Python + discord.py".into()),
             rationale: None,
             decision_source: ArchitectureDecisionSource::StudentConfirmed,
             decided_in_version: 1,
         });
         assert!(confirmable_draft_gaps(&draft.spec).is_empty());
-        assert_eq!(expected_architecture_proposal_kind(&draft.spec), None);
     }
 
     #[test]
-    fn system_prompt_defines_forms_and_never_limits_to_one() {
+    fn system_prompt_asks_for_stack_proposals_only() {
         let prompt = build_prd_interview_system_prompt();
-        assert!(prompt.contains("web_app = an app used in the browser"));
-        assert!(prompt.contains("other = anything else in the student's own words"));
         assert!(prompt.contains(
-            "A project may combine several forms; never tell the student to choose only one."
+            "Never put the architecture (tech stack) in the patch — the student decides it by clicking a card or typing, not you."
         ));
-        assert!(prompt
-            .contains("<one of: web_app, static_page, cli_tool, desktop_app, api_service, other>"));
-        assert!(!prompt.to_lowercase().contains("avoid "));
+        assert!(prompt.contains("When the suggested next focus is propose_architecture_stack, ALSO return \"proposals\":{\"kind\":\"stack\""));
+        assert!(prompt.contains("what the finished thing is (a browser app, a command-line tool, a bot…) and why this stack"));
+        assert!(prompt.contains("Omit \"proposals\" on any other focus."));
+        assert!(!prompt.contains("propose_architecture_form"));
+        assert!(!prompt.contains("\"kind\":\"form\""));
+        assert!(!prompt.contains("web_app"));
+        assert!(!prompt.contains("combine several forms"));
     }
 
     #[test]
-    fn sanitize_form_proposals_keeps_valid_forms_and_caps_two() {
+    fn sanitize_drops_form_kind_proposals() {
+        // S-075: the form taxonomy is gone — a stale model still answering with
+        // `kind: "form"` produces no cards at all.
         let raw = RawPrdProposals {
             kind: Some("form".into()),
+            options: vec![RawPrdProposalOption {
+                value: Some("web_app".into()),
+                rationale: Some("Opens in a browser".into()),
+            }],
+        };
+        assert!(raw.into_sanitized().is_none());
+    }
+
+    #[test]
+    fn sanitize_stack_proposals_trim_and_cap_two() {
+        let raw = RawPrdProposals {
+            kind: Some(" stack ".into()),
             options: vec![
                 RawPrdProposalOption {
-                    value: Some("  web_app ".into()),
-                    rationale: Some(" Opens in a browser ".into()),
+                    value: Some("  React + Vite ".into()),
+                    rationale: Some(" A browser app; easy to share ".into()),
                 },
                 RawPrdProposalOption {
-                    // Unknown form value is dropped, not coerced.
-                    value: Some("mobile_app".into()),
-                    rationale: Some("n/a".into()),
-                },
-                RawPrdProposalOption {
-                    value: Some("static_page".into()),
+                    value: Some("Python + Flask".into()),
                     rationale: None,
                 },
                 RawPrdProposalOption {
-                    value: Some("cli_tool".into()),
+                    value: Some("Node script".into()),
                     rationale: Some("would be third".into()),
                 },
             ],
         };
-        let sanitized = raw.into_sanitized().expect("valid form options remain");
-        assert_eq!(sanitized.kind, "form");
+        let sanitized = raw.into_sanitized().expect("stack options remain");
+        assert_eq!(sanitized.kind, "stack");
         assert_eq!(sanitized.options.len(), 2);
-        assert_eq!(sanitized.options[0].value, "web_app");
-        assert_eq!(sanitized.options[0].rationale, "Opens in a browser");
-        assert_eq!(sanitized.options[1].value, "static_page");
+        assert_eq!(sanitized.options[0].value, "React + Vite");
+        assert_eq!(
+            sanitized.options[0].rationale,
+            "A browser app; easy to share"
+        );
+        assert_eq!(sanitized.options[1].value, "Python + Flask");
         assert_eq!(sanitized.options[1].rationale, "");
     }
 
@@ -1161,11 +1110,17 @@ mod prd_interview_prompt_tests {
         .is_none());
 
         assert!(RawPrdProposals {
-            kind: Some("form".into()),
-            options: vec![RawPrdProposalOption {
-                value: Some("mobile_app".into()),
-                rationale: None,
-            }],
+            kind: Some("stack".into()),
+            options: vec![
+                RawPrdProposalOption {
+                    value: Some("   ".into()),
+                    rationale: None,
+                },
+                RawPrdProposalOption {
+                    value: None,
+                    rationale: Some("no value".into()),
+                },
+            ],
         }
         .into_sanitized()
         .is_none());
@@ -1173,16 +1128,16 @@ mod prd_interview_prompt_tests {
 
     #[test]
     fn parse_turn_response_extracts_proposals_alongside_message() {
-        let raw = r#"{"assistantMessage":"어떤 형태가 좋을까요?","proposals":{"kind":"form","options":[{"value":"web_app","rationale":"브라우저에서 열려요"},{"value":"static_page","rationale":"간단한 안내 페이지면 충분해요"}]}}"#;
+        let raw = r#"{"assistantMessage":"이렇게 만들 계획이에요 — 괜찮을까요?","proposals":{"kind":"stack","options":[{"value":"React + Vite","rationale":"브라우저에서 여는 앱 — 설치 없이 바로 공유"},{"value":"Python + Flask","rationale":"간단한 서버 하나로 충분한 웹앱"}]}}"#;
         let parsed = parse_prd_turn_response(raw, "turn-1");
         let proposals = parsed.proposals.expect("proposals parsed");
-        assert_eq!(proposals.kind, "form");
+        assert_eq!(proposals.kind, "stack");
         assert_eq!(proposals.options.len(), 2);
         // The proposals JSON must not leak into the shown assistant message.
         let message = parsed.assistant_message.unwrap_or_default();
-        assert!(message.contains("어떤 형태가 좋을까요?"));
+        assert!(message.contains("이렇게 만들 계획이에요"));
         assert!(!message.contains("proposals"));
-        assert!(!message.contains("web_app"));
+        assert!(!message.contains("React + Vite"));
         assert_eq!(parsed.parse_failure_kind, None);
     }
 

@@ -192,16 +192,12 @@ describe("PrdAuthoringBoard", () => {
 
     const primary = screen.getByTestId("prd-save-create-plan");
     const headerConfirm = screen.getByTestId("prd-confirm-header");
-    // Every prose field is filled, but the architecture form is still undecided,
-    // so confirmation stays blocked (S-047 two-stage gate).
+    // Every prose field is filled, but the tech stack is still unconfirmed, so
+    // confirmation stays blocked (S-075 stack gate).
     expect(primary).toHaveProperty("disabled", true);
     expect(headerConfirm).toHaveProperty("disabled", true);
 
-    // Pick a form: the stack is still undecided, so confirmation stays blocked.
-    fireEvent.click(screen.getByTestId("prd-architecture-form-web_app"));
-    expect(headerConfirm).toHaveProperty("disabled", true);
-
-    // Decide a stack: the PRD is now confirmable.
+    // Write the stack: the PRD is now confirmable.
     fireEvent.change(screen.getByTestId("prd-architecture-stack-input"), {
       target: { value: "React + Vite" },
     });
@@ -212,16 +208,15 @@ describe("PrdAuthoringBoard", () => {
     expect(props.onSavePrdAndCreatePlan).toHaveBeenCalledTimes(1);
     const savedDraft = vi.mocked(props.onSavePrdAndCreatePlan).mock.calls[0][0];
     expect(savedDraft.spec.architecture).toMatchObject({
-      forms: ["web_app"],
       stack: "React + Vite",
       decisionSource: "student_confirmed",
     });
   });
 
-  // S-072 (014 theme 1, Constitution VII): forms are a multi-select set, every
-  // option stays selectable, and nothing in the board narrows what the student
-  // may build ("웹앱 또는 API 둘 중 하나만 선택할 수 있음" is exactly the bug).
-  describe("multi-form architecture (S-072)", () => {
+  // S-075 (014 theme 4, D-014-16): the architecture decision is one tech-stack
+  // confirmation — AI cards fill the stack, the input is always editable, and
+  // no project-kind picker exists (Constitution VII).
+  describe("stack confirmation (S-075)", () => {
     function concreteDraft(architecture?: ArchitectureDecision | null) {
       return createLiveProjectSpecDraft(42, {
         goal: "Build a PRD-first planning flow for students",
@@ -241,214 +236,129 @@ describe("PrdAuthoringBoard", () => {
       return calls[calls.length - 1][0];
     }
 
-    it("toggles several forms on at once and marks each one pressed", () => {
-      const props = renderBoard({ draft: concreteDraft() });
+    it("renders the novice framing and no form controls", () => {
+      renderBoard({ draft: concreteDraft() });
 
-      fireEvent.click(screen.getByTestId("prd-architecture-form-web_app"));
-      fireEvent.click(screen.getByTestId("prd-architecture-form-api_service"));
-
-      expect(screen.getByTestId("prd-architecture-form-web_app").getAttribute("aria-pressed")).toBe(
-        "true",
+      const section = screen.getByTestId("prd-field-architecture");
+      expect(section.textContent).toContain("How the AI plans to build it");
+      expect(section.textContent).toContain("Nothing you build is restricted.");
+      expect(section.querySelectorAll('[data-testid^="prd-architecture-form"]')).toHaveLength(0);
+      expect(section.querySelectorAll("button")).toHaveLength(0);
+      expect(screen.getByTestId("prd-architecture-stack-input")).toHaveProperty("disabled", false);
+      expect(screen.getByTestId("prd-architecture-rationale-input")).toHaveProperty(
+        "disabled",
+        false,
       );
+    });
+
+    it("fills the stack from an AI card as a student-confirmed decision", () => {
+      const props = renderBoard({
+        draft: concreteDraft(),
+        architectureProposals: {
+          kind: "stack",
+          options: [
+            { value: "React + Vite", rationale: "A browser app — opens anywhere, no install" },
+            { value: "Python + Flask", rationale: "A small web server the class can run" },
+          ],
+        },
+      });
+
+      const cards = screen.getByTestId("prd-architecture-stack-proposals");
       expect(
-        screen.getByTestId("prd-architecture-form-api_service").getAttribute("aria-pressed"),
-      ).toBe("true");
-      expect(
-        screen.getByTestId("prd-architecture-form-cli_tool").getAttribute("aria-pressed"),
-      ).toBe("false");
+        within(cards).getByText("AI's proposal — tap to accept, or write your own"),
+      ).toBeTruthy();
+      expect(within(cards).getByText("A browser app — opens anywhere, no install")).toBeTruthy();
+      expect(screen.getByTestId("prd-confirm-header")).toHaveProperty("disabled", true);
+
+      fireEvent.click(screen.getByTestId("prd-architecture-stack-proposal-1"));
+
+      expect(screen.getByTestId("prd-architecture-stack-input")).toHaveProperty(
+        "value",
+        "Python + Flask",
+      );
+      expect(latestDraft(props).spec.architecture).toMatchObject({
+        stack: "Python + Flask",
+        decisionSource: "student_confirmed",
+      });
+      expect(latestDraft(props).spec.architecture).not.toHaveProperty("forms");
+      // The accepted stack clears the cards and unblocks confirmation.
+      expect(screen.queryByTestId("prd-architecture-stack-proposals")).toBeNull();
+      expect(screen.getByTestId("prd-confirm-header")).toHaveProperty("disabled", false);
+    });
+
+    it("marks an edit after accepting a card as student_changed", () => {
+      const props = renderBoard({
+        draft: concreteDraft(),
+        architectureProposals: {
+          kind: "stack",
+          options: [{ value: "React + Vite", rationale: "A browser app" }],
+        },
+      });
+
+      fireEvent.click(screen.getByTestId("prd-architecture-stack-proposal-0"));
+      fireEvent.change(screen.getByTestId("prd-architecture-stack-input"), {
+        target: { value: "React + Vite + TypeScript" },
+      });
 
       expect(latestDraft(props).spec.architecture).toMatchObject({
-        forms: ["web_app", "api_service"],
-        // The first pick confirms; adding a second form after that is a change.
+        stack: "React + Vite + TypeScript",
         decisionSource: "student_changed",
       });
     });
 
-    it("untoggling the last form leaves an empty set and keeps the stack", () => {
+    it("keeps a freshly typed stack student_confirmed until it is edited later", () => {
+      const props = renderBoard({ draft: concreteDraft() });
+      const input = screen.getByTestId("prd-architecture-stack-input");
+
+      // Typing the first stack character by character is one typed stack.
+      fireEvent.change(input, { target: { value: "R" } });
+      fireEvent.change(input, { target: { value: "Ru" } });
+      fireEvent.change(input, { target: { value: "Rust" } });
+      expect(latestDraft(props).spec.architecture).toMatchObject({
+        stack: "Rust",
+        decisionSource: "student_confirmed",
+      });
+
+      // Leaving the field and coming back to edit it is a change.
+      fireEvent.blur(input);
+      fireEvent.change(input, { target: { value: "Rust + Tauri" } });
+      expect(latestDraft(props).spec.architecture).toMatchObject({
+        stack: "Rust + Tauri",
+        decisionSource: "student_changed",
+      });
+    });
+
+    it("marks editing a stack restored with the draft as student_changed", () => {
       const props = renderBoard({
         draft: concreteDraft({
-          forms: ["web_app"],
-          formOtherLabel: null,
           stack: "React + Vite",
-          rationale: "Runs in the browser",
+          rationale: null,
           decisionSource: "student_confirmed",
           decidedInVersion: 1,
         }),
       });
 
-      fireEvent.click(screen.getByTestId("prd-architecture-form-web_app"));
-
-      expect(screen.getByTestId("prd-architecture-form-web_app").getAttribute("aria-pressed")).toBe(
-        "false",
-      );
-      expect(screen.getByTestId("prd-architecture-stack-input")).toHaveProperty(
-        "value",
-        "React + Vite",
-      );
+      fireEvent.change(screen.getByTestId("prd-architecture-stack-input"), {
+        target: { value: "Svelte" },
+      });
       expect(latestDraft(props).spec.architecture).toMatchObject({
-        forms: [],
-        stack: "React + Vite",
-        rationale: "Runs in the browser",
+        stack: "Svelte",
         decisionSource: "student_changed",
       });
-      // No form again: the form gap is what blocks confirmation, not the stack.
-      expect(screen.getByTestId("prd-confirm-header")).toHaveProperty("disabled", true);
     });
 
-    it("keeps the stack input enabled with no form and creates the decision with forms: []", () => {
+    it("keeps the rationale optional and writable without a stack", () => {
       const props = renderBoard({ draft: concreteDraft() });
 
-      const stackInput = screen.getByTestId("prd-architecture-stack-input");
-      expect(stackInput).toHaveProperty("disabled", false);
-      expect(screen.getByTestId("prd-architecture-rationale-input")).toHaveProperty(
-        "disabled",
-        false,
-      );
-
-      fireEvent.change(stackInput, { target: { value: "Python + Flask" } });
-
-      expect(latestDraft(props).spec.architecture).toMatchObject({
-        forms: [],
-        stack: "Python + Flask",
-        decisionSource: "student_confirmed",
+      fireEvent.change(screen.getByTestId("prd-architecture-rationale-input"), {
+        target: { value: "Because the class already knows Python" },
       });
-      // Still not confirmable: at least one form is required.
+      expect(latestDraft(props).spec.architecture).toMatchObject({
+        stack: null,
+        rationale: "Because the class already knows Python",
+      });
       expect(screen.getByTestId("prd-confirm-header")).toHaveProperty("disabled", true);
-
-      // Picking a form afterwards makes it confirmable and keeps the typed stack.
-      fireEvent.click(screen.getByTestId("prd-architecture-form-api_service"));
-      expect(screen.getByTestId("prd-confirm-header")).toHaveProperty("disabled", false);
-      expect(screen.getByTestId("prd-architecture-stack-input")).toHaveProperty(
-        "value",
-        "Python + Flask",
-      );
     });
-
-    it("adds a form from an AI proposal card", () => {
-      const props = renderBoard({
-        draft: concreteDraft(),
-        architectureProposals: {
-          kind: "form",
-          options: [{ value: "api_service", rationale: "Other programs can call it" }],
-        },
-      });
-
-      // Cards show while no form is picked; clicking adds that form.
-      fireEvent.click(screen.getByTestId("prd-architecture-form-proposal-api_service"));
-      expect(
-        screen.getByTestId("prd-architecture-form-api_service").getAttribute("aria-pressed"),
-      ).toBe("true");
-      expect(screen.queryByTestId("prd-architecture-form-proposals")).toBeNull();
-      expect(latestDraft(props).spec.architecture?.forms).toEqual(["api_service"]);
-    });
-
-    it("keeps offering the remaining AI form cards after one is added (S-072 review follow-up)", () => {
-      const props = renderBoard({
-        draft: concreteDraft(),
-        architectureProposals: {
-          kind: "form",
-          options: [
-            { value: "web_app", rationale: "Runs in the browser" },
-            { value: "api_service", rationale: "Other programs can call it" },
-          ],
-        },
-      });
-
-      fireEvent.click(screen.getByTestId("prd-architecture-form-proposal-web_app"));
-      // The added form's card is gone; the other recommendation is still offered.
-      expect(screen.queryByTestId("prd-architecture-form-proposal-web_app")).toBeNull();
-      expect(screen.getByTestId("prd-architecture-form-proposal-api_service")).toBeTruthy();
-      expect(latestDraft(props).spec.architecture?.forms).toEqual(["web_app"]);
-
-      fireEvent.click(screen.getByTestId("prd-architecture-form-proposal-api_service"));
-      expect(latestDraft(props).spec.architecture?.forms).toEqual(["web_app", "api_service"]);
-      // Nothing left to recommend: the card block disappears entirely.
-      expect(screen.queryByTestId("prd-architecture-form-proposals")).toBeNull();
-    });
-
-    it("renders a plain-language definition under every form and a no-limits section help", () => {
-      renderBoard({ draft: concreteDraft() });
-
-      expect(screen.getByTestId("prd-architecture-form-help-web_app").textContent).toBe(
-        "An app used in the browser — including any server, database, or API backend it needs",
-      );
-      expect(screen.getByTestId("prd-architecture-form-help-api_service").textContent).toBe(
-        "A backend that other programs call, with no screen of its own",
-      );
-      expect(screen.getByTestId("prd-architecture-form-help-other").textContent).toContain(
-        "Describe it yourself",
-      );
-      const section = screen.getByTestId("prd-field-architecture");
-      expect(section.textContent).toContain("they never limit what you can build");
-      expect(section.textContent).not.toMatch(/only one/i);
-    });
-
-    it("shows the free-text input while 'other' is among the chosen forms and keeps its label", () => {
-      const props = renderBoard({ draft: concreteDraft() });
-      // S-072 review follow-up 7: the toggle button keeps the S-047 id; the
-      // free-text input has its own, so neither query needs tag filtering.
-      const otherInput = () => screen.queryByTestId("prd-architecture-form-other-label");
-      const otherToggle = () => screen.getByTestId("prd-architecture-form-other");
-      expect(otherToggle().tagName).toBe("BUTTON");
-
-      expect(otherInput()).toBeNull();
-      fireEvent.click(screen.getByTestId("prd-architecture-form-web_app"));
-      fireEvent.click(otherToggle());
-      expect(otherInput()).toHaveProperty("disabled", false);
-
-      fireEvent.change(otherInput()!, { target: { value: "Discord bot" } });
-      expect(latestDraft(props).spec.architecture).toMatchObject({
-        forms: ["web_app", "other"],
-        formOtherLabel: "Discord bot",
-      });
-
-      // Untoggling "other" hides the input, but the label stays (spec theme 1)...
-      fireEvent.click(otherToggle());
-      expect(otherInput()).toBeNull();
-      expect(latestDraft(props).spec.architecture).toMatchObject({
-        forms: ["web_app"],
-        formOtherLabel: "Discord bot",
-      });
-
-      // ...so re-toggling shows the previous text instead of an empty field.
-      fireEvent.click(otherToggle());
-      expect(otherInput()).toHaveProperty("value", "Discord bot");
-      expect(latestDraft(props).spec.architecture).toMatchObject({
-        forms: ["web_app", "other"],
-        formOtherLabel: "Discord bot",
-      });
-    });
-  });
-
-  it("renders AI form proposals as cards and lets the student pick one (S-047)", () => {
-    renderBoard({
-      draft: createLiveProjectSpecDraft(42, {
-        goal: "Build a personal schedule app for students",
-      }),
-      architectureProposals: {
-        kind: "form",
-        options: [
-          { value: "web_app", rationale: "Opens in a browser, easy to share" },
-          { value: "static_page", rationale: "Simplest if it is just information" },
-        ],
-      },
-    });
-
-    const cards = screen.getByTestId("prd-architecture-form-proposals");
-    expect(within(cards).getByText("Opens in a browser, easy to share")).toBeTruthy();
-    // S-072: the stack field is writable even before a form is picked.
-    expect(screen.getByTestId("prd-architecture-stack-input")).toHaveProperty("disabled", false);
-
-    // Picking the recommended form is the student's own decision.
-    fireEvent.click(screen.getByTestId("prd-architecture-form-proposal-web_app"));
-    expect(screen.getByTestId("prd-architecture-form-web_app").getAttribute("aria-pressed")).toBe(
-      "true",
-    );
-    expect(screen.getByTestId("prd-architecture-stack-input")).toHaveProperty("disabled", false);
-    // The picked card is gone, but the other recommendation stays offered —
-    // several forms are fine (S-072 review follow-up).
-    expect(screen.queryByTestId("prd-architecture-form-proposal-web_app")).toBeNull();
-    expect(screen.getByTestId("prd-architecture-form-proposal-static_page")).toBeTruthy();
   });
 
   it("renders AI stack proposals as cards and fills the stack on pick (S-047)", () => {
@@ -456,8 +366,6 @@ describe("PrdAuthoringBoard", () => {
       draft: createLiveProjectSpecDraft(42, {
         goal: "Build a personal schedule app for students",
         architecture: {
-          forms: ["web_app"],
-          formOtherLabel: null,
           stack: null,
           rationale: null,
           decisionSource: "student_confirmed",
@@ -470,8 +378,6 @@ describe("PrdAuthoringBoard", () => {
       },
     });
 
-    // Form cards do not show once the form is decided.
-    expect(screen.queryByTestId("prd-architecture-form-proposals")).toBeNull();
     const cards = screen.getByTestId("prd-architecture-stack-proposals");
     expect(within(cards).getByText("React + Vite")).toBeTruthy();
 
@@ -752,8 +658,6 @@ describe("PrdAuthoringBoard", () => {
           "Confirm stays disabled until every required field is filled",
         ],
         architecture: {
-          forms: ["web_app"],
-          formOtherLabel: null,
           stack: "React + Vite",
           rationale: null,
           decisionSource: "student_confirmed",
@@ -766,20 +670,19 @@ describe("PrdAuthoringBoard", () => {
       renderBoard();
 
       const chip = screen.getByTestId("prd-confirm-remaining");
-      // A blank draft misses goal, intent, scope, non-goals, 2 criteria, and a
-      // form — plus the stack the gate will ask for once a form exists (S-074
-      // review D), so the count reads 7, not 6.
-      expect(chip.dataset.count).toBe("7");
-      expect(chip.textContent).toBe("7 to go before confirming");
+      // A blank draft misses goal, intent, scope, non-goals, 2 criteria, and the
+      // tech stack (S-075: the stack is the whole architecture decision) — 6.
+      expect(chip.dataset.count).toBe("6");
+      expect(chip.textContent).toBe("6 to go before confirming");
       expect(chip).toHaveProperty("disabled", false);
       expect(chip.getAttribute("title")).toContain("The goal is still empty.");
       expect(chip.getAttribute("title")).toContain(
-        "Pick at least one form for what you're building — 'Other' in your own words works too.",
+        "Confirm the tech stack the AI proposed, or write your own.",
       );
       expect(chip.getAttribute("aria-describedby")).toBe("prd-validation-hint");
       // S-074 review (E): the short count is the live region, not the footer.
       expect(chip.querySelector('[aria-live="polite"]')?.textContent).toBe(
-        "7 to go before confirming",
+        "6 to go before confirming",
       );
 
       const hint = screen.getByTestId("prd-validation-hint");
@@ -801,7 +704,7 @@ describe("PrdAuthoringBoard", () => {
       useLocaleStore.setState({ locale: "ko" });
       renderBoard();
 
-      expect(screen.getByTestId("prd-confirm-remaining").textContent).toBe("확정까지 7개 남음");
+      expect(screen.getByTestId("prd-confirm-remaining").textContent).toBe("확정까지 6개 남음");
     });
 
     it("scrolls to and focuses the first missing field when the chip is clicked", () => {
@@ -815,9 +718,8 @@ describe("PrdAuthoringBoard", () => {
         });
 
         const chip = screen.getByTestId("prd-confirm-remaining");
-        // Goal + intent are done: scope, non-goals, criteria, form remain (+ the
-        // stack counted up front while no form exists).
-        expect(chip.dataset.count).toBe("5");
+        // Goal + intent are done: scope, non-goals, criteria, stack remain.
+        expect(chip.dataset.count).toBe("4");
 
         fireEvent.click(chip);
 
@@ -857,8 +759,6 @@ describe("PrdAuthoringBoard", () => {
               "Confirm stays disabled until every required field is filled",
             ],
             architecture: {
-              forms: ["web_app"],
-              formOtherLabel: null,
               stack: null,
               rationale: null,
               decisionSource: "student_confirmed",
@@ -870,7 +770,7 @@ describe("PrdAuthoringBoard", () => {
         const chip = screen.getByTestId("prd-confirm-remaining");
         expect(chip.dataset.count).toBe("1");
         expect(chip.getAttribute("title")).toBe(
-          "Decide a tech stack that fits the forms you picked.",
+          "Confirm the tech stack the AI proposed, or write your own.",
         );
 
         fireEvent.click(chip);
@@ -901,8 +801,6 @@ describe("PrdAuthoringBoard", () => {
             "Confirm stays disabled until every required field is filled",
           ],
           architecture: {
-            forms: ["web_app"],
-            formOtherLabel: null,
             stack: "React + Vite",
             rationale: null,
             decisionSource: "student_confirmed",
@@ -921,7 +819,7 @@ describe("PrdAuthoringBoard", () => {
       ).toBeNull();
     });
 
-    it("counts the stack up front so picking a form goes 2 → 1, and focuses a form button first (S-074 review D)", () => {
+    it("counts the stack as the one remaining gap and clears the chip once it is written (S-075)", () => {
       const scroll = stubScrollIntoView();
       try {
         renderBoard({
@@ -938,22 +836,17 @@ describe("PrdAuthoringBoard", () => {
         });
 
         const chip = screen.getByTestId("prd-confirm-remaining");
-        // Only the form is reported yet, but the stack will be asked for next.
-        expect(chip.dataset.count).toBe("2");
-        expect(chip.textContent).toBe("2 to go before confirming");
+        expect(chip.dataset.count).toBe("1");
+        expect(chip.textContent).toBe("1 to go before confirming");
 
         fireEvent.click(chip);
         expect(scroll.calls[0]?.target).toBe(screen.getByTestId("prd-field-architecture"));
-        const focused = document.activeElement as HTMLElement;
-        expect(focused.tagName).toBe("BUTTON");
-        expect(focused.getAttribute("data-testid")).toMatch(/^prd-architecture-form-/);
-        expect(focused.getAttribute("aria-pressed")).toBe("false");
+        expect(document.activeElement).toBe(screen.getByTestId("prd-architecture-stack-input"));
 
-        fireEvent.click(screen.getByTestId("prd-architecture-form-web_app"));
-        expect(screen.getByTestId("prd-confirm-remaining").dataset.count).toBe("1");
-        expect(screen.getByTestId("prd-confirm-remaining").textContent).toBe(
-          "1 to go before confirming",
-        );
+        fireEvent.change(screen.getByTestId("prd-architecture-stack-input"), {
+          target: { value: "React + Vite" },
+        });
+        expect(screen.queryByTestId("prd-confirm-remaining")).toBeNull();
       } finally {
         scroll.restore();
       }
@@ -1014,8 +907,6 @@ describe("PrdAuthoringBoard", () => {
         nonGoals: ["No automatic plan generation without confirmation"],
         acceptanceCriteria: criteria,
         architecture: {
-          forms: ["web_app"],
-          formOtherLabel: null,
           stack: "React + Vite",
           rationale: null,
           decisionSource: "student_confirmed",
@@ -1252,8 +1143,6 @@ describe("PrdAuthoringBoard", () => {
           "Confirm stays disabled until every required field is filled",
         ],
         architecture: {
-          forms: ["web_app"],
-          formOtherLabel: null,
           stack: "React + Vite",
           rationale: null,
           decisionSource: "student_confirmed",
@@ -1288,8 +1177,6 @@ describe("PrdAuthoringBoard", () => {
           "Confirm stays disabled until every required field is filled",
         ],
         architecture: {
-          forms: ["web_app"],
-          formOtherLabel: null,
           stack: "React + Vite",
           rationale: null,
           decisionSource: "student_confirmed",
@@ -1355,8 +1242,6 @@ describe("PrdAuthoringBoard", () => {
           "Adding a task shows it in today's list",
         ],
         architecture: {
-          forms: ["web_app"],
-          formOtherLabel: null,
           stack: "React + Vite",
           rationale: null,
           decisionSource: "student_confirmed",

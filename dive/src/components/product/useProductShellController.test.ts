@@ -177,8 +177,6 @@ describe("buildPrdPlanGenerationPrompt", () => {
     const withArchitecture: ProjectSpec = {
       ...projectSpec(),
       architecture: {
-        forms: ["web_app"],
-        formOtherLabel: null,
         stack: "React + Vite",
         rationale: null,
         decisionSource: "student_confirmed",
@@ -188,38 +186,18 @@ describe("buildPrdPlanGenerationPrompt", () => {
     const prompt = buildPrdPlanGenerationPrompt(withArchitecture);
 
     expect(prompt).toContain("React + Vite");
+    expect(prompt).toContain("The PRD includes the student's confirmed tech stack.");
     expect(prompt).toContain("do not switch to a different framework or stack");
-    // S-072 review follow-up (Constitution VII): only the stack is binding —
-    // the directive must not ask for steps to stay "consistent with" the forms.
-    expect(prompt).not.toContain("consistent with");
-    expect(prompt).toContain("Any form notes are planning hints, not limits.");
-  });
-
-  it("adds deterministic form-specific scaffolding for the decided form", () => {
-    const withArchitecture: ProjectSpec = {
-      ...projectSpec(),
-      architecture: {
-        forms: ["static_page"],
-        formOtherLabel: null,
-        stack: "HTML + CSS + JavaScript",
-        rationale: null,
-        decisionSource: "student_confirmed",
-        decidedInVersion: 1,
-      },
-    };
-    const prompt = buildPrdPlanGenerationPrompt(withArchitecture);
-
-    expect(prompt).toContain("DIVE form-specific step scaffolding:");
-    expect(prompt).toContain("For a static page, cover the HTML/CSS/JS pages");
-    // S-072 (Constitution VII): scaffolding is additive — never an "avoid" clause.
-    expect(prompt).toContain("These form notes are planning hints, not limits");
-    expect(prompt.toLowerCase()).not.toContain("avoid");
+    // S-075 (Constitution VII): the stack is the whole architecture context —
+    // no project-kind classification or form scaffolding reaches the planner.
+    expect(prompt).not.toContain("form-specific");
+    expect(prompt).not.toContain("forms");
   });
 
   it("omits the architecture directive when none is decided", () => {
     const prompt = buildPrdPlanGenerationPrompt(projectSpec());
     expect(prompt).not.toContain("do not switch to a different framework or stack");
-    expect(prompt).not.toContain("DIVE form-specific step scaffolding");
+    expect(prompt).not.toContain("confirmed tech stack");
   });
 });
 
@@ -228,8 +206,6 @@ describe("draftFromProjectSpec", () => {
     const saved: ProjectSpec = {
       ...projectSpec(),
       architecture: {
-        forms: ["static_page"],
-        formOtherLabel: null,
         stack: "HTML + CSS",
         rationale: "No build step keeps it simple.",
         decisionSource: "student_confirmed",

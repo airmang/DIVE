@@ -2,7 +2,6 @@ import { matchSidecarModelNotFoundError } from "../../lib/error-classify";
 import type { ProviderSummary } from "../../stores/project-session";
 import {
   createLiveProjectSpecDraft,
-  type ArchitectureForm,
   type InterviewAnswer,
   type LiveProjectSpecDraft,
   type ProjectSpec,
@@ -13,57 +12,6 @@ export type PrdMode = "authoring" | "read" | null;
 
 type Translate = (key: string, values?: Record<string, string | number>) => string;
 
-// S-072 (014 theme 1, Constitution VII / D-014-04): one *positive* coverage
-// line per chosen form, deduplicated union, and a fixed closing line that says
-// these are planning hints, not limits. No exclusion clause anywhere — a form
-// tells the planner what to make sure it covers, never what to leave out.
-const PLAN_SCAFFOLDING_BY_FORM: Record<Exclude<ArchitectureForm, "other">, string> = {
-  web_app:
-    "For a web app, cover the browser UI screens/components, client state, user interactions, and frontend verification, plus any server, database, or API work the app needs.",
-  static_page:
-    "For a static page, cover the HTML/CSS/JS pages, assets, and how the page is opened and checked in a browser.",
-  cli_tool:
-    "For a CLI tool, cover command parsing, terminal input/output, files/config if needed, and command verification.",
-  desktop_app:
-    "For a desktop app, cover the window/app shell, local UI flows, packaging/runtime integration, and local persistence when needed.",
-  api_service:
-    "For an API service, cover endpoints, request/response schemas, validation, data/storage boundaries, and API tests.",
-};
-
-export const PLAN_SCAFFOLDING_NOT_LIMITS_LINE =
-  "These form notes are planning hints, not limits — include any other work the goal, scope, and acceptance criteria require, and never drop a step because it does not match a form.";
-
-function planScaffoldingForOther(otherLabel?: string | null): string {
-  const label = otherLabel?.trim();
-  return label
-    ? `For the form the student described in their own words ("${label}"), plan for exactly that.`
-    : "For the form the student described in their own words, plan for exactly that.";
-}
-
-/**
- * Additive planner scaffolding for the student's chosen forms: the union of
- * one positive coverage line per form (pick order, deduplicated), the
- * student's own description for `other`, and the closing "not limits" line.
- * Returns null only when no form is chosen.
- */
-export function planScaffoldingForForms(
-  forms: ArchitectureForm[],
-  otherLabel?: string | null,
-): string | null {
-  const lines: string[] = [];
-  const seen = new Set<ArchitectureForm>();
-  for (const form of forms) {
-    if (seen.has(form)) continue;
-    seen.add(form);
-    lines.push(
-      form === "other" ? planScaffoldingForOther(otherLabel) : PLAN_SCAFFOLDING_BY_FORM[form],
-    );
-  }
-  if (lines.length === 0) return null;
-  lines.push(PLAN_SCAFFOLDING_NOT_LIMITS_LINE);
-  return lines.join("\n");
-}
-
 export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
   const activeCriteria = projectSpec.acceptanceCriteria
     .filter((criterion) => criterion.status === "active" && criterion.text.trim().length > 0)
@@ -71,18 +19,12 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
       criterionId: criterion.criterionId,
       text: criterion.text,
     }));
-  // S-047 (010 theme 7): the student's confirmed architecture (forms + stack) is
-  // decomposition context — the model decomposes *for* those forms/stack rather
-  // than re-choosing. This is context-only: it shapes the prose, not the plan
-  // schema. S-072: `forms` is multi-valued; `other` carries the student's label.
+  // S-047 (010 theme 7) → S-075 (D-014-16): the student's confirmed tech stack
+  // is decomposition context — the model decomposes *using* that stack rather
+  // than re-choosing one. Context-only: it shapes the prose, not the plan
+  // schema. There is no project-kind classification to pass (Constitution VII).
   const architecture = projectSpec.architecture
-    ? {
-        forms: projectSpec.architecture.forms,
-        formLabels: projectSpec.architecture.forms.map((form) =>
-          form === "other" ? projectSpec.architecture?.formOtherLabel?.trim() || form : form,
-        ),
-        stack: projectSpec.architecture.stack ?? "",
-      }
+    ? { stack: projectSpec.architecture.stack ?? "" }
     : null;
   const prd = {
     goal: projectSpec.goal,
@@ -93,13 +35,6 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
     acceptanceCriteria: activeCriteria,
     ...(architecture ? { architecture } : {}),
   };
-  const formScaffolding = projectSpec.architecture
-    ? planScaffoldingForForms(
-        projectSpec.architecture.forms,
-        projectSpec.architecture.formOtherLabel,
-      )
-    : null;
-
   return [
     "[PRD_PLAN_GENERATION]",
     "Use the saved PRD below as the source of truth and return compact JSON only.",
@@ -113,13 +48,9 @@ export function buildPrdPlanGenerationPrompt(projectSpec: ProjectSpec): string {
     "acceptance_criteria entries must be full observable criterion sentences (copy the PRD criterion text or write a new concrete sentence); never put bare criterion IDs like AC-001 in acceptance_criteria — IDs belong only in linked_criterion_ids.",
     ...(architecture
       ? [
-          // S-072 review follow-up (Constitution VII): only the STACK is
-          // binding. Forms are planning hints — a "keep every step consistent
-          // with the forms" clause would contradict the not-limits line below.
-          "The PRD includes the student's confirmed architecture (forms + tech stack). Decompose using the chosen tech stack — do not switch to a different framework or stack. Any form notes are planning hints, not limits.",
+          "The PRD includes the student's confirmed tech stack. Decompose using that stack — do not switch to a different framework or stack.",
         ]
       : []),
-    ...(formScaffolding ? ["DIVE form-specific step scaffolding:", formScaffolding] : []),
     "verification_command must be one no-shell command with explicit args when a command is appropriate, otherwise null with a clear manual verification summary in the step text.",
     "Do not include Markdown fences or prose.",
     "",

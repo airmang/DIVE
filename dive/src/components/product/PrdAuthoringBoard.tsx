@@ -9,7 +9,6 @@ import {
   applyQuickIntakeToDraft,
   type AcceptanceCriterion,
   type ArchitectureDecision,
-  type ArchitectureForm,
   type ArchitectureProposals,
   type ConfirmableProjectSpecReasonCode,
   type LiveProjectSpecDraft,
@@ -20,11 +19,6 @@ import {
   type QuickIntakeInput,
 } from "../../features/planning";
 import { useT } from "../../i18n";
-import {
-  architectureFormHelp,
-  architectureFormLabel,
-  architectureFormOptions,
-} from "./architectureLabels";
 import {
   ProvocationCardHost,
   type ProvocationAction,
@@ -227,7 +221,6 @@ const PRD_VALIDATION_REASON_KEYS: Record<ConfirmableProjectSpecReasonCode, strin
   missing_non_goals: "prd.authoring.validation_non_goals_required",
   insufficient_acceptance_criteria: "prd.authoring.validation_criteria_insufficient",
   missing_acceptance_criterion: "prd.authoring.validation_criterion_required",
-  missing_architecture_form: "prd.authoring.validation_architecture_form_required",
   missing_architecture_stack: "prd.authoring.validation_architecture_stack_required",
 };
 
@@ -257,7 +250,6 @@ const PRD_VALIDATION_REASON_FIELDS: Record<
   missing_non_goals: { container: "prd-field-non-goals" },
   insufficient_acceptance_criteria: { container: "prd-field-acceptanceCriteria" },
   missing_acceptance_criterion: { container: "prd-field-acceptanceCriteria" },
-  missing_architecture_form: { container: "prd-field-architecture" },
   missing_architecture_stack: {
     container: "prd-field-architecture",
     focus: '[data-testid="prd-architecture-stack-input"]',
@@ -416,6 +408,22 @@ export function PrdAuthoringBoard({
     setLocalDraft(draft);
   }, [draft]);
 
+  // S-075 (D-014-16): `decisionSource` for the stack-only decision. The first
+  // accepted (card) or typed stack is `student_confirmed`; editing a stack that
+  // was already in place — accepted from a card, restored with the draft, or
+  // typed and then left — is `student_changed`. This ref holds that in-place
+  // value so typing a fresh stack character by character never flips to
+  // "changed" on the second keystroke. It is re-seeded when a different draft
+  // arrives (the parent echoes every edit back through `draft`, so the id is
+  // the signal, not the object).
+  const committedStackRef = useRef((draft.spec.architecture?.stack ?? "").trim());
+  const committedDraftIdRef = useRef(draft.draftId);
+  useEffect(() => {
+    if (committedDraftIdRef.current === draft.draftId) return;
+    committedDraftIdRef.current = draft.draftId;
+    committedStackRef.current = (draft.spec.architecture?.stack ?? "").trim();
+  }, [draft]);
+
   useEffect(() => {
     const nextKey = conversationStorageKeyForDraft(draft);
     if (conversationStorageKey === nextKey) return;
@@ -437,26 +445,11 @@ export function PrdAuthoringBoard({
     [localDraft.spec],
   );
   const architecture = localDraft.spec.architecture;
-  // S-072 (014 theme 1): `forms` is multi-valued — every form that applies.
-  const chosenForms = architecture?.forms ?? [];
-  const formOptions = useMemo(() => architectureFormOptions(t), [t]);
-  // S-047: the AI's recommend-then-confirm cards for the current two-stage
-  // focus. Form cards keep showing for every recommended form the student has
-  // not added yet (the heading promises "several are fine" — S-072 review
-  // follow-up), so a chosen form's card disappears while the others stay
-  // offered; stack cards show only once a form exists and no stack is chosen
-  // yet, so a decided field never keeps stale cards. The student's click
-  // authors the decision.
-  const formProposals =
-    architectureProposals?.kind === "form"
-      ? architectureProposals.options.filter(
-          (option) => !chosenForms.includes(option.value as ArchitectureForm),
-        )
-      : [];
+  // S-047 → S-075 (D-014-16): the AI's recommend-then-confirm stack cards show
+  // while no stack is confirmed yet, so a decided field never keeps stale
+  // cards. The student's tap (or typing) authors the decision.
   const stackProposals =
-    architectureProposals?.kind === "stack" &&
-    chosenForms.length > 0 &&
-    !(architecture?.stack ?? "").trim()
+    architectureProposals?.kind === "stack" && !(architecture?.stack ?? "").trim()
       ? architectureProposals.options
       : [];
   // S-074 review (A): since S-073 the interview can retire a criterion
@@ -497,12 +490,9 @@ export function PrdAuthoringBoard({
   // S-073 (D-014-08): the same reason sentences feed the footer hint and the
   // remaining-count chip's tooltip, so the two can never disagree.
   const validationReasonTexts = validation.reasonCodes.map((code) => t(validationReasonKey(code)));
-  // S-074 review (D): the stack requirement is only reported once a form
-  // exists, so count it up front — a blank draft reads 7 and picking a form
-  // goes 2 → 1, never 1 → 1.
-  const remainingCount =
-    validation.reasonCodes.length +
-    (validation.reasonCodes.includes("missing_architecture_form") ? 1 : 0);
+  // S-075: one reason code per remaining gap (the stack is the whole
+  // architecture decision), so the count is simply the code count.
+  const remainingCount = validation.reasonCodes.length;
   const boardRef = useRef<HTMLElement>(null);
   const focusFirstMissingField = () => {
     const code = validation.reasonCodes[0];
@@ -605,17 +595,13 @@ export function PrdAuthoringBoard({
     updateSpecField(field, lines, fieldPath);
   };
 
-  // S-047: the student picks form(s) and decides a stack. Every write lands on
-  // localDraft.spec.architecture via the ordinary draft-save path — never an AI
-  // patch — so the shape is a student-confirmed decision, not auto-filled.
-  // S-072 (Constitution VII): forms are a multi-select set, the stack/rationale
-  // inputs are always writable (typing a stack first creates the decision with
-  // `forms: []`), and nothing here narrows what the student may build.
+  // S-047 → S-075 (D-014-16): the architecture decision is one tech-stack
+  // confirmation. Every write lands on localDraft.spec.architecture via the
+  // ordinary draft-save path — never an AI patch (Constitution VI) — and nothing
+  // here classifies or restricts what the student builds (Constitution VII).
   const writeArchitecture = (patch: Partial<ArchitectureDecision>) => {
     const prev = localDraft.spec.architecture;
     const next: ArchitectureDecision = {
-      forms: prev?.forms ?? [],
-      formOtherLabel: prev?.formOtherLabel ?? null,
       stack: prev?.stack ?? null,
       rationale: prev?.rationale ?? null,
       decisionSource: prev?.decisionSource ?? "student_confirmed",
@@ -625,33 +611,28 @@ export function PrdAuthoringBoard({
     updateSpecField("architecture", next, "architecture");
   };
 
-  const setArchitectureForms = (nextForms: ArchitectureForm[]) => {
+  // Tapping an AI card accepts that stack as-is: `student_confirmed`.
+  const acceptStackProposal = (value: string) => {
+    committedStackRef.current = value.trim();
+    writeArchitecture({ stack: value.trim() ? value : null, decisionSource: "student_confirmed" });
+  };
+
+  // Typing: a fresh stack (nothing in place yet) confirms; editing the stack
+  // that was in place is a student change; typing it back verbatim restores
+  // the prior source.
+  const typeStack = (value: string) => {
     const prev = localDraft.spec.architecture;
-    const prevForms = prev?.forms ?? [];
-    // The first pick confirms; any change to a non-empty set after that is a
-    // student change. Toggling the last form off keeps stack/rationale intact,
-    // and untoggling "other" keeps its label too (spec theme 1: it "stays"), so
-    // re-toggling shows the student's previous text instead of an empty field.
-    const decisionSource: ArchitectureDecision["decisionSource"] =
-      prevForms.length > 0 ? "student_changed" : (prev?.decisionSource ?? "student_confirmed");
-    writeArchitecture({
-      forms: nextForms,
-      formOtherLabel: prev?.formOtherLabel ?? null,
-      decisionSource,
-    });
+    const committed = committedStackRef.current;
+    const decisionSource: ArchitectureDecision["decisionSource"] = !committed
+      ? "student_confirmed"
+      : value.trim() !== committed
+        ? "student_changed"
+        : (prev?.decisionSource ?? "student_confirmed");
+    writeArchitecture({ stack: value.trim() ? value : null, decisionSource });
   };
 
-  const toggleArchitectureForm = (form: ArchitectureForm) => {
-    const prevForms = localDraft.spec.architecture?.forms ?? [];
-    setArchitectureForms(
-      prevForms.includes(form) ? prevForms.filter((item) => item !== form) : [...prevForms, form],
-    );
-  };
-
-  const addArchitectureForm = (form: ArchitectureForm) => {
-    const prevForms = localDraft.spec.architecture?.forms ?? [];
-    if (prevForms.includes(form)) return;
-    setArchitectureForms([...prevForms, form]);
+  const commitTypedStack = () => {
+    committedStackRef.current = (localDraft.spec.architecture?.stack ?? "").trim();
   };
 
   const patchArchitecture = (patch: Partial<ArchitectureDecision>) => {
@@ -1141,11 +1122,13 @@ export function PrdAuthoringBoard({
               ) : null}
             </div>
 
-            {/* S-047 (010 theme 7): the student decides the architecture — the
-                form(s) that apply, and a stack. The AI proposes both in the
-                interview rail; this is where the student confirms, so it is never
-                auto-filled. S-072 (Constitution VII): multi-select, every option
-                including "other" in the student's own words stays selectable. */}
+            {/* S-047 (010 theme 7) → S-075 (014 theme 4, D-014-16): the
+                architecture decision is one tech-stack confirmation, framed for
+                a novice as "AI가 이렇게 만들 계획이에요". The AI proposes ≤2
+                stacks in the interview rail (each with a plain line on what the
+                finished thing is and why this stack); the student confirms one
+                by tapping it or writes their own. Never auto-filled
+                (Constitution VI); nothing here restricts what gets built (VII). */}
             <div
               className="flex flex-col gap-2 xl:col-span-2"
               data-testid="prd-field-architecture"
@@ -1157,84 +1140,7 @@ export function PrdAuthoringBoard({
               <span className="text-[11px] font-normal text-fg-subtle">
                 {t("prd.fields.architecture_help")}
               </span>
-              {/* S-047: the AI's recommended forms as selectable cards (recommend-
-                  then-confirm). The click below is the student's decision; it
-                  adds the form to the set (S-072). */}
-              {formProposals.length > 0 ? (
-                <div className="flex flex-col gap-2" data-testid="prd-architecture-form-proposals">
-                  <span className="text-[11px] font-normal text-fg-subtle">
-                    {t("prd.architecture.proposals_heading_form")}
-                  </span>
-                  {formProposals.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => addArchitectureForm(option.value as ArchitectureForm)}
-                      className="flex flex-col gap-0.5 rounded-md border border-border bg-bg-panel2 px-3 py-2 text-left text-sm transition-colors hover:border-accent hover:bg-accent-subtle"
-                      data-testid={`prd-architecture-form-proposal-${option.value}`}
-                    >
-                      <span className="font-medium text-fg">
-                        {architectureFormLabel(t, option.value as ArchitectureForm)}
-                      </span>
-                      {option.rationale ? (
-                        <span className="text-[11px] font-normal text-fg-subtle">
-                          {option.rationale}
-                        </span>
-                      ) : null}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-              <div
-                className="grid gap-2 sm:grid-cols-2"
-                role="group"
-                aria-label={t("prd.fields.architecture")}
-              >
-                {formOptions.map((option) => {
-                  const selected = chosenForms.includes(option.form);
-                  return (
-                    <button
-                      key={option.form}
-                      type="button"
-                      onClick={() => toggleArchitectureForm(option.form)}
-                      aria-pressed={selected}
-                      className={cn(
-                        "flex flex-col gap-0.5 rounded-md border px-3 py-2 text-left text-sm transition-colors",
-                        selected
-                          ? "border-accent bg-accent-subtle font-medium text-fg"
-                          : "border-border bg-bg-panel2 text-fg-muted hover:text-fg",
-                      )}
-                      data-testid={`prd-architecture-form-${option.form}`}
-                    >
-                      <span>{option.label}</span>
-                      <span
-                        className="text-[11px] font-normal text-fg-subtle"
-                        data-testid={`prd-architecture-form-help-${option.form}`}
-                      >
-                        {architectureFormHelp(t, option.form)}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
 
-              {chosenForms.includes("other") ? (
-                <input
-                  value={architecture?.formOtherLabel ?? ""}
-                  onChange={(event) =>
-                    patchArchitecture({
-                      formOtherLabel: event.target.value.trim() ? event.target.value : null,
-                    })
-                  }
-                  className="rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg"
-                  placeholder={t("prd.authoring.architecture_other_placeholder")}
-                  data-testid="prd-architecture-form-other-label"
-                  aria-label={t("prd.authoring.architecture_other_placeholder")}
-                />
-              ) : null}
-
-              {/* S-047: the AI's recommended stacks as selectable cards. The
-                  click fills the stack field the student can still edit below. */}
               {stackProposals.length > 0 ? (
                 <div className="flex flex-col gap-2" data-testid="prd-architecture-stack-proposals">
                   <span className="text-[11px] font-normal text-fg-subtle">
@@ -1244,7 +1150,7 @@ export function PrdAuthoringBoard({
                     <button
                       key={`${option.value}-${index}`}
                       type="button"
-                      onClick={() => patchArchitecture({ stack: option.value })}
+                      onClick={() => acceptStackProposal(option.value)}
                       className="flex flex-col gap-0.5 rounded-md border border-border bg-bg-panel2 px-3 py-2 text-left text-sm transition-colors hover:border-accent hover:bg-accent-subtle"
                       data-testid={`prd-architecture-stack-proposal-${index}`}
                     >
@@ -1265,11 +1171,8 @@ export function PrdAuthoringBoard({
                 </span>
                 <input
                   value={architecture?.stack ?? ""}
-                  onChange={(event) =>
-                    patchArchitecture({
-                      stack: event.target.value.trim() ? event.target.value : null,
-                    })
-                  }
+                  onChange={(event) => typeStack(event.target.value)}
+                  onBlur={commitTypedStack}
                   className="rounded-md border bg-bg-panel2 px-3 py-2 text-sm text-fg"
                   placeholder={t("prd.authoring.architecture_stack_placeholder")}
                   data-testid="prd-architecture-stack-input"

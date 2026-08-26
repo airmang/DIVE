@@ -263,9 +263,9 @@ export function usePlan(projectId: number | null) {
     return raw === null ? null : normalizeGeneratedDraft(raw);
   }, [api, projectId]);
 
-  // S-072: every PRD/draft payload crossing the IPC boundary gets its
-  // architecture normalized to the multi-valued `forms` shape (legacy single
-  // `form` folded in). Rust already does this; the client mirror is defensive.
+  // S-072/S-075: every PRD/draft payload crossing the IPC boundary gets its
+  // architecture normalized to the stack-only shape (legacy S-047/S-072 form
+  // keys stripped). Rust already ignores them; the client mirror is defensive.
   const getProjectSpec = useCallback(async () => {
     if (!api || projectId === null) return null;
     const spec = await api.invoke<ProjectSpec | null>("workspace_prd_get", { projectId });

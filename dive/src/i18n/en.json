@@ -167,11 +167,9 @@
       "validation_goal_vague": "The goal is too vague — say in one sentence who it's for and what observable result counts as done.",
       "validation_non_goals_required": "List at least one thing that is out of scope (a non-goal).",
       "validation_criteria_insufficient": "Add at least two concrete, checkable done criteria.",
-      "validation_architecture_form_required": "Pick at least one form for what you're building — 'Other' in your own words works too.",
-      "validation_architecture_stack_required": "Decide a tech stack that fits the forms you picked.",
-      "architecture_other_placeholder": "Describe the form yourself",
-      "architecture_stack_placeholder": "e.g. React + Vite, Python + Flask",
-      "architecture_rationale_placeholder": "Why this form and stack (optional)",
+      "validation_architecture_stack_required": "Confirm the tech stack the AI proposed, or write your own.",
+      "architecture_stack_placeholder": "e.g. React + Vite / Python + Flask / a Node script",
+      "architecture_rationale_placeholder": "Why this stack (optional)",
       "validation_ready": "Ready to confirm the PRD.",
       "intent_check": {
         "title": "Did the AI capture what you meant?",
@@ -217,35 +215,16 @@
       "constraints": "Constraints",
       "acceptance_criteria": "Acceptance criteria",
       "acceptance_criteria_help": "A condition you can check yourself to know it's done",
-      "architecture": "What you're building",
-      "architecture_help": "Pick every form that applies — several are fine, and 'Other' in your own words is fine too. Forms guide the plan; they never limit what you can build. The AI proposes in the conversation on the left; you pick and confirm.",
+      "architecture": "How the AI plans to build it",
+      "architecture_help": "The AI reads your goal and proposes a tech stack. Confirm it as is, or rewrite it yourself. Nothing you build is restricted.",
       "architecture_stack": "Tech stack",
       "architecture_rationale": "Why (optional)"
     },
     "architecture": {
-      "title": "Form & tech stack",
-      "form_label": "Form",
+      "title": "Tech stack",
       "stack_label": "Tech stack",
       "empty": "Not decided yet",
-      "form_other_plain": "Other",
-      "proposals_heading_form": "AI-recommended forms — tap to add (several are fine)",
-      "proposals_heading_stack": "AI-recommended stacks — tap to pick",
-      "form": {
-        "web_app": "Web app",
-        "static_page": "Static page",
-        "cli_tool": "Command-line tool (CLI)",
-        "desktop_app": "Desktop app",
-        "api_service": "API service",
-        "other": "Other (describe it)"
-      },
-      "form_help": {
-        "web_app": "An app used in the browser — including any server, database, or API backend it needs",
-        "static_page": "A page served as plain HTML/CSS/JS with no server",
-        "cli_tool": "A program you run from the terminal with commands",
-        "desktop_app": "An installed program that opens in its own window (macOS/Windows)",
-        "api_service": "A backend that other programs call, with no screen of its own",
-        "other": "Not listed? Describe it yourself — a game, a bot, a mobile app, hardware, data analysis, anything"
-      }
+      "proposals_heading_stack": "AI's proposal — tap to accept, or write your own"
     },
     "read_view": {
       "title": "Final PRD",

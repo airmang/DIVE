@@ -1,64 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { ProjectSpec } from "../../features/planning";
-import {
-  PLAN_SCAFFOLDING_NOT_LIMITS_LINE,
-  buildPrdPlanGenerationPrompt,
-  planScaffoldingForForms,
-} from "./productShellControllerLogic";
+import { buildPrdPlanGenerationPrompt } from "./productShellControllerLogic";
 
-// S-072 (014 theme 1, Constitution VII / D-014-04): planner scaffolding is an
-// additive union of positive coverage lines per chosen form plus a fixed
-// "not limits" closing line. No "avoid …" clause anywhere.
-describe("planScaffoldingForForms", () => {
-  it("returns null when no form is chosen", () => {
-    expect(planScaffoldingForForms([])).toBeNull();
-    expect(planScaffoldingForForms([], "anything")).toBeNull();
-  });
-
-  it("unions one positive line per form and closes with the not-limits line", () => {
-    const text = planScaffoldingForForms(["web_app", "api_service"]);
-    expect(text).not.toBeNull();
-    const lines = text!.split("\n");
-    expect(lines).toHaveLength(3);
-    expect(lines[0]).toContain("For a web app, cover the browser UI screens/components");
-    expect(lines[0]).toContain("plus any server, database, or API work the app needs");
-    expect(lines[1]).toContain("For an API service, cover endpoints, request/response schemas");
-    expect(lines[2]).toBe(PLAN_SCAFFOLDING_NOT_LIMITS_LINE);
-    expect(lines[2]).toContain("planning hints, not limits");
-    expect(lines[2]).toContain("never drop a step because it does not match a form");
-  });
-
-  it("never emits an avoid clause for any form", () => {
-    const text = planScaffoldingForForms(
-      ["web_app", "static_page", "cli_tool", "desktop_app", "api_service", "other"],
-      "Discord bot",
-    );
-    expect(text!.toLowerCase()).not.toContain("avoid");
-    expect(text!.split("\n")).toHaveLength(7);
-  });
-
-  it("dedupes repeated forms preserving pick order", () => {
-    const text = planScaffoldingForForms(["cli_tool", "web_app", "cli_tool"]);
-    const lines = text!.split("\n");
-    expect(lines).toHaveLength(3);
-    expect(lines[0]).toContain("For a CLI tool");
-    expect(lines[1]).toContain("For a web app");
-  });
-
-  it("quotes the student's own label for other, and copes without one", () => {
-    expect(planScaffoldingForForms(["other"], "  Discord bot  ")).toContain(
-      'For the form the student described in their own words ("Discord bot"), plan for exactly that.',
-    );
-    const unlabeled = planScaffoldingForForms(["other"], null)!;
-    expect(unlabeled).toContain(
-      "For the form the student described in their own words, plan for exactly that.",
-    );
-    expect(unlabeled).not.toContain('("');
-  });
-});
-
-describe("buildPrdPlanGenerationPrompt architecture context (S-072)", () => {
-  function projectSpec(): ProjectSpec {
+// S-075 (014 theme 4, D-014-16): the planner's architecture context is the
+// confirmed tech stack and nothing else — no project-kind classification, no
+// form scaffolding (Constitution VII).
+describe("buildPrdPlanGenerationPrompt architecture context (S-075)", () => {
+  function projectSpec(architecture: ProjectSpec["architecture"]): ProjectSpec {
     return {
       projectSpecId: "prd-1",
       projectId: 1,
@@ -78,14 +26,7 @@ describe("buildPrdPlanGenerationPrompt architecture context (S-072)", () => {
           retiredInVersion: null,
         },
       ],
-      architecture: {
-        forms: ["web_app", "other"],
-        formOtherLabel: "Discord bot",
-        stack: "Python + discord.py",
-        rationale: null,
-        decisionSource: "student_confirmed",
-        decidedInVersion: 1,
-      },
+      architecture,
       fieldProvenance: {},
       status: "draft",
       createdAt: 1,
@@ -93,20 +34,36 @@ describe("buildPrdPlanGenerationPrompt architecture context (S-072)", () => {
     };
   }
 
-  it("passes every form plus student labels and the stack as decomposition context", () => {
-    const prompt = buildPrdPlanGenerationPrompt(projectSpec());
-    const json = prompt.slice(prompt.indexOf("Saved PRD JSON:\n") + "Saved PRD JSON:\n".length);
-    const prd = JSON.parse(json) as {
-      architecture: { forms: string[]; formLabels: string[]; stack: string };
+  function savedPrdJson(prompt: string): { architecture?: unknown } {
+    const marker = "Saved PRD JSON:\n";
+    return JSON.parse(prompt.slice(prompt.indexOf(marker) + marker.length)) as {
+      architecture?: unknown;
     };
-    expect(prd.architecture).toEqual({
-      forms: ["web_app", "other"],
-      formLabels: ["web_app", "Discord bot"],
-      stack: "Python + discord.py",
-    });
-    expect(prompt).toContain("confirmed architecture (forms + tech stack)");
-    expect(prompt).toContain('("Discord bot")');
-    expect(prompt).toContain(PLAN_SCAFFOLDING_NOT_LIMITS_LINE);
+  }
+
+  it("passes only the stack as decomposition context and binds the directive to it", () => {
+    const prompt = buildPrdPlanGenerationPrompt(
+      projectSpec({
+        stack: "Python + discord.py",
+        rationale: "A bot that answers in the class Discord",
+        decisionSource: "student_confirmed",
+        decidedInVersion: 1,
+      }),
+    );
+
+    expect(savedPrdJson(prompt).architecture).toEqual({ stack: "Python + discord.py" });
+    expect(prompt).toContain(
+      "The PRD includes the student's confirmed tech stack. Decompose using that stack — do not switch to a different framework or stack.",
+    );
+    expect(prompt).not.toContain("form-specific");
+    expect(prompt).not.toContain("forms");
     expect(prompt.toLowerCase()).not.toContain("avoid");
+  });
+
+  it("omits the architecture context and directive when none is decided", () => {
+    const prompt = buildPrdPlanGenerationPrompt(projectSpec(null));
+
+    expect(savedPrdJson(prompt).architecture).toBeUndefined();
+    expect(prompt).not.toContain("confirmed tech stack");
   });
 });

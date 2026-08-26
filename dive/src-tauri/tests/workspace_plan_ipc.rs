@@ -14,10 +14,10 @@ use dive_lib::db::dao::{
 };
 use dive_lib::db::models::{
     AcceptanceCriterion, AcceptanceCriterionSource, AcceptanceCriterionStatus,
-    ArchitectureDecision, ArchitectureDecisionSource, ArchitectureForm, NewInterview,
-    NewLiveProjectSpecDraft, NewPlan, NewProject, NewStep, ObjectionSuggestionStatus,
-    PlanMutationType, PrdPatchValidationOutcome, ProjectSpecDelta, ProjectSpecDraft,
-    ProjectSpecStatus, ProvenanceSource, StepRow,
+    ArchitectureDecision, ArchitectureDecisionSource, NewInterview, NewLiveProjectSpecDraft,
+    NewPlan, NewProject, NewStep, ObjectionSuggestionStatus, PlanMutationType,
+    PrdPatchValidationOutcome, ProjectSpecDelta, ProjectSpecDraft, ProjectSpecStatus,
+    ProvenanceSource, StepRow,
 };
 use dive_lib::export::{ExportEngine, ExportOptions};
 use dive_lib::ipc::workspace_plan::{
@@ -422,10 +422,8 @@ fn minimal_prd_draft(project_id: i64) -> ProjectSpecDraft {
         non_goals: vec!["Add-step mutation".into()],
         constraints: vec!["Local-first EventLog".into()],
         acceptance_criteria: vec![prd_criterion("A saved PRD unlocks plan generation")],
-        // S-047: a confirmable save now requires a decided architecture (form + stack).
+        // S-047 → S-075: a confirmable save requires a confirmed tech stack.
         architecture: Some(ArchitectureDecision {
-            forms: vec![ArchitectureForm::WebApp],
-            form_other_label: None,
             stack: Some("React + Vite".into()),
             rationale: None,
             decision_source: ArchitectureDecisionSource::StudentConfirmed,
@@ -584,57 +582,12 @@ fn prd_save_rejects_missing_or_half_decided_architecture() {
         },
     )
     .unwrap_err();
-    assert!(err.contains("architecture"), "unexpected error: {err}");
+    assert!(err.contains("tech stack"), "unexpected error: {err}");
 
-    // Form picked but no stack yet (the intermediate two-stage state) is also rejected.
-    let mut form_only = minimal_prd_draft(project_id);
-    form_only.architecture = Some(ArchitectureDecision {
-        forms: vec![ArchitectureForm::CliTool],
-        form_other_label: None,
-        stack: None,
-        rationale: None,
-        decision_source: ArchitectureDecisionSource::StudentConfirmed,
-        decided_in_version: 1,
-    });
-    let err = workspace_prd_save_impl(
-        &state,
-        PrdSaveInput {
-            project_id,
-            spec: form_only,
-            reason: "interview".into(),
-        },
-    )
-    .unwrap_err();
-    assert!(err.contains("architecture"), "unexpected error: {err}");
-
-    // S-072 (forms[] multi-select): the OTHER intermediate state — a stack typed
-    // before any form was picked — must be rejected by the server-side
-    // backstop (`architecture_is_decided` needs >=1 form AND a non-blank stack).
-    let mut stack_only = minimal_prd_draft(project_id);
-    stack_only.architecture = Some(ArchitectureDecision {
-        forms: Vec::new(),
-        form_other_label: None,
-        stack: Some("React + Vite".into()),
-        rationale: None,
-        decision_source: ArchitectureDecisionSource::StudentConfirmed,
-        decided_in_version: 1,
-    });
-    let err = workspace_prd_save_impl(
-        &state,
-        PrdSaveInput {
-            project_id,
-            spec: stack_only,
-            reason: "interview".into(),
-        },
-    )
-    .unwrap_err();
-    assert!(err.contains("architecture"), "unexpected error: {err}");
-
-    // A whitespace-only stack is not a decided stack either.
+    // A whitespace-only stack is not a confirmed stack either (S-075: the
+    // stack is the whole decision, so this is the only half-decided state).
     let mut blank_stack = minimal_prd_draft(project_id);
     blank_stack.architecture = Some(ArchitectureDecision {
-        forms: vec![ArchitectureForm::WebApp],
-        form_other_label: None,
         stack: Some("   ".into()),
         rationale: None,
         decision_source: ArchitectureDecisionSource::StudentConfirmed,
@@ -649,7 +602,7 @@ fn prd_save_rejects_missing_or_half_decided_architecture() {
         },
     )
     .unwrap_err();
-    assert!(err.contains("architecture"), "unexpected error: {err}");
+    assert!(err.contains("tech stack"), "unexpected error: {err}");
 }
 
 #[test]
