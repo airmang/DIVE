@@ -4,6 +4,15 @@ All notable changes to DIVE are documented here. Format: [Keep a Changelog](http
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.0.0-rc.10] — 2026-08-27
+
+Team-QA-driven PRD flow round (spec 014) on top of the public-release
+readiness round (spec 013) and the restored macOS distribution (S-071).
+Pre-release: live re-QA on this build by the reporting team member is the
+next step.
+
 ### Spec 014 — Unrestricted Project Kinds + PRD interview editability (2026-08-25, branch `014-unrestricted-project-kinds`)
 
 Driven by the 2026-08-24 team QA of the PRD flow (four items) and the owner
@@ -37,14 +46,17 @@ principle it exposed.
   and click-to-scroll to the first missing field; retired criteria render as a
   restorable read-only list. Fixes "Enter로 전송 안 됨" and "확정 버튼 비활성".
 
-32 commits sit on `main` past the `v1.0.0-rc.9` tag, not yet covered by a
-dedicated release entry. These are chiefly the spec 013 public-release-readiness
-round (Wily Stages S-058–S-070: Rust/FE dead-code sweeps, process-tool egress
-hardening, a correctness bug pack, silent-failure surfacing, several
-god-file/god-hook splits, a performance pass, and the public-hygiene/history-purge
-work), plus a restored macOS CI build and post-cleanup review fixes. See
-`git log v1.0.0-rc.9..HEAD` for the full list; a proper changelog entry is
-pending the next release cut.
+### Spec 013 — Public release readiness (S-058–S-070) + macOS distribution (S-071)
+
+The 32 commits between rc.9 and the 014 merge: copyright/tracked-file
+hygiene and license notices, script/version truth, Rust and frontend
+dead-code sweeps, `loadTauri` unification, silent-failure surfacing, tool
+security hardening (env-dump symmetry, redaction, output caps, staging
+leak), a correctness bug pack, approval-pipeline unification,
+`workspace_plan.rs` / `supervisor.rs` / `pi_sidecar` / frontend god-hook
+splits, a performance pack, the process-tool plain-GET egress hardening,
+post-cleanup review fixes, and the restored macOS CI build that publishes
+an unsigned Apple Silicon `.app.zip` alongside the Windows installers.
 
 ## [1.0.0-rc.9] — 2026-07-11
 

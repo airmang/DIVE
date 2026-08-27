@@ -7,7 +7,7 @@
 [![build](https://github.com/airmang/DIVE/actions/workflows/build.yml/badge.svg)](https://github.com/airmang/DIVE/actions/workflows/build.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20ARM64%20%7C%20macOS%20arm64-0078d4.svg)](#설치)
-[![version](https://img.shields.io/badge/version-1.0.0--rc.9-6f42c1.svg)](./CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-1.0.0--rc.10-6f42c1.svg)](./CHANGELOG.md)
 
 ---
 
@@ -153,6 +153,7 @@ DIVE는 제품인 동시에 **연구 도구**입니다. "AI 시대의 프로그�
 
 | 버전        | 범위                                                                                                                                                                                                                                       |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| v1.0.0-rc.10 | 프로젝트 종류 무제한 원칙(헌법 VII) + PRD 인터뷰 편집성 (014): 웹앱/API 형태 선택 단계 제거 → "AI가 이렇게 만들 계획이에요" 스택 확인 한 단계, PRD 제자리 수정(revise/remove/retire), 인터뷰 Enter 전송·확정 게이트 "남은 항목" 칩; 013 공개 전환 정비(데드코드 일소·도구 보안 하드닝·갓파일 분할·성능 팩)와 macOS 배포 복원 포함 |
 | v1.0.0-rc.9 | 학회 데모 준비 3라운드 (011): 계획 품질 게이트 정직화(P0-01), 광고된 모델의 실행 가능성 보장(P0-02), 가짜 정지 타임아웃 제거, PRD 인터뷰 정직·복구, 학생 편집의 AI-요약 오귀속 제거, 릴리스 게이트 복구 — macOS 무각본 라이브 데모 GO 확정 |
 | v1.0.0-rc.8 | PRD 아키텍처 추천 보드 반영 (S-047 2단계 인터뷰 완성): AI의 폼/스택 추천이 채팅 프로즈가 아닌 선택 가능한 카드로 보드에 반영                                                                                                               |
 | v1.0.0-rc.7 | 라이브 프로바이더 모델 카탈로그 + Claude Sonnet 5: OpenRouter `/models` 라이브 조회로 신규 상위 모델이 코드 변경 없이 자동 노출                                                                                                            |
