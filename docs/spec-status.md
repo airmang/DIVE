@@ -1,6 +1,6 @@
 # DIVE Spec Status
 
-**Last updated**: 2026-08-25
+**Last updated**: 2026-08-28
 
 This file prevents agents from treating old design notes as active product
 authority. The canonical DIVE v2 source of truth lives in `.specify/` and
@@ -100,6 +100,28 @@ decision Q1 (bounded form enum) and the S-049 closeout of its Q2 follow-up
 (per-form scaffolding block with "avoid" clauses + the non-blocking
 `plan.form_consistency` EventLog annotation). The `plan.form_consistency`
 event type is retired; historical exports keep it as history.
+
+## Release v1.0.0-rc.10 (2026-08-28) and tracked follow-up
+
+`v1.0.0-rc.10` (pre-release, `main` @ `007571da`) ships spec 014 (S-072–S-075),
+spec 013 (S-058–S-070) and the S-071 macOS distribution. Assets came from the
+`build.yml` run on the release commit (Windows x64/arm64 NSIS, Apple Silicon
+`.app.zip` + `.dmg`, SHA256SUMS, smoke JSONs) following the rc.9 precedent,
+because `release.yml` could not be used:
+
+- **Tracked follow-up — Windows installed-app WebDriver smoke fails on current
+  GitHub runner images.** Both `windows-latest` (x64) and `windows-11-arm`
+  gate jobs pass clean-install / silent NSIS install / bundled Pi sidecar
+  checks and then time out at `POST http://127.0.0.1:4444/session` (30 s) —
+  identically in `build.yml` and `release-gate.yml` (run 33082053197). It is
+  a runner-side WebDriver/WebView2 session issue, not a bundle defect, but
+  `release.yml` requires every smoke result to pass, so the gated path is
+  blocked until the smoke is restored (driver/WebView2 version pinning or a
+  non-WebDriver launch check). `release-gate.yml` gained the missing
+  `macos-release-gate` job in `007571da` (S-071 had wired the macOS download
+  into `release.yml` without producing the artifact).
+- Live re-QA of rc.10 by the reporting team member (spec 014 acceptance
+  script) is the remaining 014 item.
 
 ## 013 Implementation Status
 
