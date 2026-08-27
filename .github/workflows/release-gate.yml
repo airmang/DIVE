@@ -108,3 +108,59 @@ jobs:
           path: dive/release-smoke-${{ matrix.label }}.json
           if-no-files-found: error
           retention-days: 30
+
+  # S-071 follow-up (rc.10): release.yml downloads DIVE-macos-arm64-app from the
+  # approved release-gate run, so the gate must produce it — mirrors build.yml's
+  # build-macos job (unsigned Tier-1 .app.zip; no installed-app smoke on mac).
+  macos-release-gate:
+    name: macos release gate (${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macos-arm64
+            runner: macos-14
+            target: aarch64-apple-darwin
+    defaults:
+      run:
+        working-directory: dive
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: dive/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dive/src-tauri
+          key: release-gate-${{ matrix.target }}
+      - run: pnpm install --frozen-lockfile
+      - name: build Pi sidecar (${{ matrix.target }})
+        run: |
+          npm --prefix pi-sidecar ci
+          node pi-sidecar/build-sidecar.mjs --target ${{ matrix.target }}
+      - name: tauri build .app (${{ matrix.target }})
+        run: pnpm tauri build --target ${{ matrix.target }} --bundles app
+      - name: zip .app bundle
+        run: |
+          set -euo pipefail
+          app="$(find "src-tauri/target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -name '*.app' | head -1)"
+          if [ -z "$app" ]; then echo "no .app bundle found"; exit 1; fi
+          ditto -c -k --keepParent "$app" "DIVE-${{ matrix.label }}.app.zip"
+          ls -lh "DIVE-${{ matrix.label }}.app.zip"
+      - name: upload .app.zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: DIVE-${{ matrix.label }}-app
+          path: dive/DIVE-${{ matrix.label }}.app.zip
+          if-no-files-found: error
+          retention-days: 14
