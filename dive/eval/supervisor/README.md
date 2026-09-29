@@ -74,7 +74,7 @@ pnpm eval:supervisor:live -- --db "$HOME/Library/Application Support/com.coreela
   worst case (live fixtures × attempts) exceeds it, and aborts if the runtime
   becomes unavailable mid-run.
 - `--write-recordings` appends each returned raw output to its fixture under
-  the current promptVersion (`source: "live"`). Then run
+  the current promptVersion (`source: "live"`, with its `attempt`). Then run
   `pnpm prettier --write eval/supervisor/fixtures && pnpm eval:fixtures`.
 - Output lines carry fixture ids, outcomes and call counts only: no secrets
   and no raw model output.
@@ -108,6 +108,7 @@ split. Unknown keys are rejected by `pnpm eval:fixtures`.
         "model": "hand-authored", // or the provider model id for live recordings
         "recordedAt": "2026-09-29", // ISO date or date-time
         "source": "hand-authored", // hand-authored | live
+        // "attempt": 0,            // live recordings: production attempt (0 starts a trial)
       },
     ],
   },
@@ -167,6 +168,20 @@ have at least one recording for the newest promptVersion in the set. When the
 prompt version changes, add a new key (live mode records it); never rewrite an
 existing key's recordings.
 
+A key's recordings form **trials**, and a trial never mixes models. Each
+`model` (`hand-authored`, or the provider model of a live run) is its own
+attempt sequence, in `recordedAt` order (ties keep file order), and its own
+report group. Within a model, a live recording with `attempt: 0` starts a new
+trial, so repeated live runs stay separate. The runner replays a trial like
+`provocation_agent_evaluate`: it validates each recording in turn and stops
+where production stops (a shown card, a non-recoverable outcome, or
+`DIVE_SUPERVISOR_EVALUATION_ATTEMPTS`, default 3). Recordings after that point
+are not consulted. CI only needs one recording (any model) per gate-passing
+fixture for the current version. Gate-closed fixtures make no call, so they
+appear only in the groups of models that have recordings for them (today
+`hand-authored`); a live group's provoke agreement covers gate-passing
+fixtures.
+
 ### Adding or promoting fixtures
 
 Promotion from field data (`pnpm research:cards -- --exemplars`) or from the
@@ -199,10 +214,13 @@ schema; `scripts/eval-report.test.mjs` renders them.
 }
 ```
 
-**Result**: one per (fixture, recording) in recorded mode, one per model call in
-live mode (a production retry is another result with `attempt` > 0; gate-closed
-fixtures get one result without a call). Recorded gate-closed results take
-their recording's `model`/`source` for grouping, or `(no recording)`/`none`.
+**Result**: one per trial, i.e. per fixture unless it has several recorded
+trials. A result is the **final outcome** of the production retry loop: the
+first shown attempt, or the last attempt when none is shown. That is the call
+the student would see, and every primary metric scores it. Earlier calls of the
+trial are listed in `calls`. Gate-closed fixtures get one result without a
+call. Recorded gate-closed results take their recording's `model`/`source` for
+grouping, or `(no recording)`/`none`.
 
 ```jsonc
 {
@@ -211,8 +229,7 @@ their recording's `model`/`source` for grouping, or `(no recording)`/`none`.
   "event": "verify_entered",
   "locale": "ko-KR",
   "mode": "work",
-  "recordingIndex": 0,
-  // "attempt": 0,             // live mode only
+  "recordingIndex": 0, // identifies the trial: index of its first recording (live: 0)
   "source": "hand-authored",
   "model": "hand-authored",
   "expected": { "shouldProvoke": true /* , "expectedDropReason": "not_question" */ },
@@ -237,6 +254,11 @@ their recording's `model`/`source` for grouping, or `(no recording)`/`none`.
     "requiredEvidenceCited": true,
     "questionChars": 63,
   },
+  "calls": [
+    // every model call of the trial, in order; [] when none was made
+    { "outcome": "dropped", "dropReason": "not_question" },
+    { "outcome": "shown", "dropReason": null },
+  ],
 }
 ```
 
@@ -264,7 +286,7 @@ Check definitions (`shown` = outcome `shown`; `q` = the decision's question):
   },
   "resultCount": 23,
   "outcomes": { "shown": 15, "none": 4, "dropped": 3, "error": 1 },
-  "dropReasons": { "provoke_false": 4, "not_question": 1 }, // histogram over results with a dropReason
+  "dropReasons": { "provoke_false": 4, "not_question": 1 }, // histogram over final outcomes
   "provokeAgreement": {
     "checked": 19,
     "agree": 19,
@@ -284,6 +306,13 @@ Check definitions (`shown` = outcome `shown`; `q` = the decision's question):
     "mean": 81.2,
     "overLimit": 0,
   },
+  // Secondary, per call: every attempt of every trial (retries included).
+  "attempts": {
+    "calls": 19,
+    "retries": 0, // calls beyond each trial's first
+    "outcomes": { "shown": 15, "none": 0, "dropped": 3, "error": 1 },
+    "dropReasons": { "not_question": 1, "parse_error": 1 },
+  },
   "results": [
     /* results of this group */
   ],
@@ -292,6 +321,9 @@ Check definitions (`shown` = outcome `shown`; `q` = the decision's question):
 
 `policyVersion` is `supervision_policy().policy_version` at run time. `model`
 is the recording's `model` (recorded mode) or the provider model (live).
+`resultCount`, `outcomes`, `dropReasons` and all rate blocks count final
+outcomes (one per trial). `attempts` is the only per-call block, so a version
+that needs retries shows it there, not as extra disagreements.
 
 ## Judgment file (optional, advisory)
 

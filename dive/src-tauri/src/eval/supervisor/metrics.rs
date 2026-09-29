@@ -5,8 +5,9 @@
 use std::collections::BTreeMap;
 
 use super::report::{
-    Checks, CriterionLinkage, DecisionSummary, DropReasonMatch, EvalResult, EvidencePrecision,
-    LocaleCompliance, OutcomeCounts, ProvokeAgreement, QuestionLength, ReportGroup,
+    AttemptStats, Checks, CriterionLinkage, DecisionSummary, DropReasonMatch, EvalResult,
+    EvidencePrecision, LocaleCompliance, OutcomeCounts, ProvokeAgreement, QuestionLength,
+    ReportGroup,
 };
 use super::FixtureExpect;
 use crate::dive::supervisor::{
@@ -94,19 +95,47 @@ fn count_true<'a>(values: impl Iterator<Item = &'a Option<bool>>) -> (usize, usi
     })
 }
 
+fn tally(
+    outcomes: &mut OutcomeCounts,
+    drop_reasons: &mut BTreeMap<String, usize>,
+    outcome: SupervisorValidationOutcome,
+    drop_reason: Option<SupervisorDropReason>,
+) {
+    match outcome {
+        SupervisorValidationOutcome::Shown => outcomes.shown += 1,
+        SupervisorValidationOutcome::NoCard => outcomes.none += 1,
+        SupervisorValidationOutcome::Dropped => outcomes.dropped += 1,
+        SupervisorValidationOutcome::Error => outcomes.error += 1,
+    }
+    if let Some(reason) = drop_reason {
+        *drop_reasons.entry(reason.as_str().to_string()).or_insert(0) += 1;
+    }
+}
+
 /// Aggregates of one (promptVersion, policyVersion, model, split) group.
+/// Each result is one trial scored on its final call — what the student would
+/// see after the production retry loop; `attempts` counts every call of every
+/// trial.
 pub(crate) fn aggregate(key: super::report::GroupKey, results: Vec<EvalResult>) -> ReportGroup {
     let mut outcomes = OutcomeCounts::default();
     let mut drop_reasons = BTreeMap::new();
+    let mut attempts = AttemptStats::default();
     for result in &results {
-        match result.outcome {
-            SupervisorValidationOutcome::Shown => outcomes.shown += 1,
-            SupervisorValidationOutcome::NoCard => outcomes.none += 1,
-            SupervisorValidationOutcome::Dropped => outcomes.dropped += 1,
-            SupervisorValidationOutcome::Error => outcomes.error += 1,
-        }
-        if let Some(reason) = result.drop_reason {
-            *drop_reasons.entry(reason.as_str().to_string()).or_insert(0) += 1;
+        tally(
+            &mut outcomes,
+            &mut drop_reasons,
+            result.outcome,
+            result.drop_reason,
+        );
+        attempts.calls += result.calls.len();
+        attempts.retries += result.calls.len().saturating_sub(1);
+        for call in &result.calls {
+            tally(
+                &mut attempts.outcomes,
+                &mut attempts.drop_reasons,
+                call.outcome,
+                call.drop_reason,
+            );
         }
     }
 
@@ -181,6 +210,7 @@ pub(crate) fn aggregate(key: super::report::GroupKey, results: Vec<EvalResult>) 
                 .filter(|len| **len > QUESTION_MAX_CHARS)
                 .count(),
         },
+        attempts,
         results,
     }
 }

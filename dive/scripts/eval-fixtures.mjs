@@ -163,7 +163,7 @@ const EXPECT_KEYS = [
   "locale",
   "expectedDropReason",
 ];
-const RECORDING_KEYS = ["rawOutput", "model", "recordedAt", "source"];
+const RECORDING_KEYS = ["rawOutput", "model", "recordedAt", "source", "attempt"];
 const RECORDING_SOURCES = ["hand-authored", "live"];
 const PROMPT_VERSION_RE = /^(\d+)\.(\d+)\.(\d+)\+[0-9a-f]{8}$/;
 const ID_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -416,6 +416,12 @@ function validateRecorded(recorded, problems) {
       }
       if (!RECORDING_SOURCES.includes(recording.source)) {
         problems.push(`${where}.source must be one of ${RECORDING_SOURCES.join(", ")}`);
+      }
+      if (
+        recording.attempt !== undefined &&
+        !(Number.isInteger(recording.attempt) && recording.attempt >= 0)
+      ) {
+        problems.push(`${where}.attempt must be a non-negative integer`);
       }
     });
   }

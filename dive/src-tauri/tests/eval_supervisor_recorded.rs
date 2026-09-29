@@ -98,6 +98,18 @@ fn recorded_run_is_consistent_controls_drop_and_report_is_written() {
         fixtures.len(),
         "every fixture yields a result"
     );
+    for group in &run.report.groups {
+        let calls = group.results.iter().map(|r| r.calls.len()).sum::<usize>();
+        assert_eq!(
+            group.attempts.calls, calls,
+            "attempts.calls counts every call"
+        );
+        assert_eq!(
+            group.result_count,
+            group.results.len(),
+            "primary metrics count one final result per trial"
+        );
+    }
 
     let path = default_report_path(EvalMode::Recorded, &version);
     write_report(&run.report, &path).expect("write recorded report");
@@ -190,4 +202,38 @@ async fn live_mode_refuses_to_run_without_a_connected_pi_provider() {
         error.contains("no connected Pi-supported provider"),
         "{error}"
     );
+}
+
+#[test]
+fn recordings_of_each_model_are_scored_as_their_own_trial() {
+    // Hand-authored and live recordings share a promptVersion key but are
+    // different models: each model's recordings are its own attempt
+    // sequence and its own report group, never one mixed retry loop.
+    let fixtures = fixtures();
+    let version = current_prompt_version();
+    let run = run_recorded(&fixtures, &version);
+    let results = run
+        .report
+        .groups
+        .iter()
+        .flat_map(|group| group.results.iter().map(move |r| (group, r)))
+        .collect::<Vec<_>>();
+    for loaded in &fixtures {
+        let Some(recordings) = loaded.fixture.recorded.get(&version) else {
+            continue;
+        };
+        let models = recordings
+            .iter()
+            .map(|recording| recording.model.as_str())
+            .collect::<BTreeSet<_>>();
+        let scored = results
+            .iter()
+            .filter(|(_, result)| result.fixture_id == loaded.fixture.id)
+            .map(|(group, result)| {
+                assert_eq!(group.key.model, result.model);
+                result.model.as_str()
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(scored, models, "{}", loaded.fixture.id);
+    }
 }

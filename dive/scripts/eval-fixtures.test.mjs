@@ -98,7 +98,7 @@ describe("validateFixture", () => {
     fixture.context.scopeExpansion = { expanded: true, reasonCodes: [], evidenceRefs: [] };
     fixture.extra = true;
     fixture.recorded = {
-      "1.0.0": [{ rawOutput: 1, model: "", recordedAt: "yesterday", source: "llm" }],
+      "1.0.0": [{ rawOutput: 1, model: "", recordedAt: "yesterday", source: "llm", attempt: -1 }],
     };
     const problems = validateFixture(fixture, { file, split }).join("\n");
     expect(problems).toMatch(/context\.scopeExpansion belongs to scope_expansion only/);
@@ -108,6 +108,7 @@ describe("validateFixture", () => {
     expect(problems).toMatch(/model must be a non-empty string/);
     expect(problems).toMatch(/recordedAt must be an ISO date/);
     expect(problems).toMatch(/source must be one of hand-authored, live/);
+    expect(problems).toMatch(/attempt must be a non-negative integer/);
   });
 
   it("requires the file name and split directory to match", () => {

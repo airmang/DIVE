@@ -65,8 +65,22 @@ describe("renderReport", () => {
     );
   });
 
-  it("lists every fixture and flags none when all checks pass", () => {
-    expect(markdown).toContain("No result failed a deterministic check.");
+  it("scores final outcomes and shows every call compactly", () => {
+    expect(markdown).toMatch(/\| dev \| 1\.0\.0\+256c9520 \|.*\| 0 \| 19 \(0\) \|$/m);
+    expect(markdown).toContain("| group | final outcomes | every call |");
+  });
+
+  it("lists every fixture and flags only the results that failed a check", () => {
+    // The live baseline has questions that name the error, not the criterion.
+    expect(markdown).toMatch(
+      /\| retry-fetch-401-en-guided \| dev \| openrouter\/anthropic\/claude-sonnet-5 \| retry_loop \| en-US \| guided \| card \| shown \| criterion link \|/,
+    );
+    const flagged = markdown.slice(
+      markdown.indexOf("## Flagged results"),
+      markdown.indexOf("<details>"),
+    );
+    expect(flagged).not.toContain("| hand-authored |");
+    expect(flagged.match(/\| criterion link \|/g)).toHaveLength(4);
     expect(markdown).toContain(
       "| diff-parse-error-ko-guided | dev | diff_ready | ko-KR | guided |",
     );
@@ -76,7 +90,7 @@ describe("renderReport", () => {
   it("flags failed checks and adds the advisory judge section on request", () => {
     const candidate = renderReport(readReport(HEAD), { judge: readJudge(JUDGE) });
     expect(candidate).toMatch(
-      /\| scope-new-area-en-guided \| dev \| scope_expansion \| en-US \| guided \| card \| shown \| locale \|/,
+      /\| scope-new-area-en-guided \| dev \| hand-authored \| scope_expansion \| en-US \| guided \| card \| shown \| locale \|/,
     );
     expect(candidate).toMatch(
       /\| verify-not-question-ko-work \| .* \| control: not_question \| shown \| drop reason \|/,
@@ -99,6 +113,9 @@ describe("renderComparison", () => {
     expect(markdown).toContain("| drop-reason match (controls) | 100.0% | 75.0% | −25.0 pp |");
     expect(markdown).toContain("| locale compliance | 100.0% | 93.8% | −6.3 pp |");
     expect(markdown).toContain("| missed provokes | 0 | 1 | +1 |");
+    // Secondary attempts block: the candidate needed one retry.
+    expect(markdown).toContain("| model calls | 19 | 20 | +1 |");
+    expect(markdown).toContain("| retries | 0 | 1 | +1 |");
     expect(markdown).toContain("| not_question | 1 | 0 | −1 |");
   });
 
@@ -110,6 +127,15 @@ describe("renderComparison", () => {
       "| verify-not-question-ko-work | dev | dropped (not_question) | shown [drop reason] |",
     );
     expect(markdown).not.toContain("| diff-auth-file-ko-work |");
+  });
+
+  it("compares trials of the same model only and lists the other model as unmatched", () => {
+    // Base has hand-authored + live groups; the candidate only hand-authored.
+    expect(markdown).toContain("## dev · hand-authored");
+    expect(markdown).toContain(
+      "| base | dev · 1.0.0+256c9520 · policy 1.0.0 · openrouter/anthropic/claude-sonnet-5 |",
+    );
+    expect(markdown).not.toContain("| retry-fetch-401-en-guided |");
   });
 
   it("reports nothing changed for identical reports", () => {

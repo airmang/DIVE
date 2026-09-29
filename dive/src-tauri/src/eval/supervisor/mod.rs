@@ -29,9 +29,12 @@ use crate::dive::supervisor::{
     SupervisorContext, SupervisorDedupState, SupervisorDropReason, SupervisorEvent, SupervisorMode,
     SupervisorValidationOutcome,
 };
+use crate::ipc::{
+    response_from_validation, should_retry_supervisor, supervisor_evaluation_attempts,
+};
 use report::{
-    DecisionSummary, EvalMode, EvalReport, EvalResult, ExpectedSummary, GroupKey, REPORT_KIND,
-    REPORT_SCHEMA_VERSION,
+    CallOutcome, DecisionSummary, EvalMode, EvalReport, EvalResult, ExpectedSummary, GroupKey,
+    REPORT_KIND, REPORT_SCHEMA_VERSION,
 };
 
 pub const FIXTURE_SCHEMA_VERSION: u8 = 1;
@@ -78,6 +81,11 @@ pub struct Recording {
     pub model: String,
     pub recorded_at: String,
     pub source: RecordingSource,
+    /// Live recordings: the production attempt this output answered (0 =
+    /// first try). A recording with `attempt: 0` starts a new trial; others
+    /// continue the current one (see [`trials`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -273,7 +281,7 @@ fn decision_summary(raw: &str) -> Option<DecisionSummary> {
 pub(crate) struct ResultInput<'a> {
     pub loaded: &'a LoadedFixture,
     pub recording_index: usize,
-    pub attempt: Option<usize>,
+    pub calls: Vec<CallOutcome>,
     pub source: &'a str,
     pub model: &'a str,
     pub prompt_sent: bool,
@@ -298,7 +306,6 @@ pub(crate) fn eval_result(input: ResultInput<'_>) -> EvalResult {
         locale: fixture.locale.clone(),
         mode: fixture.mode,
         recording_index: input.recording_index,
-        attempt: input.attempt,
         source: input.source.to_string(),
         model: input.model.to_string(),
         expected: ExpectedSummary {
@@ -311,6 +318,7 @@ pub(crate) fn eval_result(input: ResultInput<'_>) -> EvalResult {
         drop_reason: input.drop_reason,
         decision,
         checks,
+        calls: input.calls,
     }
 }
 
@@ -318,14 +326,13 @@ pub(crate) fn eval_result(input: ResultInput<'_>) -> EvalResult {
 pub(crate) fn gate_closed_result(
     loaded: &LoadedFixture,
     recording_index: usize,
-    attempt: Option<usize>,
     source: &str,
     model: &str,
 ) -> EvalResult {
     eval_result(ResultInput {
         loaded,
         recording_index,
-        attempt,
+        calls: Vec::new(),
         source,
         model,
         prompt_sent: false,
@@ -379,11 +386,14 @@ pub struct RecordedRun {
     pub missing_recordings: Vec<String>,
 }
 
-/// Recorded mode: runs each stored raw output for `prompt_version` through
-/// the production validation path. Gate-closed fixtures do not consult their
-/// recordings (no prompt is sent in production); they take the recording's
-/// model/source for grouping, or `(no recording)` when there is none.
+/// Recorded mode: replays each trial of stored raw outputs for
+/// `prompt_version` through the production validation path and retry loop
+/// (one result per trial, scored on its final call). Gate-closed fixtures do
+/// not consult their recordings (no prompt is sent in production); they take
+/// the recording's model/source for grouping, or `(no recording)` when there
+/// is none.
 pub fn run_recorded(fixtures: &[LoadedFixture], prompt_version: &str) -> RecordedRun {
+    let max_attempts = supervisor_evaluation_attempts();
     let mut problems = fixtures
         .iter()
         .flat_map(fixture_problems)
@@ -410,47 +420,34 @@ pub fn run_recorded(fixtures: &[LoadedFixture], prompt_version: &str) -> Recorde
             .unwrap_or_default();
         if !supervisor_provoke_gate(context) {
             if recordings.is_empty() {
-                results.push(gate_closed_result(
-                    loaded,
-                    0,
-                    None,
-                    "none",
-                    "(no recording)",
-                ));
+                results.push(gate_closed_result(loaded, 0, "none", "(no recording)"));
             }
-            for (index, recording) in recordings.iter().enumerate() {
-                let source = recording_source_str(recording.source);
-                results.push(gate_closed_result(
-                    loaded,
-                    index,
-                    None,
-                    source,
-                    &recording.model,
-                ));
+            for (first, trial) in trials(recordings) {
+                let source = recording_source_str(trial[0].source);
+                results.push(gate_closed_result(loaded, first, source, &trial[0].model));
             }
             continue;
         }
-        let prompt_ok = build_supervisor_prompt(context);
-        for (index, recording) in recordings.iter().enumerate() {
-            // Fresh dedup per recording: each stands for an independent turn.
-            let mut dedup = SupervisorDedupState::new();
-            let validation = match &prompt_ok {
-                Ok(_) => {
-                    validate_supervisor_decision_json(context, &recording.raw_output, &mut dedup)
+        let prompt = build_supervisor_prompt(context);
+        for (first, trial) in trials(recordings) {
+            results.push(match &prompt {
+                Ok(_) => replay_trial(loaded, first, &trial, max_attempts),
+                // Production drops before any call when the prompt cannot be built.
+                Err(reason) => {
+                    let validation = dropped_validation_result(*reason);
+                    eval_result(ResultInput {
+                        loaded,
+                        recording_index: first,
+                        calls: Vec::new(),
+                        source: recording_source_str(trial[0].source),
+                        model: &trial[0].model,
+                        prompt_sent: false,
+                        outcome: validation.validation_outcome,
+                        drop_reason: validation.drop_reason,
+                        raw_output: None,
+                    })
                 }
-                Err(reason) => dropped_validation_result(*reason),
-            };
-            results.push(eval_result(ResultInput {
-                loaded,
-                recording_index: index,
-                attempt: None,
-                source: recording_source_str(recording.source),
-                model: &recording.model,
-                prompt_sent: prompt_ok.is_ok(),
-                outcome: validation.validation_outcome,
-                drop_reason: validation.drop_reason,
-                raw_output: prompt_ok.is_ok().then_some(recording.raw_output.as_str()),
-            }));
+            });
         }
     }
     RecordedRun {
@@ -464,6 +461,84 @@ pub fn run_recorded(fixtures: &[LoadedFixture], prompt_version: &str) -> Recorde
         problems,
         missing_recordings,
     }
+}
+
+/// Splits a promptVersion's recordings into trials: `(index of the trial's
+/// first recording in the file, its recordings in attempt order)`. An attempt
+/// sequence never mixes models: each model's recordings (in order of first
+/// appearance) are that model's sequence in `recordedAt` order (ties keep file
+/// order), and a live recording with `attempt: 0` starts a new trial within it.
+pub fn trials(recordings: &[Recording]) -> Vec<(usize, Vec<&Recording>)> {
+    let mut models = Vec::<&str>::new();
+    for recording in recordings {
+        if !models.contains(&recording.model.as_str()) {
+            models.push(&recording.model);
+        }
+    }
+    let mut out = Vec::new();
+    for model in models {
+        let mut sequence = recordings
+            .iter()
+            .enumerate()
+            .filter(|(_, recording)| recording.model == model)
+            .collect::<Vec<_>>();
+        sequence.sort_by(|a, b| a.1.recorded_at.cmp(&b.1.recorded_at));
+        for (position, (index, recording)) in sequence.into_iter().enumerate() {
+            if position == 0 || recording.attempt == Some(0) {
+                out.push((index, Vec::new()));
+            }
+            out.last_mut()
+                .expect("a trial was started")
+                .1
+                .push(recording);
+        }
+    }
+    out
+}
+
+/// Replays one trial through the production retry loop: each recording is the
+/// next attempt's raw output, the loop stops where production would (a shown
+/// card or a non-recoverable outcome) or after `max_attempts`, and the result
+/// is that last call. Later recordings of the trial are not consulted.
+fn replay_trial(
+    loaded: &LoadedFixture,
+    first: usize,
+    trial: &[&Recording],
+    max_attempts: usize,
+) -> EvalResult {
+    let context = &loaded.fixture.context;
+    let mut dedup = SupervisorDedupState::new();
+    let mut calls = Vec::new();
+    let mut last = None;
+    for recording in trial.iter().take(max_attempts) {
+        let validation =
+            validate_supervisor_decision_json(context, &recording.raw_output, &mut dedup);
+        calls.push(CallOutcome {
+            outcome: validation.validation_outcome,
+            drop_reason: validation.drop_reason,
+        });
+        let retry = should_retry_supervisor(&response_from_validation(
+            String::new(),
+            validation.clone(),
+            None,
+        ));
+        last = Some((recording, validation));
+        if !retry {
+            break;
+        }
+    }
+    let (recording, validation) = last.expect("a trial has at least one recording");
+    eval_result(ResultInput {
+        loaded,
+        recording_index: first,
+        calls,
+        source: recording_source_str(recording.source),
+        model: &recording.model,
+        prompt_sent: true,
+        outcome: validation.validation_outcome,
+        drop_reason: validation.drop_reason,
+        raw_output: Some(recording.raw_output.as_str()),
+    })
 }
 
 pub(crate) fn recording_source_str(source: RecordingSource) -> &'static str {
@@ -531,6 +606,162 @@ mod tests {
         }
         let unique = ALL_EVENTS.iter().collect::<std::collections::HashSet<_>>();
         assert_eq!(unique.len(), ALL_EVENTS.len());
+    }
+
+    fn fixture(id: &str) -> LoadedFixture {
+        load_fixtures(&default_fixture_root())
+            .expect("fixtures load")
+            .into_iter()
+            .find(|loaded| loaded.fixture.id == id)
+            .expect("fixture exists")
+    }
+
+    fn recording(raw: &str, attempt: Option<usize>) -> Recording {
+        Recording {
+            raw_output: raw.to_string(),
+            model: "hand-authored".into(),
+            recorded_at: "2026-09-29".into(),
+            source: RecordingSource::HandAuthored,
+            attempt,
+        }
+    }
+
+    fn live_recording(raw: &str, model: &str, recorded_at: &str) -> Recording {
+        Recording {
+            raw_output: raw.to_string(),
+            model: model.into(),
+            recorded_at: recorded_at.into(),
+            source: RecordingSource::Live,
+            attempt: None,
+        }
+    }
+
+    fn replay(loaded: &LoadedFixture, trial: &[Recording], max_attempts: usize) -> EvalResult {
+        replay_trial(loaded, 0, &trial.iter().collect::<Vec<_>>(), max_attempts)
+    }
+
+    fn only_recording(loaded: &LoadedFixture) -> String {
+        loaded.fixture.recorded[&current_prompt_version()][0]
+            .raw_output
+            .clone()
+    }
+
+    #[test]
+    fn trials_split_at_live_attempt_zero_only() {
+        let one = [recording("a", None), recording("b", None)];
+        assert_eq!(trials(&one).len(), 1);
+        let two_runs = [
+            recording("a", Some(0)),
+            recording("b", Some(1)),
+            recording("c", Some(0)),
+        ];
+        let split = trials(&two_runs);
+        assert_eq!(
+            split
+                .iter()
+                .map(|(first, t)| (*first, t.len()))
+                .collect::<Vec<_>>(),
+            vec![(0, 2), (2, 1)]
+        );
+    }
+
+    #[test]
+    fn mixed_hand_authored_and_live_recordings_are_separate_trials_per_model() {
+        let loaded = fixture("verify-claim-done-ko-work");
+        let valid = only_recording(&loaded);
+        let not_question = only_recording(&fixture("verify-not-question-ko-work"));
+        let live = "openrouter/anthropic/claude-sonnet-5";
+        // File order is not attempt order: the live model's first attempt
+        // (a recoverable drop) is recorded earlier than its retry.
+        let recordings = [
+            recording(&valid, None),
+            live_recording(&valid, live, "2026-09-29T04:11:00Z"),
+            live_recording(&not_question, live, "2026-09-29T04:10:00Z"),
+        ];
+        let split = trials(&recordings);
+        assert_eq!(
+            split
+                .iter()
+                .map(|(first, trial)| (*first, trial[0].model.as_str(), trial.len()))
+                .collect::<Vec<_>>(),
+            vec![(0, "hand-authored", 1), (2, live, 2)]
+        );
+
+        let mut with_recordings = loaded.clone();
+        with_recordings
+            .fixture
+            .recorded
+            .insert(current_prompt_version(), recordings.to_vec());
+        let run = run_recorded(&[with_recordings], &current_prompt_version());
+        let groups = run
+            .report
+            .groups
+            .iter()
+            .map(|group| {
+                let result = &group.results[0];
+                (group.key.model.as_str(), result.outcome, result.calls.len())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            groups,
+            vec![
+                ("hand-authored", SupervisorValidationOutcome::Shown, 1),
+                (live, SupervisorValidationOutcome::Shown, 2),
+            ]
+        );
+        let live_group = &run.report.groups[1];
+        assert_eq!(live_group.result_count, 1);
+        assert_eq!(live_group.provoke_agreement.agree, 1);
+        assert_eq!(live_group.attempts.retries, 1);
+    }
+
+    #[test]
+    fn a_trial_is_scored_on_the_final_call_of_the_retry_loop() {
+        let loaded = fixture("verify-claim-done-ko-work");
+        let valid = only_recording(&loaded);
+        let not_question = only_recording(&fixture("verify-not-question-ko-work"));
+
+        // Recoverable drop, then a shown card: final = shown, one retry.
+        let trial = [recording(&not_question, None), recording(&valid, None)];
+        let result = replay(&loaded, &trial, 3);
+        assert_eq!(result.outcome, SupervisorValidationOutcome::Shown);
+        assert_eq!(result.checks.provoke_agreement, Some(true));
+        assert_eq!(result.calls.len(), 2);
+        assert_eq!(
+            result.calls[0].drop_reason,
+            Some(SupervisorDropReason::NotQuestion)
+        );
+
+        // Production stops at the first shown card: later recordings unused.
+        let trial = [recording(&valid, None), recording(&not_question, None)];
+        assert_eq!(replay(&loaded, &trial, 3).calls.len(), 1);
+
+        // Retries run out at max_attempts: final = the last dropped call.
+        let trial = [
+            recording(&not_question, None),
+            recording(&not_question, None),
+            recording(&valid, None),
+        ];
+        let result = replay(&loaded, &trial, 2);
+        assert_eq!(result.calls.len(), 2);
+        assert_eq!(result.drop_reason, Some(SupervisorDropReason::NotQuestion));
+        assert_eq!(result.checks.provoke_agreement, Some(false));
+
+        let group = metrics::aggregate(
+            GroupKey {
+                split: Split::Dev,
+                prompt_version: "v".into(),
+                policy_version: "p".into(),
+                model: "m".into(),
+            },
+            vec![result, replay(&loaded, &[recording(&valid, None)], 3)],
+        );
+        assert_eq!(group.result_count, 2);
+        assert_eq!(group.outcomes.shown, 1);
+        assert_eq!(group.attempts.calls, 3);
+        assert_eq!(group.attempts.retries, 1);
+        assert_eq!(group.attempts.outcomes.dropped, 2);
+        assert_eq!(group.attempts.drop_reasons["not_question"], 2);
     }
 
     #[test]

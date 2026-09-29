@@ -9,7 +9,7 @@
 
 use std::fs;
 
-use super::report::{EvalMode, EvalReport};
+use super::report::{CallOutcome, EvalMode, EvalReport};
 use super::{
     build_report, eval_result, fixture_problems, gate_closed_result, LoadedFixture, Recording,
     RecordingSource, ResultInput,
@@ -104,10 +104,14 @@ pub async fn run_live(
         }
         let context = &loaded.fixture.context;
         if !supervisor_provoke_gate(context) {
-            results.push(gate_closed_result(loaded, 0, Some(0), "live", &model));
+            results.push(gate_closed_result(loaded, 0, "live", &model));
             continue;
         }
         let mut dedup = SupervisorDedupState::new();
+        // The trial's calls; the result is scored on the last one, which is
+        // the outcome the production retry loop would show.
+        let mut trial_calls = Vec::new();
+        let mut last = None;
         for attempt in 0..attempts {
             if calls >= cap {
                 return Err(format!("model call cap {cap} reached; aborting"));
@@ -133,6 +137,7 @@ pub async fn run_live(
                             model: supervisor_model.unwrap_or_else(|| model.clone()),
                             recorded_at: recorded_at.clone(),
                             source: RecordingSource::Live,
+                            attempt: Some(attempt),
                         },
                     ));
                     (
@@ -186,25 +191,35 @@ pub async fn run_live(
                 outcome.as_str(),
                 drop_reason.map(|reason| reason.as_str()).unwrap_or("-")
             );
-            results.push(eval_result(ResultInput {
-                loaded,
-                recording_index: attempt,
-                attempt: Some(attempt),
-                source: "live",
-                model: &model,
-                prompt_sent: raw.is_some()
-                    || matches!(
-                        drop_reason,
-                        Some(SupervisorDropReason::Timeout | SupervisorDropReason::SidecarError)
-                    ),
-                outcome,
-                drop_reason,
-                raw_output: raw.as_deref(),
-            }));
+            let prompt_sent = raw.is_some()
+                || matches!(
+                    drop_reason,
+                    Some(SupervisorDropReason::Timeout | SupervisorDropReason::SidecarError)
+                );
+            if prompt_sent {
+                trial_calls.push(CallOutcome {
+                    outcome,
+                    drop_reason,
+                });
+            }
+            last = Some((outcome, drop_reason, raw, prompt_sent));
             if !retry {
                 break;
             }
         }
+        let (outcome, drop_reason, raw, prompt_sent) =
+            last.expect("the attempt loop runs at least once");
+        results.push(eval_result(ResultInput {
+            loaded,
+            recording_index: 0,
+            calls: trial_calls,
+            source: "live",
+            model: &model,
+            prompt_sent,
+            outcome,
+            drop_reason,
+            raw_output: raw.as_deref(),
+        }));
     }
 
     let recordings_written = if options.write_recordings {

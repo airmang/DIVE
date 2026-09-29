@@ -3,7 +3,7 @@
   "kind": "supervisor-eval-report",
   "mode": "recorded",
   "generatedAt": "2026-09-30T10:00:00Z",
-  "note": "Example candidate report for docs and tests: outcomes of three fixtures were edited by hand to show the compare view. Not a real run.",
+  "note": "Example candidate report for docs and tests: outcomes of three fixtures (and one retry) were edited by hand to show the compare view. Not a real run.",
   "fixtureCount": 34,
   "groups": [
     {
@@ -88,7 +88,8 @@
             "evidencePrecision": null,
             "requiredEvidenceCited": null,
             "questionChars": null
-          }
+          },
+          "calls": []
         },
         {
           "fixtureId": "claim-done-ko-guided",
@@ -115,7 +116,8 @@
             "evidencePrecision": null,
             "requiredEvidenceCited": null,
             "questionChars": null
-          }
+          },
+          "calls": []
         },
         {
           "fixtureId": "claim-done-ko-work",
@@ -142,7 +144,8 @@
             "evidencePrecision": null,
             "requiredEvidenceCited": null,
             "questionChars": null
-          }
+          },
+          "calls": []
         },
         {
           "fixtureId": "diff-auth-file-ko-work",
@@ -174,7 +177,13 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 68
-          }
+          },
+          "calls": [
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "diff-env-file-en-work",
@@ -206,7 +215,13 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 120
-          }
+          },
+          "calls": [
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "diff-parse-error-ko-guided",
@@ -234,7 +249,13 @@
             "evidencePrecision": null,
             "requiredEvidenceCited": null,
             "questionChars": null
-          }
+          },
+          "calls": [
+            {
+              "outcome": "error",
+              "dropReason": "parse_error"
+            }
+          ]
         },
         {
           "fixtureId": "diff-refactor-ko-guided",
@@ -266,7 +287,13 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 63
-          }
+          },
+          "calls": [
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "plan-missing-verification-ko-work",
@@ -298,7 +325,13 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 63
-          }
+          },
+          "calls": [
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "plan-unlinked-criteria-ko-guided",
@@ -330,7 +363,13 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 69
-          }
+          },
+          "calls": [
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "plan-unresolved-question-en-guided",
@@ -362,7 +401,13 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 105
-          }
+          },
+          "calls": [
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "retry-fetch-401-en-guided",
@@ -394,7 +439,13 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 127
-          }
+          },
+          "calls": [
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "retry-module-missing-ko-guided",
@@ -426,7 +477,13 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 64
-          }
+          },
+          "calls": [
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "retry-test-timeout-en-work",
@@ -458,7 +515,13 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 120
-          }
+          },
+          "calls": [
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "retry-wrong-concern-en-guided",
@@ -491,7 +554,13 @@
             "evidencePrecision": null,
             "requiredEvidenceCited": null,
             "questionChars": null
-          }
+          },
+          "calls": [
+            {
+              "outcome": "dropped",
+              "dropReason": "disallowed_concern"
+            }
+          ]
         },
         {
           "fixtureId": "scope-new-area-en-guided",
@@ -527,7 +596,17 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 44
-          }
+          },
+          "calls": [
+            {
+              "outcome": "dropped",
+              "dropReason": "not_question"
+            },
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "scope-new-area-en-work",
@@ -559,7 +638,13 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 115
-          }
+          },
+          "calls": [
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "scope-new-area-ko-work",
@@ -595,7 +680,13 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 65
-          }
+          },
+          "calls": [
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "scope-unknown-evidence-en-work",
@@ -628,7 +719,13 @@
             "evidencePrecision": null,
             "requiredEvidenceCited": null,
             "questionChars": null
-          }
+          },
+          "calls": [
+            {
+              "outcome": "dropped",
+              "dropReason": "unknown_evidence_ref"
+            }
+          ]
         },
         {
           "fixtureId": "verify-claim-done-en-work",
@@ -660,7 +757,13 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 135
-          }
+          },
+          "calls": [
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "verify-claim-done-ko-guided",
@@ -692,7 +795,13 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 74
-          }
+          },
+          "calls": [
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "verify-claim-done-ko-work",
@@ -724,7 +833,13 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 71
-          }
+          },
+          "calls": [
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "verify-not-question-ko-work",
@@ -757,7 +872,13 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 32
-          }
+          },
+          "calls": [
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "verify-preview-confirmed-en-work",
@@ -784,9 +905,26 @@
             "evidencePrecision": null,
             "requiredEvidenceCited": null,
             "questionChars": null
-          }
+          },
+          "calls": []
         }
-      ]
+      ],
+      "attempts": {
+        "calls": 20,
+        "retries": 1,
+        "outcomes": {
+          "shown": 16,
+          "none": 0,
+          "dropped": 3,
+          "error": 1
+        },
+        "dropReasons": {
+          "parse_error": 1,
+          "disallowed_concern": 1,
+          "not_question": 1,
+          "unknown_evidence_ref": 1
+        }
+      }
     },
     {
       "key": {
@@ -867,7 +1005,8 @@
             "evidencePrecision": null,
             "requiredEvidenceCited": null,
             "questionChars": null
-          }
+          },
+          "calls": []
         },
         {
           "fixtureId": "diff-expected-only-en-work",
@@ -894,7 +1033,8 @@
             "evidencePrecision": null,
             "requiredEvidenceCited": null,
             "questionChars": null
-          }
+          },
+          "calls": []
         },
         {
           "fixtureId": "diff-extra-page-en-guided",
@@ -926,7 +1066,13 @@
             "evidencePrecision": null,
             "requiredEvidenceCited": null,
             "questionChars": null
-          }
+          },
+          "calls": [
+            {
+              "outcome": "none",
+              "dropReason": "provoke_false"
+            }
+          ]
         },
         {
           "fixtureId": "plan-broad-step-en-work",
@@ -958,7 +1104,13 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 135
-          }
+          },
+          "calls": [
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "plan-verified-ko-work",
@@ -985,7 +1137,8 @@
             "evidencePrecision": null,
             "requiredEvidenceCited": null,
             "questionChars": null
-          }
+          },
+          "calls": []
         },
         {
           "fixtureId": "retry-first-failure-ko-guided",
@@ -1012,7 +1165,8 @@
             "evidencePrecision": null,
             "requiredEvidenceCited": null,
             "questionChars": null
-          }
+          },
+          "calls": []
         },
         {
           "fixtureId": "retry-map-undefined-ko-work",
@@ -1044,7 +1198,13 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 71
-          }
+          },
+          "calls": [
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "scope-linked-step-en-guided",
@@ -1071,7 +1231,8 @@
             "evidencePrecision": null,
             "requiredEvidenceCited": null,
             "questionChars": null
-          }
+          },
+          "calls": []
         },
         {
           "fixtureId": "scope-new-area-ko-guided",
@@ -1103,7 +1264,13 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 68
-          }
+          },
+          "calls": [
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "verify-claim-done-en-guided",
@@ -1135,7 +1302,13 @@
             "evidencePrecision": 1,
             "requiredEvidenceCited": true,
             "questionChars": 113
-          }
+          },
+          "calls": [
+            {
+              "outcome": "shown",
+              "dropReason": null
+            }
+          ]
         },
         {
           "fixtureId": "verify-tests-passed-ko-guided",
@@ -1162,9 +1335,23 @@
             "evidencePrecision": null,
             "requiredEvidenceCited": null,
             "questionChars": null
-          }
+          },
+          "calls": []
         }
-      ]
+      ],
+      "attempts": {
+        "calls": 5,
+        "retries": 0,
+        "outcomes": {
+          "shown": 4,
+          "none": 1,
+          "dropped": 0,
+          "error": 0
+        },
+        "dropReasons": {
+          "provoke_false": 1
+        }
+      }
     }
   ]
 }

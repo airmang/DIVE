@@ -129,6 +129,10 @@ function distribution(map) {
   return entries.length ? entries.map(([name, count]) => `${name}: ${count}`).join(", ") : null;
 }
 
+function attemptsLabel(attempts) {
+  return attempts ? `${attempts.calls} (${attempts.retries})` : null;
+}
+
 function shownRate(group) {
   return group.resultCount ? (group.outcomes?.shown ?? 0) / group.resultCount : null;
 }
@@ -181,6 +185,7 @@ function summaryRows(groups) {
       fraction(precision.requiredCited, precision.requiredChecked),
       length.count ? `${number(length.median)} / ${length.max}` : null,
       length.overLimit,
+      attemptsLabel(group.attempts),
     ];
   });
 }
@@ -200,6 +205,7 @@ const SUMMARY_HEADER = [
   "required evidence cited",
   "question chars (median / max)",
   "over 140",
+  "model calls (retries)",
 ];
 
 function judgeSection(judge) {
@@ -260,6 +266,8 @@ export function renderReport(report, { judge } = {}) {
   const lines = [
     ...header(`Supervisor eval — ${report.mode}`, report.note),
     `- Generated: ${report.generatedAt ?? "—"}; fixtures: ${report.fixtureCount ?? "—"}; results: ${results.length}.`,
+    "- Each result is a fixture's final outcome after the production retry loop; " +
+      '"model calls (retries)" and the "every call" drop reasons count every attempt.',
     "- Provoke agreement excludes negative-control recordings (scored as drop-reason match); " +
       "locale, criterion, evidence and length metrics cover shown questions only.",
     "",
@@ -270,8 +278,12 @@ export function renderReport(report, { judge } = {}) {
     "## Drop reasons",
     "",
     ...table(
-      ["group", "drop reasons"],
-      report.groups.map((group) => [groupLabel(group.key), distribution(group.dropReasons)]),
+      ["group", "final outcomes", "every call"],
+      report.groups.map((group) => [
+        groupLabel(group.key),
+        distribution(group.dropReasons),
+        distribution(group.attempts?.dropReasons),
+      ]),
     ),
     "",
     "## Flagged results",
@@ -286,6 +298,7 @@ export function renderReport(report, { judge } = {}) {
         [
           "fixture",
           "split",
+          "model",
           "event",
           "locale",
           "mode",
@@ -297,6 +310,7 @@ export function renderReport(report, { judge } = {}) {
         flagged.map((result) => [
           result.fixtureId,
           result.split,
+          result.model,
           result.event,
           result.locale,
           result.mode,
@@ -398,6 +412,8 @@ const DELTA_METRICS = [
   ],
   ["median question chars", (group) => group.questionLength?.median ?? null, "count"],
   ["questions over 140 chars", (group) => group.questionLength?.overLimit ?? null, "count"],
+  ["model calls", (group) => group.attempts?.calls ?? null, "count"],
+  ["retries", (group) => group.attempts?.retries ?? null, "count"],
 ];
 
 function formatMetric(value, kind) {
@@ -430,10 +446,11 @@ function resultSummary(results) {
     .join("; ");
 }
 
-function byFixture(report) {
+/** Results of one group by trial (`fixtureId#recordingIndex`). */
+function byTrial(group) {
   const map = new Map();
-  for (const result of report.groups.flatMap((group) => group.results)) {
-    const key = `${result.split}\u0000${result.fixtureId}`;
+  for (const result of group.results) {
+    const key = `${result.fixtureId}#${result.recordingIndex ?? 0}`;
     if (!map.has(key)) map.set(key, []);
     map.get(key).push(result);
   }
@@ -510,12 +527,18 @@ export function renderComparison(base, head, { judge } = {}) {
       ),
     );
   }
-  const before = byFixture(base);
-  const after = byFixture(head);
-  const changed = [...new Set([...before.keys(), ...after.keys()])]
-    .map((key) => {
-      const [split, fixtureId] = key.split("\u0000");
-      return [fixtureId, split, resultSummary(before.get(key)), resultSummary(after.get(key))];
+  // Compared within matched groups only, so one model's trials are never
+  // set against another model's.
+  const changed = pairs
+    .flatMap(([left, right]) => {
+      const before = byTrial(left);
+      const after = byTrial(right);
+      return [...new Set([...before.keys(), ...after.keys()])].map((key) => [
+        key.split("#")[0],
+        left.key.split,
+        resultSummary(before.get(key)),
+        resultSummary(after.get(key)),
+      ]);
     })
     .filter(([, , left, right]) => left !== right)
     .sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0]));

@@ -65,7 +65,20 @@ pub struct ReportGroup {
     pub criterion_linkage: CriterionLinkage,
     pub evidence_precision: EvidencePrecision,
     pub question_length: QuestionLength,
+    /// Secondary: every model call, retries included.
+    pub attempts: AttemptStats,
     pub results: Vec<EvalResult>,
+}
+
+/// Per-call view of a group: the production retry loop can make several calls
+/// per fixture; the primary metrics above only count each trial's final one.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttemptStats {
+    pub calls: usize,
+    pub retries: usize,
+    pub outcomes: OutcomeCounts,
+    pub drop_reasons: BTreeMap<String, usize>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -131,7 +144,8 @@ pub struct QuestionLength {
     pub over_limit: usize,
 }
 
-/// One (fixture, recording) in recorded mode; one model call in live mode.
+/// One trial of a fixture: the final outcome of the production retry loop
+/// (the call that ended it), with every call of the trial in `calls`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EvalResult {
@@ -140,10 +154,9 @@ pub struct EvalResult {
     pub event: SupervisorEvent,
     pub locale: String,
     pub mode: SupervisorMode,
+    /// Identifies the trial: index of its first recording under the
+    /// promptVersion (recorded mode); 0 in live mode.
     pub recording_index: usize,
-    /// Live mode: production attempt number (0 = first try, >0 = retry).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub attempt: Option<usize>,
     pub source: String,
     pub model: String,
     pub expected: ExpectedSummary,
@@ -153,6 +166,16 @@ pub struct EvalResult {
     pub drop_reason: Option<SupervisorDropReason>,
     pub decision: Option<DecisionSummary>,
     pub checks: Checks,
+    /// Every model call of the trial in order; empty when no call was made
+    /// (gate closed, or the prompt could not be built).
+    pub calls: Vec<CallOutcome>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CallOutcome {
+    pub outcome: SupervisorValidationOutcome,
+    pub drop_reason: Option<SupervisorDropReason>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
