@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "id": "plan-missing-verification-ko-work",
+  "event": "plan_drafted",
+  "locale": "ko-KR",
+  "mode": "work",
+  "description": "Two plan steps have no verification plan for the reminder criterion.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "plan_drafted",
+    "artifactRef": {
+      "kind": "plan_draft",
+      "id": "plan-31:draft",
+      "label": "Plan draft"
+    },
+    "contextHash": "sha256:facd6c56b93955b00b1d0b8ae38dc71e3e7b2d27abcaf3b59ae518b8cd60d3bb",
+    "mode": "work",
+    "locale": "ko-KR",
+    "allowedActionIds": [
+      "add_verification_step",
+      "link_criterion",
+      "split_scope",
+      "edit_prd",
+      "dismiss_review"
+    ],
+    "goalSummary": "반 친구 생일을 등록하면 생일 3일 전에 알림을 보여 주는 앱",
+    "planSummary": {
+      "stepCount": 2,
+      "activeStep": null
+    },
+    "verificationState": {
+      "aiSelfReport": false,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": false,
+      "hasTests": false,
+      "diffAvailable": false
+    },
+    "evidenceRefs": [
+      {
+        "id": "plan.goal",
+        "source": "goal",
+        "kind": "scope_expansion_assessment",
+        "label": "Plan goal",
+        "valueSummary": "반 친구 생일을 등록하면 생일 3일 전에 알림을 보여 주는 앱",
+        "verificationEvidence": false
+      },
+      {
+        "id": "plan.criteria",
+        "source": "plan",
+        "kind": "acceptance_criteria",
+        "label": "Acceptance criteria",
+        "valueSummary": {
+          "count": 1,
+          "items": ["생일 3일 전에 알림이 표시된다"]
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "plan.step_count",
+        "source": "plan",
+        "kind": "plan_step",
+        "label": "Plan steps",
+        "valueSummary": {
+          "count": 2
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "plan.step.s_001.verification",
+        "source": "plan",
+        "kind": "verification_coverage",
+        "label": "Missing verification for s_001",
+        "valueSummary": {
+          "stepId": "s_001",
+          "text": "생일 목록 화면 만들기",
+          "verificationCommand": null,
+          "verificationManualCheck": null
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "plan.step.s_002.verification",
+        "source": "plan",
+        "kind": "verification_coverage",
+        "label": "Missing verification for s_002",
+        "valueSummary": {
+          "stepId": "s_002",
+          "text": "생일 알림 기능 구현",
+          "verificationCommand": null,
+          "verificationManualCheck": null
+        },
+        "verificationEvidence": false
+      }
+    ],
+    "planDraftAssessment": {
+      "eligible": true,
+      "reasonCodes": ["missing_verification"],
+      "evidenceRefs": [
+        "plan.goal",
+        "plan.criteria",
+        "plan.step_count",
+        "plan.step.s_001.verification",
+        "plan.step.s_002.verification"
+      ],
+      "stepCount": 2,
+      "criteriaCount": 1,
+      "unverifiedStepIds": ["s_001", "s_002"],
+      "unlinkedStepIds": []
+    }
+  },
+  "expect": {
+    "shouldProvoke": true,
+    "gatePasses": true,
+    "allowedConcerns": ["plan_draft_weakness"],
+    "requiredEvidenceRefIds": ["plan.step.s_002.verification", "plan.step.s_001.verification"],
+    "relevantEvidenceRefIds": [
+      "plan.criteria",
+      "plan.step.s_001.verification",
+      "plan.step.s_002.verification",
+      "plan.goal"
+    ],
+    "criterionTerms": ["생일 3일 전", "알림"],
+    "locale": "ko-KR"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"plan_draft_weakness\",\"severity\":\"caution\",\"question\":\"'생일 3일 전에 알림이 표시된다'를 어느 단계에서 어떻게 확인할지 계획에 빠져 있어요. 검증 단계를 추가할까요?\",\"evidenceRefIds\":[\"plan.criteria\",\"plan.step.s_002.verification\"],\"suggestedActionIds\":[\"add_verification_step\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

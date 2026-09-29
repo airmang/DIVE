@@ -81,6 +81,16 @@ per prompt version. Field names:
   anonymization review. Look them up on the machine that holds the replay corpus.
 - Rates are card-quality proxies, not evidence of student supervision skill.
 
+## Supervisor eval (spec 015, S-079)
+
+Golden set, fixture format and report schema: `../eval/supervisor/README.md`.
+The runner that writes reports is the Rust `eval::supervisor` module.
+
+| Script              | Run via                                                                  | Purpose                                                                                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `eval-fixtures.mjs` | `pnpm eval:fixtures` (`-- --rehash`)                                     | Format + coverage check of `eval/supervisor/fixtures/`; `--rehash` rewrites `contextHash` after an edit. Also enforced in CI by `eval-fixtures.test.mjs` under `pnpm test:unit`. |
+| `eval-report.mjs`   | `pnpm eval:report <report.json>`, `-- --compare <base.json> <head.json>` | Markdown summary of a runner report, or a before/after diff; `--judge <file>` adds an advisory "AI judgment" section (never a merge gate, D-015-05).                             |
+
 ## QA ledger (`qa-ledger/`, spec 015)
 
 Tooling for the machine-readable QA ledger in `docs/qa/ledger/` (defects,

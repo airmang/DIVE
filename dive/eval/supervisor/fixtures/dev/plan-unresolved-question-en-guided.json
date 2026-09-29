@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 1,
+  "id": "plan-unresolved-question-en-guided",
+  "event": "plan_drafted",
+  "locale": "en-US",
+  "mode": "guided",
+  "description": "An open question about guest voting is unresolved and the vote step has no verification.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "plan_drafted",
+    "artifactRef": {
+      "kind": "plan_draft",
+      "id": "plan-34:draft",
+      "label": "Plan draft"
+    },
+    "contextHash": "sha256:746ee0fb32627b8aaba63723887d944d22c21ce72ded0220e6aec630dce828ea",
+    "mode": "guided",
+    "locale": "en-US",
+    "allowedActionIds": [
+      "add_verification_step",
+      "link_criterion",
+      "split_scope",
+      "edit_prd",
+      "dismiss_review"
+    ],
+    "goalSummary": "A class poll app where students vote on the next field trip",
+    "planSummary": {
+      "stepCount": 2,
+      "activeStep": null
+    },
+    "verificationState": {
+      "aiSelfReport": false,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": false,
+      "hasTests": false,
+      "diffAvailable": false
+    },
+    "evidenceRefs": [
+      {
+        "id": "plan.goal",
+        "source": "goal",
+        "kind": "scope_expansion_assessment",
+        "label": "Plan goal",
+        "valueSummary": "A class poll app where students vote on the next field trip",
+        "verificationEvidence": false
+      },
+      {
+        "id": "plan.criteria",
+        "source": "plan",
+        "kind": "acceptance_criteria",
+        "label": "Acceptance criteria",
+        "valueSummary": {
+          "count": 1,
+          "items": ["Each student can vote once per poll"]
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "plan.step_count",
+        "source": "plan",
+        "kind": "plan_step",
+        "label": "Plan steps",
+        "valueSummary": {
+          "count": 2
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "plan.step.s_002.verification",
+        "source": "plan",
+        "kind": "verification_coverage",
+        "label": "Missing verification for s_002",
+        "valueSummary": {
+          "stepId": "s_002",
+          "text": "Record votes",
+          "verificationCommand": null,
+          "verificationManualCheck": null
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "plan.unresolved.0",
+        "source": "history",
+        "kind": "scope_expansion_assessment",
+        "label": "Unresolved question 1",
+        "valueSummary": "Should guests without an account be able to vote?",
+        "verificationEvidence": false
+      }
+    ],
+    "planDraftAssessment": {
+      "eligible": true,
+      "reasonCodes": ["missing_verification", "unresolved_question"],
+      "evidenceRefs": [
+        "plan.goal",
+        "plan.criteria",
+        "plan.step_count",
+        "plan.step.s_002.verification",
+        "plan.unresolved.0"
+      ],
+      "stepCount": 2,
+      "criteriaCount": 1,
+      "unverifiedStepIds": ["s_002"],
+      "unlinkedStepIds": []
+    }
+  },
+  "expect": {
+    "shouldProvoke": true,
+    "gatePasses": true,
+    "allowedConcerns": ["plan_draft_weakness"],
+    "requiredEvidenceRefIds": ["plan.unresolved.0", "plan.step.s_002.verification"],
+    "relevantEvidenceRefIds": [
+      "plan.unresolved.0",
+      "plan.step.s_002.verification",
+      "plan.criteria"
+    ],
+    "criterionTerms": ["vote once", "vote"],
+    "locale": "en-US"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"plan_draft_weakness\",\"severity\":\"caution\",\"question\":\"The plan hasn't decided whether guests can vote. How will you check that each student can vote only once?\",\"evidenceRefIds\":[\"plan.unresolved.0\",\"plan.step.s_002.verification\"],\"suggestedActionIds\":[\"add_verification_step\",\"edit_prd\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

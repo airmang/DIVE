@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "id": "scope-linked-step-en-guided",
+  "event": "scope_expansion",
+  "locale": "en-US",
+  "mode": "guided",
+  "description": "Negative: the new step is linked to an existing criterion (not expanded), so no card.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "scope_expansion",
+    "artifactRef": {
+      "kind": "add_step_draft",
+      "id": "draft-23",
+      "label": "Show monthly total on the home screen"
+    },
+    "contextHash": "sha256:d769a3735a106f1413768b99d916866f85ba805f6ef236c0aaa52790b0599d29",
+    "mode": "guided",
+    "locale": "en-US",
+    "allowedActionIds": ["link_criterion", "split_scope", "edit_prd", "dismiss_review"],
+    "goalSummary": "A budget app that shows the monthly spending total",
+    "planSummary": {
+      "stepCount": 3,
+      "activeStep": "Monthly total"
+    },
+    "verificationState": {
+      "aiSelfReport": false,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": false,
+      "hasTests": false,
+      "diffAvailable": false
+    },
+    "evidenceRefs": [
+      {
+        "id": "add_step.title",
+        "source": "plan",
+        "kind": "add_step_draft",
+        "label": "Show monthly total on the home screen",
+        "valueSummary": "Show monthly total on the home screen",
+        "verificationEvidence": false
+      },
+      {
+        "id": "prd.ac_003",
+        "source": "plan",
+        "kind": "acceptance_criteria",
+        "label": "Users can see the total they spent this month",
+        "valueSummary": {
+          "criterionId": "AC-003",
+          "text": "Users can see the total they spent this month"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "add_step.linked_criterion_ids",
+        "source": "plan",
+        "kind": "add_step_draft",
+        "label": "연결된 PRD 기준",
+        "valueSummary": {
+          "kind": "scope_evidence",
+          "sourceRef": "step.linkedCriterionIds"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "scope.assessment",
+        "source": "workmap",
+        "kind": "scope_expansion_assessment",
+        "label": "범위 확장 평가",
+        "valueSummary": {
+          "evidenceRefs": ["add_step.linked_criterion_ids"],
+          "kind": "scope_expansion_assessment",
+          "reasonCodes": []
+        },
+        "verificationEvidence": false
+      }
+    ],
+    "scopeExpansion": {
+      "expanded": false,
+      "reasonCodes": [],
+      "evidenceRefs": ["add_step.linked_criterion_ids"]
+    }
+  },
+  "expect": {
+    "shouldProvoke": false,
+    "gatePasses": false,
+    "allowedConcerns": ["scope_expansion"],
+    "requiredEvidenceRefIds": [],
+    "locale": "en-US"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":false,\"concern\":\"scope_expansion\",\"severity\":\"info\",\"question\":\"\",\"evidenceRefIds\":[\"prd.ac_003\"],\"suggestedActionIds\":[]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

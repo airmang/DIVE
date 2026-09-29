@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "id": "scope-new-area-ko-guided",
+  "event": "scope_expansion",
+  "locale": "ko-KR",
+  "mode": "guided",
+  "description": "Add-step draft adds sharing todos with friends; the PRD only covers due dates.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "scope_expansion",
+    "artifactRef": {
+      "kind": "add_step_draft",
+      "id": "draft-12",
+      "label": "친구와 할 일 공유 기능"
+    },
+    "contextHash": "sha256:c633ad9d1e89da973dc6543bbac7b7e7ceaf7aa44cb714f8110c9b87ad9917d8",
+    "mode": "guided",
+    "locale": "ko-KR",
+    "allowedActionIds": ["link_criterion", "split_scope", "edit_prd", "dismiss_review"],
+    "goalSummary": "혼자 쓰는 할 일 앱에서 마감일을 정하고 지난 할 일을 표시한다",
+    "planSummary": {
+      "stepCount": 3,
+      "activeStep": "마감일 입력"
+    },
+    "verificationState": {
+      "aiSelfReport": false,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": false,
+      "hasTests": false,
+      "diffAvailable": false
+    },
+    "evidenceRefs": [
+      {
+        "id": "add_step.title",
+        "source": "plan",
+        "kind": "add_step_draft",
+        "label": "친구와 할 일 공유 기능",
+        "valueSummary": "친구와 할 일 공유 기능",
+        "verificationEvidence": false
+      },
+      {
+        "id": "prd.ac_002",
+        "source": "plan",
+        "kind": "acceptance_criteria",
+        "label": "할 일에 마감일을 정할 수 있다",
+        "valueSummary": {
+          "criterionId": "AC-002",
+          "text": "할 일에 마감일을 정할 수 있다"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "prd_delta.scope_changes_0",
+        "source": "plan",
+        "kind": "prd_scope",
+        "label": "친구와 할 일 공유",
+        "valueSummary": {
+          "scopeChange": "친구와 할 일 공유"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "add_step.linked_criterion_ids",
+        "source": "plan",
+        "kind": "add_step_draft",
+        "label": "연결된 PRD 기준",
+        "valueSummary": {
+          "kind": "scope_evidence",
+          "sourceRef": "step.linkedCriterionIds"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "scope.assessment",
+        "source": "workmap",
+        "kind": "scope_expansion_assessment",
+        "label": "범위 확장 평가",
+        "valueSummary": {
+          "evidenceRefs": ["add_step.linked_criterion_ids", "prd_delta.scope_changes_0"],
+          "kind": "scope_expansion_assessment",
+          "reasonCodes": ["missing_criterion_link", "new_scope_area"]
+        },
+        "verificationEvidence": false
+      }
+    ],
+    "scopeExpansion": {
+      "expanded": true,
+      "reasonCodes": ["missing_criterion_link", "new_scope_area"],
+      "evidenceRefs": ["add_step.linked_criterion_ids", "prd_delta.scope_changes_0"]
+    }
+  },
+  "expect": {
+    "shouldProvoke": true,
+    "gatePasses": true,
+    "allowedConcerns": ["scope_expansion"],
+    "requiredEvidenceRefIds": ["prd_delta.scope_changes_0", "add_step.linked_criterion_ids"],
+    "relevantEvidenceRefIds": [
+      "add_step.title",
+      "prd_delta.scope_changes_0",
+      "add_step.linked_criterion_ids",
+      "scope.assessment",
+      "prd.ac_002"
+    ],
+    "criterionTerms": ["공유", "마감일"],
+    "locale": "ko-KR"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"scope_expansion\",\"severity\":\"caution\",\"question\":\"'친구와 할 일 공유'는 마감일 기준과 연결되지 않은 새 기능이에요. 이번 범위에 넣기 전에 PRD 기준부터 정해 볼까요?\",\"evidenceRefIds\":[\"prd_delta.scope_changes_0\",\"add_step.linked_criterion_ids\"],\"suggestedActionIds\":[\"edit_prd\",\"split_scope\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

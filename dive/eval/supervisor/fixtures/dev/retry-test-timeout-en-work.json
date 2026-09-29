@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "id": "retry-test-timeout-en-work",
+  "event": "retry_loop",
+  "locale": "en-US",
+  "mode": "work",
+  "description": "The same test times out four times.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "retry_loop",
+    "artifactRef": {
+      "kind": "failure",
+      "id": "step-6:failure:timeout_saves_score_after_finish",
+      "label": "Save quiz results"
+    },
+    "contextHash": "sha256:599ca5a11b46c33f28898d34da05b673f963a8dfa739d5027e758e002129d526",
+    "mode": "work",
+    "locale": "en-US",
+    "allowedActionIds": [
+      "create_repro_steps",
+      "rollback_last_change",
+      "open_diff",
+      "run_tests",
+      "split_scope",
+      "dismiss_review"
+    ],
+    "goalSummary": "The quiz saves each student's score when they finish",
+    "planSummary": {
+      "stepCount": 5,
+      "activeStep": "Save quiz results"
+    },
+    "verificationState": {
+      "aiSelfReport": false,
+      "concreteEvidence": false,
+      "testResult": "fail"
+    },
+    "feasibility": {
+      "runnable": true,
+      "previewable": false,
+      "hasTests": true,
+      "diffAvailable": true
+    },
+    "evidenceRefs": [
+      {
+        "id": "failure.fingerprint",
+        "source": "terminal",
+        "kind": "failure_summary",
+        "label": "Failure fingerprint",
+        "valueSummary": {
+          "fingerprint": "timeout_saves_score_after_finish"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "failure.count",
+        "source": "verification",
+        "kind": "retry_loop_assessment",
+        "label": "Repeated failure count",
+        "valueSummary": {
+          "count": 4
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "failure.last",
+        "source": "verification",
+        "kind": "failure_summary",
+        "label": "Last failure",
+        "valueSummary": {
+          "occurredAt": 1759100240000,
+          "summaryHash": "h_3f9a1c"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "recovery.state",
+        "source": "ui_observation",
+        "kind": "recovery_state",
+        "label": "Recovery state",
+        "valueSummary": {
+          "recoveryAvailable": true
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "failure.last_action",
+        "source": "history",
+        "kind": "failure_summary",
+        "label": "Last action summary",
+        "valueSummary": "asked_ai_to_fix",
+        "verificationEvidence": false
+      }
+    ],
+    "retryLoopAssessment": {
+      "eligible": true,
+      "reasonCodes": ["same_failure_repeated"],
+      "evidenceRefs": [
+        "failure.fingerprint",
+        "failure.count",
+        "failure.last",
+        "recovery.state",
+        "failure.last_action"
+      ],
+      "failureFingerprint": "timeout_saves_score_after_finish",
+      "failureCount": 4,
+      "lastFailureAt": 1759100240000,
+      "lastActionSummary": "asked_ai_to_fix",
+      "recoveryAvailable": true
+    }
+  },
+  "expect": {
+    "shouldProvoke": true,
+    "gatePasses": true,
+    "allowedConcerns": ["retry_loop"],
+    "requiredEvidenceRefIds": ["failure.fingerprint", "failure.count"],
+    "relevantEvidenceRefIds": [
+      "failure.fingerprint",
+      "failure.count",
+      "failure.last",
+      "failure.last_action",
+      "recovery.state"
+    ],
+    "criterionTerms": ["score", "quiz"],
+    "locale": "en-US"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"retry_loop\",\"severity\":\"caution\",\"question\":\"The score-saving test has timed out 4 times. Before asking the AI again, can you write down the steps that reproduce it?\",\"evidenceRefIds\":[\"failure.fingerprint\",\"failure.count\"],\"suggestedActionIds\":[\"create_repro_steps\",\"run_tests\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

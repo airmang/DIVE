@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "id": "verify-claim-done-ko-guided",
+  "event": "verify_entered",
+  "locale": "ko-KR",
+  "mode": "guided",
+  "description": "Diff was reviewed but saving an expense was never run; AI says done.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "verify_entered",
+    "artifactRef": {
+      "kind": "step",
+      "id": "step-5",
+      "label": "지출 입력 저장"
+    },
+    "contextHash": "sha256:15352d5be6f2a57765fc02db9039ee04f3f44e888a655486e7abcd24eab53134",
+    "mode": "guided",
+    "locale": "ko-KR",
+    "allowedActionIds": ["open_diff", "run_app"],
+    "goalSummary": "가계부 앱에서 지출을 입력하면 새로고침 후에도 저장되어 있다",
+    "planSummary": {
+      "stepCount": 5,
+      "activeStep": "지출 입력 저장"
+    },
+    "verificationState": {
+      "aiSelfReport": true,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": true,
+      "previewable": false,
+      "hasTests": false,
+      "diffAvailable": true
+    },
+    "evidenceRefs": [
+      {
+        "id": "agent.assistant_claim",
+        "source": "agent",
+        "kind": "assistant_claim",
+        "label": "AI 완료 주장",
+        "valueSummary": {
+          "kind": "enum",
+          "value": "claimed_done"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "diff.reviewed",
+        "source": "diff",
+        "kind": "diff_review",
+        "label": "변경 내용 확인",
+        "valueSummary": {
+          "kind": "enum",
+          "value": "reviewed"
+        },
+        "verificationEvidence": false
+      }
+    ]
+  },
+  "expect": {
+    "shouldProvoke": true,
+    "gatePasses": true,
+    "allowedConcerns": ["ai_self_report_only"],
+    "requiredEvidenceRefIds": ["agent.assistant_claim"],
+    "relevantEvidenceRefIds": ["agent.assistant_claim", "diff.reviewed"],
+    "criterionTerms": ["지출", "저장"],
+    "locale": "ko-KR"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"ai_self_report_only\",\"severity\":\"caution\",\"question\":\"변경 내용은 보셨지만, 지출을 입력하고 새로고침한 뒤에도 저장되어 있는지는 아직 확인하지 않았어요. 앱을 실행해 직접 볼 수 있나요?\",\"evidenceRefIds\":[\"agent.assistant_claim\",\"diff.reviewed\"],\"suggestedActionIds\":[\"run_app\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

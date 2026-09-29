@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "id": "verify-claim-done-en-work",
+  "event": "verify_entered",
+  "locale": "en-US",
+  "mode": "work",
+  "description": "A pass result is shown but no test command actually ran (static pass); AI says done.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "verify_entered",
+    "artifactRef": {
+      "kind": "step",
+      "id": "step-2",
+      "label": "Show 5-day forecast"
+    },
+    "contextHash": "sha256:8437b903aad5dd684668a248434ee1ba78564c48521369692d4928668d823bd0",
+    "mode": "work",
+    "locale": "en-US",
+    "allowedActionIds": ["open_diff", "run_tests", "run_app"],
+    "goalSummary": "The weather app shows a 5-day forecast with a daily high and low temperature",
+    "planSummary": {
+      "stepCount": 3,
+      "activeStep": "Show 5-day forecast"
+    },
+    "verificationState": {
+      "aiSelfReport": true,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": true,
+      "previewable": false,
+      "hasTests": true,
+      "diffAvailable": true
+    },
+    "evidenceRefs": [
+      {
+        "id": "agent.assistant_claim",
+        "source": "agent",
+        "kind": "assistant_claim",
+        "label": "AI 완료 주장",
+        "valueSummary": {
+          "kind": "enum",
+          "value": "claimed_done"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "verify.test_result",
+        "source": "verification",
+        "kind": "test_result",
+        "label": "테스트 결과",
+        "valueSummary": {
+          "kind": "enum",
+          "value": "pass"
+        },
+        "verificationEvidence": false
+      }
+    ]
+  },
+  "expect": {
+    "shouldProvoke": true,
+    "gatePasses": true,
+    "allowedConcerns": ["ai_self_report_only"],
+    "requiredEvidenceRefIds": ["agent.assistant_claim", "verify.test_result"],
+    "relevantEvidenceRefIds": ["agent.assistant_claim", "verify.test_result"],
+    "criterionTerms": ["forecast", "temperature"],
+    "locale": "en-US"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"ai_self_report_only\",\"severity\":\"caution\",\"question\":\"The AI says the 5-day forecast works, but no test command ran. Can you run the tests and check each day has a high and low temperature?\",\"evidenceRefIds\":[\"agent.assistant_claim\",\"verify.test_result\"],\"suggestedActionIds\":[\"run_tests\",\"run_app\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

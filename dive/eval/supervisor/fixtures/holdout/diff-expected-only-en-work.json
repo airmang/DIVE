@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "id": "diff-expected-only-en-work",
+  "event": "diff_ready",
+  "locale": "en-US",
+  "mode": "work",
+  "description": "Negative: only the expected file changed and the diff was viewed (no reason codes), so no card.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "diff_ready",
+    "artifactRef": {
+      "kind": "diff",
+      "id": "step-9:diff",
+      "label": "Add due date input"
+    },
+    "contextHash": "sha256:6e6e4d0352e6c38b25ca7154a09c48696ba781f3ed6cebeda8197c52dd65a7e0",
+    "mode": "work",
+    "locale": "en-US",
+    "allowedActionIds": [
+      "open_diff",
+      "ask_ai_for_rationale",
+      "revert_unrelated_changes",
+      "run_tests",
+      "dismiss_review"
+    ],
+    "goalSummary": "Each todo can have a due date",
+    "planSummary": {
+      "stepCount": 4,
+      "activeStep": "Add due date input"
+    },
+    "verificationState": {
+      "aiSelfReport": false,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": true,
+      "hasTests": true,
+      "diffAvailable": true
+    },
+    "evidenceRefs": [
+      {
+        "id": "diff.changed_files",
+        "source": "diff",
+        "kind": "changed_file",
+        "label": "Changed files",
+        "valueSummary": {
+          "paths": ["src/components/TodoForm.tsx"],
+          "totalCount": 1
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "diff.expected_files",
+        "source": "plan",
+        "kind": "expected_file",
+        "label": "Expected files",
+        "valueSummary": {
+          "paths": ["src/components/TodoForm.tsx"],
+          "totalCount": 1
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "step.scope",
+        "source": "plan",
+        "kind": "step_scope",
+        "label": "Step scope",
+        "valueSummary": {
+          "goal": "Each todo can have a due date",
+          "step": "Add a date input to the todo form"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "diff.viewed",
+        "source": "ui_observation",
+        "kind": "diff_view",
+        "label": "Diff viewed",
+        "valueSummary": {
+          "viewed": true
+        },
+        "verificationEvidence": false
+      }
+    ],
+    "diffReadyAssessment": {
+      "eligible": false,
+      "reasonCodes": [],
+      "evidenceRefs": ["diff.changed_files", "diff.expected_files", "step.scope", "diff.viewed"],
+      "changedFileCount": 1,
+      "unexpectedFiles": [],
+      "highRiskFiles": [],
+      "diffViewed": true
+    }
+  },
+  "expect": {
+    "shouldProvoke": false,
+    "gatePasses": false,
+    "allowedConcerns": ["diff_scope_drift"],
+    "requiredEvidenceRefIds": [],
+    "locale": "en-US"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":false,\"concern\":\"diff_scope_drift\",\"severity\":\"info\",\"question\":\"\",\"evidenceRefIds\":[\"diff.changed_files\"],\"suggestedActionIds\":[]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

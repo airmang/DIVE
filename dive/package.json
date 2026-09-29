@@ -50,6 +50,8 @@
     "research:retrospective": "node scripts/analyze-retrospective.mjs",
     "research:supervision": "node scripts/analyze-supervision.mjs",
     "research:cards": "node scripts/analyze-cards.mjs",
+    "eval:fixtures": "node scripts/eval-fixtures.mjs",
+    "eval:report": "node scripts/eval-report.mjs",
     "qa:ledger:validate": "node scripts/qa-ledger/validate.mjs",
     "verify:qa-ledger": "node scripts/qa-ledger/verify.mjs",
     "qa:run": "node scripts/qa-ledger/run.mjs",

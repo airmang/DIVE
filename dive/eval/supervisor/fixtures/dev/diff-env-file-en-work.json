@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "id": "diff-env-file-en-work",
+  "event": "diff_ready",
+  "locale": "en-US",
+  "mode": "work",
+  "description": "Styling step also changed .env.example and a package manifest.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "diff_ready",
+    "artifactRef": {
+      "kind": "diff",
+      "id": "step-3:diff",
+      "label": "Style the recipe cards"
+    },
+    "contextHash": "sha256:102a4a2d07a291dd3a3c60d6121745becdd66277626889c65756c74e9fd04e79",
+    "mode": "work",
+    "locale": "en-US",
+    "allowedActionIds": [
+      "open_diff",
+      "ask_ai_for_rationale",
+      "revert_unrelated_changes",
+      "run_tests",
+      "dismiss_review"
+    ],
+    "goalSummary": "Recipe cards show the photo, title and cooking time in a grid",
+    "planSummary": {
+      "stepCount": 4,
+      "activeStep": "Style the recipe cards"
+    },
+    "verificationState": {
+      "aiSelfReport": false,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": true,
+      "hasTests": true,
+      "diffAvailable": true
+    },
+    "evidenceRefs": [
+      {
+        "id": "diff.changed_files",
+        "source": "diff",
+        "kind": "changed_file",
+        "label": "Changed files",
+        "valueSummary": {
+          "paths": ["src/components/RecipeCard.css", "package.json", ".env.example"],
+          "totalCount": 3
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "diff.expected_files",
+        "source": "plan",
+        "kind": "expected_file",
+        "label": "Expected files",
+        "valueSummary": {
+          "paths": ["src/components/RecipeCard.css", "src/components/RecipeCard.tsx"],
+          "totalCount": 2
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "step.scope",
+        "source": "plan",
+        "kind": "step_scope",
+        "label": "Step scope",
+        "valueSummary": {
+          "goal": "Recipe cards show the photo, title and cooking time in a grid",
+          "step": "Update RecipeCard styles to a responsive grid"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "diff.viewed",
+        "source": "ui_observation",
+        "kind": "diff_view",
+        "label": "Diff viewed",
+        "valueSummary": {
+          "viewed": false
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "diff.unexpected_files",
+        "source": "diff",
+        "kind": "changed_file",
+        "label": "Unexpected files",
+        "valueSummary": {
+          "paths": ["package.json", ".env.example"],
+          "totalCount": 2
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "diff.high_risk_files",
+        "source": "diff",
+        "kind": "changed_file",
+        "label": "High-risk files",
+        "valueSummary": {
+          "paths": ["package.json", ".env.example"],
+          "totalCount": 2
+        },
+        "verificationEvidence": false
+      }
+    ],
+    "diffReadyAssessment": {
+      "eligible": true,
+      "reasonCodes": ["outside_expected_files", "high_risk_area"],
+      "evidenceRefs": [
+        "diff.changed_files",
+        "diff.expected_files",
+        "step.scope",
+        "diff.viewed",
+        "diff.unexpected_files",
+        "diff.high_risk_files"
+      ],
+      "changedFileCount": 3,
+      "unexpectedFiles": ["package.json", ".env.example"],
+      "highRiskFiles": ["package.json", ".env.example"],
+      "diffViewed": false
+    }
+  },
+  "expect": {
+    "shouldProvoke": true,
+    "gatePasses": true,
+    "allowedConcerns": ["diff_scope_drift"],
+    "requiredEvidenceRefIds": ["diff.unexpected_files", "diff.high_risk_files"],
+    "relevantEvidenceRefIds": [
+      "diff.unexpected_files",
+      "diff.high_risk_files",
+      "diff.changed_files",
+      "diff.expected_files",
+      "step.scope"
+    ],
+    "criterionTerms": ["recipe cards", "grid"],
+    "locale": "en-US"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"diff_scope_drift\",\"severity\":\"caution\",\"question\":\"This step only styles the recipe cards, but package.json and .env.example changed too. Should those changes be reverted?\",\"evidenceRefIds\":[\"diff.unexpected_files\",\"diff.high_risk_files\"],\"suggestedActionIds\":[\"revert_unrelated_changes\",\"open_diff\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

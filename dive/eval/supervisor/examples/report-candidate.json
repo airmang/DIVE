@@ -1,0 +1,1170 @@
+{
+  "schemaVersion": 1,
+  "kind": "supervisor-eval-report",
+  "mode": "recorded",
+  "generatedAt": "2026-09-30T10:00:00Z",
+  "note": "Example candidate report for docs and tests: outcomes of three fixtures were edited by hand to show the compare view. Not a real run.",
+  "fixtureCount": 34,
+  "groups": [
+    {
+      "key": {
+        "promptVersion": "1.1.0+c0ffee12",
+        "policyVersion": "1.0.0",
+        "model": "hand-authored",
+        "split": "dev"
+      },
+      "resultCount": 23,
+      "outcomes": {
+        "shown": 16,
+        "none": 4,
+        "dropped": 2,
+        "error": 1
+      },
+      "dropReasons": {
+        "provoke_false": 4,
+        "parse_error": 1,
+        "disallowed_concern": 1,
+        "unknown_evidence_ref": 1
+      },
+      "provokeAgreement": {
+        "checked": 19,
+        "agree": 19,
+        "falseProvoke": 0,
+        "missedProvoke": 0,
+        "rate": 1
+      },
+      "dropReasonMatch": {
+        "checked": 4,
+        "matched": 3,
+        "rate": 0.75
+      },
+      "localeCompliance": {
+        "checked": 16,
+        "compliant": 15,
+        "rate": 0.9375
+      },
+      "criterionLinkage": {
+        "checked": 16,
+        "linked": 16,
+        "rate": 1
+      },
+      "evidencePrecision": {
+        "checked": 16,
+        "mean": 1,
+        "requiredCited": 16,
+        "requiredChecked": 16
+      },
+      "questionLength": {
+        "count": 16,
+        "min": 32,
+        "median": 70,
+        "max": 135,
+        "mean": 83.4375,
+        "overLimit": 0
+      },
+      "results": [
+        {
+          "fixtureId": "claim-done-en-work",
+          "split": "dev",
+          "event": "ai_claimed_done",
+          "locale": "en-US",
+          "mode": "work",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "claim-done-ko-guided",
+          "split": "dev",
+          "event": "ai_claimed_done",
+          "locale": "ko-KR",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "claim-done-ko-work",
+          "split": "dev",
+          "event": "ai_claimed_done",
+          "locale": "ko-KR",
+          "mode": "work",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "diff-auth-file-ko-work",
+          "split": "dev",
+          "event": "diff_ready",
+          "locale": "ko-KR",
+          "mode": "work",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "diff_scope_drift",
+            "question": "완료 체크박스 단계인데 로그인 파일 src/lib/auth.ts도 바뀌었어요. 이 변경이 왜 필요한지 AI에게 물어볼까요?",
+            "evidenceRefIds": ["diff.unexpected_files", "diff.high_risk_files"],
+            "suggestedActionIds": ["ask_ai_for_rationale", "open_diff"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 68
+          }
+        },
+        {
+          "fixtureId": "diff-env-file-en-work",
+          "split": "dev",
+          "event": "diff_ready",
+          "locale": "en-US",
+          "mode": "work",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "diff_scope_drift",
+            "question": "This step only styles the recipe cards, but package.json and .env.example changed too. Should those changes be reverted?",
+            "evidenceRefIds": ["diff.unexpected_files", "diff.high_risk_files"],
+            "suggestedActionIds": ["revert_unrelated_changes", "open_diff"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 120
+          }
+        },
+        {
+          "fixtureId": "diff-parse-error-ko-guided",
+          "split": "dev",
+          "event": "diff_ready",
+          "locale": "ko-KR",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true,
+            "expectedDropReason": "parse_error"
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "error",
+          "dropReason": "parse_error",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": null,
+            "dropReasonMatch": true,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "diff-refactor-ko-guided",
+          "split": "dev",
+          "event": "diff_ready",
+          "locale": "ko-KR",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "diff_scope_drift",
+            "question": "파일 이름만 바꾼 정리라고 했지만 메모 기능이 그대로인지는 아직 확인하지 않았어요. 테스트로 먼저 확인해 볼까요?",
+            "evidenceRefIds": ["diff.behavior_preserving_refactor", "diff.changed_files"],
+            "suggestedActionIds": ["run_tests", "open_diff"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 63
+          }
+        },
+        {
+          "fixtureId": "plan-missing-verification-ko-work",
+          "split": "dev",
+          "event": "plan_drafted",
+          "locale": "ko-KR",
+          "mode": "work",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "plan_draft_weakness",
+            "question": "'생일 3일 전에 알림이 표시된다'를 어느 단계에서 어떻게 확인할지 계획에 빠져 있어요. 검증 단계를 추가할까요?",
+            "evidenceRefIds": ["plan.criteria", "plan.step.s_002.verification"],
+            "suggestedActionIds": ["add_verification_step"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 63
+          }
+        },
+        {
+          "fixtureId": "plan-unlinked-criteria-ko-guided",
+          "split": "dev",
+          "event": "plan_drafted",
+          "locale": "ko-KR",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "plan_draft_weakness",
+            "question": "'반납 예정일과 함께 표시' 기준을 어느 단계가 맡는지 연결되어 있지 않아요. 단계마다 어떤 기준을 채우는지 연결해 볼까요?",
+            "evidenceRefIds": ["plan.criteria", "plan.step.s_001.criteria"],
+            "suggestedActionIds": ["link_criterion"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 69
+          }
+        },
+        {
+          "fixtureId": "plan-unresolved-question-en-guided",
+          "split": "dev",
+          "event": "plan_drafted",
+          "locale": "en-US",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "plan_draft_weakness",
+            "question": "The plan hasn't decided whether guests can vote. How will you check that each student can vote only once?",
+            "evidenceRefIds": ["plan.unresolved.0", "plan.step.s_002.verification"],
+            "suggestedActionIds": ["add_verification_step", "edit_prd"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 105
+          }
+        },
+        {
+          "fixtureId": "retry-fetch-401-en-guided",
+          "split": "dev",
+          "event": "retry_loop",
+          "locale": "en-US",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "retry_loop",
+            "question": "Loading the weather data failed with the same 401 error 3 times. Would rolling back the last change help you see what broke it?",
+            "evidenceRefIds": ["failure.fingerprint", "failure.count", "recovery.state"],
+            "suggestedActionIds": ["rollback_last_change", "create_repro_steps"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 127
+          }
+        },
+        {
+          "fixtureId": "retry-module-missing-ko-guided",
+          "split": "dev",
+          "event": "retry_loop",
+          "locale": "ko-KR",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "retry_loop",
+            "question": "차트 라이브러리를 찾지 못하는 같은 오류가 2번 났어요. 어떤 명령에서 오류가 나는지 재현 단계를 먼저 정리할까요?",
+            "evidenceRefIds": ["failure.fingerprint", "failure.count", "recovery.state"],
+            "suggestedActionIds": ["create_repro_steps"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 64
+          }
+        },
+        {
+          "fixtureId": "retry-test-timeout-en-work",
+          "split": "dev",
+          "event": "retry_loop",
+          "locale": "en-US",
+          "mode": "work",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "retry_loop",
+            "question": "The score-saving test has timed out 4 times. Before asking the AI again, can you write down the steps that reproduce it?",
+            "evidenceRefIds": ["failure.fingerprint", "failure.count"],
+            "suggestedActionIds": ["create_repro_steps", "run_tests"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 120
+          }
+        },
+        {
+          "fixtureId": "retry-wrong-concern-en-guided",
+          "split": "dev",
+          "event": "retry_loop",
+          "locale": "en-US",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true,
+            "expectedDropReason": "disallowed_concern"
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "dropped",
+          "dropReason": "disallowed_concern",
+          "decision": {
+            "concern": "ai_self_report_only",
+            "question": "Loading the weather data failed with the same 401 error 3 times. Would rolling back the last change help you see what broke it?",
+            "evidenceRefIds": ["failure.fingerprint", "failure.count"],
+            "suggestedActionIds": ["rollback_last_change"]
+          },
+          "checks": {
+            "provokeAgreement": null,
+            "dropReasonMatch": true,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "scope-new-area-en-guided",
+          "split": "dev",
+          "event": "scope_expansion",
+          "locale": "en-US",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "scope_expansion",
+            "question": "Excel 내보내기가 이번 버전에 꼭 필요한가요, 아니면 다음 단계로 나눌까요?",
+            "evidenceRefIds": [
+              "prd_delta.scope_changes_0",
+              "add_step.linked_criterion_ids",
+              "prd.ac_003"
+            ],
+            "suggestedActionIds": ["split_scope", "edit_prd"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": false,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 44
+          }
+        },
+        {
+          "fixtureId": "scope-new-area-en-work",
+          "split": "dev",
+          "event": "scope_expansion",
+          "locale": "en-US",
+          "mode": "work",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "scope_expansion",
+            "question": "Comments aren't covered by the favorites criterion. Should this become a new PRD criterion before you add the step?",
+            "evidenceRefIds": ["prd_delta.scope_changes_0", "add_step.linked_criterion_ids"],
+            "suggestedActionIds": ["edit_prd", "link_criterion"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 115
+          }
+        },
+        {
+          "fixtureId": "scope-new-area-ko-work",
+          "split": "dev",
+          "event": "scope_expansion",
+          "locale": "ko-KR",
+          "mode": "work",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "scope_expansion",
+            "question": "'관리자 통계 대시보드'는 로그인·설정만 있는 MVP 기준에 없는 새 범위예요. 먼저 PRD 기준에 넣을지 정할까요?",
+            "evidenceRefIds": [
+              "prd_delta.scope_changes_0",
+              "add_step.linked_criterion_ids",
+              "scope.assessment"
+            ],
+            "suggestedActionIds": ["edit_prd", "link_criterion"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 65
+          }
+        },
+        {
+          "fixtureId": "scope-unknown-evidence-en-work",
+          "split": "dev",
+          "event": "scope_expansion",
+          "locale": "en-US",
+          "mode": "work",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true,
+            "expectedDropReason": "unknown_evidence_ref"
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "dropped",
+          "dropReason": "unknown_evidence_ref",
+          "decision": {
+            "concern": "scope_expansion",
+            "question": "Comments aren't covered by the favorites criterion. Should this become a new PRD criterion before you add the step?",
+            "evidenceRefIds": ["prd.ac_999", "add_step.linked_criterion_ids"],
+            "suggestedActionIds": ["edit_prd"]
+          },
+          "checks": {
+            "provokeAgreement": null,
+            "dropReasonMatch": true,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "verify-claim-done-en-work",
+          "split": "dev",
+          "event": "verify_entered",
+          "locale": "en-US",
+          "mode": "work",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "ai_self_report_only",
+            "question": "The AI says the 5-day forecast works, but no test command ran. Can you run the tests and check each day has a high and low temperature?",
+            "evidenceRefIds": ["agent.assistant_claim", "verify.test_result"],
+            "suggestedActionIds": ["run_tests", "run_app"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 135
+          }
+        },
+        {
+          "fixtureId": "verify-claim-done-ko-guided",
+          "split": "dev",
+          "event": "verify_entered",
+          "locale": "ko-KR",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "ai_self_report_only",
+            "question": "변경 내용은 보셨지만, 지출을 입력하고 새로고침한 뒤에도 저장되어 있는지는 아직 확인하지 않았어요. 앱을 실행해 직접 볼 수 있나요?",
+            "evidenceRefIds": ["agent.assistant_claim", "diff.reviewed"],
+            "suggestedActionIds": ["run_app"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 74
+          }
+        },
+        {
+          "fixtureId": "verify-claim-done-ko-work",
+          "split": "dev",
+          "event": "verify_entered",
+          "locale": "ko-KR",
+          "mode": "work",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "ai_self_report_only",
+            "question": "AI는 할 일 추가 폼이 끝났다고 했지만 테스트는 건너뛰었어요. 미리보기에서 새 할 일이 목록에 추가되는지 직접 확인해 볼까요?",
+            "evidenceRefIds": ["agent.assistant_claim", "verify.test_result"],
+            "suggestedActionIds": ["open_preview"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 71
+          }
+        },
+        {
+          "fixtureId": "verify-not-question-ko-work",
+          "split": "dev",
+          "event": "verify_entered",
+          "locale": "ko-KR",
+          "mode": "work",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true,
+            "expectedDropReason": "not_question"
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "ai_self_report_only",
+            "question": "미리보기에서 새 할 일이 목록에 추가되는지 확인해 볼까요?",
+            "evidenceRefIds": ["agent.assistant_claim", "verify.test_result"],
+            "suggestedActionIds": ["open_preview"]
+          },
+          "checks": {
+            "provokeAgreement": null,
+            "dropReasonMatch": false,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 32
+          }
+        },
+        {
+          "fixtureId": "verify-preview-confirmed-en-work",
+          "split": "dev",
+          "event": "verify_entered",
+          "locale": "en-US",
+          "mode": "work",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        }
+      ]
+    },
+    {
+      "key": {
+        "promptVersion": "1.1.0+c0ffee12",
+        "policyVersion": "1.0.0",
+        "model": "hand-authored",
+        "split": "holdout"
+      },
+      "resultCount": 11,
+      "outcomes": {
+        "shown": 4,
+        "none": 7,
+        "dropped": 0,
+        "error": 0
+      },
+      "dropReasons": {
+        "provoke_false": 7
+      },
+      "provokeAgreement": {
+        "checked": 11,
+        "agree": 10,
+        "falseProvoke": 0,
+        "missedProvoke": 1,
+        "rate": 0.9090909090909091
+      },
+      "dropReasonMatch": {
+        "checked": 0,
+        "matched": 0,
+        "rate": null
+      },
+      "localeCompliance": {
+        "checked": 4,
+        "compliant": 4,
+        "rate": 1
+      },
+      "criterionLinkage": {
+        "checked": 4,
+        "linked": 4,
+        "rate": 1
+      },
+      "evidencePrecision": {
+        "checked": 4,
+        "mean": 1,
+        "requiredCited": 4,
+        "requiredChecked": 4
+      },
+      "questionLength": {
+        "count": 4,
+        "min": 68,
+        "median": 92,
+        "max": 135,
+        "mean": 96.75,
+        "overLimit": 0
+      },
+      "results": [
+        {
+          "fixtureId": "claim-done-en-guided",
+          "split": "holdout",
+          "event": "ai_claimed_done",
+          "locale": "en-US",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "diff-expected-only-en-work",
+          "split": "holdout",
+          "event": "diff_ready",
+          "locale": "en-US",
+          "mode": "work",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "diff-extra-page-en-guided",
+          "split": "holdout",
+          "event": "diff_ready",
+          "locale": "en-US",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": {
+            "concern": "diff_scope_drift",
+            "question": "",
+            "evidenceRefIds": ["diff.unexpected_files", "step.scope"],
+            "suggestedActionIds": ["ask_ai_for_rationale", "open_diff"]
+          },
+          "checks": {
+            "provokeAgreement": false,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "plan-broad-step-en-work",
+          "split": "holdout",
+          "event": "plan_drafted",
+          "locale": "en-US",
+          "mode": "work",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "plan_draft_weakness",
+            "question": "Step s_001 builds login, profile and settings together. Could you split it so you can check logging in before editing the display name?",
+            "evidenceRefIds": ["plan.step.s_001.scope", "plan.criteria"],
+            "suggestedActionIds": ["split_scope"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 135
+          }
+        },
+        {
+          "fixtureId": "plan-verified-ko-work",
+          "split": "holdout",
+          "event": "plan_drafted",
+          "locale": "ko-KR",
+          "mode": "work",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "retry-first-failure-ko-guided",
+          "split": "holdout",
+          "event": "retry_loop",
+          "locale": "ko-KR",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "retry-map-undefined-ko-work",
+          "split": "holdout",
+          "event": "retry_loop",
+          "locale": "ko-KR",
+          "mode": "work",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "retry_loop",
+            "question": "할 일 목록 불러오기에서 같은 오류가 3번 반복됐어요. AI에게 다시 맡기기 전에 오류가 나는 순서를 재현 단계로 적어 볼까요?",
+            "evidenceRefIds": ["failure.fingerprint", "failure.count"],
+            "suggestedActionIds": ["create_repro_steps", "rollback_last_change"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 71
+          }
+        },
+        {
+          "fixtureId": "scope-linked-step-en-guided",
+          "split": "holdout",
+          "event": "scope_expansion",
+          "locale": "en-US",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "scope-new-area-ko-guided",
+          "split": "holdout",
+          "event": "scope_expansion",
+          "locale": "ko-KR",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "scope_expansion",
+            "question": "'친구와 할 일 공유'는 마감일 기준과 연결되지 않은 새 기능이에요. 이번 범위에 넣기 전에 PRD 기준부터 정해 볼까요?",
+            "evidenceRefIds": ["prd_delta.scope_changes_0", "add_step.linked_criterion_ids"],
+            "suggestedActionIds": ["edit_prd", "split_scope"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 68
+          }
+        },
+        {
+          "fixtureId": "verify-claim-done-en-guided",
+          "split": "holdout",
+          "event": "verify_entered",
+          "locale": "en-US",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "ai_self_report_only",
+            "question": "You opened the preview, but did you try submitting the contact form with an empty email to see the error message?",
+            "evidenceRefIds": ["agent.assistant_claim", "verify.preview_observed"],
+            "suggestedActionIds": ["open_preview"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1,
+            "requiredEvidenceCited": true,
+            "questionChars": 113
+          }
+        },
+        {
+          "fixtureId": "verify-tests-passed-ko-guided",
+          "split": "holdout",
+          "event": "verify_entered",
+          "locale": "ko-KR",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "source": "hand-authored",
+          "model": "hand-authored",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        }
+      ]
+    }
+  ]
+}

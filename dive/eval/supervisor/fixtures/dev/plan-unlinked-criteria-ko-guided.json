@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "id": "plan-unlinked-criteria-ko-guided",
+  "event": "plan_drafted",
+  "locale": "ko-KR",
+  "mode": "guided",
+  "description": "Plan steps are not linked to either library-app criterion.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "plan_drafted",
+    "artifactRef": {
+      "kind": "plan_draft",
+      "id": "plan-32:draft",
+      "label": "Plan draft"
+    },
+    "contextHash": "sha256:a56194044750276898df321c9446bdb3b3ea217e170102e2bf0bdcd41dc02744",
+    "mode": "guided",
+    "locale": "ko-KR",
+    "allowedActionIds": [
+      "add_verification_step",
+      "link_criterion",
+      "split_scope",
+      "edit_prd",
+      "dismiss_review"
+    ],
+    "goalSummary": "학교 도서관 책 대출 현황을 보여 주는 앱",
+    "planSummary": {
+      "stepCount": 2,
+      "activeStep": null
+    },
+    "verificationState": {
+      "aiSelfReport": false,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": false,
+      "hasTests": false,
+      "diffAvailable": false
+    },
+    "evidenceRefs": [
+      {
+        "id": "plan.goal",
+        "source": "goal",
+        "kind": "scope_expansion_assessment",
+        "label": "Plan goal",
+        "valueSummary": "학교 도서관 책 대출 현황을 보여 주는 앱",
+        "verificationEvidence": false
+      },
+      {
+        "id": "plan.criteria",
+        "source": "plan",
+        "kind": "acceptance_criteria",
+        "label": "Acceptance criteria",
+        "valueSummary": {
+          "count": 2,
+          "items": ["대출 중인 책은 반납 예정일과 함께 표시된다", "책 제목으로 검색할 수 있다"]
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "plan.step_count",
+        "source": "plan",
+        "kind": "plan_step",
+        "label": "Plan steps",
+        "valueSummary": {
+          "count": 2
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "plan.step.s_001.criteria",
+        "source": "plan",
+        "kind": "criterion_linkage",
+        "label": "Missing criterion link for s_001",
+        "valueSummary": {
+          "linkedCriterionIds": [],
+          "stepId": "s_001",
+          "text": "책 목록 화면 만들기"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "plan.step.s_002.criteria",
+        "source": "plan",
+        "kind": "criterion_linkage",
+        "label": "Missing criterion link for s_002",
+        "valueSummary": {
+          "linkedCriterionIds": [],
+          "stepId": "s_002",
+          "text": "검색창 만들기"
+        },
+        "verificationEvidence": false
+      }
+    ],
+    "planDraftAssessment": {
+      "eligible": true,
+      "reasonCodes": ["unlinked_criteria"],
+      "evidenceRefs": [
+        "plan.goal",
+        "plan.criteria",
+        "plan.step_count",
+        "plan.step.s_001.criteria",
+        "plan.step.s_002.criteria"
+      ],
+      "stepCount": 2,
+      "criteriaCount": 2,
+      "unverifiedStepIds": [],
+      "unlinkedStepIds": ["s_001", "s_002"]
+    }
+  },
+  "expect": {
+    "shouldProvoke": true,
+    "gatePasses": true,
+    "allowedConcerns": ["plan_draft_weakness"],
+    "requiredEvidenceRefIds": ["plan.step.s_001.criteria", "plan.step.s_002.criteria"],
+    "relevantEvidenceRefIds": [
+      "plan.criteria",
+      "plan.step.s_001.criteria",
+      "plan.step.s_002.criteria"
+    ],
+    "criterionTerms": ["반납 예정일", "검색"],
+    "locale": "ko-KR"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"plan_draft_weakness\",\"severity\":\"caution\",\"question\":\"'반납 예정일과 함께 표시' 기준을 어느 단계가 맡는지 연결되어 있지 않아요. 단계마다 어떤 기준을 채우는지 연결해 볼까요?\",\"evidenceRefIds\":[\"plan.criteria\",\"plan.step.s_001.criteria\"],\"suggestedActionIds\":[\"link_criterion\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

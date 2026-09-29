@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "id": "retry-module-missing-ko-guided",
+  "event": "retry_loop",
+  "locale": "ko-KR",
+  "mode": "guided",
+  "description": "Module-not-found error repeats; no checkpoint is available to roll back to.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "retry_loop",
+    "artifactRef": {
+      "kind": "failure",
+      "id": "step-2:failure:module_not_found_chart_js",
+      "label": "차트 라이브러리 추가"
+    },
+    "contextHash": "sha256:b404108e2f99d2d56f90c026e507db03b0c3768f49c09d2e1dc2de08b22f0a3a",
+    "mode": "guided",
+    "locale": "ko-KR",
+    "allowedActionIds": [
+      "create_repro_steps",
+      "open_diff",
+      "run_tests",
+      "split_scope",
+      "dismiss_review"
+    ],
+    "goalSummary": "가계부 앱에서 한 달 지출을 막대 차트로 보여 준다",
+    "planSummary": {
+      "stepCount": 5,
+      "activeStep": "차트 라이브러리 추가"
+    },
+    "verificationState": {
+      "aiSelfReport": false,
+      "concreteEvidence": false,
+      "testResult": "fail"
+    },
+    "feasibility": {
+      "runnable": true,
+      "previewable": false,
+      "hasTests": true,
+      "diffAvailable": true
+    },
+    "evidenceRefs": [
+      {
+        "id": "failure.fingerprint",
+        "source": "terminal",
+        "kind": "failure_summary",
+        "label": "Failure fingerprint",
+        "valueSummary": {
+          "fingerprint": "module_not_found_chart_js"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "failure.count",
+        "source": "verification",
+        "kind": "retry_loop_assessment",
+        "label": "Repeated failure count",
+        "valueSummary": {
+          "count": 2
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "failure.last",
+        "source": "verification",
+        "kind": "failure_summary",
+        "label": "Last failure",
+        "valueSummary": {
+          "occurredAt": 1759100120000,
+          "summaryHash": "h_3f9a1c"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "recovery.state",
+        "source": "ui_observation",
+        "kind": "recovery_state",
+        "label": "Recovery state",
+        "valueSummary": {
+          "recoveryAvailable": false
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "failure.last_action",
+        "source": "history",
+        "kind": "failure_summary",
+        "label": "Last action summary",
+        "valueSummary": "asked_ai_to_fix",
+        "verificationEvidence": false
+      }
+    ],
+    "retryLoopAssessment": {
+      "eligible": true,
+      "reasonCodes": ["same_failure_repeated", "recovery_unavailable"],
+      "evidenceRefs": [
+        "failure.fingerprint",
+        "failure.count",
+        "failure.last",
+        "recovery.state",
+        "failure.last_action"
+      ],
+      "failureFingerprint": "module_not_found_chart_js",
+      "failureCount": 2,
+      "lastFailureAt": 1759100120000,
+      "lastActionSummary": "asked_ai_to_fix",
+      "recoveryAvailable": false
+    }
+  },
+  "expect": {
+    "shouldProvoke": true,
+    "gatePasses": true,
+    "allowedConcerns": ["retry_loop"],
+    "requiredEvidenceRefIds": ["failure.fingerprint", "failure.count"],
+    "relevantEvidenceRefIds": [
+      "failure.fingerprint",
+      "failure.count",
+      "failure.last",
+      "failure.last_action",
+      "recovery.state"
+    ],
+    "criterionTerms": ["차트"],
+    "locale": "ko-KR"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"retry_loop\",\"severity\":\"caution\",\"question\":\"차트 라이브러리를 찾지 못하는 같은 오류가 2번 났어요. 어떤 명령에서 오류가 나는지 재현 단계를 먼저 정리할까요?\",\"evidenceRefIds\":[\"failure.fingerprint\",\"failure.count\",\"recovery.state\"],\"suggestedActionIds\":[\"create_repro_steps\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "id": "claim-done-ko-guided",
+  "event": "ai_claimed_done",
+  "locale": "ko-KR",
+  "mode": "guided",
+  "description": "Negative: ai_claimed_done only records the claim; the provoke gate opens at verify_entered, so no prompt is sent.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "ai_claimed_done",
+    "artifactRef": {
+      "kind": "step",
+      "id": "step-4",
+      "label": "점수 계산"
+    },
+    "contextHash": "sha256:e8d33cbe8fba6f59301f726ead415feb02494f485af4987c741209d54ecabb08",
+    "mode": "guided",
+    "locale": "ko-KR",
+    "allowedActionIds": ["open_diff", "open_preview"],
+    "goalSummary": "퀴즈 게임이 끝나면 맞힌 개수로 점수를 보여 준다",
+    "planSummary": {
+      "stepCount": 5,
+      "activeStep": "점수 계산"
+    },
+    "verificationState": {
+      "aiSelfReport": true,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": true,
+      "hasTests": false,
+      "diffAvailable": true
+    },
+    "evidenceRefs": [
+      {
+        "id": "agent.assistant_claim",
+        "source": "agent",
+        "kind": "assistant_claim",
+        "label": "AI 완료 주장",
+        "valueSummary": {
+          "kind": "enum",
+          "value": "claimed_done"
+        },
+        "verificationEvidence": false
+      }
+    ]
+  },
+  "expect": {
+    "shouldProvoke": false,
+    "gatePasses": false,
+    "allowedConcerns": ["ai_self_report_only"],
+    "requiredEvidenceRefIds": [],
+    "locale": "ko-KR"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":false,\"concern\":\"ai_self_report_only\",\"severity\":\"info\",\"question\":\"\",\"evidenceRefIds\":[\"agent.assistant_claim\"],\"suggestedActionIds\":[]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

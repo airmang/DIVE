@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "id": "scope-unknown-evidence-en-work",
+  "event": "scope_expansion",
+  "locale": "en-US",
+  "mode": "work",
+  "description": "Negative control: same context as scope-new-area-en-work; the recording cites an evidence id that is not in the context.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "scope_expansion",
+    "artifactRef": {
+      "kind": "add_step_draft",
+      "id": "draft-21",
+      "label": "Add user comments on recipes"
+    },
+    "contextHash": "sha256:67ce6b355c437edab7f9ddc2411a2b17541bf2a8b0d39a7e7fffeae3b9d9f712",
+    "mode": "work",
+    "locale": "en-US",
+    "allowedActionIds": ["link_criterion", "split_scope", "edit_prd", "dismiss_review"],
+    "goalSummary": "A recipe app MVP where users can save favorite recipes",
+    "planSummary": {
+      "stepCount": 4,
+      "activeStep": "Favorites list"
+    },
+    "verificationState": {
+      "aiSelfReport": false,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": false,
+      "hasTests": false,
+      "diffAvailable": false
+    },
+    "evidenceRefs": [
+      {
+        "id": "add_step.title",
+        "source": "plan",
+        "kind": "add_step_draft",
+        "label": "Add user comments on recipes",
+        "valueSummary": "Add user comments on recipes",
+        "verificationEvidence": false
+      },
+      {
+        "id": "prd.ac_001",
+        "source": "plan",
+        "kind": "acceptance_criteria",
+        "label": "Users can save a recipe to their favorites",
+        "valueSummary": {
+          "criterionId": "AC-001",
+          "text": "Users can save a recipe to their favorites"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "prd_delta.scope_changes_0",
+        "source": "plan",
+        "kind": "prd_scope",
+        "label": "User comments on recipes",
+        "valueSummary": {
+          "scopeChange": "User comments on recipes"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "add_step.linked_criterion_ids",
+        "source": "plan",
+        "kind": "add_step_draft",
+        "label": "연결된 PRD 기준",
+        "valueSummary": {
+          "kind": "scope_evidence",
+          "sourceRef": "step.linkedCriterionIds"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "scope.assessment",
+        "source": "workmap",
+        "kind": "scope_expansion_assessment",
+        "label": "범위 확장 평가",
+        "valueSummary": {
+          "evidenceRefs": ["add_step.linked_criterion_ids", "prd_delta.scope_changes_0"],
+          "kind": "scope_expansion_assessment",
+          "reasonCodes": ["missing_criterion_link", "new_scope_area"]
+        },
+        "verificationEvidence": false
+      }
+    ],
+    "scopeExpansion": {
+      "expanded": true,
+      "reasonCodes": ["missing_criterion_link", "new_scope_area"],
+      "evidenceRefs": ["add_step.linked_criterion_ids", "prd_delta.scope_changes_0"]
+    }
+  },
+  "expect": {
+    "shouldProvoke": true,
+    "gatePasses": true,
+    "allowedConcerns": ["scope_expansion"],
+    "requiredEvidenceRefIds": ["prd_delta.scope_changes_0", "add_step.linked_criterion_ids"],
+    "relevantEvidenceRefIds": [
+      "add_step.title",
+      "prd_delta.scope_changes_0",
+      "add_step.linked_criterion_ids",
+      "scope.assessment",
+      "prd.ac_001"
+    ],
+    "criterionTerms": ["comments", "favorites"],
+    "locale": "en-US",
+    "expectedDropReason": "unknown_evidence_ref"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"scope_expansion\",\"severity\":\"caution\",\"question\":\"Comments aren't covered by the favorites criterion. Should this become a new PRD criterion before you add the step?\",\"evidenceRefIds\":[\"prd.ac_999\",\"add_step.linked_criterion_ids\"],\"suggestedActionIds\":[\"edit_prd\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

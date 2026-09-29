@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "id": "claim-done-en-guided",
+  "event": "ai_claimed_done",
+  "locale": "en-US",
+  "mode": "guided",
+  "description": "Negative: ai_claimed_done only records the claim; the provoke gate opens at verify_entered, so no prompt is sent.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "ai_claimed_done",
+    "artifactRef": {
+      "kind": "step",
+      "id": "step-5",
+      "label": "Dark mode toggle"
+    },
+    "contextHash": "sha256:ddf5d5d2601fe593a8a5bdbff3a45aa284243a559d8b6801a95c97902b817e4d",
+    "mode": "guided",
+    "locale": "en-US",
+    "allowedActionIds": ["open_diff", "open_preview"],
+    "goalSummary": "The settings page has a toggle that switches the app to dark mode",
+    "planSummary": {
+      "stepCount": 5,
+      "activeStep": "Dark mode toggle"
+    },
+    "verificationState": {
+      "aiSelfReport": true,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": true,
+      "hasTests": false,
+      "diffAvailable": true
+    },
+    "evidenceRefs": [
+      {
+        "id": "agent.assistant_claim",
+        "source": "agent",
+        "kind": "assistant_claim",
+        "label": "AI 완료 주장",
+        "valueSummary": {
+          "kind": "enum",
+          "value": "claimed_done"
+        },
+        "verificationEvidence": false
+      }
+    ]
+  },
+  "expect": {
+    "shouldProvoke": false,
+    "gatePasses": false,
+    "allowedConcerns": ["ai_self_report_only"],
+    "requiredEvidenceRefIds": [],
+    "locale": "en-US"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":false,\"concern\":\"ai_self_report_only\",\"severity\":\"info\",\"question\":\"\",\"evidenceRefIds\":[\"agent.assistant_claim\"],\"suggestedActionIds\":[]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

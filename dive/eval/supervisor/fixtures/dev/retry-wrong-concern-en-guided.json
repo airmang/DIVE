@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "id": "retry-wrong-concern-en-guided",
+  "event": "retry_loop",
+  "locale": "en-US",
+  "mode": "guided",
+  "description": "Negative control: same context as retry-fetch-401-en-guided; the recording uses the P1 concern instead of retry_loop.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "retry_loop",
+    "artifactRef": {
+      "kind": "failure",
+      "id": "step-3:failure:fetch_failed_401_unauthorized",
+      "label": "Load weather data"
+    },
+    "contextHash": "sha256:2e2ff0f68154620096984d9510d0f323871e0ad4429db51a9cbf1c90d38709ad",
+    "mode": "guided",
+    "locale": "en-US",
+    "allowedActionIds": [
+      "create_repro_steps",
+      "rollback_last_change",
+      "open_diff",
+      "run_tests",
+      "split_scope",
+      "dismiss_review"
+    ],
+    "goalSummary": "The weather app shows today's temperature for the chosen city",
+    "planSummary": {
+      "stepCount": 5,
+      "activeStep": "Load weather data"
+    },
+    "verificationState": {
+      "aiSelfReport": false,
+      "concreteEvidence": false,
+      "testResult": "fail"
+    },
+    "feasibility": {
+      "runnable": true,
+      "previewable": false,
+      "hasTests": true,
+      "diffAvailable": true
+    },
+    "evidenceRefs": [
+      {
+        "id": "failure.fingerprint",
+        "source": "terminal",
+        "kind": "failure_summary",
+        "label": "Failure fingerprint",
+        "valueSummary": {
+          "fingerprint": "fetch_failed_401_unauthorized"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "failure.count",
+        "source": "verification",
+        "kind": "retry_loop_assessment",
+        "label": "Repeated failure count",
+        "valueSummary": {
+          "count": 3
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "failure.last",
+        "source": "verification",
+        "kind": "failure_summary",
+        "label": "Last failure",
+        "valueSummary": {
+          "occurredAt": 1759100180000,
+          "summaryHash": "h_3f9a1c"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "recovery.state",
+        "source": "ui_observation",
+        "kind": "recovery_state",
+        "label": "Recovery state",
+        "valueSummary": {
+          "recoveryAvailable": true
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "failure.last_action",
+        "source": "history",
+        "kind": "failure_summary",
+        "label": "Last action summary",
+        "valueSummary": "asked_ai_to_fix",
+        "verificationEvidence": false
+      }
+    ],
+    "retryLoopAssessment": {
+      "eligible": true,
+      "reasonCodes": ["same_failure_repeated"],
+      "evidenceRefs": [
+        "failure.fingerprint",
+        "failure.count",
+        "failure.last",
+        "recovery.state",
+        "failure.last_action"
+      ],
+      "failureFingerprint": "fetch_failed_401_unauthorized",
+      "failureCount": 3,
+      "lastFailureAt": 1759100180000,
+      "lastActionSummary": "asked_ai_to_fix",
+      "recoveryAvailable": true
+    }
+  },
+  "expect": {
+    "shouldProvoke": true,
+    "gatePasses": true,
+    "allowedConcerns": ["retry_loop"],
+    "requiredEvidenceRefIds": ["failure.fingerprint", "failure.count"],
+    "relevantEvidenceRefIds": [
+      "failure.fingerprint",
+      "failure.count",
+      "failure.last",
+      "failure.last_action",
+      "recovery.state"
+    ],
+    "criterionTerms": ["weather", "temperature"],
+    "locale": "en-US",
+    "expectedDropReason": "disallowed_concern"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"ai_self_report_only\",\"severity\":\"caution\",\"question\":\"Loading the weather data failed with the same 401 error 3 times. Would rolling back the last change help you see what broke it?\",\"evidenceRefIds\":[\"failure.fingerprint\",\"failure.count\"],\"suggestedActionIds\":[\"rollback_last_change\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}
