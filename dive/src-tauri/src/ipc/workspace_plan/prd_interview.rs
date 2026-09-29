@@ -45,7 +45,8 @@ pub async fn workspace_prd_interview_turn_impl(
     };
 
     let runtime = state.ensure_provider_runtime().await?;
-    let (raw, turn_finish_reason) = run_prd_interview_turn(
+    let turn_id = format!("prd-turn-{}", now_ms());
+    let (raw, turn_finish_reason) = match run_prd_interview_turn(
         runtime.provider.as_ref(),
         input.model.clone(),
         &base_draft,
@@ -53,8 +54,24 @@ pub async fn workspace_prd_interview_turn_impl(
         &input.answer,
         false,
     )
-    .await?;
-    let turn_id = format!("prd-turn-{}", now_ms());
+    .await
+    {
+        Ok(turn) => turn,
+        Err(err) => {
+            // Spec 015 FR-001: a failed model call is still an evaluated turn
+            // for the research ledger. Logging is best-effort so it never
+            // masks the provider error the student sees.
+            if let Err(log_err) =
+                log_prd_interview_model_error(state, &input, &base_draft, &turn_id, err.class)
+            {
+                tracing::warn!(
+                    error = %crate::telemetry::redact_log_text(&log_err),
+                    "failed to log PRD interview model error"
+                );
+            }
+            return Err(err.message);
+        }
+    };
     let mut parsed = parse_prd_turn_response(&raw, &turn_id);
     // 011 재QA 2차: audit which structuring failures were actually response
     // truncation — a Length finish means the model may have been cut before
@@ -289,6 +306,7 @@ pub async fn workspace_prd_interview_turn_impl(
                 validation_outcome: output.validation_outcome.clone(),
                 parse_failure_kind: turn_parse_failure_kind.clone(),
                 contract_retry_attempted,
+                error_class: None,
                 patch_proposed: output.patch.is_some(),
                 applied_field_count: output.applied_field_paths.len(),
                 rejected_reason_count: output.rejected_reasons.len(),
@@ -320,6 +338,60 @@ pub async fn workspace_prd_interview_turn_impl(
     Ok(output)
 }
 
+/// A failed PRD interview model call. `class` is a fixed code safe to log;
+/// `message` is the provider text returned to the caller, never logged here.
+struct PrdTurnModelError {
+    class: &'static str,
+    message: String,
+}
+
+impl PrdTurnModelError {
+    fn new(class: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            class,
+            message: message.into(),
+        }
+    }
+}
+
+fn log_prd_interview_model_error(
+    state: &AppState,
+    input: &PrdInterviewTurnInput,
+    draft: &LiveProjectSpecDraftRow,
+    turn_id: &str,
+    error_class: &'static str,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    let session_id =
+        super::plan_lifecycle::latest_session_id_for_project(db.conn(), input.project_id);
+    dive_event_log::append_to_conn(
+        db.conn(),
+        session_id,
+        dive_event_log::PRD_INTERVIEW_TURN_EVALUATED_EVENT,
+        dive_event_log::prd_interview_turn_evaluated_payload(
+            dive_event_log::PrdInterviewTurnEvaluatedPayloadInput {
+                project_id: input.project_id,
+                project_spec_id: project_spec_id_for_draft(draft),
+                draft_id: draft.draft_id.clone(),
+                turn_id: turn_id.to_string(),
+                validation_outcome: "model_error".into(),
+                parse_failure_kind: None,
+                contract_retry_attempted: false,
+                error_class: Some(error_class.to_string()),
+                patch_proposed: false,
+                applied_field_count: 0,
+                rejected_reason_count: 0,
+                architecture_proposal_count: 0,
+                provider: input.provider.clone(),
+                model: input.model.clone(),
+                prompt_version: prd_interview_prompt_version().render(),
+            },
+        ),
+    )
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
 async fn run_prd_interview_turn(
     provider: &dyn crate::providers::LlmProvider,
     model: String,
@@ -327,7 +399,7 @@ async fn run_prd_interview_turn(
     conversation: &[PrdInterviewConversationTurnInput],
     answer: &str,
     json_contract_retry: bool,
-) -> Result<(String, FinishReason), String> {
+) -> Result<(String, FinishReason), PrdTurnModelError> {
     let mut user_prompt = build_prd_interview_user_prompt(draft, conversation, answer);
     if json_contract_retry {
         // 011 S-057: hard reminder for the deterministic in-turn retry after a
@@ -364,7 +436,7 @@ async fn run_prd_interview_turn(
         Duration::from_millis(350),
     )
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| PrdTurnModelError::new("request_failed", e.to_string()))?;
     let mut text = String::new();
     let mut finish_reason = FinishReason::Stop;
     while let Some(event) = stream.next().await {
@@ -376,7 +448,7 @@ async fn run_prd_interview_turn(
                 finish_reason = done;
                 break;
             }
-            ChatEvent::Error(err) => return Err(err),
+            ChatEvent::Error(err) => return Err(PrdTurnModelError::new("stream_error", err)),
             ChatEvent::ReasoningDelta(_)
             | ChatEvent::ToolCallStart { .. }
             | ChatEvent::ToolCallDelta { .. }
@@ -385,7 +457,10 @@ async fn run_prd_interview_turn(
         }
     }
     if finish_reason == FinishReason::Error {
-        return Err("PRD interview provider finished with an error".into());
+        return Err(PrdTurnModelError::new(
+            "finished_with_error",
+            "PRD interview provider finished with an error",
+        ));
     }
     Ok((text, finish_reason))
 }
@@ -393,16 +468,30 @@ async fn run_prd_interview_turn(
 /// Semver of the PRD interview prompt templates (spec 015 FR-001): the system
 /// prompt, the user prompt template, and the contract-retry reminder. Bump it
 /// whenever any of their text changes; the pin test enforces it.
-pub(crate) const PRD_INTERVIEW_PROMPT_SEMVER: &str = "1.0.0";
+pub(crate) const PRD_INTERVIEW_PROMPT_SEMVER: &str = "1.1.0";
+
+/// Focus line sent when the confirm gate has no gaps left.
+const PRD_READY_TO_SAVE_FOCUS: &str =
+    "ready_to_save: the draft is complete enough; point to the PRD confirmation action";
+/// Missing-fields line sent when the confirm gate has no gaps left.
+const PRD_NO_MISSING_FIELDS: &str = "none";
 
 const PRD_INTERVIEW_CONTRACT_RETRY_REMINDER: &str = "\n\nIMPORTANT: your previous reply violated the output contract. Respond with ONLY one JSON object now — the very first character of your reply must be '{'. No prose, no Markdown fences, no text outside the JSON.";
 
 pub(crate) fn prd_interview_prompt_version() -> &'static PromptVersion {
     static VERSION: OnceLock<PromptVersion> = OnceLock::new();
     VERSION.get_or_init(|| {
-        // The gap labels/focus lines interpolated into the user prompt come
-        // from `prd_core::confirmable_draft_gaps` (confirm-gate data), so they
-        // are placeholders here like the draft, conversation, and answer.
+        // The draft, conversation, and answer are per-request data. The gap
+        // labels and focus lines interpolated next to them are model-facing
+        // instructions, so every entry of the confirm-gate table is hashed.
+        let gap_table = CONFIRMABLE_GAP_TABLE
+            .iter()
+            .map(|gap| format!("{} => {}", gap.label, gap.focus))
+            .chain([format!(
+                "{PRD_NO_MISSING_FIELDS} => {PRD_READY_TO_SAVE_FOCUS}"
+            )])
+            .collect::<Vec<_>>()
+            .join("\n");
         let fingerprint = [
             build_prd_interview_system_prompt(),
             render_prd_interview_user_prompt(
@@ -413,6 +502,7 @@ pub(crate) fn prd_interview_prompt_version() -> &'static PromptVersion {
                 "{answer}",
             ),
             PRD_INTERVIEW_CONTRACT_RETRY_REMINDER.to_string(),
+            gap_table,
         ]
         .join("\n---\n");
         PromptVersion::new("prd_interview", PRD_INTERVIEW_PROMPT_SEMVER, &fingerprint)
@@ -521,7 +611,7 @@ fn format_prd_interview_conversation(conversation: &[PrdInterviewConversationTur
 pub(super) fn missing_confirmable_prd_fields(spec: &ProjectSpecDraft) -> Vec<&'static str> {
     let gaps = confirmable_draft_gaps(spec);
     if gaps.is_empty() {
-        return vec!["none"];
+        return vec![PRD_NO_MISSING_FIELDS];
     }
     gaps.into_iter().map(|gap| gap.label).collect()
 }
@@ -529,7 +619,7 @@ pub(super) fn missing_confirmable_prd_fields(spec: &ProjectSpecDraft) -> Vec<&'s
 pub(super) fn prd_interview_next_focus(spec: &ProjectSpecDraft) -> &'static str {
     match confirmable_draft_gaps(spec).first() {
         Some(gap) => gap.focus,
-        None => "ready_to_save: the draft is complete enough; point to the PRD confirmation action",
+        None => PRD_READY_TO_SAVE_FOCUS,
     }
 }
 
@@ -902,8 +992,25 @@ mod prd_interview_prompt_tests {
         // PRD_INTERVIEW_PROMPT_SEMVER and append the new pair.
         crate::dive::prompt_version::assert_prompt_version_pinned(
             prd_interview_prompt_version(),
-            &[("1.0.0", "79eaddb8")],
+            &[("1.0.0", "79eaddb8"), ("1.1.0", "2cd96df7")],
         );
+    }
+
+    #[test]
+    fn every_reported_confirm_gap_is_in_the_hashed_gap_table() {
+        let mut vague = empty_draft();
+        vague.spec.goal = "앱".into();
+        for draft in [empty_draft(), vague] {
+            for gap in confirmable_draft_gaps(&draft.spec) {
+                assert!(
+                    CONFIRMABLE_GAP_TABLE
+                        .iter()
+                        .any(|entry| entry.label == gap.label && entry.focus == gap.focus),
+                    "gap {:?} must be listed in CONFIRMABLE_GAP_TABLE so the prompt version hashes it",
+                    gap.label
+                );
+            }
+        }
     }
 
     #[test]

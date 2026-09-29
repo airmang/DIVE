@@ -1234,121 +1234,159 @@ fn card_event_payload(project_id: i64, session_id: Option<i64>, lifecycle: &str)
     })
 }
 
-// Spec 015 FR-005 / SC-003: review-card hosts without a session in scope
-// (terminal tab, PRD board) send `sessionId: null`. Every `provocation.*`
-// event of a session — including those — must reach that session's export,
-// together with the exposure's terminal event (SC-002).
+// Spec 015 FR-005 / SC-002 / SC-003: review-card hosts without a session in
+// scope send `sessionId: null`. With several sessions in the project, every
+// `provocation.*` event must land in exactly one session's export, each
+// exposure entirely in one session (even when a newer session starts before
+// its terminal event), and nothing may leak into another session's export.
 #[test]
-fn every_provocation_event_of_a_session_is_exported_even_without_a_client_session_id() {
-    let (db, sid) = seed();
-    let project_id = project_id_for_session(&db, sid);
+fn every_provocation_event_is_exported_once_with_each_exposure_in_one_session() {
+    let (db, first) = seed();
+    let project_id = project_id_for_session(&db, first);
     let question = "이 목표 요약이 내가 만들려는 것과 같은지 확인할 수 있나요?";
-    {
-        let guard = db.lock().unwrap();
-        let conn = guard.conn();
-        let mut shown = card_event_payload(project_id, None, "card_shown");
-        shown["question"] = json!(question);
+    let new_session = |title: &str| {
+        session::insert(
+            db.lock().unwrap().conn(),
+            &NewSession {
+                project_id,
+                title: title.into(),
+                ended_at: None,
+                status: "active".into(),
+            },
+        )
+        .unwrap()
+    };
+    let append = |session_id: Option<i64>, event_type: &str, payload: Value| {
         dive_event_log::append_provocation_event_to_conn(
-            conn,
-            None,
-            "provocation.card_shown",
-            &shown,
+            db.lock().unwrap().conn(),
+            session_id,
+            event_type,
+            &payload,
         )
         .unwrap();
-        let mut unanswered = card_event_payload(project_id, None, "card_unanswered");
-        unanswered["visibleMs"] = json!(4200);
-        unanswered["unansweredReason"] = json!("superseded");
-        dive_event_log::append_provocation_event_to_conn(
-            conn,
-            None,
-            "provocation.card_unanswered",
-            &unanswered,
-        )
-        .unwrap();
-        let mut clicked = card_event_payload(project_id, Some(sid), "action_clicked");
-        clicked["exposureId"] = json!("exp-2");
-        clicked["responseLatencyMs"] = json!(900);
-        dive_event_log::append_provocation_event_to_conn(
-            conn,
-            Some(sid),
-            "provocation.action_clicked",
-            &clicked,
-        )
-        .unwrap();
-        // A null-session event with no project cannot be attributed; it stays
-        // unscoped instead of being guessed onto some session.
-        let mut orphan = card_event_payload(project_id, None, "card_shown");
-        orphan.as_object_mut().unwrap().remove("projectId");
-        dive_event_log::append_provocation_event_to_conn(
-            conn,
-            None,
-            "provocation.card_shown",
-            &orphan,
-        )
-        .unwrap();
-    }
+    };
+    let event = |exposure: &str, lifecycle: &str| {
+        let mut payload = card_event_payload(project_id, None, lifecycle);
+        payload["exposureId"] = json!(exposure);
+        payload
+    };
 
-    let stored_for_session: i64 = db
-        .lock()
+    // Exposure 1 opens in the first session with no client session id...
+    let mut shown = event("exp-1", "card_shown");
+    shown["question"] = json!(question);
+    append(None, "provocation.card_shown", shown);
+    // ...then a step start creates a second session before it ends.
+    let second = new_session("step 2");
+    let mut unanswered = event("exp-1", "card_unanswered");
+    unanswered["visibleMs"] = json!(4200);
+    unanswered["unansweredReason"] = json!("replaced");
+    append(None, "provocation.card_unanswered", unanswered);
+
+    // Exposure 2 opens after the second session exists and is answered with
+    // an explicit session id.
+    append(None, "provocation.card_shown", event("exp-2", "card_shown"));
+    let mut clicked = event("exp-2", "action_clicked");
+    clicked["responseLatencyMs"] = json!(900);
+    append(Some(second), "provocation.action_clicked", clicked);
+
+    // An archived newest session never receives fallback rows.
+    let archived = new_session("archived");
+    db.lock()
         .unwrap()
         .conn()
-        .query_row(
-            "SELECT COUNT(*) FROM EventLog WHERE session_id = ? AND type LIKE 'provocation.%'",
-            [sid],
-            |row| row.get(0),
+        .execute(
+            "UPDATE Session SET status = 'archived' WHERE id = ?",
+            [archived],
         )
         .unwrap();
-    let unscoped: i64 = db
-        .lock()
-        .unwrap()
-        .conn()
-        .query_row(
-            "SELECT COUNT(*) FROM EventLog WHERE session_id IS NULL AND type LIKE 'provocation.%'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(stored_for_session, 3);
-    assert_eq!(unscoped, 1);
+    append(None, "provocation.card_shown", event("exp-3", "card_shown"));
 
-    let engine = ExportEngine::new(db);
-    let records = lines(
-        &engine
-            .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
-            .unwrap(),
-    );
-    let exported = records
-        .iter()
+    // No project: stays unscoped rather than guessed.
+    let mut orphan = event("exp-4", "card_shown");
+    orphan.as_object_mut().unwrap().remove("projectId");
+    append(None, "provocation.card_shown", orphan);
+
+    let exported = |sid: i64| {
+        lines(
+            &ExportEngine::new(db.clone())
+                .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+                .unwrap(),
+        )
+        .into_iter()
         .filter(|record| {
             record["kind"] == "event"
                 && record["type"]
                     .as_str()
                     .is_some_and(|ty| ty.starts_with("provocation."))
         })
-        .collect::<Vec<_>>();
-    assert_eq!(exported.len() as i64, stored_for_session);
+        .collect::<Vec<_>>()
+    };
+    let exposures = |records: &[Value]| {
+        records
+            .iter()
+            .map(|record| {
+                (
+                    record["type"].as_str().unwrap().to_string(),
+                    record["payload"]["exposureId"]
+                        .as_str()
+                        .unwrap()
+                        .to_string(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let first_export = exported(first);
+    let second_export = exported(second);
+    assert_eq!(
+        exposures(&first_export),
+        vec![
+            ("provocation.card_shown".into(), "exp-1".into()),
+            ("provocation.card_unanswered".into(), "exp-1".into()),
+        ]
+    );
+    assert_eq!(
+        exposures(&second_export),
+        vec![
+            ("provocation.card_shown".into(), "exp-2".into()),
+            ("provocation.action_clicked".into(), "exp-2".into()),
+            ("provocation.card_shown".into(), "exp-3".into()),
+        ]
+    );
+    assert!(exported(archived).is_empty());
 
-    let shown = exported
-        .iter()
-        .find(|record| record["type"] == "provocation.card_shown")
+    // Every stored provocation row with a session is in exactly one export;
+    // only the project-less orphan is unscoped.
+    let (scoped, unscoped): (i64, i64) = db
+        .lock()
+        .unwrap()
+        .conn()
+        .query_row(
+            "SELECT SUM(session_id IS NOT NULL), SUM(session_id IS NULL) FROM EventLog WHERE type LIKE 'provocation.%'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
         .unwrap();
+    assert_eq!(scoped as usize, first_export.len() + second_export.len());
+    assert_eq!(unscoped, 1);
+
+    let shown = &first_export[0];
     // D-015-03: the generated question is exported in plain text.
     assert_eq!(shown["payload"]["question"], json!(question));
-    let unanswered = exported
-        .iter()
-        .find(|record| record["type"] == "provocation.card_unanswered")
-        .unwrap();
-    assert_eq!(unanswered["payload"]["exposureId"], json!("exp-1"));
-    assert_eq!(unanswered["payload"]["visibleMs"], json!(4200));
     assert_eq!(
-        unanswered["payload"]["unansweredReason"],
-        json!("superseded")
+        shown["payload"]["sessionResolvedBy"],
+        json!("project_latest")
     );
-    let clicked = exported
-        .iter()
-        .find(|record| record["type"] == "provocation.action_clicked")
-        .unwrap();
-    assert_eq!(clicked["payload"]["responseLatencyMs"], json!(900));
+    let unanswered = &first_export[1];
+    assert_eq!(
+        unanswered["payload"]["sessionResolvedBy"],
+        json!("exposure")
+    );
+    assert_eq!(unanswered["payload"]["visibleMs"], json!(4200));
+    assert_eq!(unanswered["payload"]["unansweredReason"], json!("replaced"));
+    assert_eq!(second_export[1]["payload"]["responseLatencyMs"], json!(900));
+    assert!(second_export[1]["payload"]
+        .get("sessionResolvedBy")
+        .is_none());
 }
 
 #[test]
@@ -1420,32 +1458,24 @@ fn exported_question_text_is_plain_but_still_passes_pii_and_secret_detectors() {
 #[test]
 fn session_meta_exports_session_origin() {
     let (db, sid) = seed();
-    let out = ExportEngine::new(db.clone())
-        .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
-        .unwrap();
-    let meta = lines(&out)
-        .into_iter()
-        .find(|record| record["kind"] == "session_meta")
-        .unwrap();
-    // Sessions created by the DAO record the build/env origin.
-    assert_eq!(
-        meta["origin"],
-        json!(dive_lib::db::models::SessionOrigin::current().as_str())
-    );
-
-    db.lock()
-        .unwrap()
-        .conn()
-        .execute("UPDATE Session SET origin = 'qa' WHERE id = ?", [sid])
-        .unwrap();
-    let out = ExportEngine::new(db)
-        .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
-        .unwrap();
-    let meta = lines(&out)
-        .into_iter()
-        .find(|record| record["kind"] == "session_meta")
-        .unwrap();
-    assert_eq!(meta["origin"], json!("qa"));
+    for origin in ["classroom", "qa", "dev"] {
+        db.lock()
+            .unwrap()
+            .conn()
+            .execute(
+                "UPDATE Session SET origin = ? WHERE id = ?",
+                params![origin, sid],
+            )
+            .unwrap();
+        let out = ExportEngine::new(db.clone())
+            .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+            .unwrap();
+        let meta = lines(&out)
+            .into_iter()
+            .find(|record| record["kind"] == "session_meta")
+            .unwrap();
+        assert_eq!(meta["origin"], json!(origin));
+    }
 }
 
 #[test]

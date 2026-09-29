@@ -37,6 +37,9 @@ pub(crate) async fn verification_coach_generate_impl(
     log_requested(state, &request, &event_id, guide_version)?;
 
     let output = generate_from_runtime(state, &request).await;
+    // Spec 015 FR-001: `promptVersion` is logged only when the coach prompt
+    // actually reached a model (a returned turn or a mid-turn failure).
+    let prompt_sent = !matches!(output, CoachRuntimeOutput::Unavailable(_));
     let mut response = match output {
         CoachRuntimeOutput::Guide {
             raw,
@@ -75,12 +78,12 @@ pub(crate) async fn verification_coach_generate_impl(
             }
             Err(reason) => unavailable_response(event_id.clone(), guide_version, reason, &request),
         },
-        CoachRuntimeOutput::Unavailable(reason) => {
+        CoachRuntimeOutput::Unavailable(reason) | CoachRuntimeOutput::TurnFailed(reason) => {
             unavailable_response(event_id.clone(), guide_version, reason, &request)
         }
     };
     response.event_id = event_id;
-    log_evaluated(state, &request, &response)?;
+    log_evaluated(state, &request, &response, prompt_sent)?;
     Ok(response)
 }
 
@@ -129,7 +132,10 @@ enum CoachRuntimeOutput {
         model: Option<String>,
         latency_ms: Option<u64>,
     },
+    /// No prompt was sent (runtime, provider, credentials, or root missing).
     Unavailable(GuidanceReasonCode),
+    /// The prompt was sent but the Pi supervisor turn failed.
+    TurnFailed(GuidanceReasonCode),
 }
 
 async fn generate_from_runtime(
@@ -227,7 +233,7 @@ async fn generate_from_runtime(
                 message = %crate::telemetry::redact_log_text(&err.message),
                 "verification coach Pi supervisor turn failed"
             );
-            CoachRuntimeOutput::Unavailable(sidecar_failure_reason(err.kind))
+            CoachRuntimeOutput::TurnFailed(sidecar_failure_reason(err.kind))
         }
     }
 }
@@ -279,7 +285,6 @@ fn log_requested(
             "cardId": request.card_id,
             "planStepId": request.plan_step_id,
             "guideVersion": guide_version,
-            "promptVersion": verification_coach_prompt_version().render(),
             "sourceUiMode": request.source_ui_mode,
             "evidenceSummary": evidence_summary(request),
             "requestedAt": crate::db::now_ms(),
@@ -293,6 +298,7 @@ fn log_evaluated(
     state: &AppState,
     request: &VerificationCoachGenerateRequest,
     response: &VerificationCoachGenerateResponse,
+    prompt_sent: bool,
 ) -> Result<(), String> {
     let validation = response.validation.as_ref();
     let guide = response.guide.as_ref();
@@ -309,7 +315,7 @@ fn log_evaluated(
             "evidenceRefs": validation.map(|value| &value.evidence_refs),
             "model": response.model,
             "latencyMs": response.latency_ms,
-            "promptVersion": verification_coach_prompt_version().render(),
+            "promptVersion": prompt_sent.then(|| verification_coach_prompt_version().render()),
             "guideSummary": guide.map(|guide| json!({
                 "criterionSummary": guide.criterion_summary,
                 "recommendedCheckCount": guide.recommended_checks.len(),

@@ -37,11 +37,14 @@ export type ProvocationLogEventType =
   | "provocation.card_unanswered";
 
 /**
- * Why a shown card left view without a response (spec 015 FR-004). Logged as
- * `unansweredReason`, not `reason`: the export anonymizer hashes `reason` keys
- * as user text, which would erase this enum.
+ * Why a shown card left view without a response (spec 015 FR-004):
+ * `replaced` — another card, or the same card id with a new question, took its
+ * place; `removed` — the card left and nothing replaced it; `unmounted` — the
+ * host itself left the screen; `page_hidden` — `pagehide` (best effort on app
+ * close). Logged as `unansweredReason`, not `reason`: the export anonymizer
+ * hashes `reason` keys as user text, which would erase this enum.
  */
-export type ProvocationUnansweredReason = "superseded" | "unmounted" | "page_hidden";
+export type ProvocationUnansweredReason = "replaced" | "removed" | "unmounted" | "page_hidden";
 
 export interface ProvocationLogInput {
   eventType: ProvocationLogEventType;

@@ -26,6 +26,21 @@ describe("supervision policy (spec 015 FR-002)", () => {
     expect(JSON.parse(readFileSync(resolved, "utf8"))).toEqual(policyJson);
   });
 
+  it("pins the released policy values", () => {
+    // Changing a threshold is a new policy release: bump policyVersion and
+    // update this pin and the Rust pin (supervision_policy.rs) together.
+    expect(policyJson).toEqual({
+      policyVersion: "1.0.0",
+      retryLoopMinFailures: 2,
+      broadStepMinExpectedFiles: 4,
+      scopeSupervisorDebounceMs: 650,
+      evidenceTextMaxChars: 160,
+      evidenceListMaxItems: 6,
+      planDraftEvidenceRefCap: 16,
+      recentAssistantReportCount: 3,
+    });
+  });
+
   it("types every key the file defines (the Rust struct denies unknown keys)", () => {
     expect(Object.keys(policyJson).sort()).toEqual(
       [

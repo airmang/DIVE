@@ -77,3 +77,23 @@ vitest (`test:unit`, include widened to `scripts/**/*.test.mjs`),
 (new integration tests). Checks that need both toolchains (cargo-guard
 resolution) run locally and in `release-gate`; a one-line workflow addition is
 left for the owner if full CI coverage is wanted.
+
+## D-015-09 (S-076 review) — Session origin: persisted override, legacy rows are `dev`
+
+A release `.app` launched through LaunchServices receives no shell environment,
+so `DIVE_SESSION_ORIGIN` alone cannot tag live-QA sessions. Precedence is
+env > `<app_data_dir>/session-origin` file > debug build → `dev` > `classroom`;
+the live-QA recipe writes the file. Migration v20 (unreleased when amended)
+backfills sessions that existed before it as `dev`: no classroom pilot has run
+on any build yet, so labelling historical team/QA sessions `classroom` would
+seed the research aggregates with non-classroom data.
+
+## D-015-10 (S-076 review) — Card events keep one session per exposure
+
+A card exposure's events are attributed to one session: the host captures the
+context (and session) when the exposure opens, and the Rust fallback reuses the
+session of an earlier row with the same `exposureId` before falling back to the
+project's latest non-archived session (marked `sessionResolvedBy`). Events with
+no session at all (PRD authoring before any session exists) stay NULL and are
+not in any session export — a documented limitation, not silently misattributed.
+Misattribution is worse than absence for the research ledger (Constitution IV).

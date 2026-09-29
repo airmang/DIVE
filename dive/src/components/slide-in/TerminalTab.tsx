@@ -119,7 +119,7 @@ export function TerminalTab() {
           mode: provocationMode,
           stage: "execute",
           projectId: currentProjectId,
-          sessionId: currentSessionId,
+          sessionId: currentProjectId === null ? null : currentSessionId,
         }}
         mode={provocationMode}
         onAction={handleProvocationAction}

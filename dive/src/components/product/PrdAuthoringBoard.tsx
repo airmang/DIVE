@@ -28,6 +28,7 @@ import { buildPrdIntentCheckCard } from "../../features/provocation/rules";
 import { Button } from "../ui/button";
 import { RuntimeModelSelector } from "../chat/RuntimeModelSelector";
 import { cn } from "../../lib/utils";
+import { useProjectSessionStore } from "../../stores/project-session";
 import { shouldSendOnEnter } from "../../lib/composerKeys";
 import { QuickIntakePanel } from "./QuickIntakePanel";
 
@@ -398,6 +399,11 @@ export function PrdAuthoringBoard({
 }: PrdAuthoringBoardProps) {
   const t = useT();
   const [localDraft, setLocalDraft] = useState(draft);
+  // Spec 015 FR-005: the intent-check card logs under the active session of
+  // this project when there is one (otherwise the backend attributes it).
+  const currentProjectId = useProjectSessionStore((s) => s.currentProjectId);
+  const currentSessionId = useProjectSessionStore((s) => s.currentSessionId);
+  const intentCheckSessionId = currentProjectId === localDraft.projectId ? currentSessionId : null;
   const [answer, setAnswer] = useState("");
   const [submittingAnswer, setSubmittingAnswer] = useState(false);
   const submittingAnswerRef = useRef(false);
@@ -1264,7 +1270,11 @@ export function PrdAuthoringBoard({
         <div data-testid="prd-intent-check" className="border-t bg-bg-panel px-6 pt-3">
           <ProvocationCardHost
             cards={[intentCheckCard]}
-            context={{ stage: "decompose", projectId: localDraft.projectId }}
+            context={{
+              stage: "decompose",
+              projectId: localDraft.projectId,
+              sessionId: intentCheckSessionId,
+            }}
             mode="standard"
             onAction={handleIntentCheckAction}
           />

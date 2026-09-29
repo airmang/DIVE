@@ -173,7 +173,7 @@ function buildPrdDelta(
 }
 
 function criterionEvidenceRefs(criteria: AcceptanceCriterion[]): SupervisorEvidenceRefContract[] {
-  return criteria.slice(0, 6).map((criterion) => ({
+  return criteria.slice(0, SUPERVISION_POLICY.evidenceListMaxItems).map((criterion) => ({
     id: criterion.criterionId,
     source: "plan",
     kind: "acceptance_criteria",

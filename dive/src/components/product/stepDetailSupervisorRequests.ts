@@ -2,6 +2,7 @@ import {
   createDiffReadySupervisorRequest,
   createRetryLoopSupervisorRequest,
   normalizeChangedFile,
+  SUPERVISION_POLICY,
   type ScaffoldMode,
   type SupervisorEvaluationRequest,
   type SupervisorEvaluationUiState,
@@ -152,7 +153,7 @@ export function buildRetryLoopSupervisorRequest(input: {
     !step ||
     !supervisorUiState ||
     !retryLoopSnapshot ||
-    retryLoopSnapshot.failureCount < 2 ||
+    retryLoopSnapshot.failureCount < SUPERVISION_POLICY.retryLoopMinFailures ||
     !provocation?.enabled ||
     typeof provocation.sessionId !== "number"
   ) {

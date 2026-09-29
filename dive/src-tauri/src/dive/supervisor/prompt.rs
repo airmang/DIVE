@@ -8,6 +8,9 @@ use crate::dive::prompt_version::PromptVersion;
 /// changes; the pin test in `supervisor/tests.rs` enforces it.
 pub const SUPERVISOR_PROMPT_SEMVER: &str = "1.0.0";
 
+/// Events whose prompt text is hashed into the prompt version, in hash order.
+/// `supervisor_prompt_fingerprint_lists_every_event_once` enumerates every
+/// `SupervisorEvent` variant through serde and fails if one is missing here.
 pub(super) const SUPERVISOR_PROMPT_EVENTS: [SupervisorEvent; 6] = [
     SupervisorEvent::VerifyEntered,
     SupervisorEvent::AiClaimedDone,
@@ -16,21 +19,6 @@ pub(super) const SUPERVISOR_PROMPT_EVENTS: [SupervisorEvent; 6] = [
     SupervisorEvent::DiffReady,
     SupervisorEvent::RetryLoop,
 ];
-
-/// Position of each event in `SUPERVISOR_PROMPT_EVENTS`. Adding a
-/// `SupervisorEvent` variant breaks this exhaustive match, so the new event's
-/// prompt text cannot silently stay out of the fingerprint.
-#[cfg(test)]
-pub(super) const fn supervisor_prompt_event_index(event: SupervisorEvent) -> usize {
-    match event {
-        SupervisorEvent::VerifyEntered => 0,
-        SupervisorEvent::AiClaimedDone => 1,
-        SupervisorEvent::ScopeExpansion => 2,
-        SupervisorEvent::PlanDrafted => 3,
-        SupervisorEvent::DiffReady => 4,
-        SupervisorEvent::RetryLoop => 5,
-    }
-}
 
 pub fn supervisor_prompt_version() -> &'static PromptVersion {
     static VERSION: OnceLock<PromptVersion> = OnceLock::new();

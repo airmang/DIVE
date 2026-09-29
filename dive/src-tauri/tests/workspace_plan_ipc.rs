@@ -1192,6 +1192,51 @@ async fn prd_interview_no_patch_turn_logs_one_turn_evaluated_event() {
         .any(|event| event.r#type.starts_with("prd_patch_")));
 }
 
+// Spec 015 FR-001 (S-076 review P2-12): a failed model call still leaves one
+// `prd_interview.turn_evaluated` row (outcome `model_error`, fixed error
+// class, never the provider message) before the error is returned.
+#[tokio::test]
+async fn prd_interview_model_error_logs_turn_evaluated_without_provider_text() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![ChatEvent::Error(
+            "upstream 500 for key sk-live-secret-123".into(),
+        )]],
+    );
+    let project_id = seed_project(&state);
+
+    let err = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-model-error".into(),
+            answer: "일정 앱".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(err.contains("upstream 500"));
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    let evaluated = events
+        .iter()
+        .filter(|event| event.r#type == "prd_interview.turn_evaluated")
+        .collect::<Vec<_>>();
+    assert_eq!(evaluated.len(), 1);
+    let payload = &evaluated[0].payload;
+    assert_eq!(payload["validationOutcome"], json!("model_error"));
+    assert_eq!(payload["errorClass"], json!("stream_error"));
+    assert_eq!(payload["draftId"], json!("draft-model-error"));
+    assert!(payload["promptVersion"].as_str().is_some());
+    let encoded = payload.to_string();
+    assert!(!encoded.contains("upstream"));
+    assert!(!encoded.contains("sk-live"));
+}
+
 // S-057 GO-gate fix: a nondeterministic contract violation (prose-only first
 // reply) recovers via ONE deterministic in-turn retry; the audit trail keeps
 // the flake history on the applied turn.

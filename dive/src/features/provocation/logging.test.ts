@@ -390,13 +390,13 @@ describe("provocation lifecycle logging payloads", () => {
       context: { projectId: 4, sessionId: null },
       exposureId: "exp-2",
       visibleMs: 5300,
-      unansweredReason: "superseded",
+      unansweredReason: "replaced",
     });
     expect(payload.lifecycleEvent).toBe("card_unanswered");
     expect(payload).toMatchObject({
       exposureId: "exp-2",
       visibleMs: 5300,
-      unansweredReason: "superseded",
+      unansweredReason: "replaced",
       reason: null,
       selectedAction: null,
       projectId: 4,

@@ -336,13 +336,21 @@ pub struct SupervisorEvaluationLog {
     pub card_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_response: Option<Value>,
-    /// `<semver>+<hash>` of the SupervisorAgent prompt template (FR-001).
+    /// `<semver>+<hash>` of the SupervisorAgent prompt template (FR-001), or
+    /// `null` when no prompt was sent to a model on this attempt (provoke gate
+    /// false, runtime unavailable, oversized context, deterministic fallback
+    /// card). Set with `with_prompt_sent`.
     #[serde(default)]
-    pub prompt_version: String,
+    pub prompt_version: Option<String>,
     /// `SupervisionPolicy.policyVersion` the trigger assessments ran under
-    /// (FR-002).
+    /// (FR-002): the frontend's value when it sent a valid one.
     #[serde(default)]
     pub policy_version: String,
+    /// The Rust-embedded policy version, present only when it differs from
+    /// the frontend's `policy_version` (a stale bundle talking to a newer
+    /// binary, or the reverse).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_version_rust: Option<String>,
 }
 
 impl SupervisorEvaluationLog {
@@ -372,21 +380,61 @@ impl SupervisorEvaluationLog {
             drop_reason: validation.drop_reason,
             card_id: validation.card_id.clone(),
             user_response: None,
-            prompt_version: supervisor_prompt_version().render(),
+            prompt_version: None,
             policy_version: supervision_policy().policy_version.clone(),
+            policy_version_rust: None,
         }
+    }
+
+    /// Mark that this attempt sent the SupervisorAgent prompt to a model.
+    pub fn with_prompt_sent(mut self) -> Self {
+        self.prompt_version = Some(supervisor_prompt_version().render());
+        self
     }
 
     /// Record the policy version the frontend computed its assessment under.
     /// Both sides read the same `supervision-policy.json`, so this equals the
     /// Rust value unless a stale bundle is talking to a newer binary — which
-    /// is exactly the case the log must make visible.
+    /// is exactly the case the log must make visible, so both are kept then.
+    /// A value that is not a short semver is ignored and the Rust one kept.
     pub fn with_policy_version(mut self, policy_version: Option<&str>) -> Self {
-        if let Some(version) = policy_version.map(str::trim).filter(|v| !v.is_empty()) {
-            self.policy_version = version.to_string();
+        let Some(version) = policy_version.map(str::trim).filter(|v| !v.is_empty()) else {
+            return self;
+        };
+        if !is_policy_version(version) {
+            tracing::warn!(
+                length = version.len(),
+                "ignoring malformed frontend supervision policyVersion"
+            );
+            return self;
+        }
+        if version != self.policy_version {
+            self.policy_version_rust = Some(std::mem::replace(
+                &mut self.policy_version,
+                version.to_string(),
+            ));
         }
         self
     }
+}
+
+/// `MAJOR.MINOR.PATCH` with an optional `-`/`+` suffix, at most 32 chars.
+fn is_policy_version(value: &str) -> bool {
+    if value.len() > 32 {
+        return false;
+    }
+    let core_end = value.find(['-', '+']).unwrap_or(value.len());
+    let (core, suffix) = value.split_at(core_end);
+    let parts = core.split('.').collect::<Vec<_>>();
+    parts.len() == 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+        && suffix
+            .chars()
+            .skip(1)
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-'))
+        && suffix.len() != 1
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

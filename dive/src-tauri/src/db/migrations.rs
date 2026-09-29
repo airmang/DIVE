@@ -454,10 +454,12 @@ fn migration_v19(tx: &Transaction<'_>) -> rusqlite::Result<()> {
 }
 
 /// Spec 015 FR-006 (S-076) — `Session.origin` (classroom | qa | dev) so
-/// QA/dev runs can be excluded from research aggregates. Guarded ADD COLUMN;
-/// existing rows backfill to 'classroom' via the DEFAULT, same technique as
-/// migration_v18's `Project.status` (schema.rs `CREATE_SESSION` carries the
-/// column for fresh DBs).
+/// QA/dev runs can be excluded from research aggregates. Guarded ADD COLUMN,
+/// same technique as migration_v18's `Project.status` (schema.rs
+/// `CREATE_SESSION` carries the column for fresh DBs). New rows default to
+/// 'classroom', but rows that already exist when the column is added are
+/// backfilled 'dev': no classroom pilot has run on a pre-v20 build, so every
+/// earlier session is development or QA data.
 fn migration_v20(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     let exists: i64 = tx.query_row(
         "SELECT COUNT(*) FROM pragma_table_info('Session') WHERE name = 'origin'",
@@ -466,7 +468,8 @@ fn migration_v20(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     )?;
     if exists == 0 {
         tx.execute_batch(
-            "ALTER TABLE Session ADD COLUMN origin TEXT NOT NULL DEFAULT 'classroom' CHECK(origin IN ('classroom','qa','dev'))",
+            "ALTER TABLE Session ADD COLUMN origin TEXT NOT NULL DEFAULT 'classroom' CHECK(origin IN ('classroom','qa','dev'));
+             UPDATE Session SET origin = 'dev';",
         )?;
     }
     Ok(())
@@ -1241,24 +1244,29 @@ mod tests {
         assert_eq!(column_default, "'classroom'");
 
         // The CHECK constraint rejects anything outside the three origins.
-        let (project_id, session_id) = seed_project_session(db.conn());
+        let (project_id, _session_id) = seed_project_session(db.conn());
         let invalid = db.conn().execute(
             "INSERT INTO Session(project_id, title, started_at, status, origin) VALUES (?, 's', 0, 'active', 'pilot')",
             [project_id],
         );
         assert!(invalid.is_err());
 
-        // Sessions created through the DAO record the build/env origin; this
-        // test binary is a development build.
-        let origin: String = db
+        // A row inserted without an origin takes the classroom default.
+        db.conn()
+            .execute(
+                "INSERT INTO Session(project_id, title, started_at, status) VALUES (?, 's', 0, 'active')",
+                [project_id],
+            )
+            .unwrap();
+        let defaulted: String = db
             .conn()
             .query_row(
-                "SELECT origin FROM Session WHERE id = ?",
-                [session_id],
+                "SELECT origin FROM Session WHERE id = last_insert_rowid()",
+                [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(origin, crate::db::models::SessionOrigin::current().as_str());
+        assert_eq!(defaulted, "classroom");
     }
 
     #[test]
@@ -1298,12 +1306,27 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(backfilled, "classroom");
+        // Pre-v20 rows are development/QA data (no classroom pilot yet).
+        assert_eq!(backfilled, "dev");
 
-        // Idempotent: re-running the guarded ADD COLUMN is a no-op.
+        // Idempotent: re-running the guarded ADD COLUMN is a no-op, and it
+        // does not re-stamp rows created after the column exists.
+        db.conn()
+            .execute(
+                "INSERT INTO Session(id, project_id, title, started_at, status, origin) VALUES (2, 1, 'new', 0, 'active', 'classroom')",
+                [],
+            )
+            .unwrap();
         let tx = db.conn_mut().transaction().unwrap();
         super::migration_v20(&tx).unwrap();
         tx.commit().unwrap();
+        let later: String = db
+            .conn()
+            .query_row("SELECT origin FROM Session WHERE id = 2", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(later, "classroom");
     }
 
     #[test]

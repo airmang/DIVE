@@ -97,23 +97,62 @@ pub fn append_to_conn(
 }
 
 /// Append a frontend review-card event (`provocation.*`) through the export
-/// sanitizer. A host without a session in scope (terminal tab, PRD board)
-/// sends `sessionId: null`; the row is then attached to the payload
-/// project's latest session, because the only EventLog export path selects
-/// `WHERE session_id = ?` and a NULL session_id would make the exposure and
-/// its response unreachable by any export (spec 015 FR-005).
+/// sanitizer. The only EventLog export path selects `WHERE session_id = ?`, so
+/// a NULL session_id would make the exposure and its response unreachable by
+/// any export (spec 015 FR-005). A host without a session in scope sends
+/// `sessionId: null`; the row is then attributed, in order, to:
+///
+/// 1. the session of this exposure's `card_shown` row (same `exposureId`), so
+///    one exposure never splits across sessions even if a step start creates
+///    a new session between `card_shown` and its terminal event;
+/// 2. the latest non-archived session of the payload's project.
+///
+/// Either fallback is recorded as `sessionResolvedBy` (`exposure` |
+/// `project_latest`). With neither, the row stays unscoped (NULL).
 pub fn append_provocation_event_to_conn(
     conn: &Connection,
     session_id: Option<i64>,
     event_type: &str,
     payload: &Value,
 ) -> Result<i64, DbError> {
-    let payload = crate::export::sanitize_provocation_event_payload(payload);
-    let session_id = session_id.or_else(|| {
-        provocation_payload_project_id(&payload)
-            .and_then(|project_id| session_dao::latest_id_for_project(conn, project_id))
-    });
+    let mut payload = crate::export::sanitize_provocation_event_payload(payload);
+    let session_id = match session_id {
+        Some(id) => Some(id),
+        None => {
+            let resolved = exposure_session_id(conn, &payload)
+                .map(|id| (id, "exposure"))
+                .or_else(|| {
+                    provocation_payload_project_id(&payload)
+                        .and_then(|project_id| {
+                            session_dao::latest_unarchived_id_for_project(conn, project_id)
+                        })
+                        .map(|id| (id, "project_latest"))
+                });
+            if let (Some((_, resolved_by)), Value::Object(map)) = (resolved, &mut payload) {
+                map.insert("sessionResolvedBy".into(), json!(resolved_by));
+            }
+            resolved.map(|(id, _)| id)
+        }
+    };
     append_to_conn(conn, session_id, event_type, payload)
+}
+
+/// Session of the `card_shown` row that opened this payload's exposure.
+fn exposure_session_id(conn: &Connection, payload: &Value) -> Option<i64> {
+    let exposure_id = payload
+        .get("exposureId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())?;
+    conn.query_row(
+        "SELECT session_id FROM EventLog
+         WHERE type = 'provocation.card_shown'
+           AND session_id IS NOT NULL
+           AND json_extract(payload, '$.exposureId') = ?
+         ORDER BY id LIMIT 1",
+        [exposure_id],
+        |row| row.get::<_, i64>(0),
+    )
+    .ok()
 }
 
 fn provocation_payload_project_id(payload: &Value) -> Option<i64> {
@@ -1381,6 +1420,9 @@ pub struct PrdInterviewTurnEvaluatedPayloadInput {
     pub validation_outcome: String,
     pub parse_failure_kind: Option<String>,
     pub contract_retry_attempted: bool,
+    /// Fixed class of a failed model call (`validation_outcome` =
+    /// "model_error"); never the provider's message.
+    pub error_class: Option<String>,
     pub patch_proposed: bool,
     pub applied_field_count: usize,
     pub rejected_reason_count: usize,
@@ -1402,6 +1444,7 @@ pub fn prd_interview_turn_evaluated_payload(input: PrdInterviewTurnEvaluatedPayl
         "validationOutcome": input.validation_outcome,
         "parseFailureKind": input.parse_failure_kind,
         "contractRetryAttempted": input.contract_retry_attempted,
+        "errorClass": input.error_class,
         "patchProposed": input.patch_proposed,
         "appliedFieldCount": input.applied_field_count,
         "rejectedReasonCount": input.rejected_reason_count,
@@ -2196,8 +2239,9 @@ mod tests {
             drop_reason,
             card_id: card_id.map(str::to_owned),
             user_response: None,
-            prompt_version: "1.0.0+0000abcd".into(),
+            prompt_version: Some("1.0.0+0000abcd".into()),
             policy_version: "1.0.0".into(),
+            policy_version_rust: None,
         }
     }
 
@@ -2251,6 +2295,85 @@ mod tests {
             Some(first_session)
         );
         assert_eq!(stored_session(json!({ "cardId": "c" }), None), None);
+
+        // An archived session is never the fallback target.
+        db.conn()
+            .execute(
+                "UPDATE Session SET status = 'archived' WHERE id = ?",
+                [latest_session],
+            )
+            .unwrap();
+        assert_eq!(
+            stored_session(json!({ "projectId": project_id }), None),
+            Some(first_session)
+        );
+        db.conn()
+            .execute(
+                "UPDATE Session SET status = 'archived' WHERE id = ?",
+                [first_session],
+            )
+            .unwrap();
+        assert_eq!(
+            stored_session(json!({ "projectId": project_id }), None),
+            None
+        );
+    }
+
+    #[test]
+    fn provocation_exposure_keeps_the_session_of_its_card_shown_row() {
+        let (db, _) = crate::db::tests::fresh_db();
+        let (project_id, first_session) = crate::db::tests::seed_project_session(db.conn());
+        let append = |event_type: &str, payload: Value| {
+            let row_id =
+                append_provocation_event_to_conn(db.conn(), None, event_type, &payload).unwrap();
+            event_log_dao::get_by_id(db.conn(), row_id)
+                .unwrap()
+                .unwrap()
+        };
+        let shown = append(
+            "provocation.card_shown",
+            json!({ "projectId": project_id, "exposureId": "exp-1" }),
+        );
+        assert_eq!(shown.session_id, Some(first_session));
+        assert_eq!(shown.payload["sessionResolvedBy"], json!("project_latest"));
+
+        // A step start creates a newer session before the exposure ends.
+        let newer_session = session_dao::insert(
+            db.conn(),
+            &crate::db::models::NewSession {
+                project_id,
+                title: "step".into(),
+                ended_at: None,
+                status: "active".into(),
+            },
+        )
+        .unwrap();
+        let unanswered = append(
+            "provocation.card_unanswered",
+            json!({ "projectId": project_id, "exposureId": "exp-1" }),
+        );
+        assert_eq!(unanswered.session_id, Some(first_session));
+        assert_eq!(unanswered.payload["sessionResolvedBy"], json!("exposure"));
+
+        let next = append(
+            "provocation.card_shown",
+            json!({ "projectId": project_id, "exposureId": "exp-2" }),
+        );
+        assert_eq!(next.session_id, Some(newer_session));
+
+        // An explicit session is stored as sent and is not marked resolved.
+        let row_id = append_provocation_event_to_conn(
+            db.conn(),
+            Some(first_session),
+            "provocation.dismissed",
+            &json!({ "projectId": project_id, "exposureId": "exp-2" }),
+        )
+        .unwrap();
+        let explicit = event_log_dao::get_by_id(db.conn(), row_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(explicit.session_id, Some(first_session));
+        assert!(explicit.payload.get("sessionResolvedBy").is_none());
     }
 
     #[test]
@@ -2339,8 +2462,9 @@ mod tests {
             drop_reason: None,
             card_id: Some("provocation:draft-1:scope_expansion:sha256:scope-evidence".into()),
             user_response: None,
-            prompt_version: "1.0.0+0000abcd".into(),
+            prompt_version: Some("1.0.0+0000abcd".into()),
             policy_version: "1.0.0".into(),
+            policy_version_rust: None,
         };
         let row_id =
             append_supervisor_evaluation_to_conn(db.conn(), session_id, "scope-eval-1", &log)

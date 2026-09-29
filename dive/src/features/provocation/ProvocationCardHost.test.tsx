@@ -106,7 +106,7 @@ describe("ProvocationCardHost exposure logging (spec 015 FR-004)", () => {
     expectOneTerminalEventPerExposure();
   });
 
-  it("logs card_unanswered(superseded) with visibleMs when another card replaces it", () => {
+  it("logs card_unanswered(replaced) with visibleMs when another card replaces it", () => {
     const view = render(
       <ProvocationCardHost cards={[reviewCard()]} context={context} mode="work" />,
     );
@@ -122,7 +122,7 @@ describe("ProvocationCardHost exposure logging (spec 015 FR-004)", () => {
     const unanswered = eventsOf("provocation.card_unanswered");
     expect(unanswered).toHaveLength(1);
     expect(unanswered[0]).toMatchObject({
-      unansweredReason: "superseded",
+      unansweredReason: "replaced",
       visibleMs: 4000,
       exposureId: eventsOf("provocation.card_shown")[0].exposureId,
     });
@@ -137,19 +137,95 @@ describe("ProvocationCardHost exposure logging (spec 015 FR-004)", () => {
     expectOneTerminalEventPerExposure();
   });
 
-  it("does not treat a same-id re-render as a new exposure", () => {
+  it("does not treat a same-id, same-question re-render as a new exposure", () => {
     const view = render(
       <ProvocationCardHost cards={[reviewCard()]} context={context} mode="work" />,
     );
     view.rerender(
       <ProvocationCardHost
         cards={[reviewCard({ title: "같은 카드, 새 객체" })]}
-        context={{ ...context }}
+        context={{ ...context, sessionId: 10 }}
         mode="work"
       />,
     );
     expect(eventsOf("provocation.card_shown")).toHaveLength(1);
     expect(eventsOf("provocation.card_unanswered")).toHaveLength(0);
+
+    // The exposure keeps the session it was shown in.
+    fireEvent.click(screen.getByText("변경 보기"));
+    expect(eventsOf("provocation.action_clicked")[0].context).toMatchObject({
+      projectId: 3,
+      sessionId: 9,
+    });
+  });
+
+  it("logs card_unanswered(removed) when the card leaves with nothing replacing it", () => {
+    const view = render(
+      <ProvocationCardHost cards={[reviewCard()]} context={context} mode="work" />,
+    );
+    vi.advanceTimersByTime(900);
+    view.rerender(<ProvocationCardHost cards={[]} context={context} mode="work" />);
+    const unanswered = eventsOf("provocation.card_unanswered");
+    expect(unanswered).toHaveLength(1);
+    expect(unanswered[0]).toMatchObject({ unansweredReason: "removed", visibleMs: 900 });
+    view.unmount();
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    expect(eventsOf("provocation.card_unanswered")).toHaveLength(1);
+  });
+
+  it("closes card A under card A's context when card and context change together", () => {
+    const stepA = { projectId: 3, sessionId: 9, stage: "verify" as const, taskId: "step-a" };
+    const stepB = { projectId: 3, sessionId: 10, stage: "verify" as const, taskId: "step-b" };
+    const view = render(<ProvocationCardHost cards={[reviewCard()]} context={stepA} mode="work" />);
+    view.rerender(
+      <ProvocationCardHost
+        cards={[reviewCard({ id: "card-b", title: "B 단계 카드" })]}
+        context={stepB}
+        mode="guided"
+      />,
+    );
+    const [unanswered] = eventsOf("provocation.card_unanswered");
+    expect(unanswered.card.id).toBe("card-a");
+    expect(unanswered.context).toMatchObject({ sessionId: 9, taskId: "step-a" });
+    expect(unanswered.mode).toBe("work");
+    const shownB = eventsOf("provocation.card_shown")[1];
+    expect(shownB.card.id).toBe("card-b");
+    expect(shownB.context).toMatchObject({ sessionId: 10, taskId: "step-b" });
+    expect(shownB.mode).toBe("guided");
+  });
+
+  it("opens a new exposure when the same card id asks a different question", () => {
+    const view = render(
+      <ProvocationCardHost cards={[reviewCard()]} context={context} mode="work" />,
+    );
+    vi.advanceTimersByTime(1500);
+    view.rerender(
+      <ProvocationCardHost
+        cards={[reviewCard({ prompt: "목표 요약이 바뀌었는데, 지금도 맞나요?" })]}
+        context={context}
+        mode="work"
+      />,
+    );
+    const shown = eventsOf("provocation.card_shown");
+    expect(shown.map((input) => input.card.prompt)).toEqual([
+      "이 계획이 틀렸는지 무엇으로 확인할 건가요?",
+      "목표 요약이 바뀌었는데, 지금도 맞나요?",
+    ]);
+    expect(shown[0].exposureId).not.toBe(shown[1].exposureId);
+    const [unanswered] = eventsOf("provocation.card_unanswered");
+    expect(unanswered).toMatchObject({
+      unansweredReason: "replaced",
+      visibleMs: 1500,
+      exposureId: shown[0].exposureId,
+    });
+    expect(unanswered.card.prompt).toBe("이 계획이 틀렸는지 무엇으로 확인할 건가요?");
+    view.unmount();
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+    expectOneTerminalEventPerExposure();
   });
 
   it("logs card_unanswered(unmounted) once when the host unmounts", () => {

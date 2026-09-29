@@ -338,6 +338,15 @@ fn evaluate_with_output_and_log(
     let mut latency_ms = None;
     let mut usage = None;
 
+    // The SupervisorAgent prompt reached a model only when the gate passed
+    // and the runtime returned output or failed mid-turn.
+    let prompt_sent = supervisor_provoke_gate(&context)
+        && matches!(
+            output,
+            StageCSupervisorOutput::DecisionJson { .. }
+                | StageCSupervisorOutput::Timeout
+                | StageCSupervisorOutput::SidecarError
+        );
     let mut validation = if !supervisor_provoke_gate(&context) {
         no_card_validation_result(SupervisorDropReason::ProvokeFalse)
     } else {
@@ -391,6 +400,11 @@ fn evaluate_with_output_and_log(
         usage,
     )
     .with_policy_version(policy_version.as_deref());
+    let log = if prompt_sent {
+        log.with_prompt_sent()
+    } else {
+        log
+    };
     EvaluatedSupervisorAttempt {
         session_id,
         response: response_from_validation(evaluation_id, validation, Some(&context)),
@@ -1536,9 +1550,14 @@ mod tests {
         let log = shown.log.expect("shown attempt is logged");
         assert_eq!(
             log.prompt_version,
-            crate::dive::supervisor::supervisor_prompt_version().render()
+            Some(crate::dive::supervisor::supervisor_prompt_version().render())
         );
+        let rust_policy_version = crate::dive::supervision_policy::supervision_policy()
+            .policy_version
+            .clone();
+        // FE and Rust disagree: both are kept.
         assert_eq!(log.policy_version, "9.9.9");
+        assert_eq!(log.policy_version_rust, Some(rust_policy_version.clone()));
         let question = log
             .decision_summary
             .as_ref()
@@ -1561,15 +1580,45 @@ mod tests {
             &mut SupervisorDedupState::new(),
         );
         let log = unavailable.log.expect("dropped attempt is logged");
-        assert_eq!(
-            log.policy_version,
-            crate::dive::supervision_policy::supervision_policy().policy_version
-        );
-        assert!(!log.prompt_version.is_empty());
+        assert_eq!(log.policy_version, rust_policy_version);
+        assert_eq!(log.policy_version_rust, None);
+        // No prompt reached a model on this attempt.
+        assert_eq!(log.prompt_version, None);
         assert!(log
             .decision_summary
             .as_ref()
             .is_none_or(|summary| summary.question.is_none()));
+
+        // A matching FE version records one value; a malformed one is ignored.
+        for (sent, expected) in [
+            (rust_policy_version.clone(), rust_policy_version.clone()),
+            ("<script>".to_string(), rust_policy_version.clone()),
+            ("1.2".to_string(), rust_policy_version.clone()),
+            ("1".repeat(40) + ".0.0", rust_policy_version.clone()),
+        ] {
+            let mut request = diff_ready_request();
+            request.policy_version = Some(sent);
+            let log = evaluate_with_output_and_log(
+                request,
+                StageCSupervisorOutput::Timeout,
+                &mut SupervisorDedupState::new(),
+            )
+            .log
+            .unwrap();
+            assert_eq!(log.policy_version, expected);
+            assert_eq!(log.policy_version_rust, None);
+            // A timed-out turn did send the prompt.
+            assert!(log.prompt_version.is_some());
+        }
+
+        // The deterministic fallback card sends no prompt.
+        let shell = evaluate_with_output_and_log(
+            diff_ready_request(),
+            StageCSupervisorOutput::DomainShell,
+            &mut SupervisorDedupState::new(),
+        );
+        assert_eq!(shell.response.status, ProvocationAgentEvaluateStatus::Shown);
+        assert_eq!(shell.log.unwrap().prompt_version, None);
     }
 
     fn behavior_preserving_diff_ready_request(locale: &str) -> ProvocationAgentEvaluateRequest {

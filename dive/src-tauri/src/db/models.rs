@@ -100,8 +100,12 @@ pub enum SessionOrigin {
 }
 
 impl SessionOrigin {
-    /// Explicit override, e.g. `DIVE_SESSION_ORIGIN=qa` from the live-QA harness.
+    /// Explicit override, e.g. `DIVE_SESSION_ORIGIN=qa` for a dev/CLI launch.
     pub const ENV_VAR: &'static str = "DIVE_SESSION_ORIGIN";
+    /// Persisted override next to `dive.db` in the app data dir, for a release
+    /// `.app` launched through LaunchServices (which passes no env vars): the
+    /// live-QA harness writes `qa` into `<app_data_dir>/session-origin`.
+    pub const OVERRIDE_FILE: &'static str = "session-origin";
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -120,11 +124,18 @@ impl SessionOrigin {
         }
     }
 
-    /// A valid env override wins; otherwise development builds (debug or the
-    /// `dev-mock` feature) are `dev` and release builds are `classroom`. An
-    /// invalid override is ignored rather than trusted.
-    pub fn resolve(env_value: Option<&str>, development_build: bool) -> Self {
+    /// Precedence: a valid env override, then a valid override file, then
+    /// development builds (debug or the `dev-mock` feature) → `dev`, else
+    /// `classroom`. An invalid override is ignored rather than trusted.
+    pub fn resolve(
+        env_value: Option<&str>,
+        file_value: Option<&str>,
+        development_build: bool,
+    ) -> Self {
         if let Some(origin) = env_value.and_then(Self::parse) {
+            return origin;
+        }
+        if let Some(origin) = file_value.and_then(Self::parse) {
             return origin;
         }
         if development_build {
@@ -134,19 +145,37 @@ impl SessionOrigin {
         }
     }
 
-    pub fn current() -> Self {
-        let env_value = std::env::var(Self::ENV_VAR).ok();
-        if let Some(raw) = env_value.as_deref() {
-            if Self::parse(raw).is_none() {
+    /// Resolve from explicit sources, reading the override file in
+    /// `data_dir` when one is given. Invalid values are logged and ignored.
+    pub fn from_sources(
+        env_value: Option<&str>,
+        data_dir: Option<&std::path::Path>,
+        development_build: bool,
+    ) -> Self {
+        let file_value =
+            data_dir.and_then(|dir| std::fs::read_to_string(dir.join(Self::OVERRIDE_FILE)).ok());
+        for (source, value) in [
+            (Self::ENV_VAR, env_value),
+            (Self::OVERRIDE_FILE, file_value.as_deref()),
+        ] {
+            if let Some(raw) = value.filter(|raw| Self::parse(raw).is_none()) {
                 tracing::warn!(
-                    value = raw,
-                    "ignoring invalid {}; expected classroom, qa, or dev",
-                    Self::ENV_VAR
+                    source,
+                    length = raw.len(),
+                    "ignoring invalid session origin override; expected classroom, qa, or dev"
                 );
             }
         }
-        Self::resolve(
+        Self::resolve(env_value, file_value.as_deref(), development_build)
+    }
+
+    /// The origin for a session created now in the database at `db_path`
+    /// (its directory is the app data dir).
+    pub fn for_database_path(db_path: Option<&std::path::Path>) -> Self {
+        let env_value = std::env::var(Self::ENV_VAR).ok();
+        Self::from_sources(
             env_value.as_deref(),
+            db_path.and_then(std::path::Path::parent),
             cfg!(debug_assertions) || cfg!(feature = "dev-mock"),
         )
     }

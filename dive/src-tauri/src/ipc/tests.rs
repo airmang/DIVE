@@ -655,19 +655,15 @@ async fn verification_coach_provider_not_configured_logs_requested_and_evaluated
         evaluated.payload["evidenceSummary"]["aiGuidanceIsEvidence"],
         serde_json::json!(false)
     );
-    // Spec 015 FR-001: both coach events carry the prompt template version.
-    let prompt_version =
-        crate::dive::verification_coach::verification_coach_prompt_version().render();
-    for event_type in [
-        "verification_coach.requested",
-        "verification_coach.evaluated",
-    ] {
-        let row = logs.iter().find(|row| row.r#type == event_type).unwrap();
-        assert_eq!(
-            row.payload["promptVersion"],
-            serde_json::json!(prompt_version)
-        );
-    }
+    // Spec 015 FR-001: no coach prompt reached a model (no provider), so the
+    // evaluation records a null prompt version rather than a template that was
+    // never sent; the request event never carries one.
+    assert_eq!(evaluated.payload["promptVersion"], serde_json::Value::Null);
+    let requested = logs
+        .iter()
+        .find(|row| row.r#type == "verification_coach.requested")
+        .unwrap();
+    assert!(requested.payload.get("promptVersion").is_none());
 }
 
 #[tokio::test]
