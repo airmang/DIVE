@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS Session (
     title TEXT NOT NULL,
     started_at INTEGER NOT NULL,
     ended_at INTEGER,
-    status TEXT NOT NULL CHECK(status IN ('active','ended','archived'))
+    status TEXT NOT NULL CHECK(status IN ('active','ended','archived')),
+    origin TEXT NOT NULL DEFAULT 'classroom' CHECK(origin IN ('classroom','qa','dev'))
 )";
 
 pub const CREATE_WORKMAP: &str = "

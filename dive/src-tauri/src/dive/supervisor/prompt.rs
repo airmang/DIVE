@@ -1,4 +1,59 @@
+use std::sync::OnceLock;
+
 use super::*;
+use crate::dive::prompt_version::PromptVersion;
+
+/// Semver of the SupervisorAgent prompt template (spec 015 FR-001). Bump it
+/// whenever `render_supervisor_prompt` or `prompt_action_instruction` text
+/// changes; the pin test in `supervisor/tests.rs` enforces it.
+pub const SUPERVISOR_PROMPT_SEMVER: &str = "1.0.0";
+
+pub(super) const SUPERVISOR_PROMPT_EVENTS: [SupervisorEvent; 6] = [
+    SupervisorEvent::VerifyEntered,
+    SupervisorEvent::AiClaimedDone,
+    SupervisorEvent::ScopeExpansion,
+    SupervisorEvent::PlanDrafted,
+    SupervisorEvent::DiffReady,
+    SupervisorEvent::RetryLoop,
+];
+
+/// Position of each event in `SUPERVISOR_PROMPT_EVENTS`. Adding a
+/// `SupervisorEvent` variant breaks this exhaustive match, so the new event's
+/// prompt text cannot silently stay out of the fingerprint.
+#[cfg(test)]
+pub(super) const fn supervisor_prompt_event_index(event: SupervisorEvent) -> usize {
+    match event {
+        SupervisorEvent::VerifyEntered => 0,
+        SupervisorEvent::AiClaimedDone => 1,
+        SupervisorEvent::ScopeExpansion => 2,
+        SupervisorEvent::PlanDrafted => 3,
+        SupervisorEvent::DiffReady => 4,
+        SupervisorEvent::RetryLoop => 5,
+    }
+}
+
+pub fn supervisor_prompt_version() -> &'static PromptVersion {
+    static VERSION: OnceLock<PromptVersion> = OnceLock::new();
+    VERSION.get_or_init(|| {
+        PromptVersion::new(
+            "supervisor",
+            SUPERVISOR_PROMPT_SEMVER,
+            &supervisor_prompt_fingerprint(),
+        )
+    })
+}
+
+/// Every static part of the prompt: the template rendered for each event in
+/// both locales, with a placeholder in place of the per-request context JSON.
+fn supervisor_prompt_fingerprint() -> String {
+    SUPERVISOR_PROMPT_EVENTS
+        .iter()
+        .flat_map(|event| {
+            [true, false].map(|english| render_supervisor_prompt(*event, english, "{context_json}"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n---\n")
+}
 
 pub fn build_supervisor_prompt(
     context: &SupervisorContext,
@@ -8,8 +63,16 @@ pub fn build_supervisor_prompt(
     if context_json.len() > SUPERVISOR_PROMPT_MAX_BYTES {
         return Err(SupervisorDropReason::ContextTooLarge);
     }
-    let concern = expected_concern_for_event(context.event);
-    Ok(format!(
+    Ok(render_supervisor_prompt(
+        context.event,
+        locale_is_english(&context.locale),
+        &context_json,
+    ))
+}
+
+fn render_supervisor_prompt(event: SupervisorEvent, english: bool, context_json: &str) -> String {
+    let concern = expected_concern_for_event(event);
+    format!(
         concat!(
             "You are DIVE's dedicated SupervisorAgent for a novice coding workflow.\n",
             "You are a one-shot evaluator. You have no tools, no filesystem access, ",
@@ -33,14 +96,14 @@ pub fn build_supervisor_prompt(
             "{context_json}"
         ),
         concern = concern,
-        action = prompt_action_instruction(context.event),
-        question_instruction = if locale_is_english(&context.locale) {
+        action = prompt_action_instruction(event),
+        question_instruction = if english {
             "Ask one criterion-linked question, written in English, within 140 characters."
         } else {
             "Ask one criterion-linked question, written in Korean, within 140 characters."
         },
         context_json = context_json,
-    ))
+    )
 }
 
 fn prompt_action_instruction(event: SupervisorEvent) -> &'static str {

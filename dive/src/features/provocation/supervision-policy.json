@@ -1,0 +1,10 @@
+{
+  "policyVersion": "1.0.0",
+  "retryLoopMinFailures": 2,
+  "broadStepMinExpectedFiles": 4,
+  "scopeSupervisorDebounceMs": 650,
+  "evidenceTextMaxChars": 160,
+  "evidenceListMaxItems": 6,
+  "planDraftEvidenceRefCap": 16,
+  "recentAssistantReportCount": 3
+}

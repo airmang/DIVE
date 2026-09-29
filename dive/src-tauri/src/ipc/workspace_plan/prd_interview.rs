@@ -2,6 +2,7 @@
 //!
 //! Moved verbatim from the former `workspace_plan.rs` monolith (Wily S-066).
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use futures::StreamExt;
@@ -17,6 +18,7 @@ use crate::db::models::{
 };
 use crate::db::now_ms;
 use crate::dive::event_log as dive_event_log;
+use crate::dive::prompt_version::PromptVersion;
 use crate::ipc::AppState;
 use crate::providers::{with_retry, ChatEvent, ChatRequest, FinishReason, Message, ToolChoice};
 #[cfg(test)]
@@ -68,7 +70,8 @@ pub async fn workspace_prd_interview_turn_impl(
     // both the flake and the recovery. Genuine no-op turns (no parse failure)
     // never retry, and a retry transport error keeps the salvaged first
     // result instead of failing the turn.
-    if parsed.parse_failure_kind.is_some() {
+    let contract_retry_attempted = parsed.parse_failure_kind.is_some();
+    if contract_retry_attempted {
         if let Ok((retry_raw, retry_finish)) = run_prd_interview_turn(
             runtime.provider.as_ref(),
             input.model.clone(),
@@ -270,6 +273,37 @@ pub async fn workspace_prd_interview_turn_impl(
         output.live_draft = current_draft;
     }
 
+    // Spec 015 FR-001: one evaluation row per turn, including the no-patch
+    // turns that write no patch event, so every PRD interview model call is
+    // attributable to a prompt version. Student and assistant text stay out.
+    dive_event_log::append_to_conn(
+        &tx,
+        interview_session_id,
+        dive_event_log::PRD_INTERVIEW_TURN_EVALUATED_EVENT,
+        dive_event_log::prd_interview_turn_evaluated_payload(
+            dive_event_log::PrdInterviewTurnEvaluatedPayloadInput {
+                project_id: input.project_id,
+                project_spec_id: project_spec_id_for_draft(&output.live_draft),
+                draft_id: output.live_draft.draft_id.clone(),
+                turn_id: turn_id.clone(),
+                validation_outcome: output.validation_outcome.clone(),
+                parse_failure_kind: turn_parse_failure_kind.clone(),
+                contract_retry_attempted,
+                patch_proposed: output.patch.is_some(),
+                applied_field_count: output.applied_field_paths.len(),
+                rejected_reason_count: output.rejected_reasons.len(),
+                architecture_proposal_count: output
+                    .architecture_proposals
+                    .as_ref()
+                    .map_or(0, |proposals| proposals.options.len()),
+                provider: input.provider.clone(),
+                model: input.model.clone(),
+                prompt_version: prd_interview_prompt_version().render(),
+            },
+        ),
+    )
+    .map_err(|e| e.to_string())?;
+
     interview_turn_dao::insert(
         &tx,
         &NewInterviewTurn {
@@ -298,9 +332,7 @@ async fn run_prd_interview_turn(
     if json_contract_retry {
         // 011 S-057: hard reminder for the deterministic in-turn retry after a
         // structuring failure — the previous attempt violated the contract.
-        user_prompt.push_str(
-            "\n\nIMPORTANT: your previous reply violated the output contract. Respond with ONLY one JSON object now — the very first character of your reply must be '{'. No prose, no Markdown fences, no text outside the JSON.",
-        );
+        user_prompt.push_str(PRD_INTERVIEW_CONTRACT_RETRY_REMINDER);
     }
     let req = ChatRequest {
         model,
@@ -358,6 +390,35 @@ async fn run_prd_interview_turn(
     Ok((text, finish_reason))
 }
 
+/// Semver of the PRD interview prompt templates (spec 015 FR-001): the system
+/// prompt, the user prompt template, and the contract-retry reminder. Bump it
+/// whenever any of their text changes; the pin test enforces it.
+pub(crate) const PRD_INTERVIEW_PROMPT_SEMVER: &str = "1.0.0";
+
+const PRD_INTERVIEW_CONTRACT_RETRY_REMINDER: &str = "\n\nIMPORTANT: your previous reply violated the output contract. Respond with ONLY one JSON object now — the very first character of your reply must be '{'. No prose, no Markdown fences, no text outside the JSON.";
+
+pub(crate) fn prd_interview_prompt_version() -> &'static PromptVersion {
+    static VERSION: OnceLock<PromptVersion> = OnceLock::new();
+    VERSION.get_or_init(|| {
+        // The gap labels/focus lines interpolated into the user prompt come
+        // from `prd_core::confirmable_draft_gaps` (confirm-gate data), so they
+        // are placeholders here like the draft, conversation, and answer.
+        let fingerprint = [
+            build_prd_interview_system_prompt(),
+            render_prd_interview_user_prompt(
+                "{draft_json}",
+                "{missing_confirmable}",
+                "{next_focus}",
+                "{conversation}",
+                "{answer}",
+            ),
+            PRD_INTERVIEW_CONTRACT_RETRY_REMINDER.to_string(),
+        ]
+        .join("\n---\n");
+        PromptVersion::new("prd_interview", PRD_INTERVIEW_PROMPT_SEMVER, &fingerprint)
+    })
+}
+
 fn build_prd_interview_system_prompt() -> String {
     [
         "You are helping a novice author a real project PRD inside DIVE through a relaxed conversation.",
@@ -412,6 +473,22 @@ fn build_prd_interview_user_prompt(
     let missing_confirmable = missing_confirmable_prd_fields(&draft.spec).join(", ");
     let next_focus = prd_interview_next_focus(&draft.spec);
     let conversation = format_prd_interview_conversation(conversation);
+    render_prd_interview_user_prompt(
+        &draft_json,
+        &missing_confirmable,
+        next_focus,
+        &conversation,
+        answer,
+    )
+}
+
+fn render_prd_interview_user_prompt(
+    draft_json: &str,
+    missing_confirmable: &str,
+    next_focus: &str,
+    conversation: &str,
+    answer: &str,
+) -> String {
     format!(
         "Current live PRD draft JSON:\n{draft_json}\n\nMissing fields required before PRD confirmation, if any: {missing_confirmable}\n\nSuggested next interview focus: {next_focus}\n\nRecent interview conversation, oldest to newest:\n{conversation}\n\nLatest student answer:\n{answer}\n\nReply with exactly one JSON object per the system-prompt output contract (assistantMessage inside the JSON; optional patch/proposals keys). Use the recent conversation as evidence when the live draft has not caught up yet. Do not repeat a question that the student has already answered in the conversation. If the answer is vague, still capture any likely goal, user, first-version boundary, constraint, or observable done state that is grounded in the answer. If the suggested focus is ready_to_save, say the PRD has enough information to confirm and point the student to the \"PRD 확정\" / \"Confirm PRD\" button instead of asking a new required question, offering another wording pass, or asking whether to save. If the suggested focus names a missing field, ask one concrete plain-language question for that field and do not tell the student it is ready to confirm yet."
     )
@@ -816,6 +893,25 @@ mod prd_interview_prompt_tests {
             field_provenance: BTreeMap::new(),
             updated_at: 1,
         }
+    }
+
+    #[test]
+    fn prd_interview_prompt_version_is_pinned() {
+        // Spec 015 FR-001: editing the PRD interview system prompt, user
+        // prompt template, or contract-retry reminder changes this hash. Bump
+        // PRD_INTERVIEW_PROMPT_SEMVER and append the new pair.
+        crate::dive::prompt_version::assert_prompt_version_pinned(
+            prd_interview_prompt_version(),
+            &[("1.0.0", "79eaddb8")],
+        );
+    }
+
+    #[test]
+    fn prd_interview_user_prompt_renders_template_with_request_data() {
+        let prompt = build_prd_interview_user_prompt(&empty_draft(), &[], "학생 답변");
+        assert!(prompt.starts_with("Current live PRD draft JSON:\n{"));
+        assert!(prompt.contains("Latest student answer:\n학생 답변\n\n"));
+        assert!(!prompt.contains("{answer}"));
     }
 
     #[test]

@@ -139,9 +139,9 @@ impl ExportEngine {
         let db = self.db.lock().map_err(|e| ExportError::Db(e.to_string()))?;
         let conn = db.conn();
 
-        let session: Option<(String, String, i64, Option<i64>)> = conn
+        let session: Option<(String, String, i64, Option<i64>, String)> = conn
             .query_row(
-                "SELECT title, status, started_at, ended_at FROM Session WHERE id = ?",
+                "SELECT title, status, started_at, ended_at, origin FROM Session WHERE id = ?",
                 [session_id],
                 |row| {
                     Ok((
@@ -149,13 +149,14 @@ impl ExportEngine {
                         row.get::<_, String>(1)?,
                         row.get::<_, i64>(2)?,
                         row.get::<_, Option<i64>>(3)?,
+                        row.get::<_, String>(4)?,
                     ))
                 },
             )
             .optional()
             .map_err(|e| ExportError::Db(e.to_string()))?;
 
-        let (title, status, started_at, ended_at) =
+        let (title, status, started_at, ended_at, origin) =
             session.ok_or(ExportError::SessionNotFound(session_id))?;
 
         let mut out = String::new();
@@ -169,6 +170,9 @@ impl ExportEngine {
                 "status": status,
                 "started_at": started_at,
                 "ended_at": ended_at,
+                // Spec 015 FR-006: classroom | qa | dev, so research
+                // aggregates can exclude QA and development sessions.
+                "origin": origin,
             }),
         )?;
 

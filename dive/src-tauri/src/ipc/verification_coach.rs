@@ -9,9 +9,10 @@ use crate::dive::event_log::{
 };
 use crate::dive::verification_coach::{
     build_verification_coach_prompt, evidence_summary, fallback_guidance, next_guide_version,
-    parse_guide_json, unavailable_response, validate_guide, GuidanceReasonCode,
-    GuidanceValidationOutcome, ObservationEvidenceInput, ObservationEvidenceRecord,
-    VerificationCoachGenerateRequest, VerificationCoachGenerateResponse, VerificationCoachStatus,
+    parse_guide_json, unavailable_response, validate_guide, verification_coach_prompt_version,
+    GuidanceReasonCode, GuidanceValidationOutcome, ObservationEvidenceInput,
+    ObservationEvidenceRecord, VerificationCoachGenerateRequest, VerificationCoachGenerateResponse,
+    VerificationCoachStatus,
 };
 use crate::pi_sidecar::{
     run_supervisor_turn, supervisor_turn_timeout, PiSidecarSupervisorErrorKind,
@@ -278,6 +279,7 @@ fn log_requested(
             "cardId": request.card_id,
             "planStepId": request.plan_step_id,
             "guideVersion": guide_version,
+            "promptVersion": verification_coach_prompt_version().render(),
             "sourceUiMode": request.source_ui_mode,
             "evidenceSummary": evidence_summary(request),
             "requestedAt": crate::db::now_ms(),
@@ -307,6 +309,7 @@ fn log_evaluated(
             "evidenceRefs": validation.map(|value| &value.evidence_refs),
             "model": response.model,
             "latencyMs": response.latency_ms,
+            "promptVersion": verification_coach_prompt_version().render(),
             "guideSummary": guide.map(|guide| json!({
                 "criterionSummary": guide.criterion_summary,
                 "recommendedCheckCount": guide.recommended_checks.len(),

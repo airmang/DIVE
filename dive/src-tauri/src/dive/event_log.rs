@@ -11,6 +11,7 @@ use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
 use crate::db::dao::event_log as event_log_dao;
+use crate::db::dao::session as session_dao;
 use crate::db::models::NewEventLog;
 use crate::db::DbError;
 use crate::dive::supervisor::SupervisorEvaluationLog;
@@ -26,6 +27,10 @@ pub const PRD_PATCH_REJECTED_EVENT: &str = "prd_patch_rejected";
 /// decodes as neither response shape) — previously silent, closing the audit
 /// hole where the exact turn a supervision-research log needs left no trace.
 pub const PRD_PATCH_UNSTRUCTURED_EVENT: &str = "prd_patch_unstructured";
+/// Spec 015 FR-001: one row per PRD interview model turn (outcome, model,
+/// prompt version, parse failure kind) — including no-patch turns, which
+/// otherwise leave no EventLog trace.
+pub const PRD_INTERVIEW_TURN_EVALUATED_EVENT: &str = "prd_interview.turn_evaluated";
 pub const PRD_AUTHORED_EVENT: &str = "prd_authored";
 pub const PRD_EDITED_EVENT: &str = "prd_edited";
 pub const PRD_VERSION_CREATED_EVENT: &str = "prd_version_created";
@@ -89,6 +94,44 @@ pub fn append_to_conn(
             payload: redact_value(&payload),
         },
     )
+}
+
+/// Append a frontend review-card event (`provocation.*`) through the export
+/// sanitizer. A host without a session in scope (terminal tab, PRD board)
+/// sends `sessionId: null`; the row is then attached to the payload
+/// project's latest session, because the only EventLog export path selects
+/// `WHERE session_id = ?` and a NULL session_id would make the exposure and
+/// its response unreachable by any export (spec 015 FR-005).
+pub fn append_provocation_event_to_conn(
+    conn: &Connection,
+    session_id: Option<i64>,
+    event_type: &str,
+    payload: &Value,
+) -> Result<i64, DbError> {
+    let payload = crate::export::sanitize_provocation_event_payload(payload);
+    let session_id = session_id.or_else(|| {
+        provocation_payload_project_id(&payload)
+            .and_then(|project_id| session_dao::latest_id_for_project(conn, project_id))
+    });
+    append_to_conn(conn, session_id, event_type, payload)
+}
+
+fn provocation_payload_project_id(payload: &Value) -> Option<i64> {
+    // The frontend context types `projectId` as number | string.
+    fn as_project_id(value: &Value) -> Option<i64> {
+        value
+            .as_i64()
+            .or_else(|| value.as_str().and_then(|raw| raw.trim().parse().ok()))
+    }
+    payload
+        .get("projectId")
+        .and_then(as_project_id)
+        .or_else(|| {
+            payload
+                .get("supervisorCorrelation")
+                .and_then(|correlation| correlation.get("projectId"))
+                .and_then(as_project_id)
+        })
 }
 
 pub fn append_supervisor_evaluation_to_conn(
@@ -396,6 +439,7 @@ fn infer_agency_component(event_type: &str, payload: &Value) -> Option<&'static 
         | PRD_PATCH_APPLIED_EVENT
         | PRD_PATCH_REJECTED_EVENT
         | PRD_PATCH_UNSTRUCTURED_EVENT
+        | PRD_INTERVIEW_TURN_EVALUATED_EVENT
         | PRD_AUTHORED_EVENT
         | PRD_EDITED_EVENT
         | PRD_VERSION_CREATED_EVENT
@@ -1329,6 +1373,45 @@ pub fn prd_patch_unstructured_payload(
     }))
 }
 
+pub struct PrdInterviewTurnEvaluatedPayloadInput {
+    pub project_id: i64,
+    pub project_spec_id: String,
+    pub draft_id: String,
+    pub turn_id: String,
+    pub validation_outcome: String,
+    pub parse_failure_kind: Option<String>,
+    pub contract_retry_attempted: bool,
+    pub patch_proposed: bool,
+    pub applied_field_count: usize,
+    pub rejected_reason_count: usize,
+    pub architecture_proposal_count: usize,
+    pub provider: String,
+    pub model: String,
+    pub prompt_version: String,
+}
+
+/// `prd_interview.turn_evaluated` payload. Counts and identifiers only — the
+/// student answer and assistant message never enter this event.
+pub fn prd_interview_turn_evaluated_payload(input: PrdInterviewTurnEvaluatedPayloadInput) -> Value {
+    redact_value(&json!({
+        "schemaVersion": 1,
+        "projectId": input.project_id,
+        "projectSpecId": input.project_spec_id,
+        "draftId": input.draft_id,
+        "turnId": input.turn_id,
+        "validationOutcome": input.validation_outcome,
+        "parseFailureKind": input.parse_failure_kind,
+        "contractRetryAttempted": input.contract_retry_attempted,
+        "patchProposed": input.patch_proposed,
+        "appliedFieldCount": input.applied_field_count,
+        "rejectedReasonCount": input.rejected_reason_count,
+        "architectureProposalCount": input.architecture_proposal_count,
+        "provider": input.provider,
+        "model": input.model,
+        "promptVersion": input.prompt_version,
+    }))
+}
+
 pub fn prd_authored_payload(
     project_id: i64,
     project_spec_id: impl Into<String>,
@@ -2105,13 +2188,69 @@ mod tests {
                 evidence_ref_ids: vec!["agent.assistant_claim".into()],
                 suggested_action_ids: vec!["open_diff".into()],
                 stripped_action_ids: vec![],
+                question: (validation_outcome == SupervisorValidationOutcome::Shown)
+                    .then(|| "변경 내용이나 실행 결과로 목표와 맞는지 볼 수 있나요?".to_string()),
             }),
             assessment_summary: None,
             validation_outcome,
             drop_reason,
             card_id: card_id.map(str::to_owned),
             user_response: None,
+            prompt_version: "1.0.0+0000abcd".into(),
+            policy_version: "1.0.0".into(),
         }
+    }
+
+    #[test]
+    fn provocation_event_without_session_attaches_to_latest_project_session() {
+        let (db, _) = crate::db::tests::fresh_db();
+        let (project_id, first_session) = crate::db::tests::seed_project_session(db.conn());
+        let latest_session = session_dao::insert(
+            db.conn(),
+            &crate::db::models::NewSession {
+                project_id,
+                title: "later".into(),
+                ended_at: None,
+                status: "active".into(),
+            },
+        )
+        .unwrap();
+        let stored_session = |payload: Value, session_id: Option<i64>| {
+            let row_id = append_provocation_event_to_conn(
+                db.conn(),
+                session_id,
+                "provocation.card_shown",
+                &payload,
+            )
+            .unwrap();
+            event_log_dao::get_by_id(db.conn(), row_id)
+                .unwrap()
+                .unwrap()
+                .session_id
+        };
+
+        assert_eq!(
+            stored_session(json!({ "projectId": project_id }), None),
+            Some(latest_session)
+        );
+        // The frontend context types projectId as number | string.
+        assert_eq!(
+            stored_session(json!({ "projectId": project_id.to_string() }), None),
+            Some(latest_session)
+        );
+        assert_eq!(
+            stored_session(
+                json!({ "projectId": null, "supervisorCorrelation": { "projectId": project_id } }),
+                None
+            ),
+            Some(latest_session)
+        );
+        // An explicit session id always wins; no project means no guess.
+        assert_eq!(
+            stored_session(json!({ "projectId": project_id }), Some(first_session)),
+            Some(first_session)
+        );
+        assert_eq!(stored_session(json!({ "cardId": "c" }), None), None);
     }
 
     #[test]
@@ -2144,6 +2283,12 @@ mod tests {
         );
         assert_eq!(row.payload["agencyComponent"], json!("verify"));
         assert_eq!(row.payload["agencyState"], json!("ai_self_report_only"));
+        assert_eq!(row.payload["promptVersion"], json!("1.0.0+0000abcd"));
+        assert_eq!(row.payload["policyVersion"], json!("1.0.0"));
+        assert_eq!(
+            row.payload["decisionSummary"]["question"],
+            json!("변경 내용이나 실행 결과로 목표와 맞는지 볼 수 있나요?")
+        );
         assert_eq!(row.payload["evidenceSummary"]["count"], json!(1));
         assert_eq!(row.payload["evidenceSummary"]["sources"], json!(["agent"]));
         assert_eq!(
@@ -2184,6 +2329,7 @@ mod tests {
                 evidence_ref_ids: vec!["scope.assessment".into()],
                 suggested_action_ids: vec!["link_criterion".into()],
                 stripped_action_ids: vec![],
+                question: None,
             }),
             assessment_summary: Some(json!({
                 "reasonCodes": ["missing_criterion_link"],
@@ -2193,6 +2339,8 @@ mod tests {
             drop_reason: None,
             card_id: Some("provocation:draft-1:scope_expansion:sha256:scope-evidence".into()),
             user_response: None,
+            prompt_version: "1.0.0+0000abcd".into(),
+            policy_version: "1.0.0".into(),
         };
         let row_id =
             append_supervisor_evaluation_to_conn(db.conn(), session_id, "scope-eval-1", &log)

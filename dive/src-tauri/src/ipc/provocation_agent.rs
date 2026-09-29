@@ -68,6 +68,10 @@ pub struct ProvocationAgentEvaluateRequest {
     pub diff_ready_assessment: Option<DiffReadyReviewAssessment>,
     #[serde(default)]
     pub retry_loop_assessment: Option<RetryLoopReviewAssessment>,
+    /// `supervision-policy.json` version the frontend assessment ran under
+    /// (spec 015 FR-002); logged on `provocation.supervisor_evaluated`.
+    #[serde(default)]
+    pub policy_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -328,6 +332,7 @@ fn evaluate_with_output_and_log(
         }
     };
     let source_ui_mode = normalized.source_ui_mode;
+    let policy_version = request.policy_version.clone();
     let context = build_context(request, source_ui_mode);
     let mut supervisor_model = None;
     let mut latency_ms = None;
@@ -384,7 +389,8 @@ fn evaluate_with_output_and_log(
         supervisor_model,
         latency_ms,
         usage,
-    );
+    )
+    .with_policy_version(policy_version.as_deref());
     EvaluatedSupervisorAttempt {
         session_id,
         response: response_from_validation(evaluation_id, validation, Some(&context)),
@@ -665,6 +671,7 @@ mod tests {
             plan_draft_assessment: None,
             diff_ready_assessment: None,
             retry_loop_assessment: None,
+            policy_version: None,
         }
     }
 
@@ -734,6 +741,7 @@ mod tests {
             plan_draft_assessment: None,
             diff_ready_assessment: None,
             retry_loop_assessment: None,
+            policy_version: None,
         }
     }
 
@@ -806,6 +814,7 @@ mod tests {
             }),
             diff_ready_assessment: None,
             retry_loop_assessment: None,
+            policy_version: None,
         }
     }
 
@@ -879,6 +888,7 @@ mod tests {
                 diff_viewed: false,
             }),
             retry_loop_assessment: None,
+            policy_version: None,
         }
     }
 
@@ -954,6 +964,7 @@ mod tests {
                 last_action_summary: Some("verification_failed".into()),
                 recovery_available: true,
             }),
+            policy_version: None,
         }
     }
 
@@ -1505,6 +1516,60 @@ mod tests {
         assert_eq!(log.event, SupervisorEvent::DiffReady);
         assert_eq!(log.validation_outcome, SupervisorValidationOutcome::Shown);
         assert!(log.assessment_summary.is_some());
+    }
+
+    #[test]
+    fn supervisor_evaluation_log_records_prompt_policy_versions_and_shown_question() {
+        let mut dedup = SupervisorDedupState::new();
+        let mut request = diff_ready_request();
+        request.policy_version = Some("9.9.9".to_string());
+        let shown = evaluate_with_output_and_log(
+            request,
+            StageCSupervisorOutput::DecisionJson {
+                raw: valid_diff_ready_decision_json(),
+                supervisor_model: Some("mock-supervisor".to_string()),
+                latency_ms: Some(41),
+                usage: None,
+            },
+            &mut dedup,
+        );
+        let log = shown.log.expect("shown attempt is logged");
+        assert_eq!(
+            log.prompt_version,
+            crate::dive::supervisor::supervisor_prompt_version().render()
+        );
+        assert_eq!(log.policy_version, "9.9.9");
+        let question = log
+            .decision_summary
+            .as_ref()
+            .and_then(|summary| summary.question.clone())
+            .expect("shown decision summary carries the question");
+        assert_eq!(
+            Some(question),
+            shown
+                .response
+                .card
+                .as_ref()
+                .and_then(|card| card.prompt.clone())
+        );
+
+        // Without a frontend policy version the Rust policy version is logged,
+        // and a non-shown decision carries no question.
+        let unavailable = evaluate_with_output_and_log(
+            diff_ready_request(),
+            StageCSupervisorOutput::RuntimeUnavailable,
+            &mut SupervisorDedupState::new(),
+        );
+        let log = unavailable.log.expect("dropped attempt is logged");
+        assert_eq!(
+            log.policy_version,
+            crate::dive::supervision_policy::supervision_policy().policy_version
+        );
+        assert!(!log.prompt_version.is_empty());
+        assert!(log
+            .decision_summary
+            .as_ref()
+            .is_none_or(|summary| summary.question.is_none()));
     }
 
     fn behavior_preserving_diff_ready_request(locale: &str) -> ProvocationAgentEvaluateRequest {

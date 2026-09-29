@@ -1620,3 +1620,32 @@ fn supervisor_expanded_gate_rejects_missing_assessment_evidence() {
         Some(SupervisorDropReason::MissingEvidence)
     );
 }
+
+#[test]
+fn supervisor_prompt_version_is_pinned() {
+    // Spec 015 FR-001: editing the SupervisorAgent prompt template changes
+    // this hash. Bump SUPERVISOR_PROMPT_SEMVER and append the new pair — never
+    // rewrite an existing entry.
+    crate::dive::prompt_version::assert_prompt_version_pinned(
+        supervisor_prompt_version(),
+        &[("1.0.0", "256c9520")],
+    );
+}
+
+#[test]
+fn supervisor_prompt_fingerprint_lists_every_event_once() {
+    for (index, event) in SUPERVISOR_PROMPT_EVENTS.iter().enumerate() {
+        assert_eq!(supervisor_prompt_event_index(*event), index);
+    }
+}
+
+#[test]
+fn supervisor_prompt_appends_context_as_only_request_data() {
+    let context = sample_context_with_event(SupervisorEvent::VerifyEntered);
+    let prompt = build_supervisor_prompt(&context).unwrap();
+    let context_json = serde_json::to_string(&context).unwrap();
+    // The per-request context is the only non-template part of the prompt.
+    assert!(prompt.ends_with(&context_json));
+    let version = supervisor_prompt_version().render();
+    assert!(version.starts_with(&format!("{SUPERVISOR_PROMPT_SEMVER}+")));
+}

@@ -453,15 +453,13 @@ pub fn workspace_plan_generate_draft_impl(
 /// session_id instead of `None` — the only EventLog export path
 /// (`ExportEngine::export_session`) selects `WHERE session_id = ?`, so a NULL
 /// session_id makes a row permanently unreachable by any session export.
+/// The query lives in `session_dao::latest_id_for_project` so the review-card
+/// log path (`dive::event_log::append_provocation_event_to_conn`) shares it.
 pub(super) fn latest_session_id_for_project(
     conn: &rusqlite::Connection,
     project_id: i64,
 ) -> Option<i64> {
-    let mut stmt = conn
-        .prepare("SELECT id FROM Session WHERE project_id = ? ORDER BY id DESC LIMIT 1")
-        .ok()?;
-    stmt.query_row([project_id], |row| row.get::<_, i64>(0))
-        .ok()
+    crate::db::dao::session::latest_id_for_project(conn, project_id)
 }
 
 /// Wily P2 cleanup: reject a plan-mutation command when the plan's own

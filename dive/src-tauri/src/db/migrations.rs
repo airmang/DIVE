@@ -24,9 +24,10 @@ const MIGRATIONS: &[(i64, MigrationFn)] = &[
     (17, migration_v17),
     (18, migration_v18),
     (19, migration_v19),
+    (20, migration_v20),
 ];
 
-pub const LATEST_SCHEMA_VERSION: i64 = 19;
+pub const LATEST_SCHEMA_VERSION: i64 = 20;
 
 pub fn migrate(conn: &mut Connection) -> Result<(), DbError> {
     migrate_with_migrations(conn, MIGRATIONS)
@@ -448,6 +449,25 @@ fn migration_v18(tx: &Transaction<'_>) -> rusqlite::Result<()> {
 fn migration_v19(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     for index in schema::CREATE_V19_INDEXES {
         tx.execute_batch(index)?;
+    }
+    Ok(())
+}
+
+/// Spec 015 FR-006 (S-076) — `Session.origin` (classroom | qa | dev) so
+/// QA/dev runs can be excluded from research aggregates. Guarded ADD COLUMN;
+/// existing rows backfill to 'classroom' via the DEFAULT, same technique as
+/// migration_v18's `Project.status` (schema.rs `CREATE_SESSION` carries the
+/// column for fresh DBs).
+fn migration_v20(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    let exists: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('Session') WHERE name = 'origin'",
+        [],
+        |row| row.get(0),
+    )?;
+    if exists == 0 {
+        tx.execute_batch(
+            "ALTER TABLE Session ADD COLUMN origin TEXT NOT NULL DEFAULT 'classroom' CHECK(origin IN ('classroom','qa','dev'))",
+        )?;
     }
     Ok(())
 }
@@ -1204,6 +1224,85 @@ mod tests {
         // Idempotent: re-running the guarded ADD COLUMN is a no-op.
         let tx = db.conn_mut().transaction().unwrap();
         super::migration_v18(&tx).unwrap();
+        tx.commit().unwrap();
+    }
+
+    #[test]
+    fn migration_v20_adds_session_origin_column_defaulting_classroom() {
+        let (db, _tmp) = fresh_db();
+        let column_default: String = db
+            .conn()
+            .query_row(
+                "SELECT dflt_value FROM pragma_table_info('Session') WHERE name = 'origin'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(column_default, "'classroom'");
+
+        // The CHECK constraint rejects anything outside the three origins.
+        let (project_id, session_id) = seed_project_session(db.conn());
+        let invalid = db.conn().execute(
+            "INSERT INTO Session(project_id, title, started_at, status, origin) VALUES (?, 's', 0, 'active', 'pilot')",
+            [project_id],
+        );
+        assert!(invalid.is_err());
+
+        // Sessions created through the DAO record the build/env origin; this
+        // test binary is a development build.
+        let origin: String = db
+            .conn()
+            .query_row(
+                "SELECT origin FROM Session WHERE id = ?",
+                [session_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(origin, crate::db::models::SessionOrigin::current().as_str());
+    }
+
+    #[test]
+    fn migration_v20_upgrades_existing_db_without_origin_column() {
+        // schema::CREATE_SESSION carries `origin` for fresh DBs (v18 pattern),
+        // so rebuild Session in its pre-v20 shape and apply migration_v20.
+        let (mut db, _tmp) = fresh_db();
+        db.conn()
+            .execute_batch(
+                "PRAGMA foreign_keys = OFF;
+                 DROP TABLE Session;
+                 CREATE TABLE Session (
+                    id INTEGER PRIMARY KEY,
+                    project_id INTEGER NOT NULL REFERENCES Project(id) ON DELETE CASCADE,
+                    title TEXT NOT NULL,
+                    started_at INTEGER NOT NULL,
+                    ended_at INTEGER,
+                    status TEXT NOT NULL CHECK(status IN ('active','ended','archived'))
+                 );
+                 PRAGMA foreign_keys = ON;",
+            )
+            .unwrap();
+        db.conn()
+            .execute_batch(
+                "INSERT INTO Project(id, name, path, created_at, updated_at) VALUES (1, 'p', '/tmp/p-v20', 0, 0);
+                 INSERT INTO Session(id, project_id, title, started_at, status) VALUES (1, 1, 's', 0, 'active');",
+            )
+            .unwrap();
+
+        let tx = db.conn_mut().transaction().unwrap();
+        super::migration_v20(&tx).unwrap();
+        tx.commit().unwrap();
+
+        let backfilled: String = db
+            .conn()
+            .query_row("SELECT origin FROM Session WHERE id = 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(backfilled, "classroom");
+
+        // Idempotent: re-running the guarded ADD COLUMN is a no-op.
+        let tx = db.conn_mut().transaction().unwrap();
+        super::migration_v20(&tx).unwrap();
         tx.commit().unwrap();
     }
 

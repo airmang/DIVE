@@ -1207,6 +1207,247 @@ fn export_distinguishes_provocation_lifecycle_events_and_hashes_reason() {
     assert_eq!(continued["payload"]["riskAccepted"], true);
 }
 
+fn project_id_for_session(db: &Arc<Mutex<dive_lib::Database>>, sid: i64) -> i64 {
+    db.lock()
+        .unwrap()
+        .conn()
+        .query_row(
+            "SELECT project_id FROM Session WHERE id = ?",
+            [sid],
+            |row| row.get(0),
+        )
+        .unwrap()
+}
+
+fn card_event_payload(project_id: i64, session_id: Option<i64>, lifecycle: &str) -> Value {
+    json!({
+        "schemaVersion": 1,
+        "lifecycleEvent": lifecycle,
+        "projectId": project_id,
+        "sessionId": session_id,
+        "cardId": "prd_intent_check:decompose:draft-1",
+        "exposureId": "exp-1",
+        "cardType": "prd_intent_check",
+        "stage": "decompose",
+        "severity": "caution",
+        "mode": "work",
+    })
+}
+
+// Spec 015 FR-005 / SC-003: review-card hosts without a session in scope
+// (terminal tab, PRD board) send `sessionId: null`. Every `provocation.*`
+// event of a session — including those — must reach that session's export,
+// together with the exposure's terminal event (SC-002).
+#[test]
+fn every_provocation_event_of_a_session_is_exported_even_without_a_client_session_id() {
+    let (db, sid) = seed();
+    let project_id = project_id_for_session(&db, sid);
+    let question = "이 목표 요약이 내가 만들려는 것과 같은지 확인할 수 있나요?";
+    {
+        let guard = db.lock().unwrap();
+        let conn = guard.conn();
+        let mut shown = card_event_payload(project_id, None, "card_shown");
+        shown["question"] = json!(question);
+        dive_event_log::append_provocation_event_to_conn(
+            conn,
+            None,
+            "provocation.card_shown",
+            &shown,
+        )
+        .unwrap();
+        let mut unanswered = card_event_payload(project_id, None, "card_unanswered");
+        unanswered["visibleMs"] = json!(4200);
+        unanswered["unansweredReason"] = json!("superseded");
+        dive_event_log::append_provocation_event_to_conn(
+            conn,
+            None,
+            "provocation.card_unanswered",
+            &unanswered,
+        )
+        .unwrap();
+        let mut clicked = card_event_payload(project_id, Some(sid), "action_clicked");
+        clicked["exposureId"] = json!("exp-2");
+        clicked["responseLatencyMs"] = json!(900);
+        dive_event_log::append_provocation_event_to_conn(
+            conn,
+            Some(sid),
+            "provocation.action_clicked",
+            &clicked,
+        )
+        .unwrap();
+        // A null-session event with no project cannot be attributed; it stays
+        // unscoped instead of being guessed onto some session.
+        let mut orphan = card_event_payload(project_id, None, "card_shown");
+        orphan.as_object_mut().unwrap().remove("projectId");
+        dive_event_log::append_provocation_event_to_conn(
+            conn,
+            None,
+            "provocation.card_shown",
+            &orphan,
+        )
+        .unwrap();
+    }
+
+    let stored_for_session: i64 = db
+        .lock()
+        .unwrap()
+        .conn()
+        .query_row(
+            "SELECT COUNT(*) FROM EventLog WHERE session_id = ? AND type LIKE 'provocation.%'",
+            [sid],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let unscoped: i64 = db
+        .lock()
+        .unwrap()
+        .conn()
+        .query_row(
+            "SELECT COUNT(*) FROM EventLog WHERE session_id IS NULL AND type LIKE 'provocation.%'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored_for_session, 3);
+    assert_eq!(unscoped, 1);
+
+    let engine = ExportEngine::new(db);
+    let records = lines(
+        &engine
+            .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+            .unwrap(),
+    );
+    let exported = records
+        .iter()
+        .filter(|record| {
+            record["kind"] == "event"
+                && record["type"]
+                    .as_str()
+                    .is_some_and(|ty| ty.starts_with("provocation."))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(exported.len() as i64, stored_for_session);
+
+    let shown = exported
+        .iter()
+        .find(|record| record["type"] == "provocation.card_shown")
+        .unwrap();
+    // D-015-03: the generated question is exported in plain text.
+    assert_eq!(shown["payload"]["question"], json!(question));
+    let unanswered = exported
+        .iter()
+        .find(|record| record["type"] == "provocation.card_unanswered")
+        .unwrap();
+    assert_eq!(unanswered["payload"]["exposureId"], json!("exp-1"));
+    assert_eq!(unanswered["payload"]["visibleMs"], json!(4200));
+    assert_eq!(
+        unanswered["payload"]["unansweredReason"],
+        json!("superseded")
+    );
+    let clicked = exported
+        .iter()
+        .find(|record| record["type"] == "provocation.action_clicked")
+        .unwrap();
+    assert_eq!(clicked["payload"]["responseLatencyMs"], json!(900));
+}
+
+#[test]
+fn exported_question_text_is_plain_but_still_passes_pii_and_secret_detectors() {
+    let (db, sid) = seed();
+    let project_id = project_id_for_session(&db, sid);
+    {
+        let guard = db.lock().unwrap();
+        let mut shown = card_event_payload(project_id, Some(sid), "card_shown");
+        shown["question"] =
+            json!("minji@example.com 계정으로 로그인해서 token=abcd1234 가 보이는지 확인했나요?");
+        dive_event_log::append_provocation_event_to_conn(
+            guard.conn(),
+            Some(sid),
+            "provocation.card_shown",
+            &shown,
+        )
+        .unwrap();
+        dive_event_log::append_supervisor_evaluation_to_conn(
+            guard.conn(),
+            sid,
+            "eval-q",
+            &serde_json::from_value(json!({
+                "schemaVersion": 1,
+                "event": "verify_entered",
+                "artifactRef": {"kind": "step", "id": "step-1", "label": "Login"},
+                "contextHash": "sha256:c",
+                "evidenceHash": "sha256:e",
+                "mode": "work",
+                "evidenceRefs": [],
+                "decisionSummary": {
+                    "provoke": true,
+                    "concern": "ai_self_report_only",
+                    "severity": "caution",
+                    "evidenceRefIds": ["agent.assistant_claim"],
+                    "suggestedActionIds": ["open_diff"],
+                    "strippedActionIds": [],
+                    "question": "변경 내용으로 로그인 폼이 목표와 맞는지 확인할 수 있나요?"
+                },
+                "validationOutcome": "shown",
+                "promptVersion": "1.0.0+256c9520",
+                "policyVersion": "1.0.0"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+    let out = ExportEngine::new(db)
+        .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+        .unwrap();
+    assert!(!out.contains("minji@example.com"), "{out}");
+    assert!(!out.contains("abcd1234"), "{out}");
+    let records = lines(&out);
+    let evaluated = records
+        .iter()
+        .find(|record| record["type"] == "provocation.supervisor_evaluated")
+        .unwrap();
+    assert_eq!(
+        evaluated["payload"]["decisionSummary"]["question"],
+        json!("변경 내용으로 로그인 폼이 목표와 맞는지 확인할 수 있나요?")
+    );
+    assert_eq!(
+        evaluated["payload"]["promptVersion"],
+        json!("1.0.0+256c9520")
+    );
+    assert_eq!(evaluated["payload"]["policyVersion"], json!("1.0.0"));
+}
+
+#[test]
+fn session_meta_exports_session_origin() {
+    let (db, sid) = seed();
+    let out = ExportEngine::new(db.clone())
+        .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+        .unwrap();
+    let meta = lines(&out)
+        .into_iter()
+        .find(|record| record["kind"] == "session_meta")
+        .unwrap();
+    // Sessions created by the DAO record the build/env origin.
+    assert_eq!(
+        meta["origin"],
+        json!(dive_lib::db::models::SessionOrigin::current().as_str())
+    );
+
+    db.lock()
+        .unwrap()
+        .conn()
+        .execute("UPDATE Session SET origin = 'qa' WHERE id = ?", [sid])
+        .unwrap();
+    let out = ExportEngine::new(db)
+        .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+        .unwrap();
+    let meta = lines(&out)
+        .into_iter()
+        .find(|record| record["kind"] == "session_meta")
+        .unwrap();
+    assert_eq!(meta["origin"], json!("qa"));
+}
+
 #[test]
 fn provocation_event_export_summarizes_raw_bodies_even_when_hashing_is_off() {
     let (db, sid) = seed();

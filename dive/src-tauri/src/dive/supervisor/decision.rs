@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::*;
+use crate::dive::supervision_policy::supervision_policy;
 
 pub fn invalid_mode_validation_result() -> SupervisorValidationResult {
     SupervisorValidationResult::dropped(SupervisorDropReason::InvalidMode, None)
@@ -49,7 +50,7 @@ pub fn supervisor_provoke_gate(context: &SupervisorContext) -> bool {
                 .as_ref()
                 .is_some_and(|assessment| {
                     assessment.eligible
-                        && assessment.failure_count >= 2
+                        && assessment.failure_count >= supervision_policy().retry_loop_min_failures
                         && !assessment.failure_fingerprint.trim().is_empty()
                         && !assessment.evidence_refs.is_empty()
                         && context.verification_state.test_result != Some(TestResult::Pass)
@@ -201,6 +202,11 @@ pub struct SupervisorDecisionSummary {
     pub evidence_ref_ids: Vec<String>,
     pub suggested_action_ids: Vec<String>,
     pub stripped_action_ids: Vec<String>,
+    /// The generated question, recorded only for shown decisions (spec 015
+    /// FR-003 / D-015-03): it is AI output and the unit of card-quality
+    /// analysis. Exported in plain text; PII/secret detectors still apply.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<String>,
 }
 
 impl SupervisorDecisionSummary {
@@ -212,6 +218,7 @@ impl SupervisorDecisionSummary {
             evidence_ref_ids: decision.evidence_ref_ids.clone(),
             suggested_action_ids: decision.suggested_action_ids.clone(),
             stripped_action_ids,
+            question: None,
         }
     }
 }
@@ -329,6 +336,13 @@ pub struct SupervisorEvaluationLog {
     pub card_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_response: Option<Value>,
+    /// `<semver>+<hash>` of the SupervisorAgent prompt template (FR-001).
+    #[serde(default)]
+    pub prompt_version: String,
+    /// `SupervisionPolicy.policyVersion` the trigger assessments ran under
+    /// (FR-002).
+    #[serde(default)]
+    pub policy_version: String,
 }
 
 impl SupervisorEvaluationLog {
@@ -358,7 +372,20 @@ impl SupervisorEvaluationLog {
             drop_reason: validation.drop_reason,
             card_id: validation.card_id.clone(),
             user_response: None,
+            prompt_version: supervisor_prompt_version().render(),
+            policy_version: supervision_policy().policy_version.clone(),
         }
+    }
+
+    /// Record the policy version the frontend computed its assessment under.
+    /// Both sides read the same `supervision-policy.json`, so this equals the
+    /// Rust value unless a stale bundle is talking to a newer binary — which
+    /// is exactly the case the log must make visible.
+    pub fn with_policy_version(mut self, policy_version: Option<&str>) -> Self {
+        if let Some(version) = policy_version.map(str::trim).filter(|v| !v.is_empty()) {
+            self.policy_version = version.to_string();
+        }
+        self
     }
 }
 
@@ -506,6 +533,10 @@ pub fn validate_supervisor_decision(
     }
 
     let card_id = deterministic_card_id(context, &decision.concern, &evidence_hash);
+    let decision_summary = SupervisorDecisionSummary {
+        question: Some(decision.question.clone()),
+        ..decision_summary
+    };
     let card = map_decision_to_card_at(
         context,
         &decision,

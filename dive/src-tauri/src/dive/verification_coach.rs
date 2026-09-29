@@ -1,5 +1,9 @@
+use std::sync::OnceLock;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+
+use crate::dive::prompt_version::PromptVersion;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -246,10 +250,43 @@ pub fn evidence_summary(request: &VerificationCoachGenerateRequest) -> Value {
     })
 }
 
+/// Semver of the verification coach prompt template (spec 015 FR-001). Bump
+/// it whenever `render_verification_coach_prompt` text changes; the pin test
+/// below enforces it.
+pub const VERIFICATION_COACH_PROMPT_SEMVER: &str = "1.0.0";
+
+pub fn verification_coach_prompt_version() -> &'static PromptVersion {
+    static VERSION: OnceLock<PromptVersion> = OnceLock::new();
+    VERSION.get_or_init(|| {
+        let fingerprint = [true, false]
+            .map(|english| render_verification_coach_prompt("{locale}", english, "{context_json}"))
+            .join("\n---\n");
+        PromptVersion::new(
+            "verification_coach",
+            VERIFICATION_COACH_PROMPT_SEMVER,
+            &fingerprint,
+        )
+    })
+}
+
 pub fn build_verification_coach_prompt(request: &VerificationCoachGenerateRequest) -> String {
     let locale = request.locale.as_deref().unwrap_or("ko-KR");
     let english =
         crate::dive::prompt_locale_is_english(request.locale.as_deref().unwrap_or("ko-KR"));
+    let context = json!({
+        "step": request.step,
+        "evidence": request.evidence,
+        "sourceUiMode": request.source_ui_mode,
+        "locale": locale,
+    });
+    render_verification_coach_prompt(
+        locale,
+        english,
+        &serde_json::to_string(&context).unwrap_or_else(|_| "{}".to_string()),
+    )
+}
+
+fn render_verification_coach_prompt(locale: &str, english: bool, context_json: &str) -> String {
     let locale_clause = if english {
         format!(" Current user language: {locale}. Write criterionSummary, every recommendedChecks label/instruction/expectedObservation, every expectedObservations entry, and every evidencePrompts entry in that language. JSON keys stay in English.")
     } else {
@@ -260,17 +297,11 @@ pub fn build_verification_coach_prompt(request: &VerificationCoachGenerateReques
         "You are DIVE's verification coach. Generate concise JSON only. Explain how the student can verify the current real project step. Do not approve the step. Do not claim the step is done. Use only supplied evidence and safe inspection actions.",
         locale_clause
     );
-    let context = json!({
-        "step": request.step,
-        "evidence": request.evidence,
-        "sourceUiMode": request.source_ui_mode,
-        "locale": locale,
-    });
     format!(
         "{}\n\n{}\n{}",
         system_instruction,
         "Return shape: {\"criterionSummary\":\"...\",\"recommendedChecks\":[{\"kind\":\"terminal|file|diff|test|preview|app_run|manual\",\"label\":\"...\",\"instruction\":\"...\",\"expectedObservation\":\"...\"}],\"expectedObservations\":[\"...\"],\"evidencePrompts\":[\"...\"]}.",
-        serde_json::to_string(&context).unwrap_or_else(|_| "{}".to_string())
+        context_json
     )
 }
 
@@ -438,6 +469,24 @@ fn is_safe_terminal_inspection(instruction: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn verification_coach_prompt_version_is_pinned() {
+        // Spec 015 FR-001: editing the coach prompt template changes this
+        // hash. Bump VERIFICATION_COACH_PROMPT_SEMVER and append the new pair.
+        crate::dive::prompt_version::assert_prompt_version_pinned(
+            verification_coach_prompt_version(),
+            &[("1.0.0", "c5cd9fc2")],
+        );
+    }
+
+    #[test]
+    fn verification_coach_prompt_ends_with_request_context() {
+        let prompt = build_verification_coach_prompt(&request());
+        assert!(prompt.starts_with("You are DIVE's verification coach."));
+        assert!(prompt.trim_end().ends_with('}'));
+        assert!(prompt.contains("\"sourceUiMode\""));
+    }
 
     fn request() -> VerificationCoachGenerateRequest {
         VerificationCoachGenerateRequest {

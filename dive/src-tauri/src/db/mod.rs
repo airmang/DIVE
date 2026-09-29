@@ -223,7 +223,10 @@ pub(crate) mod tests {
             // too — CREATE INDEX, unlike an FK, requires the target table to
             // exist. (Message is recreated by migration_v8's guard, but include
             // it as well so the fixture faithfully mirrors a real v1 DB.)
+            // migration_v20 (Session.origin) ALTERs Session directly, so it is
+            // included as well.
             conn.execute_batch(schema::CREATE_PROJECT).unwrap();
+            conn.execute_batch(schema::CREATE_SESSION).unwrap();
             conn.execute_batch(schema::CREATE_WORKMAP).unwrap();
             conn.execute_batch(schema::CREATE_CARD).unwrap();
             conn.execute_batch(schema::CREATE_MESSAGE).unwrap();
@@ -263,6 +266,7 @@ pub(crate) mod tests {
             // 1000-page auto-checkpoint threshold).
             let mut db = Database::open(&path).unwrap();
             db.conn().execute_batch(schema::CREATE_PROJECT).unwrap();
+            db.conn().execute_batch(schema::CREATE_SESSION).unwrap();
             db.conn().execute_batch(schema::CREATE_WORKMAP).unwrap();
             db.conn().execute_batch(schema::CREATE_CARD).unwrap();
             db.conn().execute_batch(schema::CREATE_MESSAGE).unwrap();

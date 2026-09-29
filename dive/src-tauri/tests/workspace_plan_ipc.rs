@@ -1132,6 +1132,66 @@ async fn prd_interview_turn_flags_undecodable_json_response_as_not_structured() 
     );
 }
 
+// Spec 015 FR-001: a turn that structured fine but proposed no patch used to
+// write no EventLog row at all. It now gets exactly one
+// `prd_interview.turn_evaluated` row carrying the prompt version, with no
+// student or assistant text.
+#[tokio::test]
+async fn prd_interview_no_patch_turn_logs_one_turn_evaluated_event() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(
+                r#"{"assistantMessage":"어떤 사람이 이 앱을 쓰게 될까요?"}"#.into(),
+            ),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+
+    let turn = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-no-patch".into(),
+            answer: "학생-42의 비밀 메모 앱".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(turn.validation_outcome, "none");
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    let evaluated = events
+        .iter()
+        .filter(|event| event.r#type == "prd_interview.turn_evaluated")
+        .collect::<Vec<_>>();
+    assert_eq!(evaluated.len(), 1);
+    let payload = &evaluated[0].payload;
+    assert_eq!(payload["validationOutcome"], json!("none"));
+    assert_eq!(payload["turnId"], json!(turn.turn_id));
+    assert_eq!(payload["patchProposed"], json!(false));
+    assert_eq!(payload["contractRetryAttempted"], json!(false));
+    assert_eq!(payload["parseFailureKind"], json!(null));
+    assert_eq!(payload["model"], json!("mock-model"));
+    let prompt_version = payload["promptVersion"].as_str().unwrap();
+    let (semver, hash) = prompt_version.split_once('+').unwrap();
+    assert_eq!(semver.split('.').count(), 3);
+    assert_eq!(hash.len(), 8);
+    let encoded = payload.to_string();
+    assert!(!encoded.contains("비밀 메모"));
+    assert!(!encoded.contains("어떤 사람이"));
+    assert!(!events
+        .iter()
+        .any(|event| event.r#type.starts_with("prd_patch_")));
+}
+
 // S-057 GO-gate fix: a nondeterministic contract violation (prose-only first
 // reply) recovers via ONE deterministic in-turn retry; the audit trail keeps
 // the flake history on the applied turn.
@@ -1186,6 +1246,17 @@ async fn prd_interview_turn_recovers_via_in_turn_retry_after_no_json() {
     assert!(!events
         .iter()
         .any(|event| event.r#type == "prd_patch_unstructured"));
+    // Spec 015 FR-001: the turn's evaluation row keeps the flake history too.
+    let evaluated = events
+        .iter()
+        .find(|event| event.r#type == "prd_interview.turn_evaluated")
+        .expect("turn evaluation logged");
+    assert_eq!(evaluated.payload["validationOutcome"], json!("applied"));
+    assert_eq!(evaluated.payload["contractRetryAttempted"], json!(true));
+    assert_eq!(
+        evaluated.payload["parseFailureKind"],
+        json!("no_json_truncated:recovered")
+    );
 
     let turns =
         interview_turn::list_by_draft(state.db.lock().unwrap().conn(), "draft-recovered").unwrap();
