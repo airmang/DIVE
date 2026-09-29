@@ -287,6 +287,11 @@ export const NON_PRODUCT = Object.freeze([
   { glob: "dive/src/**/*.test.ts", reason: "unit test" },
   { glob: "dive/src/**/*.test.tsx", reason: "unit test" },
   { glob: "dive/src-tauri/src/**/tests.rs", reason: "#[cfg(test)] test module" },
+  {
+    glob: "dive/src-tauri/src/eval/**",
+    reason: "supervisor eval harness, cfg(test | dev-mock) only (never ships)",
+  },
+  { glob: "dive/src-tauri/examples/**", reason: "dev-mock example binaries (eval CLI)" },
   { glob: "dive/src/vite-env.d.ts", reason: "type declarations only" },
   { glob: "dive/src/assets/fonts/LICENSE-*.txt", reason: "font licence text" },
   { glob: "dive/src/pages/*-demo.tsx", reason: "dev-only demo route (import.meta.env.DEV)" },
