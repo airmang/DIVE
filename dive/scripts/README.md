@@ -48,6 +48,30 @@ finding C8 — 23 one-shot sprint verifiers were retired 2026-07-20).
 | --------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `analyze-retrospective.mjs` | `pnpm research:retrospective <export.jsonl...>` | Summarizes `Card.retrospective` / `retrospective_metrics` records from a DIVE JSONL export without de-anonymizing students or sessions. |
 | `analyze-supervision.mjs`   | `pnpm research:supervision <export.jsonl>`      | Aggregates automatic supervision metrics 1/3/4 from a DIVE JSONL export.                                                                |
+| `analyze-cards.mjs`         | `pnpm research:cards <export.jsonl...>`         | Review-card field aggregates per supervisor version (spec 015 S-081); see below.                                                        |
+
+### `research:cards` (spec 015, FR-050/FR-051)
+
+Joins each export's `provocation.card_*` exposures to their
+`provocation.supervisor_evaluated` rows (within one export only: every export
+has a fresh salt) and groups by event, concern, mode, `promptVersion`,
+`policyVersion` and model. Per group: exposures; action / dismiss /
+mark-irrelevant / continued-with-risk / unanswered counts and rates (the
+denominator is exposures); median response latency; median visible time of
+unanswered cards; supervisor outcome and drop-reason distribution, including
+evaluations that produced no card. Data-integrity warnings (exposures with no
+terminal event, which should be 0) come first. Field names:
+`specs/015-self-improvement-loops/contracts/event-log-export.md`.
+
+- Default: Markdown. `-- --json` prints JSON.
+- `-- --include-origin qa,dev` adds QA/dev sessions (default: `classroom`
+  only). Exports without `origin` (before migration v20) are included and
+  counted as legacy.
+- `-- --exemplars` lists the evaluation/exposure ids and question of each
+  marked-irrelevant or unanswered exposure per export file. These are
+  candidates only: promotion into eval fixtures is manual and needs a human
+  anonymization review. Look them up on the machine that holds the replay corpus.
+- Rates are card-quality proxies, not evidence of student supervision skill.
 
 ## QA ledger (`qa-ledger/`, spec 015)
 
@@ -56,14 +80,17 @@ scenarios, live-run records). Field reference: `qa-ledger/schema.md`; workflow:
 `docs/qa/ledger/README.md`. Its `*.test.mjs` files run under `pnpm test:unit`
 (vitest includes `scripts/**/*.test.mjs`), including a check of the real ledger.
 
-| Script                   | Run via                                                                     | Purpose                                                                                                                                                        |
-| ------------------------ | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `qa-ledger/validate.mjs` | `pnpm qa:ledger:validate` (`-- --next-id`)                                  | Schema + cross-reference check of every ledger record; exits 1 listing each problem. `--next-id` prints the next free `DEF-NNNN`.                              |
-| `qa-ledger/schema.mjs`   | (module)                                                                    | Enums and per-record validators for Defect / Scenario / RunRecord.                                                                                             |
-| `qa-ledger/load.mjs`     | (module)                                                                    | Reads the ledger; duplicate-id, filename/id and dangling-reference checks.                                                                                     |
-| `qa-ledger/areas.mjs`    | (module)                                                                    | Area name → repo path globs, shared by scenarios and defects (and S-082's rerun queue).                                                                        |
-| `qa-ledger/verify.mjs`   | `pnpm verify:qa-ledger` (`-- --kinds vitest,cargo`, `-- --cargo-dir <dir>`) | Validate, then resolve the guard of every `fixed`/`verified` defect through its runner (S-080, FR-040/041); exits 1 on an unresolved or skipped/ignored guard. |
-| `qa-ledger/guards.mjs`   | (module)                                                                    | Per-kind guard resolvers with injectable runners: `vitest list --json`, `cargo test -- --list` (+ `--ignored`), eval fixture ids, live-run records.            |
+| Script                   | Run via                                                                     | Purpose                                                                                                                                                                                             |
+| ------------------------ | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `qa-ledger/validate.mjs` | `pnpm qa:ledger:validate` (`-- --next-id`)                                  | Schema + cross-reference check of every ledger record; exits 1 listing each problem. `--next-id` prints the next free `DEF-NNNN`.                                                                   |
+| `qa-ledger/schema.mjs`   | (module)                                                                    | Enums and per-record validators for Defect / Scenario / RunRecord.                                                                                                                                  |
+| `qa-ledger/load.mjs`     | (module)                                                                    | Reads the ledger; duplicate-id, filename/id and dangling-reference checks.                                                                                                                          |
+| `qa-ledger/areas.mjs`    | (module)                                                                    | Area name → repo path globs, shared by scenarios and defects (and S-082's rerun queue).                                                                                                             |
+| `qa-ledger/verify.mjs`   | `pnpm verify:qa-ledger` (`-- --kinds vitest,cargo`, `-- --cargo-dir <dir>`) | Validate, then resolve the guard of every `fixed`/`verified` defect through its runner (S-080, FR-040/041); exits 1 on an unresolved or skipped/ignored guard.                                      |
+| `qa-ledger/guards.mjs`   | (module)                                                                    | Per-kind guard resolvers with injectable runners: `vitest list --json`, `cargo test -- --list` (+ `--ignored`), eval fixture ids, live-run records.                                                 |
+| `qa-ledger/queue.mjs`    | `pnpm qa:queue` (`-- --since <ref>`, `-- --stale-days N`)                   | Pick the next live-QA run set (fixed-unverified defects, areas changed since last pass, stale, cross-cutting/unmapped ⇒ all) and write a work order to `.harness/work-orders/qa/<date>.md` (S-082). |
+| `qa-ledger/run.mjs`      | `pnpm qa:run init --scenarios …` / `pnpm qa:run apply <draft>`              | Run-record draft with build version + commit; apply writes the run, new defects, `fixed → verified` (build must contain `fixCommit`) and `lastPass`, validated all-or-nothing.                      |
+| `qa-ledger/git.mjs`      | (module)                                                                    | Read-only git helpers (`core.quotePath=false` diffs, ancestry, HEAD).                                                                                                                               |
 
 Where guard resolution runs (D-015-08 — workflow files can't be changed from
 agent sessions):

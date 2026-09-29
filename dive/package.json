@@ -49,8 +49,11 @@
     "verify:route-chat-cancel-quality": "node scripts/verify-route-chat-cancel-quality.mjs",
     "research:retrospective": "node scripts/analyze-retrospective.mjs",
     "research:supervision": "node scripts/analyze-supervision.mjs",
+    "research:cards": "node scripts/analyze-cards.mjs",
     "qa:ledger:validate": "node scripts/qa-ledger/validate.mjs",
-    "verify:qa-ledger": "node scripts/qa-ledger/verify.mjs"
+    "verify:qa-ledger": "node scripts/qa-ledger/verify.mjs",
+    "qa:run": "node scripts/qa-ledger/run.mjs",
+    "qa:queue": "node scripts/qa-ledger/queue.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
