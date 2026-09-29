@@ -74,9 +74,12 @@ Workflow files cannot be pushed from agent sessions (token lacks the
 `workflow` scope). New checks therefore attach to steps CI already runs:
 vitest (`test:unit`, include widened to `scripts/**/*.test.mjs`),
 `verify:v4` (new track), and `cargo test --features dev-mock --all-targets`
-(new integration tests). Checks that need both toolchains (cargo-guard
-resolution) run locally and in `release-gate`; a one-line workflow addition is
-left for the owner if full CI coverage is wanted.
+(new integration tests). Cargo-guard resolution needs a built Rust test
+list, which none of those steps produce: it runs **locally only**
+(`pnpm verify:qa-ledger`) until the owner adds the one-line
+`pnpm verify:qa-ledger --kinds cargo` step to `release-gate.yml` (documented in
+`dive/scripts/README.md`). Corrected 2026-09-29 after the loop-B review: an
+earlier wording claimed release-gate already ran it.
 
 ## D-015-09 (S-076 review) — Session origin: persisted override, legacy rows are `dev`
 
