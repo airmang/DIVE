@@ -429,3 +429,36 @@ export function validateRunRecord(record) {
   if ("evidence" in record) checkEvidenceList(c, "$.evidence", record.evidence);
   return c.errors;
 }
+
+// Minimal eval-gate result shape consumed by `qa:triage --from-eval` (S-084).
+// S-083 owns the real gate output; until it lands this is the agreed floor:
+// extra top-level or per-regression fields are allowed and ignored.
+export function validateEvalGateResult(result) {
+  const c = checker();
+  if (!checkObject(c, "$", result)) return c.errors;
+  for (const key of ["promptVersion", "baseline", "regressions"]) {
+    if (!(key in result)) c.fail(`$.${key}`, "is required");
+  }
+  if ("promptVersion" in result) checkString(c, "$.promptVersion", result.promptVersion);
+  if ("baseline" in result) checkString(c, "$.baseline", result.baseline);
+  if ("regressions" in result && checkArray(c, "$.regressions", result.regressions)) {
+    result.regressions.forEach((regression, i) => {
+      const path = `$.regressions[${i}]`;
+      if (!checkObject(c, path, regression)) return;
+      for (const key of ["fixtureId", "metric", "before", "after", "severity"]) {
+        if (!(key in regression)) c.fail(`${path}.${key}`, "is required");
+      }
+      if ("fixtureId" in regression) checkString(c, `${path}.fixtureId`, regression.fixtureId);
+      if ("metric" in regression) checkString(c, `${path}.metric`, regression.metric);
+      for (const key of ["before", "after"]) {
+        if (key in regression && typeof regression[key] !== "number") {
+          c.fail(`${path}.${key}`, `must be a number (got ${describe(regression[key])})`);
+        }
+      }
+      if ("severity" in regression)
+        checkEnum(c, `${path}.severity`, regression.severity, SEVERITIES);
+      if ("area" in regression) checkEnum(c, `${path}.area`, regression.area, AREA_NAMES);
+    });
+  }
+  return c.errors;
+}

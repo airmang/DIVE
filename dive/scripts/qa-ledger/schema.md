@@ -107,6 +107,41 @@ Written by `pnpm qa:run apply` (S-082, FR-060) — see `docs/qa/ledger/README.md
 | `evidence`        | object[]     | yes      | `[{ path, sha256 }]` (may be `[]`).                                                                                   |
 | `notes`           | string       | no       |                                                                                                                       |
 
+## Eval-gate result — input to `qa:triage --from-eval`
+
+Minimal shape `qa:triage` accepts until S-083 defines the gate's full output
+(`validateEvalGateResult` in `schema.mjs`; extra fields are ignored):
+
+```json
+{
+  "promptVersion": "1.2.0+abc123",
+  "baseline": "1.1.0+def456",
+  "regressions": [
+    {
+      "fixtureId": "verify-ko-work",
+      "metric": "localeCompliance",
+      "before": 1,
+      "after": 0.8,
+      "severity": "P1"
+    }
+  ]
+}
+```
+
+| Field                        | Type   | Required | Notes                                          |
+| ---------------------------- | ------ | -------- | ---------------------------------------------- |
+| `promptVersion`              | string | yes      | Version under test.                            |
+| `baseline`                   | string | yes      | Version it was compared against.               |
+| `regressions[].fixtureId`    | string | yes      | Becomes the defect's `eval-fixture` guard ref. |
+| `regressions[].metric`       | string | yes      | Deterministic metric that regressed.           |
+| `regressions[].before/after` | number | yes      | Metric values at baseline / under test.        |
+| `regressions[].severity`     | enum   | yes      | `P0` · `P1` · `P2`.                            |
+| `regressions[].area`         | area   | no       | Defaults to `supervision`.                     |
+
+Each regression becomes an `open` defect with `source: { kind: "eval", ref:
+"<promptVersion> vs <baseline>", findingId: "<fixtureId>:<metric>" }`; a
+regression whose `findingId` is already open/fixing is skipped.
+
 ## Areas
 
 `areas.mjs` maps each area name to repo-relative path globs (`**` = any number

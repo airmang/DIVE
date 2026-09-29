@@ -139,6 +139,17 @@ defects opened/verified and hashed evidence paths. The loop (S-082), from `dive/
    guard, at least one scenario in the defect's area. `verified.runId` points
    at that run.
 
+## Triage (S-084)
+
+`pnpm qa:triage` clusters `open`/`fixing` defects by area (areas whose defects
+share a `specRef`/`stageRef` are merged) and writes drafts to
+`.harness/triage/<date>/` (gitignored): a spec-theme stub and a Wily
+`design_stage` payload per cluster, priority from the top severity
+(P0 90 · P1 70 · P2 50). Drafts only — registering Stages and editing specs
+stays a human/root action. `--from-eval <result.json>` first turns eval-gate
+regressions into `source: eval` defects with `eval-fixture` guards (shape in
+`dive/scripts/qa-ledger/schema.md`); `--json` prints the summary as JSON.
+
 ## Seed provenance
 
 `seed/2026-09-29-post-cleanup-recheck.json` holds the evidence-cited re-check

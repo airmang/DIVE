@@ -1,5 +1,3 @@
-import { rmSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import {
   defaultRunners,
@@ -320,23 +318,10 @@ describe("runner output parsing", () => {
 
 describe("default vitest runner", () => {
   it("omits .skip and .todo tests from what it lists", { timeout: 60_000 }, () => {
-    const probe = `dive/scripts/qa-ledger/zz-skip-probe-${process.pid}.test.mjs`;
-    const path = fileURLToPath(new URL(`../../../${probe}`, import.meta.url));
-    writeFileSync(
-      path,
-      [
-        'import { it } from "vitest";',
-        'it("runs", () => {});',
-        'it.skip("skipped", () => {});',
-        'it.todo("todo");',
-        "",
-      ].join("\n"),
-    );
-    try {
-      expect(defaultRunners().listVitestTests([probe])).toEqual([{ file: probe, name: "runs" }]);
-    } finally {
-      rmSync(path, { force: true });
-    }
+    // A committed fixture, not a temp file: concurrent vitest/prettier runs
+    // would otherwise race on a file that appears and vanishes in the tree.
+    const probe = "dive/scripts/qa-ledger/fixtures/vitest-list-probe.test.mjs";
+    expect(defaultRunners().listVitestTests([probe])).toEqual([{ file: probe, name: "runs" }]);
   });
 });
 
