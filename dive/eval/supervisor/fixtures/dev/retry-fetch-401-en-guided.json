@@ -130,6 +130,12 @@
         "model": "hand-authored",
         "recordedAt": "2026-09-29",
         "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"retry_loop\",\"severity\":\"caution\",\"question\":\"Same 401 unauthorized error occurred 3 times—have you checked if the API key or auth token is valid?\",\"evidenceRefIds\":[\"failure.fingerprint\",\"failure.count\",\"failure.last_action\"],\"suggestedActionIds\":[\"open_diff\",\"rollback_last_change\",\"create_repro_steps\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
       }
     ]
   }

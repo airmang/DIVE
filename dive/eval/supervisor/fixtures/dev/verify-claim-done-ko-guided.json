@@ -74,6 +74,12 @@
         "model": "hand-authored",
         "recordedAt": "2026-09-29",
         "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"ai_self_report_only\",\"severity\":\"caution\",\"question\":\"새로고침 후에도 지출 내역이 실제로 저장되어 있는지 앱에서 직접 확인했나요?\",\"evidenceRefIds\":[\"agent.assistant_claim\"],\"suggestedActionIds\":[\"open_diff\",\"run_app\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
       }
     ]
   }

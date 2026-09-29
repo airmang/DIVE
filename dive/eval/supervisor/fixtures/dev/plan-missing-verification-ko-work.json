@@ -133,6 +133,12 @@
         "model": "hand-authored",
         "recordedAt": "2026-09-29",
         "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"plan_draft_weakness\",\"severity\":\"caution\",\"question\":\"두 단계 모두 검증 방법이 없는데, 생일 알림 기능 검증 절차를 추가해야 하지 않을까요?\",\"evidenceRefIds\":[\"plan.step.s_001.verification\",\"plan.step.s_002.verification\"],\"suggestedActionIds\":[\"add_verification_step\",\"link_criterion\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
       }
     ]
   }

@@ -74,6 +74,12 @@
         "model": "hand-authored",
         "recordedAt": "2026-09-29",
         "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"ai_self_report_only\",\"severity\":\"caution\",\"question\":\"Have you run the tests or checked the diff to confirm the 5-day forecast actually works?\",\"evidenceRefIds\":[\"agent.assistant_claim\",\"verify.test_result\"],\"suggestedActionIds\":[\"run_tests\",\"open_diff\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
       }
     ]
   }

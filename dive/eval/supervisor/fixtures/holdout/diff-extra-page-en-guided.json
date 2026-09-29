@@ -132,6 +132,12 @@
         "model": "hand-authored",
         "recordedAt": "2026-09-29",
         "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"diff_scope_drift\",\"severity\":\"caution\",\"question\":\"Why does About.tsx change when this step only requires Movies.tsx search filtering?\",\"evidenceRefIds\":[\"diff.changed_files\",\"diff.expected_files\",\"diff.unexpected_files\"],\"suggestedActionIds\":[\"open_diff\",\"revert_unrelated_changes\",\"ask_ai_for_rationale\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
       }
     ]
   }

@@ -115,6 +115,12 @@
         "model": "hand-authored",
         "recordedAt": "2026-09-29",
         "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"scope_expansion\",\"severity\":\"caution\",\"question\":\"Excel export isn't linked to AC-003; should this new scope be split out or tied to a criterion?\",\"evidenceRefIds\":[\"add_step.linked_criterion_ids\",\"prd_delta.scope_changes_0\"],\"suggestedActionIds\":[\"link_criterion\",\"split_scope\",\"edit_prd\",\"dismiss_review\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
       }
     ]
   }

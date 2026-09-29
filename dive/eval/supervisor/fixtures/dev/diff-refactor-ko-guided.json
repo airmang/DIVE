@@ -132,6 +132,12 @@
         "model": "hand-authored",
         "recordedAt": "2026-09-29",
         "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"diff_scope_drift\",\"severity\":\"caution\",\"question\":\"파일 이름 변경 외에 기능 동작에 영향을 주는 코드 변경은 없는지 확인하셨나요?\",\"evidenceRefIds\":[\"diff.changed_files\",\"step.scope\",\"diff.behavior_preserving_refactor\"],\"suggestedActionIds\":[\"open_diff\",\"run_tests\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
       }
     ]
   }

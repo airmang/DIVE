@@ -130,6 +130,12 @@
         "model": "hand-authored",
         "recordedAt": "2026-09-29",
         "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"plan_draft_weakness\",\"severity\":\"caution\",\"question\":\"각 단계가 어떤 수락 기준과 연결되는지 명시해야 반납일 표시와 검색 기능을 검증할 수 있지 않을까요?\",\"evidenceRefIds\":[\"plan.step.s_001.criteria\",\"plan.step.s_002.criteria\",\"plan.criteria\"],\"suggestedActionIds\":[\"link_criterion\",\"add_verification_step\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
       }
     ]
   }

@@ -130,6 +130,12 @@
         "model": "hand-authored",
         "recordedAt": "2026-09-29",
         "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"retry_loop\",\"severity\":\"caution\",\"question\":\"같은 TypeError가 3번 반복됐는데, 이전 변경을 롤백하고 diff부터 확인해볼까요?\",\"evidenceRefIds\":[\"failure.fingerprint\",\"failure.count\",\"recovery.state\"],\"suggestedActionIds\":[\"rollback_last_change\",\"open_diff\",\"run_tests\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
       }
     ]
   }

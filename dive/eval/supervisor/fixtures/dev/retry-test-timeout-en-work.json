@@ -130,6 +130,12 @@
         "model": "hand-authored",
         "recordedAt": "2026-09-29",
         "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"retry_loop\",\"severity\":\"caution\",\"question\":\"This save-score timeout has failed 4 times — should we roll back the last change instead of retrying again?\",\"evidenceRefIds\":[\"failure.fingerprint\",\"failure.count\",\"recovery.state\"],\"suggestedActionIds\":[\"rollback_last_change\",\"open_diff\",\"run_tests\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
       }
     ]
   }

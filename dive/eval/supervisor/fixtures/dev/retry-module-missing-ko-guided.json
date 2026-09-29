@@ -129,6 +129,12 @@
         "model": "hand-authored",
         "recordedAt": "2026-09-29",
         "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"retry_loop\",\"severity\":\"caution\",\"question\":\"chart.js 모듈을 찾지 못하는 오류가 반복되는데, 설치 여부를 diff로 확인해 볼까요?\",\"evidenceRefIds\":[\"failure.fingerprint\",\"failure.count\",\"recovery.state\"],\"suggestedActionIds\":[\"open_diff\",\"run_tests\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
       }
     ]
   }

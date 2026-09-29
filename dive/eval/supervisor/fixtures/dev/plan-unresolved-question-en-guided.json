@@ -127,6 +127,12 @@
         "model": "hand-authored",
         "recordedAt": "2026-09-29",
         "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"plan_draft_weakness\",\"severity\":\"caution\",\"question\":\"How will you verify that votes are recorded correctly for step s_002?\",\"evidenceRefIds\":[\"plan.step.s_002.verification\",\"plan.criteria\"],\"suggestedActionIds\":[\"add_verification_step\",\"link_criterion\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
       }
     ]
   }

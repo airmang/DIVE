@@ -115,6 +115,12 @@
         "model": "hand-authored",
         "recordedAt": "2026-09-29",
         "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"scope_expansion\",\"severity\":\"caution\",\"question\":\"관리자 통계 대시보드가 로그인/설정 MVP 범위의 PRD 기준과 어떻게 연결되나요?\",\"evidenceRefIds\":[\"add_step.linked_criterion_ids\",\"prd_delta.scope_changes_0\"],\"suggestedActionIds\":[\"link_criterion\",\"split_scope\",\"edit_prd\",\"dismiss_review\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
       }
     ]
   }
