@@ -72,6 +72,24 @@ archived-status sections below).
 | `specs/015-self-improvement-loops/contracts/event-log-export.md`     | Canonical contract      | 015 EventLog/export additions: prompt/policy versions, card exposure events, session attribution and origin (S-076), and the local replay corpus with its opt-in research replay export (S-078). |
 | `docs/improvement-cycle.md` / `.specify/templates/improvement-cycle-work-order.md` | Canonical runbook | 015 loop A (one versioned, eval-gated, owner-approved change per cycle; `pnpm eval:gate`) and loop B (`qa:queue` → live run → `qa:run apply` → `qa:triage`), and how they connect (S-083). |
 
+## 015 Implementation Status
+
+As of 2026-09-29, `specs/015-self-improvement-loops/` is implemented on branch
+`015-self-improvement-loops` (not yet pushed). Core rule D-015-01: DIVE never
+adapts at runtime; improvements are offline, versioned, owner-approved.
+
+| Wily Stage | Scope | Status |
+| ---------- | ----- | ------ |
+| S-076 | Prompt/policy versions, question text, unanswered/latency, exposure-pinned session attribution, session origin | Done |
+| S-077 | Machine-readable QA ledger (104 scenarios, 50 defects) | Done |
+| S-078 | Local replay corpus (500 / 30 days, secure delete, excluded from default export) | Done |
+| S-079 | Offline supervisor eval harness (34 fixtures, recorded CI + capped live) | Done |
+| S-080 | Runner-resolved regression guards (`verify:qa-ledger`) | Done |
+| S-081 | `research:cards` per-version aggregation | Done |
+| S-082 | `qa:run` records + `qa:queue` | Done |
+| S-083 | Runbook, `eval:gate`, cycle 1 (supervisor prompt 1.1.0+152895a8, gate PASS) | Blocked — PR push awaits owner |
+| S-084 | `qa:triage` bridge; first live loop-B cycle | Blocked — computer-use needs macOS Screen Recording permission |
+
 ## External Product Extraction
 
 DIVE for Codex was separated on 2026-07-15 into the independent local
