@@ -75,7 +75,8 @@ describe("loadLedger", () => {
     const runRecord = {
       id: "2026-09-29-smoke",
       date: "2026-09-29",
-      build: { version: "1.0.0-rc.10", commit: "f371910c" },
+      startedAt: "2026-09-29T10:00:00Z",
+      build: { version: "1.0.0-rc.10", commit: "f371910c", dirty: false },
       platform: "macos-arm64",
       scenarios: [
         { id: "CHAT-01", result: "pass" },
@@ -159,7 +160,8 @@ describe("loadLedger", () => {
       "runs/2026-09-29-smoke.json": {
         id: "2026-09-29-smoke",
         date: "2026-09-29",
-        build: { version: "1.0.0-rc.10", commit: "f371910c" },
+        startedAt: "2026-09-29T10:00:00Z",
+        build: { version: "1.0.0-rc.10", commit: "f371910c", dirty: false },
         platform: "macos-arm64",
         scenarios: [
           { id: "CHAT-01", result: "pass" },
@@ -178,6 +180,34 @@ describe("loadLedger", () => {
       'scenarios/CHAT-01.json: $.lastPass.runId: unknown run "2026-09-28-missing"',
       'runs/2026-09-29-smoke.json: $.scenarios[1].id: unknown scenario "CHAT-02"',
       'runs/2026-09-29-smoke.json: $.defectsOpened[0]: unknown defect "DEF-0042"',
+    ]);
+  });
+
+  it("requires verified.runId to name a run that lists the defect as verified", () => {
+    const verified = (runId) => ({
+      status: "verified",
+      guard: { kind: "live-scenario", ref: "CHAT-01" },
+      verified: { commit: "f371910c", buildVersion: "1.0.0-rc.10", date: "2026-09-29", runId },
+    });
+    const root = ledgerWith({
+      "scenarios/CHAT-01.json": scenario("CHAT-01"),
+      "defects/DEF-0001.json": defect("DEF-0001", verified("2026-09-29-missing")),
+      "defects/DEF-0002.json": defect("DEF-0002", verified("2026-09-29-smoke")),
+      "runs/2026-09-29-smoke.json": {
+        id: "2026-09-29-smoke",
+        date: "2026-09-29",
+        startedAt: "2026-09-29T10:00:00Z",
+        build: { version: "1.0.0-rc.10", commit: "f371910c", dirty: false },
+        platform: "macos-arm64",
+        scenarios: [{ id: "CHAT-01", result: "pass" }],
+        defectsOpened: [],
+        defectsVerified: [],
+        evidence: [],
+      },
+    });
+    expect(loadLedger(root).errors).toEqual([
+      'defects/DEF-0001.json: $.verified.runId: unknown run "2026-09-29-missing"',
+      'defects/DEF-0002.json: $.verified.runId: run "2026-09-29-smoke" does not list it in defectsVerified',
     ]);
   });
 

@@ -86,9 +86,11 @@ A `guard` is the regression test that keeps the defect fixed: `vitest`,
 `cargo`, `live-scenario` (a scenario id in `scenarios/`) or `eval-fixture`.
 "The AI said it is fixed" is never a guard. `pnpm verify:qa-ledger` (S-080)
 resolves each guard through its runner and fails on a guard that is missing,
-skipped or `#[ignore]`d — run it before moving a defect to `fixed`, and set
-`fixCommit` at the same time. CI checks the non-cargo kinds (`test:unit`,
-`verify:v4`); cargo guards need the full local run (see `dive/scripts/README.md`).
+skipped or `#[ignore]`d, and on a vitest guard declared `.fails` or whose
+name is shared by several tests — run it before moving a defect to `fixed`,
+and set `fixCommit` at the same time. CI checks the non-cargo kinds
+(`test:unit`, `verify:v4`); cargo guards are not enforced by CI until the owner
+adds the release-gate line in `dive/scripts/README.md`.
 
 On every transition, update `status` and `updated`. A regression reopens the
 defect: set `status` back to `open` and remove the `verified` block (git keeps
@@ -130,9 +132,12 @@ defects opened/verified and hashed evidence paths. The loop (S-082), from `dive/
    evidence paths while testing.
 4. `pnpm qa:run apply <draft>` writes the run record, the new `open` defects,
    `fixed → verified` transitions and scenario `lastPass` — all or nothing,
-   validated as a whole ledger first. A defect becomes `verified` only when it
-   has a `fixCommit` that the tested build contains, and (for a live-scenario
-   guard) its scenario passed in this run.
+   validated as a whole ledger first, then written temp-file + rename, run
+   record first. A defect becomes `verified` only when the build was clean
+   (`build.dirty: false`), it has a `fixCommit` that the tested build
+   contains, and this run passed its live-scenario guard — or, for a test
+   guard, at least one scenario in the defect's area. `verified.runId` points
+   at that run.
 
 ## Seed provenance
 

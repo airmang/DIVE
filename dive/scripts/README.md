@@ -106,16 +106,29 @@ agent sessions):
 - **CI, every push**: `pnpm test:unit` (`guards.test.mjs` resolves the real
   ledger's vitest, eval-fixture and live-scenario guards) and `pnpm verify:v4`
   (the "QA Ledger Guards" step, same kinds). The frontend job has no Rust
-  toolchain, so cargo guards are not checked there.
+  toolchain, so **cargo guards are not enforced by any CI job today** — see
+  the owner step below. CI checks out with depth 1: a `fixCommit` or run
+  commit missing from that shallow clone makes a live-scenario guard
+  "unverifiable" (a WARN line, exit 0); missing from full history it fails.
 - **Locally / before a release**: `pnpm verify:qa-ledger` checks every kind
   including cargo (it compiles the test targets, same flags as CI's
   `cargo test`). When the working tree is mid-edit and doesn't compile, list
   from a clean checkout: `git worktree add <dir> HEAD`, copy
   `src-tauri/binaries/*` and `dist/` into it, then
   `pnpm verify:qa-ledger -- --cargo-dir <dir>/dive/src-tauri`.
-- **Owner follow-up (optional)**: to gate cargo guards in CI, add
-  `pnpm verify:qa-ledger` after the "Rust gate" step of `release-gate.yml`
-  (working-directory `dive`); the cargo build is already warm at that point.
+- **Owner step (needed for cargo guards to be enforced)**: add this one line
+  to the "Rust gate" step of `.github/workflows/release-gate.yml`, right after
+  `cargo test --features dev-mock --all-targets`. The step runs in
+  `dive/src-tauri` under PowerShell on the Windows runners, so the line uses
+  `pnpm -C ..` (works in PowerShell and bash) rather than `cd`; the cargo test
+  build is already warm at that point:
+
+  ```sh
+  pnpm -C .. verify:qa-ledger --kinds cargo
+  ```
+
+  Agent sessions can't push workflow files (no `workflow` token scope,
+  D-015-08).
 
 ## Shared helper (not a standalone script)
 

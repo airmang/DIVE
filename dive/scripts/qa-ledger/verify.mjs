@@ -2,7 +2,8 @@
 // `pnpm verify:qa-ledger` — validate the ledger, then resolve the guard of
 // every fixed/verified defect through its runner (spec 015, S-080 / FR-040).
 // Exits 1 if the ledger is invalid or any checked guard is unresolved or
-// ignored.
+// ignored. A guard that can't be checked because a commit is missing from a
+// shallow clone (CI's depth-1 checkout) is a warning, not a failure.
 //
 // Usage: node scripts/qa-ledger/verify.mjs [--kinds vitest,cargo,...] [--root <ledger dir>]
 //                                          [--cargo-dir <dive/src-tauri of another checkout>]
@@ -50,7 +51,7 @@ export function parseVerifyArgs(argv) {
 }
 
 /** Per-kind summary lines plus one line per failure. */
-export function formatReport({ results, failed }) {
+export function formatReport({ results, failed, unverifiable = [] }) {
   const lines = [];
   for (const kind of GUARD_KINDS) {
     const ofKind = results.filter((result) => result.kind === kind);
@@ -60,13 +61,18 @@ export function formatReport({ results, failed }) {
       lines.push(`  ${kind}: ${ofKind.length} not checked (excluded by --kinds)`);
       continue;
     }
+    const shallow = count("unverifiable");
     lines.push(
       `  ${kind}: ${count("resolved")} resolved, ${count("unresolved")} unresolved, ` +
-        `${count("ignored")} ignored`,
+        `${count("ignored")} ignored` +
+        (shallow > 0 ? `, ${shallow} unverifiable (shallow clone)` : ""),
     );
   }
   for (const result of failed) {
     lines.push(`  FAIL ${result.id} [${result.kind}] ${result.ref} — ${result.detail}`);
+  }
+  for (const result of unverifiable) {
+    lines.push(`  WARN ${result.id} [${result.kind}] ${result.ref} — ${result.detail}`);
   }
   return lines;
 }

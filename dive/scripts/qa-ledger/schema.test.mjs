@@ -22,6 +22,7 @@ const VERIFIED = {
   commit: "f371910c",
   buildVersion: "1.0.0-rc.10",
   date: "2026-09-29",
+  runId: "2026-09-29-rc10-smoke",
   evidence: [{ path: "docs/qa/ledger/evidence/run.png", sha256: SHA }],
 };
 
@@ -41,7 +42,8 @@ function run(overrides = {}) {
   return {
     id: "2026-09-29-rc10-smoke",
     date: "2026-09-29",
-    build: { version: "1.0.0-rc.10", commit: "f371910c" },
+    startedAt: "2026-09-29T10:00:00Z",
+    build: { version: "1.0.0-rc.10", commit: "f371910c", dirty: false },
     platform: "macos-arm64",
     scenarios: [{ id: "ONB-01", result: "pass" }],
     defectsOpened: [],
@@ -139,6 +141,17 @@ describe("validateDefect", () => {
     );
     expect(bad({ kind: "live-scenario", ref: "SUP-01" })).toEqual([]);
     expect(bad({ kind: "eval-fixture", ref: "verify-claim-done-ko-work" })).toEqual([]);
+  });
+
+  it("requires verified.runId to be a run id", () => {
+    const { runId: _r, ...noRun } = VERIFIED;
+    expect(validateDefect(defect({ status: "verified", guard: GUARD, verified: noRun }))).toEqual([
+      "$.verified.runId: is required",
+    ]);
+    const bad = { ...VERIFIED, runId: "yesterday" };
+    expect(validateDefect(defect({ status: "verified", guard: GUARD, verified: bad }))[0]).toMatch(
+      /^\$\.verified\.runId: must be a run id/,
+    );
   });
 
   it("checks the verified block fields", () => {
@@ -256,6 +269,17 @@ describe("validateRunRecord", () => {
         }),
       ),
     ).toEqual([]);
+  });
+
+  it("requires a full startedAt timestamp and a boolean build.dirty", () => {
+    expect(validateRunRecord(run({ startedAt: "2026-09-29" }))).toEqual([
+      '$.startedAt: must be a full ISO 8601 timestamp (got "2026-09-29")',
+    ]);
+    const { startedAt: _s, ...noStart } = run();
+    expect(validateRunRecord(noStart)).toEqual(["$.startedAt: is required"]);
+    expect(
+      validateRunRecord(run({ build: { version: "1", commit: "f371910c", dirty: "no" } })),
+    ).toEqual(["$.build.dirty: must be a boolean (got string)"]);
   });
 
   it("requires the id date prefix to match the run date", () => {

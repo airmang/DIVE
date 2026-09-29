@@ -217,12 +217,15 @@ function checkGuard(c, path, guard) {
 
 function checkVerifiedBlock(c, path, verified) {
   if (!checkObject(c, path, verified)) return;
-  checkKeys(c, path, verified, ["commit", "buildVersion", "date"], ["evidence"]);
+  checkKeys(c, path, verified, ["commit", "buildVersion", "date", "runId"], ["evidence"]);
   if ("commit" in verified) {
     checkPattern(c, `${path}.commit`, verified.commit, COMMIT_RE, "a 7–40 char lowercase git sha");
   }
   if ("buildVersion" in verified) checkString(c, `${path}.buildVersion`, verified.buildVersion);
   if ("date" in verified) checkDate(c, `${path}.date`, verified.date);
+  if ("runId" in verified) {
+    checkPattern(c, `${path}.runId`, verified.runId, RUN_ID_RE, "a run id (YYYY-MM-DD-<slug>)");
+  }
   if ("evidence" in verified) checkEvidenceList(c, `${path}.evidence`, verified.evidence);
 }
 
@@ -364,6 +367,7 @@ export function validateScenario(record) {
 const RUN_REQUIRED = [
   "id",
   "date",
+  "startedAt",
   "build",
   "platform",
   "scenarios",
@@ -382,8 +386,16 @@ export function validateRunRecord(record) {
   if (idOk && dateOk && !record.date.startsWith(RUN_ID_RE.exec(record.id)[1])) {
     c.fail("$.id", `date prefix must match $.date (${record.date.slice(0, 10)})`);
   }
+  // startedAt orders runs of the same date (guards.mjs: latest post-fix run wins).
+  if ("startedAt" in record && checkDate(c, "$.startedAt", record.startedAt)) {
+    if (!record.startedAt.includes("T")) {
+      c.fail("$.startedAt", `must be a full ISO 8601 timestamp (got "${record.startedAt}")`);
+    }
+  }
   if ("build" in record && checkObject(c, "$.build", record.build)) {
-    checkKeys(c, "$.build", record.build, ["version", "commit"], []);
+    checkKeys(c, "$.build", record.build, ["version", "commit", "dirty"], []);
+    // dirty = built from a tree with uncommitted changes; such a run can't verify fixes.
+    if ("dirty" in record.build) checkBoolean(c, "$.build.dirty", record.build.dirty);
     if ("version" in record.build) checkString(c, "$.build.version", record.build.version);
     if ("commit" in record.build) {
       checkPattern(c, "$.build.commit", record.build.commit, COMMIT_RE, "a 7–40 char git sha");

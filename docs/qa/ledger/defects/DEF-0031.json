@@ -9,11 +9,11 @@
     "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
     "findingId": "L257"
   },
-  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in db5b8c34 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src-tauri/src/dive/verify.rs:365-368 branches the sentence on prompt_locale_is_english(locale) and uses a localized result word instead of {:?}. Tests at :589 (en has no Korean) and :596 (ko reads '실패') cover it. Landed in db5b8c34. Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence. Sibling test: dive::verify::tests::append_test_command_summary_uses_korean_by_default.",
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in db5b8c34 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src-tauri/src/dive/verify.rs:365-368 branches the sentence on prompt_locale_is_english(locale) and uses a localized result word instead of {:?}. Tests at :589 (en has no Korean) and :596 (ko reads '실패') cover it. Landed in db5b8c34. Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence. Sibling test: dive::verify::tests::append_test_command_summary_uses_korean_by_default. Guard repointed 2026-09-29 (Loop B review): the previous guard (append_test_command_summary_uses_english_for_en_locale) tested the helper only; the new test drives verify_card with locale en and fails if the summary call is removed (mutation-checked).",
   "fixCommit": "db5b8c34",
   "guard": {
     "kind": "cargo",
-    "ref": "dive::verify::tests::append_test_command_summary_uses_english_for_en_locale"
+    "ref": "dive::verify::tests::verify_card_appends_english_test_command_summary_for_en_locale"
   },
   "created": "2026-09-29",
   "updated": "2026-09-29"

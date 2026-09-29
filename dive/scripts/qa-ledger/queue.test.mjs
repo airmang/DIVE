@@ -4,7 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { classifyFiles, parseQueueArgs, renderWorkOrder, selectScenarios } from "./queue.mjs";
+import {
+  classifyFiles,
+  parseQueueArgs,
+  reasonKind,
+  renderWorkOrder,
+  selectScenarios,
+} from "./queue.mjs";
 
 const CLI = fileURLToPath(new URL("./queue.mjs", import.meta.url));
 
@@ -84,7 +90,7 @@ describe("classifyFiles", () => {
 });
 
 describe("selectScenarios", () => {
-  it("(a) selects scenarios linked to fixed-unverified defects by guard or area", () => {
+  it("(a) selects a defect's live-scenario guard, else its 3 narrowest area scenarios", () => {
     const ledger = ledgerOf({
       scenarios: [scenario("CHAT-01"), scenario("SUP-01", { areas: ["supervision"] })],
       defects: [
@@ -100,8 +106,47 @@ describe("selectScenarios", () => {
       runs: [BASE_RUN],
     });
     const { reasonsOf } = select(ledger);
-    expect(reasonsOf["CHAT-01"]).toEqual(["fixed-unverified defects in its areas: DEF-0001"]);
+    expect(reasonsOf["CHAT-01"]).toEqual([
+      "can verify fixed DEF-0001 (narrowest scenario in the defect's area)",
+    ]);
     expect(reasonsOf["SUP-01"]).toEqual(["verifies fixed DEF-0002 (its live-scenario guard)"]);
+  });
+
+  it("(a) caps area-matched scenarios per defect at the 3 narrowest", () => {
+    const wide = ["chat", "prd", "plan", "roadmap"];
+    const ledger = ledgerOf({
+      scenarios: [
+        scenario("J-01", { areas: wide }),
+        scenario("J-02", { areas: ["chat", "prd"], priority: "P2" }),
+        scenario("J-03", { areas: ["chat", "prd"], priority: "P0" }),
+        scenario("J-04", { areas: ["chat"] }),
+        scenario("J-05", { areas: wide }),
+      ],
+      defects: [
+        { id: "DEF-0001", status: "fixed", area: "chat", guard: { kind: "cargo", ref: "a::b" } },
+      ],
+      runs: [BASE_RUN],
+    });
+    const { reasonsOf } = select(ledger);
+    expect(Object.keys(reasonsOf).sort()).toEqual(["J-02", "J-03", "J-04"]);
+  });
+
+  it("(b) selects and warns when a base commit can't be diffed, instead of aborting", () => {
+    const ledger = ledgerOf({
+      scenarios: [scenario("CHAT-01"), scenario("CHAT-02", { lastPass: undefined })],
+      runs: [BASE_RUN],
+    });
+    const diff = () => {
+      throw new Error("git diff --name-status base123 HEAD failed: bad object base123");
+    };
+    const { reasonsOf, warnings } = select(ledger, { diff });
+    expect(reasonsOf["CHAT-01"]).toEqual([
+      "base commit base123 unknown — cannot diff since its last pass",
+    ]);
+    expect(warnings).toEqual([
+      "cannot diff from base123 (git diff --name-status base123 HEAD failed: bad object base123); " +
+        "scenarios based on it were selected. Fetch full history or pass --since <ref>.",
+    ]);
   });
 
   it("(b) diffs each scenario from its lastPass build, or everything from --since", () => {
@@ -205,6 +250,19 @@ describe("renderWorkOrder", () => {
     expect(md).toContain("Why:\n- never passed in a recorded run");
     expect(md).toContain("Steps:\n1. Drive a step to verify\n2. Observe the card");
     expect(md).toContain("Expected: Card with evidence");
+  });
+});
+
+describe("reasonKind", () => {
+  it("maps every reason line to its selection rule", () => {
+    expect(reasonKind("verifies fixed DEF-0002 (its live-scenario guard)")).toMatch(/^\(a\)/);
+    expect(reasonKind("can verify fixed DEF-0001, DEF-0003 (narrowest …)")).toMatch(/^\(a\)/);
+    expect(reasonKind("its areas changed since HEAD~1: x")).toMatch(/^\(b\)/);
+    expect(reasonKind("base commit abc unknown — cannot diff")).toMatch(/^\(b\)/);
+    expect(reasonKind("never passed in a recorded run")).toBe("(c) never passed");
+    expect(reasonKind("last pass 2026-08-01 (59 days ago)")).toBe("(c) stale");
+    expect(reasonKind("cross-cutting change since HEAD: x")).toMatch(/^\(d\)/);
+    expect(reasonKind("unmapped change since HEAD: x")).toMatch(/^\(d\)/);
   });
 });
 

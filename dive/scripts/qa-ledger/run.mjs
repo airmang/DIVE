@@ -5,7 +5,8 @@
 //                    [--date YYYY-MM-DD] [--out <draft.json>]
 //     Writes a draft (default .harness/work-orders/qa/runs/<run id>.draft.json,
 //     gitignored) with the build under test — version from dive/package.json,
-//     commit = git HEAD — and one `"result": "TODO"` entry per scenario.
+//     commit = git HEAD, dirty = uncommitted changes — a startedAt timestamp,
+//     and one `"result": "TODO"` entry per scenario.
 //
 //   pnpm qa:run apply <draft.json>
 //     Fill the draft in while testing, then apply it. Apply writes
@@ -13,13 +14,16 @@
 //       - `opened: [{ title, severity, area, repro?, notes? }]` → new DEF-NNNN
 //         records (status open, source live-run = this run);
 //       - `verify: ["DEF-0019", ...]` → fixed → verified with a `verified`
-//         block (this build, date, evidence). Refused unless the defect has a
-//         `fixCommit` that the build under test contains (git ancestry), and,
-//         for a live-scenario guard, this run passed that scenario;
+//         block (this build, date, runId, evidence). Refused unless the build
+//         is clean (build.dirty false), the defect has a `fixCommit` the build
+//         contains (git ancestry), and this run passed the defect's
+//         live-scenario guard — or, for a test guard, some scenario in the
+//         defect's area;
 //       - `evidence: ["docs/.../shot.png", ...]` → `{ path, sha256 }` (files
 //         must exist; binaries may stay gitignored — the hash pins them);
 //       - every `pass` result sets that scenario's `lastPass`.
-//     The result is validated as a whole ledger before anything is written.
+//     The result is validated as a whole ledger before anything is written,
+//     then written temp-file + rename, run record first.
 
 import { createHash } from "node:crypto";
 import {
@@ -28,13 +32,14 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { REPO_ROOT, headCommit, isAncestor, isDirty } from "./git.mjs";
+import { REPO_ROOT, commitPresence, headCommit, isAncestor, isDirty } from "./git.mjs";
 import { DEFAULT_LEDGER_ROOT, loadLedger, nextDefectId } from "./load.mjs";
 import { RUN_ID_RE, RUN_RESULTS, validateDefect } from "./schema.mjs";
 
@@ -54,7 +59,7 @@ export function defaultPlatform(platform = process.platform, arch = process.arch
 }
 
 /** Build a run draft. Pure: build info, date and ledger come from the caller. */
-export function createDraft(ledger, { scenarios, build, date, platform, slug }) {
+export function createDraft(ledger, { scenarios, build, date, startedAt, platform, slug }) {
   const errors = [];
   if (scenarios.length === 0) errors.push("--scenarios must name at least one scenario");
   for (const id of scenarios) {
@@ -70,6 +75,7 @@ export function createDraft(ledger, { scenarios, build, date, platform, slug }) 
       "confirmed in `verify`, and evidence file paths in `evidence`. Then: pnpm qa:run apply <this file>",
     id,
     date,
+    startedAt,
     build,
     platform,
     scenarios: [...new Set(scenarios)].map((scenario) => ({
@@ -87,10 +93,14 @@ export function createDraft(ledger, { scenarios, build, date, platform, slug }) 
 
 /**
  * Compute every ledger write a filled-in draft implies. Pure apart from the
- * injected `isAncestor` / `hashFile`. Returns `{ writes, errors }` where each
+ * injected `isAncestor` / `commitPresence` / `hashFile`. Returns `{ writes, errors }` where each
  * write is `{ path (relative to the ledger root), record }`.
  */
-export function applyDraft(ledger, draft, { isAncestor: ancestor, hashFile }) {
+export function applyDraft(
+  ledger,
+  draft,
+  { isAncestor: ancestor, commitPresence: presence = () => "present", hashFile },
+) {
   const errors = [];
   const writes = [];
   const runId = draft.id;
@@ -149,8 +159,24 @@ export function applyDraft(ledger, draft, { isAncestor: ancestor, hashFile }) {
       errors.push(`verify ${id}: status is "${record.status}", only "fixed" can become verified`);
       continue;
     }
+    if (draft.build?.dirty !== false) {
+      errors.push(
+        `verify ${id}: the build under test was made from a dirty tree (build.dirty), so it ` +
+          "is not exactly the recorded commit; rebuild from a clean checkout",
+      );
+      continue;
+    }
     if (!record.fixCommit) {
       errors.push(`verify ${id}: no fixCommit, so this build cannot be shown to contain the fix`);
+      continue;
+    }
+    const fixPresence = presence(record.fixCommit);
+    if (fixPresence !== "present") {
+      errors.push(
+        fixPresence === "shallow"
+          ? `verify ${id}: fix commit ${record.fixCommit} is not in this shallow clone; fetch full history`
+          : `verify ${id}: fix commit ${record.fixCommit} not in history (squashed/rebased?)`,
+      );
       continue;
     }
     if (!ancestor(record.fixCommit, draft.build?.commit)) {
@@ -159,9 +185,26 @@ export function applyDraft(ledger, draft, { isAncestor: ancestor, hashFile }) {
       );
       continue;
     }
-    if (record.guard?.kind === "live-scenario" && !passed.has(record.guard.ref)) {
-      errors.push(`verify ${id}: its guard scenario ${record.guard.ref} did not pass in this run`);
-      continue;
+    if (record.guard?.kind === "live-scenario") {
+      if (!passed.has(record.guard.ref)) {
+        errors.push(
+          `verify ${id}: its guard scenario ${record.guard.ref} did not pass in this run`,
+        );
+        continue;
+      }
+    } else {
+      // A test guard proves the fix in CI; the live run must still have
+      // exercised the defect's area in the built app.
+      const covering = [...passed].filter((sid) =>
+        ledger.byId.scenarios.get(sid)?.record.areas.includes(record.area),
+      );
+      if (covering.length === 0) {
+        errors.push(
+          `verify ${id}: no scenario in area "${record.area}" passed in this run, so the ` +
+            "built app never exercised the fix",
+        );
+        continue;
+      }
     }
     defectsVerified.push(id);
     writes.push({
@@ -173,6 +216,7 @@ export function applyDraft(ledger, draft, { isAncestor: ancestor, hashFile }) {
           commit: draft.build.commit,
           buildVersion: draft.build.version,
           date,
+          runId,
           ...(evidence.length > 0 ? { evidence } : {}),
         },
         updated: date,
@@ -193,6 +237,7 @@ export function applyDraft(ledger, draft, { isAncestor: ancestor, hashFile }) {
   const run = {
     id: runId,
     date,
+    startedAt: draft.startedAt,
     build: draft.build,
     platform: draft.platform,
     scenarios,
@@ -207,8 +252,13 @@ export function applyDraft(ledger, draft, { isAncestor: ancestor, hashFile }) {
 
 const toJson = (record) => `${JSON.stringify(record, null, 2)}\n`;
 
-/** Write `writes` into a scratch copy first; commit to `root` only if the whole ledger validates. */
-export function commitWrites(root, writes) {
+/**
+ * Validate `writes` against a scratch copy of the ledger, then commit them to
+ * `root` crash-safely: every file is first written as a temp file next to its
+ * target, then renamed into place (rename is atomic per file) — the run record
+ * first, so an interrupted apply leaves a run that names what it was applying.
+ */
+export function commitWrites(root, writes, { rename = renameSync } = {}) {
   const scratch = mkdtempSync(join(tmpdir(), "qa-ledger-apply-"));
   try {
     cpSync(root, scratch, { recursive: true });
@@ -218,14 +268,22 @@ export function commitWrites(root, writes) {
     }
     const { errors } = loadLedger(scratch);
     if (errors.length > 0) return errors;
-    for (const { path, record } of writes) {
-      mkdirSync(dirname(join(root, path)), { recursive: true });
-      writeFileSync(join(root, path), toJson(record));
-    }
-    return [];
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
+  const ordered = [
+    ...writes.filter(({ path }) => path.startsWith("runs/")),
+    ...writes.filter(({ path }) => !path.startsWith("runs/")),
+  ];
+  const staged = ordered.map(({ path, record }) => {
+    const target = join(root, path);
+    const temp = `${target}.tmp-${process.pid}`;
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(temp, toJson(record));
+    return { temp, target };
+  });
+  for (const { temp, target } of staged) rename(temp, target);
+  return [];
 }
 
 function hashRepoFile(path) {
@@ -269,8 +327,9 @@ function main() {
     const pkg = JSON.parse(readFileSync(join(REPO_ROOT, "dive", "package.json"), "utf8"));
     const { draft, errors } = createDraft(ledger, {
       scenarios: (args.scenarios ?? "").split(",").filter(Boolean),
-      build: { version: pkg.version, commit: headCommit() },
+      build: { version: pkg.version, commit: headCommit(), dirty: isDirty() },
       date: args.date ?? new Date().toISOString().slice(0, 10),
+      startedAt: new Date().toISOString(),
       platform: args.platform ?? defaultPlatform(),
       slug: args.slug,
     });
@@ -282,10 +341,11 @@ function main() {
     mkdirSync(dirname(out), { recursive: true });
     writeFileSync(out, toJson(draft));
     console.log(`qa:run: draft written to ${out}`);
-    if (isDirty()) {
+    if (draft.build.dirty) {
       console.warn(
-        "qa:run: warning — the working tree has uncommitted changes; a build from it is not " +
-          `exactly ${draft.build.commit}. Commit first, or record the difference in notes.`,
+        "qa:run: warning — the working tree has uncommitted changes (build.dirty = true); a " +
+          `build from it is not exactly ${draft.build.commit}, so this run can record results ` +
+          "and open defects but cannot verify fixes. Commit and rebuild to verify.",
       );
     }
     return 0;
@@ -293,7 +353,11 @@ function main() {
 
   if (args.command === "apply" && args.positional.length === 1) {
     const draft = JSON.parse(readFileSync(resolve(args.positional[0]), "utf8"));
-    const { writes, errors } = applyDraft(ledger, draft, { isAncestor, hashFile: hashRepoFile });
+    const { writes, errors } = applyDraft(ledger, draft, {
+      isAncestor,
+      commitPresence,
+      hashFile: hashRepoFile,
+    });
     const problems = errors.length > 0 ? errors : commitWrites(root, writes);
     if (problems.length > 0) {
       console.error(`qa:run: nothing written — ${problems.length} problem(s):`);

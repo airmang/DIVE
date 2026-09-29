@@ -4,19 +4,24 @@
 // keeps it fixed, so each guard must resolve *through its runner* — never by
 // grepping source:
 //
-//   vitest         `vitest list --json` must collect `<file>::<describe > it>`.
-//                  vitest list omits .skip / .todo / skipIf(true) tests (and
-//                  siblings of an .only), so a skipped guard is simply absent
-//                  and fails like a missing one (FR-041).
+//   vitest         `vitest list --json` must collect `<file>::<describe > it>`
+//                  exactly once. vitest list omits .skip / .todo / skipIf(true)
+//                  tests (and siblings of an .only), so a skipped guard is
+//                  absent and fails like a missing one (FR-041). A listed test
+//                  declared with `.fails` (expected to fail) or a name shared
+//                  by several tests in the file also fails.
 //   cargo          `cargo test --features dev-mock --all-targets -- --list`
 //                  must list the test; if `-- --list --ignored` also lists it,
 //                  it is #[ignore]d and fails (FR-041).
 //   eval-fixture   a fixture with that `id` must exist under
 //                  dive/eval/supervisor/fixtures/ (S-079).
-//   live-scenario  the most recent run record after the fix that includes the
-//                  scenario must have passed it. "After the fix" = the run's
-//                  build commit descends from `defect.fixCommit` (git), or,
-//                  without a fixCommit, run date >= `defect.updated`.
+//   live-scenario  the most recent run record (by startedAt) after the fix that
+//                  includes the scenario must have passed it. "After the fix" =
+//                  the run's build commit descends from `defect.fixCommit`
+//                  (git), or, without a fixCommit, run date >= `defect.updated`.
+//                  A commit absent from a shallow clone (CI's depth-1 checkout)
+//                  makes the guard "unverifiable" — a warning, not a failure;
+//                  absent from full history it fails.
 //
 // Runners are injected so tests can stub their output; `defaultRunners()`
 // shells out to the real tools. Each runner is invoked at most once, and only
@@ -27,7 +32,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isAncestor } from "./git.mjs";
+import { commitPresence, isAncestor } from "./git.mjs";
 import { GUARDED_STATUSES, GUARD_KINDS } from "./schema.mjs";
 
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
@@ -135,7 +140,30 @@ export function defaultRunners({ cargoDir } = {}) {
     listCargoTests: () => listCargoTests(cargoDir),
     listEvalFixtureIds,
     isAncestor,
+    commitPresence,
+    readTestSource: (file) => readFileSync(join(REPO_ROOT, file), "utf8"),
   };
+}
+
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The title in a vitest full name (`describe > ... > it`) whose declaration
+ * in `source` carries a `.fails` modifier (`it.fails(`, `test.concurrent.fails(`,
+ * ...), or null. Titles built dynamically (it.each, template expressions) are
+ * not matched.
+ */
+export function failsDeclarationIn(source, fullName) {
+  for (const title of fullName.split(" > ")) {
+    const call = new RegExp(
+      `\\b(?:describe|suite|it|test)((?:\\.\\w+)*)\\s*\\(\\s*(['"\`])${escapeRegExp(title)}\\2`,
+      "g",
+    );
+    for (const match of source.matchAll(call)) {
+      if (match[1].split(".").includes("fails")) return title;
+    }
+  }
+  return null;
 }
 
 function lazy(fn) {
@@ -152,12 +180,30 @@ function lazy(fn) {
 
 function resolveVitest(guards, runners) {
   const files = [...new Set(guards.map(({ guard }) => parseVitestRef(guard.ref).file))];
-  const listed = new Set(
-    runners.listVitestTests(files).map((test) => `${test.file}::${test.name}`),
-  );
+  const listed = new Map();
+  for (const test of runners.listVitestTests(files)) {
+    const key = `${test.file}::${test.name}`;
+    listed.set(key, (listed.get(key) ?? 0) + 1);
+  }
   return guards.map(({ guard }) => {
-    const { file } = parseVitestRef(guard.ref);
-    if (listed.has(guard.ref)) return { outcome: "resolved" };
+    const { file, name } = parseVitestRef(guard.ref);
+    const count = listed.get(guard.ref) ?? 0;
+    if (count > 1) {
+      return {
+        outcome: "unresolved",
+        detail: `ambiguous: ${count} tests in ${file} share this name — rename one`,
+      };
+    }
+    if (count === 1) {
+      const failing = failsDeclarationIn(runners.readTestSource(file), name);
+      if (failing !== null) {
+        return {
+          outcome: "unresolved",
+          detail: `"${failing}" is declared with .fails, so it passes while the behavior is broken`,
+        };
+      }
+      return { outcome: "resolved" };
+    }
     if (!file.startsWith("dive/")) {
       return { outcome: "unresolved", detail: "file is outside the vitest root (dive/)" };
     }
@@ -197,38 +243,78 @@ function resolveEvalFixture(guards, runners) {
   });
 }
 
+const runOrder = (a, b) =>
+  Date.parse(b.run.startedAt ?? b.run.date) - Date.parse(a.run.startedAt ?? a.run.date) ||
+  b.run.id.localeCompare(a.run.id);
+
 function resolveLiveScenario(guards, ledger, runners) {
   const runs = ledger.runs.map((entry) => entry.record).filter(Boolean);
   return guards.map(({ record, guard }) => {
-    const afterFix = (run) =>
-      record.fixCommit
-        ? runners.isAncestor(record.fixCommit, run.build?.commit)
-        : Date.parse(run.date) >= Date.parse(record.updated);
-    const candidates = runs
-      .map((run) => ({ run, entry: run.scenarios?.find((s) => s?.id === guard.ref) }))
-      .filter(({ run, entry }) => entry && afterFix(run))
-      .sort(
-        (a, b) =>
-          Date.parse(b.run.date) - Date.parse(a.run.date) || b.run.id.localeCompare(a.run.id),
-      );
-    const since = record.fixCommit ? `fix commit ${record.fixCommit}` : `${record.updated}`;
-    if (candidates.length === 0) {
-      return { outcome: "unresolved", detail: `no run record of ${guard.ref} after ${since}` };
+    const { fixCommit } = record;
+    if (fixCommit) {
+      const presence = runners.commitPresence(fixCommit);
+      if (presence === "shallow") {
+        return {
+          outcome: "unverifiable",
+          detail: `fix commit ${fixCommit} is not in this shallow clone — fetch full history to check`,
+        };
+      }
+      if (presence === "missing") {
+        return {
+          outcome: "unresolved",
+          detail: `fix commit ${fixCommit} not in history (squashed/rebased?) — update fixCommit`,
+        };
+      }
     }
-    const [{ run, entry }] = candidates;
-    if (entry.result === "pass") return { outcome: "resolved", detail: `run ${run.id}` };
+    const withScenario = runs
+      .map((run) => ({ run, entry: run.scenarios?.find((s) => s?.id === guard.ref) }))
+      .filter(({ entry }) => entry)
+      .sort(runOrder);
+    const unknown = [];
+    for (const { run, entry } of withScenario) {
+      if (fixCommit) {
+        const presence = runners.commitPresence(run.build?.commit);
+        if (presence === "shallow") {
+          unknown.push(run.id);
+          continue;
+        }
+        if (presence === "missing" || !runners.isAncestor(fixCommit, run.build.commit)) continue;
+      } else if (Date.parse(run.date) < Date.parse(record.updated)) {
+        continue;
+      }
+      // The newest post-fix run decides — unless a newer run couldn't be placed.
+      if (unknown.length > 0) break;
+      if (entry.result === "pass") return { outcome: "resolved", detail: `run ${run.id}` };
+      return {
+        outcome: "unresolved",
+        detail: `latest post-fix run of ${guard.ref} (${run.id}) recorded "${entry.result}"`,
+      };
+    }
+    if (unknown.length > 0) {
+      return {
+        outcome: "unverifiable",
+        detail: `build commit of run(s) ${unknown.join(", ")} not in this shallow clone`,
+      };
+    }
+    if (withScenario.length === 0) {
+      return { outcome: "unresolved", detail: `no run record of ${guard.ref} yet` };
+    }
+    const since = fixCommit
+      ? `built from a descendant of fix commit ${fixCommit}`
+      : `dated on/after ${record.updated}`;
     return {
       outcome: "unresolved",
-      detail: `latest run of ${guard.ref} after ${since} (${run.id}) recorded "${entry.result}"`,
+      detail: `${withScenario.length} run(s) of ${guard.ref}, none ${since}`,
     };
   });
 }
 
 /**
  * Resolve the guard of every `fixed`/`verified` defect in a loaded ledger.
- * Returns `{ results, failed }`: one result per guarded defect with
- * `outcome` = resolved | unresolved | ignored | not-checked (kind filtered
- * out by `kinds`); `failed` lists the unresolved and ignored ones.
+ * Returns `{ results, failed, unverifiable }`: one result per guarded defect
+ * with `outcome` = resolved | unresolved | ignored | unverifiable (shallow
+ * clone) | not-checked (kind filtered out by `kinds`); `failed` lists the
+ * unresolved and ignored ones, `unverifiable` the warnings.
  */
 export function resolveGuards(ledger, { kinds = GUARD_KINDS, runners = defaultRunners() } = {}) {
   const r = {
@@ -236,6 +322,8 @@ export function resolveGuards(ledger, { kinds = GUARD_KINDS, runners = defaultRu
     listCargoTests: lazy(runners.listCargoTests),
     listEvalFixtureIds: lazy(runners.listEvalFixtureIds),
     isAncestor: runners.isAncestor,
+    commitPresence: runners.commitPresence,
+    readTestSource: runners.readTestSource,
   };
   const guarded = ledger.defects
     .filter(({ record }) => GUARDED_STATUSES.includes(record?.status) && record.guard)
@@ -262,5 +350,6 @@ export function resolveGuards(ledger, { kinds = GUARD_KINDS, runners = defaultRu
     });
   }
   const failed = results.filter((result) => ["unresolved", "ignored"].includes(result.outcome));
-  return { results, failed };
+  const unverifiable = results.filter((result) => result.outcome === "unverifiable");
+  return { results, failed, unverifiable };
 }

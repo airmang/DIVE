@@ -3,9 +3,11 @@
 // work order (spec 015, S-082 / FR-061). A scenario is selected when:
 //
 //   (a) it can verify a fixed-but-unverified defect — the defect's
-//       live-scenario guard names it, or the defect's area is one of its areas;
+//       live-scenario guard names it, or (other guards) it is one of the 3
+//       narrowest scenarios (fewest areas) whose areas include the defect's;
 //   (b) files changed since its last pass (the lastPass run's build commit, or
-//       `--since <ref>` for every scenario) match its areas' globs;
+//       `--since <ref>` for every scenario) match its areas' globs — a base
+//       commit git can't resolve selects the scenario and warns;
 //   (c) it is stale — never passed in a recorded run, or last passed more than
 //       `--stale-days` (default 30) days ago;
 //   (d) a changed file is cross-cutting (area app-core) or maps to no area at
@@ -25,6 +27,8 @@ import { REPO_ROOT, changedFilesSince, headCommit } from "./git.mjs";
 import { DEFAULT_LEDGER_ROOT, loadLedger } from "./load.mjs";
 
 export const DEFAULT_STALE_DAYS = 30;
+/** Rule (a): scenarios picked per fixed defect whose guard is not a live scenario. */
+export const NARROWEST_PER_DEFECT = 3;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PRIORITY_ORDER = { P0: 0, P1: 1, P2: 2 };
 
@@ -73,17 +77,42 @@ export function selectScenarios(
       add(defect.guard.ref, `verifies fixed ${defect.id} (its live-scenario guard)`);
     }
   }
-  for (const scenario of scenarios) {
-    const ids = fixed.filter((d) => scenario.areas.includes(d.area)).map((d) => d.id);
-    if (ids.length > 0) {
-      add(scenario.id, `fixed-unverified defects in its areas: ${listSome(ids, 5)}`);
+  // Test-guarded fixes still need one live pass through their area before
+  // they can be verified, but not every scenario in that area: take the
+  // narrowest (fewest areas, then priority, then id).
+  const byScenario = new Map();
+  for (const defect of fixed.filter((d) => d.guard?.kind !== "live-scenario")) {
+    const narrowest = scenarios
+      .filter((scenario) => scenario.areas.includes(defect.area))
+      .sort(
+        (a, b) =>
+          a.areas.length - b.areas.length ||
+          PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority] ||
+          a.id.localeCompare(b.id),
+      )
+      .slice(0, NARROWEST_PER_DEFECT);
+    for (const scenario of narrowest) {
+      byScenario.set(scenario.id, [...(byScenario.get(scenario.id) ?? []), defect.id]);
     }
+  }
+  for (const [id, defectIds] of byScenario) {
+    add(id, `can verify fixed ${listSome(defectIds, 5)} (narrowest scenario in the defect's area)`);
   }
 
   // (b) + (d) changed files, one diff per base ref.
   const diffs = new Map();
+  const unknownBases = new Map();
   const classified = (ref) => {
-    if (!diffs.has(ref)) diffs.set(ref, classifyFiles(diff(ref)));
+    if (!diffs.has(ref)) {
+      try {
+        diffs.set(ref, classifyFiles(diff(ref)));
+      } catch (error) {
+        // e.g. a lastPass build commit that was rebased away or is absent from
+        // a shallow clone: select the scenario rather than abort the queue.
+        diffs.set(ref, null);
+        unknownBases.set(ref, error.message.split("\n")[0]);
+      }
+    }
     return diffs.get(ref);
   };
   const baseOf = (scenario) => {
@@ -96,6 +125,10 @@ export function selectScenarios(
     const ref = baseOf(scenario);
     if (!ref) continue;
     const files = classified(ref);
+    if (files === null) {
+      add(scenario.id, `base commit ${ref} unknown — cannot diff since its last pass`);
+      continue;
+    }
     if (files.crossCutting.length > 0) {
       add(scenario.id, `cross-cutting change since ${ref}: ${listSome(files.crossCutting)}`);
     }
@@ -123,6 +156,13 @@ export function selectScenarios(
           "that runs from that base is selected.",
       );
     }
+  }
+
+  for (const [ref, message] of unknownBases) {
+    warnings.push(
+      `cannot diff from ${ref} (${message}); scenarios based on it were selected. ` +
+        "Fetch full history or pass --since <ref>.",
+    );
   }
 
   // (c) stale.
@@ -202,6 +242,19 @@ export function renderWorkOrder({ selected, warnings }, { date, head, since, sta
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
+/** The selection rule behind a reason line, for the stdout summary. */
+export function reasonKind(reason) {
+  if (reason.startsWith("verifies fixed")) return "(a) live-scenario guard of a fixed defect";
+  if (reason.startsWith("can verify fixed")) return "(a) narrowest scenario for a fixed defect";
+  if (reason.startsWith("its areas changed")) return "(b) its areas changed";
+  if (reason.startsWith("base commit")) return "(b) base commit unknown";
+  if (reason.startsWith("cross-cutting")) return "(d) cross-cutting change";
+  if (reason.startsWith("unmapped")) return "(d) unmapped change";
+  if (reason.startsWith("never passed")) return "(c) never passed";
+  if (reason.startsWith("last pass")) return "(c) stale";
+  return reason;
+}
+
 export function parseQueueArgs(argv) {
   const args = { root: DEFAULT_LEDGER_ROOT, staleDays: DEFAULT_STALE_DAYS };
   for (let i = 0; i < argv.length; i += 1) {
@@ -269,11 +322,7 @@ function main() {
   const tally = new Map();
   for (const { reasons } of result.selected) {
     for (const reason of reasons) {
-      const kind = reason
-        .split(/[:(]/)[0]
-        .replace(/ since .*/, "")
-        .trim();
-      tally.set(kind, (tally.get(kind) ?? 0) + 1);
+      tally.set(reasonKind(reason), (tally.get(reasonKind(reason)) ?? 0) + 1);
     }
   }
   for (const [kind, count] of tally) console.log(`  ${count} × ${kind}`);

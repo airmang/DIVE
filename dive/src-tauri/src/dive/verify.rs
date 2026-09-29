@@ -469,6 +469,95 @@ fn verify_result_schema(locale: &str) -> Value {
 mod tests {
     use super::*;
 
+    /// DEF-0031 guard: drives `verify_card` itself (mock provider + a real
+    /// test command), so the localized test-command summary is checked at its
+    /// call site, not only in the helper.
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn verify_card_appends_english_test_command_summary_for_en_locale() {
+        use crate::db::dao::{project, session};
+        use crate::db::models::{CardState, NewProject, NewSession};
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir(tmp.path().join("bin")).unwrap();
+        let script = tmp.path().join("bin/pass.sh");
+        std::fs::write(&script, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let db_file = tmp.path().join("dive.db");
+        let mut db = Database::open(&db_file).unwrap();
+        db.migrate().unwrap();
+        let project_id = project::insert(
+            db.conn(),
+            &NewProject {
+                name: "p".into(),
+                path: tmp.path().display().to_string(),
+                provider_default: None,
+                model_default: None,
+            },
+        )
+        .unwrap();
+        let session_id = session::insert(
+            db.conn(),
+            &NewSession {
+                project_id,
+                title: "s".into(),
+                ended_at: None,
+                status: "active".into(),
+            },
+        )
+        .unwrap();
+        let card_id = card_dao::insert(
+            db.conn(),
+            &NewCard {
+                session_id,
+                title: "add login form".into(),
+                instruction: Some("Add email and password fields".into()),
+                assist_summary: None,
+                acceptance_criteria: None,
+                retrospective: None,
+                change_summary: None,
+                state: CardState::Verifying,
+                verify_log: None,
+                changed_files: None,
+                test_command: Some("bin/pass.sh".into()),
+                approval_judgment: None,
+                approval_provenance: None,
+                position: 1,
+            },
+        )
+        .unwrap();
+
+        let provider = Arc::new(crate::providers::MockProvider::new(vec![vec![
+            ChatEvent::ToolCallStart {
+                id: "tc-1".into(),
+                name: "verify_result".into(),
+            },
+            ChatEvent::ToolCallDelta {
+                id: "tc-1".into(),
+                arguments_delta:
+                    r#"{"intent_match":true,"test_result":"skipped","details":"Fields added."}"#
+                        .into(),
+            },
+            ChatEvent::ToolCallEnd { id: "tc-1".into() },
+            ChatEvent::Done {
+                finish_reason: FinishReason::ToolCalls,
+            },
+        ]]));
+        let engine = VerifyEngine::new(provider, Arc::new(Mutex::new(db)), "mock-model".into())
+            .with_project_root(tmp.path());
+
+        let log = engine.verify_card(session_id, card_id, "en").await.unwrap();
+
+        assert_eq!(log.test_result, TestResult::Pass);
+        assert_eq!(
+            log.details,
+            "Fields added.\n\nTest command `bin/pass.sh` result: pass"
+        );
+        assert!(!log.details.contains("검증 명령"));
+    }
+
     #[test]
     fn verify_log_approve_eligible() {
         let ok = VerifyLog {

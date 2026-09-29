@@ -16,24 +16,24 @@ Conventions for every record:
 
 ## Defect — `defects/DEF-NNNN.json`
 
-| Field         | Type       | Required | Notes                                                                                                                                                 |
-| ------------- | ---------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`          | `DEF-NNNN` | yes      | Zero-padded to 4 digits; allocate with `pnpm qa:ledger:validate -- --next-id`.                                                                        |
-| `title`       | string     | yes      | One line, symptom-first.                                                                                                                              |
-| `status`      | enum       | yes      | `open` · `fixing` · `fixed` · `verified` · `wontfix` · `duplicate` (lifecycle in the ledger README).                                                  |
-| `severity`    | enum       | yes      | `P0` · `P1` · `P2`.                                                                                                                                   |
-| `area`        | area name  | yes      | Single primary area; drives triage clustering (S-084).                                                                                                |
-| `source`      | object     | yes      | `{ kind, ref, findingId? }` — see below.                                                                                                              |
-| `specRef`     | string     | no       | Governing spec/FR, e.g. `specs/002-provocation-supervisor-agent/spec.md#FR-030`.                                                                      |
-| `stageRef`    | string     | no       | Wily Stage id, e.g. `S-080`.                                                                                                                          |
-| `fixCommit`   | git sha    | no       | Commit that fixed it. Set it when moving to `fixed`: `live-scenario` guards then need a passing run _built from a descendant of this commit_ (S-080). |
-| `repro`       | string     | no       | Minimal reproduction steps.                                                                                                                           |
-| `notes`       | string     | no       | Free text. **Required** when `status` is `wontfix` (record why).                                                                                      |
-| `duplicateOf` | `DEF-NNNN` | iff dup  | Required when `status` is `duplicate`, forbidden otherwise; must name an existing, non-duplicate defect.                                              |
-| `guard`       | object     | cond.    | `{ kind, ref }`. **Required** when `status` is `fixed` or `verified` (FR-040).                                                                        |
-| `verified`    | object     | cond.    | `{ commit, buildVersion, date, evidence? }`. Required when `status` is `verified`, forbidden for other states.                                        |
-| `created`     | date       | yes      |                                                                                                                                                       |
-| `updated`     | date       | yes      | Must not be earlier than `created`.                                                                                                                   |
+| Field         | Type       | Required | Notes                                                                                                                                                                               |
+| ------------- | ---------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`          | `DEF-NNNN` | yes      | Zero-padded to 4 digits; allocate with `pnpm qa:ledger:validate -- --next-id`.                                                                                                      |
+| `title`       | string     | yes      | One line, symptom-first.                                                                                                                                                            |
+| `status`      | enum       | yes      | `open` · `fixing` · `fixed` · `verified` · `wontfix` · `duplicate` (lifecycle in the ledger README).                                                                                |
+| `severity`    | enum       | yes      | `P0` · `P1` · `P2`.                                                                                                                                                                 |
+| `area`        | area name  | yes      | Single primary area; drives triage clustering (S-084).                                                                                                                              |
+| `source`      | object     | yes      | `{ kind, ref, findingId? }` — see below.                                                                                                                                            |
+| `specRef`     | string     | no       | Governing spec/FR, e.g. `specs/002-provocation-supervisor-agent/spec.md#FR-030`.                                                                                                    |
+| `stageRef`    | string     | no       | Wily Stage id, e.g. `S-080`.                                                                                                                                                        |
+| `fixCommit`   | git sha    | no       | Commit that fixed it. Set it when moving to `fixed`: `live-scenario` guards then need a passing run _built from a descendant of this commit_ (S-080).                               |
+| `repro`       | string     | no       | Minimal reproduction steps.                                                                                                                                                         |
+| `notes`       | string     | no       | Free text. **Required** when `status` is `wontfix` (record why).                                                                                                                    |
+| `duplicateOf` | `DEF-NNNN` | iff dup  | Required when `status` is `duplicate`, forbidden otherwise; must name an existing, non-duplicate defect.                                                                            |
+| `guard`       | object     | cond.    | `{ kind, ref }`. **Required** when `status` is `fixed` or `verified` (FR-040).                                                                                                      |
+| `verified`    | object     | cond.    | `{ commit, buildVersion, date, runId, evidence? }`; `runId` must name a run that lists this defect in `defectsVerified`. Required when `status` is `verified`, forbidden otherwise. |
+| `created`     | date       | yes      |                                                                                                                                                                                     |
+| `updated`     | date       | yes      | Must not be earlier than `created`.                                                                                                                                                 |
 
 `source.kind` is one of `review` (a code-review report), `live-run` (a live QA
 run — `ref` is the run id), `eval` (an S-079 eval regression), `audit`, `user`.
@@ -53,7 +53,9 @@ This validator only checks the shape. `pnpm verify:qa-ledger` (S-080,
 `guards.mjs`) resolves each guard of a `fixed`/`verified` defect through its
 runner and fails when it is missing, skipped or ignored:
 
-- `vitest` — `vitest list --json` must collect exactly `<file>::<name>`. vitest
+- `vitest` — `vitest list --json` must collect exactly one `<file>::<name>`
+  (a name shared by several tests is ambiguous), and the test must not be
+  declared with `.fails` anywhere in its describe chain. vitest
   list leaves out `.skip`, `.todo` and `skipIf(true)` tests (and siblings of an
   `.only`), so a skipped guard fails as absent. A runtime `ctx.skip()` inside a
   test body is not visible to listing.
@@ -61,7 +63,9 @@ runner and fails when it is missing, skipped or ignored:
   it, and `-- --list --ignored` must not (an `#[ignore]`d guard never runs in CI).
 - `eval-fixture` — a fixture with that `id` under `dive/eval/supervisor/fixtures/`.
 - `live-scenario` — among run records that include the scenario and postdate the
-  fix, the latest must be a `pass`. "Postdate" = the run's `build.commit`
+  fix, the latest (by `startedAt`) must be a `pass`. A commit missing from a
+  shallow clone makes it "unverifiable" (warning); missing from full history
+  it fails. "Postdate" = the run's `build.commit`
   descends from `fixCommit` (git); without `fixCommit`, run `date` >= `updated`.
   Set `fixCommit` for live-scenario guards — a date is a weaker proxy.
 
@@ -94,6 +98,7 @@ Written by `pnpm qa:run apply` (S-082, FR-060) — see `docs/qa/ledger/README.md
 | ----------------- | ------------ | -------- | --------------------------------------------------------------------------------------------------------------------- |
 | `id`              | string       | yes      | `YYYY-MM-DD-<slug>` (lowercase, `-` separated); the date prefix equals `date`.                                        |
 | `date`            | date         | yes      |                                                                                                                       |
+| `startedAt`       | datetime     | yes      | Full ISO 8601 timestamp; orders runs of the same date (latest post-fix run decides a live-scenario guard).            |
 | `build`           | object       | yes      | `{ version, commit }` of the build under test.                                                                        |
 | `platform`        | string       | yes      | e.g. `macos-arm64`, `windows-x64`.                                                                                    |
 | `scenarios`       | object[]     | yes      | Non-empty `[{ id, result, notes? }]`; `result` is `pass` · `fail` · `blocked` · `skipped`; ids unique and must exist. |

@@ -47,7 +47,8 @@ const DEFECT = {
 const RUN = {
   id: "2026-09-20-rc11",
   date: "2026-09-20",
-  build: { version: "1.0.0-rc.11", commit: "f371910c" },
+  startedAt: "2026-09-20T10:00:00Z",
+  build: { version: "1.0.0-rc.11", commit: "f371910c", dirty: false },
   platform: "macos-arm64",
   scenarios: [{ id: "SUP-01", result: "pass" }],
   defectsOpened: [],
@@ -125,7 +126,7 @@ describe("verify:qa-ledger CLI", () => {
     const result = runCli("--root", root, "--kinds", "live-scenario");
     expect(result.status).toBe(1);
     expect(result.stderr).toContain(
-      "FAIL DEF-0001 [live-scenario] SUP-01 — no run record of SUP-01 after 2026-09-25",
+      "FAIL DEF-0001 [live-scenario] SUP-01 — 1 run(s) of SUP-01, none dated on/after 2026-09-25",
     );
   });
 

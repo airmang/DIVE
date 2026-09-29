@@ -1,7 +1,13 @@
 import { rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import { defaultRunners, parseCargoList, parseVitestRef, resolveGuards } from "./guards.mjs";
+import {
+  defaultRunners,
+  failsDeclarationIn,
+  parseCargoList,
+  parseVitestRef,
+  resolveGuards,
+} from "./guards.mjs";
 import { DEFAULT_LEDGER_ROOT, loadLedger } from "./load.mjs";
 
 function defect(id, guard, overrides = {}) {
@@ -22,11 +28,12 @@ function defect(id, guard, overrides = {}) {
   };
 }
 
-function run(id, date, commit, scenarios) {
+function run(id, date, commit, scenarios, startedAt = `${date}T10:00:00Z`) {
   return {
     record: {
       id,
       date,
+      startedAt,
       build: { version: "1.0.0-rc.11", commit },
       platform: "macos-arm64",
       scenarios,
@@ -43,6 +50,8 @@ function stubRunners(overrides = {}) {
     listCargoTests: vi.fn(() => ({ tests: [], ignored: [] })),
     listEvalFixtureIds: vi.fn(() => []),
     isAncestor: vi.fn(() => false),
+    commitPresence: vi.fn(() => "present"),
+    readTestSource: vi.fn(() => ""),
     ...overrides,
   };
 }
@@ -77,6 +86,49 @@ describe("resolveGuards", () => {
     expect(results["DEF-0002"].detail).toMatch(/not collected by `vitest list`.*\.skip/);
     expect(results["DEF-0003"].detail).toBe("test file dive/src/gone.test.ts does not exist");
     expect(report.failed.map((r) => r.id)).toEqual(["DEF-0002", "DEF-0003"]);
+  });
+
+  it("fails a vitest guard whose name is shared or whose test is declared .fails", () => {
+    const file = "dive/src/a.test.ts";
+    const runners = stubRunners({
+      listVitestTests: vi.fn(() => [
+        { file, name: "outer > twice" },
+        { file, name: "outer > twice" },
+        { file, name: "outer > expected to fail" },
+        { file, name: "outer > fine" },
+      ]),
+      readTestSource: vi.fn(
+        () => `describe("outer", () => {
+  it("twice", () => {});
+  it("twice", () => {});
+  it.fails("expected to fail", () => { throw new Error("bug"); });
+  it("fine", () => {});
+});`,
+      ),
+    });
+    const ledger = {
+      defects: [
+        defect("DEF-0001", { kind: "vitest", ref: `${file}::outer > twice` }),
+        defect("DEF-0002", { kind: "vitest", ref: `${file}::outer > expected to fail` }),
+        defect("DEF-0003", { kind: "vitest", ref: `${file}::outer > fine` }),
+      ],
+      runs: [],
+    };
+    const results = byId(resolveGuards(ledger, { runners }));
+    expect(results["DEF-0001"].detail).toBe(
+      `ambiguous: 2 tests in ${file} share this name — rename one`,
+    );
+    expect(results["DEF-0002"]).toMatchObject({ outcome: "unresolved" });
+    expect(results["DEF-0002"].detail).toMatch(/declared with \.fails/);
+    expect(results["DEF-0003"].outcome).toBe("resolved");
+  });
+
+  it("finds .fails anywhere in the describe chain and in chained modifiers", () => {
+    expect(
+      failsDeclarationIn(`describe.fails("outer", () => { it("x", () => {}) })`, "outer > x"),
+    ).toBe("outer");
+    expect(failsDeclarationIn("test.concurrent.fails('a.b', () => {})", "a.b")).toBe("a.b");
+    expect(failsDeclarationIn('it("a.b", () => {}); it.fails("axb", () => {})', "a.b")).toBeNull();
   });
 
   it("fails cargo guards that are missing or #[ignore]d", () => {
@@ -137,7 +189,7 @@ describe("resolveGuards", () => {
     const results = byId(resolveGuards(ledger, { runners: stubRunners({ isAncestor }) }));
     expect(results["DEF-0001"]).toMatchObject({ outcome: "resolved", detail: "run 2026-09-25-d" });
     expect(results["DEF-0002"]).toMatchObject({ outcome: "resolved" });
-    expect(results["DEF-0003"].detail).toBe("no run record of SUP-01 after 2026-09-30");
+    expect(results["DEF-0003"].detail).toBe("4 run(s) of SUP-01, none dated on/after 2026-09-30");
     expect(results["DEF-0004"]).toMatchObject({ outcome: "resolved", detail: "run 2026-09-12-b" });
 
     const failing = {
@@ -148,7 +200,82 @@ describe("resolveGuards", () => {
       ],
     };
     expect(resolveGuards(failing, { runners: stubRunners() }).failed[0].detail).toBe(
-      'latest run of SUP-01 after 2026-09-15 (2026-09-20-c) recorded "fail"',
+      'latest post-fix run of SUP-01 (2026-09-20-c) recorded "fail"',
+    );
+
+    const none = { defects: [defect("DEF-0006", guard)], runs: [] };
+    expect(resolveGuards(none, { runners: stubRunners() }).failed[0].detail).toBe(
+      "no run record of SUP-01 yet",
+    );
+    const noneAfterFix = {
+      defects: [defect("DEF-0007", guard, { fixCommit: "aaaaaaa" })],
+      runs: [run("2026-09-12-b", "2026-09-12", "2222222", [{ id: "SUP-01", result: "pass" }])],
+    };
+    expect(resolveGuards(noneAfterFix, { runners: stubRunners() }).failed[0].detail).toBe(
+      "1 run(s) of SUP-01, none built from a descendant of fix commit aaaaaaa",
+    );
+  });
+
+  it("orders same-date runs by startedAt", () => {
+    const guard = { kind: "live-scenario", ref: "SUP-01" };
+    const ledger = {
+      defects: [defect("DEF-0001", guard, { updated: "2026-09-20" })],
+      runs: [
+        // Ids sort the other way round; startedAt must win.
+        run(
+          "2026-09-20-a",
+          "2026-09-20",
+          "1111111",
+          [{ id: "SUP-01", result: "fail" }],
+          "2026-09-20T18:00:00Z",
+        ),
+        run(
+          "2026-09-20-b",
+          "2026-09-20",
+          "2222222",
+          [{ id: "SUP-01", result: "pass" }],
+          "2026-09-20T09:00:00Z",
+        ),
+      ],
+    };
+    expect(resolveGuards(ledger, { runners: stubRunners() }).failed[0].detail).toBe(
+      'latest post-fix run of SUP-01 (2026-09-20-a) recorded "fail"',
+    );
+  });
+
+  it("warns instead of failing when a commit is absent from a shallow clone", () => {
+    const guard = { kind: "live-scenario", ref: "SUP-01" };
+    const passRun = run("2026-09-25-d", "2026-09-25", "4444444", [
+      { id: "SUP-01", result: "pass" },
+    ]);
+    const ledger = {
+      defects: [defect("DEF-0001", guard, { fixCommit: "aaaaaaa" })],
+      runs: [passRun],
+    };
+
+    const shallowFix = resolveGuards(ledger, {
+      runners: stubRunners({ commitPresence: () => "shallow" }),
+    });
+    expect(shallowFix.failed).toEqual([]);
+    expect(shallowFix.unverifiable[0]).toMatchObject({ outcome: "unverifiable" });
+    expect(shallowFix.unverifiable[0].detail).toMatch(/aaaaaaa is not in this shallow clone/);
+
+    const shallowRun = resolveGuards(ledger, {
+      runners: stubRunners({
+        commitPresence: (sha) => (sha === "aaaaaaa" ? "present" : "shallow"),
+      }),
+    });
+    expect(shallowRun.failed).toEqual([]);
+    expect(shallowRun.unverifiable[0].detail).toBe(
+      "build commit of run(s) 2026-09-25-d not in this shallow clone",
+    );
+
+    const missing = resolveGuards(ledger, {
+      runners: stubRunners({ commitPresence: () => "missing" }),
+    });
+    expect(missing.unverifiable).toEqual([]);
+    expect(missing.failed[0].detail).toBe(
+      "fix commit aaaaaaa not in history (squashed/rebased?) — update fixCommit",
     );
   });
 

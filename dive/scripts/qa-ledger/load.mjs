@@ -79,6 +79,17 @@ function checkReferences(ledger, errors) {
         errors.push(`${file}: $.duplicateOf: "${record.duplicateOf}" is itself a duplicate`);
       }
     }
+    const verifiedRun = record?.verified?.runId;
+    if (typeof verifiedRun === "string") {
+      const run = runs.get(verifiedRun)?.record;
+      if (!run) {
+        errors.push(`${file}: $.verified.runId: unknown run "${verifiedRun}"`);
+      } else if (!run.defectsVerified?.includes(record.id)) {
+        errors.push(
+          `${file}: $.verified.runId: run "${verifiedRun}" does not list it in defectsVerified`,
+        );
+      }
+    }
     if (record?.guard?.kind === "live-scenario" && !scenarios.has(record.guard.ref)) {
       errors.push(`${file}: $.guard.ref: unknown scenario "${record.guard.ref}"`);
     }

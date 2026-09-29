@@ -30,6 +30,17 @@ export function isAncestor(ancestor, descendant) {
   return git(["merge-base", "--is-ancestor", ancestor, descendant]).status === 0;
 }
 
+/**
+ * Whether a commit is in the local object store: "present", "shallow" (absent,
+ * but this is a shallow clone, e.g. CI's depth-1 checkout — so absence proves
+ * nothing) or "missing" (absent from full history: squashed or rebased away).
+ */
+export function commitPresence(sha) {
+  if (sha && git(["cat-file", "-e", `${sha}^{commit}`]).status === 0) return "present";
+  const shallow = git(["rev-parse", "--is-shallow-repository"]).stdout.trim() === "true";
+  return shallow ? "shallow" : "missing";
+}
+
 export function headCommit() {
   return gitOrThrow(["rev-parse", "--short=12", "HEAD"]).trim();
 }

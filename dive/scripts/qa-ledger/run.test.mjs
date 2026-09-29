@@ -1,10 +1,19 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { headCommit } from "./git.mjs";
+import { headCommit, isDirty } from "./git.mjs";
 import { loadLedger } from "./load.mjs";
 import { applyDraft, commitWrites, createDraft, defaultPlatform, slugify } from "./run.mjs";
 
@@ -64,13 +73,14 @@ function ledgerOf({ scenarios = [], defects = [], runs = [] }) {
   return ledger;
 }
 
-const BUILD = { version: "1.0.0-rc.11", commit: "bbbbbbb" };
+const BUILD = { version: "1.0.0-rc.11", commit: "bbbbbbb", dirty: false };
 
 function draftFor(ledger, overrides = {}) {
   const { draft } = createDraft(ledger, {
     scenarios: ["SUP-01", "SUP-02"],
     build: BUILD,
     date: "2026-09-29",
+    startedAt: "2026-09-29T10:00:00Z",
     platform: "macos-arm64",
   });
   return { ...draft, ...overrides };
@@ -160,6 +170,7 @@ describe("applyDraft", () => {
         commit: "bbbbbbb",
         buildVersion: "1.0.0-rc.11",
         date: "2026-09-29",
+        runId: draft.id,
         evidence: [{ path: "shots/sup-01.png", sha256: "c".repeat(64) }],
       },
     });
@@ -210,6 +221,45 @@ describe("applyDraft", () => {
     );
   });
 
+  it("refuses to verify from a dirty build or when the fix commit is not in history", () => {
+    const ledger = ledgerOf({
+      scenarios: [scenario("SUP-01")],
+      defects: [defect("DEF-0001")],
+    });
+    const passed = { scenarios: [{ id: "SUP-01", result: "pass" }], verify: ["DEF-0001"] };
+    const ok = { isAncestor: () => true, hashFile };
+
+    const dirty = draftFor(ledger, { ...passed, build: { ...BUILD, dirty: true } });
+    expect(applyDraft(ledger, dirty, ok).errors[0]).toMatch(/dirty tree \(build\.dirty\)/);
+
+    const clean = draftFor(ledger, passed);
+    expect(applyDraft(ledger, clean, { ...ok, commitPresence: () => "missing" }).errors).toEqual([
+      "verify DEF-0001: fix commit aaaaaaa not in history (squashed/rebased?)",
+    ]);
+    expect(applyDraft(ledger, clean, { ...ok, commitPresence: () => "shallow" }).errors).toEqual([
+      "verify DEF-0001: fix commit aaaaaaa is not in this shallow clone; fetch full history",
+    ]);
+    expect(applyDraft(ledger, clean, ok).errors).toEqual([]);
+  });
+
+  it("needs a passing scenario in the defect's area to verify a test-guarded fix", () => {
+    const ledger = ledgerOf({
+      scenarios: [scenario("SUP-01"), { ...scenario("REC-01"), areas: ["recovery"] }],
+      defects: [defect("DEF-0001", { area: "recovery" })],
+    });
+    const draft = draftFor(ledger, {
+      scenarios: [
+        { id: "SUP-01", result: "pass" },
+        { id: "REC-01", result: "fail" },
+      ],
+      verify: ["DEF-0001"],
+    });
+    expect(applyDraft(ledger, draft, { isAncestor: () => true, hashFile }).errors).toEqual([
+      'verify DEF-0001: no scenario in area "recovery" passed in this run, so the built app ' +
+        "never exercised the fix",
+    ]);
+  });
+
   it("reports opened-defect schema problems and missing evidence", () => {
     const ledger = ledgerOf({ scenarios: [scenario("SUP-01"), scenario("SUP-02")] });
     const draft = draftFor(ledger, {
@@ -245,6 +295,40 @@ describe("commitWrites", () => {
     ]);
     expect(errors.some((e) => e.includes("$.guard: is required"))).toBe(true);
     expect(existsSync(join(root, "scenarios/SUP-01.json"))).toBe(false);
+  });
+
+  it("renames temp files into place, run record first, leaving no temp files", () => {
+    const root = tempLedger();
+    const run = {
+      id: "2026-09-29-t",
+      date: "2026-09-29",
+      startedAt: "2026-09-29T10:00:00Z",
+      build: BUILD,
+      platform: "macos-arm64",
+      scenarios: [{ id: "SUP-01", result: "pass" }],
+      defectsOpened: [],
+      defectsVerified: [],
+      evidence: [],
+    };
+    const renames = [];
+    const rename = (from, to) => {
+      expect(existsSync(from)).toBe(true);
+      renames.push(to.slice(root.length + 1));
+      renameSync(from, to);
+    };
+    const writes = [
+      {
+        path: "scenarios/SUP-01.json",
+        record: { ...scenario("SUP-01"), lastPass: { runId: run.id, date: run.date } },
+      },
+      { path: `runs/${run.id}.json`, record: run },
+    ];
+    expect(commitWrites(root, writes, { rename })).toEqual([]);
+    expect(renames).toEqual([`runs/${run.id}.json`, "scenarios/SUP-01.json"]);
+    const leftovers = ["scenarios", "runs"].flatMap((dir) =>
+      readdirSync(join(root, dir)).filter((f) => f.includes(".tmp-")),
+    );
+    expect(leftovers).toEqual([]);
   });
 
   it("writes every record when the result validates", () => {
@@ -285,6 +369,10 @@ describe("qa:run CLI", () => {
 
       const draft = JSON.parse(readFileSync(draftPath, "utf8"));
       expect(draft.build.commit).toBe(head);
+      expect(draft.build.dirty).toBe(isDirty());
+      expect(Date.parse(draft.startedAt)).not.toBeNaN();
+      // The shared checkout may be mid-edit; pretend the build came from a clean tree.
+      draft.build.dirty = false;
       draft.scenarios[0].result = "pass";
       draft.verify = ["DEF-0001"];
       draft.evidence = ["dive/package.json"];
