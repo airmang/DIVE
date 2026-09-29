@@ -1,6 +1,6 @@
 # DIVE Spec Status
 
-**Last updated**: 2026-08-28
+**Last updated**: 2026-09-29
 
 This file prevents agents from treating old design notes as active product
 authority. The canonical DIVE v2 source of truth lives in `.specify/` and
@@ -66,6 +66,9 @@ archived-status sections below).
 | `specs/014-unrestricted-project-kinds/spec.md`                        | Canonical               | Round-5 umbrella (S-072–S-075): records Constitution VII (unrestricted project kinds) and re-decides S-047 under it — S-049 exclusionary scaffolding + `plan_form_consistency` removed (S-072), then the form taxonomy itself, leaving one stack confirmation (S-075); in-place PRD patch edits (S-073); Enter-to-send + legible confirm gate (S-074). |
 | `specs/014-unrestricted-project-kinds/decisions.md`                   | Canonical               | Records 014 stage-scoped decisions (D-014-xx).                                                                                                                                                                                          |
 | `specs/014-unrestricted-project-kinds/adr-unrestricted-project-kinds.md` | Canonical ADR        | Constitution 1.1.0 → 1.2.0 amendment: new Principle VII; supersedes design-s047.md Q1 and the S-049 form-scaffolding/consistency follow-up.                                                                                              |
+| `specs/015-self-improvement-loops/spec.md`                           | Canonical               | Round-6 umbrella (S-076–S-084): supervision-quality loop A + development QA loop B; offline, versioned, owner-gated improvement (D-015-01). |
+| `specs/015-self-improvement-loops/decisions.md`                      | Canonical               | Records 015 decisions (D-015-xx), including the resolved owner decisions OD-1–OD-5. |
+| `specs/015-self-improvement-loops/plan.md` / `tasks.md`              | Canonical planning aid  | Implementation plan and dependency-ordered tasks for 015. |
 
 ## External Product Extraction
 
