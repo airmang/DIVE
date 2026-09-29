@@ -182,15 +182,16 @@ static REGEX_RULES: Lazy<Vec<(&'static str, Regex)>> = Lazy::new(|| {
             // reader set covers cat/type/gc plus head/tail/less/more/sed/awk/grep/
             // source and the `.`-source builtin (M-2). The `.env` component must
             // begin a path segment — start of string, or right after a
-            // whitespace/`/`/`\` separator — so `app.env.ts` / `config/app.env.ts`
+            // whitespace/`/`/`\`/quote/`<` separator — so `app.env.ts` / `config/app.env.ts`
             // (a TS source file, not a dotenv file) no longer match, and the
             // trailing `\b` keeps `.environment.ts` and similar non-dotenv names
-            // from matching (dotenv-rule-overblocks-example-templates). Capture
-            // group 1 is checked in `classify_bash_command` against
-            // `is_dotenv_template_suffix` so conventional non-secret templates
-            // (`.env.example`, `.env.sample`, `.env.template`) are exempted.
+            // from matching (dotenv-rule-overblocks-example-templates). When it
+            // matches, `classify_bash_command` exempts the command only if every
+            // dotenv path anywhere in it is a conventional non-secret template
+            // (`.env.example`, `.env.sample`, `.env.template`) — see
+            // `names_only_dotenv_templates` (DEF-0001).
             Regex::new(
-                r"(?i)(?:\b(?:cat|type|get-content|gc|head|tail|less|more|sed|awk|grep|source)\b|(?:^|[;&|\r\n])\s*\.\s)(?:[^;&|\r\n]*[\s/\\])?(\.env(?:\.[A-Za-z0-9_-]+)*)\b",
+                r#"(?i)(?:\b(?:cat|type|get-content|gc|head|tail|less|more|sed|awk|grep|source)\b|(?:^|[;&|\r\n])\s*\.\s)(?:[^;&|\r\n]*[\s/\\"'<])?(\.env(?:\.[A-Za-z0-9_-]+)*)\b"#,
             )
             .unwrap(),
         ),
@@ -239,20 +240,18 @@ pub fn classify_bash_command(cmd: &str) -> Option<BlockReason> {
 
     // Regex pass.
     for (rule, re) in REGEX_RULES.iter() {
-        let Some(caps) = re.captures(trimmed) else {
+        if !re.is_match(trimmed) {
             continue;
-        };
+        }
         // Conventional non-secret dotenv templates (`.env.example`,
         // `.env.sample`, `.env.template`) are exempt from the dotenv-read
-        // rule. Every other rule has no capture groups, so `caps.get(1)` is
-        // `None` for them and this is a no-op (dotenv-rule-overblocks-
-        // example-templates finding).
-        if *rule == "dotenv read" {
-            if let Some(m) = caps.get(1) {
-                if is_dotenv_template_suffix(m.as_str()) {
-                    continue;
-                }
-            }
+        // rule, but only when *every* dotenv path in the whole command is a
+        // template. Judging the single capture let `cat .env .env.example`
+        // (greedy prefix captures the last path) and `cat .env.example; cat
+        // .env` (only the first match is inspected) read the real file
+        // (DEF-0001).
+        if *rule == "dotenv read" && names_only_dotenv_templates(trimmed) {
+            continue;
         }
         return Some(BlockReason::new(rule, re.as_str()));
     }
@@ -261,21 +260,38 @@ pub fn classify_bash_command(cmd: &str) -> Option<BlockReason> {
 }
 
 /// Conventional non-secret dotenv templates that are safe to read freely
-/// (dotenv-rule-overblocks-example-templates finding). Checked against only
-/// the first suffix segment after `.env.`, so `.env.example.local` is still
-/// treated as a real (environment-specific) file, not a template.
+/// (dotenv-rule-overblocks-example-templates finding). The whole suffix after
+/// `.env.` must be one of these, so `.env.example.local` is still treated as a
+/// real (environment-specific) file, not a template.
 const DOTENV_TEMPLATE_SUFFIXES: &[&str] = &["example", "sample", "template"];
 
-/// True when `matched` (the "dotenv read" rule's capture group — e.g. `.env`,
-/// `.env.local`, `.env.example`) names a conventional template file rather
-/// than a real secret-bearing dotenv file.
+/// Every dotenv-looking path in a command: `.env` beginning a path segment
+/// (start, whitespace, `/`, `\`, quote, `<`, or `=`), with its dotted suffixes.
+static DOTENV_PATH_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?i)(?:^|[\s/\\"'<=])(\.env(?:\.[A-Za-z0-9_-]+)*)\b"#).unwrap());
+
+/// True when `matched` (e.g. `.env`, `.env.local`, `.env.example`) names a
+/// conventional template file rather than a real secret-bearing dotenv file.
 fn is_dotenv_template_suffix(matched: &str) -> bool {
     let lower = matched.to_ascii_lowercase();
     let Some(rest) = lower.strip_prefix(".env.") else {
         return false;
     };
-    let first_segment = rest.split('.').next().unwrap_or(rest);
-    DOTENV_TEMPLATE_SUFFIXES.contains(&first_segment)
+    DOTENV_TEMPLATE_SUFFIXES.contains(&rest)
+}
+
+/// True when the command names at least one dotenv path and all of them are
+/// templates. Conservative: a template read chained with any mention of a real
+/// dotenv path is blocked.
+fn names_only_dotenv_templates(cmd: &str) -> bool {
+    let mut saw_any = false;
+    for caps in DOTENV_PATH_RE.captures_iter(cmd) {
+        saw_any = true;
+        if !is_dotenv_template_suffix(&caps[1]) {
+            return false;
+        }
+    }
+    saw_any
 }
 
 fn looks_like_env_file(path: &str) -> bool {
@@ -698,6 +714,32 @@ mod tests {
         // Real dotenv files (including nested paths) stay blocked.
         for cmd in ["cat .env", "cat .env.local", "cat config/.env"] {
             assert!(classify_bash_command(cmd).is_some(), "must block: {cmd}");
+        }
+    }
+
+    #[test]
+    fn dotenv_template_exemption_cannot_smuggle_a_real_dotenv_read() {
+        // DEF-0001: the template exemption judged only one captured path, so a
+        // real dotenv file read alongside a template slipped through.
+        for cmd in [
+            "cat .env .env.example",
+            "cat .env.example .env",
+            "cat .env.example; cat .env",
+            "head .env.sample && tail .env",
+            "cat .env.example | cat - .env.local",
+            "cat \".env\"",
+            "cat '.env.local'",
+            "cat <.env",
+            "cat .env.example.local",
+        ] {
+            assert!(classify_bash_command(cmd).is_some(), "must block: {cmd}");
+        }
+        for cmd in [
+            "cat .env.example .env.sample",
+            "cat \".env.example\"",
+            "cat config/.env.template",
+        ] {
+            assert!(classify_bash_command(cmd).is_none(), "must allow: {cmd}");
         }
     }
 
