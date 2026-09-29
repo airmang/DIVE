@@ -1,0 +1,41 @@
+{
+  "id": "STATIC-03",
+  "title": "A simple single-page info site for his restaurant: name, photo, address with a map link, opening hours, phone number, and menu with prices. Something he can show customers and put on a Naver listing.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#STATIC-03"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Mr. Oh, a 48-year-old owner of a small neighborhood Korean BBQ restaurant. Not technical at all — uses a smartphone and KakaoTalk. A relative installed DIVE for him. Korean speaker.",
+  "steps": [
+    "Design: He types, roughly, '우리 가게 홈페이지 한 장 만들어줘. 이름, 주소, 영업시간, 메뉴, 전화번호.' The Socratic interview asks him for the actual values — exact hours, the menu items and prices, the address — and whether he wants a click-to-call button and a map link (yes). The board records ACs like 'phone number is a tap-to-call link', 'hours table lists all 7 days', 'address links to a map'. He confirms; he's surprised it asked so much but the questions were concrete and answerable.",
+    "Plan: Plan is short: step-1 page scaffold + restaurant header/photo, step-2 hours + contact (tel: link + map link), step-3 menu table with prices. He accepts without really reading the dependency graph — the step titles in plain Korean are enough.",
+    "Implement: Each step proposes a write; the PermissionCard diff is intimidating but the agent's plain-language summary above it ('adds your opening hours table') tells him what's happening. He approves. He opens Preview and sees his restaurant name and menu — a big motivation moment. He notices a wrong price, tells the agent in chat, and a corrective edit is proposed and approved.",
+    "Verify: The agent claims done. The review card asks 'Are the menu prices the ones you intended? This is AI-entered text — confirm against your real menu.' The verify stepper makes him open the rendered Preview and actually read the prices/hours (real evidence: his own eyes on the content), then record that they're correct before deciding verified. This is exactly the kind of self-report-vs-reality check he needs — the AI can't know if 12,000 should be 13,000.",
+    "Done: Complete single index.html he can hand to whoever manages his Naver listing, or open on his phone. A checkpoint saved him when an edit accidentally deleted the phone number — recovery restored it."
+  ],
+  "expected": "The interview extracts the real-world facts (hours, prices, address) up front so the page isn't full of placeholders. Plain-language summaries above each diff let a non-technical owner approve confidently. The verify card reframes verification as 'check your own menu prices', which is something only he can do — supervision is genuinely valuable, not bureaucratic. Seeing his restaurant render in Preview is the payoff that keeps him going.",
+  "tags": [
+    "journey",
+    "static-web-pages-beginner",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: Highest risk of automation bias / rubber-stamping: he can't read code, so if the human-readable summary above the diff is weak or generic, he'll approve blind and content errors (wrong price, typo'd address) sail through. The verify stepper's 'evidence' for content correctness is just 'did he read it' — easy to click through without truly checking. If any required field (address, phone) is hardcoded-Korean-vs-English non-issue here, but a missing tel: link formatting (010 vs +82) could silently break click-to-call and the app can't detect that. He may abandon if the PRD interview asks anything abstract (audience, scope) instead of just the concrete facts he has in his head."
+}

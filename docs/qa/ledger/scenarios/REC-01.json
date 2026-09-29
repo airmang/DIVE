@@ -1,0 +1,19 @@
+{
+  "id": "REC-01",
+  "title": "Recovery badge + panel",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#REC-01"
+  },
+  "areas": [
+    "recovery"
+  ],
+  "pathGlobs": [],
+  "priority": "P0",
+  "requiresLlm": false,
+  "preconditions": "Session with checkpoints (demo-clean-0930 shows \"되돌리기 1건\")",
+  "steps": [
+    "Click 되돌리기"
+  ],
+  "expected": "RecoverySlideIn opens with CheckpointTimeline (baseline: badge renders)"
+}

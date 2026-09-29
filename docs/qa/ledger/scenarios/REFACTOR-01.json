@@ -1,0 +1,40 @@
+{
+  "id": "REFACTOR-01",
+  "title": "Split her one giant script.js into a few smaller files (e.g. storage.js, render.js, events.js) so the code is easier to find things in — without changing how the app behaves.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#REFACTOR-01"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Mina, a self-taught hobbyist who built a single 600-line index.html + script.js to-do app over a weekend. She has never split a file and is nervous she'll break the working app.",
+  "steps": [
+    "Design: Mina opens her existing project folder in DIVE and types the vague goal: 'make my code less messy, the file is too long.' She expects DIVE to understand her existing files. In the Socratic PRD interview she expects to be asked WHAT 'less messy' means and pushed to name a concrete outcome. A great moment: DIVE reflects back 'so the success test is: the app still works exactly the same, but logic lives in separate files' and helps her write acceptance criteria like 'AC: to-do add/complete/delete still work after the split' and 'AC: no behavior changes, only file organization.' She sets a non-goal: 'don't add features or change the UI.'",
+    "Plan: She reviews an AI roadmap: (1) read script.js + index.html to understand structure, (2) identify groups of functions, (3) create storage.js/render.js/events.js, (4) move code + add <script> tags / imports, (5) verify the app still works. She expects to SEE the steps with dependencies (step 4 depends on 3) and accept them. Great experience: the plan explicitly includes a final 'verify behavior unchanged' step rather than ending at 'files split'.",
+    "Implement: The agent first does read_file/list_dir (auto-approved, no card spam) to map the code. Then for each new file it surfaces a write_file approval card with a diff/patch preview; for edits to index.html (adding script tags) and removing moved code from script.js it shows edit cards with before/after. Mina approves each, reading the diff. She expects to clearly see WHICH code is moving where, and to be able to reject if a chunk looks wrong.",
+    "Verify: The evidence-gated stepper (코드 이해 → 점검·관찰 → 검토 응답 → 결정) opens. A provocation/review card asks: 'You confirmed the diff — but does the app actually still add and delete to-dos? Open the preview and try it.' Mina opens the Preview tab, runs the app, adds/deletes a to-do, and records a manual observation. She expects DIVE to NOT let her mark it 'verified' just because the diff looked fine — only after she confirms real behavior.",
+    "Done: All to-do operations still work; code now lives in 3 small files. A checkpoint was saved before the split so she can undo if something feels off. She expects a clear 'done' state and the reassurance that her working app survived the refactor."
+  ],
+  "expected": "DIVE treats 'still works the same' as the real acceptance criterion, blocks self-certification on a clean diff alone, and makes Mina actually exercise the app in the Preview before the step closes — so she learns that a refactor is verified by behavior, not by the code looking tidy.",
+  "tags": [
+    "journey",
+    "refactor-improve-existing-code",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: (1) edit_file replaces only the FIRST occurrence and requires a unique `find` string — moving many similarly-shaped functions out of script.js can fail or edit the wrong block, producing a broken/duplicated file; the diff card and a checkpoint must make this recoverable. (2) The agent may add ES module imports/exports without changing <script> to type=module, silently breaking the app — preview verification must catch it. (3) If she skips opening the preview, the stepper must still refuse to grade it concrete (diff_reviewed/preview-glance don't count)."
+}

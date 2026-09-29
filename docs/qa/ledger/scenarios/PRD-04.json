@@ -1,0 +1,19 @@
+{
+  "id": "PRD-04",
+  "title": "Show/Hide PRD toggle",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PRD-04"
+  },
+  "areas": [
+    "prd"
+  ],
+  "pathGlobs": [],
+  "priority": "P2",
+  "requiresLlm": false,
+  "preconditions": "PRD exists",
+  "steps": [
+    "Toggle `PRD 보기`"
+  ],
+  "expected": "PRD surface expands/collapses (verified collapsible present on demo-clean-0930)"
+}

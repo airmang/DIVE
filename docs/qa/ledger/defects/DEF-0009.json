@@ -1,0 +1,16 @@
+{
+  "id": "DEF-0009",
+  "title": "Plan/PRD lifecycle EventLog rows appended with session_id=NULL, unreachable by session-scoped export",
+  "status": "open",
+  "severity": "P2",
+  "area": "eventlog-export",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L266"
+  },
+  "notes": "Partially fixed — remaining part per 2026-09-29 re-check: db5b8c34 stamps a session id on the plan events (plan_steps.rs:173,511,619,779,1122,1202; plan_lifecycle.rs:427,614) and the PRD interview events (prd_interview.rs:152,176,204,221,247). Three things remain. First, prd_core.rs:216,230,247 still pass None for prd_authored, prd_edited and prd_version_created. Second, export/mod.rs:465 still filters WHERE session_id = ?, so these rows and all rows written before the fix (D-013-19 records the fix as forward-only, with no migration) stay unexportable. Third, the stamp comes from latest_session_id_for_project (plan_lifecycle.rs:456), so events for a project with no session yet are still NULL.",
+  "created": "2026-09-29",
+  "updated": "2026-09-29",
+  "repro": "Author a PRD (prd_core save path), then export the session: no prd_authored or prd_version_created row appears in the JSONL"
+}

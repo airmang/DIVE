@@ -1,0 +1,40 @@
+{
+  "id": "ADDFEATURE-02",
+  "title": "Add input validation so the form won't submit with an empty name or a clearly invalid email, and shows a friendly inline error instead of silently doing nothing.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#ADDFEATURE-02"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Daniel, an adult hobbyist who made a simple 'contact us' style form page in DIVE (name + email + message + Submit). He's comfortable clicking around but has never written validation logic and doesn't know what 'regex' means.",
+  "steps": [
+    "Design: Daniel reopens his existing form project; the page and its v1 PRD load. He types: 'make the form check that name isn't empty and the email looks like an email before it submits, and show an error message next to the field.' He expects DIVE to ask the kind of clarifying question a careful reviewer would: what counts as a valid email here (just contains @ and a dot, vs strict), and what should happen on error — block submit, show message, focus the field? He wants those decisions surfaced, not silently chosen by the AI.",
+    "Plan: DIVE appends a validation step linked to his form, with acceptance criteria like 'empty name blocks submit + shows error', 'malformed email blocks submit + shows error', 'valid input submits as before'. PRD goes v1→v2. He notices the criteria are concrete and testable, reviews them, and accepts. He expects the plan to make the 'what is valid' rule explicit so he can sanity-check it.",
+    "Implement: Agent reads the form HTML (auto-approved), then proposes an edit adding validation (an event handler, error elements, and the check logic). The PERM card shows the diff; Daniel sees new error <span>s and a validation function. He approves. If the agent wants to add a second edit (e.g. a small CSS block for the error styling), he expects a second clear approval card, not a silent extra write.",
+    "Verify: The verification stepper opens with provocation cards tied to each criterion. A card challenges his automation bias directly: 'You haven't tried submitting a bad email yet — prove the block actually fires.' He opens preview, types a bad email, clicks Submit, sees the inline error and that submit is blocked; then types a good one and confirms it submits. Each real observation he records advances 점검·관찰. He records the decision once he's actually exercised both the empty-name and bad-email paths.",
+    "Done: Validation step completes at PRD v2 with a checkpoint. Daniel can see which acceptance criteria he personally verified vs. which are only AI-claimed, and trusts the result because he tried the failure cases himself."
+  ],
+  "expected": "DIVE makes the fuzzy ask ('check the email is valid') concrete by surfacing the validity rule as a reviewable decision, then the verification cards refuse to let him mark it done on the AI's say-so — they specifically prod him to try the BAD inputs (empty name, malformed email) in the live preview, which is exactly the testing instinct a beginner lacks.",
+  "tags": [
+    "journey",
+    "add-a-feature-to-an-existing-project",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: (1) The agent silently choosing an over-strict or over-loose email rule without surfacing it, so Daniel approves a behavior he didn't understand. (2) Validation that only runs on the Submit button but the form still submits/navigates because preventDefault was missed — and the verification card not actually catching it because there's no running backend to show the 'submit' result. (3) Beginner confusion if the agent splits into multiple edits (HTML + JS + CSP/CSS) and he faces several PERM cards in a row without understanding they're one feature. (4) Provocation card asking a generic question instead of a criterion-linked one (spec forbids static fallback) — if that regresses, the nudge loses its teaching value."
+}

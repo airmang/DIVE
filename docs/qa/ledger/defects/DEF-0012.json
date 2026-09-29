@@ -1,0 +1,16 @@
+{
+  "id": "DEF-0012",
+  "title": "Plan-mutation write sites export artifacts/checkpoints into ambient root without validating plan's project",
+  "status": "open",
+  "severity": "P2",
+  "area": "plan",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L455"
+  },
+  "notes": "Partially fixed — remaining part per 2026-09-29 re-check: db5b8c34 added require_plan_matches_ambient_project_root (plan_lifecycle.rs:477-498) called at entry of approve (:564) and all plan_steps mutation sites (:361,:540,:668,:835,:1062,:1175), closing trigger (a) (stale cross-project planId). Trigger (b) TOCTOU remains: the guard reads project_root_required() and releases, then prepare_pre_pivot_checkpoint (plan_routing.rs:275 project_root_snapshot), maybe_create_pre_pivot_checkpoint (plan_routing.rs:304) and export (plan_steps.rs:408; approve reads root at :559 before the guard) each re-read the RwLock, so a project_select mid-command can still split checkpoint/export across roots. The finding's fix (resolve root once from ProjectRow.path) was not applied.",
+  "created": "2026-09-29",
+  "updated": "2026-09-29",
+  "repro": "Start workspace_plan_append_step on project A; complete project_select(B) after the entry guard but before export -> A's plan.json written into B/.dive and pre-pivot checkpoint of B attributed to A's session."
+}

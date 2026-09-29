@@ -49,6 +49,20 @@ finding C8 — 23 one-shot sprint verifiers were retired 2026-07-20).
 | `analyze-retrospective.mjs` | `pnpm research:retrospective <export.jsonl...>` | Summarizes `Card.retrospective` / `retrospective_metrics` records from a DIVE JSONL export without de-anonymizing students or sessions. |
 | `analyze-supervision.mjs`   | `pnpm research:supervision <export.jsonl>`      | Aggregates automatic supervision metrics 1/3/4 from a DIVE JSONL export.                                                                |
 
+## QA ledger (`qa-ledger/`, spec 015)
+
+Tooling for the machine-readable QA ledger in `docs/qa/ledger/` (defects,
+scenarios, live-run records). Field reference: `qa-ledger/schema.md`; workflow:
+`docs/qa/ledger/README.md`. Its `*.test.mjs` files run under `pnpm test:unit`
+(vitest includes `scripts/**/*.test.mjs`), including a check of the real ledger.
+
+| Script                   | Run via                                    | Purpose                                                                                                                           |
+| ------------------------ | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `qa-ledger/validate.mjs` | `pnpm qa:ledger:validate` (`-- --next-id`) | Schema + cross-reference check of every ledger record; exits 1 listing each problem. `--next-id` prints the next free `DEF-NNNN`. |
+| `qa-ledger/schema.mjs`   | (module)                                   | Enums and per-record validators for Defect / Scenario / RunRecord.                                                                |
+| `qa-ledger/load.mjs`     | (module)                                   | Reads the ledger; duplicate-id, filename/id and dangling-reference checks.                                                        |
+| `qa-ledger/areas.mjs`    | (module)                                   | Area name → repo path globs, shared by scenarios and defects (and S-082's rerun queue).                                           |
+
 ## Shared helper (not a standalone script)
 
 - `_playwright-loader.mjs` — resolves the pnpm-hoisted `playwright` module for

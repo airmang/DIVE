@@ -1,0 +1,20 @@
+{
+  "id": "REC-03",
+  "title": "Restore to checkpoint",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#REC-03"
+  },
+  "areas": [
+    "recovery"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": false,
+  "preconditions": "≥1 checkpoint",
+  "steps": [
+    "Restore",
+    "Confirm"
+  ],
+  "expected": "Rolls back; chat/plan resume from checkpoint; confirm guard present"
+}

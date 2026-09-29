@@ -1,0 +1,23 @@
+{
+  "id": "SUP-01",
+  "title": "Card renders on AI-claimed-done",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#SUP-01"
+  },
+  "areas": [
+    "supervision",
+    "verification"
+  ],
+  "pathGlobs": [],
+  "priority": "P0",
+  "requiresLlm": true,
+  "preconditions": "Session reaching verify/claim-done",
+  "steps": [
+    "Drive a step to \"검증 중\""
+  ],
+  "expected": "Provocation/review card renders with criterion-linked question + evidence (≤3) + actions; **NOT a parse_error blank**",
+  "tags": [
+    "parse"
+  ]
+}

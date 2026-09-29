@@ -1,0 +1,23 @@
+{
+  "id": "XC-01",
+  "title": "Locale-flash on first paint",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#XC-01"
+  },
+  "areas": [
+    "i18n",
+    "shell-layout"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": false,
+  "preconditions": "Cold launch",
+  "steps": [
+    "Launch & watch first paint"
+  ],
+  "expected": "UI should not flash English then switch to Korean (baseline OBSERVED a flash — verify)",
+  "tags": [
+    "i18n"
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "id": "DATA-04",
+  "title": "Build a search box that queries a public API (e.g. Open Library or GitHub users) on submit and renders matching results, with proper loading, no-results, and error states.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#DATA-04"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Sofia, a bootcamp student a few weeks in. She knows JS basics and has built a to-do list, and is now trying to wire a real third-party API for her portfolio. Eager, but trips over async timing and API error handling.",
+  "steps": [
+    "Design: Sofia states 'a search box that hits an API and shows results'. The interview pushes her to define the states she keeps forgetting: what shows before any search, during the request, when there are zero results, and when the request errors. She expects DIVE to turn 'search' into acceptance criteria for each state (AC: loading indicator during fetch; AC: 'no results' message for empty matches; AC: friendly error on network/HTTP failure) — exactly the gaps that fail her portfolio reviews.",
+    "Plan: AI proposes: (1) static search UI, (2) wire the fetch on submit + render results, (3) add loading/empty/error states (possibly with debounce). She likes that error/empty handling is its own step rather than an afterthought, and accepts.",
+    "Implement: Steps run; the agent writes the markup and the fetch handler. Edit-approval cards show the diff of the submit handler and the fetch URL. She checks the diff to make sure it handles the response.ok check and catches rejections, not just the happy path. She approves, but watches for whether error handling is real or stubbed.",
+    "Verify: The stepper forces real observation in Preview: she searches a normal term (results render), a gibberish term (no-results state), and — the hard one — she needs to observe the error state. A criterion-linked review card asks 'have you actually seen the error state, or only the success path?'. To satisfy it she may use the Preview/console to confirm behavior on a failing request. Decision unlocks only after she ties confirmation to observed evidence of the states, not just the happy path.",
+    "Done: Verified-with-evidence once she's observed success, empty, and (ideally) error states; checkpoint saved. She expects a portfolio-ready search she can demo, having actually seen each state rather than assuming they exist."
+  ],
+  "expected": "DIVE makes the invisible states (loading/empty/error) first-class acceptance criteria and then the stepper refuses to let her approve on the happy path alone — pushing her to actually trigger an empty and an error result in Preview. That's precisely the rigor a bootcamp portfolio review demands, and she learns it as a habit, not a lecture.",
+  "tags": [
+    "journey",
+    "data-display-fetch",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: The error state is genuinely hard to observe — you can't easily force the live API to fail from the Preview iframe, so 'have you seen the error state?' may be unsatisfiable without a way to simulate failure; the user (and the criterion-confirm UI) needs a path to legitimately confirm or honestly defer it rather than fake-clicking. Live third-party APIs add CORS and rate-limit failures the AI won't see. A debounce or async race can make results flicker or show stale matches — visible only by real interaction. If the LLM replies/comments in Korean, an English-locale bootcamp student gets mixed-language code."
+}

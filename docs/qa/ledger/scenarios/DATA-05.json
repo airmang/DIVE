@@ -1,0 +1,41 @@
+{
+  "id": "DATA-05",
+  "title": "Fetch a large list from a paginated API (e.g. a public REST API that supports page/limit, like JSONPlaceholder posts or a PokeAPI list) and render it 10 items per page with Previous/Next buttons and a page indicator.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#DATA-05"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Tom, a hobbyist building a personal project on evenings. Self-taught from videos, can read code and follow along, but has never implemented pagination and underestimates how fiddly 'just add page buttons' is.",
+  "steps": [
+    "Design: Tom says 'paginated list, 10 per page, prev/next'. The Socratic interview probes the edges he hasn't thought about: disable Previous on page 1? disable Next on the last page? does it re-fetch per page (server-side) or slice a cached array (client-side)? what shows while a page loads? He expects DIVE to convert these into acceptance criteria (AC: Prev disabled on first page; AC: Next disabled on last page; AC: page indicator shows current/total) and to make him decide server- vs client-side pagination up front.",
+    "Plan: AI drafts: (1) fetch + render the first page, (2) add Prev/Next navigation and page state, (3) handle boundary disabling + page indicator + loading between pages. He expects the plan to commit to one pagination strategy (so behavior is predictable) and accepts after confirming it matches the API's paging model.",
+    "Implement: Steps run; the agent writes the fetch-with-page logic and the button handlers. Edit cards show diffs of the page-state management and the URL/query construction. He scrutinizes the diff for off-by-one bugs (page index starting at 0 vs 1, total-pages math) before approving — pagination is where he expects subtle errors.",
+    "Verify: The stepper makes him page through in Preview: go to page 2 (new items load), confirm Prev re-enables, click to the last page and confirm Next disables, return to page 1 and confirm Prev disables. A criterion-linked review card asks 'did you reach the actual last page and confirm Next disables, or just check page 1→2?'. Decision stays locked until he ties confirmation to having observed the boundary behavior, not just the middle.",
+    "Done: Verified-with-evidence after he's walked the full boundary (first page, a middle page, last page); checkpoint saved. He expects confidence that pagination is correct at the edges, which is exactly where he'd normally ship a bug."
+  ],
+  "expected": "The interview forces the server-vs-client pagination decision and boundary criteria up front, and the stepper won't accept 'I clicked Next once' — it pushes Tom to actually reach the last page and watch Next disable. That catches the off-by-one and last-page bugs that pagination tutorials always gloss over, turning a fiddly feature into something he verified end to end.",
+  "tags": [
+    "journey",
+    "data-display-fetch",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: Off-by-one and total-pages math are the classic failures (Next stays enabled past the end, or the last page is empty), and reaching the true last page in Preview can be tedious or impossible if the API has thousands of pages — making the boundary criterion hard to genuinely observe. Per-page re-fetches can be slow or rate-limited, and a loading fl</br>icker between pages is only visible by interaction. If the AI self-reports 'pagination works' after testing only page 1→2, the boundary bug ships unless the review card and his observation force the edges. As with the others, watch for Korean status badges (DEF-01) and Korean LLM output under an English locale."
+}

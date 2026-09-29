@@ -1,0 +1,16 @@
+{
+  "id": "DEF-0004",
+  "title": "No concurrency guard on checkpoint restore; concurrent restore/save-point interleaves worktree rewrites",
+  "status": "open",
+  "severity": "P1",
+  "area": "recovery",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L101"
+  },
+  "notes": "Partially fixed — remaining part per 2026-09-29 re-check: The UI layer is guarded (630c0af4): useProductRecovery.ts:72,110,137-156 adds a synchronous restoreInFlightRef single-flight guard for restore and manual save, and RecoveryPanel.tsx:101,158,245,264,274,317 disables every restore-adjacent control while isRestoring. The backend is still not guarded: CheckpointEngine::restore_checkpoint (checkpoint/mod.rs:273-302) holds no worktree lock, and ipc/checkpoint.rs has no busy flag. The backend-initiated auto checkpoint (ipc/cards.rs:694 create_checkpoint on card transitions) can still run during a restore, so a restore can still interleave with a snapshot outside the UI path.",
+  "created": "2026-09-29",
+  "updated": "2026-09-29",
+  "repro": "Trigger a card transition (cards.rs auto checkpoint) while a RecoveryPanel restore is in flight."
+}

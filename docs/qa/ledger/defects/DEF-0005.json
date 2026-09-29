@@ -1,0 +1,16 @@
+{
+  "id": "DEF-0005",
+  "title": "S-029 evidence latches never invalidate across revision rounds; stale evidence pre-satisfies round-2 approval",
+  "status": "open",
+  "severity": "P1",
+  "area": "verification",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L119"
+  },
+  "notes": "Partially fixed — remaining part per 2026-09-29 re-check: The main defect is fixed in a5801b30. StepDetailSlideIn.tsx:284-315 tracks each step's last status and clears the diffViewed, previewOpened, appOpened and manualObservations latches plus criterionEvidenceRef when a step re-enters 'review' from another status. Tests are at StepDetailSlideIn.test.tsx:493 and :543. Two gaps remain. (1) Sharpening (b) is still present: DecisionGate/decisionGatePolicy.ts has no supervisor-eval-pending gate; the 'review-card-pending' stage (StepDetailSlideIn.tsx:1047) is display-only, so approval is possible while the round-2 supervisor eval is in flight. (2) The invalidation only sees status changes of the step that is currently selected. If the student views another step during the revision, stepLastStatusRef keeps 'review' for step A and its latches survive.",
+  "created": "2026-09-29",
+  "updated": "2026-09-29",
+  "repro": "Request changes on step A, select step B while A goes in_progress -> review, reselect A: round-1 diff-viewed/observation latches still satisfy the gate."
+}

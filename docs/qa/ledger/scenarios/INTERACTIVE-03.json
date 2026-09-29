@@ -1,0 +1,40 @@
+{
+  "id": "INTERACTIVE-03",
+  "title": "Build a 4-function calculator (+ - x /) with number buttons 0-9, a display, equals, and clear. Division by zero should show 'Error' instead of Infinity/NaN.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#INTERACTIVE-03"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Priya, a bootcamp prep student (intermediate-beginner). She's done a few guided projects and can read JS but freezes when writing from scratch. She's careful and wants to understand, not just produce. She wants a basic arithmetic calculator.",
+  "steps": [
+    "Design: Priya describes the calculator and the button set. The interview surfaces the tricky cases she half-thought-of: divide-by-zero, chained operations, and what Clear resets. A provocation pushes her to make divide-by-zero an explicit acceptance criterion ('display shows Error, not Infinity'). She also names a non-goal (no decimal point / no keyboard input for v1) to keep scope sane — and a provocation may flag oversized_scope if she tries to include scientific functions, offering 'split into features' / 'first feature only'. She confirms a focused PRD v1.",
+    "Plan: Generate plan yields ~4 steps with a dependency chain (markup grid → display state → operator logic incl. divide-by-zero guard → verify). She actually opens the dependency graph view (의존성 그래프 보기) because she likes seeing the order. She reviews and accepts.",
+    "Implement: Multiple edit cards across steps. Priya reads each diff carefully (she's the persona who does). On the operator-logic edit she scrutinizes the divide-by-zero branch and confirms it matches the criterion before approving. If an edit unexpectedly touches a second file or adds CSS she didn't ask for, a diff_scope_drift provocation flags it and she can question or trim it.",
+    "Verify: The verify stepper. She opens the diff, then methodically tests in her browser: 6 / 0 → Error, 2 x 3 = 6, clear resets. She records observations per criterion, including the divide-by-zero one. Because she actively confirms each acceptance criterion observed, the grade reaches 'concrete' and 결정 unlocks legitimately.",
+    "Done: 完료 with a checkpoint. Priya not only has a calculator but can explain the divide-by-zero guard line-by-line because she read and verified it. good = she used DIVE to learn the code, not to avoid it."
+  ],
+  "expected": "DIVE meets her where she is: it lets her read every diff, shows the dependency order she craves, surfaces the divide-by-zero criterion in design and makes her verify it concretely. The provocation cards feel like a thoughtful TA pointing at the exact risky branch, not noise.",
+  "tags": [
+    "journey",
+    "interactive-vanilla-js-beginner",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: Operator/state logic is the hardest of the five projects — the AI may produce a calculator with subtle chained-operation bugs that pass a casual click test; divide-by-zero handling is the canonical thing to get wrong. Scope creep risk: a careful student may keep adding features (decimals, %, sci) — the oversized_scope card must steer her to ship v1 first. If the empty preview blocks her from testing inside DIVE, the careful tester is the most likely to log it as a defect."
+}

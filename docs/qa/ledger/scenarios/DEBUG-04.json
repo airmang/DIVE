@@ -1,0 +1,42 @@
+{
+  "id": "DEBUG-04",
+  "title": "Handle empty / non-numeric bill input gracefully — show a friendly 'enter a valid amount' message instead of NaN, while keeping normal calculations working.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#DEBUG-04"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "terminal",
+    "i18n"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Tariq, a beginner who built a tip calculator. It works for normal input but crashes/shows NaN when the bill field is left empty or someone types letters. A friend pointed out the bug; Tariq wants to handle that edge case without breaking the normal path.",
+  "steps": [
+    "Design: Tariq frames it as: 'When the bill is empty or has letters, it shows NaN — handle that nicely but don't break the working case.' The interview surfaces the tension and turns it into criteria: AC-1 empty/invalid input shows a clear message and no NaN, AC-2 valid numbers still calculate correctly (the non-regression criterion). He explicitly states the non-goal: 'don't change the math for valid input.' He expects DIVE to treat 'don't break what works' as a first-class requirement.",
+    "Plan: DIVE proposes: (1) read the calculator JS, (2) reproduce both the failing (empty/letters) and the passing (valid number) cases, (3) add input validation/guard, (4) verify BOTH the new edge case AND a regression check on normal input. Tariq accepts, reassured the plan includes re-testing the path that already worked.",
+    "Implement: Reads auto-approved. The agent adds a guard — parse + isNaN check, early-return with a message — and proposes the diff. The PermissionCard shows new lines added around the calculation. Tariq reads it; it's a few lines he can follow. He approves. He expects the change to be additive (a guard), not a rewrite of his calculation logic.",
+    "Verify: The verify stepper opens. Tariq tests in preview: empty bill → friendly message, no NaN; 'abc' → same message; a normal bill (e.g. 50) → correct tip, proving no regression. A provocation card challenges: 'You fixed the empty case (AC-1) — did you re-run a valid amount to confirm normal calculation still works (AC-2)?' This directly pushes him to do the regression check he might skip. He records observations for both.",
+    "Done: Both the edge case and the regression case observed and recorded, he accepts the decision. Checkpoint exists so if the guard accidentally broke something he can roll back. He leaves confident the new behavior didn't cost him the old one."
+  ],
+  "expected": "DIVE elevates 'don't break the working case' into an explicit acceptance criterion and the provocation card forces the regression re-test — the single most-skipped step for beginners fixing edge cases. The fix stays additive (a guard clause), so the diff is easy to trust.",
+  "tags": [
+    "journey",
+    "debug-fix-broken-code",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: (1) Regression blindness: a beginner naturally tests only the new edge case; if the provocation/verify gate doesn't insist on re-testing valid input, a guard that accidentally early-returns on good input ships silently. (2) The agent may over-correct (e.g. coerce empty to 0 and 'calculate' a $0 tip) instead of showing a message — superficially passes 'no NaN' but violates the intended UX; Tariq may not notice. (3) Korean LLM output / DEF-01 badges confuse him if locale is English. (4) Testing 'abc' and empty requires typing into a live preview; with no dev server he can't actually exercise the edge case and over-trusts the read."
+}

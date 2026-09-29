@@ -1,0 +1,40 @@
+{
+  "id": "STYLED-04",
+  "title": "Add an accessible modal dialog that opens from a button, closes on Esc / backdrop click / close button, traps focus, and doesn't let the page scroll behind it — and verify the close paths and focus behavior actually work.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#STYLED-04"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Daniel, an indie maker shipping a small SaaS marketing page. Intermediate JS, impatient, wants polish fast. His pricing section needs a 'contact us' modal dialog.",
+  "steps": [
+    "Design: Daniel says 'add a contact modal that opens from the Contact button'. He's tempted to skip the interview, but DIVE's Socratic PRD pulls out the things that make modals correct: close-on-Esc, close-on-backdrop, focus trap, restore focus to the trigger, body-scroll-lock, aria-modal/role. He expects these to land as explicit acceptance criteria so 'done' means more than 'a box appears'.",
+    "Plan: DIVE drafts: (1) modal markup + backdrop, (2) open/close state wiring (button, Esc, backdrop), (3) focus management + scroll lock + aria attributes. Daniel expects the a11y step to be its own item, reviews fast, and accepts.",
+    "Implement: Agent reads the page (auto-approved), proposes write/edit cards for markup, styles, and the focus/keyboard logic. Daniel skims diffs and approves; he might 'modify args' to keep his existing button styling.",
+    "Verify: Verify stepper. Daniel opens the preview and clicks Contact — the modal appears. The criterion-linked review card challenges the parts AI commonly fakes: 'You saw it open; how did you confirm Esc closes it and focus is trapped, not just that the box renders?' He has to actually press Esc, click the backdrop, Tab through to confirm focus stays inside, and check the trigger regains focus on close. He records each close path as an observation. The non-blocking provocation card lets him proceed even if he only verifies some paths, but flags the unverified ones.",
+    "Done: Modal complete, checkpoint saved. Daniel expects to undo if focus-trap is buggy and to see which acceptance criteria he actually verified vs took on faith."
+  ],
+  "expected": "The PRD interview front-loads the accessibility criteria a beginner-to-intermediate dev usually forgets, and the verify stepper specifically targets the modal behaviors LLMs claim but get wrong (focus trap, Esc, scroll lock). Daniel ends up with a genuinely accessible modal because DIVE made him test each close path rather than trusting 'I added a modal with Esc-to-close'. The non-blocking cards respect his speed while still recording what he skipped.",
+  "tags": [
+    "journey",
+    "styled-responsive-ui",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: Keyboard-dependent criteria (Esc to close, Tab focus-trap) are observable inside the iframe but easy to skip when impatient — the evidence gate accepts 'preview opened' as observation, so Daniel can mark done after only seeing it open, leaving focus-trap/scroll-lock unverified. Focus-trap and body-scroll-lock can behave differently inside the sandboxed preview iframe than in a real browser, risking a false pass/fail. Esc keypress may be intercepted by DIVE's own slide-in/panel handlers rather than reaching the modal in the iframe. And if the agent over-engineers (full a11y library), the diff may be too large for him to meaningfully review."
+}

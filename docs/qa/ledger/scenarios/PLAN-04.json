@@ -1,0 +1,19 @@
+{
+  "id": "PLAN-04",
+  "title": "Add step modal",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PLAN-04"
+  },
+  "areas": [
+    "plan"
+  ],
+  "pathGlobs": [],
+  "priority": "P2",
+  "requiresLlm": false,
+  "preconditions": "Plan exists",
+  "steps": [
+    "`+ Add step`"
+  ],
+  "expected": "PlanAddStepPanel renders & validates"
+}

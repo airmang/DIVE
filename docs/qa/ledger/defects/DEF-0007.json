@@ -1,0 +1,15 @@
+{
+  "id": "DEF-0007",
+  "title": "Five backend events emitted with no listener (checkpoint_created, verify_started/done, codex oauth-complete/error)",
+  "status": "open",
+  "severity": "P2",
+  "area": "eventlog-export",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L176"
+  },
+  "notes": "Partially fixed — remaining part per 2026-09-29 re-check: D-013-19 (a451a61d) records them as a deliberate keep, but the emits still have no listener and carry no in-code marker. They remain at dive/src-tauri/src/ipc/cards.rs:587,872,926 and ipc/codex_oauth.rs:334,351; a grep of dive/src finds no listener. The finding's suggested one-line 'unsubscribed-by-design' comment at the emit sites was not added.",
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

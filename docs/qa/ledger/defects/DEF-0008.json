@@ -1,0 +1,16 @@
+{
+  "id": "DEF-0008",
+  "title": "ensure_provider_runtime installs stale hydrate without CAS; no single-flight (keychain prompt storm)",
+  "status": "open",
+  "severity": "P2",
+  "area": "provider-settings",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L212"
+  },
+  "notes": "Partially fixed — remaining part per 2026-09-29 re-check: db5b8c34 added a single-flight gate (hydrate_gate, dive/src-tauri/src/ipc/state.rs:119,323) and swap_runtime_if_none (:239-250, used at :366). Stale hydrates can no longer clobber a connect or select. Remaining: the CAS only checks runtime.kind.is_none(), and provider_disconnect_impl (ipc/provider.rs:548-574) swaps to none only if its config_id is active, which it never is during a hydrate because a hydrate runs only when the runtime is none. A hydrate that read a provider's key before a concurrent disconnect deleted it still passes the CAS and installs the disconnected provider in memory.",
+  "created": "2026-09-29",
+  "updated": "2026-09-29",
+  "repro": "With the runtime at none and hydrate blocked in the keyring read of provider X, call provider_disconnect(X); when the hydrate completes, the runtime is X"
+}

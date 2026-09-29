@@ -1,0 +1,20 @@
+{
+  "id": "SLIDE-03",
+  "title": "Terminal output",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#SLIDE-03"
+  },
+  "areas": [
+    "slide-in",
+    "terminal"
+  ],
+  "pathGlobs": [],
+  "priority": "P2",
+  "requiresLlm": false,
+  "preconditions": "Step that ran a command",
+  "steps": [
+    "Terminal tab"
+  ],
+  "expected": "Command output/log renders"
+}

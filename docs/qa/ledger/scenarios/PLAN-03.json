@@ -1,0 +1,19 @@
+{
+  "id": "PLAN-03",
+  "title": "Discard plan",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PLAN-03"
+  },
+  "areas": [
+    "plan"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": false,
+  "preconditions": "Draft plan present",
+  "steps": [
+    "Discard"
+  ],
+  "expected": "Plan cleared; returns to pre-plan state with confirm"
+}

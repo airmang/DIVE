@@ -1,0 +1,19 @@
+{
+  "id": "VC-03",
+  "title": "Record observation",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#VC-03"
+  },
+  "areas": [
+    "verification"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": false,
+  "preconditions": "Coach guide shown",
+  "steps": [
+    "Record manual/terminal/file observation"
+  ],
+  "expected": "Observation persists; guide_version/lineage updates"
+}

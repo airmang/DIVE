@@ -1,0 +1,41 @@
+{
+  "id": "APPS-04",
+  "title": "Build a flashcards app: add cards (front/back), flip a card to reveal the answer, navigate next/previous through a deck, shuffle the deck, and persist the deck locally so his cards survive between sessions.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#APPS-04"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Daniel, 34, a high-school teacher with light scripting experience (writes small Google Apps Scripts). Wants a flashcards app to drill vocabulary with his students. Cares about a smooth flip interaction and being able to add his own cards.",
+  "steps": [
+    "Design: Daniel describes a vocabulary drill tool. The interview clarifies: one deck or multiple? edit/delete cards or add-only? flip via click and/or keyboard? track right/wrong (he decides that's a non-goal for v1). The board captures a clear scope with the flip-interaction and persistence as headline acceptance criteria (AC: 'cards I add are still there after reload'; 'clicking a card flips front↔back'). He confirms the PRD.",
+    "Plan: The roadmap: deck data model, card add form, the flip-card component, next/prev navigation, shuffle, and localStorage persistence. Daniel notices several steps could parallelize (add-form and flip-component are independent of each other but both feed navigation) and appreciates the parallel-group hints. He reviews and accepts, glad it's broken into bite-size, demoable steps.",
+    "Implement: Per step, write/edit cards surface diffs he approves. The flip-card step involves CSS (transform / transition) — he reads that diff with interest since the interaction quality matters to him. He once denies-with-reason because a proposed flip used a jarring instant toggle instead of an animated transition, steering the agent toward a smoother flip. Read cards auto-approve throughout.",
+    "Verify: The verify stepper makes him exercise each behavior in the preview: add a custom card and confirm it appears in the deck; click to flip and SEE front↔back; next/prev cycle through; shuffle reorders; reload and confirm his cards persist. The provocation card ties each check to its criterion ('You added shuffle — did the order actually change, or could it return the same order by chance?'). Persistence and the flip interaction are the two he most wants proven, and the 결정 gate won't unlock on self-report alone.",
+    "Done: Deck works, flips smoothly, persists his real vocabulary cards. Daniel exports/keeps the folder to use in class. Because he verified the flip and persistence himself in the preview, he trusts it in front of students. Checkpoints mean he can keep extending it (e.g. add right/wrong tracking later) safely."
+  ],
+  "expected": "The interview correctly demotes right/wrong-tracking to a non-goal so v1 stays shippable. Parallel-group hints in the plan make the multi-step build feel organized, not daunting. The diff review lets him steer interaction quality (smooth animated flip vs instant toggle) — a place where his taste matters and DIVE honors it. The verify stage exercises the actual UX (flip, shuffle, persist) in the preview rather than trusting claims, so what he demos in class is what he verified.",
+  "tags": [
+    "journey",
+    "small-multi-step-apps",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: UI/interaction quality (the flip animation) isn't captured by a binary acceptance criterion — DIVE may verify 'flip works' as a state toggle while the animation is janky, and the provocation card has no clean evidence hook for 'feels smooth.' Shuffle is probabilistically verifiable (could coincidentally return the same order) — the card needs to frame that honestly or Daniel mis-judges it. Persistence of user-entered cards (not seed data) is the must-prove case the LLM tends to under-test. English-locale Korean badge leakage (DEF-01) and the LLM drifting into Korean remain risks for a non-Korean teacher."
+}

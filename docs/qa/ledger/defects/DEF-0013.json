@@ -1,0 +1,16 @@
+{
+  "id": "DEF-0013",
+  "title": "ToolCall table has zero production writers; approved/risk_level columns and export tool_call section always empty",
+  "status": "open",
+  "severity": "P2",
+  "area": "eventlog-export",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L491"
+  },
+  "notes": "Partially fixed — remaining part per 2026-09-29 re-check: Dispositioned, not fixed: dive/src-tauri/src/db/dao/tool_call.rs:1-10 doc note marks the table legacy/reserved and specs/013-public-release-readiness/decisions.md:328-331 (D-013-19) records the keep. Behavior unchanged: all NewToolCall/insert callers are still test-only (card_metrics.rs:73/85/145, ipc/workmap.rs:381/431 in #[cfg(test)]), and export/mod.rs:376-384 still reads the empty ToolCall table.",
+  "created": "2026-09-29",
+  "updated": "2026-09-29",
+  "repro": "Run any real supervised turn with tool calls, then export_session -> structured tool_call records empty; ToolCall.approved/risk_level never populated."
+}

@@ -1,0 +1,20 @@
+{
+  "id": "SLIDE-01",
+  "title": "Open + tab switch",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#SLIDE-01"
+  },
+  "areas": [
+    "slide-in"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": false,
+  "preconditions": "Step with changed files",
+  "steps": [
+    "`코드·미리보기` / open slide-in",
+    "Switch Code/Preview/Terminal"
+  ],
+  "expected": "Panel slides in; tabs switch; state persists"
+}

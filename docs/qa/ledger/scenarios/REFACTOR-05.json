@@ -1,0 +1,38 @@
+{
+  "id": "REFACTOR-05",
+  "title": "Add clear explanatory comments and JSDoc-style function docs throughout the existing quiz-game code so the next person (and she) can understand the logic, without changing any behavior.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#REFACTOR-05"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "recovery"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Priya, a junior dev who inherited a teammate's quiz-game project with zero comments and cryptic logic. Her lead asked her to 'document it' before she adds features. She wants to understand it as she annotates.",
+  "steps": [
+    "Design: Priya states 'add comments and function docs explaining what this code does — don't change behavior.' She expects a quick interview that locks in the safety criterion: 'AC: not a single line of executable code changes — comments/docs only', 'AC: each non-obvious function has a doc explaining params, return, and purpose.' Non-goal: 'no renaming, no reformatting that alters logic.' Great experience: DIVE explicitly flags that comment-only changes should be trivially verifiable by a diff that touches no logic lines.",
+    "Plan: Roadmap: read each source file to understand it, then add comments/docs file-by-file, then verify nothing functional changed. Priya accepts and expects the plan to emphasize 'comments only' as the invariant.",
+    "Implement: Agent reads files (auto-approved). For each file, edit/write cards add comment blocks and JSDoc. Priya reads each diff carefully — her real value here is checking that the AI's explanation of the code is CORRECT, not just that comments were added. She expects to catch and reject any comment that misdescribes the logic, and any sneaky logic edit hiding among comment lines.",
+    "Verify: Stepper opens. The provocation card lands the key challenge: 'Comments are only useful if they're TRUE — did you verify the AI's description matches what the code actually does, and that the diff added zero executable changes?' Priya confirms via the diff that only comment lines were added (a quick test run / app launch shows identical behavior) and spot-checks that 2-3 doc blocks accurately describe the functions. She expects DIVE to push her to validate correctness-of-explanation, the one thing only a human can judge here.",
+    "Done: Every tricky function is documented, the diff touched no logic, behavior is unchanged, and Priya now actually understands the code; checkpoint saved. She expects to confidently hand it back to her lead."
+  ],
+  "expected": "DIVE reframes 'add comments' from a trivial task into a supervision exercise: the human's job is to verify the AI's explanations are accurate and that no logic snuck into a 'comments-only' diff — and the verification step makes Priya confirm both, turning passive annotation into real comprehension.",
+  "tags": [
+    "journey",
+    "refactor-improve-existing-code",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: (1) The subtle failure is a WRONG-but-confident comment or JSDoc that misdescribes the logic — there's no automated catch for this, so the verification must steer Priya to read and validate the explanations, not just count comments. (2) An edit_file pass can accidentally alter a logic line while inserting comments; the 'diff touched zero executable lines' check is the safeguard and must be easy to confirm. (3) Risk of automation bias: comment-adding feels low-stakes, so Priya may rubber-stamp approvals — the provocation card must make the 'are these comments true?' challenge concrete and criterion-linked, not generic."
+}

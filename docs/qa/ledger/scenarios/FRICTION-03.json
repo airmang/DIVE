@@ -1,0 +1,42 @@
+{
+  "id": "FRICTION-03",
+  "title": "Get from an extremely ambiguous one-liner ('make me a nice bakery website') to a concrete, buildable plan — relying on the Socratic interview to extract scope she can't state herself.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#FRICTION-03"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n",
+    "prompt-helper"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Soyeon, a complete beginner who knows she wants 'a website for my small bakery' but cannot articulate features, audience, or success — she's vague because she genuinely doesn't know yet, not because she's careless.",
+  "steps": [
+    "Design: Soyeon types 'make me a nice bakery website' and answers early questions with 'you decide' / 'just make it nice' / 'something like other bakeries.' The interview refuses to accept vague filler: it keeps asking 1-2 concrete questions (who visits, what one thing they should be able to do, what's NOT in this version) and logs unresolved_questions instead of fabricating a PRD. Ambiguity hints flag vague phrases like '적당히/대충/이거'. She expects the AI to help her figure out what she wants, gently, without making her feel dumb.",
+    "Plan: Only once goal/scope/non-goals/2 acceptance criteria are concrete (a landing page showing hours, location, and a menu list) does AI propose a small plan. She expects the plan to reflect the few concrete things she finally committed to — not an over-engineered site.",
+    "Implement: Steps run; PermissionCards show diffs for index.html / styles. Because she's unsure, she leans on read auto-approval and approves writes after the preview. She expects to see something real on screen quickly to anchor her still-forming taste.",
+    "Verify: The evidence-gated stepper makes her actually open the preview and confirm hours/menu render, rather than trusting 'I added it.' A criterion-linked review/provocation card asks whether each visible element maps to a stated criterion. She expects verification to be doable by 'looking at the page,' not reading code.",
+    "Done: A minimal but real bakery landing page is verified and checkpointed; unresolved_questions she dodged earlier are surfaced as suggested next steps (photos, contact form). She expects clarity on what she has and what she could add."
+  ],
+  "expected": "The interview does the hard work of de-fogging an ambiguous goal: it never fabricates a PRD from 'you decide,' it converts vagueness into a short list of concrete, checkable criteria, the ambiguity hints teach her to be specific, and she ends up with a real page plus an honest list of open questions — she learns to scope by being guided, not lectured.",
+  "tags": [
+    "journey",
+    "friction-edge-journeys",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: (1) The biggest failure is premature acceptance — the LLM caving to 'just make it nice' and inventing a PRD/criteria, defeating the whole point; (2) the opposite failure: endless interrogation that frustrates a beginner who'll abandon — the 3-6 exchange budget must feel like progress; (3) ambiguity regex is Korean-only (lib/ambiguity.ts), so an English-typing vague user gets no hints; (4) vague criteria that aren't independently checkable will pass the gate and undermine verification."
+}

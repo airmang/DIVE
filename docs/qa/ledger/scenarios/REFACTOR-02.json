@@ -1,0 +1,42 @@
+{
+  "id": "REFACTOR-02",
+  "title": "Extract the giant handleSubmit() into smaller named functions (fetchWeather, parseResponse, renderWeather, showError) so each does one thing.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#REFACTOR-02"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "terminal",
+    "i18n"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Daniel, a bootcamp student mid-course. His weather-fetch app has one 90-line handleSubmit() function that does fetching, parsing, DOM updates, and error handling all at once. His instructor told him to 'extract functions.'",
+  "steps": [
+    "Design: Daniel states: 'refactor handleSubmit into smaller functions, one responsibility each.' He expects the interview to be short because his goal is already concrete, but to still nail down acceptance criteria: 'AC: handleSubmit still produces identical output for the same input', 'AC: each new function is independently named and called', non-goal 'no change to the API or the UI markup.' Great experience: DIVE recognizes this is behavior-preserving and proposes a test-based criterion ('the app fetches and renders weather for a valid city exactly as before').",
+    "Plan: Roadmap: read the file, identify the 4 responsibilities, create the extracted functions, rewire handleSubmit to call them, verify identical behavior. Daniel accepts. He expects parallel-group hints (the 4 extractions are somewhat independent) and a single verification step at the end.",
+    "Implement: Agent reads the file (auto-approved). Then a sequence of edit_file approval cards: add new functions, then shrink handleSubmit to orchestrate them. Daniel reads each diff to confirm logic was moved verbatim, not rewritten. He expects to catch any place where the agent 'helpfully' changes behavior (e.g. swallowing an error differently) and reject it.",
+    "Verify: Stepper opens. Because there's no test suite, the provocation card pushes: 'Extracting functions can subtly change behavior — how do you know fetchWeather still handles a bad city the same way?' Daniel either writes a quick test command (and the terminal records a real exit code = concrete evidence) or opens the preview and manually tries a valid + invalid city, recording observations. He expects DIVE to distinguish 'I ran it and saw X' from 'the AI said it's fine.'",
+    "Done: handleSubmit is now a 6-line orchestrator calling 4 clear functions; behavior confirmed on valid + invalid input; checkpoint saved. Daniel expects to be able to show his instructor a clean before/after."
+  ],
+  "expected": "DIVE frames extract-function as a behavior-preserving change and makes the verification about input/output equivalence — ideally nudging Daniel toward running a real check (test command exit code, or a manual valid+invalid trial) rather than accepting the AI's 'looks equivalent' self-report.",
+  "tags": [
+    "journey",
+    "refactor-improve-existing-code",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: (1) The LLM tends to rewrite while extracting (reorder error handling, change a default) instead of pure move — the diff cards and a behavior check are the only guard, so the verification must be genuinely exercised. (2) The agent may reply in Korean even at English locale (known issue), confusing an English-speaking student. (3) If Daniel just clicks through approvals fast, he gets automation bias — the provocation card needs to land a concrete, criterion-linked challenge, not a generic one."
+}

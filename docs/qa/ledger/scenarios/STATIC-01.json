@@ -1,0 +1,42 @@
+{
+  "id": "STATIC-01",
+  "title": "Build a single-page online resume (index.html) with her name, a short bio, education, 3 projects, and contact links — clean and printable, no backend.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#STATIC-01"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "terminal",
+    "onboarding"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Mina, a 2nd-year university student (non-CS) who needs an online resume to attach to internship applications. Has never written HTML; comfortable with Notion and Google Docs. Korean speaker, runs the app in Korean.",
+  "steps": [
+    "Design: Mina creates a new project pointing at an empty folder (~/resume-site), starts a session, and types a plain-language goal: '내 이력서를 한 페이지 웹사이트로 만들고 싶어요'. She expects the app to just start building. Instead DIVE opens a Socratic PRD interview that asks her criterion-linked questions: who's the audience (recruiters), what sections must appear, is print/PDF a requirement, any color/brand preference, what's explicitly out of scope (no animations, no dark mode toggle). She answers in the chat; the PrdAuthoringBoard fills in goal / scope / non-goals / acceptance-criteria (e.g. AC: 'sections render in order Bio→Education→Projects→Contact', 'page prints to one A4 page'). She clicks Confirm PRD and sees the FinalPrdReadView v1; chat ungates.",
+    "Plan: DIVE drafts a roadmap from the PRD: step-1 scaffold index.html + basic CSS, step-2 add content sections from her answers, step-3 style for print + responsive, step-4 add contact links. She sees dependencies (2 depends on 1) and short rationales. She doesn't fully understand 'parallel groups' but the step titles are readable. She reviews and clicks Accept; the right-rail PROJECT PLAN appears and run mode moves to Build.",
+    "Implement: She runs step-1. The agent proposes a write to index.html; a PermissionCard (warn tier) shows the full diff/patch preview before anything is written. She reads the green/red lines, sees it's just an HTML skeleton, and clicks '이 변경 허용'. read_file calls auto-approve silently. She repeats approve-with-diff per step. After content is written she opens the slide-in Preview tab — because it's a static project, DIVE opens index.html directly (static_file kind, no dev server) and her resume renders in the iframe.",
+    "Verify: When the agent claims a step done, a review/provocation card surfaces a criterion-linked question like 'You said it must print to one page — have you confirmed the print layout, or is that still AI self-report?'. The 4-stage evidence-gated stepper (코드 이해 → 점검·관찰 → 검토 응답 → 결정) won't let her hit 결정 until she's actually looked: she opens the Code diff (flips 코드 이해 → Diff 확인됨) and the Preview, then records that the page looks right. She uses Cmd+P in a browser later to truly check print, records the observation, and only then marks the step verified.",
+    "Done: All four steps verified; the roadmap shows complete. She has a working index.html she can open in any browser or host on GitHub Pages. A checkpoint exists from before the print-CSS step, so when one restyle made the projects overflow she used the recovery panel to undo back to the last good checkpoint and retried."
+  ],
+  "expected": "The PRD interview turns a vague 'make my resume' into concrete acceptance criteria she actually agrees with, so the result matches what she pictured. Diff-preview approvals teach her what each change does without overwhelming her. The static preview opens her real page instantly with zero server/terminal knowledge. The verify stepper makes her glance at the actual rendered page before trusting 'done', and she catches a real print-overflow issue herself — the supervision paid off. Undo via checkpoint removes the fear of breaking it.",
+  "tags": [
+    "journey",
+    "static-web-pages-beginner",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: LLM replies in Korean is fine here (she wants Korean), but the 'print to one A4 page' acceptance criterion is hard for DIVE to verify inside the app — the iframe preview is screen layout, not print layout, so the verify card may push 'evidence' she can only get in a real browser's print dialog; if the stepper treats opening the iframe as sufficient evidence, the supervision is hollow for that specific AC. Also: beginners may rubber-stamp the diff approval without reading it (automation bias) — the card must make the resume content changes legible, not just colored lines. Risk that the PRD interview feels like too many questions before she sees anything visual and she bails."
+}

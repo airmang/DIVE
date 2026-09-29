@@ -1,0 +1,40 @@
+{
+  "id": "FRICTION-05",
+  "title": "Complete a 5-6 step budget-tracker (add expense, list expenses, show a running total) across a long session that spans a provider rate-limit/timeout and a verification-coach runtime/sidecar unavailability — without losing her work.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#FRICTION-05"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Hana, a patient beginner doing a long evening session to build a small budget tracker. Her wifi is flaky and she's on a free/rate-limited provider key, so she hits provider timeouts and a verification-coach (Pi sidecar) hiccup partway through a multi-hour session.",
+  "steps": [
+    "Design: Hana completes the Socratic interview and confirms a PRD (add expense, list, total) over a fairly long back-and-forth. She expects the session to hold all that context and not reset if a single call hiccups.",
+    "Plan: AI drafts and she accepts a 5-6 step plan. During plan generation one call times out / returns malformed JSON; she expects the PlanDraftRecoveryScreen (not a crash or blank) with a clear retry, and a successful retry that doesn't make her redo the interview.",
+    "Implement: Steps run over a long stretch; mid-implement the provider rate-limits and a stream fails. She expects a clear RuntimeUnavailable / ProviderSetupBanner state with a reconnect/settings action, her partial message preserved, and the ability to resume the same step once connectivity returns — not a lost session.",
+    "Verify: When she opens the verification coach for a step, the Pi sidecar is briefly unavailable (RuntimeUnavailable / SidecarUnavailable). She expects the coach to degrade gracefully to an Unavailable/Dropped status with an explanatory message and a fallback to the manual evidence stepper (open diff, preview, run the verify command herself) — NOT a hang or crash. She still confirms the total via the preview.",
+    "Done: Over the long session, checkpoints accumulate; after the hiccups she reaches a verified budget tracker. She expects to undo to any earlier checkpoint and to trust that nothing silently regressed despite the interruptions."
+  ],
+  "expected": "Every hiccup degrades gracefully and is recoverable: a timed-out/malformed plan call shows PlanDraftRecoveryScreen with a one-click retry that preserves the interview; a provider drop shows a clear RuntimeUnavailable banner with a reconnect action and keeps her partial work; the verification coach falling back (Unavailable/Dropped, no crash) still lets her self-verify via the evidence stepper; and frequent checkpoints over the long session mean she can always undo. Resilience, not loss.",
+  "tags": [
+    "journey",
+    "friction-edge-journeys",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: (1) Long-session state durability — does context/the PRD survive a mid-session provider drop, or does a failed call wipe the session?; (2) the verification coach MUST degrade (per reason codes RuntimeUnavailable/SidecarUnavailable/Timeout/MalformedOutput → Unavailable/Dropped) without hanging or blocking 'done' — a hang here strands her; (3) partial-stream preservation on cancel/failure; (4) error banners (RuntimeUnavailable, ProviderSetupBanner) may carry the same hardcoded-Korean i18n risk as DEF-01; (5) retry storms on a rate-limited key could compound the outage if there's no backoff/clear messaging."
+}

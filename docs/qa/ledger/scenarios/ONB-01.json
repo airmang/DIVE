@@ -1,0 +1,23 @@
+{
+  "id": "ONB-01",
+  "title": "First launch on clean data shows onboarding",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#ONB-01"
+  },
+  "areas": [
+    "onboarding",
+    "provider-settings"
+  ],
+  "pathGlobs": [],
+  "priority": "P0",
+  "requiresLlm": false,
+  "preconditions": "App data backed up & `dive.db*` removed",
+  "steps": [
+    "Launch DIVE"
+  ],
+  "expected": "Onboarding/welcome or \"Choose a project folder\" empty state renders; no crash; \"AI 연결\" reflects no provider (or file-secret provider)",
+  "tags": [
+    "visibility"
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "id": "INTERACTIVE-04",
+  "title": "Build a 5-question multiple-choice quiz: show one question at a time with 4 options, track score, and show a final 'You scored X/5' screen with a Restart button.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#INTERACTIVE-04"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Sofia, a high-school humanities student making a fun pop-quiz to share in a class group chat. Low coding confidence, high creative motivation. She cares about content (the questions) more than code. She wants a multiple-choice quiz.",
+  "steps": [
+    "Design: Sofia describes 'a quiz with my own questions and a score at the end.' The interview helps her separate the data (her 5 questions/answers) from the behavior (advance on select, tally score, final screen). A provocation pushes for an observable completion criterion ('after the 5th answer I see You scored X/5'). She decides non-goals (no timer, no per-question feedback for v1). She supplies her actual 5 questions as part of scope. Confirms PRD v1.",
+    "Plan: Generate plan: ~4 steps (question data array → render current question + options → selection/scoring logic → final-screen + restart → verify). She accepts without studying deps; she trusts the order.",
+    "Implement: The agent writes a questions array and the render/score logic. The first edit card shows the questions array — Sofia's eyes go straight to her content; she checks her questions/answers are correct in the diff (a great use of the diff preview for a non-coder) and approves. Subsequent edits wire scoring and the final screen; she approves each.",
+    "Verify: Verify stepper. She opens the diff, then plays the whole quiz in her browser: answers all 5, deliberately gets some wrong, confirms the score is right and the final screen + Restart work. She records a manual observation tied to the score-correctness criterion. The decision gates on her actually playing through — a 'glanced at preview' would not satisfy it.",
+    "Done: 완료 + checkpoint. Sofia has a shareable quiz with her own questions and verified-correct scoring. good = she caught a wrong answer key in the diff or in play-through before sharing it with the class."
+  ],
+  "expected": "DIVE lets a content-first, code-shy student own the part she cares about (her questions) by surfacing the data array in a readable diff, while quietly handling the scoring code — and the verify stepper makes her play the full quiz so a wrong score or off-by-one in the tally is caught before she shares it.",
+  "tags": [
+    "journey",
+    "interactive-vanilla-js-beginner",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: Scoring off-by-one / wrong answer-key mapping is the classic quiz bug and easy to miss without playing all 5 questions — verify must push full play-through, not a glance. Sofia is the persona most likely to want to edit content after generation; if changing a question means re-running the whole flow with no easy inline edit, that's friction. If the LLM injects Korean question text or Korean UI labels into an English quiz (Korean-reply tendency / DEF-01), it corrupts her content — a real risk for this content-centric journey."
+}

@@ -1,0 +1,41 @@
+{
+  "id": "CAREFUL-03",
+  "title": "Restyle an existing static landing page (new color palette + responsive nav) WITHOUT changing any of the page's text/content.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#CAREFUL-03"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Grace, a careful hobbyist learning to code at night. She doesn't trust the AI but ALSO doesn't fully trust herself yet, so she leans on undo/checkpoints as a safety net and rolls back the instant something feels off rather than letting the AI 'fix' its way deeper.",
+  "steps": [
+    "Design: Grace's PRD has a strong non-goal: 'do not change any copy/wording, only CSS/layout.' She expects the interview to capture that non-goal explicitly and the criteria to be visual+observable ('nav collapses to a hamburger under 600px; no text changed'). She confirms the PRD with the non-goal front and center.",
+    "Plan: AI plans CSS edits. Grace reads the dependency map and notes which files each step expects to touch — she's pre-loading what 'in scope' means so she can spot drift later. She saves a checkpoint right after accepting the plan, before any code changes, as her clean baseline.",
+    "Implement: Agent proposes edits. On one step the diff also touches index.html text (not just CSS) — Grace catches it because she reads the PatchPreviewPanel, and/or a diff_scope_drift / target-file mismatch nudge flags the off-target change. Instead of approving and asking the AI to undo it, she DENIES with a reason ('you changed copy, that's a non-goal'). When a later step goes sideways and the page looks broken, she opens Recovery and restores her post-plan checkpoint (with the confirm guard), rather than letting the AI regenerate.",
+    "Verify: On the styling step the AI says 'responsive nav done.' Grace opens the Preview, resizes, and watches the nav actually collapse — recording a manual_observation. She also diffs to confirm NO text changed (her non-goal). Only with both does she approve. She expects the gate to block plain approve until she's observed the responsive behavior, and to show 'unverified' before she does.",
+    "Done: Page restyled, copy untouched, every change either approved-with-evidence or rolled back. She keeps her baseline checkpoint plus a final 'styled v1' checkpoint. Expects the recovery timeline to clearly show both points with timestamps and changed-files, so she can return to either."
+  ],
+  "expected": "Recovery is a first-class, always-available escape hatch: she can save a clean baseline before risk and restore it with a confirm, so trying the AI never feels irreversible. Denying with a reason (instead of approving-then-undoing) is a real option, and scope-drift onto her non-goal files is surfaced as a nudge rather than silently merged — her 'don't touch the copy' rule is actually enforceable.",
+  "tags": [
+    "journey",
+    "verification-heavy-skeptical-user",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: If restore-to-checkpoint doesn't cleanly roll back BOTH the files and the chat/plan state, Grace ends up in a confusing half-reverted state that destroys her trust in undo — the one feature she depends on. The TopBar '되돌리기 N건' label counts failed-steps + checkpoints together (run-log note), so the badge count may not match what the panel shows ('체크포인트 없음'), confusing a user who's counting on undo. If the off-target copy change does NOT trigger a drift nudge (rules are keyword/category based, English copy edits to index.html may slip), she only catches it by manually reading the diff — and a less-careful day means a silent non-goal violation."
+}

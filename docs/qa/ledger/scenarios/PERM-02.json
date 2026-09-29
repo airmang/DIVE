@@ -1,0 +1,21 @@
+{
+  "id": "PERM-02",
+  "title": "Write/edit card shows patch preview",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PERM-02"
+  },
+  "areas": [
+    "permission",
+    "agent-tools"
+  ],
+  "pathGlobs": [],
+  "priority": "P0",
+  "requiresLlm": true,
+  "preconditions": "Turn proposes write_file/edit_file",
+  "steps": [
+    "Trigger write",
+    "Inspect card"
+  ],
+  "expected": "Warn-tier card; DiffViewer + PatchPreviewPanel show before approval"
+}

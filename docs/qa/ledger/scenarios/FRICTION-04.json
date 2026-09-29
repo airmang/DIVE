@@ -1,0 +1,41 @@
+{
+  "id": "FRICTION-04",
+  "title": "Build a small unit-converter web tool (length + weight), but he disagrees with the AI's proposed step order ('why styling before the conversion logic?') and challenges a step's rationale — all while running fully in English.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#FRICTION-04"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "David, an English-speaking exchange student and confident beginner. He has the app set to English locale and actively pushes back on the AI when its plan ordering or a step's rationale doesn't match his own (sometimes wrong) intuition.",
+  "steps": [
+    "Design: David runs the Socratic interview in English. He expects every prompt, the PrdAuthoringBoard labels, scope/non-goals, and criteria to render in English — and he expects the AI's replies to be in English, not Korean.",
+    "Plan: AI drafts a plan; David disagrees with the ordering and the rationale for one step. He uses the RationaleChallengePanel to push back in English, asking the AI to justify or re-order. He expects a real engagement with his objection (accept / counter / adjust offer), not a rubber-stamp 'you're right' or a stubborn refusal.",
+    "Implement: Steps run with English PermissionCards (diff preview, approve/deny). He denies one write with an English reason ('wrong file') and expects the denial + reason to be recorded and the turn to recover gracefully.",
+    "Verify: The evidence-gated stepper and any provocation/review cards render in English with criterion-linked questions; he opens the preview and runs the converter. He expects 'change confirmed' / supply-chain tags and all secondary status badges to be English, and the verification card's challenge to be a genuine criterion check.",
+    "Done: Converter verified done, checkpoint saved, all in English. He expects a fully English 'done' state with no Korean leaking into badges or labels."
+  ],
+  "expected": "DIVE treats disagreement as a first-class interaction: the RationaleChallengePanel lets him contest the plan and gets a substantive accept/counter/adjust response (the AI defends a good ordering or genuinely revises a weak one), denials are recorded cleanly, and — critically — the ENTIRE experience stays in English: prompts, AI replies, status badges, supply-chain tags, and verification cards, so a non-Korean beginner is never left guessing.",
+  "tags": [
+    "journey",
+    "friction-edge-journeys",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: This journey directly hits two known defects: (1) DEF-01 — hardcoded-Korean secondary badges/tags (실행 중, 계획 검토 필요, 승인 필요, 변경 확인 필요, AI 자가보고만 있음 from agencyStatus.ts + provocation/product files) leak Korean into his English UI; (2) the LLM tends to reply in Korean even at English locale, so his Socratic interview / rationale-challenge answers may come back in Korean. Also watch: does RationaleChallengePanel give a real counter-argument or just capitulate?; does a denied write recover the turn without dead-ending?"
+}

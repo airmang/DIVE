@@ -1,0 +1,20 @@
+{
+  "id": "XC-05",
+  "title": "Keyboard nav / focus",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#XC-05"
+  },
+  "areas": [
+    "shell-layout",
+    "theme-ui"
+  ],
+  "pathGlobs": [],
+  "priority": "P2",
+  "requiresLlm": false,
+  "preconditions": "Any",
+  "steps": [
+    "Tab through controls"
+  ],
+  "expected": "Focus rings visible; logical order; no traps"
+}

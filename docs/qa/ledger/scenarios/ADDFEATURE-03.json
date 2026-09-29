@@ -1,0 +1,41 @@
+{
+  "id": "ADDFEATURE-03",
+  "title": "Add persistence so her notes survive a page refresh — i.e., save the textarea content to the browser and reload it automatically next time.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#ADDFEATURE-03"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "terminal"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Priya, a college student who built a tiny note-taking page in DIVE (a textarea + a 'Save' button that currently does nothing useful). She's done one prior project and understands 'the page forgets everything when I refresh' is the problem, but doesn't know the word 'localStorage'.",
+  "steps": [
+    "Design: Priya reopens her notes project. She types: 'right now if I refresh the page my note disappears — make it remember what I typed so it's still there after I reload.' She expects DIVE to recognize this maps to browser localStorage and to clarify scope: save on every keystroke vs. on Save click, one note vs. many, and what 'clear' means. She wants the persistence boundary (this browser only, not synced anywhere) stated plainly so she isn't surprised later.",
+    "Plan: DIVE appends a 'Persist notes across reload' step with criteria: 'typed text is saved', 'after reload the textarea is repopulated', 'clearing works and the cleared state also persists'. PRD goes to v2. She reviews; she might push back and ask it to save on Save-click rather than every keystroke, and expects to adjust that before accepting.",
+    "Implement: Agent reads the page (auto-approved), then edits index.html to add load-on-startup and save-on-event logic using localStorage. The PERM card diff shows the new script. Priya, being a bit more savvy, actually reads the localStorage key name and the load logic in the diff before approving. She approves the single edit.",
+    "Verify: Here the verification is the crux: a provocation card asks 'How do you know it persists? A reload is the only real proof.' She opens the preview, types a note, and must actually refresh the preview/iframe to see the text come back. She records that observation. The card is criterion-linked to 'after reload the textarea is repopulated'. She also tries clearing and refreshing. Only after she's seen the reload survive does she record the decision.",
+    "Done: Step done at PRD v2 with a checkpoint. Priya now has a project that genuinely remembers state, and she's seen with her own eyes that a refresh keeps the data — which is the whole point of the feature."
+  ],
+  "expected": "DIVE names the unstated concept (localStorage, browser-local only) so Priya understands the boundary, scopes it to one step she can tweak (save-on-click vs keystroke) before accepting, and the verification stepper insists on the one test that actually proves persistence — a real reload — rather than accepting 'I added localStorage' as evidence.",
+  "tags": [
+    "journey",
+    "add-a-feature-to-an-existing-project",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: (1) The preview/iframe not offering an obvious 'refresh' affordance, so the single most important verification action (reload-and-see-it-survive) is awkward to perform — verification 'passes' without the user truly reloading. (2) localStorage failing silently in the Tauri/preview context (sandboxing, file:// origin) so it works in a real browser but not in DIVE's preview, making the user think it's broken (or worse, marking it done when it isn't). (3) The agent picking a generic key like 'data' that could collide if she adds more features later. (4) No running dev server means the preview may be the static index.html — fine for localStorage, but if her project needed Vite the empty-iframe state could block the whole verify step."
+}

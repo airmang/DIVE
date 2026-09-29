@@ -1,0 +1,20 @@
+{
+  "id": "PROV-04",
+  "title": "Theme dark ⇄ light persists",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PROV-04"
+  },
+  "areas": [
+    "theme-ui"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": false,
+  "preconditions": "Any",
+  "steps": [
+    "`라이트 모드로 전환`",
+    "Relaunch app"
+  ],
+  "expected": "Theme toggles immediately; persists across relaunch"
+}

@@ -1,0 +1,41 @@
+{
+  "id": "CAREFUL-01",
+  "title": "Build a single-page personal expense tracker (index.html + app.js + localStorage) that adds an expense row, shows a running total, and persists across reload.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#CAREFUL-01"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Mina, a 2nd-year non-CS undergrad who once shipped an AI-written script that silently corrupted her data and now refuses to trust 'it works' without seeing it herself. First time in DIVE.",
+  "steps": [
+    "Design: Mina states the goal and goes through the Socratic PRD interview. She deliberately makes the acceptance criteria concrete and OBSERVABLE because she knows she'll be checking them herself: 'after I add 3 expenses and reload, all 3 + the correct total are still on screen.' She expects the PrdAuthoringBoard to fill goal/scope/non-goals/criteria sections and to be able to confirm a versioned FinalPrdReadView. She is annoyed if the AI restates her intent vaguely, so the prd_intent_check card ('does this summary match what you actually meant?') is exactly what she wants before confirming.",
+    "Plan: AI generates the plan draft (PlanDraftApprovalScreen) with steps, deps, parallel groups and rationale. Mina reads every rationale and the dependency map. She specifically scans for a verification/test step; if the plan only has 'build' steps she expects a missing_verification_step provocation nudging her to add a 'reload-and-check' verification step before she accepts. She accepts only after the plan has an explicit way to prove persistence.",
+    "Implement: Each step runs the agent loop. read_file is auto-approved (she notes the green safe card and that nothing was written). When write_file/edit_file is proposed she opens the DiffViewer/PatchPreviewPanel and reads the actual diff line-by-line before approving — she does NOT batch-approve. She edits args once to rename a variable she dislikes (PERM-03) and approves with the modified args. She expects the file to actually change on disk to match the diff she saw.",
+    "Verify: This is where she lives. On the step detail she sees the 4-stage stepper (코드 이해→점검·관찰→검토 응답→결정). The AI reports 'done, persistence works.' She does NOT take it. She opens the diff (flips 코드 이해 → Diff 확인됨), opens the Preview tab, manually adds 3 expenses, reloads, and confirms all 3 + total survive — recording a manual_observation tied to AC. Only then does the DecisionGate let her Approve directly (green, hasVerifiedEvidence). She expects that BEFORE she did the manual check, the gate showed a red risk badge with reason 'ai_self_report_only' and blocked plain Approve.",
+    "Done: All steps verified with her own evidence. She saves a checkpoint at the end ('working v1'). She expects the roadmap to show all steps 완료 with evidence-backed badges, and a recovery point she can return to. She closes feeling she controlled every change, not the AI."
+  ],
+  "expected": "The DecisionGate makes 'AI said done' literally un-approvable until she records a real observation — her skepticism is rewarded, not fought. Opening the diff/preview visibly flips evidence tags and unlocks the gate, so the cause-and-effect of 'evidence → approval' is obvious. The provocation cards ask the exact question she'd ask herself ('what did YOU see?'), making her feel the tool is on her side.",
+  "tags": [
+    "journey",
+    "verification-heavy-skeptical-user",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: DEF-01: with locale=English her status badges/supply-chain tags (AI 자가보고만 있음, 검증 필요) render in Korean — for a skeptical first-timer, untranslated security-relevant labels read as broken/untrustworthy and undermine the whole pitch. Also the LLM tends to reply in Korean even at locale=en, which a non-Korean skeptic will distrust. Risk that the manual-observation recording UI is unclear, so she observes persistence but can't figure out HOW to tell DIVE she saw it — leaving the gate stuck red despite real verification."
+}

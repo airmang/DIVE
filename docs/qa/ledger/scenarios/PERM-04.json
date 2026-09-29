@@ -1,0 +1,20 @@
+{
+  "id": "PERM-04",
+  "title": "Deny with reason",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PERM-04"
+  },
+  "areas": [
+    "permission"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Any tool card",
+  "steps": [
+    "Deny",
+    "Enter reason"
+  ],
+  "expected": "Denial recorded; turn proceeds/halts gracefully"
+}

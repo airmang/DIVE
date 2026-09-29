@@ -1,0 +1,41 @@
+{
+  "id": "REFACTOR-03",
+  "title": "Rename the confusing variables and functions to clear, descriptive names across her HTML/CSS/JS, without breaking the working portfolio site.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#REFACTOR-03"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Sofia, an English-speaking absolute beginner who copied a portfolio template. Her variables are named things like x, data2, thing, fn1 and she wants readable names. She has the app running and is scared rename will break links between files.",
+  "steps": [
+    "Design: Sofia says 'rename my badly named variables so the code makes sense.' She expects DIVE to ask which names and to warn that renaming must be consistent everywhere. Great experience: the interview produces AC like 'AC: every rename is applied in ALL files where the name is used' and 'AC: the site looks and behaves identically afterward', and a non-goal 'don't change any visible content or styling.'",
+    "Plan: Roadmap leads with a discovery step: use search_files to find every usage of each old name BEFORE renaming, then rename file-by-file, then verify. Sofia accepts. She expects DIVE to show her the full list of where each name appears so she trusts nothing was missed.",
+    "Implement: Agent runs search_files (regex/literal) for each identifier (auto-approved read) and presents the usage map. Then edit_file approval cards for each occurrence. Sofia reads diffs and approves. She expects to see a per-name 'found N usages, renaming all N' so she can tell if a rename was partial.",
+    "Verify: Stepper opens. The provocation card challenges the riskiest part: 'edit_file changes one match at a time and a name can hide in HTML attributes, CSS selectors, and JS — did you actually re-check that nothing still references the OLD name?' Sofia re-runs a search for each old name expecting ZERO hits, and opens the preview to confirm the site still renders. She records these as observations. She expects DIVE to refuse 'verified' until the old names are provably gone.",
+    "Done: All identifiers are readable, search for old names returns nothing, site renders identically, checkpoint saved. Sofia expects confidence that no dangling reference will surface later."
+  ],
+  "expected": "DIVE makes 'find all usages first, then prove the old name is fully gone' the spine of the rename — using search_files as both the discovery and the verification evidence — so a beginner can't ship a half-applied rename that silently breaks one file.",
+  "tags": [
+    "journey",
+    "refactor-improve-existing-code",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: (1) THE core risk: edit_file replaces only the first occurrence and needs a unique `find`; a variable used many times means many cards or missed occurrences, and a substring rename (e.g. renaming `data` inside `data2`/`metadata`) can corrupt unrelated tokens — the verification 'search old name = 0 hits' must be enforced. (2) Renames that span HTML id/class + CSS selector + JS getElementById are easy to half-apply; preview must catch a now-dead selector. (3) DEF-01: English-user Sofia sees Korean status badges (실행 중, 검증 필요) on the plan/step — confusing and undermines trust."
+}

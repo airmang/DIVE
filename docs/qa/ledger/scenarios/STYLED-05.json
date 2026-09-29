@@ -1,0 +1,41 @@
+{
+  "id": "STYLED-05",
+  "title": "Convert three stacked content sections into an accessible tabbed interface with a smooth animated transition between tabs, keyboard-navigable (arrow keys / tab roles), and confirm the active panel switches correctly and the animation isn't janky or motion-sickness-inducing.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#STYLED-05"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Priya, a self-taught dev building a documentation/landing page. Intermediate CSS, cares about UX. She wants a tabbed section with a subtle slide/fade animation between panels.",
+  "steps": [
+    "Design: Priya describes 'turn these three sections into tabs with a nice fade/slide when switching'. The PRD interview clarifies: tab a11y (role=tablist/tab/tabpanel, aria-selected, arrow-key nav), which section is default-active, the animation style/duration, and respecting prefers-reduced-motion. Acceptance criteria she expects: 'clicking a tab shows its panel and hides others', 'keyboard arrows move between tabs', 'transition animates smoothly and is disabled under reduced-motion'.",
+    "Plan: DIVE proposes: (1) restructure sections into tab markup + ARIA roles, (2) tab-switching state logic + keyboard nav, (3) CSS transition/animation + reduced-motion guard. Priya reviews; she cares that reduced-motion is its own criterion and accepts.",
+    "Implement: Agent reads the page (auto-approved), then proposes edits for the markup restructure, the JS state, and the animation CSS. Priya scrutinizes the diff for correct ARIA wiring and the transition timing, approves each, possibly tweaking the duration via modify-args.",
+    "Verify: Verify stepper. Priya opens the preview, clicks through the tabs, and watches the fade/slide. The review card challenges the parts that are easy to fake: 'You saw tabs switch; how did you confirm arrow-key navigation works and the animation respects reduced-motion?' Animation quality (jank, timing) and prefers-reduced-motion are inherently hard to judge in a static iframe — she has to test keyboard nav in the preview and reason about reduced-motion (which she can't easily toggle in-app). She records the panel-switch and keyboard observations; reduced-motion likely stays partly on faith.",
+    "Done: Tabs work with animation, checkpoint saved. Priya expects to undo if the animation feels off and to revisit reduced-motion verification later."
+  ],
+  "expected": "DIVE elevates this from 'tabs that switch' to 'accessible, motion-considerate tabs' by making ARIA roles, keyboard nav, and prefers-reduced-motion explicit acceptance criteria. The verify stepper makes her actually arrow-key through the tabs in the preview instead of trusting the AI, and the non-blocking provocation card honestly flags reduced-motion as unverified rather than letting it silently pass — Priya leaves knowing exactly what's proven and what's a TODO.",
+  "tags": [
+    "journey",
+    "styled-responsive-ui",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: Two criteria are genuinely hard to verify inside DIVE's preview: animation smoothness/jank (subjective, frame-rate-dependent, no profiler in-app) and prefers-reduced-motion (no way to toggle the OS/media setting from the preview iframe), so the evidence gate is weakest exactly on the animation-specific acceptance criteria — high risk of marking done on AI self-report for the motion parts. Arrow-key tab navigation events may be captured by DIVE's surrounding UI before reaching the iframe. There's also a real chance the agent ships visually-correct tabs with broken ARIA (role/aria-selected mismatch) that looks fine in preview but fails a11y — and the visual-only preview won't reveal it. Plus the standing DEF-01 Korean-leak risk under English locale on the review cards."
+}

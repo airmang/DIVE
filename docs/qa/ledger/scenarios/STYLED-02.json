@@ -1,0 +1,41 @@
+{
+  "id": "STYLED-02",
+  "title": "Turn his fixed desktop navbar into a responsive nav: a horizontal menu on desktop that collapses into a hamburger button + slide-down menu below a mobile breakpoint, and verify it actually works at phone width.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#STYLED-02"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Jordan, a bootcamp grad building his first freelance landing page. Comfortable with React/Tailwind concepts but new to agentic tools. His desktop nav bar overflows on phones and he needs a hamburger menu.",
+  "steps": [
+    "Design: Jordan states 'make the navbar responsive with a hamburger menu on mobile'. He expects the PRD interview to nail down the breakpoint (e.g. <768px), whether the mobile menu is a dropdown vs full-screen overlay, which links it contains, and accessibility (button is keyboard-focusable, aria-expanded). Acceptance criteria he expects: 'below 768px the links hide and a hamburger appears', 'tapping the hamburger toggles the menu', 'above 768px the full nav shows and the hamburger is hidden'.",
+    "Plan: DIVE proposes: (1) add the hamburger button + mobile menu markup, (2) add the responsive CSS / Tailwind breakpoint classes, (3) wire the open/close state + a11y attributes. Jordan expects the breakpoint values to be explicit in the plan and to accept it quickly.",
+    "Implement: The agent reads his component and CSS (auto-approved), then proposes write/edit cards for the markup and the media-query/breakpoint styles. Jordan inspects each diff — he specifically wants to confirm the breakpoint number and the toggle state logic — and approves. He may use 'modify args' if the agent picks the wrong breakpoint.",
+    "Verify: The verify stepper opens. The core acceptance criterion is responsiveness at a specific width, but DIVE's Preview tab iframe has no width/device control — so Jordan opens the preview, sees it at panel width, then realizes he must resize the DIVE window (or open the page in a real browser's responsive mode) to actually cross the 768px breakpoint. A criterion-linked review card pushes him: 'How did you confirm the layout switches at the breakpoint, not just that the menu exists?' He records that he narrowed the viewport and saw the hamburger appear and the links collapse.",
+    "Done: Step marked complete with a checkpoint. Jordan expects to be able to tweak the breakpoint later and re-verify, and to undo if the resize testing revealed a glitch (e.g. menu doesn't close on link click)."
+  ],
+  "expected": "DIVE forces the distinction between 'the hamburger element exists' and 'the layout actually reflows at the breakpoint' — the review card won't let him claim done on the AI's word. A great experience would let him simulate phone width inside DIVE (or clearly tell him to resize) so crossing the breakpoint is a one-click observation, and would catch the classic bug of the mobile menu not closing after a link tap.",
+  "tags": [
+    "journey",
+    "styled-responsive-ui",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: Biggest friction: the Preview tab cannot set a viewport width (no device frame / no resize control — iframe is h-full w-full, candidates are just localhost/index.html). The single most important acceptance criterion (behavior at <768px) is essentially un-observable inside DIVE's own preview, so the evidence gate can be satisfied by merely opening a desktop-width preview — a false-confidence trap exactly where this journey is riskiest. He likely has to leave DIVE for a real browser, breaking the in-app supervised loop. Also watch for Tailwind not being configured/built in a static preview (responsive classes silently no-op), and Korean LLM replies/review-card copy under English locale (DEF-01)."
+}

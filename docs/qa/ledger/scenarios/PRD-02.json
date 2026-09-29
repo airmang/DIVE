@@ -1,0 +1,19 @@
+{
+  "id": "PRD-02",
+  "title": "PRD draft board fills",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PRD-02"
+  },
+  "areas": [
+    "prd"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Mid/late interview",
+  "steps": [
+    "Continue interview"
+  ],
+  "expected": "PrdAuthoringBoard shows goal/scope/non-goals/criteria sections"
+}

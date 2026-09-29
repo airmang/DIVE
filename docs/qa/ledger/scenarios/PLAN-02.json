@@ -1,0 +1,21 @@
+{
+  "id": "PLAN-02",
+  "title": "Review & accept plan",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PLAN-02"
+  },
+  "areas": [
+    "plan",
+    "roadmap"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": false,
+  "preconditions": "Draft plan present",
+  "steps": [
+    "Review",
+    "Accept"
+  ],
+  "expected": "Roadmap (right rail) appears; run mode floor → Build"
+}

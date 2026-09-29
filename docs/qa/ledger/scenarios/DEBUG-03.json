@@ -1,0 +1,41 @@
+{
+  "id": "DEBUG-03",
+  "title": "Fix the search so it's case-insensitive and matches partial words, e.g. 'Pas' finds 'Pasta Bake'.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#DEBUG-03"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Sofia, an English-speaking hobbyist (UI locale set to English) maintaining a small recipe site. The site's search filter returns wrong results: it's case-sensitive, so searching 'Pasta' finds nothing while 'pasta' works, and partial words don't match. She knows roughly what's wrong but not where in the code.",
+  "steps": [
+    "Design: Sofia describes the wrong behavior with concrete examples: \"'Pasta' returns nothing but 'pasta' works; I want case-insensitive partial matching.\" The interview helps her lock acceptance criteria: AC-1 case-insensitive, AC-2 substring (not just startsWith), AC-3 empty query shows all. She expects DIVE, in English, to capture these as testable criteria — she's deliberately giving examples so the fix can be checked.",
+    "Plan: DIVE drafts: (1) locate the filter function, (2) reproduce the failing 'Pasta' case, (3) change matching to .toLowerCase().includes(...), (4) verify all three criteria including the partial-match and empty-query cases. As an intermediate user she scrutinizes the plan and likes that each AC maps to a verification step.",
+    "Implement: Reads auto-approved; the agent finds the comparison using `===` or `startsWith` without lowercasing. It proposes the diff. Sofia reviews the PermissionCard, notices the agent is editing only the filter predicate (good, scoped), and approves. She expects a surgical change to one function, with the diff clearly showing the before/after comparison logic.",
+    "Verify: The verify stepper opens. Sofia runs each acceptance case in the preview: 'Pasta' now matches, 'Pas' matches 'Pasta Bake', empty query shows all recipes. A criterion-linked provocation card asks: 'You verified case-insensitivity (AC-1) — did you also confirm partial match (AC-2) and empty-query behavior (AC-3)?' She records an observation per criterion. As an intermediate user she values that the card ties each check back to a specific AC rather than a generic 'looks good?'.",
+    "Done: All three criteria observed and recorded, she accepts. She trusts the fix because every example she gave at DESIGN was explicitly re-checked at VERIFY. Checkpoint available if a regression surfaces later."
+  ],
+  "expected": "Her example-driven bug report flows straight into testable acceptance criteria, and the verify stepper makes her confirm EACH one — so the fix is provably complete, not 'works for the one case I tried.' The change stays scoped to the predicate, keeping the diff trivial to review.",
+  "tags": [
+    "journey",
+    "debug-fix-broken-code",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: (1) Edge-case completeness: the agent may fix case-sensitivity but forget partial-match or empty-query, and if the provocation card doesn't enforce all three ACs she ships a half-fix. (2) DEF-01 / Korean LLM output: as an explicitly English user, Korean badges (검증 필요) or a Korean-language diagnosis are a direct, jarring regression for her. (3) Over-eager refactor: the agent might rewrite the whole search component instead of the one predicate, making the diff hard to approve confidently. (4) Without a populated recipe list in the running preview she can't actually test 'Pas → Pasta Bake' and falls back to trusting the code read."
+}

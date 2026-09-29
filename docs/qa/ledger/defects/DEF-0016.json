@@ -1,0 +1,16 @@
+{
+  "id": "DEF-0016",
+  "title": "Post-success refresh rejection inside runUserAction composites mislabeled as mutation failure (add-step, provider select)",
+  "status": "open",
+  "severity": "P2",
+  "area": "plan",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L590"
+  },
+  "notes": "Still valid per 2026-09-29 re-check: e6d1c576 wrapped only the optional onAppended callback in try/catch (PlanAddStepPanel.tsx:676-687), but the sole caller, PlanDashboardPanel.tsx:453-460, never passes onAppended. Its onAppendStep=handleAppendStep (:323-326) still awaits plan.appendStep and then onPlanMutated inside runUserAction (PlanAddStepPanel.tsx:646-661). usePlan.ts:353-354 still chains refresh() and an uncaught refreshPrdStatus() (:195-205, no catch) after the successful invoke. A prd-status error therefore still shows 'Could not save step' and keeps the form populated. Settings is unchanged: settings.tsx:296-302 still runs selectProvider + loadAll in one runUserAction with a connect-classified onError.",
+  "created": "2026-09-29",
+  "updated": "2026-09-29",
+  "repro": "Mock workspace_prd_status to reject after a successful workspace_plan_append_step -> add a step from the plan dashboard -> 'Could not save step' toast although the step row exists"
+}

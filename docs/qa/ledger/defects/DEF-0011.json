@@ -1,0 +1,16 @@
+{
+  "id": "DEF-0011",
+  "title": "refreshCheckpoints lacks stale-response guard; checkpoint_restore lacks session-ownership check",
+  "status": "open",
+  "severity": "P2",
+  "area": "recovery",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L320"
+  },
+  "notes": "Partially fixed — remaining part per 2026-09-29 re-check: e6d1c576 added a generation guard in useProductRecovery.ts:77-98, so a late response from an older session no longer overwrites the list. Two problems remain. First, on a session switch the previous session's rows are not cleared (the reset happens only when sessionId === null, :81-84), so they stay rendered and clickable until the new fetch resolves. Second, the backend still has no session check: checkpoint_restore_impl (ipc/checkpoint.rs:110-125) checks only the project (db5b8c34), and useChatSession.ts:829 sends only checkpointId. In that window a same-project sibling session's checkpoint can be restored while the chat reloads the current session.",
+  "created": "2026-09-29",
+  "updated": "2026-09-29",
+  "repro": "On a project with sessions S1 and S2 that both have checkpoints, switch from S1 to S2 and click restore on an S1 row before checkpoint_list(S2) resolves: the S1 snapshot is restored while S2's chat is shown"
+}

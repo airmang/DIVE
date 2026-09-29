@@ -1,0 +1,41 @@
+{
+  "id": "APPS-02",
+  "title": "Build an expense tracker: add a transaction (amount, category, note, date), list them newest-first, show a running total / balance, and filter by category. Data persists locally.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#APPS-02"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Tom, 41, a small-business owner (runs a food truck). Comfortable with spreadsheets, zero coding. Wants a lightweight expense tracker for daily cash-in/cash-out so he stops doing it on paper.",
+  "steps": [
+    "Design: Tom describes it as 'something to track money in and out for the truck each day.' He expects the interview to pin down the things he hasn't thought through: should it track income AND expenses (signed amounts)? fixed categories or free-text? does he need a monthly total or just a running balance? He answers from his real workflow. The board captures non-goals explicitly (no multi-user, no bank sync, no charts in v1) so scope doesn't balloon — Tom cares a lot that it stays simple. He confirms the PRD.",
+    "Plan: The roadmap has more steps than a notes app (data model for a transaction, add-form with validation, list with running total, category filter, persistence). Tom expects to see which steps can run in parallel vs which block (filter depends on list; total depends on data model). He reviews and is mildly worried it looks like a lot — he wants the plan to reassure him each step is small. He accepts.",
+    "Implement: Step by step the agent writes HTML/CSS/JS. Tom approves each write_file via the diff card. On the validation step the agent edits an existing file; the edit_file card shows a focused patch (just the added validation lines), which he finds easier to trust than a whole-file dump. He denies one card where the agent tried to add a charting library he explicitly listed as a non-goal, enters a reason, and the loop adjusts.",
+    "Verify: For 'running total is correct' the provocation card pushes Tom past clicking — it asks him to add two transactions (+100, -30) and confirm the balance reads 70. He uses the preview, does exactly that, records the observation. For 'filter by category', the card asks him to verify a filtered view actually hides other categories. Each criterion-linked check flips evidence; the 결정 gate stays locked until the math is observed, not just claimed. He catches an off-by-sign bug here (expense added instead of subtracted) and the step goes to 검증 실패 → recover.",
+    "Done: After the recovery loop fixes the sign bug and re-verifies, every step shows real evidence. Tom has a working tracker, a checkpoint history, and confidence the totals are right because HE saw them add up. He starts using it that night on the truck."
+  ],
+  "expected": "The interview nails scope discipline — non-goals (no bank sync, no charts) are captured so the plan doesn't sprawl, and when the agent later tries a charting lib, denying it is frictionless and respected. The edit_file patch preview (not whole-file) makes incremental changes trustworthy. Crucially, the verify stage makes Tom prove the arithmetic with real numbers, which surfaces the sign bug before it ships — the human-in-control promise pays off concretely. Recovery (되돌리기 / re-request) is smooth.",
+  "tags": [
+    "journey",
+    "small-multi-step-apps",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: Money math is exactly where AI self-report is dangerous: the supervisor card must force an actual add-two-transactions-and-read-the-total observation, not accept 'I implemented the total' — otherwise the sign bug ships. Scope creep: the agent adding an unrequested chart/library tests whether deny-with-reason actually steers the loop. With a bigger plan, plan legibility and dependency clarity matter more; if the dependency graph is confusing, Tom (spreadsheet-brain, not code-brain) loses the thread. English-locale Korean badges (DEF-01) again risk confusing which step needs his attention."
+}

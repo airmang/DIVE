@@ -1,0 +1,21 @@
+{
+  "id": "CHAT-01",
+  "title": "Send goal, see streamed reply",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#CHAT-01"
+  },
+  "areas": [
+    "chat",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P0",
+  "requiresLlm": true,
+  "preconditions": "Project+session, provider connected",
+  "steps": [
+    "Type a simple goal",
+    "Send"
+  ],
+  "expected": "Assistant streams; reasoning card collapsible; runtime badge shows model; no parse errors"
+}

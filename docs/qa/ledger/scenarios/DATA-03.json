@@ -1,0 +1,40 @@
+{
+  "id": "DATA-03",
+  "title": "Build a one-page dashboard that fetches sales data from a JSON endpoint and shows a simple bar chart of revenue by month plus a few summary stat tiles (total, average, best month).",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#DATA-03"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Priya, a small-business owner with zero coding background who wants a tiny internal dashboard. She thinks in outcomes ('show me today's numbers'), not code, and is nervous about breaking things.",
+  "steps": [
+    "Design: Priya describes what she wants to SEE, not how. The Socratic interview helps her separate must-haves (bar chart by month, total revenue tile) from nice-to-haves (color theming) into goal vs non-goals, and pins acceptance criteria she can check by eye (AC: one bar per month with correct relative heights; AC: total tile equals the sum of the data; AC: 'best month' tile names the tallest bar). She's relieved the interview did the hard thinking of defining 'done'.",
+    "Plan: AI drafts: (1) static page with stat tiles + chart container, (2) fetch the JSON, (3) compute summaries and draw the bars (likely lightweight SVG/divs or a small chart lib). She mostly trusts the plan but expects it explained in plain words; she accepts after reading the one-line reason per step.",
+    "Implement: Steps run with read auto-approved and write/edit cards shown. She finds the diffs intimidating but the approve/deny framing ('allow this change') is understandable. If a step proposes adding a chart library dependency, she expects a clear, low-jargon explanation before she approves. She approves cautiously.",
+    "Verify: The stepper makes her open Preview and actually look: do the bars match the data? does the total tile equal the obvious sum? A criterion-linked review card asks 'does the total tile match the data you fetched, or just a number the AI printed?'. She compares the total on screen to the data and confirms. Decision stays gated until she ties confirmation to the preview observation she just did.",
+    "Done: Verified-with-evidence; checkpoint saved; she can reopen the dashboard in Preview. She expects to feel safe — that nothing changed without her okay and that she personally eyeballed the numbers."
+  ],
+  "expected": "DIVE protects a non-technical owner from the scariest failure mode — a chart that looks plausible but is computed wrong — by forcing her to compare the on-screen total against the source data before approval. The supervision keeps her in control (she approved every change) without demanding she read code, and the checkpoint/undo makes her feel safe to proceed.",
+  "tags": [
+    "journey",
+    "data-display-fetch",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: Chart math is the silent killer: bars can render but be scaled wrong, the 'average' can divide by the wrong count, or 'best month' can pick the wrong bar — all of which a confident AI self-report will gloss over, so the review card and her own eyeballing are the only safety net. For a true beginner, the diff-approval cards and any 'add a chart dependency' prompt may be too jargon-heavy to evaluate. If the JSON fetch fails, she may see an empty chart and not know whether that's a data problem or a code problem. Korean leakage (DEF-01 + LLM language) would be especially disorienting for her."
+}

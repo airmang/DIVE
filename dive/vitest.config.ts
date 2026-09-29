@@ -5,6 +5,6 @@ export default defineConfig({
     // Default to node; component tests that need the DOM opt in per file with a
     // `// @vitest-environment jsdom` docblock (jsdom is installed for that use).
     environment: "node",
-    include: ["src/**/*.test.{ts,tsx}"],
+    include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.mjs"],
   },
 });

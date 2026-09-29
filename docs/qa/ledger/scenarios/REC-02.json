@@ -1,0 +1,19 @@
+{
+  "id": "REC-02",
+  "title": "Checkpoint list detail",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#REC-02"
+  },
+  "areas": [
+    "recovery"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": false,
+  "preconditions": "Recovery open",
+  "steps": [
+    "Inspect entries"
+  ],
+  "expected": "Timestamps + labels + diff summary per checkpoint"
+}

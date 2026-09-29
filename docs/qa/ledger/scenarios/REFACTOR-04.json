@@ -1,0 +1,40 @@
+{
+  "id": "REFACTOR-04",
+  "title": "Improve the accessibility of his existing event-signup page: add alt text to images, label the form inputs, fix color contrast, and make it keyboard-navigable.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#REFACTOR-04"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Marco, a community-org volunteer who built a small event-signup page. A blind user emailed that the screen reader can't use it. Marco knows almost nothing about a11y but wants to fix it.",
+  "steps": [
+    "Design: Marco says 'make my signup page work for screen readers and keyboard users — someone said it's not accessible.' He expects DIVE to translate this vague goal into concrete, checkable criteria because he doesn't know what 'accessible' means. Great experience: the Socratic interview produces specific AC: 'AC: every image has meaningful alt text', 'AC: every form input has an associated <label>', 'AC: text/background contrast meets a readable ratio', 'AC: all interactive elements are reachable and operable by keyboard (Tab + Enter)'. Non-goal: 'don't redesign the visual layout.'",
+    "Plan: Roadmap breaks the work into one step per a11y category (alt text, labels, contrast, keyboard), each independently verifiable. Marco accepts. He expects each step tied to its own acceptance criterion so 'accessible' isn't one vague blob.",
+    "Implement: Agent reads the HTML/CSS (auto-approved), then edit cards: add alt attributes, wrap/associate labels, adjust CSS colors for contrast, add tabindex/focus styles. Marco approves each diff. He expects plain-language explanations of WHY each change helps (since he can't self-evaluate a11y).",
+    "Verify: Stepper opens per criterion. This is the hardest verify in the set: the provocation card refuses AI self-report ('the agent says contrast is fixed — but did YOU check it?') and pushes Marco to real evidence: open the preview, Tab through every field to confirm keyboard reach, confirm each input announces its label, and check the contrast values. He records observations per AC. He expects DIVE to make him actually drive the keyboard, not trust a claim.",
+    "Done: Images have alt text, inputs are labeled, contrast is readable, keyboard navigation works — each confirmed against its own criterion; checkpoint saved. Marco expects to be able to reply to the blind user with specific fixes."
+  ],
+  "expected": "DIVE turns the fuzzy word 'accessible' into four concrete, separately-verifiable criteria and forces criterion-linked evidence for each — so Marco, who can't judge a11y himself, is guided to actually keyboard-test and label-check rather than trusting the AI's 'it's accessible now.'",
+  "tags": [
+    "journey",
+    "refactor-improve-existing-code",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: (1) a11y is the area most prone to AI self-report ('contrast now passes WCAG AA') with no real check — the provocation/verification must be especially strict that diff_reviewed and AI claims don't count; without a built-in a11y checker, the evidence has to be Marco's manual keyboard/label observations. (2) The agent may 'fix' contrast by altering the visual design, violating the non-goal — diff cards must surface that. (3) Beginner Marco may not know HOW to verify keyboard nav; DIVE's hint needs to tell him exactly what to do (Tab through, watch focus ring), or the verify step stalls."
+}

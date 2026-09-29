@@ -1,0 +1,23 @@
+{
+  "id": "ONB-02",
+  "title": "New Project modal renders & fields work",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#ONB-02"
+  },
+  "areas": [
+    "onboarding",
+    "project-session"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": false,
+  "preconditions": "Any state",
+  "steps": [
+    "Click `+ 새 프로젝트`",
+    "Observe modal",
+    "Type a name",
+    "Click `찾아보기`"
+  ],
+  "expected": "Modal shows folder field + browse + name + 취소/생성; name accepts input; 찾아보기 opens native folder picker"
+}

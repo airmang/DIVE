@@ -1,0 +1,16 @@
+{
+  "id": "DEF-0003",
+  "title": ".wily/ (228 objects) and codex_prompts/dive2_agent_handoff/PHASE*_HANDOFF/RALPH (52 blobs) reachable from public history",
+  "status": "open",
+  "severity": "P1",
+  "area": "build-release",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L74"
+  },
+  "notes": "Partially fixed — remaining part per 2026-09-29 re-check: .wily/ part fixed by D-013-18 (a66edf9a): 0 '.wily/' objects from HEAD, origin/main (3493d411) and all local tags. The scaffold families were in no purge list and have no decision-log entry (grep of decisions.md for codex_prompts/dive2_agent_handoff/RALPH/PHASE = nothing). They are still reachable: `git rev-list --objects origin/main` gives 52 entries (codex_prompts 37, docs/dive2_agent_handoff 8, PHASE3-6_HANDOFF 5, RALPH_PROMPT/README 2), same for HEAD and v1.0.0-rc.10. docs/packaging-windows.md no longer references .wily/phases. Remote state inferred from tracking ref fetched 2026-08-28 (no network).",
+  "created": "2026-09-29",
+  "updated": "2026-09-29",
+  "repro": "git rev-list --objects origin/main | grep -cE ' (codex_prompts/|docs/dive2_agent_handoff/|PHASE[0-9]_HANDOFF|RALPH)' -> 52"
+}

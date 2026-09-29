@@ -1,0 +1,23 @@
+{
+  "id": "XC-02",
+  "title": "i18n full sweep ko vs en",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#XC-02"
+  },
+  "areas": [
+    "i18n"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": false,
+  "preconditions": "Settings locale toggle",
+  "steps": [
+    "Toggle to en",
+    "Visit every screen"
+  ],
+  "expected": "No hardcoded Korean leaks in en; no missing keys",
+  "tags": [
+    "i18n"
+  ]
+}

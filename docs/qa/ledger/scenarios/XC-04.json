@@ -1,0 +1,20 @@
+{
+  "id": "XC-04",
+  "title": "Window resize / rail widths",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#XC-04"
+  },
+  "areas": [
+    "shell-layout"
+  ],
+  "pathGlobs": [],
+  "priority": "P2",
+  "requiresLlm": false,
+  "preconditions": "Any",
+  "steps": [
+    "Resize window",
+    "Drag rail handles"
+  ],
+  "expected": "Layout reflows; rail widths persist"
+}

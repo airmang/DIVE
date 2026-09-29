@@ -1,0 +1,42 @@
+{
+  "id": "INTERACTIVE-01",
+  "title": "Build a working to-do list web page: type a task, press Add, it appears in a list; click an item to mark it done (strikethrough); a delete (x) removes it. Single index.html with inline JS, runs by opening the file in a browser.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#INTERACTIVE-01"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "terminal",
+    "i18n"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Mina, a 2nd-year non-CS undergrad who just finished a free 'HTML/CSS in a weekend' course. She has never written a loop on her own and thinks of JS as 'the thing that makes buttons do stuff'. She wants a to-do list she can show a friend.",
+  "steps": [
+    "Design: Mina types a one-liner: 'I want a to-do list app.' She expects DIVE to just start building. Instead the Socratic interview asks what she means by 'done' and what should happen on Add/click/delete. A provocation card (missing_acceptance_criteria: '이 기능이 끝났다고 무엇을 보면 알 수 있나요?') nudges her to name observable criteria. She answers in plain words ('I see the task text show up in a list under the box'), and watches the PRD board fill in goal / scope (add, mark-done, delete) / non-goals (no saving between sessions, no accounts) / 3 acceptance criteria. She clicks Confirm PRD and sees the FinalPrdReadView v1; the chat input unlocks.",
+    "Plan: She clicks Generate plan. The AI drafts ~3-4 steps (scaffold index.html structure → add input+Add handler → render list with toggle-done → wire delete) with a final 'open in browser and verify each criterion' step. She expects a tidy checklist; she reviews the rationale per step, doesn't touch the dependency graph, and clicks Accept. The roadmap appears in the right rail and run mode floors to Build.",
+    "Implement: Step by step the agent loop runs. A read_file on index.html is auto-approved (no card, which is good — she isn't bombarded). When the agent proposes write_file/edit_file, a PermissionCard pops with a diff/patch preview of the HTML+JS it wants to add. She reads the green added lines, doesn't fully understand the JS but recognizes the button label and list, and clicks '이 변경 허용'. She repeats approve for each step, watching the roadmap badges move 진행 중 → 검토.",
+    "Verify: On the verify step the evidence-gated 4-stage stepper (코드 이해 → 점검·관찰 → 검토 응답 → 결정) appears. She opens the Code tab diff (코드 이해 tag flips 변경 확인 필요 → Diff 확인됨). She tries the Preview tab to actually see it work — but there's no running dev server, so the iframe is empty. She instead opens index.html in her own browser, adds 'buy milk', clicks it (strikethrough), deletes it, then records a manual observation that all 3 criteria held. The 결정 stage only unlocks to 'verified' because she logged a real observation (AI self-report alone would not count).",
+    "Done: She marks the step done; the roadmap shows 완료. A checkpoint exists so she could undo. She closes DIVE with a single working index.html she can double-click and show her friend. good = she leaves understanding what each criterion meant and that SHE confirmed it worked, not the AI."
+  ],
+  "expected": "The interview turns 'a to-do list' into 3 concrete, eye-checkable criteria without feeling like a quiz; the plan is short and legible; approval cards show readable diffs she can skim; and the verify stepper makes her actually try it in a browser before it calls anything done — so she ends with both a working app and the felt sense that she supervised it.",
+  "tags": [
+    "journey",
+    "interactive-vanilla-js-beginner",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: Empty preview iframe (no dev server) is the #1 friction — a beginner expects a live preview inside DIVE and may think it's broken; needs a clear 'open the file yourself / start a server' affordance. Second: the LLM may reply and label the UI in Korean even though Mina set locale=English (DEF-01 + Korean-reply tendency), so her Add button or status badges show 추가/검증 필요 — confusing for an English-only user. Third: she may rubber-stamp approval cards without reading the diff (automation bias) — the value collapses if approving is frictionless and she never opens the diff."
+}

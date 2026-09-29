@@ -1,0 +1,25 @@
+{
+  "id": "DEF-0001",
+  "title": "dotenv template exemption lets a real .env read through (cat .env .env.example, chained, quoted, <-redirect)",
+  "status": "verified",
+  "severity": "P1",
+  "area": "agent-tools",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L599"
+  },
+  "repro": "Agent process tool runs `cat .env .env.example` or `cat .env.example; cat .env` — classify_bash_command allowed it, leaking .env contents to agent output/LLM.",
+  "notes": "Regression introduced by the db5b8c34 fix of the L599 finding (template exemption judged one greedy capture / first match only). Found by the 015 S-077 re-check.",
+  "guard": {
+    "kind": "cargo",
+    "ref": "tools::guard::tests::dotenv_template_exemption_cannot_smuggle_a_real_dotenv_read"
+  },
+  "verified": {
+    "commit": "c9290acc",
+    "buildVersion": "1.0.0-rc.10",
+    "date": "2026-09-29"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

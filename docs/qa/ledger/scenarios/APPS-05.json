@@ -1,0 +1,39 @@
+{
+  "id": "APPS-05",
+  "title": "Build a weather widget: enter a city, fetch current weather from a public weather API, display temperature + conditions + an icon, handle the 'city not found' / network-error case gracefully, and show a loading state.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#APPS-05"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Sofia, 23, a recent design-bootcamp grad who knows HTML/CSS well but is shaky on JavaScript and has never called an API. Wants a weather widget for her portfolio site — and this is the journey most likely to hit external dependencies (fetch, API key, network).",
+  "steps": [
+    "Design: Sofia describes a widget that shows current weather for a city. The interview surfaces the things she didn't think about because she's never called an API: which weather API / does it need a key? units (C/F)? what to show when the city is invalid or the network fails? geolocation or manual city entry (she picks manual for v1)? Error-handling and loading state get promoted to explicit acceptance criteria, which she wouldn't have specified herself. She confirms a PRD that's noticeably more robust than her first sentence.",
+    "Plan: The roadmap: markup + input, the fetch call to the weather API, render temp/conditions/icon, loading state, and error handling — with render depending on fetch and error/loading wrapping the fetch. Sofia, weak on JS, leans on the plan's rationale to understand WHY a loading state and error branch are separate steps. She accepts, a little nervous about the API-key part.",
+    "Implement: The API-key step is the crux: the agent needs a key. She expects DIVE to handle this transparently — either guide her to paste a key into a config/env safely, or use a keyless/demo endpoint — and the approval card for any write touching a key must be clear about what's being stored where. When the agent proposes a fetch call, she reads the diff to learn the pattern. A tool card that tries to make a network request (or run a curl/test) should surface for approval rather than silently hitting the internet. She approves the writes, denying anything that hard-codes a secret into committed source.",
+    "Verify: Verification is the riskiest stage here because it depends on the network and an external service. The provocation card asks criterion-linked questions: 'Did a real city return real weather? Did an invalid city show your error state, not a blank/crash? Did the loading state actually appear?' She uses the preview to try a valid city (sees weather), a garbage city (must see the graceful error), and watches for the loading flash. Recording these observations flips evidence; the 결정 gate won't unlock until the error path is actually observed, not just coded. If the verification-coach sidecar is unavailable, she expects a clear 'guidance unavailable, here's what to check manually' degradation — not a hang.",
+    "Done: Widget fetches and renders real weather, handles bad input gracefully, shows loading. Sofia drops it into her portfolio. Because she verified the happy path AND the error path live, she trusts it in front of recruiters. She learned the fetch + try/catch pattern by supervising it."
+  ],
+  "expected": "The interview turns a one-line ask into a robust spec by promoting loading + error handling to acceptance criteria she'd never have written — the single biggest value-add for an API-naive user. Secret handling is safe and legible (no key hard-coded into committed source; the approval card is explicit). Network actions surface as approvable tool calls instead of silent internet access. The verify stage insists she exercise the error path live, catching the classic 'works for London, crashes on a typo' bug. If the sidecar or network degrades, DIVE degrades gracefully with manual guidance.",
+  "tags": [
+    "journey",
+    "small-multi-step-apps",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: This journey is the most likely to break the supervised model: API keys (a write touching a secret must NOT hard-code it into source and must be obvious in the approval card), and real network calls (does the tool guard surface fetch/curl for approval, or does code silently hit the internet?). Verification depends on a live external API + network — flaky, rate-limited, or offline runs make the happy-path AC unverifiable, and the verification-coach sidecar being unavailable must degrade gracefully (VC-02) rather than hang. The error/empty-state AC is exactly what an LLM marks done without testing a bad city — the provocation card must force the failure path. CORS / keyless-endpoint limitations in the preview iframe can block the fetch entirely, stalling verify."
+}
