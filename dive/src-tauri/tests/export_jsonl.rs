@@ -1389,6 +1389,190 @@ fn every_provocation_event_is_exported_once_with_each_exposure_in_one_session() 
         .is_none());
 }
 
+/// Supervisor contexts built by the production builders from the kind of
+/// input the frontend sends: a RetryLoop context whose failure fingerprint and
+/// last action carry raw error text, and a DiffReady context whose unexpected
+/// files are not path-shaped (`.env`, `README`).
+fn realistic_supervisor_contexts() -> (
+    dive_lib::dive::SupervisorContext,
+    dive_lib::dive::SupervisorContext,
+) {
+    use dive_lib::dive::supervisor::{
+        build_diff_ready_supervisor_context, build_retry_loop_supervisor_context,
+        DiffReadyReviewAssessment, DiffReadySupervisorContextBuildInput, RetryLoopReviewAssessment,
+        RetryLoopSupervisorContextBuildInput,
+    };
+    use dive_lib::dive::{
+        ArtifactRef, PlanSummary, ScopeExpansionEvidenceRefInput, SourceUiMode, SupervisorActionId,
+        SupervisorVerificationUiState, VerificationFeasibility,
+    };
+    let verification = SupervisorVerificationUiState {
+        ai_claimed_done: true,
+        diff_reviewed: false,
+        app_launched: false,
+        preview_checked: false,
+        automated_tests_passed: false,
+        test_result: None,
+        test_command: None,
+        test_exit_code: None,
+        acceptance_criterion_confirmed: false,
+        manual_checks: vec![],
+    };
+    let feasibility = VerificationFeasibility {
+        runnable: true,
+        previewable: false,
+        has_tests: true,
+        diff_available: true,
+    };
+    let evidence = |id: &str, kind: &str, value: Value| ScopeExpansionEvidenceRefInput {
+        id: id.into(),
+        source: Some("verification".into()),
+        kind: Some(kind.into()),
+        label: Some(id.into()),
+        value_summary: value,
+        verification_evidence: false,
+    };
+    let fingerprint = "typeerror: zebra_fail_marker at loginform (minji@example.com)";
+    let retry = build_retry_loop_supervisor_context(RetryLoopSupervisorContextBuildInput {
+        artifact_ref: ArtifactRef::step("step-1", "민지의 로그인 폼"),
+        source_ui_mode: SourceUiMode::Standard,
+        locale: "ko-KR".into(),
+        goal_summary: "민지의 로그인 폼 완성".into(),
+        plan_summary: PlanSummary {
+            step_count: 2,
+            active_step: Some("로그인 폼".into()),
+        },
+        verification: verification.clone(),
+        feasibility: feasibility.clone(),
+        allowed_action_ids: vec![
+            SupervisorActionId::CreateReproSteps,
+            SupervisorActionId::OpenDiff,
+        ],
+        evidence_refs: vec![
+            evidence(
+                "failure.fingerprint",
+                "failure_summary",
+                json!({ "fingerprint": fingerprint }),
+            ),
+            evidence(
+                "failure.last_action",
+                "failure_summary",
+                json!("rolled back zebra_action_marker"),
+            ),
+        ],
+        retry_loop_assessment: RetryLoopReviewAssessment {
+            eligible: true,
+            reason_codes: vec!["same_failure_repeated".into()],
+            evidence_refs: vec!["failure.fingerprint".into(), "failure.last_action".into()],
+            failure_fingerprint: fingerprint.into(),
+            failure_count: 2,
+            last_failure_at: json!(1),
+            last_action_summary: Some("rolled back zebra_action_marker".into()),
+            recovery_available: true,
+        },
+    })
+    .context;
+    let unexpected = vec![
+        ".env".to_string(),
+        "README".into(),
+        "config/app.yaml".into(),
+    ];
+    let diff = build_diff_ready_supervisor_context(DiffReadySupervisorContextBuildInput {
+        artifact_ref: ArtifactRef::step("step-1", "민지의 로그인 폼"),
+        source_ui_mode: SourceUiMode::Standard,
+        locale: "ko-KR".into(),
+        goal_summary: "민지의 로그인 폼 완성".into(),
+        plan_summary: PlanSummary {
+            step_count: 2,
+            active_step: Some("로그인 폼".into()),
+        },
+        verification,
+        feasibility,
+        allowed_action_ids: vec![SupervisorActionId::OpenDiff],
+        evidence_refs: vec![evidence(
+            "diff.unexpected_files",
+            "diff_ready_assessment",
+            json!({ "totalCount": 3, "paths": unexpected }),
+        )],
+        diff_ready_assessment: DiffReadyReviewAssessment {
+            eligible: true,
+            reason_codes: vec!["outside_expected_files".into()],
+            evidence_refs: vec!["diff.unexpected_files".into()],
+            changed_file_count: 3,
+            unexpected_files: unexpected.clone(),
+            high_risk_files: vec![".env".into()],
+            diff_viewed: false,
+        },
+    })
+    .context;
+    (retry, diff)
+}
+
+const LEAK_MARKERS: &[&str] = &[
+    "zebra_fail_marker",
+    "zebra_action_marker",
+    "minji@example.com",
+    "\".env\"",
+    "README",
+    "config/app.yaml",
+];
+
+// S-078 security review P1-1: the default session export must not carry the
+// raw error text of a RetryLoop assessment or non-path-shaped file names of a
+// DiffReady assessment, whether they arrive in `assessmentSummary`, the
+// evidence refs, or card metadata.
+#[test]
+fn default_export_hashes_failure_text_and_unexpected_files_from_real_contexts() {
+    let (db, sid) = seed();
+    let (retry, diff) = realistic_supervisor_contexts();
+    for (index, context) in [retry, diff].iter().enumerate() {
+        let validation = dive_lib::dive::no_card_validation_result(
+            dive_lib::dive::SupervisorDropReason::ProvokeFalse,
+        );
+        let log = dive_lib::dive::SupervisorEvaluationLog::from_validation(
+            context,
+            None,
+            &validation,
+            None,
+            None,
+            None,
+        );
+        assert!(log.assessment_summary.is_some());
+        dive_event_log::append_supervisor_evaluation_to_conn(
+            db.lock().unwrap().conn(),
+            sid,
+            &format!("eval-real-{index}"),
+            &log,
+        )
+        .unwrap();
+    }
+    let out = ExportEngine::new(db)
+        .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+        .unwrap();
+    for marker in LEAK_MARKERS {
+        assert!(
+            !out.contains(marker),
+            "{marker} leaked into the default export: {out}"
+        );
+    }
+    let evaluated = lines(&out)
+        .into_iter()
+        .filter(|record| record["type"] == "provocation.supervisor_evaluated")
+        .collect::<Vec<_>>();
+    assert!(
+        evaluated[0]["payload"]["assessmentSummary"]["failureFingerprint"]
+            .as_str()
+            .unwrap()
+            .starts_with("h:")
+    );
+    assert!(
+        evaluated[1]["payload"]["assessmentSummary"]["unexpectedFiles"][0]
+            .as_str()
+            .unwrap()
+            .starts_with("p:")
+    );
+}
+
 fn seed_replay(db: &Arc<Mutex<dive_lib::Database>>, sid: Option<i64>, evaluation_id: &str) {
     use dive_lib::db::dao::supervision_replay::{self, NewSupervisionReplay, ReplaySurface};
     let (surface, context_json) = if evaluation_id.starts_with("prd") {
@@ -1404,15 +1588,16 @@ fn seed_replay(db: &Arc<Mutex<dive_lib::Database>>, sid: Option<i64>, evaluation
             }),
         )
     } else {
+        // The exact SupervisorContext the production path stores.
+        let (retry, diff) = realistic_supervisor_contexts();
+        let context = if evaluation_id.contains("retry") {
+            retry
+        } else {
+            diff
+        };
         (
             ReplaySurface::Supervisor,
-            json!({
-                "event": "diff_ready",
-                "goalSummary": "민지의 로그인 폼 완성",
-                "artifactRef": {"kind": "step", "id": "step-1", "label": "로그인 폼"},
-                "changedFiles": ["src/LoginForm.tsx"],
-                "locale": "ko-KR"
-            }),
+            serde_json::to_value(context).unwrap(),
         )
     };
     supervision_replay::insert(
@@ -1442,6 +1627,7 @@ fn seed_replay(db: &Arc<Mutex<dive_lib::Database>>, sid: Option<i64>, evaluation
 fn replay_rows_are_excluded_by_default_and_anonymized_when_included() {
     let (db, sid) = seed();
     seed_replay(&db, Some(sid), "sup-eval-1");
+    seed_replay(&db, Some(sid), "sup-retry-1");
     seed_replay(&db, Some(sid), "prd-eval-1");
     seed_replay(&db, None, "sup-eval-unscoped");
 
@@ -1470,13 +1656,15 @@ fn replay_rows_are_excluded_by_default_and_anonymized_when_included() {
             .iter()
             .map(|record| record["evaluation_id"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        vec!["sup-eval-1", "prd-eval-1"]
+        vec!["sup-eval-1", "sup-retry-1", "prd-eval-1"]
     );
     assert!(!out.contains("민지"), "student text must be hashed: {out}");
-    assert!(
-        !out.contains("src/LoginForm.tsx"),
-        "paths must be hashed: {out}"
-    );
+    for marker in LEAK_MARKERS {
+        assert!(
+            !out.contains(marker),
+            "{marker} leaked into the replay export: {out}"
+        );
+    }
     assert!(!out.contains("abcd1234"), "secrets must be redacted: {out}");
     let supervisor = &replays[0];
     assert_eq!(supervisor["surface"], json!("supervisor"));
@@ -1486,10 +1674,18 @@ fn replay_rows_are_excluded_by_default_and_anonymized_when_included() {
         .as_str()
         .unwrap()
         .starts_with("h:"));
-    assert!(supervisor["context"]["changedFiles"][0]
-        .as_str()
-        .unwrap()
-        .starts_with("p:"));
+    assert!(
+        supervisor["context"]["diffReadyAssessment"]["unexpectedFiles"][0]
+            .as_str()
+            .unwrap()
+            .starts_with("p:")
+    );
+    assert!(
+        replays[1]["context"]["retryLoopAssessment"]["failureFingerprint"]
+            .as_str()
+            .unwrap()
+            .starts_with("h:")
+    );
     // AI output stays readable apart from the redaction.
     assert!(supervisor["raw_output"]
         .as_str()
@@ -1499,7 +1695,7 @@ fn replay_rows_are_excluded_by_default_and_anonymized_when_included() {
         supervisor["validation"]["validationOutcome"],
         json!("shown")
     );
-    let prd = &replays[1];
+    let prd = &replays[2];
     assert!(prd["context"]["answer"].as_str().unwrap().starts_with("h:"));
     assert_eq!(prd["context"]["nextFocus"], json!("capture_intent_summary"));
 
@@ -1603,6 +1799,101 @@ fn replay_raw_output_is_hashed_as_user_text_only_for_the_prd_interview() {
     assert!(plain["supervisor"].starts_with("변경 파일이 목표와 맞나요?"));
     assert!(plain["coach"].starts_with("375px에서 열이 바뀌는지 보세요"));
     assert!(plain["prd_interview"].starts_with("민지의 독서 기록 앱을 만들고 싶군요"));
+}
+
+// S-078 security review P2-6: a JSON reply is anonymized field by field —
+// the coach's criterionSummary repeats student criteria (user text) and file
+// labels are paths — while a supervisor question stays readable.
+#[test]
+fn replay_json_raw_output_is_anonymized_field_by_field() {
+    use dive_lib::db::dao::supervision_replay::{self, NewSupervisionReplay, ReplaySurface};
+    let (db, sid) = seed();
+    let rows = [
+        (
+            ReplaySurface::Coach,
+            "coach-json",
+            json!({
+                "criterionSummary": "민지가 로그인하면 환영 문구가 보인다",
+                "recommendedChecks": [
+                    {"kind": "file", "label": "src/LoginForm.tsx", "instruction": "파일을 열어 보세요"}
+                ],
+                "evidencePrompts": ["token=abcd1234 은 입력하지 마세요"]
+            }),
+        ),
+        (
+            ReplaySurface::Supervisor,
+            "sup-json",
+            json!({
+                "schemaVersion": 1,
+                "question": "변경 파일이 목표와 맞나요?",
+                "evidenceRefIds": ["diff.changed_files"]
+            }),
+        ),
+    ];
+    for (surface, id, raw) in &rows {
+        supervision_replay::insert(
+            db.lock().unwrap().conn(),
+            &NewSupervisionReplay {
+                evaluation_id: (*id).into(),
+                surface: *surface,
+                session_id: Some(sid),
+                project_id: None,
+                prompt_version: "1.0.0+00000000".into(),
+                policy_version: None,
+                model: None,
+                context_json: "{}".into(),
+                raw_output: Some(raw.to_string()),
+                validation_json: "{}".into(),
+            },
+        )
+        .unwrap();
+    }
+    let export = |hash: bool| {
+        let out = ExportEngine::new(db.clone())
+            .export_session_with_salt(
+                sid,
+                &ExportOptions {
+                    include_replay: true,
+                    hash_user_text: hash,
+                    hash_file_paths: hash,
+                    ..ExportOptions::default()
+                },
+                "fixed-salt",
+            )
+            .unwrap();
+        assert!(!out.contains("abcd1234"), "{out}");
+        lines(&out)
+            .into_iter()
+            .filter(|record| record["kind"] == "replay")
+            .map(|record| {
+                let raw: Value =
+                    serde_json::from_str(record["raw_output"].as_str().unwrap()).unwrap();
+                (record["evaluation_id"].as_str().unwrap().to_string(), raw)
+            })
+            .collect::<std::collections::HashMap<_, _>>()
+    };
+    let hashed = export(true);
+    assert!(hashed["coach-json"]["criterionSummary"]
+        .as_str()
+        .unwrap()
+        .starts_with("h:"));
+    assert!(hashed["coach-json"]["recommendedChecks"][0]["label"]
+        .as_str()
+        .unwrap()
+        .starts_with("p:"));
+    assert_eq!(
+        hashed["sup-json"]["question"],
+        json!("변경 파일이 목표와 맞나요?")
+    );
+    let plain = export(false);
+    assert_eq!(
+        plain["coach-json"]["criterionSummary"],
+        json!("민지가 로그인하면 환영 문구가 보인다")
+    );
+    assert_eq!(
+        plain["coach-json"]["recommendedChecks"][0]["label"],
+        json!("src/LoginForm.tsx")
+    );
 }
 
 #[test]

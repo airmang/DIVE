@@ -174,10 +174,29 @@ pub async fn provocation_agent_evaluate(
     state: State<'_, AppState>,
     request: ProvocationAgentEvaluateRequest,
 ) -> Result<ProvocationAgentEvaluateResponse, String> {
+    let state: &AppState = &state;
+    let runtime_request = request.clone();
+    evaluate_attempts(state, request, || {
+        supervisor_output_from_runtime(state, &runtime_request)
+    })
+    .await
+}
+
+/// The retry loop: runs `next_output` per attempt, validates it, persists the
+/// evaluation log and the replay-corpus row, and retries recoverable drops.
+async fn evaluate_attempts<F, Fut>(
+    state: &AppState,
+    request: ProvocationAgentEvaluateRequest,
+    mut next_output: F,
+) -> Result<ProvocationAgentEvaluateResponse, String>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = StageCSupervisorOutput>,
+{
     let attempts = supervisor_evaluation_attempts();
     let mut evaluated: Option<EvaluatedSupervisorAttempt> = None;
     for attempt in 0..attempts {
-        let output = supervisor_output_from_runtime(&state, &request).await;
+        let output = next_output().await;
         let current = {
             let mut sessions = SESSION_DEDUP
                 .lock()
@@ -1743,6 +1762,65 @@ mod tests {
             );
             assert!(evaluated.replay.is_none());
         }
+    }
+
+    #[tokio::test]
+    async fn evaluate_attempts_captures_one_replay_row_per_sent_attempt() {
+        let state = AppState::dev_mock();
+        let (project_id, session_id) = {
+            let db = state.db.lock().unwrap();
+            crate::db::tests::seed_project_session(db.conn())
+        };
+        let mut request = diff_ready_request();
+        request.session_id = session_id;
+        request.project_id = Some(project_id);
+        // First attempt: malformed output (recoverable, retried); second: valid.
+        let mut outputs = vec![
+            StageCSupervisorOutput::DecisionJson {
+                raw: "not json".into(),
+                supervisor_model: Some("mock-supervisor".into()),
+                latency_ms: Some(5),
+                usage: None,
+            },
+            StageCSupervisorOutput::DecisionJson {
+                raw: valid_diff_ready_decision_json(),
+                supervisor_model: Some("mock-supervisor".into()),
+                latency_ms: Some(7),
+                usage: None,
+            },
+        ]
+        .into_iter();
+        let response = evaluate_attempts(&state, request, || {
+            let output = outputs.next().expect("at most two attempts");
+            async move { output }
+        })
+        .await
+        .unwrap();
+        assert_eq!(response.status, ProvocationAgentEvaluateStatus::Shown);
+
+        let db = state.db.lock().unwrap();
+        assert_eq!(
+            crate::db::dao::supervision_replay::count(db.conn()).unwrap(),
+            2
+        );
+        let shown = crate::db::dao::supervision_replay::get_by_evaluation_id(
+            db.conn(),
+            &response.evaluation_id,
+        )
+        .unwrap()
+        .expect("the shown attempt is captured under its evaluation id");
+        assert_eq!(shown.surface, "supervisor");
+        assert_eq!(shown.session_id, Some(session_id));
+        assert_eq!(
+            shown.raw_output.as_deref(),
+            Some(valid_diff_ready_decision_json().as_str())
+        );
+        let evaluations = crate::db::dao::event_log::list_by_session(db.conn(), session_id)
+            .unwrap()
+            .into_iter()
+            .filter(|row| row.r#type == "provocation.supervisor_evaluated")
+            .count();
+        assert_eq!(evaluations, 2);
     }
 
     fn behavior_preserving_diff_ready_request(locale: &str) -> ProvocationAgentEvaluateRequest {

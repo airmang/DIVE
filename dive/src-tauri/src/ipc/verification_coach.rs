@@ -39,6 +39,18 @@ pub(crate) async fn verification_coach_generate_impl(
     log_requested(state, &request, &event_id, guide_version)?;
 
     let output = generate_from_runtime(state, &request).await;
+    finish_coach_evaluation(state, request, event_id, guide_version, output)
+}
+
+/// Validates the runtime output, logs `verification_coach.evaluated`, and
+/// captures the replay-corpus row when the prompt reached a model.
+fn finish_coach_evaluation(
+    state: &AppState,
+    request: VerificationCoachGenerateRequest,
+    event_id: String,
+    guide_version: u32,
+    output: CoachRuntimeOutput,
+) -> Result<VerificationCoachGenerateResponse, String> {
     // Spec 015 FR-001: `promptVersion` is logged only when the coach prompt
     // actually reached a model (a returned turn or a mid-turn failure).
     let prompt_sent = !matches!(output, CoachRuntimeOutput::Unavailable(_));
@@ -407,6 +419,68 @@ mod tests {
                 prior_observations: Vec::new(),
             },
         }
+    }
+
+    #[test]
+    fn coach_evaluation_captures_replay_only_when_the_prompt_was_sent() {
+        let state = AppState::dev_mock();
+        let (project_id, session_id) = {
+            let db = state.db.lock().unwrap();
+            crate::db::tests::seed_project_session(db.conn())
+        };
+        let mut request = coach_request();
+        request.session_id = session_id;
+        request.project_id = Some(project_id);
+        let raw = r#"{"criterionSummary":"열이 바뀐다","recommendedChecks":[{"kind":"manual","label":"크기 조절","instruction":"창을 375px로 줄여 보세요","expectedObservation":"열이 하나로 바뀝니다"}],"expectedObservations":["열이 하나"],"evidencePrompts":["무엇이 보였나요?"]}"#;
+        let response = finish_coach_evaluation(
+            &state,
+            request.clone(),
+            "event-sent".into(),
+            1,
+            CoachRuntimeOutput::Guide {
+                raw: raw.into(),
+                model: Some("mock-model".into()),
+                latency_ms: Some(10),
+            },
+        )
+        .unwrap();
+        assert_eq!(response.status, VerificationCoachStatus::Shown);
+        finish_coach_evaluation(
+            &state,
+            request.clone(),
+            "event-failed".into(),
+            1,
+            CoachRuntimeOutput::TurnFailed(GuidanceReasonCode::Timeout),
+        )
+        .unwrap();
+        finish_coach_evaluation(
+            &state,
+            request,
+            "event-unavailable".into(),
+            1,
+            CoachRuntimeOutput::Unavailable(GuidanceReasonCode::ProviderNotConfigured),
+        )
+        .unwrap();
+
+        let db = state.db.lock().unwrap();
+        let sent =
+            crate::db::dao::supervision_replay::get_by_evaluation_id(db.conn(), "event-sent")
+                .unwrap()
+                .expect("a sent coach prompt is captured");
+        assert_eq!(sent.surface, "coach");
+        assert_eq!(sent.raw_output.as_deref(), Some(raw));
+        assert!(crate::db::dao::supervision_replay::get_by_evaluation_id(
+            db.conn(),
+            "event-failed"
+        )
+        .unwrap()
+        .is_some_and(|row| row.raw_output.is_none()));
+        assert!(crate::db::dao::supervision_replay::get_by_evaluation_id(
+            db.conn(),
+            "event-unavailable"
+        )
+        .unwrap()
+        .is_none());
     }
 
     #[test]

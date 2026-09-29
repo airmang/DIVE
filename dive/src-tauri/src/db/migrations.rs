@@ -1343,6 +1343,52 @@ mod tests {
     }
 
     #[test]
+    fn migration_v21_upgrades_a_v20_db_and_reruns_cleanly() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON").unwrap();
+        // A database that stopped at v20.
+        super::migrate_with_migrations(&mut conn, &super::MIGRATIONS[..20]).unwrap();
+        let version = |conn: &rusqlite::Connection| -> i64 {
+            conn.query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
+            .unwrap()
+        };
+        let replay_tables = |conn: &rusqlite::Connection| -> i64 {
+            conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('SupervisionReplay','AppPreference')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(version(&conn), 20);
+        assert_eq!(replay_tables(&conn), 0);
+
+        migrations::migrate(&mut conn).unwrap();
+        assert_eq!(version(&conn), 21);
+        assert_eq!(replay_tables(&conn), 2);
+        conn.execute(
+            "INSERT INTO SupervisionReplay(evaluation_id, surface, created_at, prompt_version, context_json, validation_json) VALUES ('kept', 'coach', 0, '1.0.0+x', '{}', '{}')",
+            [],
+        )
+        .unwrap();
+
+        // Re-running v21 directly and the whole chain again changes nothing.
+        let tx = conn.transaction().unwrap();
+        super::migration_v21(&tx).unwrap();
+        tx.commit().unwrap();
+        migrations::migrate(&mut conn).unwrap();
+        assert_eq!(version(&conn), 21);
+        let kept: i64 = conn
+            .query_row("SELECT COUNT(*) FROM SupervisionReplay", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(kept, 1);
+    }
+
+    #[test]
     fn migration_v21_creates_replay_and_preference_tables_idempotently() {
         let (db, _tmp) = fresh_db();
         let tables: i64 = db

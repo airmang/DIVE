@@ -108,9 +108,32 @@ impl Database {
         // silently missing recently committed work.
         self.conn
             .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
-        std::fs::copy(path, backup_path)?;
+        std::fs::copy(path, &backup_path)?;
+        scrub_replay_corpus_from_backup(&backup_path)?;
         Ok(())
     }
+}
+
+/// Spec 015 S-078 security review: a forward-migration backup must not carry
+/// the local replay corpus (prompt inputs with student text, raw model output
+/// — cleared by the student from Settings, never exported by default). The
+/// table only exists from schema v21 on; older backups have nothing to scrub.
+fn scrub_replay_corpus_from_backup(backup_path: &Path) -> Result<(), DbError> {
+    let conn = Connection::open(backup_path)?;
+    let has_replay: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'SupervisionReplay'",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_replay > 0 {
+        conn.execute_batch(
+            "PRAGMA secure_delete = ON;
+             DELETE FROM SupervisionReplay;
+             VACUUM;
+             PRAGMA wal_checkpoint(TRUNCATE);",
+        )?;
+    }
+    Ok(())
 }
 
 fn configure_connection(conn: &Connection) -> Result<(), DbError> {
@@ -250,6 +273,78 @@ pub(crate) mod tests {
         let backup_dir = dir.path().join("backups");
         let backups = std::fs::read_dir(backup_dir).unwrap().count();
         assert_eq!(backups, 1);
+    }
+
+    #[test]
+    fn forward_migration_backup_never_carries_replay_rows() {
+        use crate::db::dao::supervision_replay::{self, NewSupervisionReplay, ReplaySurface};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dive.db");
+        let marker = "zebra_replay_marker_student_answer";
+        {
+            let mut db = Database::open(&path).unwrap();
+            db.migrate().unwrap();
+            supervision_replay::insert(
+                db.conn(),
+                &NewSupervisionReplay {
+                    evaluation_id: "e1".into(),
+                    surface: ReplaySurface::PrdInterview,
+                    session_id: None,
+                    project_id: None,
+                    prompt_version: "1.1.0+2cd96df7".into(),
+                    policy_version: None,
+                    model: None,
+                    context_json: format!("{{\"answer\":\"{marker}\"}}"),
+                    raw_output: Some(marker.into()),
+                    validation_json: "{}".into(),
+                },
+            )
+            .unwrap();
+            // Pretend the newest migration has not run yet, so the next open
+            // takes a forward-migration backup of a DB that has replay rows.
+            db.conn()
+                .execute(
+                    "DELETE FROM schema_version WHERE version = ?",
+                    [crate::db::migrations::LATEST_SCHEMA_VERSION],
+                )
+                .unwrap();
+        }
+        let mut db = Database::open(&path).unwrap();
+        db.migrate().unwrap();
+        assert_eq!(supervision_replay::count(db.conn()).unwrap(), 1);
+
+        let backup_path = std::fs::read_dir(dir.path().join("backups"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let backup = rusqlite::Connection::open(&backup_path).unwrap();
+        let rows: i64 = backup
+            .query_row("SELECT COUNT(*) FROM SupervisionReplay", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(rows, 0);
+        drop(backup);
+        let bytes = std::fs::read(&backup_path).unwrap();
+        assert!(
+            !bytes
+                .windows(marker.len())
+                .any(|window| window == marker.as_bytes()),
+            "replay text must not survive in the backup file"
+        );
+    }
+
+    #[test]
+    fn replay_scrub_ignores_backups_from_before_the_replay_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old.db");
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute_batch("CREATE TABLE Project(id INTEGER PRIMARY KEY)")
+            .unwrap();
+        super::scrub_replay_corpus_from_backup(&path).unwrap();
     }
 
     #[test]

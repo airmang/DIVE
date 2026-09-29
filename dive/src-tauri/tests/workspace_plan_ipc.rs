@@ -1217,6 +1217,77 @@ async fn prd_interview_no_patch_turn_logs_one_turn_evaluated_event() {
         .starts_with("clarify_goal"));
 }
 
+// S-078 review P2-9: PRD events and their replay row attach to the project's
+// latest non-archived session, never to an archived one.
+#[tokio::test]
+async fn prd_interview_turn_attaches_to_the_latest_unarchived_session() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(r#"{"assistantMessage":"좋아요."}"#.into()),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+    let (active, archived) = {
+        let db = state.db.lock().unwrap();
+        let mk = |title: &str| {
+            dive_lib::db::dao::session::insert(
+                db.conn(),
+                &dive_lib::db::models::NewSession {
+                    project_id,
+                    title: title.into(),
+                    ended_at: None,
+                    status: "active".into(),
+                },
+            )
+            .unwrap()
+        };
+        let active = mk("active");
+        let archived = mk("archived");
+        db.conn()
+            .execute(
+                "UPDATE Session SET status = 'archived' WHERE id = ?",
+                [archived],
+            )
+            .unwrap();
+        (active, archived)
+    };
+
+    workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-archived".into(),
+            answer: "일정 앱".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let db = state.db.lock().unwrap();
+    let evaluated = event_log::list(db.conn())
+        .unwrap()
+        .into_iter()
+        .find(|event| event.r#type == "prd_interview.turn_evaluated")
+        .unwrap();
+    assert_eq!(evaluated.session_id, Some(active));
+    let replay = dive_lib::db::dao::supervision_replay::get_by_evaluation_id(
+        db.conn(),
+        evaluated.payload["evaluationId"].as_str().unwrap(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(replay.session_id, Some(active));
+    assert_ne!(replay.session_id, Some(archived));
+}
+
 #[tokio::test]
 async fn prd_interview_turn_is_not_captured_when_replay_capture_is_off() {
     let tmp = tempfile::tempdir().unwrap();

@@ -21,6 +21,23 @@ describe("normalizeFailureFingerprint", () => {
     expect(a).not.toBe(unrelated);
   });
 
+  it("redacts secrets and emails before masking digits, so masking cannot hide them", () => {
+    const fingerprint = normalizeFailureFingerprint(
+      "401 for token=ghp_ab12cd34ef user minji@example.com key sk-live9x8y7 Bearer abc123def AKIAABCDEFGHIJKLMNOP",
+    );
+    for (const leaked of ["ghp", "ab#cd", "minji", "example.com", "sk-live", "abc#def", "akia"]) {
+      expect(fingerprint).not.toContain(leaked);
+    }
+    expect(fingerprint).toContain("[redacted_secret]");
+    expect(fingerprint).toContain("[redacted_pii]");
+    // Still deterministic, so repeated failures keep one fingerprint.
+    expect(fingerprint).toBe(
+      normalizeFailureFingerprint(
+        "401 for token=ghp_ab12cd34ef user minji@example.com key sk-live9x8y7 Bearer abc123def AKIAABCDEFGHIJKLMNOP",
+      ),
+    );
+  });
+
   it("still collapses plain decimal digits that are not part of a hex token", () => {
     const a = normalizeFailureFingerprint("failed after 3 retries on line 42");
     const b = normalizeFailureFingerprint("failed after 12 retries on line 900");

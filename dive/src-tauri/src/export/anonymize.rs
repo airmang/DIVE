@@ -148,7 +148,20 @@ pub fn looks_like_path_key(key: &str) -> bool {
             | "target_path"
             | "target_paths"
             | "changedfiles"
+            | "changed_files"
             | "highriskfiles"
+            | "high_risk_files"
+            // Supervisor assessments and evidence (spec 015 S-078 review):
+            // file names like `.env` or `README` are not path-shaped, so the
+            // keys that carry them are hashed as paths wholesale.
+            | "unexpectedfiles"
+            | "unexpected_files"
+            | "expectedfiles"
+            | "expected_files"
+            | "renamedfiles"
+            | "renamed_files"
+            | "targetfiles"
+            | "target_files"
     )
 }
 
@@ -200,6 +213,13 @@ pub fn looks_like_user_text_key(key: &str) -> bool {
             | "observationtext"
             | "observation_text"
             | "text"
+            // RetryLoop assessment/evidence carry raw test and verify error
+            // text (spec 015 S-078 review).
+            | "failurefingerprint"
+            | "failure_fingerprint"
+            | "fingerprint"
+            | "lastactionsummary"
+            | "last_action_summary"
     )
 }
 
@@ -287,6 +307,36 @@ mod tests {
         assert!(out["items"][0].as_str().unwrap().starts_with("p:"));
         assert_eq!(out["items"][1], Value::String("plain".into()));
         assert_eq!(out["count"], json!(3));
+    }
+
+    #[test]
+    fn failure_text_and_non_path_file_name_keys_are_hashed() {
+        let v = json!({
+            "failureFingerprint": "typeerror at loginform",
+            "lastActionSummary": "rolled back",
+            "valueSummary": { "fingerprint": "panic at main" },
+            "unexpectedFiles": [".env", "README"],
+            "expected_files": ["config/app.yaml"],
+        });
+        let out = anonymize_value(&v, true, true, "s");
+        assert!(out["failureFingerprint"]
+            .as_str()
+            .unwrap()
+            .starts_with("h:"));
+        assert!(out["lastActionSummary"].as_str().unwrap().starts_with("h:"));
+        assert!(out["valueSummary"]["fingerprint"]
+            .as_str()
+            .unwrap()
+            .starts_with("h:"));
+        assert!(out["unexpectedFiles"][0]
+            .as_str()
+            .unwrap()
+            .starts_with("p:"));
+        assert!(out["unexpectedFiles"][1]
+            .as_str()
+            .unwrap()
+            .starts_with("p:"));
+        assert!(out["expected_files"][0].as_str().unwrap().starts_with("p:"));
     }
 
     #[test]

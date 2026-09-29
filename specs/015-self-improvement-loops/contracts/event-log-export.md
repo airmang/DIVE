@@ -159,19 +159,30 @@ offline:
 | --- | --- |
 | `evaluation_id` (unique) | Joins the row to its event: `supervisorEvaluationId` of `provocation.supervisor_evaluated` (one row per attempt, retries included), `eventId` of `verification_coach.evaluated`, `evaluationId` of `prd_interview.turn_evaluated`. |
 | `surface` | `supervisor` \| `coach` \| `prd_interview`. |
-| `session_id`, `project_id` | Nullable; rows are deleted with their session/project. |
+| `session_id`, `project_id` | Nullable foreign keys; rows are deleted with their session/project. For supervisor and coach rows both come from the renderer request and must name an existing session/project — otherwise the insert fails and the row is not captured (a warning is logged; the user's turn is unaffected). PRD rows attach to the project's latest **non-archived** session (`latest_unarchived_id_for_project`, as review-card events do since S-076), the same session as their `prd_interview.*` events. |
 | `prompt_version`, `policy_version`, `model` | As logged on the event (`policy_version` is supervisor-only). |
 | `context_json` | The prompt inputs: the exact `SupervisorContext` (supervisor); the full generate request (coach); the rendered user-prompt inputs `{draftJson, missingConfirmable, nextFocus, conversation, answer, jsonContractRetry}` of the call that decided the turn (PRD, the in-turn retry when there was one). With `prompt_version` these rebuild the exact prompt. |
 | `raw_output`, `raw_truncated` | The raw model reply, cut at 16 KB on a character boundary (`raw_truncated` = 1 when cut); `NULL` for a sent call that returned nothing (timeout, sidecar or provider error). |
 | `validation_json` | The validation result (outcome, drop/reason code, decision summary or PRD outcome). |
 
 - **Capture switch** (D-015-02): backend preference `replayCapture` in the
-  `AppPreference` table, default ON. Settings → Advanced → "Saved AI review
-  records" shows the row count, toggles capture (`replay_settings_get` /
-  `replay_settings_set`), and deletes all rows (`replay_records_clear`). An
-  unreadable preference counts as OFF.
-- **Retention** on every insert: rows older than 30 days are deleted, then all
-  but the newest 500.
+  `AppPreference` table. No stored value → ON; `"true"` → ON; any other value
+  or a read error → OFF. Settings → Advanced → "Saved AI review records"
+  shows the row count, toggles capture (`replay_settings_get` /
+  `replay_settings_set`), and deletes all rows (`replay_records_clear`).
+- **Retention**: rows older than 30 days are deleted, then all but the newest
+  500. Applied atomically with every insert (one savepoint: the new row and
+  the retention deletes land together or not at all), at app startup right
+  after migration, and on every `replay_settings_get` / `replay_settings_set`
+  — so rows still expire while capture is off.
+- **Redaction before storage** (defence in depth): every string of
+  `context_json` and the raw output pass the export's secret/email/account
+  redaction before insert.
+- **Unrecoverable deletes**: clear and retention deletes run with
+  `PRAGMA secure_delete = ON` and are followed by `wal_checkpoint(TRUNCATE)`.
+  Forward-migration backups (`backups/dive-v<N>-<ts>.db`) are scrubbed right
+  after the copy: `DELETE FROM SupervisionReplay` + `VACUUM` (no-op for
+  pre-v21 backups).
 - **Best effort**: a capture failure is logged as a warning and never fails or
   changes the user's turn (the PRD row is written after the turn's
   transaction commits).
@@ -204,8 +215,26 @@ offline:
   hashed too (`answer`, `conversation`, `draftJson`, `goalSummary`,
   `activeStep`, `label`, `title`, `summary`, `instruction`, `text`,
   `verificationCommand`, `verificationManualCheck`, `valueSummary`,
-  `rejectedReasons`). `raw_output` is AI output and stays text (D-015-03),
-  with secrets redacted and PII-shaped output hashed — except for the
+  `rejectedReasons`), and every string under the `valueSummary` of a
+  `failure_summary` evidence ref (raw test/verify error text). `raw_output`
+  is AI output and stays text (D-015-03), with secrets redacted and
+  PII-shaped output hashed; a JSON reply is anonymized field by field (path
+  keys hashed as paths, the coach's `criterionSummary` hashed as user text)
+  and re-encoded as a string — except for the
   `prd_interview` surface, whose replies restate the student's goal, answers,
   and criteria nearly verbatim, so with `hash_user_text` on its `raw_output`
   is hashed as user text.
+
+## Export hashing of RetryLoop error text and file names (S-078 review)
+
+Applies to every export, not only replay records. With `hash_user_text` on,
+`failureFingerprint`, `lastActionSummary`, and `fingerprint` keys (raw
+test/verify error text carried in RetryLoop `assessmentSummary`, card
+metadata, and evidence refs) are hashed as user text, as is every string
+under a `failure_summary` evidence ref's `valueSummary`. With
+`hash_file_paths` on, `unexpectedFiles`, `expectedFiles`, `renamedFiles`,
+`targetFiles`, `changedFiles`, and `highRiskFiles` (and their snake_case
+forms) are hashed as paths wholesale, because names like `.env` or `README`
+are not path-shaped. The frontend redacts secrets and emails from the failure
+text before it masks digits into the fingerprint, since masking would stop
+the secret patterns from matching.

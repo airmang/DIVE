@@ -500,7 +500,12 @@ impl ExportEngine {
                     .map(|value| {
                         let value = crate::dive::event_log::enrich_agency_payload(&ty, value);
                         let value = if ty.starts_with("provocation.") {
-                            sanitize_provocation_event_payload(&value)
+                            let value = sanitize_provocation_event_payload(&value);
+                            if options.hash_user_text {
+                                hash_failure_evidence_values(&value, salt)
+                            } else {
+                                value
+                            }
                         } else if ty.starts_with("verification_coach.")
                             || ty.starts_with("verification_observation.")
                         {
@@ -601,11 +606,88 @@ fn hash_replay_user_text(value: &Value, salt: &str) -> Value {
     }
 }
 
+/// Evidence refs of kind `failure_summary` (RetryLoop) carry raw test/verify
+/// error text in `valueSummary`, sometimes as a bare string that no key-based
+/// rule can recognize. With `hash_user_text` on, every string under such a
+/// `valueSummary` is hashed (S-078 security review).
+fn hash_failure_evidence_values(value: &Value, salt: &str) -> Value {
+    fn hash_strings(value: &Value, salt: &str) -> Value {
+        match value {
+            Value::String(text) => anonymize::hash_text(text, salt),
+            Value::Array(items) => {
+                Value::Array(items.iter().map(|item| hash_strings(item, salt)).collect())
+            }
+            Value::Object(map) => Value::Object(
+                map.iter()
+                    .map(|(key, nested)| (key.clone(), hash_strings(nested, salt)))
+                    .collect(),
+            ),
+            other => other.clone(),
+        }
+    }
+    match value {
+        Value::Object(map) => {
+            let failure_evidence =
+                map.get("kind").and_then(Value::as_str) == Some("failure_summary");
+            Value::Object(
+                map.iter()
+                    .map(|(key, nested)| {
+                        let nested = if failure_evidence && key == "valueSummary" {
+                            hash_strings(nested, salt)
+                        } else {
+                            hash_failure_evidence_values(nested, salt)
+                        };
+                        (key.clone(), nested)
+                    })
+                    .collect(),
+            )
+        }
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| hash_failure_evidence_values(item, salt))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+/// Keys of a model reply that restate student-authored text: the coach's
+/// `criterionSummary` repeats the step's acceptance criteria.
+const REPLAY_RAW_OUTPUT_USER_TEXT_KEYS: &[&str] = &["criterionSummary"];
+
+fn hash_raw_output_user_text(value: &Value, salt: &str) -> Value {
+    match value {
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, nested)| {
+                    let nested = if REPLAY_RAW_OUTPUT_USER_TEXT_KEYS.contains(&key.as_str()) {
+                        match nested {
+                            Value::String(text) => anonymize::hash_text(text, salt),
+                            other => hash_raw_output_user_text(other, salt),
+                        }
+                    } else {
+                        hash_raw_output_user_text(nested, salt)
+                    };
+                    (key.clone(), nested)
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| hash_raw_output_user_text(item, salt))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
 fn anonymize_replay_json(raw: &str, options: &ExportOptions, salt: &str) -> Value {
     let value = serde_json::from_str::<Value>(raw).unwrap_or_else(|_| Value::String(raw.into()));
     let value = sanitize_provocation_event_payload(&value);
     let value = if options.hash_user_text {
-        hash_replay_user_text(&value, salt)
+        hash_failure_evidence_values(&hash_replay_user_text(&value, salt), salt)
     } else {
         value
     };
@@ -629,6 +711,24 @@ fn replay_record(
     let raw_output = row.raw_output.as_deref().map(|raw| {
         if options.hash_user_text && row.surface == ReplaySurface::PrdInterview.as_str() {
             return anonymize::hash_text(raw, salt);
+        }
+        // A JSON reply (supervisor decision, coach guide) is anonymized field
+        // by field so path- and user-text keys are handled, then re-encoded
+        // so `raw_output` stays a string.
+        if let Ok(parsed @ (Value::Object(_) | Value::Array(_))) = serde_json::from_str(raw) {
+            let parsed = sanitize_provocation_event_payload(&parsed);
+            let parsed = if options.hash_user_text {
+                hash_raw_output_user_text(&parsed, salt)
+            } else {
+                parsed
+            };
+            let parsed = anonymize::anonymize_value(
+                &parsed,
+                options.hash_user_text,
+                options.hash_file_paths,
+                salt,
+            );
+            return Value::String(parsed.to_string());
         }
         anonymize::anonymize_value(
             &Value::String(redact_export_string(raw)),
@@ -1141,7 +1241,7 @@ fn contains_export_secret_or_pii(text: &str) -> bool {
         || EXPORT_ACCOUNT_RE.is_match(text)
 }
 
-fn redact_export_string(text: &str) -> String {
+pub(crate) fn redact_export_string(text: &str) -> String {
     let redacted = EXPORT_SECRET_RE.replace_all(text, "[REDACTED_SECRET]");
     let redacted = EXPORT_EMAIL_RE.replace_all(&redacted, "[REDACTED_PII]");
     let redacted = EXPORT_ACCOUNT_RE.replace_all(&redacted, "[REDACTED_PII]");

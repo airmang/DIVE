@@ -26,14 +26,6 @@ pub fn set(conn: &Connection, key: &str, value: &str) -> Result<(), DbError> {
     Ok(())
 }
 
-pub fn get_bool(conn: &Connection, key: &str, default: bool) -> Result<bool, DbError> {
-    Ok(match get(conn, key)?.as_deref() {
-        Some("true") => true,
-        Some("false") => false,
-        _ => default,
-    })
-}
-
 pub fn set_bool(conn: &Connection, key: &str, value: bool) -> Result<(), DbError> {
     set(conn, key, if value { "true" } else { "false" })
 }
@@ -44,15 +36,18 @@ mod tests {
     use crate::db::tests::fresh_db;
 
     #[test]
-    fn bool_preference_defaults_then_round_trips() {
+    fn preference_round_trips_and_upserts() {
         let (db, _tmp) = fresh_db();
-        assert!(get_bool(db.conn(), REPLAY_CAPTURE_KEY, true).unwrap());
+        assert_eq!(get(db.conn(), REPLAY_CAPTURE_KEY).unwrap(), None);
         set_bool(db.conn(), REPLAY_CAPTURE_KEY, false).unwrap();
-        assert!(!get_bool(db.conn(), REPLAY_CAPTURE_KEY, true).unwrap());
+        assert_eq!(
+            get(db.conn(), REPLAY_CAPTURE_KEY).unwrap().as_deref(),
+            Some("false")
+        );
         set_bool(db.conn(), REPLAY_CAPTURE_KEY, true).unwrap();
-        assert!(get_bool(db.conn(), REPLAY_CAPTURE_KEY, false).unwrap());
-        // An unreadable stored value falls back to the default.
-        set(db.conn(), REPLAY_CAPTURE_KEY, "maybe").unwrap();
-        assert!(get_bool(db.conn(), REPLAY_CAPTURE_KEY, true).unwrap());
+        assert_eq!(
+            get(db.conn(), REPLAY_CAPTURE_KEY).unwrap().as_deref(),
+            Some("true")
+        );
     }
 }

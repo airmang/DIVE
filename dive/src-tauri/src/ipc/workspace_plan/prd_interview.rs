@@ -178,9 +178,11 @@ pub async fn workspace_prd_interview_turn_impl(
     // Wily P2 cleanup: stamp PRD interview events with the project's session
     // instead of `None` — a NULL session_id makes a row permanently
     // unreachable by the session-scoped EventLog export
-    // (`ExportEngine::export_session` selects `WHERE session_id = ?`).
+    // (`ExportEngine::export_session` selects `WHERE session_id = ?`). Like
+    // review-card events (S-076), never an archived session (S-078 review);
+    // the turn's replay row uses the same session.
     let interview_session_id =
-        super::plan_lifecycle::latest_session_id_for_project(&tx, input.project_id);
+        crate::db::dao::session::latest_unarchived_id_for_project(&tx, input.project_id);
     // Carries the full flake/recovery history onto the InterviewTurn row even
     // when the in-turn retry recovered and the patch applied (e.g.
     // "no_json_truncated:recovered") — the audit must record the flake, not
@@ -410,7 +412,7 @@ fn log_prd_interview_model_error(
 ) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let session_id =
-        super::plan_lifecycle::latest_session_id_for_project(db.conn(), input.project_id);
+        crate::db::dao::session::latest_unarchived_id_for_project(db.conn(), input.project_id);
     dive_event_log::append_to_conn(
         db.conn(),
         session_id,
@@ -1134,6 +1136,32 @@ mod prd_interview_prompt_tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn replay_context_rebuilds_the_retry_prompt_with_its_contract_reminder() {
+        let conversation = vec![PrdInterviewConversationTurnInput {
+            role: "student".into(),
+            text: "일정 앱".into(),
+        }];
+        let first = prd_interview_replay_context(&empty_draft(), &conversation, "혼자 씀", false);
+        let retry = prd_interview_replay_context(&empty_draft(), &conversation, "혼자 씀", true);
+        let first: PrdInterviewPromptInputs = serde_json::from_str(&first).unwrap();
+        let retry: PrdInterviewPromptInputs = serde_json::from_str(&retry).unwrap();
+        assert!(retry.json_contract_retry);
+        // The stored inputs rebuild exactly the prompts that were sent.
+        assert_eq!(
+            first.render_user_prompt(),
+            build_prd_interview_user_prompt(&empty_draft(), &conversation, "혼자 씀")
+        );
+        assert_eq!(
+            retry.render_user_prompt(),
+            format!(
+                "{}{}",
+                first.render_user_prompt(),
+                PRD_INTERVIEW_CONTRACT_RETRY_REMINDER
+            )
+        );
     }
 
     #[test]

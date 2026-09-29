@@ -1,7 +1,13 @@
 //! Local replay corpus rows (`SupervisionReplay`, spec 015 FR-020/FR-021).
 //!
-//! Retention (D-015-02) is enforced on every insert: at most
-//! `REPLAY_MAX_ROWS` rows, none older than `REPLAY_MAX_AGE_MS`.
+//! Retention (D-015-02): at most `REPLAY_MAX_ROWS` rows, none older than
+//! `REPLAY_MAX_AGE_MS`. Enforced atomically with every insert, and by `prune`
+//! (run at startup and whenever the Settings control reads or writes the
+//! capture switch), so rows still age out while capture is off.
+//!
+//! Deletes run with `secure_delete` on and are followed by a WAL checkpoint,
+//! so cleared or expired rows (student text, raw model output) are not left
+//! recoverable in free pages or the WAL file.
 
 use rusqlite::{params, Connection};
 use serde::Serialize;
@@ -78,6 +84,89 @@ pub fn insert(conn: &Connection, row: &NewSupervisionReplay) -> Result<i64, DbEr
     insert_with_retention(conn, row, now_ms(), REPLAY_MAX_ROWS, REPLAY_MAX_AGE_MS)
 }
 
+/// Run `f` inside a savepoint (works with or without an outer transaction):
+/// released on success, rolled back on error.
+fn in_savepoint<T>(
+    conn: &Connection,
+    f: impl FnOnce() -> Result<T, DbError>,
+) -> Result<T, DbError> {
+    conn.execute_batch("SAVEPOINT supervision_replay")?;
+    match f() {
+        Ok(value) => {
+            conn.execute_batch("RELEASE supervision_replay")?;
+            Ok(value)
+        }
+        Err(err) => {
+            let _ =
+                conn.execute_batch("ROLLBACK TO supervision_replay; RELEASE supervision_replay");
+            Err(err)
+        }
+    }
+}
+
+/// Run `f` with `PRAGMA secure_delete` on, restoring the previous setting.
+fn with_secure_delete<T>(
+    conn: &Connection,
+    f: impl FnOnce() -> Result<T, DbError>,
+) -> Result<T, DbError> {
+    let previous: i64 = conn.query_row("PRAGMA secure_delete", [], |row| row.get(0))?;
+    conn.execute_batch("PRAGMA secure_delete = ON")?;
+    let result = f();
+    let _ = conn.execute_batch(&format!("PRAGMA secure_delete = {previous}"));
+    result
+}
+
+/// Fold deleted pages out of the WAL file once nothing else holds a
+/// transaction open. Best effort: a busy checkpoint only delays it.
+fn checkpoint_after_delete(conn: &Connection) {
+    if conn.is_autocommit() {
+        if let Err(err) = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);") {
+            tracing::warn!(error = %err, "replay corpus checkpoint after delete failed");
+        }
+    }
+}
+
+fn delete_expired(
+    conn: &Connection,
+    now: i64,
+    max_rows: i64,
+    max_age_ms: i64,
+) -> Result<usize, DbError> {
+    let aged = conn.execute(
+        "DELETE FROM SupervisionReplay WHERE created_at < ?",
+        [now - max_age_ms],
+    )?;
+    let overflow = conn.execute(
+        "DELETE FROM SupervisionReplay WHERE id NOT IN (
+            SELECT id FROM SupervisionReplay ORDER BY created_at DESC, id DESC LIMIT ?
+         )",
+        [max_rows],
+    )?;
+    Ok(aged + overflow)
+}
+
+/// Apply retention without inserting; returns how many rows were removed.
+pub fn prune(conn: &Connection) -> Result<usize, DbError> {
+    prune_at(conn, now_ms(), REPLAY_MAX_ROWS, REPLAY_MAX_AGE_MS)
+}
+
+pub(crate) fn prune_at(
+    conn: &Connection,
+    now: i64,
+    max_rows: i64,
+    max_age_ms: i64,
+) -> Result<usize, DbError> {
+    let deleted = with_secure_delete(conn, || {
+        in_savepoint(conn, || delete_expired(conn, now, max_rows, max_age_ms))
+    })?;
+    if deleted > 0 {
+        checkpoint_after_delete(conn);
+    }
+    Ok(deleted)
+}
+
+/// Insert `row` and apply retention in one savepoint: either both land or
+/// neither does.
 pub(crate) fn insert_with_retention(
     conn: &Connection,
     row: &NewSupervisionReplay,
@@ -92,7 +181,9 @@ pub(crate) fn insert_with_retention(
         }
         None => (None, false),
     };
-    conn.execute(
+    let (id, deleted) = with_secure_delete(conn, || {
+        in_savepoint(conn, || {
+            conn.execute(
         "INSERT INTO SupervisionReplay(evaluation_id, surface, session_id, project_id, created_at, prompt_version, policy_version, model, context_json, raw_output, raw_truncated, validation_json)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         params![
@@ -110,17 +201,14 @@ pub(crate) fn insert_with_retention(
             row.validation_json,
         ],
     )?;
-    let id = conn.last_insert_rowid();
-    conn.execute(
-        "DELETE FROM SupervisionReplay WHERE created_at < ?",
-        [now - max_age_ms],
-    )?;
-    conn.execute(
-        "DELETE FROM SupervisionReplay WHERE id NOT IN (
-            SELECT id FROM SupervisionReplay ORDER BY created_at DESC, id DESC LIMIT ?
-         )",
-        [max_rows],
-    )?;
+            let id = conn.last_insert_rowid();
+            let deleted = delete_expired(conn, now, max_rows, max_age_ms)?;
+            Ok((id, deleted))
+        })
+    })?;
+    if deleted > 0 {
+        checkpoint_after_delete(conn);
+    }
     Ok(id)
 }
 
@@ -179,9 +267,13 @@ pub fn count(conn: &Connection) -> Result<i64, DbError> {
     )
 }
 
-/// Delete every replay row; returns how many were removed.
+/// Delete every replay row, unrecoverably; returns how many were removed.
 pub fn clear(conn: &Connection) -> Result<usize, DbError> {
-    Ok(conn.execute("DELETE FROM SupervisionReplay", [])?)
+    let deleted = with_secure_delete(conn, || {
+        Ok(conn.execute("DELETE FROM SupervisionReplay", [])?)
+    })?;
+    checkpoint_after_delete(conn);
+    Ok(deleted)
 }
 
 #[cfg(test)]
@@ -254,6 +346,77 @@ mod tests {
         assert_eq!(count(db.conn()).unwrap(), 3);
         assert_eq!(clear(db.conn()).unwrap(), 3);
         assert_eq!(count(db.conn()).unwrap(), 0);
+    }
+
+    #[test]
+    fn prune_applies_retention_without_an_insert() {
+        let (db, _tmp) = fresh_db();
+        let day = 24 * 60 * 60 * 1000;
+        insert_with_retention(db.conn(), &row("old", None), 0, 500, 30 * day).unwrap();
+        insert_with_retention(db.conn(), &row("new", None), 31 * day, 500, 90 * day).unwrap();
+        assert_eq!(count(db.conn()).unwrap(), 2);
+        assert_eq!(prune_at(db.conn(), 31 * day, 500, 30 * day).unwrap(), 1);
+        assert!(get_by_evaluation_id(db.conn(), "old").unwrap().is_none());
+        assert!(get_by_evaluation_id(db.conn(), "new").unwrap().is_some());
+        assert_eq!(prune_at(db.conn(), 31 * day, 500, 30 * day).unwrap(), 0);
+    }
+
+    #[test]
+    fn insert_and_retention_are_atomic() {
+        let (db, _tmp) = fresh_db();
+        let day = 24 * 60 * 60 * 1000;
+        insert_with_retention(db.conn(), &row("old", None), 0, 500, 30 * day).unwrap();
+        // Make the retention delete fail: the new row must roll back with it.
+        db.conn()
+            .execute_batch(
+                "CREATE TEMP TRIGGER replay_delete_fails BEFORE DELETE ON SupervisionReplay
+                 BEGIN SELECT RAISE(ABORT, 'retention failed'); END;",
+            )
+            .unwrap();
+        assert!(
+            insert_with_retention(db.conn(), &row("new", None), 31 * day, 500, 30 * day).is_err()
+        );
+        assert!(get_by_evaluation_id(db.conn(), "new").unwrap().is_none());
+        assert!(get_by_evaluation_id(db.conn(), "old").unwrap().is_some());
+    }
+
+    #[test]
+    fn deletes_run_with_secure_delete_and_restore_the_setting() {
+        let (db, _tmp) = fresh_db();
+        insert(db.conn(), &row("a", None)).unwrap();
+        let secure = |conn: &Connection| -> i64 {
+            conn.query_row("PRAGMA secure_delete", [], |r| r.get(0))
+                .unwrap()
+        };
+        let before = secure(db.conn());
+        let observed: i64 = with_secure_delete(db.conn(), || Ok(secure(db.conn()))).unwrap();
+        assert_eq!(observed, 1);
+        assert_eq!(clear(db.conn()).unwrap(), 1);
+        assert_eq!(secure(db.conn()), before);
+    }
+
+    #[test]
+    fn cleared_rows_leave_no_recoverable_bytes_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dive.db");
+        let marker = "zebra_cleared_replay_marker";
+        let mut db = crate::db::Database::open(&path).unwrap();
+        db.migrate().unwrap();
+        let mut secret = row("secret", None);
+        secret.context_json = format!("{{\"answer\":\"{marker}\"}}");
+        secret.raw_output = Some(marker.repeat(4));
+        insert(db.conn(), &secret).unwrap();
+        db.conn()
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .unwrap();
+        assert_eq!(clear(db.conn()).unwrap(), 1);
+        for file in ["dive.db", "dive.db-wal"] {
+            let bytes = std::fs::read(dir.path().join(file)).unwrap_or_default();
+            assert!(
+                !bytes.windows(marker.len()).any(|w| w == marker.as_bytes()),
+                "{file} still holds cleared replay text"
+            );
+        }
     }
 
     #[test]

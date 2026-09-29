@@ -207,8 +207,29 @@ function matchingRetryPhrases(text: string): string[] {
   return RETRY_REQUEST_PATTERNS.filter((term) => normalized.includes(term.toLowerCase()));
 }
 
+// Secret/PII shapes mirrored from the Rust EventLog/export redactors. They must
+// run BEFORE digit masking: masking `ghp_ab12cd` to `ghp_ab#cd` would stop the
+// secret patterns from matching, and the fingerprint is logged and exported
+// (S-078 security review).
+const FAILURE_SECRET_PATTERNS: RegExp[] = [
+  /sk-[A-Za-z0-9_-]{3,}/g,
+  /(?:api[_-]?key|token|secret|authorization|password)["']?\s*[:=]\s*["']?[A-Za-z0-9_./+=-]{4,}/gi,
+  /bearer\s+[A-Za-z0-9_.-]{4,}/gi,
+  /\b(?:ghp_|github_pat_|glpat-|xoxb-)[A-Za-z0-9_-]+/g,
+  /\bAKIA[A-Z0-9]{12,}\b/g,
+];
+const FAILURE_EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+
+export function redactFailureText(value: string): string {
+  const withoutSecrets = FAILURE_SECRET_PATTERNS.reduce(
+    (text, pattern) => text.replace(pattern, "[redacted_secret]"),
+    value,
+  );
+  return withoutSecrets.replace(FAILURE_EMAIL_PATTERN, "[redacted_pii]");
+}
+
 function normalizeFailureKey(value: string): string {
-  return lowercase(value)
+  return lowercase(redactFailureText(value))
     .replace(/0x[0-9a-f]+/g, "0x#")
     .replace(/\d+/g, "#")
     .slice(0, 240);
