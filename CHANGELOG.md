@@ -12,10 +12,32 @@ All notable changes to DIVE are documented here. Format: [Keep a Changelog](http
   (`cat ".env"`), or `<`-redirected; `.env.example.local` is no longer treated
   as a template (DEF-0001, `c9290acc`).
 
+### Changed
+
+- Review-card (SupervisorAgent) prompt **1.1.0+152895a8** (was 1.0.0+256c9520):
+  questions are anchored to the student's acceptance criterion / active step /
+  goal instead of only the error. Improvement cycle 1 — live eval on synthetic
+  fixtures: criterion linkage 80% → 100% (dev and holdout), other metrics
+  unchanged; card-quality proxies, not evidence of student skill.
+- Supervision policy **1.0.0** (thresholds now versioned in
+  `supervision-policy.json`); prompt versions for the verification coach
+  (1.0.0+c5cd9fc2) and PRD interview (1.1.0+2cd96df7) are logged per call.
+
 ### Added
 
-- Spec 015 (self-improvement loops, S-076–S-084) in progress: machine-readable
-  QA ledger under `docs/qa/ledger/` with `pnpm qa:ledger:validate` (S-077).
+- Spec 015 (self-improvement loops, S-076–S-084): versioned supervision
+  signals (prompt/policy versions, question text, unanswered cards, response
+  latency, session origin), a local replay corpus of supervision model calls
+  (Settings → Advanced, on by default, 500 records / 30 days, excluded from the
+  default export), an offline supervisor eval harness (`dive/eval/supervisor`),
+  `research:cards` aggregation, the machine-readable QA ledger under
+  `docs/qa/ledger/` (`qa:ledger:validate`, `verify:qa-ledger`, `qa:queue`,
+  `qa:run`, `qa:triage`) and `eval:gate`. See `docs/improvement-cycle.md`.
+
+### Fixed
+
+- Default session export no longer leaks raw test/verify error text or bare file
+  names (`failureFingerprint`, `unexpectedFiles`, …) unhashed (DEF-0049).
 
 ## [1.0.0-rc.10] — 2026-08-27
 
