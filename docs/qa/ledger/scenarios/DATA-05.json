@@ -7,7 +7,6 @@
   },
   "areas": [
     "project-session",
-    "chat",
     "prd",
     "plan",
     "roadmap",
@@ -18,7 +17,8 @@
     "slide-in",
     "preview",
     "recovery",
-    "i18n"
+    "i18n",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",

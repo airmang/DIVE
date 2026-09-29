@@ -6,7 +6,8 @@
     "ref": "docs/archive/qa/scenario-catalog.md#CHAT-02"
   },
   "areas": [
-    "chat"
+    "chat",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",

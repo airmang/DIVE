@@ -6,7 +6,8 @@
     "ref": "docs/archive/qa/scenario-catalog.md#SUP-02"
   },
   "areas": [
-    "supervision"
+    "supervision",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P0",

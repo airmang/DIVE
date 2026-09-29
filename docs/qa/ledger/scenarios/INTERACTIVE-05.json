@@ -6,16 +6,16 @@
     "ref": "docs/qa/e2e-journeys.md#INTERACTIVE-05"
   },
   "areas": [
-    "project-session",
     "chat",
     "prd",
     "plan",
-    "roadmap",
     "permission",
     "agent-tools",
     "supervision",
     "verification",
-    "recovery"
+    "slide-in",
+    "recovery",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",

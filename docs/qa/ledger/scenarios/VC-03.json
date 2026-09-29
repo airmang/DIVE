@@ -6,7 +6,8 @@
     "ref": "docs/archive/qa/scenario-catalog.md#VC-03"
   },
   "areas": [
-    "verification"
+    "verification",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",

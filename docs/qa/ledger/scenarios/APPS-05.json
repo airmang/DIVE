@@ -6,7 +6,6 @@
     "ref": "docs/qa/e2e-journeys.md#APPS-05"
   },
   "areas": [
-    "project-session",
     "chat",
     "prd",
     "plan",
@@ -16,7 +15,8 @@
     "supervision",
     "verification",
     "slide-in",
-    "preview"
+    "preview",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",

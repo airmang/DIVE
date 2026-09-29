@@ -6,7 +6,8 @@
     "ref": "docs/archive/qa/scenario-catalog.md#PRD-01"
   },
   "areas": [
-    "prd"
+    "prd",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P0",

@@ -7,6 +7,7 @@
   },
   "areas": [
     "project-session",
+    "onboarding",
     "chat",
     "prd",
     "plan",
@@ -19,7 +20,7 @@
     "preview",
     "recovery",
     "i18n",
-    "onboarding"
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",

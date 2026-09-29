@@ -27,6 +27,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isAncestor } from "./git.mjs";
 import { GUARDED_STATUSES, GUARD_KINDS } from "./schema.mjs";
 
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
@@ -121,13 +122,6 @@ function listEvalFixtureIds(dir = EVAL_FIXTURE_DIR) {
   };
   walk(dir);
   return ids;
-}
-
-function isAncestor(ancestor, descendant) {
-  const result = spawnSync("git", ["merge-base", "--is-ancestor", ancestor, descendant], {
-    cwd: REPO_ROOT,
-  });
-  return result.status === 0;
 }
 
 /**

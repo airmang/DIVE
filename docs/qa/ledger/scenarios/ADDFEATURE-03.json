@@ -18,7 +18,7 @@
     "slide-in",
     "preview",
     "recovery",
-    "terminal"
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",

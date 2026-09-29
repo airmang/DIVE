@@ -7,17 +7,16 @@
   },
   "areas": [
     "project-session",
-    "chat",
     "prd",
     "plan",
-    "roadmap",
     "permission",
     "agent-tools",
     "supervision",
     "verification",
     "slide-in",
     "preview",
-    "recovery"
+    "recovery",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",

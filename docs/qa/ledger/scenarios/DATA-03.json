@@ -6,7 +6,6 @@
     "ref": "docs/qa/e2e-journeys.md#DATA-03"
   },
   "areas": [
-    "project-session",
     "chat",
     "prd",
     "plan",
@@ -17,7 +16,8 @@
     "verification",
     "slide-in",
     "preview",
-    "recovery"
+    "recovery",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",

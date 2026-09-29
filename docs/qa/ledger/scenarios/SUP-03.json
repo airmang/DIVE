@@ -9,7 +9,8 @@
     "supervision",
     "slide-in",
     "preview",
-    "terminal"
+    "terminal",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",

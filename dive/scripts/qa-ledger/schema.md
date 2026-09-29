@@ -88,7 +88,7 @@ or in the evidence archive; the hash pins exactly which artifact was seen.
 
 ## Run record — `runs/<YYYY-MM-DD>-<slug>.json`
 
-Schema only for now; the tooling that writes these lands in S-082 (FR-060).
+Written by `pnpm qa:run apply` (S-082, FR-060) — see `docs/qa/ledger/README.md` § Runs.
 
 | Field             | Type         | Required | Notes                                                                                                                 |
 | ----------------- | ------------ | -------- | --------------------------------------------------------------------------------------------------------------------- |
@@ -105,7 +105,18 @@ Schema only for now; the tooling that writes these lands in S-082 (FR-060).
 ## Areas
 
 `areas.mjs` maps each area name to repo-relative path globs (`**` = any number
-of path segments, `*` = within one segment). A unit test asserts every glob
-matches at least one tracked file, so renaming a file out from under an area
-fails `pnpm test:unit`. When adding a product surface, add its paths to the
-right area(s) in the same change.
+of whole path segments, `*` = within one segment; `**` inside a segment such as
+`src**` is rejected). A unit test asserts every glob matches at least one
+tracked file, so renaming a file out from under an area fails
+`pnpm test:unit`.
+
+- `app-core` is cross-cutting (entry points, IPC registration, lockfiles,
+  `Cargo.toml`, build config; `dive/package.json` is non-product because a
+  dependency bump also changes the lockfile). No scenario lists it; a change there makes
+  `qa:queue` select every scenario.
+- `NON_PRODUCT` lists files that cannot change what a release build does
+  (tests, dev-only demo routes, docs, tooling), each with a reason. They never
+  trigger a re-run.
+- Every tracked file must be in an area or in `NON_PRODUCT` (test-enforced).
+  When adding a file, add it to the right area(s) — or to `NON_PRODUCT` with a
+  reason — in the same change; otherwise `qa:queue` selects everything and warns.

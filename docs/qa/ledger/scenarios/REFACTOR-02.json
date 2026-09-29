@@ -6,7 +6,6 @@
     "ref": "docs/qa/e2e-journeys.md#REFACTOR-02"
   },
   "areas": [
-    "project-session",
     "chat",
     "prd",
     "plan",
@@ -17,9 +16,10 @@
     "verification",
     "slide-in",
     "preview",
-    "recovery",
     "terminal",
-    "i18n"
+    "recovery",
+    "i18n",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",

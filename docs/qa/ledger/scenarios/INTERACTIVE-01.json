@@ -6,7 +6,6 @@
     "ref": "docs/qa/e2e-journeys.md#INTERACTIVE-01"
   },
   "areas": [
-    "project-session",
     "chat",
     "prd",
     "plan",
@@ -18,8 +17,8 @@
     "slide-in",
     "preview",
     "recovery",
-    "terminal",
-    "i18n"
+    "i18n",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",

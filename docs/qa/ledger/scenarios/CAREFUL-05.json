@@ -6,16 +6,15 @@
     "ref": "docs/qa/e2e-journeys.md#CAREFUL-05"
   },
   "areas": [
-    "project-session",
     "chat",
     "prd",
     "plan",
-    "roadmap",
     "permission",
     "agent-tools",
     "supervision",
     "verification",
-    "recovery"
+    "recovery",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",

@@ -15,7 +15,8 @@
     "agent-tools",
     "supervision",
     "verification",
-    "recovery"
+    "recovery",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",

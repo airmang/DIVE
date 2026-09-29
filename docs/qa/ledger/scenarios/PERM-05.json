@@ -8,7 +8,9 @@
   "areas": [
     "permission",
     "agent-tools",
-    "terminal"
+    "terminal",
+    "slide-in",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",

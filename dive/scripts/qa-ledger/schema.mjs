@@ -7,7 +7,7 @@
 // (duplicate ids, dangling references) live in load.mjs. Field documentation:
 // schema.md next to this file — keep the two in sync.
 
-import { AREA_NAMES } from "./areas.mjs";
+import { AREA_NAMES, globError } from "./areas.mjs";
 
 export const DEFECT_STATUSES = Object.freeze([
   "open",
@@ -337,7 +337,11 @@ export function validateScenario(record) {
   }
   if ("areas" in record) checkAreas(c, "$.areas", record.areas);
   if ("pathGlobs" in record && checkArray(c, "$.pathGlobs", record.pathGlobs)) {
-    record.pathGlobs.forEach((glob, i) => checkRepoPath(c, `$.pathGlobs[${i}]`, glob));
+    record.pathGlobs.forEach((glob, i) => {
+      if (!checkRepoPath(c, `$.pathGlobs[${i}]`, glob)) return;
+      const error = globError(glob);
+      if (error) c.fail(`$.pathGlobs[${i}]`, `${error} (got "${glob}")`);
+    });
     checkUnique(c, "$.pathGlobs", record.pathGlobs);
   }
   if ("priority" in record) checkEnum(c, "$.priority", record.priority, SEVERITIES);

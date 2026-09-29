@@ -6,20 +6,19 @@
     "ref": "docs/qa/e2e-journeys.md#FRICTION-03"
   },
   "areas": [
-    "project-session",
     "chat",
     "prd",
     "plan",
     "roadmap",
     "permission",
-    "agent-tools",
     "supervision",
     "verification",
     "slide-in",
     "preview",
     "recovery",
     "i18n",
-    "prompt-helper"
+    "prompt-helper",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",

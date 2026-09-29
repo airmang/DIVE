@@ -6,20 +6,19 @@
     "ref": "docs/qa/e2e-journeys.md#DEBUG-05"
   },
   "areas": [
-    "project-session",
     "chat",
     "prd",
     "plan",
-    "roadmap",
     "permission",
     "agent-tools",
     "supervision",
     "verification",
     "slide-in",
     "preview",
-    "recovery",
     "terminal",
-    "i18n"
+    "recovery",
+    "i18n",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",

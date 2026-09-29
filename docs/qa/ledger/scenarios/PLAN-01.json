@@ -6,7 +6,8 @@
     "ref": "docs/archive/qa/scenario-catalog.md#PLAN-01"
   },
   "areas": [
-    "plan"
+    "plan",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P0",

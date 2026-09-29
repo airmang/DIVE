@@ -10,7 +10,7 @@ bulk-migrated (D-015-04).
 docs/qa/ledger/
   defects/    DEF-NNNN.json            one file per defect
   scenarios/  <ID>.json                one file per QA scenario (ONB-01, STATIC-01, ...)
-  runs/       <YYYY-MM-DD>-<slug>.json one file per live QA run (tooling: S-082)
+  runs/       <YYYY-MM-DD>-<slug>.json one file per live QA run (pnpm qa:run)
 ```
 
 Every field is documented in
@@ -104,10 +104,12 @@ The 104 scenario records were imported once on 2026-09-29 from
 Each scenario's `areas` refer to the area → path-glob table in
 [`dive/scripts/qa-ledger/areas.mjs`](../../../dive/scripts/qa-ledger/areas.mjs),
 which `qa:queue` (S-082) uses to pick scenarios whose code changed since their
-last pass. Journey areas were derived from the journey text (every journey
-covers the full PRD → plan → permission → roadmap → verify path, plus preview,
-recovery, terminal, i18n, ... where the text mentions them); journey priority
-defaults to `P1`.
+last pass. Journey areas were re-derived on 2026-09-29 (S-082 / T071) from
+per-area evidence in each journey's text — an area is listed only when the
+journey shows the user touching it (so STATIC-01's "no dev server" no longer
+implies `terminal`). Every scenario that needs a live model call or touches
+supervision/verification also lists `pi-sidecar`. Journey priority defaults
+to `P1`.
 
 New scenarios use `source.kind: ledger`, a fresh `PREFIX-NN` id, and should
 name the narrowest areas that cover them.
@@ -116,8 +118,21 @@ name the narrowest areas that cover them.
 
 Live QA runs (release `.app` + computer-use) are recorded as
 `runs/<YYYY-MM-DD>-<slug>.json` — build version + commit, per-scenario result,
-defects opened/verified and hashed evidence paths. The schema is enforced now;
-the writing/queue tooling arrives in S-082.
+defects opened/verified and hashed evidence paths. The loop (S-082), from `dive/`:
+
+1. `pnpm qa:queue [--since <ref>]` picks the scenarios to run and writes a work
+   order to `.harness/work-orders/qa/<date>.md` (gitignored): why each scenario
+   was picked, its steps and expected result, and the release-`.app` recipe
+   (`DIVE_SESSION_ORIGIN=qa` so the sessions stay out of research aggregates).
+2. `pnpm qa:run init --scenarios <ids>` writes a run draft (build version +
+   HEAD commit) to `.harness/work-orders/qa/runs/`.
+3. Fill in results, new defects (`opened`), confirmed fixes (`verify`) and
+   evidence paths while testing.
+4. `pnpm qa:run apply <draft>` writes the run record, the new `open` defects,
+   `fixed → verified` transitions and scenario `lastPass` — all or nothing,
+   validated as a whole ledger first. A defect becomes `verified` only when it
+   has a `fixCommit` that the tested build contains, and (for a live-scenario
+   guard) its scenario passed in this run.
 
 ## Seed provenance
 

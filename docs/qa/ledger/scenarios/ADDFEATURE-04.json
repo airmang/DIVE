@@ -7,19 +7,19 @@
   },
   "areas": [
     "project-session",
+    "onboarding",
     "chat",
     "prd",
     "plan",
-    "roadmap",
     "permission",
     "agent-tools",
     "supervision",
     "verification",
     "slide-in",
     "preview",
-    "recovery",
     "terminal",
-    "onboarding"
+    "recovery",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",

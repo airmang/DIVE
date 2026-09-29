@@ -17,7 +17,8 @@
     "verification",
     "slide-in",
     "preview",
-    "recovery"
+    "recovery",
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",

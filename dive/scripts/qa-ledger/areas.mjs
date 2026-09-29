@@ -5,10 +5,12 @@
 // this diff touch?" (S-082 qa:queue) with plain `git diff --name-only` output.
 // Areas overlap on purpose — a file can belong to several areas.
 //
-// Glob syntax is deliberately small: `**` matches any number of path
-// segments, `*` matches within one segment. A vitest test asserts every glob
+// Glob syntax is deliberately small: `**` (a whole segment) matches any number
+// of path segments, `*` matches within one segment. A vitest test asserts every glob
 // here matches at least one tracked file, so a rename that orphans an area
 // fails CI instead of silently shrinking the rerun set.
+
+export const CROSS_CUTTING_AREA = "app-core";
 
 export const AREAS = Object.freeze({
   onboarding: [
@@ -16,6 +18,8 @@ export const AREAS = Object.freeze({
     "dive/src/components/product/GetStartedChecklist.tsx",
     "dive/src/components/rc1/**",
     "dive/src/lib/rc1-migration.ts",
+    "dive/src/lib/tauri-dialog.ts",
+    "dive/src/pages/user-guide.tsx",
   ],
   "project-session": [
     "dive/src/stores/project-session.ts",
@@ -44,6 +48,8 @@ export const AREAS = Object.freeze({
   "pi-sidecar": [
     "dive/pi-sidecar/src/**",
     "dive/pi-sidecar/build-sidecar.mjs",
+    "dive/pi-sidecar/package.json",
+    "dive/pi-sidecar/package-lock.json",
     "dive/src-tauri/src/pi_sidecar.rs",
     "dive/src-tauri/src/pi_sidecar/**",
   ],
@@ -57,6 +63,12 @@ export const AREAS = Object.freeze({
     "dive/src/stores/theme.ts",
     "dive/src/styles/**",
     "dive/src/components/ui/**",
+    "dive/src/assets/fonts/*.woff2",
+    "dive/src/lib/utils.ts",
+    "dive/tailwind.config.ts",
+    "dive/postcss.config.js",
+    "dive/public/**",
+    "dive/src-tauri/icons/**",
   ],
   "shell-layout": [
     "dive/src/App.tsx",
@@ -70,6 +82,12 @@ export const AREAS = Object.freeze({
     "dive/src/stores/ui-preferences.ts",
     "dive/src/hooks/useGlobalShortcuts.ts",
     "dive/src-tauri/src/menu.rs",
+    "dive/src/components/product/ProductModalHost.tsx",
+    "dive/src/components/product/productShellControllerLogic.ts",
+    "dive/src/components/product/useProductShellController.ts",
+    "dive/src/components/product/useProductShellDialogs.ts",
+    "dive/src/lib/menu-events.ts",
+    "dive/src/lib/runUserAction.ts",
   ],
   chat: [
     "dive/src/components/chat/**",
@@ -122,6 +140,9 @@ export const AREAS = Object.freeze({
     "dive/src-tauri/src/dive/plan_interview.rs",
     "dive/src-tauri/src/db/dao/prd.rs",
     "dive/src-tauri/src/db/dao/interview*.rs",
+    "dive/src-tauri/src/ipc/workspace_plan/commands.rs",
+    "dive/src-tauri/src/ipc/workspace_plan/mod.rs",
+    "dive/src-tauri/src/ipc/workspace_plan/types.rs",
   ],
   plan: [
     "dive/src/components/plan/**",
@@ -140,6 +161,9 @@ export const AREAS = Object.freeze({
     "dive/src-tauri/src/dive/plan_quality_constants.rs",
     "dive/src-tauri/src/db/dao/plan*.rs",
     "dive/src-tauri/src/workspace_plan/**",
+    "dive/src-tauri/src/ipc/workspace_plan/commands.rs",
+    "dive/src-tauri/src/ipc/workspace_plan/mod.rs",
+    "dive/src-tauri/src/ipc/workspace_plan/types.rs",
   ],
   roadmap: [
     "dive/src/features/roadmap/**",
@@ -158,6 +182,8 @@ export const AREAS = Object.freeze({
     "dive/src/features/provocation/**",
     "dive/src/components/product/stepDetailSupervisorRequests.ts",
     "dive/src-tauri/src/dive/supervisor/**",
+    "dive/src-tauri/src/dive/prompt_version.rs",
+    "dive/src-tauri/src/dive/supervision_policy.rs",
     "dive/src-tauri/src/dive/card_metrics.rs",
     "dive/src-tauri/src/ipc/provocation*.rs",
     "dive/src-tauri/src/ipc/cards.rs",
@@ -225,16 +251,105 @@ export const AREAS = Object.freeze({
     ".github/workflows/**",
   ],
   "docs-spec": ["docs/**", "specs/**", ".specify/**", "README.md", "AGENTS.md"],
+  // Cross-cutting: app entry points, IPC registration/state, the IPC bridge,
+  // lockfiles, Cargo.toml and build config (dive/package.json is NON_PRODUCT). No scenario lists it; qa:queue
+  // treats a change here as touching every scenario.
+  [CROSS_CUTTING_AREA]: [
+    "dive/src/main.tsx",
+    "dive/src/lib/tauri.ts",
+    "dive/src-tauri/src/lib.rs",
+    "dive/src-tauri/src/main.rs",
+    "dive/src-tauri/src/ipc/mod.rs",
+    "dive/src-tauri/src/ipc/state.rs",
+    "dive/src-tauri/src/dive/mod.rs",
+    "dive/pnpm-lock.yaml",
+    "dive/index.html",
+    "dive/vite.config.ts",
+    "dive/tsconfig.json",
+    "dive/src-tauri/Cargo.toml",
+    "dive/src-tauri/Cargo.lock",
+    "dive/src-tauri/build.rs",
+    "dive/src-tauri/tauri.conf.json",
+    "dive/src-tauri/capabilities/**",
+  ],
 });
+
+// Tracked source files that are deliberately in no area: changing them cannot
+// change what a release .app does, so they never trigger a live re-run and
+// qa:queue drops them from a diff before matching. A test asserts every
+// tracked file is in an area or here, so an unmapped change (which makes
+// qa:queue select everything and warn) only happens for genuinely new paths.
+// The docs-spec / build-release areas exist for defect classification; their
+// files are non-product here and never trigger a live re-run.
+export const NON_PRODUCT = Object.freeze([
+  { glob: "dive/src/**/*.test.ts", reason: "unit test" },
+  { glob: "dive/src/**/*.test.tsx", reason: "unit test" },
+  { glob: "dive/src-tauri/src/**/tests.rs", reason: "#[cfg(test)] test module" },
+  { glob: "dive/src/vite-env.d.ts", reason: "type declarations only" },
+  { glob: "dive/src/assets/fonts/LICENSE-*.txt", reason: "font licence text" },
+  { glob: "dive/src/pages/*-demo.tsx", reason: "dev-only demo route (import.meta.env.DEV)" },
+  { glob: "dive/src/pages/showcase.tsx", reason: "dev-only demo route" },
+  { glob: "dive/src/pages/phase5-integration.tsx", reason: "dev-only demo route" },
+  { glob: "dive/src/pages/settings-mcp-dev.tsx", reason: "dev-only settings section (DEV)" },
+  { glob: "dive/src/components/demo/**", reason: "dev-only demo shell" },
+  { glob: "dive/src/lib/dev-demo.ts", reason: "dev-only demo routing" },
+  { glob: "dive/src/lib/demo-routes.ts", reason: "dev-only demo routing" },
+  { glob: "dive/src/hooks/useMockChatStream.ts", reason: "only used by the chat demo page" },
+  { glob: "dive/src-tauri/tests/**", reason: "cargo integration tests" },
+  { glob: "dive/pi-sidecar/*.test.mjs", reason: "sidecar build test" },
+  { glob: "dive/scripts/**", reason: "dev/CI tooling, not bundled" },
+  { glob: "dive/src-tauri/scripts/**", reason: "CI tooling, not bundled" },
+  { glob: "dive/eval/**", reason: "offline eval fixtures (S-079)" },
+  { glob: "dive/vitest.config.ts", reason: "test runner config" },
+  { glob: "dive/tsconfig.node.json", reason: "typechecks build config only" },
+  { glob: "dive/eslint.config.js", reason: "lint config" },
+  { glob: "dive/.prettier*", reason: "format config" },
+  { glob: "dive/.editorconfig", reason: "editor config" },
+  { glob: "dive/src-tauri/rustfmt.toml", reason: "format config" },
+  { glob: "dive/.vscode/**", reason: "editor config" },
+  { glob: "**/.gitignore", reason: "git config" },
+  { glob: ".gitattributes", reason: "git config" },
+  { glob: ".github/**", reason: "CI workflows (build pipeline, not app behavior)" },
+  { glob: ".agents/**", reason: "agent skills" },
+  { glob: "docs/**", reason: "documentation" },
+  { glob: "specs/**", reason: "spec-kit specs" },
+  { glob: ".specify/**", reason: "spec-kit config" },
+  { glob: "*.md", reason: "repo-level documentation" },
+  { glob: "dive/README.md", reason: "documentation" },
+  { glob: "LICENSE", reason: "licence text" },
+  {
+    glob: "dive/package.json",
+    reason:
+      "script-only edits are not product changes; a dependency bump also changes " +
+      "pnpm-lock.yaml, which stays cross-cutting (Cargo.toml stays there too: feature " +
+      "flags can change without Cargo.lock changing)",
+  },
+]);
+
+export function isNonProduct(path) {
+  return NON_PRODUCT.some(({ glob }) => matchesGlob(path, glob));
+}
 
 export const AREA_NAMES = Object.freeze(Object.keys(AREAS));
 
 const regexCache = new Map();
 
+// Why a glob is not valid ledger syntax, or null. `**` must be a whole path
+// segment: `dive/src/**` and `dive/**/x.ts` are fine, `dive/src**` and
+// `dive/**.ts` are ambiguous and rejected.
+export function globError(glob) {
+  if (glob.split("/").some((segment) => segment.includes("**") && segment !== "**")) {
+    return "`**` must be a whole path segment";
+  }
+  return null;
+}
+
 /** Compile a ledger glob (`**`, `*` only) into an anchored RegExp. */
 export function globToRegExp(glob) {
   let cached = regexCache.get(glob);
   if (cached) return cached;
+  const error = globError(glob);
+  if (error) throw new Error(`invalid glob "${glob}": ${error}`);
   let source = "";
   for (let i = 0; i < glob.length; i += 1) {
     const ch = glob[i];

@@ -17,8 +17,9 @@
     "verification",
     "slide-in",
     "preview",
+    "terminal",
     "recovery",
-    "terminal"
+    "pi-sidecar"
   ],
   "pathGlobs": [],
   "priority": "P1",
