@@ -59,10 +59,10 @@ Ground rules (copy unchanged into the PR):
 
 - [ ] Head report: [path] · Base report: [path]
 - [ ] `pnpm eval:report -- --compare <base> <head> --out compare.md`
-- [ ] `pnpm eval:gate -- <base> <head>` → **[PASS / FAIL]**
+- [ ] `pnpm eval:gate -- <base> <head> --model <live model>` → **[PASS / FAIL]**
       (`--json > gate.json`; on FAIL, `pnpm qa:triage -- --from-eval gate.json`)
 
-| Metric (holdout) | Before | After | Within tolerance |
+| Metric (holdout, gated model) | Before | After | Within tolerance |
 | --- | --- | --- | --- |
 | Provoke agreement | | | |
 | Locale compliance | | | |

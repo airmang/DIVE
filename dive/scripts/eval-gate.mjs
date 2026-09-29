@@ -4,22 +4,32 @@
 // (schema: dive/eval/supervisor/README.md) and decides pass/fail from
 // deterministic metrics only:
 //
-// - Tolerance (holdout split): no rate metric may drop by more than
-//   `maxRateDrop` (default 5 percentage points); over-limit questions and
-//   locale violations may not increase at all.
-// - Hard fails (every split, regardless of tolerance): a shown question that is
+// - Like for like: base and head groups are paired by (split, model) with
+//   eval-report's `pairGroups`; a model's results are never mixed with
+//   another's. A head group without a base counterpart is reported as new and
+//   not gated; a base group missing from head fails only when its model is
+//   under evaluation (`--model`, or any model the head was run with). Missing
+//   fixtures are checked within a pair, so a live group (gate-passing fixtures
+//   only) is never failed for lacking the hand-authored negatives.
+// - Tolerance (holdout pairs, optionally only `--model`): no rate metric may
+//   drop by more than `maxRateDrop` (default 5 percentage points); over-limit
+//   questions and locale violations may not increase at all.
+// - Hard fails (every head group, regardless of tolerance): a shown question that is
 //   not a question, a shown card without evidence refs, a static/fallback
 //   question where a model call was expected, and a negative-control fixture
 //   whose drop reason changed or no longer matches its expectation.
 // - An LLM-judge file is advisory only and never affects pass/fail (D-015-05).
 //
-// Usage: node scripts/eval-gate.mjs <base.json> <head.json> [--json] [--judge <judge.json>]
+// Usage: node scripts/eval-gate.mjs <base.json> <head.json> [--model <name>] [--json]
+//                                    [--judge <judge.json>]
+//   --model  gate only that model's groups (the improvement cycle gates the
+//            live model); hard fails still cover every group
 //   --json   print the gate result (the eval-gate result shape of
 //            scripts/qa-ledger/schema.md, consumed by `qa:triage --from-eval`)
 // Exit codes: 0 pass, 1 fail, 2 bad input.
 
 import { pathToFileURL } from "node:url";
-import { CLAIM_NOTE, readJudge, readReport } from "./eval-report.mjs";
+import { CLAIM_NOTE, pairGroups, readJudge, readReport } from "./eval-report.mjs";
 
 export const DEFAULT_GATE_CONFIG = Object.freeze({
   /** Split the tolerance applies to; hard fails are checked on every split. */
@@ -63,10 +73,12 @@ export function isQuestion(value) {
   return ["?", "？", "나요", "까요", "습니까"].some((ending) => trimmed.endsWith(ending));
 }
 
-function resultsOf(report) {
-  return report.groups.flatMap((group) =>
-    group.results.map((result) => ({ ...result, split: result.split ?? group.key.split })),
-  );
+function resultsOf(group) {
+  return group.results.map((result) => ({
+    ...result,
+    split: result.split ?? group.key.split,
+    model: result.model ?? group.key.model,
+  }));
 }
 
 function versions(report, field) {
@@ -75,6 +87,7 @@ function versions(report, field) {
 
 const isControl = (result) => typeof result.expected?.expectedDropReason === "string";
 const round = (value) => (value === null ? null : Math.round(value * 1e6) / 1e6);
+const groupLabel = (group) => `${group.key.split}/${group.key.model}`;
 
 /** Aggregate metrics over `results`, recomputed from per-result checks. */
 export function computeMetrics(results, config = DEFAULT_GATE_CONFIG) {
@@ -102,18 +115,34 @@ export function computeMetrics(results, config = DEFAULT_GATE_CONFIG) {
   return metrics;
 }
 
-/** Violations that fail the gate on their own, on every split of `report`. */
-export function hardFailures(base, head) {
+/**
+ * Like-for-like group pairs: `pairGroups` from eval-report (the `--compare`
+ * pairing), keeping only pairs of the same model — its one-group-per-split
+ * shortcut would otherwise pair different models.
+ */
+export function likeForLikePairs(base, head) {
+  const { pairs, unmatched } = pairGroups(base, head);
+  const like = [];
+  const rest = [...unmatched];
+  for (const [left, right] of pairs) {
+    if (left.key.model === right.key.model) like.push([left, right]);
+    else rest.push({ side: "base", group: left }, { side: "head", group: right });
+  }
+  return { pairs: like, unmatched: rest };
+}
+
+function hardFailuresOf(group, baseGroup) {
   const failures = [];
   const baseControls = new Map(
-    resultsOf(base)
+    (baseGroup ? resultsOf(baseGroup) : [])
       .filter(isControl)
       .map((result) => [`${result.fixtureId}#${result.recordingIndex ?? 0}`, result]),
   );
-  for (const result of resultsOf(head)) {
+  for (const result of resultsOf(group)) {
     const where = {
       fixtureId: result.fixtureId,
       split: result.split,
+      model: result.model,
       recordingIndex: result.recordingIndex ?? 0,
     };
     if (result.outcome === "shown") {
@@ -156,6 +185,17 @@ export function hardFailures(base, head) {
   return failures;
 }
 
+/**
+ * Violations that fail the gate on their own, in every head group (every
+ * split and model, gated or not). Control drop reasons are compared with the
+ * same model's base group.
+ */
+export function hardFailures(base, head) {
+  const { pairs } = likeForLikePairs(base, head);
+  const baseFor = new Map(pairs.map(([left, right]) => [right, left]));
+  return head.groups.flatMap((group) => hardFailuresOf(group, baseFor.get(group)));
+}
+
 function compareMetric(name, before, after, config) {
   const row = { metric: name, before: before.value, after: after.value, limit: null, pass: true };
   if (name in config.maxCountIncrease) {
@@ -175,7 +215,7 @@ function compareMetric(name, before, after, config) {
 function fixtureChecks(results) {
   const byFixture = new Map();
   for (const result of results) {
-    const entry = byFixture.get(result.fixtureId) ?? { split: result.split, results: [] };
+    const entry = byFixture.get(result.fixtureId) ?? { results: [] };
     entry.results.push(result);
     byFixture.set(result.fixtureId, entry);
   }
@@ -190,16 +230,17 @@ const METRIC_FOR_HARD_FAIL = {
 };
 
 /**
- * Per-fixture regressions in the eval-gate result shape: a hard fail, or a
- * rate metric that got worse for that fixture (P1 when it is on the gated
- * split and its metric broke tolerance, P2 otherwise).
+ * Per-fixture regressions in the eval-gate result shape: every hard fail
+ * (P1), and every rate metric that got worse for a fixture within a
+ * like-for-like pair (P1 when that pair is gated and its metric broke
+ * tolerance, P2 otherwise).
  */
-function fixtureRegressions(base, head, hardFails, failedMetrics, config) {
+function fixtureRegressions(pairs, hardFails, failedByPair, config) {
   const regressions = [];
   const seen = new Set();
   for (const failure of hardFails) {
     const metric = METRIC_FOR_HARD_FAIL[failure.kind];
-    const key = `${failure.fixtureId}:${metric}`;
+    const key = `${failure.model}|${failure.fixtureId}:${metric}`;
     if (seen.has(key)) continue;
     seen.add(key);
     // Control regressions read as a match rate (1 → 0); the other hard fails
@@ -212,63 +253,115 @@ function fixtureRegressions(base, head, hardFails, failedMetrics, config) {
       after: matchRate ? 0 : 1,
       severity: "P1",
       split: failure.split,
+      model: failure.model,
       hardFail: failure.kind,
     });
   }
-  const baseFixtures = fixtureChecks(resultsOf(base));
-  for (const [fixtureId, headEntry] of fixtureChecks(resultsOf(head))) {
-    const baseEntry = baseFixtures.get(fixtureId);
-    if (!baseEntry) continue;
-    const before = computeMetrics(baseEntry.results, config);
-    const after = computeMetrics(headEntry.results, config);
-    for (const metric of [...Object.keys(RATE_METRICS), "overLimitQuestions"]) {
-      const b = before[metric].value;
-      const a = after[metric].value;
-      if (b === null || a === null) continue;
-      const worse = metric === "overLimitQuestions" ? a > b : a < b - 1e-9;
-      const key = `${fixtureId}:${metric}`;
-      if (!worse || seen.has(key)) continue;
-      seen.add(key);
-      regressions.push({
-        fixtureId,
-        metric,
-        before: b,
-        after: a,
-        severity: headEntry.split === config.split && failedMetrics.has(metric) ? "P1" : "P2",
-        split: headEntry.split,
-      });
+  for (const [left, right] of pairs) {
+    const failed = failedByPair.get(right) ?? new Set();
+    const baseFixtures = fixtureChecks(resultsOf(left));
+    for (const [fixtureId, headEntry] of fixtureChecks(resultsOf(right))) {
+      const baseEntry = baseFixtures.get(fixtureId);
+      if (!baseEntry) continue;
+      const before = computeMetrics(baseEntry.results, config);
+      const after = computeMetrics(headEntry.results, config);
+      for (const metric of [...Object.keys(RATE_METRICS), "overLimitQuestions"]) {
+        const b = before[metric].value;
+        const a = after[metric].value;
+        if (b === null || a === null) continue;
+        const worse = metric === "overLimitQuestions" ? a > b : a < b - 1e-9;
+        const key = `${right.key.model}|${fixtureId}:${metric}`;
+        if (!worse || seen.has(key)) continue;
+        seen.add(key);
+        regressions.push({
+          fixtureId,
+          metric,
+          before: b,
+          after: a,
+          severity: failed.has(metric) ? "P1" : "P2",
+          split: right.key.split,
+          model: right.key.model,
+        });
+      }
     }
   }
   return regressions;
 }
 
-/** The gate decision for `head` against `base`. */
-export function evaluateGate(base, head, { config = DEFAULT_GATE_CONFIG, judge = null } = {}) {
-  const gatedBase = resultsOf(base).filter((result) => result.split === config.split);
-  const gatedHead = resultsOf(head).filter((result) => result.split === config.split);
-  if (gatedBase.length === 0 || gatedHead.length === 0) {
-    throw new Error(`both reports need ${config.split} results`);
-  }
+/**
+ * The gate decision for `head` against `base`. Tolerance compares
+ * like-for-like (split, model) group pairs on `config.split`, optionally only
+ * for `model`; hard fails apply to every head group.
+ */
+export function evaluateGate(
+  base,
+  head,
+  { config = DEFAULT_GATE_CONFIG, judge = null, model = null } = {},
+) {
+  const { pairs, unmatched } = likeForLikePairs(base, head);
+  const inScope = (group) =>
+    group.key.split === config.split && (model === null || group.key.model === model);
+  const gated = pairs.filter(([, right]) => inScope(right));
+  // Models under evaluation: `--model`, or every model the head was run with.
+  const evaluatedModels = new Set(model ? [model] : head.groups.map((g) => g.key.model));
   const failures = [];
-  const missing = [...new Set(gatedBase.map((r) => r.fixtureId))].filter(
-    (id) => !gatedHead.some((result) => result.fixtureId === id),
-  );
-  if (missing.length)
-    failures.push(`head is missing ${config.split} fixtures: ${missing.join(", ")}`);
+  const groups = { gated: [], newInHead: [], missingInHead: [] };
+  for (const { side, group } of unmatched) {
+    if (group.key.split !== config.split) continue;
+    if (side === "head") {
+      if (model === null || group.key.model === model) {
+        groups.newInHead.push({ split: group.key.split, model: group.key.model });
+      }
+      continue;
+    }
+    const failsGate = evaluatedModels.has(group.key.model);
+    groups.missingInHead.push({ split: group.key.split, model: group.key.model, failsGate });
+    if (failsGate) failures.push(`head has no ${groupLabel(group)} group (model under evaluation)`);
+  }
+  if (gated.length === 0 && failures.length === 0) {
+    throw new Error(
+      `no like-for-like ${config.split} group pair to gate` + (model ? ` for model ${model}` : ""),
+    );
+  }
 
-  const before = computeMetrics(gatedBase, config);
-  const after = computeMetrics(gatedHead, config);
-  const metrics = Object.keys(before).map((name) =>
-    compareMetric(name, before[name], after[name], config),
-  );
-  const failedMetrics = new Set(metrics.filter((row) => !row.pass).map((row) => row.metric));
-  for (const row of metrics.filter((r) => !r.pass)) {
-    failures.push(`${config.split} ${row.metric}: ${row.before} → ${row.after} (${row.limit})`);
+  const metrics = [];
+  const failedByPair = new Map();
+  for (const [left, right] of gated) {
+    groups.gated.push({
+      split: right.key.split,
+      model: right.key.model,
+      baseResults: left.results.length,
+      headResults: right.results.length,
+    });
+    // Within the pair only: a live group lists gate-passing fixtures, so it is
+    // never compared with the hand-authored group's gate-closed negatives.
+    const headIds = new Set(right.results.map((result) => result.fixtureId));
+    const missing = [...new Set(left.results.map((result) => result.fixtureId))].filter(
+      (id) => !headIds.has(id),
+    );
+    if (missing.length) {
+      failures.push(`${groupLabel(right)}: head is missing fixtures ${missing.join(", ")}`);
+    }
+    const before = computeMetrics(resultsOf(left), config);
+    const after = computeMetrics(resultsOf(right), config);
+    const rows = Object.keys(before).map((name) => ({
+      split: right.key.split,
+      model: right.key.model,
+      ...compareMetric(name, before[name], after[name], config),
+    }));
+    const failed = new Set(rows.filter((row) => !row.pass).map((row) => row.metric));
+    failedByPair.set(right, failed);
+    for (const row of rows.filter((r) => !r.pass)) {
+      failures.push(
+        `${groupLabel(right)} ${row.metric}: ${row.before} → ${row.after} (${row.limit})`,
+      );
+    }
+    metrics.push(...rows);
   }
   const hardFails = hardFailures(base, head);
   for (const failure of hardFails) {
     failures.push(
-      `hard fail ${failure.kind}: ${failure.fixtureId} (${failure.split}) — ${failure.detail}`,
+      `hard fail ${failure.kind}: ${failure.fixtureId} (${failure.split}/${failure.model}) — ${failure.detail}`,
     );
   }
   return {
@@ -280,14 +373,16 @@ export function evaluateGate(base, head, { config = DEFAULT_GATE_CONFIG, judge =
     policyVersion: versions(head, "policyVersion"),
     baselinePolicyVersion: versions(base, "policyVersion"),
     split: config.split,
+    model,
     tolerance: {
       maxRateDrop: config.maxRateDrop,
       maxCountIncrease: { ...config.maxCountIncrease },
     },
+    groups,
     metrics,
     hardFails,
     failures,
-    regressions: fixtureRegressions(base, head, hardFails, failedMetrics, config),
+    regressions: fixtureRegressions(pairs, hardFails, failedByPair, config),
     advisory: {
       judge: judge
         ? `${judge.items.length} AI-judged question(s) supplied; advisory only, not part of pass/fail (D-015-05)`
@@ -307,18 +402,37 @@ function formatValue(value, metric) {
 export function renderGate(result) {
   const lines = [
     `eval-gate: ${result.pass ? "PASS" : "FAIL"} — ${result.promptVersion} vs ${result.baseline}`,
-    `policy ${result.policyVersion} vs ${result.baselinePolicyVersion}; tolerance on ${result.split}`,
-    "",
-    ...result.metrics.map(
-      (row) =>
-        `  ${row.pass ? "ok  " : "FAIL"} ${row.metric.padEnd(22)} ${formatValue(row.before, row.metric).padStart(7)} → ${formatValue(row.after, row.metric).padEnd(7)} (${row.limit})${row.note ? ` ${row.note}` : ""}`,
-    ),
+    `policy ${result.policyVersion} vs ${result.baselinePolicyVersion}; tolerance on ${result.split}` +
+      (result.model ? `, model ${result.model}` : ", every model"),
   ];
+  for (const pair of result.groups.gated) {
+    lines.push(
+      "",
+      `${pair.split}/${pair.model} (${pair.baseResults} → ${pair.headResults} results):`,
+    );
+    for (const row of result.metrics.filter(
+      (r) => r.split === pair.split && r.model === pair.model,
+    )) {
+      lines.push(
+        `  ${row.pass ? "ok  " : "FAIL"} ${row.metric.padEnd(22)} ${formatValue(row.before, row.metric).padStart(7)} → ${formatValue(row.after, row.metric).padEnd(7)} (${row.limit})${row.note ? ` ${row.note}` : ""}`,
+      );
+    }
+  }
+  for (const group of result.groups.newInHead) {
+    lines.push("", `${group.split}/${group.model}: new in head, not gated`);
+  }
+  for (const group of result.groups.missingInHead) {
+    lines.push(
+      "",
+      `${group.split}/${group.model}: missing from head` +
+        (group.failsGate ? " — FAIL (model under evaluation)" : ", not gated"),
+    );
+  }
   if (result.hardFails.length) {
     lines.push("", "Hard fails:");
     for (const failure of result.hardFails) {
       lines.push(
-        `  - ${failure.kind}: ${failure.fixtureId} (${failure.split}) — ${failure.detail}`,
+        `  - ${failure.kind}: ${failure.fixtureId} (${failure.split}/${failure.model}) — ${failure.detail}`,
       );
     }
   }
@@ -326,7 +440,7 @@ export function renderGate(result) {
     lines.push("", `Fixture regressions (${result.regressions.length}):`);
     for (const r of result.regressions) {
       lines.push(
-        `  - [${r.severity}] ${r.fixtureId} (${r.split}) ${r.metric}: ${r.before} → ${r.after}`,
+        `  - [${r.severity}] ${r.fixtureId} (${r.split}/${r.model}) ${r.metric}: ${r.before} → ${r.after}`,
       );
     }
   }
@@ -336,15 +450,15 @@ export function renderGate(result) {
 }
 
 export function parseArgs(argv) {
-  const args = { files: [], json: false, judge: null };
+  const args = { files: [], json: false, judge: null, model: null };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--") continue;
     else if (arg === "--json") args.json = true;
-    else if (arg === "--judge") {
+    else if (arg === "--judge" || arg === "--model") {
       const next = argv[(i += 1)];
-      if (next === undefined || next.startsWith("--")) throw new Error("--judge needs a file");
-      args.judge = next;
+      if (next === undefined || next.startsWith("--")) throw new Error(`${arg} needs a value`);
+      args[arg.slice(2)] = next;
     } else if (arg === "--help" || arg === "-h") args.help = true;
     else if (arg.startsWith("--")) throw new Error(`unknown argument "${arg}"`);
     else args.files.push(arg);
@@ -353,7 +467,8 @@ export function parseArgs(argv) {
   return args;
 }
 
-const USAGE = "Usage: pnpm eval:gate <base.json> <head.json> [--json] [--judge <judge.json>]";
+const USAGE =
+  "Usage: pnpm eval:gate <base.json> <head.json> [--model <name>] [--json] [--judge <judge.json>]";
 
 export function main(argv = process.argv.slice(2), out = process.stdout, err = process.stderr) {
   let args;
@@ -365,7 +480,10 @@ export function main(argv = process.argv.slice(2), out = process.stdout, err = p
       return 0;
     }
     const judge = args.judge ? readJudge(args.judge) : null;
-    result = evaluateGate(readReport(args.files[0]), readReport(args.files[1]), { judge });
+    result = evaluateGate(readReport(args.files[0]), readReport(args.files[1]), {
+      judge,
+      model: args.model,
+    });
   } catch (error) {
     err.write(`eval-gate: ${error.message}\n${USAGE}\n`);
     return 2;

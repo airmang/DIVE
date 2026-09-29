@@ -84,8 +84,12 @@ one filled copy per cycle travels with the PR.
    ```
    Iterate on dev. Look at holdout only for the gate; if the candidate is
    reworked after a holdout failure, say so in the PR.
-6. **Gate.** `pnpm eval:gate -- /tmp/base.json /tmp/head.json`
-   (add `--json > /tmp/gate.json` for the machine-readable result). It fails on
+6. **Gate.** `pnpm eval:gate -- /tmp/base.json /tmp/head.json --model <live model>`
+   (add `--json > /tmp/gate.json` for the machine-readable result). Groups are
+   compared like for like by (split, model); `--model` gates the live model
+   the candidate was recorded with. Without it every model present in both
+   reports is gated; a model only in the head is reported as new and not
+   gated. It fails on
    any hard violation — a shown non-question, a shown card without evidence
    refs, a static/fallback question where a model call was expected, a
    negative control whose drop reason changed — on any split, and on the

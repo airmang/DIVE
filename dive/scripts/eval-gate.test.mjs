@@ -24,14 +24,20 @@ const JUDGE = join(EXAMPLES, "judge.json");
 const load = (file) => JSON.parse(readFileSync(file, "utf8"));
 const clone = (value) => structuredClone(value);
 
-/** The first shown result of `split` in `report` (mutable). */
-function shownResult(report, split) {
-  const group = report.groups.find((g) => g.key.split === split);
-  return group.results.find((result) => result.outcome === "shown");
+const HAND = "hand-authored";
+const LIVE = "openrouter/anthropic/claude-sonnet-5";
+
+function group(report, split, model = HAND) {
+  return report.groups.find((g) => g.key.split === split && g.key.model === model);
 }
 
-function holdoutResults(report) {
-  return report.groups.find((g) => g.key.split === "holdout").results;
+/** The first shown result of the `split`/`model` group in `report` (mutable). */
+function shownResult(report, split, model = HAND) {
+  return group(report, split, model).results.find((result) => result.outcome === "shown");
+}
+
+function holdoutResults(report, model = HAND) {
+  return group(report, "holdout", model).results;
 }
 
 describe("eval-gate on the example reports", () => {
@@ -111,7 +117,7 @@ describe("tolerance (holdout, deterministic metrics)", () => {
   it("gates only on the holdout split", () => {
     const base = load(BASE);
     const head = clone(base);
-    const dev = head.groups.find((g) => g.key.split === "dev");
+    const dev = group(head, "dev");
     dev.results.find((r) => r.checks.criterionLinked === true).checks.criterionLinked = false;
     const result = evaluateGate(base, head);
     expect(result.pass).toBe(true);
@@ -124,7 +130,102 @@ describe("tolerance (holdout, deterministic metrics)", () => {
     const base = load(BASE);
     const head = clone(base);
     holdoutResults(head).pop();
-    expect(evaluateGate(base, head).failures.join("\n")).toMatch(/missing holdout fixtures/);
+    expect(evaluateGate(base, head).failures.join("\n")).toMatch(
+      /holdout\/hand-authored: head is missing fixtures/,
+    );
+  });
+});
+
+describe("like-for-like model groups", () => {
+  it("the example baseline mixes hand-authored and live groups", () => {
+    const base = load(BASE);
+    expect(base.groups.map((g) => `${g.key.split}/${g.key.model}`).sort()).toEqual(
+      [`dev/${HAND}`, `dev/${LIVE}`, `holdout/${HAND}`, `holdout/${LIVE}`].sort(),
+    );
+    // Live groups hold only gate-passing fixtures.
+    expect(holdoutResults(base, LIVE).length).toBeLessThan(holdoutResults(base).length);
+  });
+
+  it("gates each model against itself and never fails a live group for lacking negatives", () => {
+    const base = load(BASE);
+    const result = evaluateGate(base, clone(base));
+    expect(result.pass).toBe(true);
+    expect(result.groups.gated.map((g) => g.model).sort()).toEqual([HAND, LIVE].sort());
+    expect(new Set(result.metrics.map((row) => row.model))).toEqual(new Set([HAND, LIVE]));
+    expect(validateEvalGateResult(result)).toEqual([]);
+  });
+
+  it("does not let one model's results mask another's", () => {
+    const base = load(BASE);
+    const head = clone(base);
+    for (const result of holdoutResults(head, LIVE)) {
+      if (result.checks.criterionLinked === true) result.checks.criterionLinked = false;
+    }
+    const result = evaluateGate(base, head);
+    expect(result.pass).toBe(false);
+    expect(result.failures.join("\n")).toMatch(new RegExp(`holdout/${LIVE} criterionLinkage`));
+    expect(
+      result.metrics.find((r) => r.model === HAND && r.metric === "criterionLinkage").pass,
+    ).toBe(true);
+    expect(validateEvalGateResult(result)).toEqual([]);
+    expect(result.regressions.every((r) => r.model === LIVE)).toBe(true);
+  });
+
+  it("--model restricts tolerance to one model; hard fails still cover every group", () => {
+    const base = load(BASE);
+    const head = clone(base);
+    holdoutResults(head).find((r) => r.checks.criterionLinked === true).checks.criterionLinked =
+      false;
+    expect(evaluateGate(base, head).pass).toBe(false);
+    const liveOnly = evaluateGate(base, head, { model: LIVE });
+    expect(liveOnly.pass).toBe(true);
+    expect(liveOnly.model).toBe(LIVE);
+    expect(new Set(liveOnly.metrics.map((row) => row.model))).toEqual(new Set([LIVE]));
+
+    shownResult(head, "dev").decision.evidenceRefIds = [];
+    const hard = evaluateGate(base, head, { model: LIVE });
+    expect(hard.pass).toBe(false);
+    expect(hard.hardFails[0]).toMatchObject({ kind: "shown_without_evidence", model: HAND });
+  });
+
+  it("fails a missing base group only when its model is under evaluation", () => {
+    const base = load(BASE);
+    const head = clone(base);
+    head.groups = head.groups.filter((g) => g.key.model !== LIVE);
+    const every = evaluateGate(base, head);
+    expect(every.pass).toBe(true);
+    expect(every.groups.missingInHead).toEqual([
+      { split: "holdout", model: LIVE, failsGate: false },
+    ]);
+    const live = evaluateGate(base, head, { model: LIVE });
+    expect(live.pass).toBe(false);
+    expect(live.failures.join("\n")).toMatch(/model under evaluation/);
+    expect(validateEvalGateResult(live)).toEqual([]);
+  });
+
+  it("reports a head-only model as new and not gated", () => {
+    const base = load(BASE);
+    const head = clone(base);
+    const fresh = clone(group(head, "holdout", LIVE));
+    fresh.key.model = "new-model";
+    for (const result of fresh.results) {
+      result.model = "new-model";
+      result.checks.criterionLinked = false;
+    }
+    head.groups.push(fresh);
+    const result = evaluateGate(base, head);
+    expect(result.pass).toBe(true);
+    expect(result.groups.newInHead).toEqual([{ split: "holdout", model: "new-model" }]);
+    expect(result.metrics.some((row) => row.model === "new-model")).toBe(false);
+    expect(() => evaluateGate(base, head, { model: "new-model" })).toThrow(/no like-for-like/);
+  });
+
+  it("never pairs two different models, even one group per split each", () => {
+    const base = load(BASE);
+    base.groups = base.groups.filter((g) => g.key.model === HAND);
+    const head = load(BASE);
+    head.groups = head.groups.filter((g) => g.key.model === LIVE);
+    expect(() => evaluateGate(base, head)).toThrow(/no like-for-like holdout group pair/);
   });
 });
 
@@ -160,6 +261,7 @@ describe("hard fails ignore tolerance and apply to every split", () => {
     const base = load(BASE);
     const head = clone(base);
     const control = head.groups
+      .filter((g) => g.key.model === HAND)
       .flatMap((g) => g.results)
       .find((r) => typeof r.expected.expectedDropReason === "string");
     control.dropReason = "content_too_long";
@@ -228,6 +330,14 @@ describe("CLI", () => {
     expect(fail.stdout).toContain("not evidence of student supervision skill");
   });
 
+  it("gates one model with --model", () => {
+    const out = run(BASE, BASE, "--model", LIVE, "--json");
+    expect(out.status).toBe(0);
+    const result = JSON.parse(out.stdout);
+    expect(result.model).toBe(LIVE);
+    expect(result.groups.gated).toEqual([expect.objectContaining({ model: LIVE })]);
+  });
+
   it("prints the gate result with --json", () => {
     const out = run(BASE, HEAD, "--json", "--judge", JUDGE);
     expect(out.status).toBe(1);
@@ -247,19 +357,30 @@ describe("CLI", () => {
     const report = load(BASE);
     report.groups = report.groups.filter((g) => g.key.split !== "holdout");
     writeFileSync(noHoldout, JSON.stringify(report));
+    const onlyBase = load(BASE);
+    onlyBase.groups = onlyBase.groups.filter((g) => g.key.model === HAND);
+    const onlyBaseFile = join(dir, "only-hand.json");
+    writeFileSync(onlyBaseFile, JSON.stringify(onlyBase));
 
     for (const args of [
       [BASE],
       [BASE, join(dir, "missing.json")],
       [BASE, garbled],
       [BASE, notReport],
-      [BASE, noHoldout],
+      [noHoldout, BASE],
       [BASE, HEAD, "--bogus"],
+      [BASE, HEAD, "--model"],
+      [onlyBaseFile, onlyBaseFile, "--model", LIVE],
     ]) {
       const out = run(...args);
       expect(out.status, args.join(" ")).toBe(2);
       expect(out.stderr).toMatch(/^eval-gate: /);
     }
+    // A head that dropped the holdout groups of the models it was run with
+    // fails the gate (exit 1) rather than being bad input.
+    const dropped = run(BASE, noHoldout);
+    expect(dropped.status).toBe(1);
+    expect(dropped.stdout).toMatch(/missing from head — FAIL \(model under evaluation\)/);
   });
 
   it("renders from main() without a subprocess", () => {
