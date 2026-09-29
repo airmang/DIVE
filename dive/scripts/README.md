@@ -56,12 +56,31 @@ scenarios, live-run records). Field reference: `qa-ledger/schema.md`; workflow:
 `docs/qa/ledger/README.md`. Its `*.test.mjs` files run under `pnpm test:unit`
 (vitest includes `scripts/**/*.test.mjs`), including a check of the real ledger.
 
-| Script                   | Run via                                    | Purpose                                                                                                                           |
-| ------------------------ | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| `qa-ledger/validate.mjs` | `pnpm qa:ledger:validate` (`-- --next-id`) | Schema + cross-reference check of every ledger record; exits 1 listing each problem. `--next-id` prints the next free `DEF-NNNN`. |
-| `qa-ledger/schema.mjs`   | (module)                                   | Enums and per-record validators for Defect / Scenario / RunRecord.                                                                |
-| `qa-ledger/load.mjs`     | (module)                                   | Reads the ledger; duplicate-id, filename/id and dangling-reference checks.                                                        |
-| `qa-ledger/areas.mjs`    | (module)                                   | Area name → repo path globs, shared by scenarios and defects (and S-082's rerun queue).                                           |
+| Script                   | Run via                                                                     | Purpose                                                                                                                                                        |
+| ------------------------ | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `qa-ledger/validate.mjs` | `pnpm qa:ledger:validate` (`-- --next-id`)                                  | Schema + cross-reference check of every ledger record; exits 1 listing each problem. `--next-id` prints the next free `DEF-NNNN`.                              |
+| `qa-ledger/schema.mjs`   | (module)                                                                    | Enums and per-record validators for Defect / Scenario / RunRecord.                                                                                             |
+| `qa-ledger/load.mjs`     | (module)                                                                    | Reads the ledger; duplicate-id, filename/id and dangling-reference checks.                                                                                     |
+| `qa-ledger/areas.mjs`    | (module)                                                                    | Area name → repo path globs, shared by scenarios and defects (and S-082's rerun queue).                                                                        |
+| `qa-ledger/verify.mjs`   | `pnpm verify:qa-ledger` (`-- --kinds vitest,cargo`, `-- --cargo-dir <dir>`) | Validate, then resolve the guard of every `fixed`/`verified` defect through its runner (S-080, FR-040/041); exits 1 on an unresolved or skipped/ignored guard. |
+| `qa-ledger/guards.mjs`   | (module)                                                                    | Per-kind guard resolvers with injectable runners: `vitest list --json`, `cargo test -- --list` (+ `--ignored`), eval fixture ids, live-run records.            |
+
+Where guard resolution runs (D-015-08 — workflow files can't be changed from
+agent sessions):
+
+- **CI, every push**: `pnpm test:unit` (`guards.test.mjs` resolves the real
+  ledger's vitest, eval-fixture and live-scenario guards) and `pnpm verify:v4`
+  (the "QA Ledger Guards" step, same kinds). The frontend job has no Rust
+  toolchain, so cargo guards are not checked there.
+- **Locally / before a release**: `pnpm verify:qa-ledger` checks every kind
+  including cargo (it compiles the test targets, same flags as CI's
+  `cargo test`). When the working tree is mid-edit and doesn't compile, list
+  from a clean checkout: `git worktree add <dir> HEAD`, copy
+  `src-tauri/binaries/*` and `dist/` into it, then
+  `pnpm verify:qa-ledger -- --cargo-dir <dir>/dive/src-tauri`.
+- **Owner follow-up (optional)**: to gate cargo guards in CI, add
+  `pnpm verify:qa-ledger` after the "Rust gate" step of `release-gate.yml`
+  (working-directory `dive`); the cargo build is already warm at that point.
 
 ## Shared helper (not a standalone script)
 

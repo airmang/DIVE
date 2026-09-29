@@ -39,6 +39,10 @@ const followUpVerifiers = [
   // out-of-sync package/Cargo/tauri version could ship green. Chaining it here
   // makes it release-gating via release-gate.yml and build.yml, same as above.
   ["Version Sync", "scripts/verify-version-sync.mjs"],
+  // S-080 (FR-040): fixed/verified QA-ledger defects must keep a guard that
+  // resolves through its runner. This job has no Rust toolchain, so cargo
+  // guards are resolved by the full `pnpm verify:qa-ledger` locally / pre-release.
+  ["QA Ledger Guards", "scripts/qa-ledger/verify.mjs --kinds vitest,eval-fixture,live-scenario"],
 ];
 
 for (const [label, script] of followUpVerifiers) {

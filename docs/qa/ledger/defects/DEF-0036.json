@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0036",
+  "title": "normalizeFailureKey replaces digits before 0x-hex (dead hex normalization) + literal no-op replace",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "supervision",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L338"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in e6d1c576 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src/features/provocation/adapters.ts:209-214 now runs .replace(/0x[0-9a-f]+/g,'0x#') before .replace(/\\d+/g,'#'); the no-op 'line #' replace is gone. Fixed in e6d1c576; test adapters.test.ts:15 ('collapses two messages that differ only in a 0x-hex address'). Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence.",
+  "fixCommit": "e6d1c576",
+  "guard": {
+    "kind": "vitest",
+    "ref": "dive/src/features/provocation/adapters.test.ts::normalizeFailureFingerprint > collapses two messages that differ only in a 0x-hex address to the same key"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

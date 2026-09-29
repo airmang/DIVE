@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0045",
+  "title": "card::reorder rewrites N positions as N independent autocommit UPDATEs; crash mid-loop persists duplicate positions",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "persistence",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L509"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in db5b8c34 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src-tauri/src/db/dao/card.rs:210-229 now wraps the UPDATE loop in execute_batch(\"BEGIN IMMEDIATE\") ... COMMIT with ROLLBACK on error (a raw SQL tx because the caller still passes &Connection, ipc/workmap.rs:121). Landed in db5b8c34, which also added the test card.rs:293 reorder_rolls_back_all_updates_when_one_update_fails_mid_loop. Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence.",
+  "fixCommit": "db5b8c34",
+  "guard": {
+    "kind": "cargo",
+    "ref": "db::dao::card::tests::reorder_rolls_back_all_updates_when_one_update_fails_mid_loop"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

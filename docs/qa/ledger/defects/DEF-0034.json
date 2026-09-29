@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0034",
+  "title": "PlanAddStepPanel hardcodes locale ko-KR (and Korean evidence-ref labels) in scope-expansion supervisor request",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "i18n",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L311"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in e6d1c576 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src/components/product/PlanAddStepPanel.tsx:322 reads useLocaleStore locale and passes it at :397 and :431. The evidence-ref labels (:209-260) now use t('plan_add_step.evidence_*'). Landed in e6d1c576. The baseline-tracked sibling hardcode is still at PlanDraftApprovalScreen.tsx:260 (locale: \"ko-KR\"), which is outside this finding. Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence. Out of scope here (per re-check): PlanDraftApprovalScreen.tsx still hardcodes locale ko-KR.",
+  "fixCommit": "e6d1c576",
+  "guard": {
+    "kind": "vitest",
+    "ref": "dive/src/components/product/PlanAddStepPanel.test.tsx::PlanAddStepPanel scope-expansion supervisor locale > threads the active en-locale into the scope-expansion supervisor request instead of hardcoding ko-KR"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

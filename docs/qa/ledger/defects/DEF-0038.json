@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0038",
+  "title": "usePlan/usePlanRoadmap refresh lack generation guard; late previous-project response overwrites state",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "plan",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L356"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in e6d1c576 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src/features/planning/usePlan.ts:153-188 and dive/src/features/roadmap/usePlanRoadmap.ts:160-202 now use a generation ref and drop stale responses (`if (generation.current !== requestGeneration) return;`). Fixed in e6d1c576; test usePlan.test.ts:297 plus usePlanRoadmap.test.ts additions. Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence. Guard covers usePlan; the matching usePlanRoadmap generation guard is covered by usePlanRoadmap.test.ts additions.",
+  "fixCommit": "e6d1c576",
+  "guard": {
+    "kind": "vitest",
+    "ref": "dive/src/features/planning/usePlan.test.ts::usePlan PRD IPC methods > ignores a stale refresh response after the project changes mid-flight (useplan-stale-project-race)"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

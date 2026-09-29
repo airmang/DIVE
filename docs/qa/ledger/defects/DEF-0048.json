@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0048",
+  "title": "run_capped timeout bounds only the read loop; child closing stdout/stderr while running wedges the turn",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "agent-tools",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L644"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in db5b8c34 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src-tauri/src/tools/process_exec.rs:186 now wraps child.wait() in tokio::time::timeout(timeout, ...) and kills the child on elapse, returning CappedRunError::Timeout (:186-193, blame db5b8c34). A test covering 'exec 1>&- 2>&-; sleep 30' exists at :299-304. Residual nuance: the read and wait phases each get the full timeout, so the worst case is about 2x the advertised timeout, not unbounded. Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence. Residual per re-check: read and wait phases each get the full timeout (worst case ~2x).",
+  "fixCommit": "db5b8c34",
+  "guard": {
+    "kind": "cargo",
+    "ref": "tools::process_exec::tests::run_capped_kills_child_that_closes_fds_but_keeps_running"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

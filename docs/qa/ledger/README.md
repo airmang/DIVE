@@ -84,9 +84,11 @@ open ──▶ fixing ──▶ fixed ──▶ verified
 
 A `guard` is the regression test that keeps the defect fixed: `vitest`,
 `cargo`, `live-scenario` (a scenario id in `scenarios/`) or `eval-fixture`.
-"The AI said it is fixed" is never a guard. S-080 (`verify:qa-ledger`) will
-additionally resolve each guard through its test runner and fail on a guard
-that is missing, skipped or `#[ignore]`d.
+"The AI said it is fixed" is never a guard. `pnpm verify:qa-ledger` (S-080)
+resolves each guard through its runner and fails on a guard that is missing,
+skipped or `#[ignore]`d — run it before moving a defect to `fixed`, and set
+`fixCommit` at the same time. CI checks the non-cargo kinds (`test:unit`,
+`verify:v4`); cargo guards need the full local run (see `dive/scripts/README.md`).
 
 On every transition, update `status` and `updated`. A regression reopens the
 defect: set `status` back to `open` and remove the `verified` block (git keeps

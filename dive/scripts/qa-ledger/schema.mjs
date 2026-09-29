@@ -242,6 +242,7 @@ const DEFECT_OPTIONAL = [
   "repro",
   "notes",
   "duplicateOf",
+  "fixCommit",
   "guard",
   "verified",
 ];
@@ -268,6 +269,9 @@ export function validateDefect(record) {
 
   for (const key of ["specRef", "stageRef", "repro", "notes"]) {
     if (key in record) checkString(c, `$.${key}`, record[key]);
+  }
+  if ("fixCommit" in record) {
+    checkPattern(c, "$.fixCommit", record.fixCommit, COMMIT_RE, "a 7–40 char lowercase git sha");
   }
   if ("guard" in record) checkGuard(c, "$.guard", record.guard);
   if ("verified" in record) checkVerifiedBlock(c, "$.verified", record.verified);

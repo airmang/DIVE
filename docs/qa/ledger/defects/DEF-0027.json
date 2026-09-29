@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0027",
+  "title": "static_preview_base_url TOCTOU leaks detached static preview server task+port",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "preview",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L221"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in db5b8c34 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src-tauri/src/ipc/preview.rs:70-74 adds impl Drop for StaticPreviewServer that calls handle.abort(), so the server overwritten by *guard = Some(...) at :440 is aborted rather than detached. Test static_preview_server_drop_aborts_its_listener_task is at :1533. Landed in db5b8c34. The lock is still released across bind, but the leak is gone. Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence. Residual per re-check: the lock is still released across bind; the leak itself is fixed.",
+  "fixCommit": "db5b8c34",
+  "guard": {
+    "kind": "cargo",
+    "ref": "ipc::preview::tests::static_preview_server_drop_aborts_its_listener_task"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

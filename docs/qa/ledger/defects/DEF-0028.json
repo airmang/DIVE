@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0028",
+  "title": "checkpoint_restore lacks project scoping; inserts wrong-project auto-pre-restore row before failing",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "recovery",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L230"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in db5b8c34 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src-tauri/src/ipc/checkpoint.rs:86-108: ensure_checkpoint_belongs_to_active_project resolves checkpoint, then session, then project_id and compares it with the active project_root. It is called at :121, before engine.restore_checkpoint, so no pre-restore row is written. Landed in db5b8c34. Caveat: the match uses exact Path equality between project.path and project_root. Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence. The test also asserts no auto-pre-restore row is written. Caveat per re-check: project match uses exact Path equality.",
+  "fixCommit": "db5b8c34",
+  "guard": {
+    "kind": "cargo",
+    "ref": "ipc::checkpoint::tests::checkpoint_restore_rejects_a_checkpoint_from_a_non_active_project"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

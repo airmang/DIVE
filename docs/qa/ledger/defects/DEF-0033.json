@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0033",
+  "title": "VerificationReviewStepper unmounts inactive stages; observe revisit refires coach LLM call and drops draft",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "verification",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L293"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in a5801b30 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src/components/product/VerificationReviewStepper.tsx:17-25 adds a keepMounted option, and :187-190 renders `isActive || stage.keepMounted` with CSS hidden. The observe stage sets keepMounted: true (StepDetailSlideIn.tsx:1016-1020), and content receives isActive so the coach can gate its effects. Landed in a5801b30 (the P1 verify-panel fix; D-013-19 counts this as resolved by the P1 fix). Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence.",
+  "fixCommit": "a5801b30",
+  "guard": {
+    "kind": "vitest",
+    "ref": "dive/src/components/product/StepDetailSlideIn.test.tsx::StepDetailSlideIn supervisor-backed review cards > revisiting the observe stage preserves the typed draft and does not refire guide generation (S-064 P2 regression)"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

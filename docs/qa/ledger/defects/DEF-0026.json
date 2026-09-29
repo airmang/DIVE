@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0026",
+  "title": "env-dump blocklist misses export/declare/typeset -p and node -p process.env",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "agent-tools",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L185"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in db5b8c34 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src-tauri/src/tools/guard.rs:175: the env-dump regex now includes (?:export|declare|typeset)\\s+-p. :142: the interp rule adds node ...(-p|--print). Test blocks_export_declare_typeset_dump_and_node_print_env is at :649-670. Landed in db5b8c34. Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence.",
+  "fixCommit": "db5b8c34",
+  "guard": {
+    "kind": "cargo",
+    "ref": "tools::guard::tests::blocks_export_declare_typeset_dump_and_node_print_env"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0037",
+  "title": "adaptAcceptanceCriteria valid-id branch skips dedupe, duplicate full-shape LLM criteria pass through",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "prd",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L347"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in e6d1c576 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src/features/planning/projectSpec.ts:145-153 first branch now computes isDuplicate and reallocates via allocateCriterionId(criteria). Fixed in e6d1c576; test projectSpec.test.ts:69 ('reassigns a repeated valid criterion id'). Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence.",
+  "fixCommit": "e6d1c576",
+  "guard": {
+    "kind": "vitest",
+    "ref": "dive/src/features/planning/projectSpec.test.ts::project spec helpers > reassigns a repeated valid criterion id instead of letting it pass through as a duplicate"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

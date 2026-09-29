@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0041",
+  "title": "persist_prd_delta_for_plan_mutation records stale criterion ids in ledger when id collides and is reallocated",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "plan",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L446"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in db5b8c34 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src-tauri/src/ipc/workspace_plan/plan_steps.rs:110-127 now iterates `&mut delta.added_criteria` and reallocates in place, so delta_summary (:148), PRD_EDITED added_ids (:162-166) and NewPlanMutation.prd_delta see the reconciled id. Fixed in db5b8c34; tests in mod prd_delta_criterion_id_reconciliation_tests (plan_steps.rs:1697+). Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence.",
+  "fixCommit": "db5b8c34",
+  "guard": {
+    "kind": "cargo",
+    "ref": "ipc::workspace_plan::plan_steps::prd_delta_criterion_id_reconciliation_tests::colliding_added_criterion_id_is_reconciled_in_the_persisted_delta"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0035",
+  "title": "agent_progress/tool_call_start wipe a pending cancelRequested (cancel button briefly re-enabled)",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "chat",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L329"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in e6d1c576 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src/hooks/chat-session-reducer.ts:475-482 (agent_progress) and :337-358 (tool_call_start) no longer set cancelRequested; only terminal cases (:319, :496, :511) clear it. Fixed in e6d1c576 with tests chat-session-reducer.test.ts:106+ ('keeps a pending cancelRequested through agent_progress/tool_call_start'). Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence. Sibling test: '... through tool_call_start instead of wiping it'.",
+  "fixCommit": "e6d1c576",
+  "guard": {
+    "kind": "vitest",
+    "ref": "dive/src/hooks/chat-session-reducer.test.ts::reduceChatSessionState cancelRequested > keeps a pending cancelRequested through agent_progress instead of wiping it"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

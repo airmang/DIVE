@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0021",
+  "title": "Superseding a step leaves its dependents blocked forever (no dependent guard/re-point)",
+  "status": "fixed",
+  "severity": "P1",
+  "area": "plan",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L83"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in 961891ab (shipped in v1.0.0-rc.10). Re-check evidence: 961891ab: workspace_plan_supersede_step_impl now calls repoint_active_dependents(&tx, plan_id, &target.step_id, &new_row.step_id) followed by step_dao::validate_dependencies in the same tx (dive/src-tauri/src/ipc/workspace_plan/plan_steps.rs:717-727; helper :988-1030 rewrites active dependents' dependency arrays). Test supersede_repoints_active_dependents_to_replacement (plan_steps.rs:1538). Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence.",
+  "fixCommit": "961891ab",
+  "guard": {
+    "kind": "cargo",
+    "ref": "ipc::workspace_plan::plan_steps::supersede_repoint_tests::supersede_repoints_active_dependents_to_replacement"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

@@ -16,23 +16,24 @@ Conventions for every record:
 
 ## Defect — `defects/DEF-NNNN.json`
 
-| Field         | Type       | Required | Notes                                                                                                          |
-| ------------- | ---------- | -------- | -------------------------------------------------------------------------------------------------------------- |
-| `id`          | `DEF-NNNN` | yes      | Zero-padded to 4 digits; allocate with `pnpm qa:ledger:validate -- --next-id`.                                 |
-| `title`       | string     | yes      | One line, symptom-first.                                                                                       |
-| `status`      | enum       | yes      | `open` · `fixing` · `fixed` · `verified` · `wontfix` · `duplicate` (lifecycle in the ledger README).           |
-| `severity`    | enum       | yes      | `P0` · `P1` · `P2`.                                                                                            |
-| `area`        | area name  | yes      | Single primary area; drives triage clustering (S-084).                                                         |
-| `source`      | object     | yes      | `{ kind, ref, findingId? }` — see below.                                                                       |
-| `specRef`     | string     | no       | Governing spec/FR, e.g. `specs/002-provocation-supervisor-agent/spec.md#FR-030`.                               |
-| `stageRef`    | string     | no       | Wily Stage id, e.g. `S-080`.                                                                                   |
-| `repro`       | string     | no       | Minimal reproduction steps.                                                                                    |
-| `notes`       | string     | no       | Free text. **Required** when `status` is `wontfix` (record why).                                               |
-| `duplicateOf` | `DEF-NNNN` | iff dup  | Required when `status` is `duplicate`, forbidden otherwise; must name an existing, non-duplicate defect.       |
-| `guard`       | object     | cond.    | `{ kind, ref }`. **Required** when `status` is `fixed` or `verified` (FR-040).                                 |
-| `verified`    | object     | cond.    | `{ commit, buildVersion, date, evidence? }`. Required when `status` is `verified`, forbidden for other states. |
-| `created`     | date       | yes      |                                                                                                                |
-| `updated`     | date       | yes      | Must not be earlier than `created`.                                                                            |
+| Field         | Type       | Required | Notes                                                                                                                                                 |
+| ------------- | ---------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`          | `DEF-NNNN` | yes      | Zero-padded to 4 digits; allocate with `pnpm qa:ledger:validate -- --next-id`.                                                                        |
+| `title`       | string     | yes      | One line, symptom-first.                                                                                                                              |
+| `status`      | enum       | yes      | `open` · `fixing` · `fixed` · `verified` · `wontfix` · `duplicate` (lifecycle in the ledger README).                                                  |
+| `severity`    | enum       | yes      | `P0` · `P1` · `P2`.                                                                                                                                   |
+| `area`        | area name  | yes      | Single primary area; drives triage clustering (S-084).                                                                                                |
+| `source`      | object     | yes      | `{ kind, ref, findingId? }` — see below.                                                                                                              |
+| `specRef`     | string     | no       | Governing spec/FR, e.g. `specs/002-provocation-supervisor-agent/spec.md#FR-030`.                                                                      |
+| `stageRef`    | string     | no       | Wily Stage id, e.g. `S-080`.                                                                                                                          |
+| `fixCommit`   | git sha    | no       | Commit that fixed it. Set it when moving to `fixed`: `live-scenario` guards then need a passing run _built from a descendant of this commit_ (S-080). |
+| `repro`       | string     | no       | Minimal reproduction steps.                                                                                                                           |
+| `notes`       | string     | no       | Free text. **Required** when `status` is `wontfix` (record why).                                                                                      |
+| `duplicateOf` | `DEF-NNNN` | iff dup  | Required when `status` is `duplicate`, forbidden otherwise; must name an existing, non-duplicate defect.                                              |
+| `guard`       | object     | cond.    | `{ kind, ref }`. **Required** when `status` is `fixed` or `verified` (FR-040).                                                                        |
+| `verified`    | object     | cond.    | `{ commit, buildVersion, date, evidence? }`. Required when `status` is `verified`, forbidden for other states.                                        |
+| `created`     | date       | yes      |                                                                                                                                                       |
+| `updated`     | date       | yes      | Must not be earlier than `created`.                                                                                                                   |
 
 `source.kind` is one of `review` (a code-review report), `live-run` (a live QA
 run — `ref` is the run id), `eval` (an S-079 eval regression), `audit`, `user`.
@@ -48,8 +49,21 @@ inside that report when there is one.
 | `live-scenario` | scenario id; must exist under `scenarios/`          | `SUP-01`                                                           |
 | `eval-fixture`  | S-079 fixture id                                    | `verify-claim-done-ko-work`                                        |
 
-This validator only checks the shape. S-080 (`verify:qa-ledger`) resolves each
-guard through its runner and fails when it is missing, skipped or ignored.
+This validator only checks the shape. `pnpm verify:qa-ledger` (S-080,
+`guards.mjs`) resolves each guard of a `fixed`/`verified` defect through its
+runner and fails when it is missing, skipped or ignored:
+
+- `vitest` — `vitest list --json` must collect exactly `<file>::<name>`. vitest
+  list leaves out `.skip`, `.todo` and `skipIf(true)` tests (and siblings of an
+  `.only`), so a skipped guard fails as absent. A runtime `ctx.skip()` inside a
+  test body is not visible to listing.
+- `cargo` — `cargo test --features dev-mock --all-targets -- --list` must list
+  it, and `-- --list --ignored` must not (an `#[ignore]`d guard never runs in CI).
+- `eval-fixture` — a fixture with that `id` under `dive/eval/supervisor/fixtures/`.
+- `live-scenario` — among run records that include the scenario and postdate the
+  fix, the latest must be a `pass`. "Postdate" = the run's `build.commit`
+  descends from `fixCommit` (git); without `fixCommit`, run `date` >= `updated`.
+  Set `fixCommit` for live-scenario guards — a date is a weaker proxy.
 
 `verified.evidence` is `[{ path, sha256 }]` — screenshots/logs stay gitignored
 or in the evidence archive; the hash pins exactly which artifact was seen.

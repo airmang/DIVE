@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0043",
+  "title": "looks_secret_like PRD-patch gate misses password:/authorization:/no-space token= forms",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "prd",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L473"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in db5b8c34 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src-tauri/src/ipc/workspace_plan/prd_patch.rs:616-629 now uses SECRET_LIKE_RE ((api[_-]?key|token|secret|authorization|password)\\s*[:=]\\s*..., sk-, bearer) instead of fixed substrings. Fixed in db5b8c34; test looks_secret_like_tests::flags_forms_the_old_fixed_substring_list_missed (:648). Residual per D-013-19: the regex duplicates event_log.rs SECRET_RE rather than sharing it. Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence. Residual per D-013-19: the regex duplicates event_log.rs SECRET_RE rather than sharing it.",
+  "fixCommit": "db5b8c34",
+  "guard": {
+    "kind": "cargo",
+    "ref": "ipc::workspace_plan::prd_patch::looks_secret_like_tests::flags_forms_the_old_fixed_substring_list_missed"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

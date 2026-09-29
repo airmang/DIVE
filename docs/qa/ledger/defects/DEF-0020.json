@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0020",
+  "title": "Reattach mid-assistant-stream drops the in-flight assistant response from the transcript",
+  "status": "fixed",
+  "severity": "P1",
+  "area": "chat",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L56"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in 630c0af4 (shipped in v1.0.0-rc.10). Re-check evidence: 630c0af4: chat-session-reducer.ts:262-286 upserts a streaming placeholder for an unmatched assistant_delta and :287-302 upserts the final content via mergeMessagesById for an unmatched assistant_end. Tests at chat-session-reducer.test.ts:33,52,88. Minor leftover the finding mentioned (not the headline): assistant_delta is still not in RUN_START_EVENT_TYPES (useChatSession.ts:271-275), so a remounted hook does not arm the stall timer or set isStreaming on reattach. Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence. Re-check leftover (not the headline): assistant_delta is not in RUN_START_EVENT_TYPES, so a remounted hook does not arm the stall timer / isStreaming on reattach — not guarded here.",
+  "fixCommit": "630c0af4",
+  "guard": {
+    "kind": "vitest",
+    "ref": "dive/src/hooks/chat-session-reducer.test.ts::reduceChatSessionState assistant stream reattach > reconstructs the full in-flight response across a reattach: delta then end for the same unmatched id"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

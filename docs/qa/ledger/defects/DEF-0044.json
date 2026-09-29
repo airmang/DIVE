@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0044",
+  "title": "PRD interview turn persists patch events, draft and InterviewTurn as separate non-transactional writes",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "prd",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L482"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in db5b8c34 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src-tauri/src/ipc/workspace_plan/prd_interview.rs:133 opens conn.transaction(); PROPOSED/APPLIED/REJECTED appends, persist_live_prd_draft and interview_turn_dao::insert all use &tx; commit at :284. Fixed in db5b8c34; test interview_turn_transaction_tests::mid_sequence_failure_rolls_back_the_earlier_event_write_too. Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence.",
+  "fixCommit": "db5b8c34",
+  "guard": {
+    "kind": "cargo",
+    "ref": "ipc::workspace_plan::prd_interview::interview_turn_transaction_tests::mid_sequence_failure_rolls_back_the_earlier_event_write_too"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}
