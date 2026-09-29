@@ -12,8 +12,10 @@ use std::sync::Mutex;
 use tauri::State;
 use uuid::Uuid;
 
+use crate::db::dao::supervision_replay::{NewSupervisionReplay, ReplaySurface};
 use crate::db::models::ScopeExpansionAssessment;
 use crate::dive::event_log::append_supervisor_evaluation_to_conn;
+use crate::dive::replay::capture_replay_best_effort;
 use crate::dive::supervisor::{
     build_diff_ready_supervisor_context, build_plan_drafted_supervisor_context,
     build_retry_loop_supervisor_context, build_scope_expansion_supervisor_context,
@@ -195,6 +197,9 @@ pub async fn provocation_agent_evaluate(
                 log,
             )
             .map_err(|e| e.to_string())?;
+            if let Some(replay) = &current.replay {
+                capture_replay_best_effort(db.conn(), replay);
+            }
         }
         let retry = attempt + 1 < attempts && should_retry_supervisor(&current.response);
         evaluated = Some(current);
@@ -297,6 +302,9 @@ struct EvaluatedSupervisorAttempt {
     session_id: i64,
     response: ProvocationAgentEvaluateResponse,
     log: Option<SupervisorEvaluationLog>,
+    /// Replay-corpus row for this attempt, present only when the prompt
+    /// reached a model (spec 015 FR-020).
+    replay: Option<NewSupervisionReplay>,
 }
 
 // Test-only convenience wrapper around `evaluate_with_output_and_log` that
@@ -328,12 +336,15 @@ fn evaluate_with_output_and_log(
                     None,
                 ),
                 log: None,
+                replay: None,
             };
         }
     };
     let source_ui_mode = normalized.source_ui_mode;
     let policy_version = request.policy_version.clone();
+    let project_id = request.project_id;
     let context = build_context(request, source_ui_mode);
+    let mut raw_output = None;
     let mut supervisor_model = None;
     let mut latency_ms = None;
     let mut usage = None;
@@ -375,7 +386,9 @@ fn evaluate_with_output_and_log(
                 supervisor_model = model;
                 latency_ms = runtime_latency_ms;
                 usage = runtime_usage;
-                validate_supervisor_decision_json(&context, &raw, dedup)
+                let validation = validate_supervisor_decision_json(&context, &raw, dedup);
+                raw_output = Some(raw);
+                validation
             }
             StageCSupervisorOutput::Drop(reason) => dropped_validation_result(reason),
             StageCSupervisorOutput::RuntimeUnavailable => {
@@ -405,11 +418,61 @@ fn evaluate_with_output_and_log(
     } else {
         log
     };
+    let replay = supervisor_replay_record(
+        &evaluation_id,
+        session_id,
+        project_id,
+        &context,
+        &log,
+        raw_output,
+    );
     EvaluatedSupervisorAttempt {
         session_id,
         response: response_from_validation(evaluation_id, validation, Some(&context)),
         log: Some(log),
+        replay,
     }
+}
+
+/// The replay row for one supervisor attempt: the exact `SupervisorContext`
+/// (the prompt is deterministic from it plus `promptVersion`), the raw model
+/// output, and the validation result. `None` when no prompt was sent.
+fn supervisor_replay_record(
+    evaluation_id: &str,
+    session_id: i64,
+    project_id: Option<i64>,
+    context: &SupervisorContext,
+    log: &SupervisorEvaluationLog,
+    raw_output: Option<String>,
+) -> Option<NewSupervisionReplay> {
+    let prompt_version = log.prompt_version.clone()?;
+    let context_json = match serde_json::to_string(context) {
+        Ok(json) => json,
+        Err(err) => {
+            tracing::warn!(error = %err, "supervisor replay context did not serialize");
+            return None;
+        }
+    };
+    Some(NewSupervisionReplay {
+        evaluation_id: evaluation_id.to_string(),
+        surface: ReplaySurface::Supervisor,
+        session_id: Some(session_id),
+        project_id,
+        prompt_version,
+        policy_version: Some(log.policy_version.clone()),
+        model: log.supervisor_model.clone(),
+        context_json,
+        raw_output,
+        validation_json: json!({
+            "validationOutcome": log.validation_outcome,
+            "dropReason": log.drop_reason,
+            "cardId": log.card_id,
+            "decisionSummary": log.decision_summary,
+            "latencyMs": log.latency_ms,
+            "usage": log.usage,
+        })
+        .to_string(),
+    })
 }
 
 fn build_context(
@@ -1619,6 +1682,67 @@ mod tests {
         );
         assert_eq!(shell.response.status, ProvocationAgentEvaluateStatus::Shown);
         assert_eq!(shell.log.unwrap().prompt_version, None);
+    }
+
+    #[test]
+    fn replay_record_is_built_only_when_the_prompt_reached_a_model() {
+        let shown = evaluate_with_output_and_log(
+            diff_ready_request(),
+            StageCSupervisorOutput::DecisionJson {
+                raw: valid_diff_ready_decision_json(),
+                supervisor_model: Some("mock-supervisor".to_string()),
+                latency_ms: Some(41),
+                usage: None,
+            },
+            &mut SupervisorDedupState::new(),
+        );
+        let replay = shown.replay.expect("sent prompt is captured");
+        assert_eq!(replay.evaluation_id, shown.response.evaluation_id);
+        assert_eq!(replay.surface, ReplaySurface::Supervisor);
+        assert_eq!(replay.session_id, Some(diff_ready_request().session_id));
+        assert_eq!(replay.project_id, diff_ready_request().project_id);
+        assert_eq!(
+            Some(replay.prompt_version.clone()),
+            shown.log.as_ref().unwrap().prompt_version
+        );
+        assert_eq!(replay.model.as_deref(), Some("mock-supervisor"));
+        assert_eq!(
+            replay.raw_output.as_deref(),
+            Some(valid_diff_ready_decision_json().as_str())
+        );
+        // The stored context rebuilds the exact prompt that was sent.
+        let context: SupervisorContext = serde_json::from_str(&replay.context_json).unwrap();
+        assert_eq!(
+            crate::dive::build_supervisor_prompt(&context).unwrap(),
+            crate::dive::build_supervisor_prompt(&build_context(
+                diff_ready_request(),
+                SourceUiMode::Standard
+            ))
+            .unwrap()
+        );
+        let validation: serde_json::Value = serde_json::from_str(&replay.validation_json).unwrap();
+        assert_eq!(validation["validationOutcome"], json!("shown"));
+
+        let timeout = evaluate_with_output_and_log(
+            diff_ready_request(),
+            StageCSupervisorOutput::Timeout,
+            &mut SupervisorDedupState::new(),
+        );
+        let replay = timeout.replay.expect("a timed-out turn sent the prompt");
+        assert_eq!(replay.raw_output, None);
+
+        for output in [
+            StageCSupervisorOutput::DomainShell,
+            StageCSupervisorOutput::RuntimeUnavailable,
+            StageCSupervisorOutput::Drop(SupervisorDropReason::ContextTooLarge),
+        ] {
+            let evaluated = evaluate_with_output_and_log(
+                diff_ready_request(),
+                output,
+                &mut SupervisorDedupState::new(),
+            );
+            assert!(evaluated.replay.is_none());
+        }
     }
 
     fn behavior_preserving_diff_ready_request(locale: &str) -> ProvocationAgentEvaluateRequest {

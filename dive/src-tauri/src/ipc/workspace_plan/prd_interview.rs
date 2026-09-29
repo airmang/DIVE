@@ -6,8 +6,10 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use futures::StreamExt;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 
+use crate::db::dao::supervision_replay::{NewSupervisionReplay, ReplaySurface};
 use crate::db::dao::{interview_turn as interview_turn_dao, project as project_dao};
 #[cfg(test)]
 use crate::db::models::{
@@ -19,6 +21,7 @@ use crate::db::models::{
 use crate::db::now_ms;
 use crate::dive::event_log as dive_event_log;
 use crate::dive::prompt_version::PromptVersion;
+use crate::dive::replay::capture_replay_best_effort;
 use crate::ipc::AppState;
 use crate::providers::{with_retry, ChatEvent, ChatRequest, FinishReason, Message, ToolChoice};
 #[cfg(test)]
@@ -46,6 +49,8 @@ pub async fn workspace_prd_interview_turn_impl(
 
     let runtime = state.ensure_provider_runtime().await?;
     let turn_id = format!("prd-turn-{}", now_ms());
+    // Joins `prd_interview.turn_evaluated` to its replay-corpus row.
+    let evaluation_id = uuid::Uuid::new_v4().to_string();
     let (raw, turn_finish_reason) = match run_prd_interview_turn(
         runtime.provider.as_ref(),
         input.model.clone(),
@@ -61,9 +66,14 @@ pub async fn workspace_prd_interview_turn_impl(
             // Spec 015 FR-001: a failed model call is still an evaluated turn
             // for the research ledger. Logging is best-effort so it never
             // masks the provider error the student sees.
-            if let Err(log_err) =
-                log_prd_interview_model_error(state, &input, &base_draft, &turn_id, err.class)
-            {
+            if let Err(log_err) = log_prd_interview_model_error(
+                state,
+                &input,
+                &base_draft,
+                &turn_id,
+                &evaluation_id,
+                err.class,
+            ) {
                 tracing::warn!(
                     error = %crate::telemetry::redact_log_text(&log_err),
                     "failed to log PRD interview model error"
@@ -73,6 +83,9 @@ pub async fn workspace_prd_interview_turn_impl(
         }
     };
     let mut parsed = parse_prd_turn_response(&raw, &turn_id);
+    // The model call whose output decided this turn, for the replay corpus.
+    let mut final_raw = raw;
+    let mut final_from_retry = false;
     // 011 재QA 2차: audit which structuring failures were actually response
     // truncation — a Length finish means the model may have been cut before
     // its JSON started, which is invisible in the raw text alone.
@@ -100,6 +113,8 @@ pub async fn workspace_prd_interview_turn_impl(
         .await
         {
             let retry_parsed = parse_prd_turn_response(&retry_raw, &turn_id);
+            final_raw = retry_raw;
+            final_from_retry = true;
             match retry_parsed.parse_failure_kind {
                 None => {
                     parse_failure_kind = parse_failure_kind.map(|kind| format!("{kind}:recovered"));
@@ -117,6 +132,14 @@ pub async fn workspace_prd_interview_turn_impl(
             }
         }
     }
+    // Spec 015 FR-020: the rendered prompt inputs of the model call whose
+    // output decided the turn (with the contract reminder if it was the retry).
+    let replay_context_json = prd_interview_replay_context(
+        &base_draft,
+        &input.conversation,
+        &input.answer,
+        final_from_retry,
+    );
     let assistant_message = parsed
         .assistant_message
         .filter(|message| !message.trim().is_empty())
@@ -303,6 +326,7 @@ pub async fn workspace_prd_interview_turn_impl(
                 project_spec_id: project_spec_id_for_draft(&output.live_draft),
                 draft_id: output.live_draft.draft_id.clone(),
                 turn_id: turn_id.clone(),
+                evaluation_id: evaluation_id.clone(),
                 validation_outcome: output.validation_outcome.clone(),
                 parse_failure_kind: turn_parse_failure_kind.clone(),
                 contract_retry_attempted,
@@ -322,6 +346,26 @@ pub async fn workspace_prd_interview_turn_impl(
     )
     .map_err(|e| e.to_string())?;
 
+    let replay = NewSupervisionReplay {
+        evaluation_id,
+        surface: ReplaySurface::PrdInterview,
+        session_id: interview_session_id,
+        project_id: Some(input.project_id),
+        prompt_version: prd_interview_prompt_version().render(),
+        policy_version: None,
+        model: Some(input.model.clone()),
+        context_json: replay_context_json,
+        raw_output: Some(final_raw),
+        validation_json: json!({
+            "validationOutcome": output.validation_outcome,
+            "parseFailureKind": turn_parse_failure_kind,
+            "contractRetryAttempted": contract_retry_attempted,
+            "appliedFieldPaths": output.applied_field_paths,
+            "rejectedReasons": output.rejected_reasons,
+        })
+        .to_string(),
+    };
+
     interview_turn_dao::insert(
         &tx,
         &NewInterviewTurn {
@@ -334,6 +378,8 @@ pub async fn workspace_prd_interview_turn_impl(
     )
     .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
+    // After the commit, so replay capture can never affect the turn's writes.
+    capture_replay_best_effort(db.conn(), &replay);
 
     Ok(output)
 }
@@ -359,6 +405,7 @@ fn log_prd_interview_model_error(
     input: &PrdInterviewTurnInput,
     draft: &LiveProjectSpecDraftRow,
     turn_id: &str,
+    evaluation_id: &str,
     error_class: &'static str,
 ) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
@@ -374,6 +421,7 @@ fn log_prd_interview_model_error(
                 project_spec_id: project_spec_id_for_draft(draft),
                 draft_id: draft.draft_id.clone(),
                 turn_id: turn_id.to_string(),
+                evaluation_id: evaluation_id.to_string(),
                 validation_outcome: "model_error".into(),
                 parse_failure_kind: None,
                 contract_retry_attempted: false,
@@ -388,8 +436,33 @@ fn log_prd_interview_model_error(
             },
         ),
     )
-    .map(|_| ())
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    // The prompt was sent, so the failed call is still a replayable sample.
+    capture_replay_best_effort(
+        db.conn(),
+        &NewSupervisionReplay {
+            evaluation_id: evaluation_id.to_string(),
+            surface: ReplaySurface::PrdInterview,
+            session_id,
+            project_id: Some(input.project_id),
+            prompt_version: prd_interview_prompt_version().render(),
+            policy_version: None,
+            model: Some(input.model.clone()),
+            context_json: prd_interview_replay_context(
+                draft,
+                &input.conversation,
+                &input.answer,
+                false,
+            ),
+            raw_output: None,
+            validation_json: json!({
+                "validationOutcome": "model_error",
+                "errorClass": error_class,
+            })
+            .to_string(),
+        },
+    );
+    Ok(())
 }
 
 async fn run_prd_interview_turn(
@@ -400,12 +473,9 @@ async fn run_prd_interview_turn(
     answer: &str,
     json_contract_retry: bool,
 ) -> Result<(String, FinishReason), PrdTurnModelError> {
-    let mut user_prompt = build_prd_interview_user_prompt(draft, conversation, answer);
-    if json_contract_retry {
-        // 011 S-057: hard reminder for the deterministic in-turn retry after a
-        // structuring failure — the previous attempt violated the contract.
-        user_prompt.push_str(PRD_INTERVIEW_CONTRACT_RETRY_REMINDER);
-    }
+    let user_prompt =
+        PrdInterviewPromptInputs::new(draft, conversation, answer, json_contract_retry)
+            .render_user_prompt();
     let req = ChatRequest {
         model,
         messages: vec![
@@ -554,22 +624,75 @@ fn build_prd_interview_system_prompt() -> String {
     .join("\n")
 }
 
+/// The per-request values interpolated into the PRD interview user prompt.
+/// With the prompt version they reproduce the exact prompt (replay corpus).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct PrdInterviewPromptInputs {
+    draft_json: String,
+    missing_confirmable: String,
+    next_focus: String,
+    conversation: String,
+    answer: String,
+    json_contract_retry: bool,
+}
+
+impl PrdInterviewPromptInputs {
+    fn new(
+        draft: &LiveProjectSpecDraftRow,
+        conversation: &[PrdInterviewConversationTurnInput],
+        answer: &str,
+        json_contract_retry: bool,
+    ) -> Self {
+        Self {
+            draft_json: serde_json::to_string(&draft.spec).unwrap_or_else(|_| "{}".into()),
+            missing_confirmable: missing_confirmable_prd_fields(&draft.spec).join(", "),
+            next_focus: prd_interview_next_focus(&draft.spec).to_string(),
+            conversation: format_prd_interview_conversation(conversation),
+            answer: answer.to_string(),
+            json_contract_retry,
+        }
+    }
+
+    fn render_user_prompt(&self) -> String {
+        let mut prompt = render_prd_interview_user_prompt(
+            &self.draft_json,
+            &self.missing_confirmable,
+            &self.next_focus,
+            &self.conversation,
+            &self.answer,
+        );
+        if self.json_contract_retry {
+            // 011 S-057: hard reminder for the deterministic in-turn retry after a
+            // structuring failure — the previous attempt violated the contract.
+            prompt.push_str(PRD_INTERVIEW_CONTRACT_RETRY_REMINDER);
+        }
+        prompt
+    }
+}
+
+fn prd_interview_replay_context(
+    draft: &LiveProjectSpecDraftRow,
+    conversation: &[PrdInterviewConversationTurnInput],
+    answer: &str,
+    json_contract_retry: bool,
+) -> String {
+    serde_json::to_string(&PrdInterviewPromptInputs::new(
+        draft,
+        conversation,
+        answer,
+        json_contract_retry,
+    ))
+    .unwrap_or_else(|_| "{}".into())
+}
+
+#[cfg(test)]
 fn build_prd_interview_user_prompt(
     draft: &LiveProjectSpecDraftRow,
     conversation: &[PrdInterviewConversationTurnInput],
     answer: &str,
 ) -> String {
-    let draft_json = serde_json::to_string(&draft.spec).unwrap_or_else(|_| "{}".into());
-    let missing_confirmable = missing_confirmable_prd_fields(&draft.spec).join(", ");
-    let next_focus = prd_interview_next_focus(&draft.spec);
-    let conversation = format_prd_interview_conversation(conversation);
-    render_prd_interview_user_prompt(
-        &draft_json,
-        &missing_confirmable,
-        next_focus,
-        &conversation,
-        answer,
-    )
+    PrdInterviewPromptInputs::new(draft, conversation, answer, false).render_user_prompt()
 }
 
 fn render_prd_interview_user_prompt(

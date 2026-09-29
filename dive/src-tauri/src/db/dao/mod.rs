@@ -1,3 +1,4 @@
+pub mod app_preference;
 pub mod card;
 pub mod checkpoint;
 pub mod event_log;
@@ -12,6 +13,7 @@ pub mod provider_config;
 pub mod session;
 pub mod step;
 pub mod step_session_mapping;
+pub mod supervision_replay;
 pub mod tool_call;
 pub mod workmap;
 

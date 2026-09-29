@@ -1,4 +1,4 @@
-# Contract: EventLog And Export — Signal Instrumentation (S-076)
+# Contract: EventLog And Export — Signal Instrumentation (S-076) And Replay Corpus (S-078)
 
 **Purpose**: Record which prompt and policy produced each supervision event,
 what the student saw, how each card exposure ended, and where a session came
@@ -103,6 +103,7 @@ student answer and assistant message are never included.
   "projectSpecId": "prd-1",
   "draftId": "draft-1",
   "turnId": "prd-turn-1759112345000",
+  "evaluationId": "7f0c…",
   "validationOutcome": "none",
   "parseFailureKind": null,
   "contractRetryAttempted": false,
@@ -146,3 +147,65 @@ because no classroom pilot has run on a pre-v20 build. Exported as
   sanitizer and anonymizer do not hash it by key name; the secret/email/account
   redaction and PII detectors still apply to its value.
 - All new numeric fields and enums are exported as-is.
+
+## Local replay corpus (S-078, FR-020/FR-021)
+
+`SupervisionReplay` (migration v21) holds one row per model call of a
+supervision surface, captured **only when a prompt reached a model** (the
+evaluation event's `promptVersion` is non-null), so the call can be re-run
+offline:
+
+| Column | Meaning |
+| --- | --- |
+| `evaluation_id` (unique) | Joins the row to its event: `supervisorEvaluationId` of `provocation.supervisor_evaluated` (one row per attempt, retries included), `eventId` of `verification_coach.evaluated`, `evaluationId` of `prd_interview.turn_evaluated`. |
+| `surface` | `supervisor` \| `coach` \| `prd_interview`. |
+| `session_id`, `project_id` | Nullable; rows are deleted with their session/project. |
+| `prompt_version`, `policy_version`, `model` | As logged on the event (`policy_version` is supervisor-only). |
+| `context_json` | The prompt inputs: the exact `SupervisorContext` (supervisor); the full generate request (coach); the rendered user-prompt inputs `{draftJson, missingConfirmable, nextFocus, conversation, answer, jsonContractRetry}` of the call that decided the turn (PRD, the in-turn retry when there was one). With `prompt_version` these rebuild the exact prompt. |
+| `raw_output`, `raw_truncated` | The raw model reply, cut at 16 KB on a character boundary (`raw_truncated` = 1 when cut); `NULL` for a sent call that returned nothing (timeout, sidecar or provider error). |
+| `validation_json` | The validation result (outcome, drop/reason code, decision summary or PRD outcome). |
+
+- **Capture switch** (D-015-02): backend preference `replayCapture` in the
+  `AppPreference` table, default ON. Settings → Advanced → "Saved AI review
+  records" shows the row count, toggles capture (`replay_settings_get` /
+  `replay_settings_set`), and deletes all rows (`replay_records_clear`). An
+  unreadable preference counts as OFF.
+- **Retention** on every insert: rows older than 30 days are deleted, then all
+  but the newest 500.
+- **Best effort**: a capture failure is logged as a warning and never fails or
+  changes the user's turn (the PRD row is written after the turn's
+  transaction commits).
+- **Export**: never in the default export. `ExportOptions.include_replay`
+  (IPC `export_session` `options`; there is no export-options UI, so this is
+  IPC-only) appends one `kind: "replay"` record per row of the session, after
+  the events:
+
+```json
+{
+  "kind": "replay",
+  "id": "id:replay:…",
+  "evaluation_id": "…",
+  "surface": "prd_interview",
+  "created_at": 1759112345000,
+  "prompt_version": "1.1.0+2cd96df7",
+  "policy_version": null,
+  "model": "…",
+  "context": { "answer": "h:…", "nextFocus": "capture_intent_summary", "…": "…" },
+  "raw_output": "…",
+  "raw_truncated": false,
+  "validation": { "validationOutcome": "none" }
+}
+```
+
+  `context` and `validation` pass through the provocation sanitizer (raw-body
+  keys summarized, secrets/emails/account ids redacted) and the anonymizer
+  (paths and PII hashed per `hash_file_paths` / `hash_user_text`). With
+  `hash_user_text` on, the known student-text fields of the prompt inputs are
+  hashed too (`answer`, `conversation`, `draftJson`, `goalSummary`,
+  `activeStep`, `label`, `title`, `summary`, `instruction`, `text`,
+  `verificationCommand`, `verificationManualCheck`, `valueSummary`,
+  `rejectedReasons`). `raw_output` is AI output and stays text (D-015-03),
+  with secrets redacted and PII-shaped output hashed — except for the
+  `prd_interview` surface, whose replies restate the student's goal, answers,
+  and criteria nearly verbatim, so with `hash_user_text` on its `raw_output`
+  is hashed as user text.

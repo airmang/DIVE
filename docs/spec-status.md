@@ -69,6 +69,7 @@ archived-status sections below).
 | `specs/015-self-improvement-loops/spec.md`                           | Canonical               | Round-6 umbrella (S-076–S-084): supervision-quality loop A + development QA loop B; offline, versioned, owner-gated improvement (D-015-01). |
 | `specs/015-self-improvement-loops/decisions.md`                      | Canonical               | Records 015 decisions (D-015-xx), including the resolved owner decisions OD-1–OD-5. |
 | `specs/015-self-improvement-loops/plan.md` / `tasks.md`              | Canonical planning aid  | Implementation plan and dependency-ordered tasks for 015. |
+| `specs/015-self-improvement-loops/contracts/event-log-export.md`     | Canonical contract      | 015 EventLog/export additions: prompt/policy versions, card exposure events, session attribution and origin (S-076), and the local replay corpus with its opt-in research replay export (S-078). |
 
 ## External Product Extraction
 

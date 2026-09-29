@@ -3,10 +3,12 @@ use tauri::State;
 use uuid::Uuid;
 
 use crate::db::dao::provider_config as provider_dao;
+use crate::db::dao::supervision_replay::{NewSupervisionReplay, ReplaySurface};
 use crate::dive::event_log::{
     append_to_conn, VERIFICATION_COACH_EVALUATED_EVENT, VERIFICATION_COACH_REQUESTED_EVENT,
     VERIFICATION_OBSERVATION_RECORDED_EVENT,
 };
+use crate::dive::replay::capture_replay_best_effort;
 use crate::dive::verification_coach::{
     build_verification_coach_prompt, evidence_summary, fallback_guidance, next_guide_version,
     parse_guide_json, unavailable_response, validate_guide, verification_coach_prompt_version,
@@ -40,6 +42,10 @@ pub(crate) async fn verification_coach_generate_impl(
     // Spec 015 FR-001: `promptVersion` is logged only when the coach prompt
     // actually reached a model (a returned turn or a mid-turn failure).
     let prompt_sent = !matches!(output, CoachRuntimeOutput::Unavailable(_));
+    let raw_output = match &output {
+        CoachRuntimeOutput::Guide { raw, .. } => Some(raw.clone()),
+        _ => None,
+    };
     let mut response = match output {
         CoachRuntimeOutput::Guide {
             raw,
@@ -84,7 +90,46 @@ pub(crate) async fn verification_coach_generate_impl(
     };
     response.event_id = event_id;
     log_evaluated(state, &request, &response, prompt_sent)?;
+    if prompt_sent {
+        if let Some(replay) = coach_replay_record(&request, &response, raw_output) {
+            if let Ok(db) = state.db.lock() {
+                capture_replay_best_effort(db.conn(), &replay);
+            }
+        }
+    }
     Ok(response)
+}
+
+/// Replay row for a coach evaluation (spec 015 FR-020): the generate request
+/// is the builder input, so the prompt is reproducible from it plus
+/// `promptVersion`.
+fn coach_replay_record(
+    request: &VerificationCoachGenerateRequest,
+    response: &VerificationCoachGenerateResponse,
+    raw_output: Option<String>,
+) -> Option<NewSupervisionReplay> {
+    let context_json = serde_json::to_string(request)
+        .map_err(|err| tracing::warn!(error = %err, "coach replay context did not serialize"))
+        .ok()?;
+    let validation = response.validation.as_ref();
+    Some(NewSupervisionReplay {
+        evaluation_id: response.event_id.clone(),
+        surface: ReplaySurface::Coach,
+        session_id: Some(request.session_id),
+        project_id: request.project_id,
+        prompt_version: verification_coach_prompt_version().render(),
+        policy_version: None,
+        model: response.model.clone(),
+        context_json,
+        raw_output,
+        validation_json: json!({
+            "status": response.status,
+            "validationOutcome": validation.map(|value| &value.outcome),
+            "reasonCode": validation.map(|value| &value.reason_code).or(response.drop_reason.as_ref()),
+            "latencyMs": response.latency_ms,
+        })
+        .to_string(),
+    })
 }
 
 #[tauri::command]
@@ -362,6 +407,36 @@ mod tests {
                 prior_observations: Vec::new(),
             },
         }
+    }
+
+    #[test]
+    fn coach_replay_record_stores_the_request_as_prompt_input() {
+        let request = coach_request();
+        let mut response = unavailable_response(
+            "event-9".to_string(),
+            1,
+            GuidanceReasonCode::Timeout,
+            &request,
+        );
+        response.model = Some("mock-model".into());
+        let replay = coach_replay_record(&request, &response, Some("{\"x\":1}".into())).unwrap();
+        assert_eq!(replay.evaluation_id, "event-9");
+        assert_eq!(replay.surface, ReplaySurface::Coach);
+        assert_eq!(replay.session_id, Some(1));
+        assert_eq!(replay.project_id, Some(1));
+        assert_eq!(replay.raw_output.as_deref(), Some("{\"x\":1}"));
+        assert_eq!(
+            replay.prompt_version,
+            verification_coach_prompt_version().render()
+        );
+        let stored: VerificationCoachGenerateRequest =
+            serde_json::from_str(&replay.context_json).unwrap();
+        assert_eq!(
+            build_verification_coach_prompt(&stored),
+            build_verification_coach_prompt(&request)
+        );
+        let validation: serde_json::Value = serde_json::from_str(&replay.validation_json).unwrap();
+        assert_eq!(validation["reasonCode"], serde_json::json!("timeout"));
     }
 
     #[test]

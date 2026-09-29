@@ -1190,6 +1190,73 @@ async fn prd_interview_no_patch_turn_logs_one_turn_evaluated_event() {
     assert!(!events
         .iter()
         .any(|event| event.r#type.starts_with("prd_patch_")));
+
+    // Spec 015 FR-020: the turn is in the local replay corpus, joined by
+    // evaluationId, with the rendered prompt inputs and the raw model reply.
+    let evaluation_id = payload["evaluationId"].as_str().unwrap();
+    let replay = dive_lib::db::dao::supervision_replay::get_by_evaluation_id(
+        state.db.lock().unwrap().conn(),
+        evaluation_id,
+    )
+    .unwrap()
+    .expect("replay row captured");
+    assert_eq!(replay.surface, "prd_interview");
+    assert_eq!(replay.project_id, Some(project_id));
+    assert_eq!(replay.prompt_version, prompt_version);
+    assert_eq!(replay.model.as_deref(), Some("mock-model"));
+    assert_eq!(
+        replay.raw_output.as_deref(),
+        Some(r#"{"assistantMessage":"어떤 사람이 이 앱을 쓰게 될까요?"}"#)
+    );
+    let inputs: serde_json::Value = serde_json::from_str(&replay.context_json).unwrap();
+    assert_eq!(inputs["answer"], json!("학생-42의 비밀 메모 앱"));
+    assert_eq!(inputs["jsonContractRetry"], json!(false));
+    assert!(inputs["nextFocus"]
+        .as_str()
+        .unwrap()
+        .starts_with("clarify_goal"));
+}
+
+#[tokio::test]
+async fn prd_interview_turn_is_not_captured_when_replay_capture_is_off() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(r#"{"assistantMessage":"좋아요."}"#.into()),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+    dive_lib::dive::replay::set_replay_capture_enabled(state.db.lock().unwrap().conn(), false)
+        .unwrap();
+
+    workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-capture-off".into(),
+            answer: "일정 앱".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let conn_guard = state.db.lock().unwrap();
+    assert_eq!(
+        dive_lib::db::dao::supervision_replay::count(conn_guard.conn()).unwrap(),
+        0
+    );
+    // The evaluation event itself is still logged.
+    assert!(event_log::list(conn_guard.conn())
+        .unwrap()
+        .iter()
+        .any(|event| event.r#type == "prd_interview.turn_evaluated"));
 }
 
 // Spec 015 FR-001 (S-076 review P2-12): a failed model call still leaves one
@@ -1235,6 +1302,18 @@ async fn prd_interview_model_error_logs_turn_evaluated_without_provider_text() {
     let encoded = payload.to_string();
     assert!(!encoded.contains("upstream"));
     assert!(!encoded.contains("sk-live"));
+
+    // The prompt was sent, so the failed call is still captured for replay,
+    // without any output.
+    let replay = dive_lib::db::dao::supervision_replay::get_by_evaluation_id(
+        state.db.lock().unwrap().conn(),
+        payload["evaluationId"].as_str().unwrap(),
+    )
+    .unwrap()
+    .expect("replay row captured");
+    assert_eq!(replay.raw_output, None);
+    assert!(replay.validation_json.contains("stream_error"));
+    assert!(!replay.validation_json.contains("upstream"));
 }
 
 // S-057 GO-gate fix: a nondeterministic contract violation (prose-only first
@@ -1302,6 +1381,16 @@ async fn prd_interview_turn_recovers_via_in_turn_retry_after_no_json() {
         evaluated.payload["parseFailureKind"],
         json!("no_json_truncated:recovered")
     );
+    // The replay row holds the deciding call: the retry, with its reminder.
+    let replay = dive_lib::db::dao::supervision_replay::get_by_evaluation_id(
+        state.db.lock().unwrap().conn(),
+        evaluated.payload["evaluationId"].as_str().unwrap(),
+    )
+    .unwrap()
+    .unwrap();
+    let inputs: serde_json::Value = serde_json::from_str(&replay.context_json).unwrap();
+    assert_eq!(inputs["jsonContractRetry"], json!(true));
+    assert!(replay.raw_output.unwrap().contains("\"set_goal\""));
 
     let turns =
         interview_turn::list_by_draft(state.db.lock().unwrap().conn(), "draft-recovered").unwrap();

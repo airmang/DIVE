@@ -10,6 +10,7 @@ import { LOCALE_LABEL, SUPPORTED_LOCALES, useLocaleStore, useT, type Locale } fr
 import { LearningHint } from "../components/ui/learning-hint";
 import { useUiPreferencesStore } from "../stores/ui-preferences";
 import { ProviderModelSelector } from "../components/settings/ProviderModelSelector";
+import { ReplayRecordsSettings } from "../components/settings/ReplayRecordsSettings";
 import type { ScaffoldMode } from "../features/provocation";
 import { loadTauri } from "../lib/tauri";
 import { classifyConnectError, type ConnectErrorState } from "../lib/error-classify";
@@ -750,6 +751,8 @@ export function SettingsPage() {
               ))}
             </div>
           </details>
+
+          <ReplayRecordsSettings />
 
           {DevMcpSettingsSection ? (
             <Suspense fallback={null}>

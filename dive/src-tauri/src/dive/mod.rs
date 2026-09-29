@@ -10,6 +10,7 @@ pub mod plan_router;
 pub mod prompt_check;
 pub mod prompt_locale;
 pub mod prompt_version;
+pub mod replay;
 pub mod state_machine;
 pub mod supervision_policy;
 pub mod supervisor;

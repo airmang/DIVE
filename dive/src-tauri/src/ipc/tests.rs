@@ -664,6 +664,11 @@ async fn verification_coach_provider_not_configured_logs_requested_and_evaluated
         .find(|row| row.r#type == "verification_coach.requested")
         .unwrap();
     assert!(requested.payload.get("promptVersion").is_none());
+    // No prompt was sent, so nothing enters the replay corpus.
+    assert_eq!(
+        crate::db::dao::supervision_replay::count(db.conn()).unwrap(),
+        0
+    );
 }
 
 #[tokio::test]

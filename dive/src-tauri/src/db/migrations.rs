@@ -25,9 +25,10 @@ const MIGRATIONS: &[(i64, MigrationFn)] = &[
     (18, migration_v18),
     (19, migration_v19),
     (20, migration_v20),
+    (21, migration_v21),
 ];
 
-pub const LATEST_SCHEMA_VERSION: i64 = 20;
+pub const LATEST_SCHEMA_VERSION: i64 = 21;
 
 pub fn migrate(conn: &mut Connection) -> Result<(), DbError> {
     migrate_with_migrations(conn, MIGRATIONS)
@@ -471,6 +472,18 @@ fn migration_v20(tx: &Transaction<'_>) -> rusqlite::Result<()> {
             "ALTER TABLE Session ADD COLUMN origin TEXT NOT NULL DEFAULT 'classroom' CHECK(origin IN ('classroom','qa','dev'));
              UPDATE Session SET origin = 'dev';",
         )?;
+    }
+    Ok(())
+}
+
+/// Spec 015 FR-020/FR-021 (S-078) — local replay corpus (`SupervisionReplay`)
+/// and the backend preference table that holds its capture switch. Purely
+/// additive `CREATE TABLE/INDEX IF NOT EXISTS`.
+fn migration_v21(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    tx.execute_batch(schema::CREATE_SUPERVISION_REPLAY)?;
+    tx.execute_batch(schema::CREATE_APP_PREFERENCE)?;
+    for index in schema::CREATE_V21_INDEXES {
+        tx.execute_batch(index)?;
     }
     Ok(())
 }
@@ -1327,6 +1340,37 @@ mod tests {
             })
             .unwrap();
         assert_eq!(later, "classroom");
+    }
+
+    #[test]
+    fn migration_v21_creates_replay_and_preference_tables_idempotently() {
+        let (db, _tmp) = fresh_db();
+        let tables: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('SupervisionReplay','AppPreference')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 2);
+        let indexes: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name IN ('idx_supervision_replay_created','idx_supervision_replay_session')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(indexes, 2);
+        // The surface CHECK rejects unknown surfaces.
+        assert!(db
+            .conn()
+            .execute(
+                "INSERT INTO SupervisionReplay(evaluation_id, surface, created_at, prompt_version, context_json, validation_json) VALUES ('e', 'chat', 0, '1.0.0+x', '{}', '{}')",
+                [],
+            )
+            .is_err());
     }
 
     #[test]

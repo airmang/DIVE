@@ -24,7 +24,15 @@
 //! Stability:
 //! - Record order within one export is deterministic: session_meta →
 //!   cards (position asc) → messages (id asc) → tool_calls (id asc) →
-//!   checkpoints (created_at asc) → events (id asc).
+//!   checkpoints (created_at asc) → events (id asc) → replay (id asc, only
+//!   with `include_replay`).
+//!
+//! Replay corpus (spec 015 FR-021 / D-015-02): `SupervisionReplay` rows hold
+//! the full prompt inputs (student text included) and raw model output, so
+//! they are never in the default export. `include_replay` is the explicit
+//! research replay export; each row passes through the same sanitizer and
+//! anonymizer, plus hashing of the known student-text fields of the prompt
+//! inputs when `hash_user_text` is on.
 //! - The record kind strings and field names are considered stable API
 //!   consumed by the pilot analysis scripts. Adding fields is safe;
 //!   removing/renaming requires a migration note.
@@ -38,6 +46,7 @@ use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::db::dao::supervision_replay::ReplaySurface;
 use crate::db::Database;
 
 pub mod anonymize;
@@ -85,6 +94,10 @@ pub struct ExportOptions {
     pub hash_file_paths: bool,
     #[serde(default = "default_true")]
     pub hash_ids: bool,
+    /// Research replay export: append one `kind: "replay"` record per local
+    /// replay-corpus row of the session. Off by default (D-015-02).
+    #[serde(default)]
+    pub include_replay: bool,
 }
 
 impl Default for ExportOptions {
@@ -98,6 +111,7 @@ impl Default for ExportOptions {
             hash_user_text: true,
             hash_file_paths: true,
             hash_ids: true,
+            include_replay: false,
         }
     }
 }
@@ -519,8 +533,124 @@ impl ExportEngine {
             }
         }
 
+        if options.include_replay {
+            let rows = crate::db::dao::supervision_replay::list_by_session(conn, session_id)
+                .map_err(|e| ExportError::Db(e.to_string()))?;
+            for row in rows {
+                write_record(&mut out, replay_record(&row, options, salt))?;
+            }
+        }
+
         Ok(out)
     }
+}
+
+/// Keys under which replay prompt inputs carry student-authored text: the PRD
+/// interview answer/conversation/draft, the coach step, and the supervisor
+/// goal/step/artifact labels. Hashed when `hash_user_text` is on.
+const REPLAY_USER_TEXT_KEYS: &[&str] = &[
+    "answer",
+    "conversation",
+    "draftJson",
+    "goalSummary",
+    "activeStep",
+    "label",
+    "title",
+    "summary",
+    "instruction",
+    "text",
+    "verificationCommand",
+    "verificationManualCheck",
+    "valueSummary",
+    "rejectedReasons",
+];
+
+fn hash_replay_user_text(value: &Value, salt: &str) -> Value {
+    fn hash_all(value: &Value, salt: &str) -> Value {
+        match value {
+            Value::String(text) => anonymize::hash_text(text, salt),
+            Value::Array(items) => Value::Array(items.iter().map(|v| hash_all(v, salt)).collect()),
+            Value::Object(map) => Value::Object(
+                map.iter()
+                    .map(|(key, nested)| (key.clone(), hash_all(nested, salt)))
+                    .collect(),
+            ),
+            other => other.clone(),
+        }
+    }
+    match value {
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, nested)| {
+                    let nested = if REPLAY_USER_TEXT_KEYS.contains(&key.as_str()) {
+                        hash_all(nested, salt)
+                    } else {
+                        hash_replay_user_text(nested, salt)
+                    };
+                    (key.clone(), nested)
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| hash_replay_user_text(item, salt))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+fn anonymize_replay_json(raw: &str, options: &ExportOptions, salt: &str) -> Value {
+    let value = serde_json::from_str::<Value>(raw).unwrap_or_else(|_| Value::String(raw.into()));
+    let value = sanitize_provocation_event_payload(&value);
+    let value = if options.hash_user_text {
+        hash_replay_user_text(&value, salt)
+    } else {
+        value
+    };
+    anonymize::anonymize_value(
+        &value,
+        options.hash_user_text,
+        options.hash_file_paths,
+        salt,
+    )
+}
+
+fn replay_record(
+    row: &crate::db::dao::supervision_replay::SupervisionReplayRow,
+    options: &ExportOptions,
+    salt: &str,
+) -> Value {
+    // Raw model output is AI output (D-015-03): kept as text, but secrets,
+    // emails, and account ids are redacted and PII-shaped output is hashed.
+    // PRD interview replies restate the student's goal, answers, and criteria
+    // nearly verbatim, so that surface's output is hashed as user text.
+    let raw_output = row.raw_output.as_deref().map(|raw| {
+        if options.hash_user_text && row.surface == ReplaySurface::PrdInterview.as_str() {
+            return anonymize::hash_text(raw, salt);
+        }
+        anonymize::anonymize_value(
+            &Value::String(redact_export_string(raw)),
+            options.hash_user_text,
+            options.hash_file_paths,
+            salt,
+        )
+    });
+    json!({
+        "kind": "replay",
+        "id": anonymize::maybe_hash_id(options.hash_ids, "replay", row.id, salt),
+        "evaluation_id": row.evaluation_id,
+        "surface": row.surface,
+        "created_at": row.created_at,
+        "prompt_version": row.prompt_version,
+        "policy_version": row.policy_version,
+        "model": row.model,
+        "context": anonymize_replay_json(&row.context_json, options, salt),
+        "raw_output": raw_output,
+        "raw_truncated": row.raw_truncated,
+        "validation": anonymize_replay_json(&row.validation_json, options, salt),
+    })
 }
 
 fn write_record(out: &mut String, v: Value) -> Result<(), ExportError> {

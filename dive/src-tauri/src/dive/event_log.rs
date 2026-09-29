@@ -1417,6 +1417,8 @@ pub struct PrdInterviewTurnEvaluatedPayloadInput {
     pub project_spec_id: String,
     pub draft_id: String,
     pub turn_id: String,
+    /// Joins this row to its `SupervisionReplay` row (spec 015 FR-020).
+    pub evaluation_id: String,
     pub validation_outcome: String,
     pub parse_failure_kind: Option<String>,
     pub contract_retry_attempted: bool,
@@ -1441,6 +1443,7 @@ pub fn prd_interview_turn_evaluated_payload(input: PrdInterviewTurnEvaluatedPayl
         "projectSpecId": input.project_spec_id,
         "draftId": input.draft_id,
         "turnId": input.turn_id,
+        "evaluationId": input.evaluation_id,
         "validationOutcome": input.validation_outcome,
         "parseFailureKind": input.parse_failure_kind,
         "contractRetryAttempted": input.contract_retry_attempted,
