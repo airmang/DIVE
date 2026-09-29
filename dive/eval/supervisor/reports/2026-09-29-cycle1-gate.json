@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "kind": "supervisor-eval-gate",
+  "pass": true,
+  "promptVersion": "1.1.0+152895a8",
+  "baseline": "1.0.0+256c9520",
+  "policyVersion": "1.0.0",
+  "baselinePolicyVersion": "1.0.0",
+  "split": "holdout",
+  "model": "anthropic/claude-sonnet-5",
+  "tolerance": {
+    "maxRateDrop": 0.05,
+    "maxCountIncrease": {
+      "overLimitQuestions": 0,
+      "localeViolations": 0
+    }
+  },
+  "groups": {
+    "gated": [
+      {
+        "split": "holdout",
+        "model": "anthropic/claude-sonnet-5",
+        "baseResults": 11,
+        "headResults": 11
+      }
+    ],
+    "newInHead": [],
+    "missingInHead": []
+  },
+  "metrics": [
+    {
+      "split": "holdout",
+      "model": "anthropic/claude-sonnet-5",
+      "metric": "provokeAgreement",
+      "before": 1,
+      "after": 1,
+      "limit": "drop ≤ 5 pp",
+      "pass": true
+    },
+    {
+      "split": "holdout",
+      "model": "anthropic/claude-sonnet-5",
+      "metric": "dropReasonMatch",
+      "before": null,
+      "after": null,
+      "limit": "drop ≤ 5 pp",
+      "pass": true,
+      "note": "not comparable (nothing checked on one side)"
+    },
+    {
+      "split": "holdout",
+      "model": "anthropic/claude-sonnet-5",
+      "metric": "localeCompliance",
+      "before": 1,
+      "after": 1,
+      "limit": "drop ≤ 5 pp",
+      "pass": true
+    },
+    {
+      "split": "holdout",
+      "model": "anthropic/claude-sonnet-5",
+      "metric": "criterionLinkage",
+      "before": 0.8,
+      "after": 1,
+      "limit": "drop ≤ 5 pp",
+      "pass": true
+    },
+    {
+      "split": "holdout",
+      "model": "anthropic/claude-sonnet-5",
+      "metric": "evidencePrecision",
+      "before": 1,
+      "after": 1,
+      "limit": "drop ≤ 5 pp",
+      "pass": true
+    },
+    {
+      "split": "holdout",
+      "model": "anthropic/claude-sonnet-5",
+      "metric": "requiredEvidenceCited",
+      "before": 1,
+      "after": 1,
+      "limit": "drop ≤ 5 pp",
+      "pass": true
+    },
+    {
+      "split": "holdout",
+      "model": "anthropic/claude-sonnet-5",
+      "metric": "overLimitQuestions",
+      "before": 0,
+      "after": 0,
+      "limit": "increase ≤ 0",
+      "pass": true
+    },
+    {
+      "split": "holdout",
+      "model": "anthropic/claude-sonnet-5",
+      "metric": "localeViolations",
+      "before": 0,
+      "after": 0,
+      "limit": "increase ≤ 0",
+      "pass": true
+    }
+  ],
+  "hardFails": [],
+  "failures": [],
+  "regressions": [],
+  "advisory": {
+    "judge": null
+  },
+  "claim": "These metrics describe SupervisorAgent output on synthetic fixtures (card-quality proxies). They are not evidence of student supervision skill, metacognition, or reduced AI overreliance."
+}
