@@ -112,7 +112,7 @@ pub struct ProvocationAgentEvaluateResponse {
 }
 
 #[derive(Debug, Clone)]
-enum StageCSupervisorOutput {
+pub(crate) enum StageCSupervisorOutput {
     DomainShell,
     DecisionJson {
         raw: String,
@@ -132,7 +132,7 @@ const SUPERVISOR_EVALUATION_ATTEMPTS_DEFAULT: usize = 3;
 /// turn must satisfy several strict validators (schema, concern, question form,
 /// evidence, length, timeout); each recoverable miss is independent, so a couple
 /// of retries lift the realized show-rate from ~80-90% to ~95-99%.
-fn supervisor_evaluation_attempts() -> usize {
+pub(crate) fn supervisor_evaluation_attempts() -> usize {
     std::env::var("DIVE_SUPERVISOR_EVALUATION_ATTEMPTS")
         .ok()
         .and_then(|raw| raw.trim().parse::<usize>().ok())
@@ -162,7 +162,7 @@ fn is_recoverable_supervisor_drop(reason: SupervisorDropReason) -> bool {
     )
 }
 
-fn should_retry_supervisor(response: &ProvocationAgentEvaluateResponse) -> bool {
+pub(crate) fn should_retry_supervisor(response: &ProvocationAgentEvaluateResponse) -> bool {
     response.status == ProvocationAgentEvaluateStatus::Dropped
         && response
             .drop_reason
@@ -258,10 +258,21 @@ async fn supervisor_output_from_runtime(
         Err(_) => return StageCSupervisorOutput::RuntimeUnavailable,
     };
     let context = build_context(request.clone(), normalized.source_ui_mode);
-    if !supervisor_provoke_gate(&context) {
+    supervisor_output_for_context(state, &context).await
+}
+
+/// One SupervisorAgent turn for an already-built context: provoke gate, prompt,
+/// provider runtime, Pi sidecar. The IPC command and the offline eval runner
+/// (`crate::eval::supervisor`, spec 015 S-079) both call this, so an eval run
+/// takes the production path (Constitution III).
+pub(crate) async fn supervisor_output_for_context(
+    state: &AppState,
+    context: &SupervisorContext,
+) -> StageCSupervisorOutput {
+    if !supervisor_provoke_gate(context) {
         return StageCSupervisorOutput::DomainShell;
     }
-    let prompt = match build_supervisor_prompt(&context) {
+    let prompt = match build_supervisor_prompt(context) {
         Ok(prompt) => prompt,
         Err(reason) => return StageCSupervisorOutput::Drop(reason),
     };
@@ -587,7 +598,7 @@ fn attach_evaluation_id(validation: &mut SupervisorValidationResult, evaluation_
     }
 }
 
-fn response_from_validation(
+pub(crate) fn response_from_validation(
     evaluation_id: String,
     validation: SupervisorValidationResult,
     _context: Option<&SupervisorContext>,

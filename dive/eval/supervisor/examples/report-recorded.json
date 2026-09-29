@@ -2,16 +2,16 @@
   "schemaVersion": 1,
   "kind": "supervisor-eval-report",
   "mode": "recorded",
-  "generatedAt": "2026-09-29T12:00:00Z",
-  "note": "Example report for docs and tests: metrics computed from the hand-authored recordings through the real Rust validation path. Not a live-model run.",
+  "generatedAt": "2026-09-29T04:01:00Z",
+  "note": "Example report for docs and tests, written by the Rust recorded runner over the hand-authored recordings (examples/eval_supervisor.rs). Not a live-model run.",
   "fixtureCount": 34,
   "groups": [
     {
       "key": {
+        "split": "dev",
         "promptVersion": "1.0.0+256c9520",
         "policyVersion": "1.0.0",
-        "model": "hand-authored",
-        "split": "dev"
+        "model": "hand-authored"
       },
       "resultCount": 23,
       "outcomes": {
@@ -21,44 +21,44 @@
         "error": 1
       },
       "dropReasons": {
-        "provoke_false": 4,
-        "parse_error": 1,
         "disallowed_concern": 1,
-        "unknown_evidence_ref": 1,
-        "not_question": 1
+        "not_question": 1,
+        "parse_error": 1,
+        "provoke_false": 4,
+        "unknown_evidence_ref": 1
       },
       "provokeAgreement": {
         "checked": 19,
         "agree": 19,
         "falseProvoke": 0,
         "missedProvoke": 0,
-        "rate": 1
+        "rate": 1.0
       },
       "dropReasonMatch": {
         "checked": 4,
         "matched": 4,
-        "rate": 1
+        "rate": 1.0
       },
       "localeCompliance": {
         "checked": 15,
         "compliant": 15,
-        "rate": 1
+        "rate": 1.0
       },
       "criterionLinkage": {
         "checked": 15,
         "linked": 15,
-        "rate": 1
+        "rate": 1.0
       },
       "evidencePrecision": {
         "checked": 15,
-        "mean": 1,
+        "mean": 1.0,
         "requiredCited": 15,
         "requiredChecked": 15
       },
       "questionLength": {
         "count": 15,
         "min": 63,
-        "median": 74,
+        "median": 74.0,
         "max": 135,
         "mean": 92.06666666666666,
         "overLimit": 0
@@ -172,7 +172,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 68
           }
@@ -204,7 +204,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 120
           }
@@ -264,7 +264,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 63
           }
@@ -296,7 +296,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 63
           }
@@ -328,7 +328,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 69
           }
@@ -360,7 +360,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 105
           }
@@ -392,7 +392,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 127
           }
@@ -424,7 +424,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 64
           }
@@ -456,7 +456,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 120
           }
@@ -525,7 +525,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 122
           }
@@ -557,7 +557,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 115
           }
@@ -593,7 +593,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 65
           }
@@ -658,7 +658,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 135
           }
@@ -690,7 +690,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 74
           }
@@ -722,7 +722,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 71
           }
@@ -791,10 +791,10 @@
     },
     {
       "key": {
+        "split": "holdout",
         "promptVersion": "1.0.0+256c9520",
         "policyVersion": "1.0.0",
-        "model": "hand-authored",
-        "split": "holdout"
+        "model": "hand-authored"
       },
       "resultCount": 11,
       "outcomes": {
@@ -811,7 +811,7 @@
         "agree": 11,
         "falseProvoke": 0,
         "missedProvoke": 0,
-        "rate": 1
+        "rate": 1.0
       },
       "dropReasonMatch": {
         "checked": 0,
@@ -821,23 +821,23 @@
       "localeCompliance": {
         "checked": 5,
         "compliant": 5,
-        "rate": 1
+        "rate": 1.0
       },
       "criterionLinkage": {
         "checked": 5,
         "linked": 5,
-        "rate": 1
+        "rate": 1.0
       },
       "evidencePrecision": {
         "checked": 5,
-        "mean": 1,
+        "mean": 1.0,
         "requiredCited": 5,
         "requiredChecked": 5
       },
       "questionLength": {
         "count": 5,
         "min": 68,
-        "median": 113,
+        "median": 113.0,
         "max": 135,
         "mean": 101.2,
         "overLimit": 0
@@ -924,7 +924,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 119
           }
@@ -956,7 +956,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 135
           }
@@ -1042,7 +1042,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 71
           }
@@ -1101,7 +1101,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 68
           }
@@ -1133,7 +1133,7 @@
             "dropReasonMatch": null,
             "localeCompliant": true,
             "criterionLinked": true,
-            "evidencePrecision": 1,
+            "evidencePrecision": 1.0,
             "requiredEvidenceCited": true,
             "questionChars": 113
           }

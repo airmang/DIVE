@@ -115,6 +115,17 @@ name = "verify_engine"
 path = "tests/verify_engine.rs"
 required-features = ["dev-mock"]
 
+[[test]]
+name = "eval_supervisor_recorded"
+path = "tests/eval_supervisor_recorded.rs"
+required-features = ["dev-mock"]
+
+# SupervisorAgent eval CLI (spec 015 S-079): recorded + live modes.
+[[example]]
+name = "eval_supervisor"
+path = "examples/eval_supervisor.rs"
+required-features = ["dev-mock"]
+
 [profile.release]
 panic = "abort"
 codegen-units = 1

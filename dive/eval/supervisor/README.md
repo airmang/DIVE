@@ -13,16 +13,74 @@ eval/supervisor/
   examples/                   example report + judgment files (docs, tests)
 ```
 
-| Command                                                                        | What it does                                                                                                   |
-| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| `pnpm eval:fixtures`                                                           | Format + coverage check of every fixture (also runs in `pnpm test:unit` via `scripts/eval-fixtures.test.mjs`). |
-| `pnpm eval:fixtures -- --rehash`                                               | Recompute `context.contextHash` after an intended context edit (then run `pnpm prettier --write eval/`).       |
-| `pnpm eval:report <report.json> [-- --judge <judge.json>]`                     | Render a runner report as Markdown.                                                                            |
-| `pnpm eval:report -- --compare <base.json> <head.json> [--judge <judge.json>]` | Before/after diff with a delta per metric and the fixtures whose outcome changed.                              |
+| Command                                                                         | What it does                                                                                                   |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `pnpm eval:fixtures`                                                            | Format + coverage check of every fixture (also runs in `pnpm test:unit` via `scripts/eval-fixtures.test.mjs`). |
+| `pnpm eval:fixtures -- --rehash`                                                | Recompute `context.contextHash` after an intended context edit (then run `pnpm prettier --write eval/`).       |
+| `pnpm eval:report <report.json> [-- --judge <judge.json>]`                      | Render a runner report as Markdown.                                                                            |
+| `pnpm eval:report -- --compare <base.json> <head.json> [--judge <judge.json>]`  | Before/after diff with a delta per metric and the fixtures whose outcome changed.                              |
+| `pnpm eval:supervisor:recorded` / `pnpm eval:supervisor:live -- --db <dive.db>` | Run the Rust runner (see How to run).                                                                          |
 
-The runner that produces reports is the Rust `eval::supervisor` module (T041–T043).
-Recorded mode runs in CI; live mode is a manual `#[ignore]` test capped at
-`2 × fixture count` model calls (D-015-06).
+Reports come from the Rust runner `dive_lib::eval::supervisor`
+(`src-tauri/src/eval/supervisor/`; every metric is defined once, in
+`metrics.rs`), driven by `src-tauri/examples/eval_supervisor.rs`.
+
+## How to run
+
+All commands from `dive/`. Reports go to
+`src-tauri/target/eval/supervisor-<mode>-<promptVersion>.json` unless `--out`
+is given.
+
+**Recorded mode** (offline, no model calls; CI runs the same checks in
+`src-tauri/tests/eval_supervisor_recorded.rs` under
+`cargo test --features dev-mock --all-targets`):
+
+```sh
+pnpm eval:supervisor:recorded                      # current promptVersion
+pnpm eval:supervisor:recorded -- --prompt-version 1.0.0+256c9520 --out /tmp/base.json
+pnpm eval:report src-tauri/target/eval/supervisor-recorded-<promptVersion>.json
+```
+
+It exits non-zero when a fixture is inconsistent (hash, gate vs
+`expect.gatePasses`) or when a gate-passing fixture has no recording for the
+version. After a supervisor prompt semver bump, CI fails with
+`record fixtures for <version>: run the live eval` until live recordings are
+added.
+
+**Live mode** (manual, local only, costs provider calls; D-015-06):
+
+```sh
+DIVE_SECRET_BACKEND=local-file \
+DIVE_LOCAL_SECRET_PATH="$HOME/Library/Application Support/com.coreelab.dive/qa-secrets.json" \
+pnpm eval:supervisor:live -- --db "$HOME/Library/Application Support/com.coreelab.dive/dive.db" \
+  [--write-recordings] [--out <report.json>]
+```
+
+- `--db` is copied (with `-wal`/`-shm`) into a temp directory before it is
+  opened and migrated; the original is never written. Secrets come from the
+  same backend the app uses: `DIVE_SECRET_BACKEND=local-file` +
+  `DIVE_LOCAL_SECRET_PATH`, otherwise the OS keyring.
+- The provider runtime hydrates from the copied DB like the app's first
+  supervisor call, and each gate-passing fixture's `build_supervisor_prompt`
+  output goes through `supervisor_output_for_context`, the function the
+  `provocation_agent_evaluate` command uses: the Pi sidecar
+  (`node pi-sidecar/src/main.mjs` in a debug build), the production turn
+  timeout, and the production attempt loop
+  (`DIVE_SUPERVISOR_EVALUATION_ATTEMPTS`, default 3). Needs `node` and
+  `pi-sidecar/node_modules`.
+- Negative-control fixtures are skipped (their contexts duplicate a valid
+  fixture). Gate-closed fixtures make no call.
+- Hard cap: `2 × fixture count` model calls. The run refuses to start when the
+  worst case (live fixtures × attempts) exceeds it, and aborts if the runtime
+  becomes unavailable mid-run.
+- `--write-recordings` appends each returned raw output to its fixture under
+  the current promptVersion (`source: "live"`). Then run
+  `pnpm prettier --write eval/supervisor/fixtures && pnpm eval:fixtures`.
+- Output lines carry fixture ids, outcomes and call counts only: no secrets
+  and no raw model output.
+
+Compare a candidate prompt against the baseline:
+`pnpm eval:report -- --compare <base.json> <head.json>`.
 
 ## Fixture format
 
@@ -121,9 +179,11 @@ event × locale × mode, a negative per event, the four negative controls,
 
 ## Report format (runner output)
 
-The runner writes `target/eval/supervisor-<promptVersion>.json`;
-`scripts/eval-report.mjs` renders it. Example:
+The runner writes `target/eval/supervisor-<mode>-<promptVersion>.json`;
+`scripts/eval-report.mjs` renders it. Example (written by the Rust runner):
 [`examples/report-recorded.json`](examples/report-recorded.json).
+`tests/eval_supervisor_recorded.rs` checks both examples against the writer's
+schema; `scripts/eval-report.test.mjs` renders them.
 
 ```jsonc
 {
@@ -140,7 +200,9 @@ The runner writes `target/eval/supervisor-<promptVersion>.json`;
 ```
 
 **Result**: one per (fixture, recording) in recorded mode, one per model call in
-live mode.
+live mode (a production retry is another result with `attempt` > 0; gate-closed
+fixtures get one result without a call). Recorded gate-closed results take
+their recording's `model`/`source` for grouping, or `(no recording)`/`none`.
 
 ```jsonc
 {
@@ -150,6 +212,7 @@ live mode.
   "locale": "ko-KR",
   "mode": "work",
   "recordingIndex": 0,
+  // "attempt": 0,             // live mode only
   "source": "hand-authored",
   "model": "hand-authored",
   "expected": { "shouldProvoke": true /* , "expectedDropReason": "not_question" */ },

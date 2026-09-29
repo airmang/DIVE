@@ -48,9 +48,11 @@ describe("example reports", () => {
 describe("renderReport", () => {
   const markdown = renderReport(readReport(BASE));
 
-  it("states the claim discipline and the example note", () => {
+  it("renders the report the Rust runner wrote (Rust → Node round trip)", () => {
+    // examples/report-recorded.json is output of `eval_supervisor recorded`;
+    // tests/eval_supervisor_recorded.rs checks it against the writer's schema.
     expect(markdown).toContain(CLAIM_NOTE);
-    expect(markdown).toContain("_Example report for docs and tests:");
+    expect(markdown).toContain("written by the Rust recorded runner");
   });
 
   it("summarizes each (promptVersion, policyVersion, model, split) group", () => {

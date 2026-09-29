@@ -5,6 +5,9 @@ pub mod auth;
 pub mod checkpoint;
 pub mod db;
 pub mod dive;
+// Offline eval harnesses (spec 015 S-079): development tooling, not shipped.
+#[cfg(any(test, feature = "dev-mock"))]
+pub mod eval;
 pub mod export;
 pub(crate) mod http_client;
 pub mod ipc;
