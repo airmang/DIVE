@@ -115,6 +115,15 @@
         "recordedAt": "2026-09-29T04:10:43Z",
         "source": "live"
       }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"plan_draft_weakness\",\"severity\":\"caution\",\"question\":\"Does building login, profile and settings pages all at once still let you verify members can log in with email?\",\"evidenceRefIds\":[\"plan.step.s_001.scope\",\"plan.criteria\"],\"suggestedActionIds\":[\"split_scope\",\"link_criterion\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T05:49:42Z",
+        "source": "live",
+        "attempt": 0
+      }
     ]
   }
 }

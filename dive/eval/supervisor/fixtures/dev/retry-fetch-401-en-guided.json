@@ -137,6 +137,15 @@
         "recordedAt": "2026-09-29T04:10:43Z",
         "source": "live"
       }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"retry_loop\",\"severity\":\"caution\",\"question\":\"This 401 unauthorized error has repeated 3 times—could an auth or API key issue be blocking loading today's weather data?\",\"evidenceRefIds\":[\"failure.fingerprint\",\"failure.count\",\"recovery.state\"],\"suggestedActionIds\":[\"create_repro_steps\",\"rollback_last_change\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T05:49:42Z",
+        "source": "live",
+        "attempt": 0
+      }
     ]
   }
 }

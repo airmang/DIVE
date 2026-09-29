@@ -122,6 +122,15 @@
         "recordedAt": "2026-09-29T04:10:43Z",
         "source": "live"
       }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"scope_expansion\",\"severity\":\"caution\",\"question\":\"혼자 쓰는 할 일 앱에서 마감일을 정하는 목표에 '친구와 할 일 공유' 기능이 꼭 필요한가요?\",\"evidenceRefIds\":[\"add_step.linked_criterion_ids\",\"prd_delta.scope_changes_0\"],\"suggestedActionIds\":[\"link_criterion\",\"split_scope\",\"edit_prd\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T05:49:42Z",
+        "source": "live",
+        "attempt": 0
+      }
     ]
   }
 }

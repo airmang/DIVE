@@ -117,6 +117,14 @@
         "recordedAt": "2026-09-29",
         "source": "hand-authored"
       }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"scope_expansion\",\"severity\":\"caution\",\"question\":\"Comments aren't covered by the favorites criterion. Should this become a new PRD criterion before you add the step?\",\"evidenceRefIds\":[\"prd.ac_999\",\"add_step.linked_criterion_ids\"],\"suggestedActionIds\":[\"edit_prd\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
     ]
   }
 }

@@ -139,6 +139,15 @@
         "recordedAt": "2026-09-29T04:10:43Z",
         "source": "live"
       }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"diff_scope_drift\",\"severity\":\"caution\",\"question\":\"메모 파일 이름과 폴더만 정리하면서 기능은 그대로 두었는지 diff로 확인했나요?\",\"evidenceRefIds\":[\"diff.changed_files\",\"step.scope\",\"diff.behavior_preserving_refactor\"],\"suggestedActionIds\":[\"open_diff\",\"run_tests\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T05:49:42Z",
+        "source": "live",
+        "attempt": 0
+      }
     ]
   }
 }

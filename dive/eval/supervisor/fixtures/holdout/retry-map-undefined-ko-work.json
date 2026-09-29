@@ -137,6 +137,15 @@
         "recordedAt": "2026-09-29T04:10:43Z",
         "source": "live"
       }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"retry_loop\",\"severity\":\"caution\",\"question\":\"같은 TypeError가 3번 반복됐는데, '할 일 목록 불러오기'에서 데이터가 undefined인 원인을 파악하셨나요?\",\"evidenceRefIds\":[\"failure.fingerprint\",\"failure.count\",\"failure.last_action\"],\"suggestedActionIds\":[\"open_diff\",\"rollback_last_change\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T05:49:42Z",
+        "source": "live",
+        "attempt": 0
+      }
     ]
   }
 }

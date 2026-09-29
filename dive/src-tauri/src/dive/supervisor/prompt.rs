@@ -6,7 +6,7 @@ use crate::dive::prompt_version::PromptVersion;
 /// Semver of the SupervisorAgent prompt template (spec 015 FR-001). Bump it
 /// whenever `render_supervisor_prompt` or `prompt_action_instruction` text
 /// changes; the pin test in `supervisor/tests.rs` enforces it.
-pub const SUPERVISOR_PROMPT_SEMVER: &str = "1.0.0";
+pub const SUPERVISOR_PROMPT_SEMVER: &str = "1.1.0";
 
 /// Events whose prompt text is hashed into the prompt version, in hash order.
 /// `supervisor_prompt_fingerprint_lists_every_event_once` enumerates every
@@ -86,9 +86,9 @@ fn render_supervisor_prompt(event: SupervisorEvent, english: bool, context_json:
         concern = concern,
         action = prompt_action_instruction(event),
         question_instruction = if english {
-            "Ask one criterion-linked question, written in English, within 140 characters."
+            "Ask one criterion-linked question, written in English, within 140 characters. Anchor it to what the student is trying to achieve: reuse the words of the acceptance criterion, active step, or goal summary in the context, and connect the error, change, or claim to that outcome instead of asking only how to debug it."
         } else {
-            "Ask one criterion-linked question, written in Korean, within 140 characters."
+            "Ask one criterion-linked question, written in Korean, within 140 characters. Anchor it to what the student is trying to achieve: reuse the words of the acceptance criterion, active step, or goal summary in the context, and connect the error, change, or claim to that outcome instead of asking only how to debug it."
         },
         context_json = context_json,
     )

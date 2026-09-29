@@ -152,6 +152,15 @@
         "recordedAt": "2026-09-29T04:10:43Z",
         "source": "live"
       }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"diff_scope_drift\",\"severity\":\"caution\",\"question\":\"완료 체크박스 추가 작업인데 auth.ts 변경이 왜 필요한가요?\",\"evidenceRefIds\":[\"diff.unexpected_files\",\"diff.high_risk_files\",\"step.scope\"],\"suggestedActionIds\":[\"open_diff\",\"revert_unrelated_changes\",\"ask_ai_for_rationale\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T05:49:42Z",
+        "source": "live",
+        "attempt": 0
+      }
     ]
   }
 }

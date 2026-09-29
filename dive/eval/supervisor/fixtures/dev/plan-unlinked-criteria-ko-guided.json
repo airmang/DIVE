@@ -137,6 +137,15 @@
         "recordedAt": "2026-09-29T04:10:43Z",
         "source": "live"
       }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"plan_draft_weakness\",\"severity\":\"caution\",\"question\":\"책 목록 화면과 검색창 단계가 '반납 예정일 표시'와 '책 제목 검색' 기준과 어떻게 연결되는지 알려줄 수 있나요?\",\"evidenceRefIds\":[\"plan.step.s_001.criteria\",\"plan.step.s_002.criteria\",\"plan.criteria\"],\"suggestedActionIds\":[\"link_criterion\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T05:49:42Z",
+        "source": "live",
+        "attempt": 0
+      }
     ]
   }
 }

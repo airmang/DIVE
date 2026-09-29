@@ -128,7 +128,7 @@ describe("checkCoverage", () => {
         fixture.expect.expectedDropReason !== "parse_error",
     );
     const stale = structuredClone(without);
-    stale[0].fixture.recorded["1.1.0+0123abcd"] = [
+    stale[0].fixture.recorded["9.9.9+0123abcd"] = [
       {
         rawOutput: "{}",
         model: "hand-authored",
@@ -141,7 +141,7 @@ describe("checkCoverage", () => {
     expect(problems).toMatch(/no holdout fixture for retry_loop/);
     expect(problems).toMatch(/no negative-control fixture with expectedDropReason "parse_error"/);
     expect(problems).toMatch(/fixtures; at least 30 are required/);
-    expect(problems).toMatch(/no recording for the newest promptVersion 1\.1\.0\+0123abcd/);
+    expect(problems).toMatch(/no recording for the newest promptVersion 9\.9\.9\+0123abcd/);
   });
 
   it("reports duplicate ids and a lopsided split", () => {

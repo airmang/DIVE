@@ -137,6 +137,15 @@
         "recordedAt": "2026-09-29T04:10:43Z",
         "source": "live"
       }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"retry_loop\",\"severity\":\"caution\",\"question\":\"This timeout has failed 4 times saving score after finish—should you split this step to isolate why scores aren't saved?\",\"evidenceRefIds\":[\"failure.fingerprint\",\"failure.count\",\"failure.last_action\"],\"suggestedActionIds\":[\"split_scope\",\"open_diff\",\"run_tests\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T05:49:42Z",
+        "source": "live",
+        "attempt": 0
+      }
     ]
   }
 }

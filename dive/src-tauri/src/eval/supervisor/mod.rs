@@ -640,8 +640,17 @@ mod tests {
         replay_trial(loaded, 0, &trial.iter().collect::<Vec<_>>(), max_attempts)
     }
 
+    /// Any valid recorded output of the fixture — these unit tests exercise the
+    /// replay rules, so they must not depend on the current prompt version
+    /// having recordings (a prompt bump would break them until the live eval).
     fn only_recording(loaded: &LoadedFixture) -> String {
-        loaded.fixture.recorded[&current_prompt_version()][0]
+        loaded
+            .fixture
+            .recorded
+            .values()
+            .flatten()
+            .next()
+            .expect("fixture has at least one recording")
             .raw_output
             .clone()
     }

@@ -1628,7 +1628,7 @@ fn supervisor_prompt_version_is_pinned() {
     // rewrite an existing entry.
     crate::dive::prompt_version::assert_prompt_version_pinned(
         supervisor_prompt_version(),
-        &[("1.0.0", "256c9520")],
+        &[("1.0.0", "256c9520"), ("1.1.0", "152895a8")],
     );
 }
 

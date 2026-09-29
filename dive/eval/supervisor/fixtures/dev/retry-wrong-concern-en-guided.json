@@ -132,6 +132,14 @@
         "recordedAt": "2026-09-29",
         "source": "hand-authored"
       }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"ai_self_report_only\",\"severity\":\"caution\",\"question\":\"Loading the weather data failed with the same 401 error 3 times. Would rolling back the last change help you see what broke it?\",\"evidenceRefIds\":[\"failure.fingerprint\",\"failure.count\"],\"suggestedActionIds\":[\"rollback_last_change\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
     ]
   }
 }

@@ -81,6 +81,15 @@
         "recordedAt": "2026-09-29T04:10:43Z",
         "source": "live"
       }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"ai_self_report_only\",\"severity\":\"caution\",\"question\":\"Have you run the tests to confirm the 5-day forecast actually shows daily high and low temperatures?\",\"evidenceRefIds\":[\"agent.assistant_claim\",\"verify.test_result\"],\"suggestedActionIds\":[\"run_tests\",\"open_diff\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T05:49:42Z",
+        "source": "live",
+        "attempt": 0
+      }
     ]
   }
 }

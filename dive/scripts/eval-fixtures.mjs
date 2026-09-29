@@ -487,7 +487,7 @@ export function loadFixtures(root = DEFAULT_FIXTURE_ROOT) {
  * Set-level checks: unique ids, ≥30 fixtures, every event × locale × mode,
  * every event in both splits with at least one negative, the required
  * negative-control drop reasons, a roughly 2:1 split, and recordings for the
- * newest promptVersion on every fixture.
+ * newest promptVersion on every gate-passing fixture.
  */
 export function checkCoverage(entries) {
   const problems = [];
@@ -548,6 +548,10 @@ export function checkCoverage(entries) {
   const latest = [...versions].sort(compareSemver).at(-1);
   if (latest) {
     for (const { fixture } of entries) {
+      // Gate-closed fixtures never reach a model (no prompt is sent), so only
+      // gate-passing fixtures need a recording for the newest version — the
+      // same rule as the Rust recorded-mode test.
+      if (fixture.expect?.gatePasses === false) continue;
       if (!fixture.recorded?.[latest]?.length) {
         problems.push(`${fixture.id}: no recording for the newest promptVersion ${latest}`);
       }

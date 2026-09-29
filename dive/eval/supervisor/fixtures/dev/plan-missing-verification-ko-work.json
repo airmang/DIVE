@@ -140,6 +140,15 @@
         "recordedAt": "2026-09-29T04:10:43Z",
         "source": "live"
       }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"plan_draft_weakness\",\"severity\":\"caution\",\"question\":\"생일 3일 전에 알림이 표시된다는 조건을 '생일 알림 기능 구현' 단계에서 어떻게 검증할 계획이야?\",\"evidenceRefIds\":[\"plan.criteria\",\"plan.step.s_002.verification\"],\"suggestedActionIds\":[\"add_verification_step\",\"link_criterion\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T05:49:42Z",
+        "source": "live",
+        "attempt": 0
+      }
     ]
   }
 }

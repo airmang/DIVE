@@ -134,6 +134,14 @@
         "recordedAt": "2026-09-29",
         "source": "hand-authored"
       }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "파일 이름만 바뀐 리팩터로 보입니다. 메모 기능이 그대로인지 테스트로 확인하는 것이 좋겠습니다.",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
     ]
   }
 }
