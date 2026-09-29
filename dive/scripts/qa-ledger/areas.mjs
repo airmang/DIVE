@@ -239,6 +239,8 @@ export const AREAS = Object.freeze({
     "dive/src-tauri/src/ipc/timeline.rs",
     "dive/src-tauri/src/db/dao/event_log.rs",
     "dive/src-tauri/src/telemetry.rs",
+    "dive/src-tauri/src/dive/replay.rs",
+    "dive/src-tauri/src/ipc/replay.rs",
     "dive/src/features/provocation/logging.ts",
     "dive/src/pages/research-survey.tsx",
   ],
