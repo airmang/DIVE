@@ -59,8 +59,16 @@ has a fresh salt) and groups by event, concern, mode, `promptVersion`,
 mark-irrelevant / continued-with-risk / unanswered counts and rates (the
 denominator is exposures); median response latency; median visible time of
 unanswered cards; supervisor outcome and drop-reason distribution, including
-evaluations that produced no card. Data-integrity warnings (exposures with no
-terminal event, which should be 0) come first. Field names:
+evaluations that produced no card; unanswered reasons (`removed`, `replaced`,
+`unmounted`, `page_hidden`; legacy `superseded` is kept as-is). `promptVersion`
+has three states that are never pooled: a real version, `(no LLM)` (explicit
+`null`: no prompt reached a model) and `(legacy)` (missing or empty, pre-S-076).
+Data-integrity warnings come first: exposures with no terminal event (should
+be 0), card events attributed via `sessionResolvedBy: project_latest`, and
+frontend/Rust policy version mismatches (`policyVersionRust`). Smaller tables
+summarize `verification_coach.evaluated` (status, reason codes) and
+`prd_interview.turn_evaluated` (outcomes incl. `model_error`, error classes)
+per prompt version. Field names:
 `specs/015-self-improvement-loops/contracts/event-log-export.md`.
 
 - Default: Markdown. `-- --json` prints JSON.

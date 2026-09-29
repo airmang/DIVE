@@ -7,7 +7,13 @@
 // card events are joined to their exposure and to `supervisor_evaluated` rows
 // inside one export only, and only non-identifying keys (event, concern, mode,
 // promptVersion, policyVersion, model) are aggregated across exports. Ids are
-// printed only under --exemplars.
+// printed only under --exemplars. `promptVersion` has three states that are
+// never pooled: a real version, explicit `null` (no prompt reached a model:
+// provoke gate false, runtime unavailable, deterministic fallback card), and
+// legacy (field missing or empty, rows written before S-076).
+//
+// Also summarized per prompt version: `verification_coach.evaluated` status /
+// reason codes and `prd_interview.turn_evaluated` outcomes.
 //
 // Usage: node scripts/analyze-cards.mjs <export.jsonl...> [--json] [--exemplars]
 //          [--include-origin qa,dev]
@@ -28,6 +34,11 @@ export const KNOWN_ORIGINS = ["classroom", "qa", "dev"];
 
 const SUPERVISOR_EVALUATED = "provocation.supervisor_evaluated";
 const CARD_SHOWN = "provocation.card_shown";
+const COACH_EVALUATED = "verification_coach.evaluated";
+const PRD_TURN_EVALUATED = "prd_interview.turn_evaluated";
+
+// `superseded` predates the removed/replaced split; it is still counted as-is.
+const LEGACY_UNANSWERED_REASON = "superseded";
 
 // Terminal event type → report counter name.
 const TERMINALS = {
@@ -44,6 +55,7 @@ const KEY_FIELDS = [
   "concern",
   "mode",
   "promptVersion",
+  "promptVersionStatus",
   "policyVersion",
   "model",
   "cardType",
@@ -128,12 +140,26 @@ function numberOrNull(value) {
   return Number.isFinite(value) ? value : null;
 }
 
+/**
+ * `versioned` — a prompt was sent under this version; `no_llm` — explicit
+ * `null`, no prompt reached a model; `legacy` — missing or empty (pre-S-076).
+ */
+export function promptVersionOf(payload) {
+  if (payload.promptVersion === null) {
+    return { promptVersion: null, promptVersionStatus: "no_llm" };
+  }
+  const version = stringOrNull(payload.promptVersion);
+  return version
+    ? { promptVersion: version, promptVersionStatus: "versioned" }
+    : { promptVersion: null, promptVersionStatus: "legacy" };
+}
+
 function evaluationKey(payload) {
   return {
     event: stringOrNull(payload.event),
     concern: stringOrNull(payload.decisionSummary?.concern),
     mode: stringOrNull(payload.mode),
-    promptVersion: stringOrNull(payload.promptVersion),
+    ...promptVersionOf(payload),
     policyVersion: stringOrNull(payload.policyVersion),
     model: stringOrNull(payload.supervisorModel),
     cardType: null,
@@ -144,23 +170,38 @@ function evaluationKey(payload) {
 export function analyzeExport(unit) {
   const evaluations = new Map();
   const exposures = new Map();
+  const coachEvaluations = [];
+  const prdTurns = [];
   const integrity = {
     duplicateCardShown: 0,
     responsesWithoutExposure: 0,
     legacyCardEventsWithoutExposureId: 0,
+    sessionResolvedByExposure: 0,
+    sessionResolvedByProjectLatest: 0,
     nullPayloads: 0,
   };
 
   for (const record of unit.records) {
     if (record?.kind !== "event" || typeof record.type !== "string") continue;
     const isCardEvent = record.type === CARD_SHOWN || record.type in TERMINALS;
-    if (record.type !== SUPERVISOR_EVALUATED && !isCardEvent) continue;
+    const isOtherTracked = [SUPERVISOR_EVALUATED, COACH_EVALUATED, PRD_TURN_EVALUATED].includes(
+      record.type,
+    );
+    if (!isCardEvent && !isOtherTracked) continue;
     const payload = record.payload;
     if (!payload || typeof payload !== "object") {
       integrity.nullPayloads += 1;
       continue;
     }
 
+    if (record.type === COACH_EVALUATED) {
+      coachEvaluations.push(payload);
+      continue;
+    }
+    if (record.type === PRD_TURN_EVALUATED) {
+      prdTurns.push(payload);
+      continue;
+    }
     if (record.type === SUPERVISOR_EVALUATED) {
       const id = stringOrNull(payload.supervisorEvaluationId);
       // Every attempt (retries included) has its own id; the first row wins
@@ -168,6 +209,13 @@ export function analyzeExport(unit) {
       if (id && !evaluations.has(id)) evaluations.set(id, payload);
       else if (!id) evaluations.set(Symbol("unidentified"), payload);
       continue;
+    }
+
+    // Rows the client sent without a session id, attributed by the backend
+    // (FR-005). `project_latest` is a guess; `exposure` follows card_shown.
+    if (payload.sessionResolvedBy === "exposure") integrity.sessionResolvedByExposure += 1;
+    if (payload.sessionResolvedBy === "project_latest") {
+      integrity.sessionResolvedByProjectLatest += 1;
     }
 
     const exposureId = stringOrNull(payload.exposureId);
@@ -207,7 +255,13 @@ export function analyzeExport(unit) {
     }
   }
 
-  return { evaluations, exposures: [...exposures.values()], integrity };
+  return {
+    evaluations,
+    exposures: [...exposures.values()],
+    coachEvaluations,
+    prdTurns,
+    integrity,
+  };
 }
 
 function exposureKey(exposure, evaluations, integrity) {
@@ -220,6 +274,7 @@ function exposureKey(exposure, evaluations, integrity) {
       concern: null,
       mode: exposure.mode,
       promptVersion: null,
+      promptVersionStatus: null,
       policyVersion: null,
       model: null,
       cardType: null,
@@ -232,6 +287,7 @@ function exposureKey(exposure, evaluations, integrity) {
     concern: null,
     mode: exposure.mode,
     promptVersion: null,
+    promptVersionStatus: null,
     policyVersion: null,
     model: null,
     cardType: exposure.cardType,
@@ -277,6 +333,19 @@ function increment(map, key) {
   map[key] = (map[key] ?? 0) + 1;
 }
 
+function versionRowFor(rows, payload, init) {
+  const key = { ...promptVersionOf(payload), model: stringOrNull(payload.model) };
+  const id = JSON.stringify(key);
+  if (!rows.has(id)) rows.set(id, { key, ...init() });
+  return rows.get(id);
+}
+
+function sortedRows(rows) {
+  return [...rows.values()].sort(
+    (a, b) => b.count - a.count || JSON.stringify(a.key).localeCompare(JSON.stringify(b.key)),
+  );
+}
+
 /**
  * @param units  output of splitExports() over every input file
  * @param options { includeOrigins: string[], exemplars: boolean }
@@ -301,10 +370,17 @@ export function analyze(units, { includeOrigins = ["classroom"], exemplars = fal
     responsesWithoutExposure: 0,
     duplicateCardShown: 0,
     legacyCardEventsWithoutExposureId: 0,
+    legacyUnansweredSuperseded: 0,
     evaluationNotInExport: 0,
+    sessionResolvedByExposure: 0,
+    sessionResolvedByProjectLatest: 0,
+    policyVersionMismatch: 0,
     nullPayloads: 0,
   };
-  const totals = { exposures: 0, evaluations: 0 };
+  const policyVersionMismatches = {};
+  const totals = { exposures: 0, evaluations: 0, coachEvaluations: 0, prdTurns: 0 };
+  const coachRows = new Map();
+  const prdRows = new Map();
   const exemplarItems = [];
 
   for (const unit of units) {
@@ -316,7 +392,13 @@ export function analyze(units, { includeOrigins = ["classroom"], exemplars = fal
     inputs.includedExports += 1;
     if (legacy) inputs.legacy.exports += 1;
 
-    const { evaluations, exposures, integrity: unitIntegrity } = analyzeExport(unit);
+    const {
+      evaluations,
+      exposures,
+      coachEvaluations,
+      prdTurns,
+      integrity: unitIntegrity,
+    } = analyzeExport(unit);
     for (const [field, count] of Object.entries(unitIntegrity)) integrity[field] += count;
 
     const exposedEvaluationIds = new Set(exposures.map((exposure) => exposure.evaluationId));
@@ -329,6 +411,16 @@ export function analyze(units, { includeOrigins = ["classroom"], exemplars = fal
       if (dropReason) increment(group.supervisor.dropReasons, dropReason);
       if (outcome === "shown" && !exposedEvaluationIds.has(id)) {
         group.supervisor.shownWithoutExposure += 1;
+      }
+      // Present only when a stale frontend bundle sent a different policy
+      // version than the Rust binary embeds; `policyVersion` is then the FE's.
+      const rustPolicy = stringOrNull(evaluation.policyVersionRust);
+      if (rustPolicy && rustPolicy !== evaluation.policyVersion) {
+        integrity.policyVersionMismatch += 1;
+        increment(
+          policyVersionMismatches,
+          `frontend ${evaluation.policyVersion ?? "?"} / rust ${rustPolicy}`,
+        );
       }
       totals.evaluations += 1;
       if (legacy) inputs.legacy.evaluations += 1;
@@ -350,6 +442,9 @@ export function analyze(units, { includeOrigins = ["classroom"], exemplars = fal
       if (terminal.outcome === "unanswered") {
         if (terminal.visibleMs !== null) group.visible.push(terminal.visibleMs);
         increment(group.unansweredReasons, terminal.unansweredReason ?? "unknown");
+        if (terminal.unansweredReason === LEGACY_UNANSWERED_REASON) {
+          integrity.legacyUnansweredSuperseded += 1;
+        }
       } else if (terminal.responseLatencyMs !== null) {
         group.latencies.push(terminal.responseLatencyMs);
       }
@@ -369,6 +464,34 @@ export function analyze(units, { includeOrigins = ["classroom"], exemplars = fal
         });
       }
     }
+
+    for (const payload of coachEvaluations) {
+      const row = versionRowFor(coachRows, payload, () => ({
+        count: 0,
+        status: {},
+        reasonCode: {},
+      }));
+      row.count += 1;
+      increment(row.status, stringOrNull(payload.status) ?? "unknown");
+      increment(row.reasonCode, stringOrNull(payload.reasonCode) ?? "unknown");
+      totals.coachEvaluations += 1;
+    }
+    for (const payload of prdTurns) {
+      const row = versionRowFor(prdRows, payload, () => ({
+        count: 0,
+        validationOutcome: {},
+        errorClass: {},
+        contractRetries: 0,
+        patchesProposed: 0,
+      }));
+      row.count += 1;
+      increment(row.validationOutcome, stringOrNull(payload.validationOutcome) ?? "unknown");
+      const errorClass = stringOrNull(payload.errorClass);
+      if (errorClass) increment(row.errorClass, errorClass);
+      if (payload.contractRetryAttempted === true) row.contractRetries += 1;
+      if (payload.patchProposed === true) row.patchesProposed += 1;
+      totals.prdTurns += 1;
+    }
   }
 
   const report = {
@@ -377,6 +500,7 @@ export function analyze(units, { includeOrigins = ["classroom"], exemplars = fal
     inputs,
     totals,
     integrity,
+    policyVersionMismatches,
     groups: [...groups.values()]
       .map((group) => ({
         key: group.key,
@@ -401,6 +525,8 @@ export function analyze(units, { includeOrigins = ["classroom"], exemplars = fal
           JSON.stringify(a.key).localeCompare(JSON.stringify(b.key)),
       ),
   };
+  report.verificationCoach = sortedRows(coachRows);
+  report.prdInterviewTurns = sortedRows(prdRows);
   if (exemplars) report.exemplars = { banner: EXEMPLAR_BANNER, items: exemplarItems };
   return report;
 }
@@ -415,13 +541,19 @@ function eventLabel(key) {
   return key.cardType ? `(card) ${key.cardType}` : null;
 }
 
+function promptVersionLabel(key) {
+  if (key.promptVersionStatus === "no_llm") return "(no LLM)";
+  if (key.promptVersionStatus === "legacy") return "(legacy)";
+  return key.promptVersion;
+}
+
 function countWithRate(count, ratio) {
   return ratio === null ? String(count) : `${count} (${Math.round(ratio * 100)}%)`;
 }
 
 function distribution(map) {
   const entries = Object.entries(map).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  return entries.length ? entries.map(([name, count]) => `${name} ${count}`).join(", ") : null;
+  return entries.length ? entries.map(([name, count]) => `${name}: ${count}`).join(", ") : null;
 }
 
 function table(header, rows) {
@@ -438,7 +570,7 @@ export function renderMarkdown(report) {
     eventLabel(key),
     key.concern,
     key.mode,
-    key.promptVersion,
+    promptVersionLabel(key),
     key.policyVersion,
     key.model,
   ];
@@ -452,7 +584,10 @@ export function renderMarkdown(report) {
       `(origins: ${inputs.includeOrigins.join(", ")}); excluded by origin: ${excluded}.`,
     `- Legacy exports without \`origin\` (included): ${inputs.legacy.exports} ` +
       `(${inputs.legacy.exposures} exposure(s), ${inputs.legacy.evaluations} evaluation(s)).`,
-    `- Totals: ${totals.exposures} exposure(s), ${totals.evaluations} supervisor evaluation(s).`,
+    `- Totals: ${totals.exposures} exposure(s), ${totals.evaluations} supervisor evaluation(s), ` +
+      `${totals.coachEvaluations} coach evaluation(s), ${totals.prdTurns} PRD interview turn(s).`,
+    "- promptVersion `(no LLM)`: no prompt reached a model (provoke gate false, runtime " +
+      "unavailable, deterministic fallback); `(legacy)`: row predates prompt versioning.",
     "",
     "## Data integrity",
     "",
@@ -462,6 +597,16 @@ export function renderMarkdown(report) {
     `- Duplicate \`card_shown\` for one exposure: ${integrity.duplicateCardShown}`,
     `- Supervisor cards whose evaluation row is not in the same export: ${integrity.evaluationNotInExport}`,
     `- Legacy card events without \`exposureId\` (not rated): ${integrity.legacyCardEventsWithoutExposureId}`,
+    `- Card events attributed to a session by fallback: ${integrity.sessionResolvedByExposure} via ` +
+      `exposure, ${integrity.sessionResolvedByProjectLatest} via project latest session` +
+      (integrity.sessionResolvedByProjectLatest
+        ? " — WARNING: project_latest is a best guess"
+        : ""),
+    `- Frontend/Rust policy version mismatch: ${integrity.policyVersionMismatch}` +
+      (integrity.policyVersionMismatch
+        ? ` — WARNING: stale frontend bundle (${distribution(report.policyVersionMismatches)})`
+        : ""),
+    `- Unanswered with legacy reason \`superseded\` (pre removed/replaced split): ${integrity.legacyUnansweredSuperseded}`,
     `- Card/evaluation events with an unparseable payload: ${integrity.nullPayloads}`,
     "",
     "## Card exposures",
@@ -491,6 +636,7 @@ export function renderMarkdown(report) {
           "no terminal",
           "median latency ms",
           "median unanswered visible ms",
+          "unanswered reasons",
         ],
         exposed.map((group) => [
           ...keyCells(group.key),
@@ -503,6 +649,7 @@ export function renderMarkdown(report) {
           group.counts.missingTerminal,
           group.medianResponseLatencyMs,
           group.medianUnansweredVisibleMs,
+          distribution(group.unansweredReasons),
         ]),
       ),
     );
@@ -542,6 +689,50 @@ export function renderMarkdown(report) {
             group.supervisor.shownWithoutExposure,
           ];
         }),
+      ),
+    );
+  }
+  lines.push("", "## Verification coach", "");
+  if (report.verificationCoach.length === 0) {
+    lines.push("No verification coach evaluations in the included exports.");
+  } else {
+    lines.push(
+      ...table(
+        ["promptVersion", "model", "evaluations", "status", "reason codes"],
+        report.verificationCoach.map((row) => [
+          promptVersionLabel(row.key),
+          row.key.model,
+          row.count,
+          distribution(row.status),
+          distribution(row.reasonCode),
+        ]),
+      ),
+    );
+  }
+  lines.push("", "## PRD interview turns", "");
+  if (report.prdInterviewTurns.length === 0) {
+    lines.push("No PRD interview turns in the included exports.");
+  } else {
+    lines.push(
+      ...table(
+        [
+          "promptVersion",
+          "model",
+          "turns",
+          "outcomes",
+          "error classes",
+          "contract retries",
+          "patches proposed",
+        ],
+        report.prdInterviewTurns.map((row) => [
+          promptVersionLabel(row.key),
+          row.key.model,
+          row.count,
+          distribution(row.validationOutcome),
+          distribution(row.errorClass),
+          row.contractRetries,
+          row.patchesProposed,
+        ]),
       ),
     );
   }

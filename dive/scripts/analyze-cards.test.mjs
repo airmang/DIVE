@@ -83,6 +83,12 @@ function evaluation(id, overrides = {}) {
     if (outcome === "shown") payload.decisionSummary.question = question;
   }
   if (dropReason) payload.dropReason = dropReason;
+  // Rows written before S-076 have no promptVersion/policyVersion at all.
+  if (overrides.legacyVersions) {
+    delete payload.promptVersion;
+    delete payload.policyVersion;
+  }
+  if (overrides.policyVersionRust) payload.policyVersionRust = overrides.policyVersionRust;
   if (outcome === "shown") payload.cardId = `card-${id}`;
   return eventRecord("provocation.supervisor_evaluated", payload);
 }
@@ -128,7 +134,7 @@ function responded(lifecycle, exposureId, responseLatencyMs, overrides = {}) {
   return record;
 }
 
-function unanswered(exposureId, visibleMs, reason = "superseded", overrides = {}) {
+function unanswered(exposureId, visibleMs, reason = "replaced", overrides = {}) {
   const record = cardEvent("card_unanswered", exposureId, overrides);
   record.payload.visibleMs = visibleMs;
   record.payload.unansweredReason = reason;
@@ -163,7 +169,7 @@ function classroomExport() {
     responded("marked_irrelevant", "x2", 1200, { evaluationId: "e2" }),
     evaluation("e3", { concern: "scope_drift", event: "diff_ready" }),
     shown("x3", { evaluationId: "e3", event: "diff_ready" }),
-    unanswered("x3", 4200, "superseded", { evaluationId: "e3", event: "diff_ready" }),
+    unanswered("x3", 4200, "replaced", { evaluationId: "e3", event: "diff_ready" }),
     evaluation("e4", { outcome: "none", concern: "none" }),
     evaluation("e5", { outcome: "dropped", dropReason: "parse_error", concern: null }),
     evaluation("e6"),
@@ -181,6 +187,7 @@ describe("analyze-cards grouping and rates", () => {
       concern: "ai_self_report_only",
       mode: "work",
       promptVersion: "1.0.0+256c9520",
+      promptVersionStatus: "versioned",
       policyVersion: "1.0.0",
       model: "anthropic/claude-sonnet-5",
       cardType: null,
@@ -210,7 +217,7 @@ describe("analyze-cards grouping and rates", () => {
     expect(diff.counts.unanswered).toBe(1);
     expect(diff.rates.unanswered).toBe(1);
     expect(diff.medianUnansweredVisibleMs).toBe(4200);
-    expect(diff.unansweredReasons).toEqual({ superseded: 1 });
+    expect(diff.unansweredReasons).toEqual({ replaced: 1 });
     expect(diff.medianResponseLatencyMs).toBeNull();
   });
 
@@ -228,7 +235,12 @@ describe("analyze-cards grouping and rates", () => {
     const dropped = groupOf(report, { concern: null, event: "verify_entered" });
     expect(dropped.supervisor.outcomes.dropped).toBe(1);
     expect(dropped.supervisor.dropReasons).toEqual({ parse_error: 1 });
-    expect(report.totals).toEqual({ exposures: 4, evaluations: 6 });
+    expect(report.totals).toEqual({
+      exposures: 4,
+      evaluations: 6,
+      coachEvaluations: 0,
+      prdTurns: 0,
+    });
   });
 
   it("separates prompt versions and models into their own groups", () => {
@@ -312,8 +324,8 @@ describe("analyze-cards origin filter and legacy records", () => {
     const report = run({ "c.jsonl": classroomExport(), "l.jsonl": legacyExport() });
     expect(report.inputs.legacy).toEqual({ exports: 1, exposures: 1, evaluations: 1 });
     expect(report.integrity.legacyCardEventsWithoutExposureId).toBe(1);
-    // An empty promptVersion (serde default on old rows) groups as unknown.
-    const legacy = groupOf(report, { promptVersion: null, event: "verify_entered" });
+    // An empty promptVersion (serde default on old rows) groups as legacy.
+    const legacy = groupOf(report, { promptVersionStatus: "legacy", event: "verify_entered" });
     expect(legacy.counts.action).toBe(1);
   });
 });
@@ -367,7 +379,7 @@ describe("analyze-cards multi-export aggregation", () => {
     const unjoined = groupOf(report, {
       event: "verify_entered",
       concern: null,
-      promptVersion: null,
+      promptVersionStatus: null,
     });
     expect(unjoined.counts.unanswered).toBe(1);
     expect(groupOf(report, { concern: "ai_self_report_only" }).exposures).toBe(3);
@@ -414,13 +426,217 @@ describe("analyze-cards exemplars", () => {
         evaluationId: "e3",
         exposureId: "x3",
         outcome: "unanswered",
-        unansweredReason: "superseded",
+        unansweredReason: "replaced",
       }),
     ]);
     const markdown = renderMarkdown(report);
     expect(markdown).toContain("## Exemplar candidates");
     expect(markdown).toContain("Promotion into eval fixtures is manual");
     expect(markdown).toContain("| a.jsonl | 0 | e2 | x2 | verify_entered | markIrrelevant |");
+  });
+});
+
+function coachEvaluated(overrides = {}) {
+  const payload = {
+    eventId: "coach-1",
+    status: "shown",
+    validationOutcome: "valid",
+    reasonCode: "ok",
+    evidenceRefs: [],
+    model: "anthropic/claude-sonnet-5",
+    latencyMs: 900,
+    promptVersion: "1.0.0+aa11bb22",
+    guideSummary: null,
+    ...overrides,
+  };
+  return eventRecord("verification_coach.evaluated", payload);
+}
+
+function prdTurn(overrides = {}) {
+  return eventRecord("prd_interview.turn_evaluated", {
+    schemaVersion: 1,
+    projectId: 1,
+    projectSpecId: "prd-1",
+    draftId: "draft-1",
+    turnId: "prd-turn-1759112345000",
+    validationOutcome: "none",
+    parseFailureKind: null,
+    contractRetryAttempted: false,
+    errorClass: null,
+    patchProposed: false,
+    appliedFieldCount: 0,
+    rejectedReasonCount: 0,
+    architectureProposalCount: 0,
+    provider: "openrouter",
+    model: "anthropic/claude-sonnet-5",
+    promptVersion: "1.1.0+2cd96df7",
+    ...overrides,
+  });
+}
+
+describe("analyze-cards prompt version states", () => {
+  it("never pools a real version, explicit null (no LLM), and legacy (missing/empty)", () => {
+    const report = run({
+      "a.jsonl": [
+        sessionMeta("classroom"),
+        evaluation("v1"),
+        shown("x1", { evaluationId: "v1" }),
+        responded("action_clicked", "x1", 100, { evaluationId: "v1" }),
+        // Deterministic fallback card: shown, but no prompt reached a model.
+        evaluation("n1", { promptVersion: null }),
+        shown("x2", { evaluationId: "n1" }),
+        responded("dismissed", "x2", 100, { evaluationId: "n1" }),
+        evaluation("n2", { promptVersion: null, outcome: "none", concern: null }),
+        evaluation("l1", { legacyVersions: true }),
+        shown("x3", { evaluationId: "l1" }),
+        responded("marked_irrelevant", "x3", 100, { evaluationId: "l1" }),
+      ],
+    });
+    const byStatus = (status) =>
+      report.groups.filter((group) => group.key.promptVersionStatus === status);
+    expect(byStatus("versioned").map((group) => group.counts.action)).toEqual([1]);
+    const noLlm = byStatus("no_llm");
+    expect(noLlm.map((group) => group.exposures).sort()).toEqual([0, 1]);
+    expect(noLlm.find((group) => group.exposures === 1).counts.dismiss).toBe(1);
+    expect(byStatus("legacy").map((group) => group.counts.markIrrelevant)).toEqual([1]);
+    for (const group of [...byStatus("no_llm"), ...byStatus("legacy")]) {
+      expect(group.key.promptVersion).toBeNull();
+    }
+
+    const markdown = renderMarkdown(report);
+    expect(markdown).toContain("| (no LLM) |");
+    expect(markdown).toContain("| (legacy) |");
+  });
+});
+
+describe("analyze-cards S-076 integrity signals", () => {
+  it("counts fallback session attribution and warns on project_latest", () => {
+    const resolved = (by) => ({ evaluationId: "e1", extra: { sessionResolvedBy: by } });
+    const report = run({
+      "a.jsonl": [
+        sessionMeta("classroom"),
+        evaluation("e1"),
+        shown("x1", resolved("project_latest")),
+        responded("action_clicked", "x1", 100, resolved("exposure")),
+        responded("dismissed", "x1", 200, resolved("exposure")),
+      ],
+    });
+    expect(report.integrity.sessionResolvedByExposure).toBe(2);
+    expect(report.integrity.sessionResolvedByProjectLatest).toBe(1);
+    expect(renderMarkdown(report)).toContain(
+      "1 via project latest session — WARNING: project_latest is a best guess",
+    );
+  });
+
+  it("warns on frontend/Rust policy version mismatches", () => {
+    const report = run({
+      "a.jsonl": [
+        sessionMeta("classroom"),
+        evaluation("e1", { policyVersionRust: "1.1.0" }),
+        evaluation("e2"),
+      ],
+    });
+    expect(report.integrity.policyVersionMismatch).toBe(1);
+    expect(report.policyVersionMismatches).toEqual({ "frontend 1.0.0 / rust 1.1.0": 1 });
+    expect(renderMarkdown(report)).toContain(
+      "policy version mismatch: 1 — WARNING: stale frontend bundle (frontend 1.0.0 / rust 1.1.0: 1)",
+    );
+  });
+
+  it("distinguishes removed/replaced and flags the legacy superseded reason", () => {
+    const report = run({
+      "a.jsonl": [
+        sessionMeta("classroom"),
+        evaluation("e1"),
+        shown("x1", { evaluationId: "e1" }),
+        unanswered("x1", 1000, "removed", { evaluationId: "e1" }),
+        // A same-id card whose question changed closes as `replaced` and
+        // opens a new exposure.
+        shown("x2", { evaluationId: "e1", question: "첫 질문" }),
+        unanswered("x2", 3000, "replaced", { evaluationId: "e1" }),
+        shown("x3", { evaluationId: "e1", question: "바뀐 질문" }),
+        unanswered("x3", 5000, "superseded", { evaluationId: "e1" }),
+      ],
+    });
+    const group = groupOf(report, { concern: "ai_self_report_only" });
+    expect(group.exposures).toBe(3);
+    expect(group.unansweredReasons).toEqual({ removed: 1, replaced: 1, superseded: 1 });
+    expect(group.medianUnansweredVisibleMs).toBe(3000);
+    expect(report.integrity.legacyUnansweredSuperseded).toBe(1);
+    expect(renderMarkdown(report)).toContain("removed: 1, replaced: 1, superseded: 1");
+  });
+});
+
+describe("analyze-cards coach and PRD interview tables", () => {
+  it("tallies verification coach status and reason codes per prompt version", () => {
+    const report = run({
+      "a.jsonl": [
+        sessionMeta("classroom"),
+        coachEvaluated(),
+        coachEvaluated({
+          status: "dropped",
+          validationOutcome: "dropped",
+          reasonCode: "generic_guidance",
+        }),
+        coachEvaluated({
+          status: "unavailable",
+          reasonCode: "runtime_unavailable",
+          promptVersion: null,
+          model: null,
+        }),
+      ],
+    });
+    expect(report.totals.coachEvaluations).toBe(3);
+    const [versioned, noLlm] = report.verificationCoach;
+    expect(versioned).toMatchObject({
+      key: { promptVersion: "1.0.0+aa11bb22", promptVersionStatus: "versioned" },
+      count: 2,
+      status: { shown: 1, dropped: 1 },
+      reasonCode: { ok: 1, generic_guidance: 1 },
+    });
+    expect(noLlm).toMatchObject({
+      key: { promptVersion: null, promptVersionStatus: "no_llm", model: null },
+      status: { unavailable: 1 },
+    });
+    expect(renderMarkdown(report)).toContain(
+      "| (no LLM) | — | 1 | unavailable: 1 | runtime_unavailable: 1 |",
+    );
+  });
+
+  it("tallies PRD interview outcomes including model_error per prompt version", () => {
+    const report = run({
+      "a.jsonl": [
+        sessionMeta("classroom"),
+        prdTurn(),
+        prdTurn({
+          validationOutcome: "applied",
+          patchProposed: true,
+          contractRetryAttempted: true,
+        }),
+        prdTurn({ validationOutcome: "model_error", errorClass: "stream_error" }),
+        prdTurn({ validationOutcome: "model_error", errorClass: "request_failed" }),
+        prdTurn({ promptVersion: "1.0.0+79eaddb8" }),
+      ],
+    });
+    expect(report.totals.prdTurns).toBe(5);
+    const current = report.prdInterviewTurns.find(
+      (row) => row.key.promptVersion === "1.1.0+2cd96df7",
+    );
+    expect(current).toMatchObject({
+      count: 4,
+      validationOutcome: { none: 1, applied: 1, model_error: 2 },
+      errorClass: { stream_error: 1, request_failed: 1 },
+      contractRetries: 1,
+      patchesProposed: 1,
+    });
+    expect(report.prdInterviewTurns).toHaveLength(2);
+    expect(renderMarkdown(report)).toContain("model_error: 2, applied: 1, none: 1");
+  });
+
+  it("applies the origin filter to coach and PRD rows too", () => {
+    const report = run({ "q.jsonl": [sessionMeta("qa"), coachEvaluated(), prdTurn()] });
+    expect(report.verificationCoach).toEqual([]);
+    expect(report.prdInterviewTurns).toEqual([]);
   });
 });
 
