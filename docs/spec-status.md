@@ -70,6 +70,7 @@ archived-status sections below).
 | `specs/015-self-improvement-loops/decisions.md`                      | Canonical               | Records 015 decisions (D-015-xx), including the resolved owner decisions OD-1–OD-5. |
 | `specs/015-self-improvement-loops/plan.md` / `tasks.md`              | Canonical planning aid  | Implementation plan and dependency-ordered tasks for 015. |
 | `specs/015-self-improvement-loops/contracts/event-log-export.md`     | Canonical contract      | 015 EventLog/export additions: prompt/policy versions, card exposure events, session attribution and origin (S-076), and the local replay corpus with its opt-in research replay export (S-078). |
+| `docs/improvement-cycle.md` / `.specify/templates/improvement-cycle-work-order.md` | Canonical runbook | 015 loop A (one versioned, eval-gated, owner-approved change per cycle; `pnpm eval:gate`) and loop B (`qa:queue` → live run → `qa:run apply` → `qa:triage`), and how they connect (S-083). |
 
 ## External Product Extraction
 

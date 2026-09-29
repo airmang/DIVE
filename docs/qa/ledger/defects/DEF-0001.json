@@ -16,5 +16,6 @@
     "ref": "tools::guard::tests::dotenv_template_exemption_cannot_smuggle_a_real_dotenv_read"
   },
   "created": "2026-09-29",
-  "updated": "2026-09-29"
+  "updated": "2026-09-29",
+  "fixCommit": "c9290acc"
 }

@@ -245,6 +245,7 @@ describe("renderWorkOrder", () => {
     expect(md).toContain("DIVE_SESSION_ORIGIN=qa DIVE_QA_APP_DATA_DIR=/tmp/dive-qa-2026-09-29");
     expect(md).toContain("computer-use");
     expect(md).toContain("`$DIVE_QA_APP_DATA_DIR/session-origin`");
+    expect(md).toContain("DIVE_SECRET_BACKEND=local-file");
     expect(md).toContain("`pnpm qa:run init --scenarios SUP-01`");
     expect(md).toContain("### SUP-01 — Card renders (P0, LLM)");
     expect(md).toContain("Why:\n- never passed in a recorded run");
