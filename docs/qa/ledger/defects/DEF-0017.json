@@ -1,7 +1,7 @@
 {
   "id": "DEF-0017",
   "title": "CHANGELOG [Unreleased] falsely claims no pending changes; link defs stale at rc.4",
-  "status": "open",
+  "status": "fixed",
   "severity": "P2",
   "area": "docs-spec",
   "source": {
@@ -9,7 +9,11 @@
     "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
     "findingId": "L626"
   },
-  "notes": "Partially fixed — remaining part per 2026-09-29 re-check: 941ca83c fixed the false claim and extended the link defs through rc.9, and a44b726d added the [1.0.0-rc.10] section. [Unreleased] now says 'Nothing yet.', which is accurate: only 2 doc commits (3493d411, f371910c) sit after tag v1.0.0-rc.10. The same staleness has come back: CHANGELOG.md:422 still compares [Unreleased] against v1.0.0-rc.9...HEAD, and the [1.0.0-rc.10] heading at :9 has no link definition (defs start at rc.9, :423).",
+  "notes": "Remaining part at re-check: [Unreleased] compared from rc.9 and [1.0.0-rc.10] had no link definition; also [Unreleased] said \"Nothing yet.\" while c9290acc (security fix) sat after rc.10. Fixed 2026-09-29: link defs through rc.10, Unreleased entries added. Guard dive/scripts/changelog.test.mjs (all three cases fail on the pre-fix CHANGELOG).",
   "created": "2026-09-29",
-  "updated": "2026-09-29"
+  "updated": "2026-09-29",
+  "guard": {
+    "kind": "vitest",
+    "ref": "dive/scripts/changelog.test.mjs::CHANGELOG link definitions > defines a link for every version heading"
+  }
 }

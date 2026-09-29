@@ -168,6 +168,29 @@ describe("validateDefect", () => {
     ]);
     expect(validateDefect(defect({ updated: "2026-09-29T10:15:00Z" }))).toEqual([]);
   });
+
+  it.each([
+    "2026-02-30",
+    "2026-04-31",
+    "2026-02-29",
+    "2026-13-01",
+    "2026-00-10",
+    "2026-09-29T24:00Z",
+    "2026-09-29T23:60Z",
+    "2026-09-29T23:59:60Z",
+    "2026-09-29T10:00+24:00",
+  ])("rejects the impossible date/time %s instead of rolling it over", (updated) => {
+    expect(validateDefect(defect({ updated }))).toEqual([
+      `$.updated: is not a real calendar date/time (got "${updated}")`,
+    ]);
+  });
+
+  it.each(["2028-02-29", "2026-12-31T23:59:59.999Z", "2026-09-29T09:00+09:00"])(
+    "accepts the real date/time %s",
+    (updated) => {
+      expect(validateDefect(defect({ updated }))).toEqual([]);
+    },
+  );
 });
 
 describe("validateScenario", () => {

@@ -4,7 +4,18 @@ All notable changes to DIVE are documented here. Format: [Keep a Changelog](http
 
 ## [Unreleased]
 
-Nothing yet.
+### Security
+
+- Agent process-tool guard: the `.env.example`/`.sample`/`.template` read
+  exemption no longer lets a real dotenv file through when it is named in the
+  same command (`cat .env .env.example`, `cat .env.example; cat .env`), quoted
+  (`cat ".env"`), or `<`-redirected; `.env.example.local` is no longer treated
+  as a template (DEF-0001, `c9290acc`).
+
+### Added
+
+- Spec 015 (self-improvement loops, S-076–S-084) in progress: machine-readable
+  QA ledger under `docs/qa/ledger/` with `pnpm qa:ledger:validate` (S-077).
 
 ## [1.0.0-rc.10] — 2026-08-27
 
@@ -419,7 +430,8 @@ v0.1 — 워크맵 + 채팅 + 권한 카드 + D 게이트. 메인 시나리오 A
 
 ---
 
-[Unreleased]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.9...HEAD
+[Unreleased]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.10...HEAD
+[1.0.0-rc.10]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.9...v1.0.0-rc.10
 [1.0.0-rc.9]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.8...v1.0.0-rc.9
 [1.0.0-rc.8]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.7...v1.0.0-rc.8
 [1.0.0-rc.7]: https://github.com/airmang/DIVE/compare/v1.0.0-rc.6...v1.0.0-rc.7

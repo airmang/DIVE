@@ -39,10 +39,15 @@ them is hashed like any other matching value).
 ## D-015-04 (OD-3, S-077) — The QA ledger is seeded with open items only
 
 Seed = the surviving findings of `docs/qa/post-cleanup-review-2026-07-22.md`
-re-checked against the current tree (still-valid ones become `open`, fixed
-ones are recorded as `verified` only when a runner-resolvable guard exists,
-otherwise they are not imported) + every new finding from now on. Older
-reports stay as history and are not bulk-migrated.
+re-checked against the current tree (still-valid and partially-fixed ones
+become `open`) + every new finding from now on. Older reports stay as history
+and are not bulk-migrated.
+
+Amended 2026-09-29 (S-077 review): fixed findings whose guard the re-check
+reported as existing are imported by S-080 as `fixed` once `verify:qa-ledger`
+resolves the guard through its runner — not before, and never as `verified`
+(that state requires a rebuilt, re-run release). Fixed findings without a
+resolvable guard stay out of the ledger.
 
 ## D-015-05 (OD-4, S-079) — LLM-judge is advisory only
 

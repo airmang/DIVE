@@ -53,7 +53,7 @@ function scenario(id, overrides = {}) {
 
 describe("loadLedger", () => {
   it("treats missing collection directories as empty", () => {
-    const ledger = loadLedger(ledgerWith({ "README.md": "# ledger" }));
+    const ledger = loadLedger(ledgerWith({ "scenarios/README.md": "# scenarios" }));
     expect(ledger.errors).toEqual([]);
     expect(ledger.defects).toEqual([]);
     expect(nextDefectId(ledger)).toBe("DEF-0001");
@@ -62,6 +62,45 @@ describe("loadLedger", () => {
   it("reports a missing ledger root", () => {
     const ledger = loadLedger(join(tmpdir(), "qa-ledger-does-not-exist"));
     expect(ledger.errors[0]).toMatch(/ledger root does not exist/);
+  });
+
+  it("rejects a directory that has neither defects/ nor scenarios/", () => {
+    const root = ledgerWith({ "README.md": "# not a ledger" });
+    expect(loadLedger(root).errors).toEqual([
+      `${root}: not a QA ledger (no defects/ or scenarios/ directory)`,
+    ]);
+  });
+
+  it("requires lastPass to name a run where the scenario passed, on the run's date", () => {
+    const runRecord = {
+      id: "2026-09-29-smoke",
+      date: "2026-09-29",
+      build: { version: "1.0.0-rc.10", commit: "f371910c" },
+      platform: "macos-arm64",
+      scenarios: [
+        { id: "CHAT-01", result: "pass" },
+        { id: "CHAT-02", result: "fail" },
+      ],
+      defectsOpened: [],
+      defectsVerified: [],
+      evidence: [],
+    };
+    const lastPass = (date = "2026-09-29") => ({ runId: "2026-09-29-smoke", date });
+    const root = ledgerWith({
+      "runs/2026-09-29-smoke.json": runRecord,
+      "scenarios/CHAT-01.json": scenario("CHAT-01", { lastPass: lastPass() }),
+      "scenarios/CHAT-02.json": scenario("CHAT-02", { lastPass: lastPass() }),
+      "scenarios/CHAT-03.json": scenario("CHAT-03", { lastPass: lastPass() }),
+      "scenarios/CHAT-04.json": scenario("CHAT-04"),
+      "scenarios/CHAT-05.json": scenario("CHAT-05", { lastPass: lastPass("2026-09-28") }),
+    });
+    runRecord.scenarios.push({ id: "CHAT-05", result: "pass" });
+    writeFileSync(join(root, "runs/2026-09-29-smoke.json"), JSON.stringify(runRecord));
+    expect(loadLedger(root).errors).toEqual([
+      'scenarios/CHAT-02.json: $.lastPass.runId: run "2026-09-29-smoke" recorded "fail", not "pass"',
+      'scenarios/CHAT-03.json: $.lastPass.runId: run "2026-09-29-smoke" does not include this scenario, not "pass"',
+      `scenarios/CHAT-05.json: $.lastPass.date: must equal the run's date "2026-09-29"`,
+    ]);
   });
 
   it("prefixes record errors with the file and flags filename/id mismatch", () => {

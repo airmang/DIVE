@@ -15,8 +15,15 @@ function parseArgs(argv) {
   const args = { root: DEFAULT_LEDGER_ROOT, nextId: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--root") {
-      args.root = resolve(argv[(i += 1)] ?? "");
+    if (arg === "--") {
+      // `pnpm qa:ledger:validate -- --next-id` forwards the separator itself.
+      continue;
+    } else if (arg === "--root") {
+      const value = argv[(i += 1)];
+      if (value === undefined || value.startsWith("--")) {
+        throw new Error("--root needs a directory argument");
+      }
+      args.root = resolve(value);
     } else if (arg === "--next-id") {
       args.nextId = true;
     } else if (arg === "--help" || arg === "-h") {

@@ -47,6 +47,7 @@ with the full CI command set (plan.md §Technical Context) + adversarial review.
 
 - [ ] T050 `guards.mjs` resolvers (vitest list, cargo list/ignored, eval fixture, live-scenario run); tests with stubbed runners.
 - [ ] T051 `verify:qa-ledger`; vitest-side CI check; attach to `verify:v4` track.
+- [ ] T052 Import the re-check's fixed findings whose guards resolve through their runner as `fixed` (amended D-015-04; seed file `docs/qa/ledger/seed/2026-09-29-post-cleanup-recheck.json`).
 
 ## Wave 3
 
@@ -58,6 +59,7 @@ with the full CI command set (plan.md §Technical Context) + adversarial review.
 ### S-082 — Run records + queue (after S-077, S-080)
 
 - [ ] T070 Run record validator; `qa:queue` selection rules; work-order output; tests.
+- [ ] T071 Area-table fitness (S-077 review): LLM scenarios also carry `pi-sidecar`; narrow the 50 journeys' blanket areas (e.g. STATIC-01 `terminal` false positive); a test lists tracked source files in no area (unmapped change ⇒ select all + warn); read diffs with `git -c core.quotePath=false diff --name-only` (non-ASCII paths); forbid in-segment `**`.
 
 ## Wave 4
 

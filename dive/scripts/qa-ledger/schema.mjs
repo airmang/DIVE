@@ -105,9 +105,31 @@ function checkDate(c, path, value) {
   if (!checkPattern(c, path, value, ISO_DATE_RE, "an ISO 8601 date (YYYY-MM-DD[THH:MM[:SS]Z])")) {
     return false;
   }
-  if (!Number.isNaN(Date.parse(value))) return true;
-  c.fail(path, `is not a real calendar date (got "${value}")`);
+  if (isRealDate(value)) return true;
+  c.fail(path, `is not a real calendar date/time (got "${value}")`);
   return false;
+}
+
+// Date.parse rolls impossible values over (2026-02-30 → March 2, T24:00 → next
+// day), so rebuild the parts with Date.UTC and require an exact round trip.
+function isRealDate(value) {
+  const [, y, mo, d, h = "0", mi = "0", s = "0", offH = "0", offM = "0"] =
+    /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2})))?$/.exec(
+      value,
+    );
+  const parts = [y, mo, d, h, mi, s].map(Number);
+  const date = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], parts[5]));
+  const roundTrip = [
+    date.getUTCFullYear(),
+    date.getUTCMonth() + 1,
+    date.getUTCDate(),
+    date.getUTCHours(),
+    date.getUTCMinutes(),
+    date.getUTCSeconds(),
+  ];
+  return (
+    roundTrip.every((part, i) => part === parts[i]) && Number(offH) <= 23 && Number(offM) <= 59
+  );
 }
 
 function checkArray(c, path, value, { nonEmpty = false } = {}) {

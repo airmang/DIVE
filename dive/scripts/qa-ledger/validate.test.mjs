@@ -58,7 +58,30 @@ describe("qa:ledger:validate CLI", () => {
     expect(result.stdout.trim()).toBe("DEF-0005");
   });
 
+  it("ignores the bare `--` that pnpm forwards", () => {
+    const result = runCli("--", "--root", ledgerWithDefect(DEFECT), "--next-id");
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe("DEF-0005");
+  });
+
   it("rejects unknown arguments with exit 2", () => {
     expect(runCli("--bogus").status).toBe(2);
+  });
+
+  it("rejects --root without a value instead of validating the cwd", () => {
+    for (const args of [["--root"], ["--root", "--next-id"]]) {
+      const result = runCli(...args);
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain("--root needs a directory argument");
+    }
+  });
+
+  it("fails on a root that is not a ledger", () => {
+    const root = mkdtempSync(join(tmpdir(), "qa-ledger-cli-"));
+    tempRoots.push(root);
+    const result = runCli("--root", root);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("not a QA ledger (no defects/ or scenarios/ directory)");
   });
 });

@@ -85,8 +85,21 @@ function checkReferences(ledger, errors) {
   }
   for (const { file, record } of ledger.scenarios) {
     const runId = record?.lastPass?.runId;
-    if (typeof runId === "string" && !runs.has(runId)) {
+    if (typeof runId !== "string") continue;
+    const run = runs.get(runId)?.record;
+    if (!run) {
       errors.push(`${file}: $.lastPass.runId: unknown run "${runId}"`);
+      continue;
+    }
+    const result = (Array.isArray(run.scenarios) ? run.scenarios : []).find(
+      (entry) => entry?.id === record.id,
+    )?.result;
+    if (result !== "pass") {
+      const got = result === undefined ? "does not include this scenario" : `recorded "${result}"`;
+      errors.push(`${file}: $.lastPass.runId: run "${runId}" ${got}, not "pass"`);
+    }
+    if (record.lastPass.date !== run.date) {
+      errors.push(`${file}: $.lastPass.date: must equal the run's date "${run.date}"`);
     }
   }
   for (const { file, record } of ledger.runs) {
@@ -113,6 +126,8 @@ export function loadLedger(root = DEFAULT_LEDGER_ROOT) {
   const errors = [];
   if (!existsSync(root)) {
     errors.push(`${root}: ledger root does not exist`);
+  } else if (!existsSync(join(root, "defects")) && !existsSync(join(root, "scenarios"))) {
+    errors.push(`${root}: not a QA ledger (no defects/ or scenarios/ directory)`);
   }
   const ledger = { root, errors, byId: {} };
   for (const [name, validate] of Object.entries(COLLECTIONS)) {
