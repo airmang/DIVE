@@ -1207,6 +1207,784 @@ fn export_distinguishes_provocation_lifecycle_events_and_hashes_reason() {
     assert_eq!(continued["payload"]["riskAccepted"], true);
 }
 
+fn project_id_for_session(db: &Arc<Mutex<dive_lib::Database>>, sid: i64) -> i64 {
+    db.lock()
+        .unwrap()
+        .conn()
+        .query_row(
+            "SELECT project_id FROM Session WHERE id = ?",
+            [sid],
+            |row| row.get(0),
+        )
+        .unwrap()
+}
+
+fn card_event_payload(project_id: i64, session_id: Option<i64>, lifecycle: &str) -> Value {
+    json!({
+        "schemaVersion": 1,
+        "lifecycleEvent": lifecycle,
+        "projectId": project_id,
+        "sessionId": session_id,
+        "cardId": "prd_intent_check:decompose:draft-1",
+        "exposureId": "exp-1",
+        "cardType": "prd_intent_check",
+        "stage": "decompose",
+        "severity": "caution",
+        "mode": "work",
+    })
+}
+
+// Spec 015 FR-005 / SC-002 / SC-003: review-card hosts without a session in
+// scope send `sessionId: null`. With several sessions in the project, every
+// `provocation.*` event must land in exactly one session's export, each
+// exposure entirely in one session (even when a newer session starts before
+// its terminal event), and nothing may leak into another session's export.
+#[test]
+fn every_provocation_event_is_exported_once_with_each_exposure_in_one_session() {
+    let (db, first) = seed();
+    let project_id = project_id_for_session(&db, first);
+    let question = "이 목표 요약이 내가 만들려는 것과 같은지 확인할 수 있나요?";
+    let new_session = |title: &str| {
+        session::insert(
+            db.lock().unwrap().conn(),
+            &NewSession {
+                project_id,
+                title: title.into(),
+                ended_at: None,
+                status: "active".into(),
+            },
+        )
+        .unwrap()
+    };
+    let append = |session_id: Option<i64>, event_type: &str, payload: Value| {
+        dive_event_log::append_provocation_event_to_conn(
+            db.lock().unwrap().conn(),
+            session_id,
+            event_type,
+            &payload,
+        )
+        .unwrap();
+    };
+    let event = |exposure: &str, lifecycle: &str| {
+        let mut payload = card_event_payload(project_id, None, lifecycle);
+        payload["exposureId"] = json!(exposure);
+        payload
+    };
+
+    // Exposure 1 opens in the first session with no client session id...
+    let mut shown = event("exp-1", "card_shown");
+    shown["question"] = json!(question);
+    append(None, "provocation.card_shown", shown);
+    // ...then a step start creates a second session before it ends.
+    let second = new_session("step 2");
+    let mut unanswered = event("exp-1", "card_unanswered");
+    unanswered["visibleMs"] = json!(4200);
+    unanswered["unansweredReason"] = json!("replaced");
+    append(None, "provocation.card_unanswered", unanswered);
+
+    // Exposure 2 opens after the second session exists and is answered with
+    // an explicit session id.
+    append(None, "provocation.card_shown", event("exp-2", "card_shown"));
+    let mut clicked = event("exp-2", "action_clicked");
+    clicked["responseLatencyMs"] = json!(900);
+    append(Some(second), "provocation.action_clicked", clicked);
+
+    // An archived newest session never receives fallback rows.
+    let archived = new_session("archived");
+    db.lock()
+        .unwrap()
+        .conn()
+        .execute(
+            "UPDATE Session SET status = 'archived' WHERE id = ?",
+            [archived],
+        )
+        .unwrap();
+    append(None, "provocation.card_shown", event("exp-3", "card_shown"));
+
+    // No project: stays unscoped rather than guessed.
+    let mut orphan = event("exp-4", "card_shown");
+    orphan.as_object_mut().unwrap().remove("projectId");
+    append(None, "provocation.card_shown", orphan);
+
+    let exported = |sid: i64| {
+        lines(
+            &ExportEngine::new(db.clone())
+                .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+                .unwrap(),
+        )
+        .into_iter()
+        .filter(|record| {
+            record["kind"] == "event"
+                && record["type"]
+                    .as_str()
+                    .is_some_and(|ty| ty.starts_with("provocation."))
+        })
+        .collect::<Vec<_>>()
+    };
+    let exposures = |records: &[Value]| {
+        records
+            .iter()
+            .map(|record| {
+                (
+                    record["type"].as_str().unwrap().to_string(),
+                    record["payload"]["exposureId"]
+                        .as_str()
+                        .unwrap()
+                        .to_string(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let first_export = exported(first);
+    let second_export = exported(second);
+    assert_eq!(
+        exposures(&first_export),
+        vec![
+            ("provocation.card_shown".into(), "exp-1".into()),
+            ("provocation.card_unanswered".into(), "exp-1".into()),
+        ]
+    );
+    assert_eq!(
+        exposures(&second_export),
+        vec![
+            ("provocation.card_shown".into(), "exp-2".into()),
+            ("provocation.action_clicked".into(), "exp-2".into()),
+            ("provocation.card_shown".into(), "exp-3".into()),
+        ]
+    );
+    assert!(exported(archived).is_empty());
+
+    // Every stored provocation row with a session is in exactly one export;
+    // only the project-less orphan is unscoped.
+    let (scoped, unscoped): (i64, i64) = db
+        .lock()
+        .unwrap()
+        .conn()
+        .query_row(
+            "SELECT SUM(session_id IS NOT NULL), SUM(session_id IS NULL) FROM EventLog WHERE type LIKE 'provocation.%'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(scoped as usize, first_export.len() + second_export.len());
+    assert_eq!(unscoped, 1);
+
+    let shown = &first_export[0];
+    // D-015-03: the generated question is exported in plain text.
+    assert_eq!(shown["payload"]["question"], json!(question));
+    assert_eq!(
+        shown["payload"]["sessionResolvedBy"],
+        json!("project_latest")
+    );
+    let unanswered = &first_export[1];
+    assert_eq!(
+        unanswered["payload"]["sessionResolvedBy"],
+        json!("exposure")
+    );
+    assert_eq!(unanswered["payload"]["visibleMs"], json!(4200));
+    assert_eq!(unanswered["payload"]["unansweredReason"], json!("replaced"));
+    assert_eq!(second_export[1]["payload"]["responseLatencyMs"], json!(900));
+    assert!(second_export[1]["payload"]
+        .get("sessionResolvedBy")
+        .is_none());
+}
+
+/// Supervisor contexts built by the production builders from the kind of
+/// input the frontend sends: a RetryLoop context whose failure fingerprint and
+/// last action carry raw error text, and a DiffReady context whose unexpected
+/// files are not path-shaped (`.env`, `README`).
+fn realistic_supervisor_contexts() -> (
+    dive_lib::dive::SupervisorContext,
+    dive_lib::dive::SupervisorContext,
+) {
+    use dive_lib::dive::supervisor::{
+        build_diff_ready_supervisor_context, build_retry_loop_supervisor_context,
+        DiffReadyReviewAssessment, DiffReadySupervisorContextBuildInput, RetryLoopReviewAssessment,
+        RetryLoopSupervisorContextBuildInput,
+    };
+    use dive_lib::dive::{
+        ArtifactRef, PlanSummary, ScopeExpansionEvidenceRefInput, SourceUiMode, SupervisorActionId,
+        SupervisorVerificationUiState, VerificationFeasibility,
+    };
+    let verification = SupervisorVerificationUiState {
+        ai_claimed_done: true,
+        diff_reviewed: false,
+        app_launched: false,
+        preview_checked: false,
+        automated_tests_passed: false,
+        test_result: None,
+        test_command: None,
+        test_exit_code: None,
+        acceptance_criterion_confirmed: false,
+        manual_checks: vec![],
+    };
+    let feasibility = VerificationFeasibility {
+        runnable: true,
+        previewable: false,
+        has_tests: true,
+        diff_available: true,
+    };
+    let evidence = |id: &str, kind: &str, value: Value| ScopeExpansionEvidenceRefInput {
+        id: id.into(),
+        source: Some("verification".into()),
+        kind: Some(kind.into()),
+        label: Some(id.into()),
+        value_summary: value,
+        verification_evidence: false,
+    };
+    let fingerprint = "typeerror: zebra_fail_marker at loginform (minji@example.com)";
+    let retry = build_retry_loop_supervisor_context(RetryLoopSupervisorContextBuildInput {
+        artifact_ref: ArtifactRef::step("step-1", "민지의 로그인 폼"),
+        source_ui_mode: SourceUiMode::Standard,
+        locale: "ko-KR".into(),
+        goal_summary: "민지의 로그인 폼 완성".into(),
+        plan_summary: PlanSummary {
+            step_count: 2,
+            active_step: Some("로그인 폼".into()),
+        },
+        verification: verification.clone(),
+        feasibility: feasibility.clone(),
+        allowed_action_ids: vec![
+            SupervisorActionId::CreateReproSteps,
+            SupervisorActionId::OpenDiff,
+        ],
+        evidence_refs: vec![
+            evidence(
+                "failure.fingerprint",
+                "failure_summary",
+                json!({ "fingerprint": fingerprint }),
+            ),
+            evidence(
+                "failure.last_action",
+                "failure_summary",
+                json!("rolled back zebra_action_marker"),
+            ),
+        ],
+        retry_loop_assessment: RetryLoopReviewAssessment {
+            eligible: true,
+            reason_codes: vec!["same_failure_repeated".into()],
+            evidence_refs: vec!["failure.fingerprint".into(), "failure.last_action".into()],
+            failure_fingerprint: fingerprint.into(),
+            failure_count: 2,
+            last_failure_at: json!(1),
+            last_action_summary: Some("rolled back zebra_action_marker".into()),
+            recovery_available: true,
+        },
+    })
+    .context;
+    let unexpected = vec![
+        ".env".to_string(),
+        "README".into(),
+        "config/app.yaml".into(),
+    ];
+    let diff = build_diff_ready_supervisor_context(DiffReadySupervisorContextBuildInput {
+        artifact_ref: ArtifactRef::step("step-1", "민지의 로그인 폼"),
+        source_ui_mode: SourceUiMode::Standard,
+        locale: "ko-KR".into(),
+        goal_summary: "민지의 로그인 폼 완성".into(),
+        plan_summary: PlanSummary {
+            step_count: 2,
+            active_step: Some("로그인 폼".into()),
+        },
+        verification,
+        feasibility,
+        allowed_action_ids: vec![SupervisorActionId::OpenDiff],
+        evidence_refs: vec![evidence(
+            "diff.unexpected_files",
+            "diff_ready_assessment",
+            json!({ "totalCount": 3, "paths": unexpected }),
+        )],
+        diff_ready_assessment: DiffReadyReviewAssessment {
+            eligible: true,
+            reason_codes: vec!["outside_expected_files".into()],
+            evidence_refs: vec!["diff.unexpected_files".into()],
+            changed_file_count: 3,
+            unexpected_files: unexpected.clone(),
+            high_risk_files: vec![".env".into()],
+            diff_viewed: false,
+        },
+    })
+    .context;
+    (retry, diff)
+}
+
+const LEAK_MARKERS: &[&str] = &[
+    "zebra_fail_marker",
+    "zebra_action_marker",
+    "minji@example.com",
+    "\".env\"",
+    "README",
+    "config/app.yaml",
+];
+
+// S-078 security review P1-1: the default session export must not carry the
+// raw error text of a RetryLoop assessment or non-path-shaped file names of a
+// DiffReady assessment, whether they arrive in `assessmentSummary`, the
+// evidence refs, or card metadata.
+#[test]
+fn default_export_hashes_failure_text_and_unexpected_files_from_real_contexts() {
+    let (db, sid) = seed();
+    let (retry, diff) = realistic_supervisor_contexts();
+    for (index, context) in [retry, diff].iter().enumerate() {
+        let validation = dive_lib::dive::no_card_validation_result(
+            dive_lib::dive::SupervisorDropReason::ProvokeFalse,
+        );
+        let log = dive_lib::dive::SupervisorEvaluationLog::from_validation(
+            context,
+            None,
+            &validation,
+            None,
+            None,
+            None,
+        );
+        assert!(log.assessment_summary.is_some());
+        dive_event_log::append_supervisor_evaluation_to_conn(
+            db.lock().unwrap().conn(),
+            sid,
+            &format!("eval-real-{index}"),
+            &log,
+        )
+        .unwrap();
+    }
+    let out = ExportEngine::new(db)
+        .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+        .unwrap();
+    for marker in LEAK_MARKERS {
+        assert!(
+            !out.contains(marker),
+            "{marker} leaked into the default export: {out}"
+        );
+    }
+    let evaluated = lines(&out)
+        .into_iter()
+        .filter(|record| record["type"] == "provocation.supervisor_evaluated")
+        .collect::<Vec<_>>();
+    assert!(
+        evaluated[0]["payload"]["assessmentSummary"]["failureFingerprint"]
+            .as_str()
+            .unwrap()
+            .starts_with("h:")
+    );
+    assert!(
+        evaluated[1]["payload"]["assessmentSummary"]["unexpectedFiles"][0]
+            .as_str()
+            .unwrap()
+            .starts_with("p:")
+    );
+}
+
+fn seed_replay(db: &Arc<Mutex<dive_lib::Database>>, sid: Option<i64>, evaluation_id: &str) {
+    use dive_lib::db::dao::supervision_replay::{self, NewSupervisionReplay, ReplaySurface};
+    let (surface, context_json) = if evaluation_id.starts_with("prd") {
+        (
+            ReplaySurface::PrdInterview,
+            json!({
+                "draftJson": "{\"goal\":\"민지의 독서 기록 앱\"}",
+                "missingConfirmable": "intent summary",
+                "nextFocus": "capture_intent_summary",
+                "conversation": "Student: 민지가 쓸 앱",
+                "answer": "학생-42 민지의 독서 기록 앱",
+                "jsonContractRetry": false
+            }),
+        )
+    } else {
+        // The exact SupervisorContext the production path stores.
+        let (retry, diff) = realistic_supervisor_contexts();
+        let context = if evaluation_id.contains("retry") {
+            retry
+        } else {
+            diff
+        };
+        (
+            ReplaySurface::Supervisor,
+            serde_json::to_value(context).unwrap(),
+        )
+    };
+    supervision_replay::insert(
+        db.lock().unwrap().conn(),
+        &NewSupervisionReplay {
+            evaluation_id: evaluation_id.into(),
+            surface,
+            session_id: sid,
+            project_id: None,
+            prompt_version: "1.0.0+256c9520".into(),
+            policy_version: Some("1.0.0".into()),
+            model: Some("mock-model".into()),
+            context_json: context_json.to_string(),
+            raw_output: Some(
+                "{\"question\":\"변경 파일이 목표와 맞나요?\",\"note\":\"token=abcd1234\"}".into(),
+            ),
+            validation_json: json!({"validationOutcome": "shown"}).to_string(),
+        },
+    )
+    .unwrap();
+}
+
+// Spec 015 FR-021 / D-015-02: replay rows (full prompt inputs with student
+// text) never enter the default export; `include_replay` is the explicit
+// research replay export and runs them through the anonymizer.
+#[test]
+fn replay_rows_are_excluded_by_default_and_anonymized_when_included() {
+    let (db, sid) = seed();
+    seed_replay(&db, Some(sid), "sup-eval-1");
+    seed_replay(&db, Some(sid), "sup-retry-1");
+    seed_replay(&db, Some(sid), "prd-eval-1");
+    seed_replay(&db, None, "sup-eval-unscoped");
+
+    let default_out = ExportEngine::new(db.clone())
+        .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+        .unwrap();
+    assert!(!default_out.contains("\"kind\":\"replay\""));
+    assert!(!default_out.contains("sup-eval-1"));
+
+    let out = ExportEngine::new(db.clone())
+        .export_session_with_salt(
+            sid,
+            &ExportOptions {
+                include_replay: true,
+                ..ExportOptions::default()
+            },
+            "fixed-salt",
+        )
+        .unwrap();
+    let replays = lines(&out)
+        .into_iter()
+        .filter(|record| record["kind"] == "replay")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        replays
+            .iter()
+            .map(|record| record["evaluation_id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["sup-eval-1", "sup-retry-1", "prd-eval-1"]
+    );
+    assert!(!out.contains("민지"), "student text must be hashed: {out}");
+    for marker in LEAK_MARKERS {
+        assert!(
+            !out.contains(marker),
+            "{marker} leaked into the replay export: {out}"
+        );
+    }
+    assert!(!out.contains("abcd1234"), "secrets must be redacted: {out}");
+    let supervisor = &replays[0];
+    assert_eq!(supervisor["surface"], json!("supervisor"));
+    assert_eq!(supervisor["prompt_version"], json!("1.0.0+256c9520"));
+    assert_eq!(supervisor["context"]["event"], json!("diff_ready"));
+    assert!(supervisor["context"]["goalSummary"]
+        .as_str()
+        .unwrap()
+        .starts_with("h:"));
+    assert!(
+        supervisor["context"]["diffReadyAssessment"]["unexpectedFiles"][0]
+            .as_str()
+            .unwrap()
+            .starts_with("p:")
+    );
+    assert!(
+        replays[1]["context"]["retryLoopAssessment"]["failureFingerprint"]
+            .as_str()
+            .unwrap()
+            .starts_with("h:")
+    );
+    // AI output stays readable apart from the redaction.
+    assert!(supervisor["raw_output"]
+        .as_str()
+        .unwrap()
+        .contains("변경 파일이 목표와 맞나요?"));
+    assert_eq!(
+        supervisor["validation"]["validationOutcome"],
+        json!("shown")
+    );
+    let prd = &replays[2];
+    assert!(prd["context"]["answer"].as_str().unwrap().starts_with("h:"));
+    assert_eq!(prd["context"]["nextFocus"], json!("capture_intent_summary"));
+
+    // With hashing off the prompt inputs are exported as stored (still
+    // secret-redacted).
+    let plain = ExportEngine::new(db)
+        .export_session_with_salt(
+            sid,
+            &ExportOptions {
+                include_replay: true,
+                hash_user_text: false,
+                hash_file_paths: false,
+                hash_ids: false,
+                ..ExportOptions::default()
+            },
+            "fixed-salt",
+        )
+        .unwrap();
+    assert!(plain.contains("학생-42 민지의 독서 기록 앱"));
+    assert!(!plain.contains("abcd1234"));
+}
+
+// PRD interview replies restate the student's goal and answers nearly
+// verbatim, so with `hash_user_text` on their raw output is hashed; the
+// supervisor and coach replies stay readable AI output (D-015-03). Secrets are
+// redacted on every surface either way.
+#[test]
+fn replay_raw_output_is_hashed_as_user_text_only_for_the_prd_interview() {
+    use dive_lib::db::dao::supervision_replay::{self, NewSupervisionReplay, ReplaySurface};
+    let (db, sid) = seed();
+    let surfaces = [
+        (
+            ReplaySurface::Supervisor,
+            "sup",
+            "변경 파일이 목표와 맞나요?",
+        ),
+        (
+            ReplaySurface::Coach,
+            "coach",
+            "375px에서 열이 바뀌는지 보세요",
+        ),
+        (
+            ReplaySurface::PrdInterview,
+            "prd",
+            "민지의 독서 기록 앱을 만들고 싶군요",
+        ),
+    ];
+    for (surface, id, phrase) in surfaces {
+        supervision_replay::insert(
+            db.lock().unwrap().conn(),
+            &NewSupervisionReplay {
+                evaluation_id: format!("{id}-raw"),
+                surface,
+                session_id: Some(sid),
+                project_id: None,
+                prompt_version: "1.0.0+00000000".into(),
+                policy_version: None,
+                model: None,
+                context_json: "{}".into(),
+                raw_output: Some(format!("{phrase} token=abcd1234")),
+                validation_json: "{}".into(),
+            },
+        )
+        .unwrap();
+    }
+    let raw_outputs = |hash_user_text: bool| {
+        let out = ExportEngine::new(db.clone())
+            .export_session_with_salt(
+                sid,
+                &ExportOptions {
+                    include_replay: true,
+                    hash_user_text,
+                    ..ExportOptions::default()
+                },
+                "fixed-salt",
+            )
+            .unwrap();
+        assert!(
+            !out.contains("abcd1234"),
+            "secrets are always redacted: {out}"
+        );
+        lines(&out)
+            .into_iter()
+            .filter(|record| record["kind"] == "replay")
+            .map(|record| {
+                (
+                    record["surface"].as_str().unwrap().to_string(),
+                    record["raw_output"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect::<std::collections::HashMap<_, _>>()
+    };
+
+    let hashed = raw_outputs(true);
+    assert!(hashed["supervisor"].starts_with("변경 파일이 목표와 맞나요?"));
+    assert!(hashed["coach"].starts_with("375px에서 열이 바뀌는지 보세요"));
+    assert!(hashed["prd_interview"].starts_with("h:"));
+    assert!(!hashed["prd_interview"].contains("민지"));
+
+    let plain = raw_outputs(false);
+    assert!(plain["supervisor"].starts_with("변경 파일이 목표와 맞나요?"));
+    assert!(plain["coach"].starts_with("375px에서 열이 바뀌는지 보세요"));
+    assert!(plain["prd_interview"].starts_with("민지의 독서 기록 앱을 만들고 싶군요"));
+}
+
+// S-078 security review P2-6: a JSON reply is anonymized field by field —
+// the coach's criterionSummary repeats student criteria (user text) and file
+// labels are paths — while a supervisor question stays readable.
+#[test]
+fn replay_json_raw_output_is_anonymized_field_by_field() {
+    use dive_lib::db::dao::supervision_replay::{self, NewSupervisionReplay, ReplaySurface};
+    let (db, sid) = seed();
+    let rows = [
+        (
+            ReplaySurface::Coach,
+            "coach-json",
+            json!({
+                "criterionSummary": "민지가 로그인하면 환영 문구가 보인다",
+                "recommendedChecks": [
+                    {"kind": "file", "label": "src/LoginForm.tsx", "instruction": "파일을 열어 보세요"}
+                ],
+                "evidencePrompts": ["token=abcd1234 은 입력하지 마세요"]
+            }),
+        ),
+        (
+            ReplaySurface::Supervisor,
+            "sup-json",
+            json!({
+                "schemaVersion": 1,
+                "question": "변경 파일이 목표와 맞나요?",
+                "evidenceRefIds": ["diff.changed_files"]
+            }),
+        ),
+    ];
+    for (surface, id, raw) in &rows {
+        supervision_replay::insert(
+            db.lock().unwrap().conn(),
+            &NewSupervisionReplay {
+                evaluation_id: (*id).into(),
+                surface: *surface,
+                session_id: Some(sid),
+                project_id: None,
+                prompt_version: "1.0.0+00000000".into(),
+                policy_version: None,
+                model: None,
+                context_json: "{}".into(),
+                raw_output: Some(raw.to_string()),
+                validation_json: "{}".into(),
+            },
+        )
+        .unwrap();
+    }
+    let export = |hash: bool| {
+        let out = ExportEngine::new(db.clone())
+            .export_session_with_salt(
+                sid,
+                &ExportOptions {
+                    include_replay: true,
+                    hash_user_text: hash,
+                    hash_file_paths: hash,
+                    ..ExportOptions::default()
+                },
+                "fixed-salt",
+            )
+            .unwrap();
+        assert!(!out.contains("abcd1234"), "{out}");
+        lines(&out)
+            .into_iter()
+            .filter(|record| record["kind"] == "replay")
+            .map(|record| {
+                let raw: Value =
+                    serde_json::from_str(record["raw_output"].as_str().unwrap()).unwrap();
+                (record["evaluation_id"].as_str().unwrap().to_string(), raw)
+            })
+            .collect::<std::collections::HashMap<_, _>>()
+    };
+    let hashed = export(true);
+    assert!(hashed["coach-json"]["criterionSummary"]
+        .as_str()
+        .unwrap()
+        .starts_with("h:"));
+    assert!(hashed["coach-json"]["recommendedChecks"][0]["label"]
+        .as_str()
+        .unwrap()
+        .starts_with("p:"));
+    assert_eq!(
+        hashed["sup-json"]["question"],
+        json!("변경 파일이 목표와 맞나요?")
+    );
+    let plain = export(false);
+    assert_eq!(
+        plain["coach-json"]["criterionSummary"],
+        json!("민지가 로그인하면 환영 문구가 보인다")
+    );
+    assert_eq!(
+        plain["coach-json"]["recommendedChecks"][0]["label"],
+        json!("src/LoginForm.tsx")
+    );
+}
+
+#[test]
+fn exported_question_text_is_plain_but_still_passes_pii_and_secret_detectors() {
+    let (db, sid) = seed();
+    let project_id = project_id_for_session(&db, sid);
+    {
+        let guard = db.lock().unwrap();
+        let mut shown = card_event_payload(project_id, Some(sid), "card_shown");
+        shown["question"] =
+            json!("minji@example.com 계정으로 로그인해서 token=abcd1234 가 보이는지 확인했나요?");
+        dive_event_log::append_provocation_event_to_conn(
+            guard.conn(),
+            Some(sid),
+            "provocation.card_shown",
+            &shown,
+        )
+        .unwrap();
+        dive_event_log::append_supervisor_evaluation_to_conn(
+            guard.conn(),
+            sid,
+            "eval-q",
+            &serde_json::from_value(json!({
+                "schemaVersion": 1,
+                "event": "verify_entered",
+                "artifactRef": {"kind": "step", "id": "step-1", "label": "Login"},
+                "contextHash": "sha256:c",
+                "evidenceHash": "sha256:e",
+                "mode": "work",
+                "evidenceRefs": [],
+                "decisionSummary": {
+                    "provoke": true,
+                    "concern": "ai_self_report_only",
+                    "severity": "caution",
+                    "evidenceRefIds": ["agent.assistant_claim"],
+                    "suggestedActionIds": ["open_diff"],
+                    "strippedActionIds": [],
+                    "question": "변경 내용으로 로그인 폼이 목표와 맞는지 확인할 수 있나요?"
+                },
+                "validationOutcome": "shown",
+                "promptVersion": "1.0.0+256c9520",
+                "policyVersion": "1.0.0"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+    let out = ExportEngine::new(db)
+        .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+        .unwrap();
+    assert!(!out.contains("minji@example.com"), "{out}");
+    assert!(!out.contains("abcd1234"), "{out}");
+    let records = lines(&out);
+    let evaluated = records
+        .iter()
+        .find(|record| record["type"] == "provocation.supervisor_evaluated")
+        .unwrap();
+    assert_eq!(
+        evaluated["payload"]["decisionSummary"]["question"],
+        json!("변경 내용으로 로그인 폼이 목표와 맞는지 확인할 수 있나요?")
+    );
+    assert_eq!(
+        evaluated["payload"]["promptVersion"],
+        json!("1.0.0+256c9520")
+    );
+    assert_eq!(evaluated["payload"]["policyVersion"], json!("1.0.0"));
+}
+
+#[test]
+fn session_meta_exports_session_origin() {
+    let (db, sid) = seed();
+    for origin in ["classroom", "qa", "dev"] {
+        db.lock()
+            .unwrap()
+            .conn()
+            .execute(
+                "UPDATE Session SET origin = ? WHERE id = ?",
+                params![origin, sid],
+            )
+            .unwrap();
+        let out = ExportEngine::new(db.clone())
+            .export_session_with_salt(sid, &ExportOptions::default(), "fixed-salt")
+            .unwrap();
+        let meta = lines(&out)
+            .into_iter()
+            .find(|record| record["kind"] == "session_meta")
+            .unwrap();
+        assert_eq!(meta["origin"], json!(origin));
+    }
+}
+
 #[test]
 fn provocation_event_export_summarizes_raw_bodies_even_when_hashing_is_off() {
     let (db, sid) = seed();

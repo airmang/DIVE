@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "id": "verify-claim-done-en-guided",
+  "event": "verify_entered",
+  "locale": "en-US",
+  "mode": "guided",
+  "description": "Preview was opened but the contact-form criterion was not confirmed; AI says done.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "verify_entered",
+    "artifactRef": {
+      "kind": "step",
+      "id": "step-4",
+      "label": "Contact form validation"
+    },
+    "contextHash": "sha256:9f30ec2e5cb0f484464f5fa7ea2b5993851f3917d1eb084140f4ba5284e631e3",
+    "mode": "guided",
+    "locale": "en-US",
+    "allowedActionIds": ["open_diff", "open_preview"],
+    "goalSummary": "The portfolio contact form rejects an empty email and shows an error message",
+    "planSummary": {
+      "stepCount": 4,
+      "activeStep": "Contact form validation"
+    },
+    "verificationState": {
+      "aiSelfReport": true,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": true,
+      "hasTests": false,
+      "diffAvailable": true
+    },
+    "evidenceRefs": [
+      {
+        "id": "agent.assistant_claim",
+        "source": "agent",
+        "kind": "assistant_claim",
+        "label": "AI 완료 주장",
+        "valueSummary": {
+          "kind": "enum",
+          "value": "claimed_done"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "verify.preview_observed",
+        "source": "verification",
+        "kind": "preview_observed",
+        "label": "프리뷰 확인",
+        "valueSummary": {
+          "kind": "enum",
+          "value": "observed"
+        },
+        "verificationEvidence": false
+      }
+    ]
+  },
+  "expect": {
+    "shouldProvoke": true,
+    "gatePasses": true,
+    "allowedConcerns": ["ai_self_report_only"],
+    "requiredEvidenceRefIds": ["agent.assistant_claim"],
+    "relevantEvidenceRefIds": ["agent.assistant_claim", "verify.preview_observed"],
+    "criterionTerms": ["contact form", "email", "error message"],
+    "locale": "en-US"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"ai_self_report_only\",\"severity\":\"caution\",\"question\":\"You opened the preview, but did you try submitting the contact form with an empty email to see the error message?\",\"evidenceRefIds\":[\"agent.assistant_claim\",\"verify.preview_observed\"],\"suggestedActionIds\":[\"open_preview\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"ai_self_report_only\",\"severity\":\"caution\",\"question\":\"Have you opened the diff or preview to confirm the empty email validation actually works?\",\"evidenceRefIds\":[\"agent.assistant_claim\"],\"suggestedActionIds\":[\"open_diff\",\"open_preview\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
+      }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"ai_self_report_only\",\"severity\":\"caution\",\"question\":\"Have you checked the preview to confirm the form rejects an empty email and shows an error message?\",\"evidenceRefIds\":[\"agent.assistant_claim\"],\"suggestedActionIds\":[\"open_diff\",\"open_preview\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T05:49:42Z",
+        "source": "live",
+        "attempt": 0
+      }
+    ]
+  }
+}

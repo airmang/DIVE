@@ -1,0 +1,38 @@
+{
+  "id": "INTERACTIVE-05",
+  "title": "Build a sign-up form (name, email, password, confirm-password) with inline validation: email must look valid, password >= 8 chars, confirm must match, and Submit stays disabled with field-level error messages until all rules pass.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#INTERACTIVE-05"
+  },
+  "areas": [
+    "chat",
+    "prd",
+    "plan",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "recovery",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Marcus, a career-switcher (intermediate-beginner) building portfolio pieces. Methodical, knows about validation in theory but hasn't implemented it. He wants a sign-up form with real-time validation. He will push the AI and may hit a retry loop.",
+  "steps": [
+    "Design: Marcus specifies the four fields and the validation rules. The interview tightens fuzzy bits: what 'valid email' means (a simple regex/contains-@ is fine for v1 — flagged as a non-goal to not over-engineer), when errors show (on blur vs on type), and that Submit is gated. A provocation pushes each rule into an observable criterion ('typing a 7-char password shows a 비밀번호 너무 짧음 message and Submit stays disabled'). He confirms a fairly detailed PRD v1.",
+    "Plan: Generate plan: markup → per-field validation functions → wire live events + error rendering → enable/disable Submit → verify. The plan has the most steps of the five. He reviews carefully and accepts; he may open the dependency graph.",
+    "Implement: Several edit cards. The validation-logic edit is dense; Marcus reads it. He may disagree with the AI's regex or error-message wording and use '요청 수정' to adjust args, or '사유 추가' when denying a change. Here's the risk moment: if validation has a bug and he asks the AI to fix it, then again, a retry-loop provocation can fire after >=2 retries without a rollback/repro, nudging him to narrow scope or reproduce the failure instead of looping. A diff_scope_drift card may flag if a 'fix' edits unrelated markup.",
+    "Verify: Verify stepper. He opens the diff, then exercises each rule in his browser: bad email → error + Submit disabled; 7-char password → error; mismatched confirm → error; all-valid → Submit enabled. He records observations per rule. Because each acceptance criterion is actively confirmed, the decision reaches concrete evidence — partial testing would leave it short.",
+    "Done: 완료 + checkpoint; if a fix attempt went wrong mid-way he can restore to a prior checkpoint (RecoverySlideIn / CheckpointTimeline) instead of leaving the form broken. good = the retry-loop and recovery tools kept him from thrashing, and he ends with a portfolio-quality validated form he fully understands."
+  ],
+  "expected": "This is the journey where DIVE's harder muscles matter: '요청 수정'/'사유 추가' let an opinionated learner steer the validation logic; the retry-loop provocation stops him from thrashing when a fix doesn't stick and points him at reproduce/narrow-scope; checkpoints let him roll back a bad fix; and the multi-rule verify makes him prove every rule himself. He leaves with a form he could defend in an interview.",
+  "tags": [
+    "journey",
+    "interactive-vanilla-js-beginner",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: Highest complexity of the five → most steps, most edits, most retry risk. The retry-loop is the signature failure mode: an AI fix that breaks another rule can spiral, so the retry-loop card and checkpoint-restore must actually surface and work, not just exist. Real-time validation has many criteria (4 fields x rules) — verify must cover all, or a beginner declares done with half-tested validation. Scope-drift on 'fix' edits and Korean-leaking error-message strings (DEF-01 / Korean-reply tendency) are concrete hazards. If checkpoint restore is hard to find when a fix goes bad, the methodical user gets stuck with a broken form."
+}

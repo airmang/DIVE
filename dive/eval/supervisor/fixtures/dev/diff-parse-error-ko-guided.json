@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 1,
+  "id": "diff-parse-error-ko-guided",
+  "event": "diff_ready",
+  "locale": "ko-KR",
+  "mode": "guided",
+  "description": "Negative control: same context as diff-refactor-ko-guided; the recording is prose with no JSON object.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "diff_ready",
+    "artifactRef": {
+      "kind": "diff",
+      "id": "step-8:diff",
+      "label": "메모 파일 이름 정리"
+    },
+    "contextHash": "sha256:4fb8baa95a2b70d9fb776bb12f11ae78c2304711d1063ee46dfbe1ac30686dcb",
+    "mode": "guided",
+    "locale": "ko-KR",
+    "allowedActionIds": [
+      "open_diff",
+      "ask_ai_for_rationale",
+      "revert_unrelated_changes",
+      "run_tests",
+      "dismiss_review"
+    ],
+    "goalSummary": "메모장 앱의 기능은 그대로 두고 코드 구조만 정리한다",
+    "planSummary": {
+      "stepCount": 4,
+      "activeStep": "메모 파일 이름 정리"
+    },
+    "verificationState": {
+      "aiSelfReport": false,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": true,
+      "hasTests": true,
+      "diffAvailable": true
+    },
+    "evidenceRefs": [
+      {
+        "id": "diff.changed_files",
+        "source": "diff",
+        "kind": "changed_file",
+        "label": "Changed files",
+        "valueSummary": {
+          "paths": ["src/memo/MemoList.tsx", "src/memo/useMemos.ts"],
+          "totalCount": 2
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "diff.expected_files",
+        "source": "plan",
+        "kind": "expected_file",
+        "label": "Expected files",
+        "valueSummary": {
+          "paths": ["src/memo/MemoList.tsx", "src/memo/useMemos.ts"],
+          "totalCount": 2
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "step.scope",
+        "source": "plan",
+        "kind": "step_scope",
+        "label": "Step scope",
+        "valueSummary": {
+          "goal": "메모장 앱의 기능은 그대로 두고 코드 구조만 정리한다",
+          "step": "메모 관련 파일 이름을 바꾸고 폴더를 정리"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "diff.viewed",
+        "source": "ui_observation",
+        "kind": "diff_view",
+        "label": "Diff viewed",
+        "valueSummary": {
+          "viewed": false
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "diff.behavior_preserving_refactor",
+        "source": "diff",
+        "kind": "diff_ready_assessment",
+        "label": "동작 보존 리팩터 신호",
+        "valueSummary": {
+          "hasVerificationEvidence": false,
+          "renamedFiles": ["src/memo/MemoList.tsx", "src/memo/useMemos.ts"],
+          "stepKind": "refactor"
+        },
+        "verificationEvidence": false
+      }
+    ],
+    "diffReadyAssessment": {
+      "eligible": true,
+      "reasonCodes": ["behavior_preserving_refactor"],
+      "evidenceRefs": [
+        "diff.changed_files",
+        "diff.expected_files",
+        "step.scope",
+        "diff.viewed",
+        "diff.behavior_preserving_refactor"
+      ],
+      "changedFileCount": 2,
+      "unexpectedFiles": [],
+      "highRiskFiles": [],
+      "diffViewed": false
+    }
+  },
+  "expect": {
+    "shouldProvoke": true,
+    "gatePasses": true,
+    "allowedConcerns": ["diff_scope_drift"],
+    "requiredEvidenceRefIds": ["diff.behavior_preserving_refactor"],
+    "relevantEvidenceRefIds": [
+      "diff.behavior_preserving_refactor",
+      "diff.changed_files",
+      "step.scope"
+    ],
+    "criterionTerms": ["기능은 그대로", "메모"],
+    "locale": "ko-KR",
+    "expectedDropReason": "parse_error"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "파일 이름만 바뀐 리팩터로 보입니다. 메모 기능이 그대로인지 테스트로 확인하는 것이 좋겠습니다.",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "파일 이름만 바뀐 리팩터로 보입니다. 메모 기능이 그대로인지 테스트로 확인하는 것이 좋겠습니다.",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0046",
+  "title": "mkdir lacks post-create symlink/containment recheck; parent-symlink race creates dir outside root and reports success",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "agent-tools",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L536"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in db5b8c34 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src-tauri/src/tools/mkdir.rs:57 calls verify_created_dir_inside_root after create_dir_all/create_dir. That function (mkdir.rs:74-85) runs reject_symlink_components, canonicalizes, and checks starts_with(root), returning PathDenied on failure. It mirrors write_file's verify_write_parent. db5b8c34 made the change and added the test mkdir.rs:117 mkdir_post_create_recheck_rejects_symlinked_parent. Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence. Guard repointed 2026-09-29 (Loop B review): the previous guard (mkdir_post_create_recheck_rejects_symlinked_parent) called the helper directly; the new test plants the symlink between resolve and create through the tool's run path and fails if the recheck call is removed (mutation-checked).",
+  "fixCommit": "db5b8c34",
+  "guard": {
+    "kind": "cargo",
+    "ref": "tools::mkdir::tests::mkdir_run_rejects_parent_symlinked_between_resolve_and_create"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

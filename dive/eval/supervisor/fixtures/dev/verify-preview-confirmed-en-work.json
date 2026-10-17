@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "id": "verify-preview-confirmed-en-work",
+  "event": "verify_entered",
+  "locale": "en-US",
+  "mode": "work",
+  "description": "Negative: the preview was checked and the acceptance criterion confirmed (concrete evidence), so no card.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "verify_entered",
+    "artifactRef": {
+      "kind": "step",
+      "id": "step-6",
+      "label": "Sort books by title"
+    },
+    "contextHash": "sha256:f029fa70253bf3a5f6deafb5ff9766aa9bdcbb1e2c2963d5d3a28c3746e6b886",
+    "mode": "work",
+    "locale": "en-US",
+    "allowedActionIds": ["open_diff", "open_preview"],
+    "goalSummary": "The reading list can be sorted alphabetically by book title",
+    "planSummary": {
+      "stepCount": 6,
+      "activeStep": "Sort books by title"
+    },
+    "verificationState": {
+      "aiSelfReport": true,
+      "concreteEvidence": true,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": true,
+      "hasTests": false,
+      "diffAvailable": true
+    },
+    "evidenceRefs": [
+      {
+        "id": "agent.assistant_claim",
+        "source": "agent",
+        "kind": "assistant_claim",
+        "label": "AI 완료 주장",
+        "valueSummary": {
+          "kind": "enum",
+          "value": "claimed_done"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "verify.preview_observed",
+        "source": "verification",
+        "kind": "preview_observed",
+        "label": "프리뷰 확인",
+        "valueSummary": {
+          "kind": "enum",
+          "value": "observed"
+        },
+        "verificationEvidence": true
+      }
+    ]
+  },
+  "expect": {
+    "shouldProvoke": false,
+    "gatePasses": false,
+    "allowedConcerns": ["ai_self_report_only"],
+    "requiredEvidenceRefIds": [],
+    "locale": "en-US"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":false,\"concern\":\"ai_self_report_only\",\"severity\":\"info\",\"question\":\"\",\"evidenceRefIds\":[\"verify.preview_observed\"],\"suggestedActionIds\":[]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

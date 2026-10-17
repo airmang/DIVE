@@ -1,0 +1,20 @@
+{
+  "id": "SLIDE-02",
+  "title": "Preview tab",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#SLIDE-02"
+  },
+  "areas": [
+    "slide-in",
+    "preview"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": false,
+  "preconditions": "Step with preview",
+  "steps": [
+    "Preview tab"
+  ],
+  "expected": "preview-url-input + preview-iframe render"
+}

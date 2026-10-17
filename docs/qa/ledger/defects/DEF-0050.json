@@ -1,0 +1,14 @@
+{
+  "id": "DEF-0050",
+  "title": "Forward-migration database backups are never pruned (backups/dive-v<N>-<ts>.db accumulate student data indefinitely)",
+  "status": "open",
+  "severity": "P2",
+  "area": "persistence",
+  "source": {
+    "kind": "review",
+    "ref": "S-078 adversarial security review (spec 015)"
+  },
+  "notes": "db/mod.rs writes a full copy before each forward migration and nothing deletes them. S-078 now scrubs replay rows from new backups, but every other table (conversations, PRD drafts, EventLog) persists in each backup forever. Needs a retention policy (e.g. keep the last N).",
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

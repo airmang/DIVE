@@ -1,0 +1,39 @@
+{
+  "id": "APPS-03",
+  "title": "Build a Pomodoro timer: 25-min work / 5-min break cycles, start/pause/reset controls, a visible countdown, automatic switch between work and break, and a notification/sound when a phase ends.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#APPS-03"
+  },
+  "areas": [
+    "project-session",
+    "prd",
+    "plan",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Priya, 19, a first-year CS student. Knows basic JavaScript syntax from class but has never shipped a real project or used setInterval in anger. Wants a Pomodoro timer to study with — and secretly wants to understand how it's built.",
+  "steps": [
+    "Design: Priya states the classic 25/5 Pomodoro spec but wants to decide details in the interview: configurable durations or hard-coded? how many cycles before a long break? sound, browser notification, or both? She engages with the Socratic questions as a learning moment and pushes back on a couple ('actually let's make durations configurable'). The acceptance criteria get specific (AC: 'when work timer hits 0, it auto-starts the break and plays a sound'). She confirms a PRD she feels is genuinely well-specified.",
+    "Plan: The plan covers timer state machine, countdown UI, controls, phase auto-switch, and the end-of-phase notification — with auto-switch depending on the state machine and notification depending on auto-switch. Priya, being intermediate, actually reads the rationale and dependency graph and agrees with the ordering (or tweaks it). She accepts and is curious to watch the agent implement a setInterval-based timer correctly.",
+    "Implement: She watches the agent build the timer loop. Read cards auto-approve; write/edit cards she scrutinizes more than a pure beginner would — she's checking whether the agent uses setInterval safely (clears on pause/reset, no drift, no double-intervals). She approves good diffs and once edits the args / denies a card where the timer logic looked like it'd leak an interval, nudging the agent toward a cleaner approach. She treats DIVE as a pair-programmer she's supervising.",
+    "Verify: Timing is the hard-to-verify part. The provocation card asks criterion-linked questions she can't fake: 'Did the work phase actually auto-switch to break at 0, and did pause truly freeze the count?' Because waiting 25 minutes is impractical, she expects (and the good path provides) configurable short durations so she can observe a full work→break transition in the preview within seconds, record that observation, and confirm pause/reset behavior. The 결정 gate unlocks only after she's seen a real cycle complete. She catches whether the sound actually fires.",
+    "Done: Every step is evidence-backed; the timer demonstrably cycles and notifies. Priya has a working study tool AND, because she supervised each diff and verified real behavior, a real mental model of how the timer is built. Checkpoints let her experiment further without fear."
+  ],
+  "expected": "DIVE meets an intermediate learner where she is: diffs are scrutable, she can edit-args / deny to steer toward cleaner setInterval handling, and the verify stage is smart about the impracticality of a 25-min wait — it nudges toward short test durations so a full phase transition is actually observable. The provocation questions target the genuinely flaky parts (auto-switch at zero, pause freezing, interval cleanup) rather than trivia. She finishes understanding the code, not just possessing it.",
+  "tags": [
+    "journey",
+    "small-multi-step-apps",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: Timer correctness is timing-dependent and easy for the LLM to claim done without proof — if the verify card can't make a full work→break transition observable in seconds (no short-duration test path), Priya can't actually verify and either waits 25 minutes or rubber-stamps. setInterval bugs (drift, un-cleared intervals on reset, double-start) are exactly the silent defects supervision should catch — does the diff review + provocation surface them, or do they slip? Browser notification permission and sound autoplay are environment-flaky and may fail in the preview iframe, making the notification AC hard to verify cleanly."
+}

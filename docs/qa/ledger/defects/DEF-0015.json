@@ -1,0 +1,15 @@
+{
+  "id": "DEF-0015",
+  "title": "ApprovalJudgment dead component + test kept alive by type imports; verify-product-flow judgment-gate check vacuous",
+  "status": "open",
+  "severity": "P2",
+  "area": "build-release",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L527"
+  },
+  "notes": "Partially fixed — remaining part per 2026-09-29 re-check: e6d1c576 deleted the component body and ApprovalJudgment.test.tsx. dive/src/components/workmap/ApprovalJudgment.tsx now holds only the ApprovalOutcome/ApprovalDecision types, and its header comment admits the residual. Still present: the five type-only importers still import from the component-named file, and dive/scripts/verify-product-flow.mjs:389 still requires the string \"ApprovalJudgment\" in stepDetail. The only match is the type import at StepDetailSlideIn.tsx:22, so the verify:v4 judgment-gate check still passes without checking anything real.",
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

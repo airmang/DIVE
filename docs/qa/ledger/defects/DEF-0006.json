@@ -1,0 +1,16 @@
+{
+  "id": "DEF-0006",
+  "title": "THIRD-PARTY-NOTICES omits IBM Plex Sans KR, sidecar Node.js runtime, and MIT pi SDK packages (esbuild strips headers)",
+  "status": "open",
+  "severity": "P2",
+  "area": "build-release",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L140"
+  },
+  "notes": "Partially fixed — remaining part per 2026-09-29 re-check: 941ca83c added all three entries to THIRD-PARTY-NOTICES.md and vendored dive/src/assets/fonts/LICENSE-IBMPlexSansKR.txt. Remaining: dive/pi-sidecar/build-sidecar.mjs:272 still sets legalComments:\"none\", and THIRD-PARTY-NOTICES.md itself states no Node.js LICENSE and no MIT notice for pi-ai/pi-coding-agent travel with the built sidecar/installer; nothing copies license texts into dist/bundle.",
+  "created": "2026-09-29",
+  "updated": "2026-09-29",
+  "repro": "Build the sidecar and grep the binary or bundle for 'MIT License': no attribution for the pi SDK or Node.js"
+}

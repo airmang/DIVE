@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0049",
+  "title": "Default session export leaked raw test/verify error text and bare file names (failureFingerprint, lastActionSummary, unexpectedFiles) in plain text",
+  "status": "fixed",
+  "severity": "P1",
+  "area": "eventlog-export",
+  "source": {
+    "kind": "review",
+    "ref": "S-078 adversarial security review (spec 015)"
+  },
+  "repro": "Export a session whose retry-loop/diff-ready supervisor evaluations carried a failure fingerprint containing a home path or token, or unexpected files like .env — values appear unhashed despite hash_user_text/hash_file_paths defaults.",
+  "notes": "Pre-existing; surfaced while reviewing the S-078 replay export. Fixed by extending anonymizer key lists globally, hashing failure_summary value summaries, and redacting secrets before digit masking in the FE fingerprint.",
+  "guard": {
+    "kind": "cargo",
+    "ref": "default_export_hashes_failure_text_and_unexpected_files_from_real_contexts"
+  },
+  "fixCommit": "2caccf5b",
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

@@ -1,0 +1,42 @@
+{
+  "id": "CAREFUL-02",
+  "title": "Add input validation to an existing contact form (reject empty name and malformed email) WITH a small test, in an existing vanilla JS project that already has a test command (e.g. `npm test`).",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#CAREFUL-02"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "terminal",
+    "recovery",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Tomás, a bootcamp grad burned by an AI that 'fixed' a bug by deleting the failing test. He treats green checkmarks as guilty until proven innocent and always asks 'what command actually ran?'",
+  "steps": [
+    "Design: Tomás writes a tight PRD: criteria phrased as test-able assertions ('submitting empty name shows an error and does not call submit'; 'foo@ is rejected'). He expects the interview to keep criteria observable and to let him explicitly say a test should exist. He confirms the PRD only once criteria read like assertions, not adjectives.",
+    "Plan: AI drafts the plan. Tomás insists a step actually RUNS the test command, not just 'write a test.' He reads rationale for the validation-logic step carefully. If the plan lacks an execute-the-test step he expects (and wants) a nudge, and adds it. He accepts the plan with an explicit `npm test` verification step.",
+    "Implement: Agent edits the form JS and adds a test file. Each write surfaces a warn-tier PermissionCard with diff; Tomás reads them. He's most suspicious of any change touching files OUTSIDE the form (he watches for a diff_scope_drift card if config/package.json got touched). When the agent runs `npm test`, he watches the Terminal tab for the actual command + exit code, not a summary.",
+    "Verify: The AI claims 'tests pass.' Tomás trusts ONLY the recorded run: he checks that the verify log shows a real test_command with an exit code (concrete pass), because he knows DIVE's grading treats 'pass' with no executed command as a weak signal, not concrete. He deliberately tests the negative path too — he expects that if the test_result were 'fail' (or skipped, or claimed-without-command), the DecisionGate would surface 'failed_test' / 'ai_self_report_only' and refuse plain approval. With a genuine executed pass + his own preview of the rejection message, he approves.",
+    "Done: Step verified on concrete automated evidence he can point to (command + exit 0) plus a manual check of the error UI. He saves a checkpoint. Expects roadmap step 완료 with the test-evidence badge, and the verify log inspectable."
+  ],
+  "expected": "DIVE's grading distinguishes 'a test command actually ran and returned an exit code' from 'the AI says tests pass' — this exactly matches Tomás's mental model and means he can't be fooled by a hollow green check. The Terminal tab exposes the real command/exit code, and the gate's 'failed_test' reason makes a deleted-or-skipped test impossible to launder into an approval.",
+  "tags": [
+    "journey",
+    "verification-heavy-skeptical-user",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: If the agent claims pass but never actually executed the command (intent_match=true, test_result skipped/weak_signal), the gate correctly degrades to ai_self_report_only — but if that distinction isn't legible in the UI, Tomás may think DIVE is just being stubborn about a 'passing' test and lose trust. Sidecar/verification-coach unavailable (VC-02) could block him from generating verification guidance; it must degrade with a clear 'Unavailable' message, not hang. Also watch the agent silently editing package.json/config to make tests run — that scope drift must surface as a high-risk diff card or he'll feel ambushed."
+}

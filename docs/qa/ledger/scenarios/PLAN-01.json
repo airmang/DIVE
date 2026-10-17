@@ -1,0 +1,20 @@
+{
+  "id": "PLAN-01",
+  "title": "Generate plan draft from PRD",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PLAN-01"
+  },
+  "areas": [
+    "plan",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P0",
+  "requiresLlm": true,
+  "preconditions": "Confirmed PRD",
+  "steps": [
+    "Create/Generate plan"
+  ],
+  "expected": "Draft steps with deps + parallel groups + rationale render for review"
+}

@@ -1,0 +1,23 @@
+{
+  "id": "ONB-04",
+  "title": "Create project end-to-end",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#ONB-04"
+  },
+  "areas": [
+    "onboarding",
+    "project-session"
+  ],
+  "pathGlobs": [],
+  "priority": "P2",
+  "requiresLlm": false,
+  "preconditions": "Clean sandbox folder available",
+  "steps": [
+    "`+ 새 프로젝트`",
+    "찾아보기 → pick empty folder",
+    "confirm name",
+    "`프로젝트 생성`"
+  ],
+  "expected": "Project appears in sidebar, selected; `.dive/` created in folder; create button was disabled until folder chosen"
+}

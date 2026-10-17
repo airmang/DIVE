@@ -1,0 +1,16 @@
+{
+  "id": "DEF-0010",
+  "title": "architectureProposals survives project switch / PRD open; project A cards can seed project B decision",
+  "status": "open",
+  "severity": "P2",
+  "area": "prd",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L302"
+  },
+  "notes": "Partially fixed — remaining part per 2026-09-29 re-check: e6d1c576 adds setArchitectureProposals(null) to the currentProjectId reset effect (useProductShellController.ts:179-180) and to handleOpenPrdAuthoring (:702). The finding's second path remains: the .then of plan.submitPrdInterviewTurn (:752-760) sets result.architectureProposals without checking currentProjectId or the request generation. A turn that resolves after a project switch still surfaces project A's stack cards on B's PRD board, which renders them as clickable student_confirmed stack cards (PrdAuthoringBoard.tsx:474, :650).",
+  "created": "2026-09-29",
+  "updated": "2026-09-29",
+  "repro": "Submit a PRD interview turn on project A, switch to project B before the LLM resolves, then open PRD authoring on B: A's stack proposal cards appear"
+}

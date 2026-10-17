@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "id": "plan-broad-step-en-work",
+  "event": "plan_drafted",
+  "locale": "en-US",
+  "mode": "work",
+  "description": "One step bundles login, profile and settings into a single change.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "plan_drafted",
+    "artifactRef": {
+      "kind": "plan_draft",
+      "id": "plan-33:draft",
+      "label": "Plan draft"
+    },
+    "contextHash": "sha256:c1859b923e259ead3676dee359a91a8664bad8ee437b205038bfcbdc3da6a781",
+    "mode": "work",
+    "locale": "en-US",
+    "allowedActionIds": [
+      "add_verification_step",
+      "link_criterion",
+      "split_scope",
+      "edit_prd",
+      "dismiss_review"
+    ],
+    "goalSummary": "A club sign-up site where members can log in and edit their profile",
+    "planSummary": {
+      "stepCount": 2,
+      "activeStep": null
+    },
+    "verificationState": {
+      "aiSelfReport": false,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": false,
+      "hasTests": false,
+      "diffAvailable": false
+    },
+    "evidenceRefs": [
+      {
+        "id": "plan.goal",
+        "source": "goal",
+        "kind": "scope_expansion_assessment",
+        "label": "Plan goal",
+        "valueSummary": "A club sign-up site where members can log in and edit their profile",
+        "verificationEvidence": false
+      },
+      {
+        "id": "plan.criteria",
+        "source": "plan",
+        "kind": "acceptance_criteria",
+        "label": "Acceptance criteria",
+        "valueSummary": {
+          "count": 2,
+          "items": ["Members can log in with email", "Members can edit their display name"]
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "plan.step_count",
+        "source": "plan",
+        "kind": "plan_step",
+        "label": "Plan steps",
+        "valueSummary": {
+          "count": 2
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "plan.step.s_001.scope",
+        "source": "plan",
+        "kind": "broad_step",
+        "label": "Broad step s_001",
+        "valueSummary": {
+          "expectedFileCount": 6,
+          "stepId": "s_001",
+          "text": "Build login, profile and settings pages all at once"
+        },
+        "verificationEvidence": false
+      }
+    ],
+    "planDraftAssessment": {
+      "eligible": true,
+      "reasonCodes": ["broad_step"],
+      "evidenceRefs": ["plan.goal", "plan.criteria", "plan.step_count", "plan.step.s_001.scope"],
+      "stepCount": 2,
+      "criteriaCount": 2,
+      "unverifiedStepIds": [],
+      "unlinkedStepIds": []
+    }
+  },
+  "expect": {
+    "shouldProvoke": true,
+    "gatePasses": true,
+    "allowedConcerns": ["plan_draft_weakness"],
+    "requiredEvidenceRefIds": ["plan.step.s_001.scope"],
+    "relevantEvidenceRefIds": ["plan.step.s_001.scope", "plan.criteria", "plan.goal"],
+    "criterionTerms": ["log in", "display name", "profile"],
+    "locale": "en-US"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"plan_draft_weakness\",\"severity\":\"caution\",\"question\":\"Step s_001 builds login, profile and settings together. Could you split it so you can check logging in before editing the display name?\",\"evidenceRefIds\":[\"plan.step.s_001.scope\",\"plan.criteria\"],\"suggestedActionIds\":[\"split_scope\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"plan_draft_weakness\",\"severity\":\"caution\",\"question\":\"Should step s_001 be split so login, profile, and settings are separate steps?\",\"evidenceRefIds\":[\"plan.step.s_001.scope\",\"plan.criteria\"],\"suggestedActionIds\":[\"split_scope\",\"link_criterion\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
+      }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"plan_draft_weakness\",\"severity\":\"caution\",\"question\":\"Does building login, profile and settings pages all at once still let you verify members can log in with email?\",\"evidenceRefIds\":[\"plan.step.s_001.scope\",\"plan.criteria\"],\"suggestedActionIds\":[\"split_scope\",\"link_criterion\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T05:49:42Z",
+        "source": "live",
+        "attempt": 0
+      }
+    ]
+  }
+}

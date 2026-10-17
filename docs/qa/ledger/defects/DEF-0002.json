@@ -1,0 +1,16 @@
+{
+  "id": "DEF-0002",
+  "title": "Observation draft text/evidence kind persist across step switches; stale prose recordable as another step's S-029 evidence",
+  "status": "open",
+  "severity": "P1",
+  "area": "verification",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L47"
+  },
+  "notes": "Partially fixed — remaining part per 2026-09-29 re-check: Main defect fixed in a5801b30: VerificationCoachPanel.tsx:128-135 now resets observationText and evidenceKind on requestKey change (test at VerificationCoachPanel.test.tsx:353). The secondary instance the finding names is still present: DecisionGate.tsx:59 `useState(\"\")` riskReason is never reset or keyed per step; StepDetailSlideIn.tsx:1075 renders DecisionGate without a key, StepDetailSlideIn is mounted without a key (ProductShellLayout.tsx:216), and VerificationReviewStepper keeps activeStageId across stage-list changes (VerificationReviewStepper.tsx:53-60), so a risk reason typed for step A remains filled in for step B when the decision stage is active at the switch.",
+  "created": "2026-09-29",
+  "updated": "2026-09-29",
+  "repro": "Open step A review, go to decision stage, type accept-risk reason, switch rail to step B (also in review): reason textarea is still filled with step A's text."
+}

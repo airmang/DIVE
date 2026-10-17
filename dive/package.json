@@ -48,7 +48,18 @@
     "verify:quality-followup": "node scripts/verify-quality-followup.mjs",
     "verify:route-chat-cancel-quality": "node scripts/verify-route-chat-cancel-quality.mjs",
     "research:retrospective": "node scripts/analyze-retrospective.mjs",
-    "research:supervision": "node scripts/analyze-supervision.mjs"
+    "research:supervision": "node scripts/analyze-supervision.mjs",
+    "research:cards": "node scripts/analyze-cards.mjs",
+    "eval:fixtures": "node scripts/eval-fixtures.mjs",
+    "eval:report": "node scripts/eval-report.mjs",
+    "eval:gate": "node scripts/eval-gate.mjs",
+    "eval:supervisor:recorded": "cargo run --manifest-path src-tauri/Cargo.toml --features dev-mock --example eval_supervisor -- recorded",
+    "eval:supervisor:live": "cargo run --manifest-path src-tauri/Cargo.toml --features dev-mock --example eval_supervisor -- live",
+    "qa:ledger:validate": "node scripts/qa-ledger/validate.mjs",
+    "verify:qa-ledger": "node scripts/qa-ledger/verify.mjs",
+    "qa:run": "node scripts/qa-ledger/run.mjs",
+    "qa:queue": "node scripts/qa-ledger/queue.mjs",
+    "qa:triage": "node scripts/qa-ledger/triage.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

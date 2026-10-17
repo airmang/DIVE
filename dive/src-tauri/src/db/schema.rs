@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS Session (
     title TEXT NOT NULL,
     started_at INTEGER NOT NULL,
     ended_at INTEGER,
-    status TEXT NOT NULL CHECK(status IN ('active','ended','archived'))
+    status TEXT NOT NULL CHECK(status IN ('active','ended','archived')),
+    origin TEXT NOT NULL DEFAULT 'classroom' CHECK(origin IN ('classroom','qa','dev'))
 )";
 
 pub const CREATE_WORKMAP: &str = "
@@ -312,4 +313,42 @@ pub const CREATE_V19_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_message_card ON Message(card_id)",
     "CREATE INDEX IF NOT EXISTS idx_tool_call_message ON ToolCall(message_id)",
     "CREATE INDEX IF NOT EXISTS idx_event_log_plan_id ON EventLog(json_extract(payload, '$.plan_id'), created_at)",
+];
+
+// Spec 015 FR-020/FR-021 (S-078): local replay corpus. One row per model call
+// of a supervision surface (supervisor attempt, coach evaluation, PRD
+// interview turn) holding exactly what is needed to re-run it offline: the
+// prompt inputs (`context_json`), prompt/policy versions, the model, the raw
+// model output (bounded; `raw_truncated` marks a cut), and the validation
+// result. Retention is enforced on insert (dao::supervision_replay). Rows
+// follow their session/project on delete. Never part of the default export.
+pub const CREATE_SUPERVISION_REPLAY: &str = "
+CREATE TABLE IF NOT EXISTS SupervisionReplay (
+    id INTEGER PRIMARY KEY,
+    evaluation_id TEXT NOT NULL UNIQUE,
+    surface TEXT NOT NULL CHECK(surface IN ('supervisor','coach','prd_interview')),
+    session_id INTEGER REFERENCES Session(id) ON DELETE CASCADE,
+    project_id INTEGER REFERENCES Project(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    prompt_version TEXT NOT NULL,
+    policy_version TEXT,
+    model TEXT,
+    context_json TEXT NOT NULL,
+    raw_output TEXT,
+    raw_truncated INTEGER NOT NULL DEFAULT 0,
+    validation_json TEXT NOT NULL
+)";
+
+// App-level preferences the backend itself must honor (the frontend's
+// localStorage preferences are invisible to Rust), e.g. `replayCapture`.
+pub const CREATE_APP_PREFERENCE: &str = "
+CREATE TABLE IF NOT EXISTS AppPreference (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+)";
+
+pub const CREATE_V21_INDEXES: &[&str] = &[
+    "CREATE INDEX IF NOT EXISTS idx_supervision_replay_created ON SupervisionReplay(created_at, id)",
+    "CREATE INDEX IF NOT EXISTS idx_supervision_replay_session ON SupervisionReplay(session_id, id)",
 ];

@@ -1,0 +1,21 @@
+{
+  "id": "PERM-03",
+  "title": "Approve with modified args",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PERM-03"
+  },
+  "areas": [
+    "permission",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "A tool card with args",
+  "steps": [
+    "Edit args",
+    "Approve"
+  ],
+  "expected": "Args editor accepts edit; approval uses modified args"
+}

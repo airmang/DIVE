@@ -1,0 +1,1077 @@
+{
+  "schemaVersion": 1,
+  "kind": "supervisor-eval-report",
+  "mode": "live",
+  "generatedAt": "2026-09-29T04:11:57Z",
+  "fixtureCount": 30,
+  "groups": [
+    {
+      "key": {
+        "split": "dev",
+        "promptVersion": "1.0.0+256c9520",
+        "policyVersion": "1.0.0",
+        "model": "anthropic/claude-sonnet-5"
+      },
+      "resultCount": 19,
+      "outcomes": {
+        "shown": 15,
+        "none": 4,
+        "dropped": 0,
+        "error": 0
+      },
+      "dropReasons": {
+        "provoke_false": 4
+      },
+      "provokeAgreement": {
+        "checked": 19,
+        "agree": 19,
+        "falseProvoke": 0,
+        "missedProvoke": 0,
+        "rate": 1.0
+      },
+      "dropReasonMatch": {
+        "checked": 0,
+        "matched": 0,
+        "rate": null
+      },
+      "localeCompliance": {
+        "checked": 15,
+        "compliant": 15,
+        "rate": 1.0
+      },
+      "criterionLinkage": {
+        "checked": 15,
+        "linked": 12,
+        "rate": 0.8
+      },
+      "evidencePrecision": {
+        "checked": 15,
+        "mean": 1.0,
+        "requiredCited": 15,
+        "requiredChecked": 15
+      },
+      "questionLength": {
+        "count": 15,
+        "min": 42,
+        "median": 57.0,
+        "max": 110,
+        "mean": 68.93333333333334,
+        "overLimit": 0
+      },
+      "results": [
+        {
+          "fixtureId": "claim-done-en-work",
+          "split": "dev",
+          "event": "ai_claimed_done",
+          "locale": "en-US",
+          "mode": "work",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "claim-done-ko-guided",
+          "split": "dev",
+          "event": "ai_claimed_done",
+          "locale": "ko-KR",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "claim-done-ko-work",
+          "split": "dev",
+          "event": "ai_claimed_done",
+          "locale": "ko-KR",
+          "mode": "work",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "diff-auth-file-ko-work",
+          "split": "dev",
+          "event": "diff_ready",
+          "locale": "ko-KR",
+          "mode": "work",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "diff_scope_drift",
+            "question": "체크박스 기능과 무관한 src/lib/auth.ts 변경이 포함됐는데 이 파일 수정이 정말 필요한가요?",
+            "evidenceRefIds": ["diff.unexpected_files", "diff.high_risk_files", "step.scope"],
+            "suggestedActionIds": ["open_diff", "revert_unrelated_changes", "run_tests"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 57
+          }
+        },
+        {
+          "fixtureId": "diff-env-file-en-work",
+          "split": "dev",
+          "event": "diff_ready",
+          "locale": "en-US",
+          "mode": "work",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "diff_scope_drift",
+            "question": "Why do package.json and .env.example need changes just to style recipe cards?",
+            "evidenceRefIds": [
+              "diff.unexpected_files",
+              "diff.high_risk_files",
+              "diff.expected_files"
+            ],
+            "suggestedActionIds": ["open_diff", "revert_unrelated_changes", "ask_ai_for_rationale"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 77
+          }
+        },
+        {
+          "fixtureId": "diff-refactor-ko-guided",
+          "split": "dev",
+          "event": "diff_ready",
+          "locale": "ko-KR",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "diff_scope_drift",
+            "question": "파일 이름 변경 외에 기능 동작에 영향을 주는 코드 변경은 없는지 확인하셨나요?",
+            "evidenceRefIds": [
+              "diff.changed_files",
+              "step.scope",
+              "diff.behavior_preserving_refactor"
+            ],
+            "suggestedActionIds": ["open_diff", "run_tests"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": false,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 44
+          }
+        },
+        {
+          "fixtureId": "plan-missing-verification-ko-work",
+          "split": "dev",
+          "event": "plan_drafted",
+          "locale": "ko-KR",
+          "mode": "work",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "plan_draft_weakness",
+            "question": "두 단계 모두 검증 방법이 없는데, 생일 알림 기능 검증 절차를 추가해야 하지 않을까요?",
+            "evidenceRefIds": ["plan.step.s_001.verification", "plan.step.s_002.verification"],
+            "suggestedActionIds": ["add_verification_step", "link_criterion"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 49
+          }
+        },
+        {
+          "fixtureId": "plan-unlinked-criteria-ko-guided",
+          "split": "dev",
+          "event": "plan_drafted",
+          "locale": "ko-KR",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "plan_draft_weakness",
+            "question": "각 단계가 어떤 수락 기준과 연결되는지 명시해야 반납일 표시와 검색 기능을 검증할 수 있지 않을까요?",
+            "evidenceRefIds": [
+              "plan.step.s_001.criteria",
+              "plan.step.s_002.criteria",
+              "plan.criteria"
+            ],
+            "suggestedActionIds": ["link_criterion", "add_verification_step"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 56
+          }
+        },
+        {
+          "fixtureId": "plan-unresolved-question-en-guided",
+          "split": "dev",
+          "event": "plan_drafted",
+          "locale": "en-US",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "plan_draft_weakness",
+            "question": "How will you verify that votes are recorded correctly for step s_002?",
+            "evidenceRefIds": ["plan.step.s_002.verification", "plan.criteria"],
+            "suggestedActionIds": ["add_verification_step", "link_criterion"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 69
+          }
+        },
+        {
+          "fixtureId": "retry-fetch-401-en-guided",
+          "split": "dev",
+          "event": "retry_loop",
+          "locale": "en-US",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "retry_loop",
+            "question": "Same 401 unauthorized error occurred 3 times—have you checked if the API key or auth token is valid?",
+            "evidenceRefIds": ["failure.fingerprint", "failure.count", "failure.last_action"],
+            "suggestedActionIds": ["open_diff", "rollback_last_change", "create_repro_steps"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": false,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 100
+          }
+        },
+        {
+          "fixtureId": "retry-module-missing-ko-guided",
+          "split": "dev",
+          "event": "retry_loop",
+          "locale": "ko-KR",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "retry_loop",
+            "question": "chart.js 모듈을 찾지 못하는 오류가 반복되는데, 설치 여부를 diff로 확인해 볼까요?",
+            "evidenceRefIds": ["failure.fingerprint", "failure.count", "recovery.state"],
+            "suggestedActionIds": ["open_diff", "run_tests"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": false,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 52
+          }
+        },
+        {
+          "fixtureId": "retry-test-timeout-en-work",
+          "split": "dev",
+          "event": "retry_loop",
+          "locale": "en-US",
+          "mode": "work",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "retry_loop",
+            "question": "This save-score timeout has failed 4 times — should we roll back the last change instead of retrying again?",
+            "evidenceRefIds": ["failure.fingerprint", "failure.count", "recovery.state"],
+            "suggestedActionIds": ["rollback_last_change", "open_diff", "run_tests"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 107
+          }
+        },
+        {
+          "fixtureId": "scope-new-area-en-guided",
+          "split": "dev",
+          "event": "scope_expansion",
+          "locale": "en-US",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "scope_expansion",
+            "question": "Excel export isn't linked to AC-003; should this new scope be split out or tied to a criterion?",
+            "evidenceRefIds": ["add_step.linked_criterion_ids", "prd_delta.scope_changes_0"],
+            "suggestedActionIds": ["link_criterion", "split_scope", "edit_prd", "dismiss_review"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 95
+          }
+        },
+        {
+          "fixtureId": "scope-new-area-en-work",
+          "split": "dev",
+          "event": "scope_expansion",
+          "locale": "en-US",
+          "mode": "work",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "scope_expansion",
+            "question": "Does adding user comments link to an existing acceptance criterion, or should it be split from this MVP scope?",
+            "evidenceRefIds": ["add_step.linked_criterion_ids", "prd_delta.scope_changes_0"],
+            "suggestedActionIds": ["link_criterion", "split_scope", "edit_prd", "dismiss_review"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 110
+          }
+        },
+        {
+          "fixtureId": "scope-new-area-ko-work",
+          "split": "dev",
+          "event": "scope_expansion",
+          "locale": "ko-KR",
+          "mode": "work",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "scope_expansion",
+            "question": "관리자 통계 대시보드가 로그인/설정 MVP 범위의 PRD 기준과 어떻게 연결되나요?",
+            "evidenceRefIds": ["add_step.linked_criterion_ids", "prd_delta.scope_changes_0"],
+            "suggestedActionIds": ["link_criterion", "split_scope", "edit_prd", "dismiss_review"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 46
+          }
+        },
+        {
+          "fixtureId": "verify-claim-done-en-work",
+          "split": "dev",
+          "event": "verify_entered",
+          "locale": "en-US",
+          "mode": "work",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "ai_self_report_only",
+            "question": "Have you run the tests or checked the diff to confirm the 5-day forecast actually works?",
+            "evidenceRefIds": ["agent.assistant_claim", "verify.test_result"],
+            "suggestedActionIds": ["run_tests", "open_diff"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 88
+          }
+        },
+        {
+          "fixtureId": "verify-claim-done-ko-guided",
+          "split": "dev",
+          "event": "verify_entered",
+          "locale": "ko-KR",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "ai_self_report_only",
+            "question": "새로고침 후에도 지출 내역이 실제로 저장되어 있는지 앱에서 직접 확인했나요?",
+            "evidenceRefIds": ["agent.assistant_claim"],
+            "suggestedActionIds": ["open_diff", "run_app"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 42
+          }
+        },
+        {
+          "fixtureId": "verify-claim-done-ko-work",
+          "split": "dev",
+          "event": "verify_entered",
+          "locale": "ko-KR",
+          "mode": "work",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "ai_self_report_only",
+            "question": "할 일 추가 폼이 실제로 동작하는지 diff나 미리보기로 직접 확인하셨나요?",
+            "evidenceRefIds": ["agent.assistant_claim"],
+            "suggestedActionIds": ["open_diff", "open_preview"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 42
+          }
+        },
+        {
+          "fixtureId": "verify-preview-confirmed-en-work",
+          "split": "dev",
+          "event": "verify_entered",
+          "locale": "en-US",
+          "mode": "work",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        }
+      ]
+    },
+    {
+      "key": {
+        "split": "holdout",
+        "promptVersion": "1.0.0+256c9520",
+        "policyVersion": "1.0.0",
+        "model": "anthropic/claude-sonnet-5"
+      },
+      "resultCount": 11,
+      "outcomes": {
+        "shown": 5,
+        "none": 6,
+        "dropped": 0,
+        "error": 0
+      },
+      "dropReasons": {
+        "provoke_false": 6
+      },
+      "provokeAgreement": {
+        "checked": 11,
+        "agree": 11,
+        "falseProvoke": 0,
+        "missedProvoke": 0,
+        "rate": 1.0
+      },
+      "dropReasonMatch": {
+        "checked": 0,
+        "matched": 0,
+        "rate": null
+      },
+      "localeCompliance": {
+        "checked": 5,
+        "compliant": 5,
+        "rate": 1.0
+      },
+      "criterionLinkage": {
+        "checked": 5,
+        "linked": 4,
+        "rate": 0.8
+      },
+      "evidencePrecision": {
+        "checked": 5,
+        "mean": 1.0,
+        "requiredCited": 5,
+        "requiredChecked": 5
+      },
+      "questionLength": {
+        "count": 5,
+        "min": 47,
+        "median": 78.0,
+        "max": 89,
+        "mean": 69.4,
+        "overLimit": 0
+      },
+      "results": [
+        {
+          "fixtureId": "claim-done-en-guided",
+          "split": "holdout",
+          "event": "ai_claimed_done",
+          "locale": "en-US",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "diff-expected-only-en-work",
+          "split": "holdout",
+          "event": "diff_ready",
+          "locale": "en-US",
+          "mode": "work",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "diff-extra-page-en-guided",
+          "split": "holdout",
+          "event": "diff_ready",
+          "locale": "en-US",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "diff_scope_drift",
+            "question": "Why does About.tsx change when this step only requires Movies.tsx search filtering?",
+            "evidenceRefIds": [
+              "diff.changed_files",
+              "diff.expected_files",
+              "diff.unexpected_files"
+            ],
+            "suggestedActionIds": ["open_diff", "revert_unrelated_changes", "ask_ai_for_rationale"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 83
+          }
+        },
+        {
+          "fixtureId": "plan-broad-step-en-work",
+          "split": "holdout",
+          "event": "plan_drafted",
+          "locale": "en-US",
+          "mode": "work",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "plan_draft_weakness",
+            "question": "Should step s_001 be split so login, profile, and settings are separate steps?",
+            "evidenceRefIds": ["plan.step.s_001.scope", "plan.criteria"],
+            "suggestedActionIds": ["split_scope", "link_criterion"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 78
+          }
+        },
+        {
+          "fixtureId": "plan-verified-ko-work",
+          "split": "holdout",
+          "event": "plan_drafted",
+          "locale": "ko-KR",
+          "mode": "work",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "retry-first-failure-ko-guided",
+          "split": "holdout",
+          "event": "retry_loop",
+          "locale": "ko-KR",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "retry-map-undefined-ko-work",
+          "split": "holdout",
+          "event": "retry_loop",
+          "locale": "ko-KR",
+          "mode": "work",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "retry_loop",
+            "question": "같은 TypeError가 3번 반복됐는데, 이전 변경을 롤백하고 diff부터 확인해볼까요?",
+            "evidenceRefIds": ["failure.fingerprint", "failure.count", "recovery.state"],
+            "suggestedActionIds": ["rollback_last_change", "open_diff", "run_tests"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": false,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 50
+          }
+        },
+        {
+          "fixtureId": "scope-linked-step-en-guided",
+          "split": "holdout",
+          "event": "scope_expansion",
+          "locale": "en-US",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        },
+        {
+          "fixtureId": "scope-new-area-ko-guided",
+          "split": "holdout",
+          "event": "scope_expansion",
+          "locale": "ko-KR",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "scope_expansion",
+            "question": "친구와 할 일 공유 기능이 혼자 쓰는 할 일 앱 목표의 어떤 승인 기준과 연결되나요?",
+            "evidenceRefIds": ["add_step.linked_criterion_ids", "prd_delta.scope_changes_0"],
+            "suggestedActionIds": ["link_criterion", "split_scope", "edit_prd", "dismiss_review"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 47
+          }
+        },
+        {
+          "fixtureId": "verify-claim-done-en-guided",
+          "split": "holdout",
+          "event": "verify_entered",
+          "locale": "en-US",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": true
+          },
+          "gatePasses": true,
+          "promptSent": true,
+          "outcome": "shown",
+          "dropReason": null,
+          "decision": {
+            "concern": "ai_self_report_only",
+            "question": "Have you opened the diff or preview to confirm the empty email validation actually works?",
+            "evidenceRefIds": ["agent.assistant_claim"],
+            "suggestedActionIds": ["open_diff", "open_preview"]
+          },
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": true,
+            "criterionLinked": true,
+            "evidencePrecision": 1.0,
+            "requiredEvidenceCited": true,
+            "questionChars": 89
+          }
+        },
+        {
+          "fixtureId": "verify-tests-passed-ko-guided",
+          "split": "holdout",
+          "event": "verify_entered",
+          "locale": "ko-KR",
+          "mode": "guided",
+          "recordingIndex": 0,
+          "attempt": 0,
+          "source": "live",
+          "model": "anthropic/claude-sonnet-5",
+          "expected": {
+            "shouldProvoke": false
+          },
+          "gatePasses": false,
+          "promptSent": false,
+          "outcome": "none",
+          "dropReason": "provoke_false",
+          "decision": null,
+          "checks": {
+            "provokeAgreement": true,
+            "dropReasonMatch": null,
+            "localeCompliant": null,
+            "criterionLinked": null,
+            "evidencePrecision": null,
+            "requiredEvidenceCited": null,
+            "questionChars": null
+          }
+        }
+      ]
+    }
+  ]
+}

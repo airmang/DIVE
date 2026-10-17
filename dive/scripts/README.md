@@ -48,6 +48,98 @@ finding C8 — 23 one-shot sprint verifiers were retired 2026-07-20).
 | --------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `analyze-retrospective.mjs` | `pnpm research:retrospective <export.jsonl...>` | Summarizes `Card.retrospective` / `retrospective_metrics` records from a DIVE JSONL export without de-anonymizing students or sessions. |
 | `analyze-supervision.mjs`   | `pnpm research:supervision <export.jsonl>`      | Aggregates automatic supervision metrics 1/3/4 from a DIVE JSONL export.                                                                |
+| `analyze-cards.mjs`         | `pnpm research:cards <export.jsonl...>`         | Review-card field aggregates per supervisor version (spec 015 S-081); see below.                                                        |
+
+### `research:cards` (spec 015, FR-050/FR-051)
+
+Joins each export's `provocation.card_*` exposures to their
+`provocation.supervisor_evaluated` rows (within one export only: every export
+has a fresh salt) and groups by event, concern, mode, `promptVersion`,
+`policyVersion` and model. Per group: exposures; action / dismiss /
+mark-irrelevant / continued-with-risk / unanswered counts and rates (the
+denominator is exposures); median response latency; median visible time of
+unanswered cards; supervisor outcome and drop-reason distribution, including
+evaluations that produced no card; unanswered reasons (`removed`, `replaced`,
+`unmounted`, `page_hidden`; legacy `superseded` is kept as-is). `promptVersion`
+has three states that are never pooled: a real version, `(no LLM)` (explicit
+`null`: no prompt reached a model) and `(legacy)` (missing or empty, pre-S-076).
+Data-integrity warnings come first: exposures with no terminal event (should
+be 0), card events attributed via `sessionResolvedBy: project_latest`, and
+frontend/Rust policy version mismatches (`policyVersionRust`). Smaller tables
+summarize `verification_coach.evaluated` (status, reason codes) and
+`prd_interview.turn_evaluated` (outcomes incl. `model_error`, error classes)
+per prompt version. Field names:
+`specs/015-self-improvement-loops/contracts/event-log-export.md`.
+
+- Default: Markdown. `-- --json` prints JSON.
+- `-- --include-origin qa,dev` adds QA/dev sessions (default: `classroom`
+  only). Exports without `origin` (before migration v20) are included and
+  counted as legacy.
+- `-- --exemplars` lists the evaluation/exposure ids and question of each
+  marked-irrelevant or unanswered exposure per export file. These are
+  candidates only: promotion into eval fixtures is manual and needs a human
+  anonymization review. Look them up on the machine that holds the replay corpus.
+- Rates are card-quality proxies, not evidence of student supervision skill.
+
+## Supervisor eval (spec 015, S-079)
+
+Golden set, fixture format and report schema: `../eval/supervisor/README.md`.
+The runner that writes reports is the Rust `eval::supervisor` module.
+
+| Script              | Run via                                                                  | Purpose                                                                                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `eval-fixtures.mjs` | `pnpm eval:fixtures` (`-- --rehash`)                                     | Format + coverage check of `eval/supervisor/fixtures/`; `--rehash` rewrites `contextHash` after an edit. Also enforced in CI by `eval-fixtures.test.mjs` under `pnpm test:unit`. |
+| `eval-report.mjs`   | `pnpm eval:report <report.json>`, `-- --compare <base.json> <head.json>` | Markdown summary of a runner report, or a before/after diff; `--judge <file>` adds an advisory "AI judgment" section (never a merge gate, D-015-05).                             |
+
+## QA ledger (`qa-ledger/`, spec 015)
+
+Tooling for the machine-readable QA ledger in `docs/qa/ledger/` (defects,
+scenarios, live-run records). Field reference: `qa-ledger/schema.md`; workflow:
+`docs/qa/ledger/README.md`. Its `*.test.mjs` files run under `pnpm test:unit`
+(vitest includes `scripts/**/*.test.mjs`), including a check of the real ledger.
+
+| Script                   | Run via                                                                     | Purpose                                                                                                                                                                                                                               |
+| ------------------------ | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `qa-ledger/validate.mjs` | `pnpm qa:ledger:validate` (`-- --next-id`)                                  | Schema + cross-reference check of every ledger record; exits 1 listing each problem. `--next-id` prints the next free `DEF-NNNN`.                                                                                                     |
+| `qa-ledger/schema.mjs`   | (module)                                                                    | Enums and per-record validators for Defect / Scenario / RunRecord.                                                                                                                                                                    |
+| `qa-ledger/load.mjs`     | (module)                                                                    | Reads the ledger; duplicate-id, filename/id and dangling-reference checks.                                                                                                                                                            |
+| `qa-ledger/areas.mjs`    | (module)                                                                    | Area name → repo path globs, shared by scenarios and defects (and S-082's rerun queue).                                                                                                                                               |
+| `qa-ledger/verify.mjs`   | `pnpm verify:qa-ledger` (`-- --kinds vitest,cargo`, `-- --cargo-dir <dir>`) | Validate, then resolve the guard of every `fixed`/`verified` defect through its runner (S-080, FR-040/041); exits 1 on an unresolved or skipped/ignored guard.                                                                        |
+| `qa-ledger/guards.mjs`   | (module)                                                                    | Per-kind guard resolvers with injectable runners: `vitest list --json`, `cargo test -- --list` (+ `--ignored`), eval fixture ids, live-run records.                                                                                   |
+| `qa-ledger/queue.mjs`    | `pnpm qa:queue` (`-- --since <ref>`, `-- --stale-days N`)                   | Pick the next live-QA run set (fixed-unverified defects, areas changed since last pass, stale, cross-cutting/unmapped ⇒ all) and write a work order to `.harness/work-orders/qa/<date>.md` (S-082).                                   |
+| `qa-ledger/run.mjs`      | `pnpm qa:run init --scenarios …` / `pnpm qa:run apply <draft>`              | Run-record draft with build version + commit; apply writes the run, new defects, `fixed → verified` (build must contain `fixCommit`) and `lastPass`, validated all-or-nothing.                                                        |
+| `qa-ledger/git.mjs`      | (module)                                                                    | Read-only git helpers (`core.quotePath=false` diffs, ancestry, HEAD).                                                                                                                                                                 |
+| `qa-ledger/triage.mjs`   | `pnpm qa:triage` (`-- --from-eval <result.json>`, `-- --json`)              | Cluster open/fixing defects (area, merged by shared spec/stage refs) into spec-theme stubs + Wily `design_stage` payload drafts in `.harness/triage/<date>/` — drafts only; `--from-eval` opens `source: eval` defects first (S-084). |
+
+Where guard resolution runs (D-015-08 — workflow files can't be changed from
+agent sessions):
+
+- **CI, every push**: `pnpm test:unit` (`guards.test.mjs` resolves the real
+  ledger's vitest, eval-fixture and live-scenario guards) and `pnpm verify:v4`
+  (the "QA Ledger Guards" step, same kinds). The frontend job has no Rust
+  toolchain, so **cargo guards are not enforced by any CI job today** — see
+  the owner step below. CI checks out with depth 1: a `fixCommit` or run
+  commit missing from that shallow clone makes a live-scenario guard
+  "unverifiable" (a WARN line, exit 0); missing from full history it fails.
+- **Locally / before a release**: `pnpm verify:qa-ledger` checks every kind
+  including cargo (it compiles the test targets, same flags as CI's
+  `cargo test`). When the working tree is mid-edit and doesn't compile, list
+  from a clean checkout: `git worktree add <dir> HEAD`, copy
+  `src-tauri/binaries/*` and `dist/` into it, then
+  `pnpm verify:qa-ledger -- --cargo-dir <dir>/dive/src-tauri`.
+- **Owner step (needed for cargo guards to be enforced)**: add this one line
+  to the "Rust gate" step of `.github/workflows/release-gate.yml`, right after
+  `cargo test --features dev-mock --all-targets`. The step runs in
+  `dive/src-tauri` under PowerShell on the Windows runners, so the line uses
+  `pnpm -C ..` (works in PowerShell and bash) rather than `cd`; the cargo test
+  build is already warm at that point:
+
+  ```sh
+  pnpm -C .. verify:qa-ledger --kinds cargo
+  ```
+
+  Agent sessions can't push workflow files (no `workflow` token scope,
+  D-015-08).
 
 ## Shared helper (not a standalone script)
 

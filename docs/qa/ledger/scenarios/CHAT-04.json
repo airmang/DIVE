@@ -1,0 +1,24 @@
+{
+  "id": "CHAT-04",
+  "title": "Input gating message",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#CHAT-04"
+  },
+  "areas": [
+    "chat",
+    "prd",
+    "i18n"
+  ],
+  "pathGlobs": [],
+  "priority": "P2",
+  "requiresLlm": false,
+  "preconditions": "Session where chat is gated (PRD incomplete / no project)",
+  "steps": [
+    "Observe input"
+  ],
+  "expected": "Blocked message renders (\"프로젝트/세션 먼저…\" or \"PRD 먼저…\"); send disabled",
+  "tags": [
+    "i18n"
+  ]
+}

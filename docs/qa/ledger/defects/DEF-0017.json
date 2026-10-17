@@ -1,0 +1,19 @@
+{
+  "id": "DEF-0017",
+  "title": "CHANGELOG [Unreleased] falsely claims no pending changes; link defs stale at rc.4",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "docs-spec",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L626"
+  },
+  "notes": "Remaining part at re-check: [Unreleased] compared from rc.9 and [1.0.0-rc.10] had no link definition; also [Unreleased] said \"Nothing yet.\" while c9290acc (security fix) sat after rc.10. Fixed 2026-09-29: link defs through rc.10, Unreleased entries added. Guard dive/scripts/changelog.test.mjs (all three cases fail on the pre-fix CHANGELOG).",
+  "created": "2026-09-29",
+  "updated": "2026-09-29",
+  "guard": {
+    "kind": "vitest",
+    "ref": "dive/scripts/changelog.test.mjs::CHANGELOG link definitions > defines a link for every version heading"
+  }
+}

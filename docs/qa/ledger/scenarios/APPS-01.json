@@ -1,0 +1,43 @@
+{
+  "id": "APPS-01",
+  "title": "Build a single-page notes app: add a note (title + body), see the list of notes, delete a note, and have notes persist in the browser (localStorage) so they survive a refresh.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#APPS-01"
+  },
+  "areas": [
+    "project-session",
+    "onboarding",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Maya, 26, a marketing coordinator who took one intro-to-HTML workshop a year ago. She can read code if it's explained but has never built anything from scratch. She wants a personal notes app she can actually keep using.",
+  "steps": [
+    "Design: Maya creates a new project pointed at an empty folder, opens a session, and types 'I want a simple app to jot down notes that don't disappear when I close the tab.' She expects the Socratic PRD interview to ask plain-language clarifying questions (Do you want categories? Edit existing notes or just add/delete? Should notes survive a refresh?). She answers in her own words and watches the PrdAuthoringBoard fill in goal / scope / non-goals / acceptance-criteria (e.g. AC: 'a note persists after page reload'). She wants to feel the app understood her, not interrogated her. She confirms the PRD and sees the FinalPrdReadView with a version number.",
+    "Plan: She clicks generate-plan and expects a short, readable roadmap: scaffold index.html, add note form + render list, wire localStorage persistence, add delete. She wants each step to show its acceptance criteria and dependencies (delete depends on render). She reviews, understands roughly why the order is what it is, and clicks Accept; the right-rail roadmap appears and run mode moves to Build.",
+    "Implement: She runs the first step and watches the agent loop. Read tool calls (list_dir, read_file on the empty folder) auto-approve as green safe cards. When the agent proposes write_file index.html, a warn-tier approval card appears with a DiffViewer showing the new file content. Maya reads the diff, recognizes it's just HTML/JS, and clicks Approve. She repeats this per step, expecting each write to pause for her approval with a clear before/after.",
+    "Verify: When a step is AI-claimed-done it moves to '검증 필요' (needs verification). Maya opens the review stepper (코드 이해 → 점검·관찰 → 검토 응답 → 결정). A provocation card asks a criterion-linked question like 'You claimed notes persist — did you actually reload and see them survive?' She opens the preview tab, types a note, refreshes the iframe, sees it survive, and that observation flips '코드 이해' / persistence evidence from needs-check to confirmed. Only after real evidence is recorded does the 결정 (decision) gate unlock so she can mark the step verified.",
+    "Done: All four steps reach '검증 증거 있음' / done. Maya sees a completed roadmap, a checkpoint she could roll back to, and a working app in the preview. She opens the folder and her notes app is real files she can keep. She feels she supervised it being built, not that a black box spat out code."
+  ],
+  "expected": "The PRD interview asks 3-4 genuinely useful beginner questions (persistence, edit-vs-delete, categories) and turns vague intent into concrete acceptance criteria she recognizes. The plan is short and legible. Write approvals show a readable diff she can actually evaluate. The verify stepper refuses to let her rubber-stamp — it makes her reload the page and SEE persistence work, and the evidence-flip (변경 확인 필요 → 확인됨) gives a satisfying 'I checked this myself' moment. Everything renders in her chosen language.",
+  "tags": [
+    "journey",
+    "small-multi-step-apps",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: If UI locale is English, DEF-01 means status badges (실행 중, 검증 필요, 변경 확인 필요, AI 자가보고만 있음) render in Korean and confuse her about what each step needs. The LLM may also reply in Korean even with English locale, derailing a beginner. localStorage persistence is the kind of thing an LLM cheaply self-reports as done without proving it — the provocation card must force an actual reload-and-observe, or she'll mark a broken app verified. Risk the persistence AC is too vague for the verify stage to gate on."
+}

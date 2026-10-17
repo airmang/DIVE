@@ -1,0 +1,41 @@
+{
+  "id": "STYLED-01",
+  "title": "Add a working light/dark mode toggle button to her existing portfolio page that remembers the user's choice on reload, and confirm it actually flips colors.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#STYLED-01"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Mina, a 2nd-year design student who knows HTML/CSS basics but has never used an AI coding tool. She has a static personal portfolio (index.html + style.css) and wants a dark-mode toggle.",
+  "steps": [
+    "Design: Mina opens her portfolio folder as a project and types 'add a dark mode toggle to my site'. She expects DIVE to ask a few clarifying questions, not just start coding. The Socratic PRD interview should pull out: which elements change color, whether the choice persists (localStorage), default theme, and the acceptance criteria 'clicking the toggle switches between light and dark' and 'the choice survives a page reload'. She expects to see goal / scope / non-goals / acceptance-criteria fill into the PRD board as she answers, and to confirm a final PRD before any code is written.",
+    "Plan: DIVE drafts a short roadmap: (1) add toggle button to the header, (2) add CSS variables / a .dark class with both color sets, (3) wire up the click handler + localStorage persistence. Mina expects a small, readable list of steps with the persistence step depending on the markup step, a one-line rationale per step, and an obvious Accept button. She reviews and accepts.",
+    "Implement: Each step runs the agent loop. Reading her index.html/style.css is auto-approved (safe), but the edit to inject the toggle markup and the new CSS shows a PERMISSION card with a diff preview. Mina reads the diff (a new button + a block of CSS variables + a small script), and clicks 'allow this change'. She expects to see exactly which lines change before she approves, and to approve each write separately.",
+    "Verify: An evidence-gated review stepper appears (코드 이해 → 점검·관찰 → 검토 응답 → 결정). To satisfy 'I checked the preview', Mina opens the Preview tab and loads index.html / localhost. She clicks the toggle in the preview iframe and watches colors flip, then reloads to confirm persistence. A criterion-linked review card asks something like 'How did you confirm the choice survives a reload, rather than trusting the AI's report?' She records that she reloaded and the theme stuck. She expects the 결정 (decide) button to stay locked until she has actually opened the preview and confirmed.",
+    "Done: The toggle works, the step is marked complete, and a checkpoint is saved. Mina expects a clear 'done' state, the ability to undo back to the pre-toggle checkpoint if she dislikes the colors, and her PRD/plan preserved so she can add the next feature."
+  ],
+  "expected": "The PRD interview surfaces persistence and reload-survival as explicit acceptance criteria she wouldn't have thought of. The diff preview makes the small CSS-variables + script change legible. Crucially, the verify stepper makes her actually click the toggle and reload in the live preview instead of accepting 'I added a dark mode toggle' — she sees the colors flip with her own eyes, and the checkpoint lets her experiment fearlessly.",
+  "tags": [
+    "journey",
+    "styled-responsive-ui",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: The Preview tab is a plain iframe with no device/theme controls — if the toggle relies on prefers-color-scheme or a system theme rather than her button, the in-app preview can't easily simulate OS dark mode, so 'preview observed' may be satisfied without truly proving the toggle path. localStorage persistence inside the sandboxed iframe (sandbox='allow-scripts allow-same-origin') may behave differently than a real browser, giving a false pass/fail on reload-survival. Also: with UI locale = English, the LLM still tends to reply in Korean (locale system-prompt hint is hardcoded Korean in agent/mod.rs:1674) and review-card titles like '검증 단계가 빠졌습니다' show in Korean (DEF-01) — confusing for an English-speaking beginner."
+}

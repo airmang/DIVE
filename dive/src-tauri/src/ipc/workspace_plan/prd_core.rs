@@ -619,6 +619,7 @@ const VAGUE_GOAL_TERMS: &[&str] = &[
     "anything",
 ];
 
+#[derive(Clone, Copy)]
 pub(super) struct ConfirmableGap {
     /// Short field name for `missing_confirmable_prd_fields`.
     pub(super) label: &'static str,
@@ -661,6 +662,55 @@ fn substantive_active_criteria_count(criteria: &[AcceptanceCriterion]) -> usize 
         .count()
 }
 
+const GAP_GOAL: ConfirmableGap = ConfirmableGap {
+    label: "goal",
+    focus: "clarify_goal_in_plain_language: ask who needs this, in what situation, and what problem it should solve",
+};
+const GAP_SPECIFIC_GOAL: ConfirmableGap = ConfirmableGap {
+    label: "specific goal",
+    focus: "sharpen_goal: the goal is too short or vague — ask one plain question so it names who it is for and what it should concretely do",
+};
+const GAP_INTENT_SUMMARY: ConfirmableGap = ConfirmableGap {
+    label: "intent summary",
+    focus: "capture_intent_summary: ask in one plain question who will use this and why, so it can be summarized in one sentence",
+};
+const GAP_SCOPE: ConfirmableGap = ConfirmableGap {
+    label: "in-scope item",
+    focus:
+        "capture_scope: ask what the first version should include — one concrete thing it must do",
+};
+const GAP_NON_GOAL: ConfirmableGap = ConfirmableGap {
+    label: "non-goal",
+    focus: "capture_non_goal: ask what the first version should NOT include or do — one thing to leave out for now",
+};
+const GAP_DONE_STATE: ConfirmableGap = ConfirmableGap {
+    label: "observable done state",
+    focus:
+        "capture_observable_done_state: ask what the student would see when the project is working",
+};
+const GAP_SECOND_DONE_STATE: ConfirmableGap = ConfirmableGap {
+    label: "second observable done state",
+    focus: "capture_second_observable_done_state: ask for one more concrete, checkable sign that the project works, so there are at least two",
+};
+const GAP_TECH_STACK: ConfirmableGap = ConfirmableGap {
+    label: "tech stack",
+    focus: "propose_architecture_stack: recommend up to 2 concrete tech stacks that fit this goal — each with one plain line saying what the finished thing is (a browser app, a command-line tool, a bot…) and why this stack — then ask the student to confirm or change it in the PRD board; never decide for them",
+};
+
+/// Every gap the confirm gate can report. Their labels and focus lines are
+/// interpolated into the PRD interview prompt, so the prompt-version
+/// fingerprint (`prd_interview_prompt_version`) hashes this whole table.
+pub(super) const CONFIRMABLE_GAP_TABLE: [ConfirmableGap; 8] = [
+    GAP_GOAL,
+    GAP_SPECIFIC_GOAL,
+    GAP_INTENT_SUMMARY,
+    GAP_SCOPE,
+    GAP_NON_GOAL,
+    GAP_DONE_STATE,
+    GAP_SECOND_DONE_STATE,
+    GAP_TECH_STACK,
+];
+
 /// Ordered gaps between the draft and the confirmable bar. Empty == confirmable.
 /// Mirrors `validateConfirmableProjectSpec` (non-vague goal + intent + >=1 scope +
 /// >=1 non-goal + >=2 substantive criteria); constraints stay optional there too.
@@ -668,15 +718,9 @@ pub(super) fn confirmable_draft_gaps(spec: &ProjectSpecDraft) -> Vec<Confirmable
     let mut gaps = Vec::new();
     let goal = spec.goal.trim();
     if goal.is_empty() {
-        gaps.push(ConfirmableGap {
-            label: "goal",
-            focus: "clarify_goal_in_plain_language: ask who needs this, in what situation, and what problem it should solve",
-        });
+        gaps.push(GAP_GOAL);
     } else if goal_is_vague(goal) {
-        gaps.push(ConfirmableGap {
-            label: "specific goal",
-            focus: "sharpen_goal: the goal is too short or vague — ask one plain question so it names who it is for and what it should concretely do",
-        });
+        gaps.push(GAP_SPECIFIC_GOAL);
     }
     let intent_len = spec
         .intent_summary
@@ -684,32 +728,17 @@ pub(super) fn confirmable_draft_gaps(spec: &ProjectSpecDraft) -> Vec<Confirmable
         .map(|value| value.trim().chars().count())
         .unwrap_or(0);
     if intent_len < MIN_CONFIRMABLE_INTENT_CHARS {
-        gaps.push(ConfirmableGap {
-            label: "intent summary",
-            focus: "capture_intent_summary: ask in one plain question who will use this and why, so it can be summarized in one sentence",
-        });
+        gaps.push(GAP_INTENT_SUMMARY);
     }
     if substantive_list_count(&spec.scope, MIN_CONFIRMABLE_LIST_ITEM_CHARS) < 1 {
-        gaps.push(ConfirmableGap {
-            label: "in-scope item",
-            focus: "capture_scope: ask what the first version should include — one concrete thing it must do",
-        });
+        gaps.push(GAP_SCOPE);
     }
     if substantive_list_count(&spec.non_goals, MIN_CONFIRMABLE_LIST_ITEM_CHARS) < 1 {
-        gaps.push(ConfirmableGap {
-            label: "non-goal",
-            focus: "capture_non_goal: ask what the first version should NOT include or do — one thing to leave out for now",
-        });
+        gaps.push(GAP_NON_GOAL);
     }
     match substantive_active_criteria_count(&spec.acceptance_criteria) {
-        0 => gaps.push(ConfirmableGap {
-            label: "observable done state",
-            focus: "capture_observable_done_state: ask what the student would see when the project is working",
-        }),
-        count if count < MIN_CONFIRMABLE_ACCEPTANCE_CRITERIA => gaps.push(ConfirmableGap {
-            label: "second observable done state",
-            focus: "capture_second_observable_done_state: ask for one more concrete, checkable sign that the project works, so there are at least two",
-        }),
+        0 => gaps.push(GAP_DONE_STATE),
+        count if count < MIN_CONFIRMABLE_ACCEPTANCE_CRITERIA => gaps.push(GAP_SECOND_DONE_STATE),
         _ => {}
     }
     // S-047 → S-075 (D-014-16): the architecture decision is one tech-stack
@@ -723,10 +752,7 @@ pub(super) fn confirmable_draft_gaps(spec: &ProjectSpecDraft) -> Vec<Confirmable
         .map(|stack| stack.trim().is_empty())
         .unwrap_or(true)
     {
-        gaps.push(ConfirmableGap {
-            label: "tech stack",
-            focus: "propose_architecture_stack: recommend up to 2 concrete tech stacks that fit this goal — each with one plain line saying what the finished thing is (a browser app, a command-line tool, a bot…) and why this stack — then ask the student to confirm or change it in the PRD board; never decide for them",
-        });
+        gaps.push(GAP_TECH_STACK);
     }
     gaps
 }

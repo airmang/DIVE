@@ -1620,3 +1620,63 @@ fn supervisor_expanded_gate_rejects_missing_assessment_evidence() {
         Some(SupervisorDropReason::MissingEvidence)
     );
 }
+
+#[test]
+fn supervisor_prompt_version_is_pinned() {
+    // Spec 015 FR-001: editing the SupervisorAgent prompt template changes
+    // this hash. Bump SUPERVISOR_PROMPT_SEMVER and append the new pair — never
+    // rewrite an existing entry.
+    crate::dive::prompt_version::assert_prompt_version_pinned(
+        supervisor_prompt_version(),
+        &[("1.0.0", "256c9520"), ("1.1.0", "152895a8")],
+    );
+}
+
+/// Every `SupervisorEvent` variant, enumerated from the derived
+/// `Deserialize` impl by variant index (serde's `U32Deserializer` is an
+/// `EnumAccess`), so a newly added variant appears here without anyone
+/// editing a list.
+fn all_supervisor_events() -> Vec<SupervisorEvent> {
+    use serde::de::{value::Error as ValueError, IntoDeserializer};
+    use serde::Deserialize;
+    (0u32..)
+        .map_while(|index| {
+            SupervisorEvent::deserialize(IntoDeserializer::<ValueError>::into_deserializer(index))
+                .ok()
+        })
+        .collect()
+}
+
+#[test]
+fn supervisor_prompt_fingerprint_lists_every_event_once() {
+    let variants = all_supervisor_events();
+    assert!(
+        variants.len() >= 6,
+        "variant enumeration broke: {variants:?}"
+    );
+    let mut listed = SUPERVISOR_PROMPT_EVENTS.to_vec();
+    listed.sort_by_key(|event| event.as_str());
+    listed.dedup();
+    assert_eq!(
+        listed.len(),
+        SUPERVISOR_PROMPT_EVENTS.len(),
+        "duplicate event"
+    );
+    let mut all = variants.clone();
+    all.sort_by_key(|event| event.as_str());
+    assert_eq!(
+        listed, all,
+        "SUPERVISOR_PROMPT_EVENTS must list every SupervisorEvent so its prompt text is hashed"
+    );
+}
+
+#[test]
+fn supervisor_prompt_appends_context_as_only_request_data() {
+    let context = sample_context_with_event(SupervisorEvent::VerifyEntered);
+    let prompt = build_supervisor_prompt(&context).unwrap();
+    let context_json = serde_json::to_string(&context).unwrap();
+    // The per-request context is the only non-template part of the prompt.
+    assert!(prompt.ends_with(&context_json));
+    let version = supervisor_prompt_version().render();
+    assert!(version.starts_with(&format!("{SUPERVISOR_PROMPT_SEMVER}+")));
+}

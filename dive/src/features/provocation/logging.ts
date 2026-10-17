@@ -33,7 +33,18 @@ export type ProvocationLogEventType =
   | "provocation.action_clicked"
   | "provocation.dismissed"
   | "provocation.marked_irrelevant"
-  | "provocation.continued_with_risk";
+  | "provocation.continued_with_risk"
+  | "provocation.card_unanswered";
+
+/**
+ * Why a shown card left view without a response (spec 015 FR-004):
+ * `replaced` — another card, or the same card id with a new question, took its
+ * place; `removed` — the card left and nothing replaced it; `unmounted` — the
+ * host itself left the screen; `page_hidden` — `pagehide` (best effort on app
+ * close). Logged as `unansweredReason`, not `reason`: the export anonymizer
+ * hashes `reason` keys as user text, which would erase this enum.
+ */
+export type ProvocationUnansweredReason = "replaced" | "removed" | "unmounted" | "page_hidden";
 
 export interface ProvocationLogInput {
   eventType: ProvocationLogEventType;
@@ -42,6 +53,13 @@ export interface ProvocationLogInput {
   mode: SupervisorSourceUiMode;
   action?: ProvocationAction;
   reason?: string | null;
+  /** One contiguous visibility period of a card in one host (card_shown → terminal event). */
+  exposureId?: string;
+  /** Response events: ms from `card_shown` to this response. */
+  responseLatencyMs?: number | null;
+  /** `card_unanswered`: ms the card was visible. */
+  visibleMs?: number;
+  unansweredReason?: ProvocationUnansweredReason;
 }
 
 type SafeEvidenceValue =
@@ -426,12 +444,22 @@ export function buildProvocationLogPayload(input: ProvocationLogInput) {
       : Boolean(verificationStatus?.riskAccepted);
   const agencyComponent = agencyComponentFor(card, selectedAction);
   const agencyState = agencyStateFor(card, verificationStatus, riskAccepted);
+  const isShown = input.eventType === "provocation.card_shown";
+  const isUnanswered = input.eventType === "provocation.card_unanswered";
 
   return {
     schemaVersion: 1,
     eventId: eventId(),
     timestamp: new Date().toISOString(),
     lifecycleEvent: input.eventType.replace("provocation.", ""),
+    exposureId: input.exposureId ?? null,
+    // Spec 015 FR-003 / D-015-03: the question the student actually saw is
+    // the unit of card-quality analysis; logged once per exposure. Keyed
+    // `question`, never `prompt` (a raw-body key the export redacts).
+    question: isShown ? card.prompt?.trim() || null : undefined,
+    responseLatencyMs: !isShown && !isUnanswered ? (input.responseLatencyMs ?? null) : undefined,
+    visibleMs: isUnanswered ? (input.visibleMs ?? null) : undefined,
+    unansweredReason: isUnanswered ? (input.unansweredReason ?? null) : undefined,
     projectId: context?.projectId ?? null,
     sessionId: context?.sessionId ?? null,
     featureId: context?.featureId ?? null,

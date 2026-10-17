@@ -1,0 +1,358 @@
+# SupervisorAgent eval set (spec 015, S-079)
+
+Offline evaluation of the Pi SupervisorAgent that writes review-card
+questions (FR-030–FR-034, D-015-05, D-015-06). Everything here is **synthetic**:
+invented novice projects, no student data. Metrics are card-quality proxies
+for the supervisor's output; they are not evidence of student supervision
+skill, metacognition, or reduced AI overreliance.
+
+```
+eval/supervisor/
+  fixtures/dev/<id>.json      tuning set (≈2/3)
+  fixtures/holdout/<id>.json  held out from prompt tuning (≈1/3)
+  examples/                   example report + judgment files (docs, tests)
+```
+
+| Command                                                                         | What it does                                                                                                   |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `pnpm eval:fixtures`                                                            | Format + coverage check of every fixture (also runs in `pnpm test:unit` via `scripts/eval-fixtures.test.mjs`). |
+| `pnpm eval:fixtures -- --rehash`                                                | Recompute `context.contextHash` after an intended context edit (then run `pnpm prettier --write eval/`).       |
+| `pnpm eval:report <report.json> [-- --judge <judge.json>]`                      | Render a runner report as Markdown.                                                                            |
+| `pnpm eval:report -- --compare <base.json> <head.json> [--judge <judge.json>]`  | Before/after diff with a delta per metric and the fixtures whose outcome changed.                              |
+| `pnpm eval:supervisor:recorded` / `pnpm eval:supervisor:live -- --db <dive.db>` | Run the Rust runner (see How to run).                                                                          |
+
+Reports come from the Rust runner `dive_lib::eval::supervisor`
+(`src-tauri/src/eval/supervisor/`; every metric is defined once, in
+`metrics.rs`), driven by `src-tauri/examples/eval_supervisor.rs`.
+
+## How to run
+
+All commands from `dive/`. Reports go to
+`src-tauri/target/eval/supervisor-<mode>-<promptVersion>.json` unless `--out`
+is given.
+
+**Recorded mode** (offline, no model calls; CI runs the same checks in
+`src-tauri/tests/eval_supervisor_recorded.rs` under
+`cargo test --features dev-mock --all-targets`):
+
+```sh
+pnpm eval:supervisor:recorded                      # current promptVersion
+pnpm eval:supervisor:recorded -- --prompt-version 1.0.0+256c9520 --out /tmp/base.json
+pnpm eval:report src-tauri/target/eval/supervisor-recorded-<promptVersion>.json
+```
+
+It exits non-zero when a fixture is inconsistent (hash, gate vs
+`expect.gatePasses`) or when a gate-passing fixture has no recording for the
+version. After a supervisor prompt semver bump, CI fails with
+`record fixtures for <version>: run the live eval` until live recordings are
+added.
+
+**Live mode** (manual, local only, costs provider calls; D-015-06):
+
+```sh
+DIVE_SECRET_BACKEND=local-file \
+DIVE_LOCAL_SECRET_PATH="$HOME/Library/Application Support/com.coreelab.dive/qa-secrets.json" \
+pnpm eval:supervisor:live -- --db "$HOME/Library/Application Support/com.coreelab.dive/dive.db" \
+  [--write-recordings] [--out <report.json>]
+```
+
+- `--db` is copied (with `-wal`/`-shm`) into a temp directory before it is
+  opened and migrated; the original is never written. Secrets come from the
+  same backend the app uses: `DIVE_SECRET_BACKEND=local-file` +
+  `DIVE_LOCAL_SECRET_PATH`, otherwise the OS keyring.
+- The provider runtime hydrates from the copied DB like the app's first
+  supervisor call, and each gate-passing fixture's `build_supervisor_prompt`
+  output goes through `supervisor_output_for_context`, the function the
+  `provocation_agent_evaluate` command uses: the Pi sidecar
+  (`node pi-sidecar/src/main.mjs` in a debug build), the production turn
+  timeout, and the production attempt loop
+  (`DIVE_SUPERVISOR_EVALUATION_ATTEMPTS`, default 3). Needs `node` and
+  `pi-sidecar/node_modules`.
+- Negative-control fixtures are skipped (their contexts duplicate a valid
+  fixture). Gate-closed fixtures make no call.
+- Hard cap: `2 × fixture count` model calls. The run refuses to start when the
+  worst case (live fixtures × attempts) exceeds it, and aborts if the runtime
+  becomes unavailable mid-run.
+- `--write-recordings` appends each returned raw output to its fixture under
+  the current promptVersion (`source: "live"`, with its `attempt`). Then run
+  `pnpm prettier --write eval/supervisor/fixtures && pnpm eval:fixtures`.
+- Output lines carry fixture ids, outcomes and call counts only: no secrets
+  and no raw model output.
+
+Compare a candidate prompt against the baseline:
+`pnpm eval:report -- --compare <base.json> <head.json>`.
+
+## Fixture format
+
+One JSON object per file; the file name is `<id>.json` and the directory is the
+split. Unknown keys are rejected by `pnpm eval:fixtures`.
+
+```jsonc
+{
+  "schemaVersion": 1,
+  "id": "verify-claim-done-ko-work", // kebab-case, unique across splits; QA-ledger `eval-fixture` guards refer to it
+  "event": "verify_entered", // = context.event
+  "locale": "ko-KR", // = context.locale (ko-KR | en-US)
+  "mode": "work", // = context.mode (work | guided)
+  "description": "Why this case exists, in one sentence.",
+  "context": {
+    /* SupervisorContext, see below */
+  },
+  "expect": {
+    /* see below */
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,...}",
+        "model": "hand-authored", // or the provider model id for live recordings
+        "recordedAt": "2026-09-29", // ISO date or date-time
+        "source": "hand-authored", // hand-authored | live
+        // "attempt": 0,            // live recordings: production attempt (0 starts a trial)
+      },
+    ],
+  },
+}
+```
+
+### `context`
+
+The exact serde JSON of `dive_lib::dive::supervisor::SupervisorContext`
+(camelCase fields, snake_case enums), in the same shape the replay corpus
+stores (`serde_json::to_string(&context)`), so the Rust runner deserializes it
+directly with `serde_json::from_value::<SupervisorContext>`.
+
+- The committed contexts were generated by the real builders
+  (`build_supervisor_context_from_ui`, `build_scope_expansion_supervisor_context`,
+  `build_plan_drafted_supervisor_context`, `build_diff_ready_supervisor_context`,
+  `build_retry_loop_supervisor_context`) from request-shaped inputs that follow
+  the frontend adapters (`src/features/provocation/adapters.ts`). Evidence ids,
+  labels and assessments are therefore what production sends.
+- `contextHash` is `SupervisorContext::compute_context_hash()`; the Node check
+  recomputes it (a byte-for-byte port) and fails on a mismatch. The runner
+  should assert the same.
+- Exactly one assessment field is present, the one for the event:
+  `scopeExpansion`, `planDraftAssessment`, `diffReadyAssessment`, or
+  `retryLoopAssessment` (none for `ai_claimed_done` / `verify_entered`).
+
+### `expect`
+
+| Field                    | Type     | Meaning                                                                                                                                                                                |
+| ------------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shouldProvoke`          | bool     | A card should be shown for this context.                                                                                                                                               |
+| `gatePasses`             | bool     | `supervisor_provoke_gate(&context)`. When `false` no prompt is sent: the runner must not consult recordings and records outcome `none` / `provoke_false`. `shouldProvoke` requires it. |
+| `allowedConcerns`        | string[] | Concerns a valid decision may carry; includes `expected_concern_for_event(event)`.                                                                                                     |
+| `requiredEvidenceRefIds` | string[] | Context evidence ids; a provoking decision must cite at least one. Non-empty when `shouldProvoke`.                                                                                     |
+| `relevantEvidenceRefIds` | string[] | Required when `shouldProvoke`. Context evidence ids that are pertinent to the concern (⊇ required). Denominator for evidence-ref precision.                                            |
+| `criterionTerms`         | string[] | Required when `shouldProvoke`. Phrases from the criterion the question should address; each appears in the context (goal, artifact label, active step, or an evidence label/value).    |
+| `locale`                 | string   | Language the question must be written in (= `context.locale`).                                                                                                                         |
+| `expectedDropReason`     | string   | Optional. Marks a **negative control**: a deliberately bad recording on a context that should provoke; the real validation path must drop it with this reason.                         |
+
+Every event has negatives (`shouldProvoke: false`), for example concrete
+evidence already present, a step linked to an existing criterion, one failure
+below `retryLoopMinFailures`, or a plan that is not eligible. `ai_claimed_done`
+fixtures are all negatives: `p1_provoke_gate` opens only at `verify_entered`,
+so an `ai_claimed_done` context never sends a prompt (their recordings are kept
+so the set stays ready if that gate changes).
+
+The negative controls cover `not_question`, `unknown_evidence_ref`,
+`parse_error` and `disallowed_concern`. Each is a copy of a valid fixture's
+context with one bad recording.
+
+### `recorded`
+
+Maps a supervisor `promptVersion` (`<semver>+<8-hex>`, see
+`src-tauri/src/dive/prompt_version.rs`) to raw model outputs, exactly as the
+Pi runtime returned them (or hand-authored in that form). Every fixture must
+have at least one recording for the newest promptVersion in the set. When the
+prompt version changes, add a new key (live mode records it); never rewrite an
+existing key's recordings.
+
+A key's recordings form **trials**, and a trial never mixes models. Each
+`model` (`hand-authored`, or the provider model of a live run) is its own
+attempt sequence, in `recordedAt` order (ties keep file order), and its own
+report group. Within a model, a live recording with `attempt: 0` starts a new
+trial, so repeated live runs stay separate. The runner replays a trial like
+`provocation_agent_evaluate`: it validates each recording in turn and stops
+where production stops (a shown card, a non-recoverable outcome, or
+`DIVE_SUPERVISOR_EVALUATION_ATTEMPTS`, default 3). Recordings after that point
+are not consulted. CI only needs one recording (any model) per gate-passing
+fixture for the current version. Gate-closed fixtures make no call, so they
+appear only in the groups of models that have recordings for them (today
+`hand-authored`); a live group's provoke agreement covers gate-passing
+fixtures.
+
+### Adding or promoting fixtures
+
+Promotion from field data (`pnpm research:cards -- --exemplars`) or from the
+local replay corpus is manual: a person rewrites the case as a synthetic
+project, removes anything that could identify a student or school, and reviews
+the result before it is committed (FR-051). Keep the split near 2:1 with every
+event in both splits; `pnpm eval:fixtures` enforces the coverage matrix (every
+event × locale × mode, a negative per event, the four negative controls,
+≥ 30 fixtures, holdout 25–40 %).
+
+## Report format (runner output)
+
+The runner writes `target/eval/supervisor-<mode>-<promptVersion>.json`;
+`scripts/eval-report.mjs` renders it. Example (written by the Rust runner):
+[`examples/report-recorded.json`](examples/report-recorded.json).
+`tests/eval_supervisor_recorded.rs` checks both examples against the writer's
+schema; `scripts/eval-report.test.mjs` renders them.
+
+```jsonc
+{
+  "schemaVersion": 1,
+  "kind": "supervisor-eval-report",
+  "mode": "recorded", // recorded | live
+  "generatedAt": "2026-09-29T12:00:00Z",
+  "note": "optional free text shown under the title",
+  "fixtureCount": 34,
+  "groups": [
+    /* one per (promptVersion, policyVersion, model, split) */
+  ],
+}
+```
+
+**Result**: one per trial, i.e. per fixture unless it has several recorded
+trials. A result is the **final outcome** of the production retry loop: the
+first shown attempt, or the last attempt when none is shown. That is the call
+the student would see, and every primary metric scores it. Earlier calls of the
+trial are listed in `calls`. Gate-closed fixtures get one result without a
+call. Recorded gate-closed results take their recording's `model`/`source` for
+grouping, or `(no recording)`/`none`.
+
+```jsonc
+{
+  "fixtureId": "verify-claim-done-ko-work",
+  "split": "dev",
+  "event": "verify_entered",
+  "locale": "ko-KR",
+  "mode": "work",
+  "recordingIndex": 0, // identifies the trial: index of its first recording (live: 0)
+  "source": "hand-authored",
+  "model": "hand-authored",
+  "expected": { "shouldProvoke": true /* , "expectedDropReason": "not_question" */ },
+  "gatePasses": true,
+  "promptSent": true, // gate open and build_supervisor_prompt succeeded
+  "outcome": "shown", // SupervisorValidationOutcome: shown | none | dropped | error
+  "dropReason": null, // SupervisorDropReason or null
+  "decision": {
+    // parsed SupervisorDecision fields; null if unparsed or gate closed
+    "concern": "ai_self_report_only",
+    "question": "…?",
+    "evidenceRefIds": ["agent.assistant_claim"],
+    "suggestedActionIds": ["open_preview"],
+  },
+  "checks": {
+    // null = not applicable
+    "provokeAgreement": true,
+    "dropReasonMatch": null,
+    "localeCompliant": true,
+    "criterionLinked": true,
+    "evidencePrecision": 1.0,
+    "requiredEvidenceCited": true,
+    "questionChars": 63,
+  },
+  "calls": [
+    // every model call of the trial, in order; [] when none was made
+    { "outcome": "dropped", "dropReason": "not_question" },
+    { "outcome": "shown", "dropReason": null },
+  ],
+}
+```
+
+Check definitions (`shown` = outcome `shown`; `q` = the decision's question):
+
+| Check                   | Applies to                                  | Value                                                                                        |
+| ----------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `provokeAgreement`      | results without `expectedDropReason`        | `shown == expected.shouldProvoke`                                                            |
+| `dropReasonMatch`       | negative controls                           | `dropReason == expected.expectedDropReason`                                                  |
+| `localeCompliant`       | shown                                       | ko locales: `q` contains a Hangul syllable (U+AC00–U+D7A3); `en*` locales: `q` contains none |
+| `criterionLinked`       | shown, fixture has `criterionTerms`         | `q` contains at least one term (case-insensitive)                                            |
+| `evidencePrecision`     | shown, fixture has `relevantEvidenceRefIds` | cited ids that are relevant ÷ cited ids                                                      |
+| `requiredEvidenceCited` | shown, fixture has `requiredEvidenceRefIds` | at least one required id cited                                                               |
+| `questionChars`         | shown                                       | `q.chars().count()` (Unicode scalar values, as `QUESTION_MAX_CHARS` counts)                  |
+
+**Group**: aggregates of its results. Rates are `null` when nothing was checked.
+
+```jsonc
+{
+  "key": {
+    "promptVersion": "1.0.0+256c9520",
+    "policyVersion": "1.0.0",
+    "model": "hand-authored",
+    "split": "dev",
+  },
+  "resultCount": 23,
+  "outcomes": { "shown": 15, "none": 4, "dropped": 3, "error": 1 },
+  "dropReasons": { "provoke_false": 4, "not_question": 1 }, // histogram over final outcomes
+  "provokeAgreement": {
+    "checked": 19,
+    "agree": 19,
+    "falseProvoke": 0,
+    "missedProvoke": 0,
+    "rate": 1,
+  },
+  "dropReasonMatch": { "checked": 4, "matched": 4, "rate": 1 },
+  "localeCompliance": { "checked": 15, "compliant": 15, "rate": 1 },
+  "criterionLinkage": { "checked": 15, "linked": 15, "rate": 1 },
+  "evidencePrecision": { "checked": 15, "mean": 1, "requiredCited": 15, "requiredChecked": 15 },
+  "questionLength": {
+    "count": 15,
+    "min": 57,
+    "median": 74,
+    "max": 135,
+    "mean": 81.2,
+    "overLimit": 0,
+  },
+  // Secondary, per call: every attempt of every trial (retries included).
+  "attempts": {
+    "calls": 19,
+    "retries": 0, // calls beyond each trial's first
+    "outcomes": { "shown": 15, "none": 0, "dropped": 3, "error": 1 },
+    "dropReasons": { "not_question": 1, "parse_error": 1 },
+  },
+  "results": [
+    /* results of this group */
+  ],
+}
+```
+
+`policyVersion` is `supervision_policy().policy_version` at run time. `model`
+is the recording's `model` (recorded mode) or the provider model (live).
+`resultCount`, `outcomes`, `dropReasons` and all rate blocks count final
+outcomes (one per trial). `attempts` is the only per-call block, so a version
+that needs retries shows it there, not as extra disagreements.
+
+## Judgment file (optional, advisory)
+
+An LLM-judge pass may score shown questions on the Sarkar provocation rubric.
+`eval:report -- --judge` renders it in a section titled **AI judgment
+(advisory, not a merge gate)**; it never gates a merge on its own (D-015-05).
+Example: [`examples/judge.json`](examples/judge.json).
+
+```jsonc
+{
+  "schemaVersion": 1,
+  "kind": "supervisor-eval-judgment",
+  "judgeModel": "…",
+  "rubricVersion": "1",
+  "generatedAt": "…",
+  "reportPromptVersion": "1.1.0+c0ffee12",
+  "items": [
+    {
+      "fixtureId": "…",
+      "recordingIndex": 0,
+      "question": "…",
+      "scores": {
+        "specific": true,
+        "criterionLinked": true,
+        "answerableByObservation": true,
+        "nonLeading": false,
+      },
+      "rationale": "…",
+    },
+  ],
+}
+```

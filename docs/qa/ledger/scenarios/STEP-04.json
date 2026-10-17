@@ -1,0 +1,20 @@
+{
+  "id": "STEP-04",
+  "title": "Mini-map toggle",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#STEP-04"
+  },
+  "areas": [
+    "roadmap",
+    "plan"
+  ],
+  "pathGlobs": [],
+  "priority": "P2",
+  "requiresLlm": false,
+  "preconditions": "Plan present",
+  "steps": [
+    "Toggle mini-map"
+  ],
+  "expected": "Collapsed/expanded plan view switches"
+}

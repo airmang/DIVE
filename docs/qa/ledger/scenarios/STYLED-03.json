@@ -1,0 +1,40 @@
+{
+  "id": "STYLED-03",
+  "title": "Lay out her recipe cards in a responsive CSS grid — 3 columns on desktop, 2 on tablet, 1 on mobile, with consistent spacing — and confirm the columns actually change as the screen narrows.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#STYLED-03"
+  },
+  "areas": [
+    "chat",
+    "prd",
+    "plan",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Sofia, a hobbyist building a recipe site for her family. She copy-pastes code but doesn't fully understand layout. She has a flat list of recipe cards and wants them in a neat responsive grid.",
+  "steps": [
+    "Design: Sofia types 'put my recipe cards into a nice grid that works on phones'. She doesn't know the words 'breakpoint' or 'minmax', so she expects the PRD interview to translate her intent into concrete criteria: column counts per screen size, gap/spacing, and that cards don't stretch weirdly. She expects plain-language clarifying questions, not jargon, and to see acceptance criteria like '3 columns on a wide screen, 1 column on a phone'.",
+    "Plan: DIVE proposes a tiny plan: (1) wrap cards in a grid container, (2) add responsive grid CSS (grid-template-columns with breakpoints or auto-fit/minmax). Sofia expects maybe one or two steps and an easy accept — anything longer feels intimidating.",
+    "Implement: Agent reads her HTML/CSS (auto-approved) and proposes a CSS edit. The diff card shows a grid container class and media queries. Sofia may not fully parse the CSS, so she leans on the card's plain-language explainer of what the change does before approving.",
+    "Verify: Verify stepper opens. Sofia opens the Preview and sees the cards in a grid at panel width. The criterion is 'columns change with screen size', which again she can't easily prove in the fixed-width iframe — a review card nudges her: 'You saw 3 columns; how did you check it becomes 1 column on a phone?' She has to resize the window or open a browser. If auto-fit/minmax was used, the columns may reflow naturally as the DIVE panel resizes, which she can observe; if hardcoded breakpoints were used, she can't see the change without a true viewport change.",
+    "Done: Grid renders, step complete, checkpoint saved. Sofia expects it to 'just look right' and to undo if the spacing feels off, without understanding the CSS underneath."
+  ],
+  "expected": "The interview turns her fuzzy 'make it nice on phones' into testable column-count criteria. If the agent uses grid auto-fit/minmax, the cards visibly reflow as she drags the DIVE panel/window, giving her an honest, in-app observation that satisfies the evidence gate authentically. The review card teaches her that 'looks good on my screen' isn't the same as 'works on a phone' — a real learning moment for a beginner.",
+  "tags": [
+    "journey",
+    "styled-responsive-ui",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: Same structural gap: no viewport control in the preview means the headline criterion (column count at mobile width) is hard to observe in-app; with fixed media-query breakpoints she may falsely conclude it works because the desktop grid looks right. A beginner is the most likely to click 결정/done on the AI's claim without genuinely resizing — the evidence gate is doing the most work here and is also easiest to game. Jargon leaking into clarifying questions could stall her at the DESIGN stage. And Korean review-card titles/LLM replies under English locale (DEF-01) would be especially disorienting for a non-technical hobbyist."
+}

@@ -1,0 +1,41 @@
+{
+  "id": "DEBUG-05",
+  "title": "Fix the fixed-position nav overlapping the content (add correct spacing/padding) and clear the related console warning, recovering cleanly from her own failed attempt first.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#DEBUG-05"
+  },
+  "areas": [
+    "chat",
+    "prd",
+    "plan",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "terminal",
+    "recovery",
+    "i18n",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Lena, an intermediate hobbyist with a small multi-page site. After a previous AI-assisted change, the nav bar overlaps the page content on every page and a console warning appeared. She tried to fix it once herself, made it worse, and now isn't even sure the current code is the version she wants to start from.",
+  "steps": [
+    "Design: Lena starts by stating the goal AND her mess: 'The fixed nav overlaps the content and there's a console warning; I already tried and made it worse.' The interview clarifies acceptance criteria (AC-1 no content hidden behind nav on any page, AC-2 console warning gone) and her current uncertainty about state. She expects DIVE to acknowledge she may need to undo her own bad edit before fixing forward — recovery is part of the goal.",
+    "Plan: Because she's unsure of her starting point, her first move is the recovery surface: she opens '복구 및 되돌리기', inspects the checkpoint timeline to find the last-good state, and restores to it (with the confirm guard) — undoing her failed attempt. THEN DIVE drafts the fix plan: (1) read the layout CSS + the page that shows the warning, (2) diagnose the overlap (fixed nav with no body offset) and the warning's source, (3) apply padding-top/scroll-margin fix, (4) verify across pages and confirm clean console. She accepts.",
+    "Implement: Reads auto-approved. The agent diagnoses the overlap as a `position: fixed` nav without a compensating body/main padding, and ties the console warning to its real cause (e.g. a duplicate id or a deprecated attribute). It proposes scoped edits; the PermissionCard shows the CSS diff. As an intermediate user, Lena checks the change is applied consistently for the shared nav (so all pages benefit) and approves.",
+    "Verify: The verify stepper opens. Lena checks multiple pages in preview — content no longer hidden behind the nav — and opens the console/terminal to confirm the warning is gone. A criterion-linked provocation card asks: 'You verified the home page (AC-1) — did you check the other pages share the fix, and is the console warning actually gone (AC-2)?' She observes a second page and the clean console, recording each. The evidence gate makes her confirm BOTH the visual fix and the warning's disappearance.",
+    "Done: Observations recorded, she accepts. A fresh checkpoint marks the good state. Crucially she got here by first rolling back her own broken attempt, so DONE means: recovered to a known-good baseline, fixed forward, and verified — with undo still available if needed."
+  ],
+  "expected": "DIVE's recovery/checkpoint surface lets her cleanly undo her own failed edit BEFORE fixing forward, so she's no longer building on a broken base — then the multi-page + console-warning verification gate makes her confirm the fix everywhere and that the warning truly cleared, not just on the one page she happened to look at.",
+  "tags": [
+    "journey",
+    "debug-fix-broken-code",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: (1) Checkpoint trust: if there's no checkpoint capturing the last-good state (e.g. her bad edit happened outside DIVE or wasn't checkpointed), restore can't help and she's stuck reconstructing it manually — a real gap for 'I broke it myself' users. (2) Restore confirm-guard / timeline must clearly label which checkpoint is 'before my failed attempt'; ambiguous labels (REC-02) make her restore to the wrong point. (3) Partial fix across pages: a shared-nav fix in one file should cover all pages, but if pages have inline styles the agent may fix one and the provocation card must catch the others. (4) The console warning may have a different root cause than the overlap; the agent might fix the visible overlap and quietly leave AC-2 (warning) unmet. (5) Korean LLM output / DEF-01 badges for an intermediate user who set English."
+}

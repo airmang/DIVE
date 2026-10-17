@@ -1,0 +1,23 @@
+{
+  "id": "XC-03",
+  "title": "Provider-disconnected error state",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#XC-03"
+  },
+  "areas": [
+    "provider-settings",
+    "chat"
+  ],
+  "pathGlobs": [],
+  "priority": "P0",
+  "requiresLlm": false,
+  "preconditions": "No usable provider",
+  "steps": [
+    "Force runtime unavailable"
+  ],
+  "expected": "\"Connect provider\" / RuntimeUnavailable banner + setup action; chat blocked cleanly",
+  "tags": [
+    "visibility"
+  ]
+}

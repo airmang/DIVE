@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0030",
+  "title": "project_delete(delete_folder=true) blocklist misses $HOME, /home, /users, c:/users",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "project-session",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L248"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in db5b8c34 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src-tauri/src/ipc/project.rs:101-106 adds /home, /users and c:/users. :112-124 rejects the resolved home dir (resolved_home_dir at :132). Tests is_system_or_root_path_rejects_home_directory_and_common_home_roots (:511) and project_delete_with_folder_rejects_home_directory_and_keeps_db_row (:542) cover it. Landed in db5b8c34. Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence.",
+  "fixCommit": "db5b8c34",
+  "guard": {
+    "kind": "cargo",
+    "ref": "ipc::project::tests::project_delete_with_folder_rejects_home_directory_and_keeps_db_row"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

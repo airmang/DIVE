@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0029",
+  "title": "Preview install failure persists uncapped package-manager output into EventLog/chat",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "preview",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L239"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in db5b8c34 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src-tauri/src/ipc/preview.rs:1237-1241: the error now formats cap_install_output_for_error(&combined), defined at :1358-1362, which applies the same MAX_LOG_LINES=80 cap as the success path; a test is at :1379-1385. Landed in db5b8c34. The cap is on lines only, with no byte cap, and command.output() still buffers the full output in memory (the finding marked that part optional). Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence. Residual per re-check: line cap only (no byte cap); full output is still buffered in memory.",
+  "fixCommit": "db5b8c34",
+  "guard": {
+    "kind": "cargo",
+    "ref": "ipc::preview::tests::cap_install_output_for_error_bounds_line_count"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "id": "claim-done-en-work",
+  "event": "ai_claimed_done",
+  "locale": "en-US",
+  "mode": "work",
+  "description": "Negative: ai_claimed_done only records the claim; the provoke gate opens at verify_entered, so no prompt is sent.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "ai_claimed_done",
+    "artifactRef": {
+      "kind": "step",
+      "id": "step-3",
+      "label": "Search by title"
+    },
+    "contextHash": "sha256:51e217a7dc316b34546a880619eca663ca94a7597b27e3631041db5c0f612216",
+    "mode": "work",
+    "locale": "en-US",
+    "allowedActionIds": ["open_diff", "open_preview"],
+    "goalSummary": "Users can search the movie list by title",
+    "planSummary": {
+      "stepCount": 5,
+      "activeStep": "Search by title"
+    },
+    "verificationState": {
+      "aiSelfReport": true,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": true,
+      "hasTests": false,
+      "diffAvailable": true
+    },
+    "evidenceRefs": [
+      {
+        "id": "agent.assistant_claim",
+        "source": "agent",
+        "kind": "assistant_claim",
+        "label": "AI 완료 주장",
+        "valueSummary": {
+          "kind": "enum",
+          "value": "claimed_done"
+        },
+        "verificationEvidence": false
+      }
+    ]
+  },
+  "expect": {
+    "shouldProvoke": false,
+    "gatePasses": false,
+    "allowedConcerns": ["ai_self_report_only"],
+    "requiredEvidenceRefIds": [],
+    "locale": "en-US"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":false,\"concern\":\"ai_self_report_only\",\"severity\":\"info\",\"question\":\"\",\"evidenceRefIds\":[\"agent.assistant_claim\"],\"suggestedActionIds\":[]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

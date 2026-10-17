@@ -1,0 +1,37 @@
+{
+  "id": "CAREFUL-05",
+  "title": "Fix a real bug in an existing small app: clicking 'Submit' on a quiz throws a TypeError and the score never shows. She wants the score to render correctly.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#CAREFUL-05"
+  },
+  "areas": [
+    "chat",
+    "prd",
+    "plan",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "recovery",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Priya, methodical and patient, profoundly distrustful of LLMs in a loop. Her #1 fear is the 'AI digging the hole deeper' — she's seen models retry the same broken fix five times. She wants to be told when to STOP and roll back, not keep prompting.",
+  "steps": [
+    "Design: Because it's a bugfix, the PRD is short: criterion = 'submitting the quiz shows the numeric score with no console error.' She expects the interview not to over-engineer a one-bug fix, and to capture 'no console error' as an observable criterion. She confirms quickly.",
+    "Plan: Minimal plan: reproduce → fix → verify by re-running. She specifically wants a reproduce/verify step so 'fixed' means 'the error is gone when I click,' not 'the AI changed something.' She accepts and saves a checkpoint as the pre-fix baseline.",
+    "Implement: Agent edits the scoring logic. First attempt: the TypeError changes but a new error appears. Second attempt on the same error: still broken. By the 3rd repeated failure on the same error she expects a regeneration_loop provocation ('is this the time to keep fixing, or to roll back the last change?') offering rollback / make-repro-steps / narrow-scope / retry — NOT just an infinite 'try again.' She reads each PermissionCard diff and does not let it churn unwatched.",
+    "Verify: When the agent finally claims 'fixed,' Priya does NOT approve on the claim. She opens the app, clicks Submit, sees the score render and the console clean — manual_observation tied to AC. If instead it still errors, she expects the failed-step recovery (explain error / adjust plan / retry / undo) and the DecisionGate to block approval (unverified / failed). She uses 'Undo last change' to get back to the last good state when an attempt makes things worse, and on the worst attempt restores her pre-fix checkpoint to start the fix cleanly.",
+    "Done: Bug genuinely fixed and verified by her own click-through, OR — if it couldn't be fixed safely — cleanly rolled back to baseline with the failure understood, which she counts as a fine outcome. Checkpoints bracket the work. Expects the recovery timeline + verify log to tell the honest story of attempts."
+  ],
+  "expected": "DIVE breaks the doom-loop: after repeated same-error retries it proactively recommends STOP/rollback/narrow-scope instead of endless regeneration, putting Priya back in control exactly when an unsupervised tool would spiral. Undo and pre-fix checkpoints make 'the AI made it worse' a recoverable non-event, and the gate never lets a still-broken bugfix be marked done on the AI's word.",
+  "tags": [
+    "journey",
+    "verification-heavy-skeptical-user",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: The regeneration_loop trigger depends on retry signals / repeated normalized errors being detected (retryCount>=3 or same error 3x). If each failed attempt throws a slightly DIFFERENT error message, the normalized-error counter may not cross threshold and the loop card never fires — so Priya gets no stop signal precisely in the messy real-world case she fears most. If 'Undo last change' depends on a checkpoint existing (rollbackAvailable=false), the failed-step recovery shows 'rollback unavailable' and her primary safety move is gone — and the gate then flags rollback_unavailable, which is correct but frustrating if she expected undo to always work. Sidecar-unavailable (VC-02) during a stressful bug loop must degrade gracefully, not hang."
+}

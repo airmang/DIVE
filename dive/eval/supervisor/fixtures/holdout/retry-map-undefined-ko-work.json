@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "id": "retry-map-undefined-ko-work",
+  "event": "retry_loop",
+  "locale": "ko-KR",
+  "mode": "work",
+  "description": "Same TypeError three times in a row while the AI keeps retrying.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "retry_loop",
+    "artifactRef": {
+      "kind": "failure",
+      "id": "step-4:failure:typeerror_cannot_read_properties_of_undefined_reading_map",
+      "label": "할 일 목록 불러오기"
+    },
+    "contextHash": "sha256:f83e9d1f6cff97eaf32ec1ab1f4d79c1d604f5821e59074ae05628c5aac47af5",
+    "mode": "work",
+    "locale": "ko-KR",
+    "allowedActionIds": [
+      "create_repro_steps",
+      "rollback_last_change",
+      "open_diff",
+      "run_tests",
+      "split_scope",
+      "dismiss_review"
+    ],
+    "goalSummary": "앱을 열면 저장된 할 일 목록이 표시된다",
+    "planSummary": {
+      "stepCount": 5,
+      "activeStep": "할 일 목록 불러오기"
+    },
+    "verificationState": {
+      "aiSelfReport": false,
+      "concreteEvidence": false,
+      "testResult": "fail"
+    },
+    "feasibility": {
+      "runnable": true,
+      "previewable": false,
+      "hasTests": true,
+      "diffAvailable": true
+    },
+    "evidenceRefs": [
+      {
+        "id": "failure.fingerprint",
+        "source": "terminal",
+        "kind": "failure_summary",
+        "label": "Failure fingerprint",
+        "valueSummary": {
+          "fingerprint": "typeerror_cannot_read_properties_of_undefined_reading_map"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "failure.count",
+        "source": "verification",
+        "kind": "retry_loop_assessment",
+        "label": "Repeated failure count",
+        "valueSummary": {
+          "count": 3
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "failure.last",
+        "source": "verification",
+        "kind": "failure_summary",
+        "label": "Last failure",
+        "valueSummary": {
+          "occurredAt": 1759100180000,
+          "summaryHash": "h_3f9a1c"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "recovery.state",
+        "source": "ui_observation",
+        "kind": "recovery_state",
+        "label": "Recovery state",
+        "valueSummary": {
+          "recoveryAvailable": true
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "failure.last_action",
+        "source": "history",
+        "kind": "failure_summary",
+        "label": "Last action summary",
+        "valueSummary": "asked_ai_to_fix",
+        "verificationEvidence": false
+      }
+    ],
+    "retryLoopAssessment": {
+      "eligible": true,
+      "reasonCodes": ["same_failure_repeated"],
+      "evidenceRefs": [
+        "failure.fingerprint",
+        "failure.count",
+        "failure.last",
+        "recovery.state",
+        "failure.last_action"
+      ],
+      "failureFingerprint": "typeerror_cannot_read_properties_of_undefined_reading_map",
+      "failureCount": 3,
+      "lastFailureAt": 1759100180000,
+      "lastActionSummary": "asked_ai_to_fix",
+      "recoveryAvailable": true
+    }
+  },
+  "expect": {
+    "shouldProvoke": true,
+    "gatePasses": true,
+    "allowedConcerns": ["retry_loop"],
+    "requiredEvidenceRefIds": ["failure.fingerprint", "failure.count"],
+    "relevantEvidenceRefIds": [
+      "failure.fingerprint",
+      "failure.count",
+      "failure.last",
+      "failure.last_action",
+      "recovery.state"
+    ],
+    "criterionTerms": ["할 일 목록"],
+    "locale": "ko-KR"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"retry_loop\",\"severity\":\"caution\",\"question\":\"할 일 목록 불러오기에서 같은 오류가 3번 반복됐어요. AI에게 다시 맡기기 전에 오류가 나는 순서를 재현 단계로 적어 볼까요?\",\"evidenceRefIds\":[\"failure.fingerprint\",\"failure.count\"],\"suggestedActionIds\":[\"create_repro_steps\",\"rollback_last_change\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"retry_loop\",\"severity\":\"caution\",\"question\":\"같은 TypeError가 3번 반복됐는데, 이전 변경을 롤백하고 diff부터 확인해볼까요?\",\"evidenceRefIds\":[\"failure.fingerprint\",\"failure.count\",\"recovery.state\"],\"suggestedActionIds\":[\"rollback_last_change\",\"open_diff\",\"run_tests\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
+      }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"retry_loop\",\"severity\":\"caution\",\"question\":\"같은 TypeError가 3번 반복됐는데, '할 일 목록 불러오기'에서 데이터가 undefined인 원인을 파악하셨나요?\",\"evidenceRefIds\":[\"failure.fingerprint\",\"failure.count\",\"failure.last_action\"],\"suggestedActionIds\":[\"open_diff\",\"rollback_last_change\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T05:49:42Z",
+        "source": "live",
+        "attempt": 0
+      }
+    ]
+  }
+}

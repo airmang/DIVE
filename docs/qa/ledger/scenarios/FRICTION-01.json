@@ -1,0 +1,40 @@
+{
+  "id": "FRICTION-01",
+  "title": "Build a single-page recipe list (add a recipe with name + ingredients, see them in a list) — but halfway through the plan she decides she really wants tags/filtering instead of a plain list, changing the plan mid-flight.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#FRICTION-01"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Mina, a 2nd-year non-CS undergrad who has used ChatGPT for essays but never shipped code. She's building a personal recipe-saver web page for a club project and tends to discover what she actually wants only after she sees a first version.",
+  "steps": [
+    "Design: Mina types 'I want a page where I can save recipes.' The Socratic interview asks who it's for, what 'done' looks like, what's out of scope, and pushes for two checkable acceptance criteria. She answers in plain language; the PrdAuthoringBoard fills goal/scope/non-goals/criteria (add recipe, list recipes). She expects the interview to feel like a helpful conversation, not a form, and to be able to confirm the PRD when it looks right.",
+    "Plan: AI drafts a 3-4 step roadmap (scaffold index.html, add-recipe form, render list, basic styling) with deps shown. Mina reviews and accepts the plan. She expects each step to read like a small, understandable chunk and to clearly see the order/dependencies before she commits.",
+    "Implement: Steps 1-2 run the agent loop; write/edit tool calls surface PermissionCards with diff previews she approves. After seeing the bare list render she changes her mind: she wants tag chips + filter, not a flat list. She goes back to chat/plan and says so. She expects DIVE to let her revise the plan WITHOUT throwing away the work already approved (form + scaffold), and to show what the change adds vs. what stays.",
+    "Verify: For the changed/added steps an evidence-gated review stepper (코드 이해 → 점검·관찰 → 검토 응답 → 결정) appears; opening the diff flips 'change confirmed', opening the preview lets her actually click a tag filter. A criterion-linked review card asks whether 'filter recipes by tag' was ever in her accepted criteria (it wasn't) and nudges her to update the PRD/criteria before marking done. She expects to confirm with real clicks, not the AI's word.",
+    "Done: She updates the acceptance criteria to include tag-filtering, the new steps pass their checks, a checkpoint is saved, and the recipe page works with filtering. She expects a clean 'done' state and the option to undo back to the flat-list version if she regrets the change."
+  ],
+  "expected": "Changing her mind mid-plan feels supported, not punishing: DIVE re-plans incrementally (new/changed steps only), keeps the already-approved scaffold + form, surfaces a checkpoint so she can undo the pivot, and the verification stepper forces the new criterion ('filter by tag') to be a real acceptance criterion before 'done' — so the plan and the PRD never silently drift apart.",
+  "tags": [
+    "journey",
+    "friction-edge-journeys",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: A mid-plan goal change is the riskiest moment: (1) does the plan-route modal correctly treat 'now I want tags' as a plan adjustment vs. a fresh plan that nukes prior steps?; (2) the new criterion can drift from the accepted PRD — if the criteria-link review card doesn't fire, she 'finishes' with a tag filter that was never an acceptance criterion; (3) approved-but-now-obsolete diff for the old flat list may linger; (4) no checkpoint before the pivot = no clean undo path."
+}

@@ -1,0 +1,42 @@
+{
+  "id": "ADDFEATURE-04",
+  "title": "Add a second page — a 'Projects' page — that lists a few of his projects, with working navigation between the home page and the new page.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#ADDFEATURE-04"
+  },
+  "areas": [
+    "project-session",
+    "onboarding",
+    "chat",
+    "prd",
+    "plan",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "terminal",
+    "recovery",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Jay, an adult career-switcher learning to code, who built a single-page personal portfolio in DIVE (a hero section + an about blurb, all in index.html). He's done two DIVE projects and is starting to recognize the plan/verify rhythm.",
+  "steps": [
+    "Design: Jay reopens his portfolio project. He types: 'add a second page called Projects that lists my projects, and put a nav link so I can go between Home and Projects.' This is the biggest of the five — it implies a NEW FILE (projects.html), nav on BOTH pages, and consistent styling. He expects DIVE to recognize the multi-file scope and clarify: separate HTML file vs single-page section toggle, shared header/nav, and how routing works for a static site (relative links). He wants the file-creation implication called out before any code is written.",
+    "Plan: Because this is larger, DIVE may append more than one step (e.g. 'create projects.html', 'add shared nav to both pages', 'link them') with dependencies and possibly a parallel hint. Criteria: 'projects.html exists and renders the list', 'nav link from Home opens Projects', 'nav link from Projects returns Home'. PRD goes to v2. Jay reviews the multi-step shape, checks the dependency order makes sense, and accepts.",
+    "Implement: This is the riskiest implement: the agent must CREATE a new file (a write_file for projects.html — a distinct PERM card) and EDIT the existing index.html to add the nav (another card), and likely edit projects.html again for nav. Jay expects a clear sequence of approval cards — one for the new file (with full content preview), one or more for nav edits — each readable. He approves them in order, watching that the agent doesn't clobber his existing hero/about content when it edits index.html.",
+    "Verify: Verification spans both pages. Provocation cards push: 'Open Projects in preview — does the list render? Then click back to Home — does nav actually work both directions?' Jay opens the preview, navigates Home→Projects→Home, confirms both links and that his original content is intact. He records observations per criterion. He pays attention to whether the nav works when served as static files (relative paths) — the real failure mode. He records the decision only after round-tripping the nav.",
+    "Done: Steps complete at PRD v2 with checkpoints. Jay has a genuine two-page site, has personally clicked through the navigation both ways, and has a checkpoint to roll back to if a later change breaks a link."
+  ],
+  "expected": "DIVE surfaces the multi-file reality up front (new projects.html + nav edits on both pages), breaks it into ordered steps with sane dependencies, shows the new-file creation as its own reviewable approval (not a silent write), and verification makes Jay actually round-trip the navigation in preview — catching the classic broken-relative-link failure before he calls it done.",
+  "tags": [
+    "journey",
+    "add-a-feature-to-an-existing-project",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: (1) The agent editing index.html and accidentally dropping or reformatting his existing hero/about content while inserting nav — the diff must make a destructive overwrite obvious. (2) Navigation that works in DIVE's preview but breaks as static files (absolute vs relative paths, or expecting a dev server/router), so verify passes in-app but fails when he opens the files directly. (3) Preview only able to show one HTML file at a time / no easy way to load projects.html in the iframe, making the cross-page nav check hard to actually perform. (4) Multi-step plan overwhelming an intermediate-but-still-learning user with several PERM cards and a dependency graph — risk of click-through approval (the exact automation bias DIVE is meant to counter) if the cards aren't clearly scoped. (5) Korean-leak (DEF-01) more visible here because more steps/badges render."
+}

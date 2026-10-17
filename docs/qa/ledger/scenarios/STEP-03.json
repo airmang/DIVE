@@ -1,0 +1,20 @@
+{
+  "id": "STEP-03",
+  "title": "Dependency graph view",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#STEP-03"
+  },
+  "areas": [
+    "roadmap",
+    "plan"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": false,
+  "preconditions": "Plan with deps",
+  "steps": [
+    "`의존성 그래프 보기`"
+  ],
+  "expected": "Dependency/parallel-group visualization renders"
+}

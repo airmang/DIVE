@@ -1,0 +1,23 @@
+{
+  "id": "CHAT-03",
+  "title": "Tool activity expansion",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#CHAT-03"
+  },
+  "areas": [
+    "chat",
+    "permission",
+    "agent-tools",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Turn that proposes a tool",
+  "steps": [
+    "Send a goal needing a file read",
+    "Expand tool activity"
+  ],
+  "expected": "Tool call details render; approve/deny controls present"
+}

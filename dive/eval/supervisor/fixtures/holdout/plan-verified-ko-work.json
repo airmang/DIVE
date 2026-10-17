@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "id": "plan-verified-ko-work",
+  "event": "plan_drafted",
+  "locale": "ko-KR",
+  "mode": "work",
+  "description": "Negative: every step is linked to a criterion and has a verification plan (not eligible), so no card.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "plan_drafted",
+    "artifactRef": {
+      "kind": "plan_draft",
+      "id": "plan-35:draft",
+      "label": "Plan draft"
+    },
+    "contextHash": "sha256:8b4afadeb9e61c1ce46596065911ef2313c6f9cd0001cbefac7d3ddae478c355",
+    "mode": "work",
+    "locale": "ko-KR",
+    "allowedActionIds": [
+      "add_verification_step",
+      "link_criterion",
+      "split_scope",
+      "edit_prd",
+      "dismiss_review"
+    ],
+    "goalSummary": "급식 메뉴를 날짜별로 보여 주는 앱",
+    "planSummary": {
+      "stepCount": 2,
+      "activeStep": null
+    },
+    "verificationState": {
+      "aiSelfReport": false,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": false,
+      "hasTests": false,
+      "diffAvailable": false
+    },
+    "evidenceRefs": [
+      {
+        "id": "plan.goal",
+        "source": "goal",
+        "kind": "scope_expansion_assessment",
+        "label": "Plan goal",
+        "valueSummary": "급식 메뉴를 날짜별로 보여 주는 앱",
+        "verificationEvidence": false
+      },
+      {
+        "id": "plan.criteria",
+        "source": "plan",
+        "kind": "acceptance_criteria",
+        "label": "Acceptance criteria",
+        "valueSummary": {
+          "count": 1,
+          "items": ["오늘 날짜의 급식 메뉴가 첫 화면에 표시된다"]
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "plan.step_count",
+        "source": "plan",
+        "kind": "plan_step",
+        "label": "Plan steps",
+        "valueSummary": {
+          "count": 2
+        },
+        "verificationEvidence": false
+      }
+    ],
+    "planDraftAssessment": {
+      "eligible": false,
+      "reasonCodes": [],
+      "evidenceRefs": ["plan.goal", "plan.criteria", "plan.step_count"],
+      "stepCount": 2,
+      "criteriaCount": 1,
+      "unverifiedStepIds": [],
+      "unlinkedStepIds": []
+    }
+  },
+  "expect": {
+    "shouldProvoke": false,
+    "gatePasses": false,
+    "allowedConcerns": ["plan_draft_weakness"],
+    "requiredEvidenceRefIds": [],
+    "locale": "ko-KR"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":false,\"concern\":\"plan_draft_weakness\",\"severity\":\"info\",\"question\":\"\",\"evidenceRefIds\":[\"plan.criteria\"],\"suggestedActionIds\":[]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

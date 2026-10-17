@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0042",
+  "title": "workspace_plan_append_steps accepts linked_criterion_ids/prd_delta but batch impl discards both",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "plan",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L464"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in db5b8c34 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src-tauri/src/ipc/workspace_plan/plan_steps.rs:861-905 now applies options.linked_criterion_ids to every draft and passes options.prd_delta to the first step (step_prd_delta). Fixed in db5b8c34; test batch_append_honors_linked_criterion_ids_and_applies_prd_delta_once (plan_steps.rs:1934). Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence.",
+  "fixCommit": "db5b8c34",
+  "guard": {
+    "kind": "cargo",
+    "ref": "ipc::workspace_plan::plan_steps::batch_append_options_tests::batch_append_honors_linked_criterion_ids_and_applies_prd_delta_once"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

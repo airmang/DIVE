@@ -1,0 +1,23 @@
+{
+  "id": "VC-02",
+  "title": "Sidecar-unavailable degrades gracefully",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#VC-02"
+  },
+  "areas": [
+    "verification",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P0",
+  "requiresLlm": false,
+  "preconditions": "Force unavailable (no provider / sidecar)",
+  "steps": [
+    "Trigger coach when sidecar can't run"
+  ],
+  "expected": "Status Unavailable/Dropped message; **no crash/hang**",
+  "tags": [
+    "sidecar"
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "id": "STATIC-05",
+  "title": "A single info page for the coding club: hero with club name + slogan, an 'about' paragraph, a meeting schedule, a 'how to join' section with a Google Form link, and 3 event photos.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#STATIC-05"
+  },
+  "areas": [
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Jay, a high-school club president (teen, allowed solo use — no minor-pilot/IRB involvement, just an individual user) making a one-page info site for the school coding club: what the club does, meeting times, how to join, and a few photos. Impatient, wants it fast, Korean speaker.",
+  "steps": [
+    "Design: Jay wants to skip straight to building and is mildly annoyed the Socratic interview appears first. But the questions are concrete (slogan? meeting day/time? the Google Form URL? which photos?), so he answers fast. The board captures scope and ACs ('join section links to the club's Google Form', 'schedule lists weekly meeting', 'three photos in a row'). He confirms the PRD, slightly impatiently.",
+    "Plan: Plan: step-1 scaffold + hero/slogan, step-2 about + schedule, step-3 join section with Form link, step-4 photo row. He accepts quickly, barely reading the rationale.",
+    "Implement: He blasts through steps, approving each write diff fast (impatience = high automation-bias risk). The agent reads the photos dir; the diff shows the <img> wiring. He opens Preview and the club page renders — he's hyped. He pastes the Google Form URL into chat and the agent wires the join button.",
+    "Verify: Agent claims done. A provocation card asks the criterion-linked question: 'The join button is supposed to open your Google Form — did you click it and confirm the URL, or is that AI self-report?'. The verify stepper blocks 결정 until he provides evidence. Initially he tries to skip, but the stepper won't advance without him opening the Preview and actually clicking the join link / checking the href. He finds the agent slightly mangled the long Form URL, fixes it via a corrective edit, re-checks, then verifies. This is the journey's whole point — supervision catches the one thing he would have shipped broken.",
+    "Done: Complete index.html for the club. A checkpoint from before the photo step let him undo when one wrong-orientation photo broke the row, swap the file path, and redo."
+  ],
+  "expected": "Despite his impatience, the evidence-gated verify stepper does its job: it refuses to accept the AI's 'join link works' on faith and makes him click the real link, surfacing a genuinely-broken Google Form URL before it ships. The non-blocking provocation cards don't stop him from moving fast elsewhere, but the one criterion that matters (the join link) is gated on real evidence. Fast diff approvals + instant static Preview keep his momentum; checkpoints make photo swaps painless.",
+  "tags": [
+    "journey",
+    "static-web-pages-beginner",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: This persona is the stress test for automation bias: an impatient teen will click-approve every diff and try to click-through verify. If the verify stepper ever accepts a click on the card (not real evidence) as sufficient, the supervision collapses exactly for the user who needs it most — the 'click ≠ evidence' (FR-030~033) principle must hold here. The mangled long-URL is a realistic LLM failure the app can't detect on its own; the whole value hinges on the card forcing a human click-test. Korean LLM replies are fine for him. Risk: if the PRD interview feels slow, an impatient user bails before reaching the part where supervision adds value; the interview must front-load the concrete questions and feel fast."
+}

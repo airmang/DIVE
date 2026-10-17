@@ -1,0 +1,41 @@
+{
+  "id": "INTERACTIVE-02",
+  "title": "Build a counter page: a big number starting at 0, a + button that increments, a - button that decrements, and a Reset button that returns to 0. The number must not go below 0.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#INTERACTIVE-02"
+  },
+  "areas": [
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Daniel, a 15-year-old learning to code from YouTube. Impatient, wants to 'just build the thing'. He has copy-pasted snippets before but never structured a small app. He wants a click counter with + / - / reset.",
+  "steps": [
+    "Design: Daniel types 'make a counter app, make it cool' and immediately tries to skip ahead. The Socratic interview pins down the actual behaviors: start value, what - does at 0 (he initially says 'go negative', then reconsiders → 'stop at 0'), and what 'cool' means (he drops it as a non-goal: no animations for now). A provocation flags the vague word 'cool' and asks for an observable criterion. PRD board fills: goal, scope (+/-/reset, clamp at 0), non-goals (styling/persistence), criteria. He confirms PRD v1, a bit annoyed but the scope is now real.",
+    "Plan: He clicks Generate plan and gets a 2-3 step plan (build counter markup + display, wire +/-/reset handlers with the >=0 clamp, verify in browser). He almost discards it to go faster but accepts. Roadmap appears.",
+    "Implement: Agent writes index.html in one or two edits. The PermissionCard diff shows the handler logic including the `if (count > 0)` clamp. Daniel approves fast. He's tempted to hit approve without reading — exactly the automation-bias moment DIVE is built to resist.",
+    "Verify: Verify stepper opens. He opens the diff (코드 이해 satisfied) and clicks + a few times, - past zero (it correctly stops at 0), reset → 0. He records the manual observation tied to the 'never below 0' criterion. The 결정 stage gates on that observation, so he can't mark done by just trusting the AI.",
+    "Done: Step → 완료, checkpoint saved. Daniel has a counter that behaves exactly as scoped, and the one tricky bit (clamp at 0) was something he explicitly decided and then personally verified. good = the clamp edge case was surfaced in DESIGN, not discovered as a bug later."
+  ],
+  "expected": "DIVE catches the under-specified edge case (what does - do at 0?) during the interview instead of letting it ship as a bug, then forces Daniel to actually click - past zero in verify. The whole thing is fast enough that an impatient teen doesn't bail, but the supervision still lands one real lesson.",
+  "tags": [
+    "journey",
+    "interactive-vanilla-js-beginner",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: Impatience vs supervision tension: if the interview or plan-accept feels like too many gates for a trivial counter, Daniel abandons or clicks through blindly. The clamp-at-0 behavior is the make-or-break edge case — if the AI silently allows negatives and Daniel approves without reading the diff and 'glances' at the preview, a weak verify could pass it. Korean-leaking UI labels (button/badge) again risk confusing an English learner."
+}

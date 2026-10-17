@@ -7,6 +7,7 @@ import type {
   PlanGenerationResult,
   InterviewRow,
 } from "../../features/planning";
+import { SUPERVISION_POLICY } from "../../features/provocation/policy";
 import { useUiPreferencesStore } from "../../stores/ui-preferences";
 import { PlanDraftApprovalScreen } from "./PlanDraftApprovalScreen";
 
@@ -375,6 +376,8 @@ describe("PlanDraftApprovalScreen intent and step review surface", () => {
         projectId: 1,
         planId: 7,
         allowedActionIds: expect.arrayContaining(["add_verification_step"]),
+        // Spec 015 FR-002: the assessment's policy version rides along.
+        policyVersion: SUPERVISION_POLICY.policyVersion,
       },
     });
     await waitFor(() => expect(screen.getAllByTestId("provocation-card")).toHaveLength(1));

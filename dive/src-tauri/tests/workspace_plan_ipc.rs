@@ -1132,6 +1132,261 @@ async fn prd_interview_turn_flags_undecodable_json_response_as_not_structured() 
     );
 }
 
+// Spec 015 FR-001: a turn that structured fine but proposed no patch used to
+// write no EventLog row at all. It now gets exactly one
+// `prd_interview.turn_evaluated` row carrying the prompt version, with no
+// student or assistant text.
+#[tokio::test]
+async fn prd_interview_no_patch_turn_logs_one_turn_evaluated_event() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(
+                r#"{"assistantMessage":"어떤 사람이 이 앱을 쓰게 될까요?"}"#.into(),
+            ),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+
+    let turn = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-no-patch".into(),
+            answer: "학생-42의 비밀 메모 앱".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(turn.validation_outcome, "none");
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    let evaluated = events
+        .iter()
+        .filter(|event| event.r#type == "prd_interview.turn_evaluated")
+        .collect::<Vec<_>>();
+    assert_eq!(evaluated.len(), 1);
+    let payload = &evaluated[0].payload;
+    assert_eq!(payload["validationOutcome"], json!("none"));
+    assert_eq!(payload["turnId"], json!(turn.turn_id));
+    assert_eq!(payload["patchProposed"], json!(false));
+    assert_eq!(payload["contractRetryAttempted"], json!(false));
+    assert_eq!(payload["parseFailureKind"], json!(null));
+    assert_eq!(payload["model"], json!("mock-model"));
+    let prompt_version = payload["promptVersion"].as_str().unwrap();
+    let (semver, hash) = prompt_version.split_once('+').unwrap();
+    assert_eq!(semver.split('.').count(), 3);
+    assert_eq!(hash.len(), 8);
+    let encoded = payload.to_string();
+    assert!(!encoded.contains("비밀 메모"));
+    assert!(!encoded.contains("어떤 사람이"));
+    assert!(!events
+        .iter()
+        .any(|event| event.r#type.starts_with("prd_patch_")));
+
+    // Spec 015 FR-020: the turn is in the local replay corpus, joined by
+    // evaluationId, with the rendered prompt inputs and the raw model reply.
+    let evaluation_id = payload["evaluationId"].as_str().unwrap();
+    let replay = dive_lib::db::dao::supervision_replay::get_by_evaluation_id(
+        state.db.lock().unwrap().conn(),
+        evaluation_id,
+    )
+    .unwrap()
+    .expect("replay row captured");
+    assert_eq!(replay.surface, "prd_interview");
+    assert_eq!(replay.project_id, Some(project_id));
+    assert_eq!(replay.prompt_version, prompt_version);
+    assert_eq!(replay.model.as_deref(), Some("mock-model"));
+    assert_eq!(
+        replay.raw_output.as_deref(),
+        Some(r#"{"assistantMessage":"어떤 사람이 이 앱을 쓰게 될까요?"}"#)
+    );
+    let inputs: serde_json::Value = serde_json::from_str(&replay.context_json).unwrap();
+    assert_eq!(inputs["answer"], json!("학생-42의 비밀 메모 앱"));
+    assert_eq!(inputs["jsonContractRetry"], json!(false));
+    assert!(inputs["nextFocus"]
+        .as_str()
+        .unwrap()
+        .starts_with("clarify_goal"));
+}
+
+// S-078 review P2-9: PRD events and their replay row attach to the project's
+// latest non-archived session, never to an archived one.
+#[tokio::test]
+async fn prd_interview_turn_attaches_to_the_latest_unarchived_session() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(r#"{"assistantMessage":"좋아요."}"#.into()),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+    let (active, archived) = {
+        let db = state.db.lock().unwrap();
+        let mk = |title: &str| {
+            dive_lib::db::dao::session::insert(
+                db.conn(),
+                &dive_lib::db::models::NewSession {
+                    project_id,
+                    title: title.into(),
+                    ended_at: None,
+                    status: "active".into(),
+                },
+            )
+            .unwrap()
+        };
+        let active = mk("active");
+        let archived = mk("archived");
+        db.conn()
+            .execute(
+                "UPDATE Session SET status = 'archived' WHERE id = ?",
+                [archived],
+            )
+            .unwrap();
+        (active, archived)
+    };
+
+    workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-archived".into(),
+            answer: "일정 앱".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let db = state.db.lock().unwrap();
+    let evaluated = event_log::list(db.conn())
+        .unwrap()
+        .into_iter()
+        .find(|event| event.r#type == "prd_interview.turn_evaluated")
+        .unwrap();
+    assert_eq!(evaluated.session_id, Some(active));
+    let replay = dive_lib::db::dao::supervision_replay::get_by_evaluation_id(
+        db.conn(),
+        evaluated.payload["evaluationId"].as_str().unwrap(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(replay.session_id, Some(active));
+    assert_ne!(replay.session_id, Some(archived));
+}
+
+#[tokio::test]
+async fn prd_interview_turn_is_not_captured_when_replay_capture_is_off() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![
+            ChatEvent::TextDelta(r#"{"assistantMessage":"좋아요."}"#.into()),
+            ChatEvent::Done {
+                finish_reason: FinishReason::Stop,
+            },
+        ]],
+    );
+    let project_id = seed_project(&state);
+    dive_lib::dive::replay::set_replay_capture_enabled(state.db.lock().unwrap().conn(), false)
+        .unwrap();
+
+    workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-capture-off".into(),
+            answer: "일정 앱".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let conn_guard = state.db.lock().unwrap();
+    assert_eq!(
+        dive_lib::db::dao::supervision_replay::count(conn_guard.conn()).unwrap(),
+        0
+    );
+    // The evaluation event itself is still logged.
+    assert!(event_log::list(conn_guard.conn())
+        .unwrap()
+        .iter()
+        .any(|event| event.r#type == "prd_interview.turn_evaluated"));
+}
+
+// Spec 015 FR-001 (S-076 review P2-12): a failed model call still leaves one
+// `prd_interview.turn_evaluated` row (outcome `model_error`, fixed error
+// class, never the provider message) before the error is returned.
+#[tokio::test]
+async fn prd_interview_model_error_logs_turn_evaluated_without_provider_text() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (state, _provider) = mk_state_with_scripts(
+        &tmp,
+        vec![vec![ChatEvent::Error(
+            "upstream 500 for key sk-live-secret-123".into(),
+        )]],
+    );
+    let project_id = seed_project(&state);
+
+    let err = workspace_prd_interview_turn_impl(
+        &state,
+        PrdInterviewTurnInput {
+            project_id,
+            draft_id: "draft-model-error".into(),
+            answer: "일정 앱".into(),
+            conversation: Vec::new(),
+            provider: "mock".into(),
+            model: "mock-model".into(),
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(err.contains("upstream 500"));
+
+    let events = event_log::list(state.db.lock().unwrap().conn()).unwrap();
+    let evaluated = events
+        .iter()
+        .filter(|event| event.r#type == "prd_interview.turn_evaluated")
+        .collect::<Vec<_>>();
+    assert_eq!(evaluated.len(), 1);
+    let payload = &evaluated[0].payload;
+    assert_eq!(payload["validationOutcome"], json!("model_error"));
+    assert_eq!(payload["errorClass"], json!("stream_error"));
+    assert_eq!(payload["draftId"], json!("draft-model-error"));
+    assert!(payload["promptVersion"].as_str().is_some());
+    let encoded = payload.to_string();
+    assert!(!encoded.contains("upstream"));
+    assert!(!encoded.contains("sk-live"));
+
+    // The prompt was sent, so the failed call is still captured for replay,
+    // without any output.
+    let replay = dive_lib::db::dao::supervision_replay::get_by_evaluation_id(
+        state.db.lock().unwrap().conn(),
+        payload["evaluationId"].as_str().unwrap(),
+    )
+    .unwrap()
+    .expect("replay row captured");
+    assert_eq!(replay.raw_output, None);
+    assert!(replay.validation_json.contains("stream_error"));
+    assert!(!replay.validation_json.contains("upstream"));
+}
+
 // S-057 GO-gate fix: a nondeterministic contract violation (prose-only first
 // reply) recovers via ONE deterministic in-turn retry; the audit trail keeps
 // the flake history on the applied turn.
@@ -1186,6 +1441,27 @@ async fn prd_interview_turn_recovers_via_in_turn_retry_after_no_json() {
     assert!(!events
         .iter()
         .any(|event| event.r#type == "prd_patch_unstructured"));
+    // Spec 015 FR-001: the turn's evaluation row keeps the flake history too.
+    let evaluated = events
+        .iter()
+        .find(|event| event.r#type == "prd_interview.turn_evaluated")
+        .expect("turn evaluation logged");
+    assert_eq!(evaluated.payload["validationOutcome"], json!("applied"));
+    assert_eq!(evaluated.payload["contractRetryAttempted"], json!(true));
+    assert_eq!(
+        evaluated.payload["parseFailureKind"],
+        json!("no_json_truncated:recovered")
+    );
+    // The replay row holds the deciding call: the retry, with its reminder.
+    let replay = dive_lib::db::dao::supervision_replay::get_by_evaluation_id(
+        state.db.lock().unwrap().conn(),
+        evaluated.payload["evaluationId"].as_str().unwrap(),
+    )
+    .unwrap()
+    .unwrap();
+    let inputs: serde_json::Value = serde_json::from_str(&replay.context_json).unwrap();
+    assert_eq!(inputs["jsonContractRetry"], json!(true));
+    assert!(replay.raw_output.unwrap().contains("\"set_goal\""));
 
     let turns =
         interview_turn::list_by_draft(state.db.lock().unwrap().conn(), "draft-recovered").unwrap();

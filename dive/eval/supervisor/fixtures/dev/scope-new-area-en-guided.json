@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "id": "scope-new-area-en-guided",
+  "event": "scope_expansion",
+  "locale": "en-US",
+  "mode": "guided",
+  "description": "Add-step draft adds Excel export to a budget app whose criterion is the monthly total.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "scope_expansion",
+    "artifactRef": {
+      "kind": "add_step_draft",
+      "id": "draft-22",
+      "label": "Export expenses to Excel"
+    },
+    "contextHash": "sha256:710a38961605da18a2b5e70a752a4c1731a60f7c3aeb5884840d13513a4a714d",
+    "mode": "guided",
+    "locale": "en-US",
+    "allowedActionIds": ["link_criterion", "split_scope", "edit_prd", "dismiss_review"],
+    "goalSummary": "A budget app that shows the monthly spending total",
+    "planSummary": {
+      "stepCount": 3,
+      "activeStep": "Monthly total"
+    },
+    "verificationState": {
+      "aiSelfReport": false,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": false,
+      "hasTests": false,
+      "diffAvailable": false
+    },
+    "evidenceRefs": [
+      {
+        "id": "add_step.title",
+        "source": "plan",
+        "kind": "add_step_draft",
+        "label": "Export expenses to Excel",
+        "valueSummary": "Export expenses to Excel",
+        "verificationEvidence": false
+      },
+      {
+        "id": "prd.ac_003",
+        "source": "plan",
+        "kind": "acceptance_criteria",
+        "label": "Users can see the total they spent this month",
+        "valueSummary": {
+          "criterionId": "AC-003",
+          "text": "Users can see the total they spent this month"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "prd_delta.scope_changes_0",
+        "source": "plan",
+        "kind": "prd_scope",
+        "label": "Excel export",
+        "valueSummary": {
+          "scopeChange": "Excel export"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "add_step.linked_criterion_ids",
+        "source": "plan",
+        "kind": "add_step_draft",
+        "label": "연결된 PRD 기준",
+        "valueSummary": {
+          "kind": "scope_evidence",
+          "sourceRef": "step.linkedCriterionIds"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "scope.assessment",
+        "source": "workmap",
+        "kind": "scope_expansion_assessment",
+        "label": "범위 확장 평가",
+        "valueSummary": {
+          "evidenceRefs": ["add_step.linked_criterion_ids", "prd_delta.scope_changes_0"],
+          "kind": "scope_expansion_assessment",
+          "reasonCodes": ["missing_criterion_link", "new_scope_area"]
+        },
+        "verificationEvidence": false
+      }
+    ],
+    "scopeExpansion": {
+      "expanded": true,
+      "reasonCodes": ["missing_criterion_link", "new_scope_area"],
+      "evidenceRefs": ["add_step.linked_criterion_ids", "prd_delta.scope_changes_0"]
+    }
+  },
+  "expect": {
+    "shouldProvoke": true,
+    "gatePasses": true,
+    "allowedConcerns": ["scope_expansion"],
+    "requiredEvidenceRefIds": ["prd_delta.scope_changes_0", "add_step.linked_criterion_ids"],
+    "relevantEvidenceRefIds": [
+      "add_step.title",
+      "prd_delta.scope_changes_0",
+      "add_step.linked_criterion_ids",
+      "scope.assessment",
+      "prd.ac_003"
+    ],
+    "criterionTerms": ["Excel", "monthly"],
+    "locale": "en-US"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"scope_expansion\",\"severity\":\"caution\",\"question\":\"The PRD only asks for the monthly total. Is Excel export needed for this version, or should it be split into a later step?\",\"evidenceRefIds\":[\"prd_delta.scope_changes_0\",\"add_step.linked_criterion_ids\",\"prd.ac_003\"],\"suggestedActionIds\":[\"split_scope\",\"edit_prd\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"scope_expansion\",\"severity\":\"caution\",\"question\":\"Excel export isn't linked to AC-003; should this new scope be split out or tied to a criterion?\",\"evidenceRefIds\":[\"add_step.linked_criterion_ids\",\"prd_delta.scope_changes_0\"],\"suggestedActionIds\":[\"link_criterion\",\"split_scope\",\"edit_prd\",\"dismiss_review\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
+      }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"scope_expansion\",\"severity\":\"caution\",\"question\":\"Does exporting expenses to Excel help users see the total they spent this month?\",\"evidenceRefIds\":[\"add_step.title\",\"prd.ac_003\",\"prd_delta.scope_changes_0\"],\"suggestedActionIds\":[\"link_criterion\",\"split_scope\",\"edit_prd\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T05:49:42Z",
+        "source": "live",
+        "attempt": 0
+      }
+    ]
+  }
+}

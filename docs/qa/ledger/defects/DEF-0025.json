@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0025",
+  "title": "Sidebar project/session actions and settings disconnect are silent unhandled rejections",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "project-session",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L158"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in e6d1c576 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src/components/shell/Sidebar.tsx:20 imports runUserAction; the handlers at :62/75/89/102/114/128 wrap the store actions, and the onClick sites (:186,:200,:210,:247,:262,:272,:293,:328) call those handlers. dive/src/pages/settings.tsx:276-283 handleDisconnect now uses runUserAction(() => disconnectProvider(...)). Landed in e6d1c576 with Sidebar/settings tests. Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence. Guard scope: covers the Sidebar deleteProject path only; the other Sidebar handlers and settings handleDisconnect (same runUserAction pattern) have no dedicated test.",
+  "fixCommit": "e6d1c576",
+  "guard": {
+    "kind": "vitest",
+    "ref": "dive/src/components/shell/Sidebar.test.tsx::Sidebar mutation failures surface a toast instead of an unhandled rejection > shows an error toast when deleteProject rejects (delete confirmed)"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

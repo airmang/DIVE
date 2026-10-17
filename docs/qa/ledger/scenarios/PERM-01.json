@@ -1,0 +1,21 @@
+{
+  "id": "PERM-01",
+  "title": "Safe (read) card",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PERM-01"
+  },
+  "areas": [
+    "permission",
+    "agent-tools",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P0",
+  "requiresLlm": true,
+  "preconditions": "Turn proposes read_file/list_dir",
+  "steps": [
+    "Trigger read tool"
+  ],
+  "expected": "Green/safe card with command explainer; Approve/Deny present"
+}

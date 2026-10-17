@@ -1,0 +1,22 @@
+{
+  "id": "PROV-01",
+  "title": "Open Settings",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PROV-01"
+  },
+  "areas": [
+    "provider-settings"
+  ],
+  "pathGlobs": [],
+  "priority": "P0",
+  "requiresLlm": false,
+  "preconditions": "Any",
+  "steps": [
+    "Click provider card (현재 모델 …) / settings entry"
+  ],
+  "expected": "Settings page renders: providers, model selector, locale, theme, tool permissions",
+  "tags": [
+    "visibility"
+  ]
+}

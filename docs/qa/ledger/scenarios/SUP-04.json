@@ -1,0 +1,22 @@
+{
+  "id": "SUP-04",
+  "title": "Dismiss / mark-irrelevant",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#SUP-04"
+  },
+  "areas": [
+    "supervision",
+    "eventlog-export",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": false,
+  "preconditions": "Card present",
+  "steps": [
+    "Dismiss",
+    "(new) Mark irrelevant"
+  ],
+  "expected": "Card dismisses; dedup prevents immediate re-show of same concern"
+}

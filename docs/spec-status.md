@@ -1,6 +1,6 @@
 # DIVE Spec Status
 
-**Last updated**: 2026-08-28
+**Last updated**: 2026-09-29
 
 This file prevents agents from treating old design notes as active product
 authority. The canonical DIVE v2 source of truth lives in `.specify/` and
@@ -66,6 +66,29 @@ archived-status sections below).
 | `specs/014-unrestricted-project-kinds/spec.md`                        | Canonical               | Round-5 umbrella (S-072–S-075): records Constitution VII (unrestricted project kinds) and re-decides S-047 under it — S-049 exclusionary scaffolding + `plan_form_consistency` removed (S-072), then the form taxonomy itself, leaving one stack confirmation (S-075); in-place PRD patch edits (S-073); Enter-to-send + legible confirm gate (S-074). |
 | `specs/014-unrestricted-project-kinds/decisions.md`                   | Canonical               | Records 014 stage-scoped decisions (D-014-xx).                                                                                                                                                                                          |
 | `specs/014-unrestricted-project-kinds/adr-unrestricted-project-kinds.md` | Canonical ADR        | Constitution 1.1.0 → 1.2.0 amendment: new Principle VII; supersedes design-s047.md Q1 and the S-049 form-scaffolding/consistency follow-up.                                                                                              |
+| `specs/015-self-improvement-loops/spec.md`                           | Canonical               | Round-6 umbrella (S-076–S-084): supervision-quality loop A + development QA loop B; offline, versioned, owner-gated improvement (D-015-01). |
+| `specs/015-self-improvement-loops/decisions.md`                      | Canonical               | Records 015 decisions (D-015-xx), including the resolved owner decisions OD-1–OD-5. |
+| `specs/015-self-improvement-loops/plan.md` / `tasks.md`              | Canonical planning aid  | Implementation plan and dependency-ordered tasks for 015. |
+| `specs/015-self-improvement-loops/contracts/event-log-export.md`     | Canonical contract      | 015 EventLog/export additions: prompt/policy versions, card exposure events, session attribution and origin (S-076), and the local replay corpus with its opt-in research replay export (S-078). |
+| `docs/improvement-cycle.md` / `.specify/templates/improvement-cycle-work-order.md` | Canonical runbook | 015 loop A (one versioned, eval-gated, owner-approved change per cycle; `pnpm eval:gate`) and loop B (`qa:queue` → live run → `qa:run apply` → `qa:triage`), and how they connect (S-083). |
+
+## 015 Implementation Status
+
+As of 2026-09-29, `specs/015-self-improvement-loops/` is implemented on branch
+`015-self-improvement-loops` (not yet pushed). Core rule D-015-01: DIVE never
+adapts at runtime; improvements are offline, versioned, owner-approved.
+
+| Wily Stage | Scope | Status |
+| ---------- | ----- | ------ |
+| S-076 | Prompt/policy versions, question text, unanswered/latency, exposure-pinned session attribution, session origin | Done |
+| S-077 | Machine-readable QA ledger (104 scenarios, 50 defects) | Done |
+| S-078 | Local replay corpus (500 / 30 days, secure delete, excluded from default export) | Done |
+| S-079 | Offline supervisor eval harness (34 fixtures, recorded CI + capped live) | Done |
+| S-080 | Runner-resolved regression guards (`verify:qa-ledger`) | Done |
+| S-081 | `research:cards` per-version aggregation | Done |
+| S-082 | `qa:run` records + `qa:queue` | Done |
+| S-083 | Runbook, `eval:gate`, cycle 1 (supervisor prompt 1.1.0+152895a8, gate PASS) | Blocked — PR push awaits owner |
+| S-084 | `qa:triage` bridge; first live loop-B cycle | Blocked — computer-use needs macOS Screen Recording permission |
 
 ## External Product Extraction
 

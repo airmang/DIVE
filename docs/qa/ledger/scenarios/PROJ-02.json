@@ -1,0 +1,20 @@
+{
+  "id": "PROJ-02",
+  "title": "Switch between projects",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PROJ-02"
+  },
+  "areas": [
+    "project-session"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": false,
+  "preconditions": "≥2 projects",
+  "steps": [
+    "Select project A",
+    "Select project B"
+  ],
+  "expected": "Center + plan + sessions update to B; no stale A content"
+}

@@ -1,0 +1,25 @@
+{
+  "id": "PROV-03",
+  "title": "Locale switch en ⇄ ko",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PROV-03"
+  },
+  "areas": [
+    "provider-settings",
+    "i18n"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": false,
+  "preconditions": "Settings open",
+  "steps": [
+    "Switch locale to English",
+    "Sweep all screens",
+    "Switch back to 한국어"
+  ],
+  "expected": "All visible strings switch; **probe hardcoded-Korean leftovers**",
+  "tags": [
+    "i18n"
+  ]
+}

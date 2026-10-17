@@ -17,6 +17,7 @@ import {
 } from "../../features/planning";
 import {
   ProvocationCardHost,
+  SUPERVISION_POLICY,
   createScopeExpansionSupervisorRequest,
   evaluateProvocationSupervisor,
   type ProvocationAction,
@@ -62,7 +63,7 @@ type ScopeSupervisorState =
   | { status: "none"; evaluationKey: string; evaluationId?: string; dropReason?: string };
 
 type ScopeActionRoute = "link_criterion" | "split_scope" | "edit_prd" | "dismiss_review";
-const SCOPE_SUPERVISOR_DEBOUNCE_MS = 650;
+const SCOPE_SUPERVISOR_DEBOUNCE_MS = SUPERVISION_POLICY.scopeSupervisorDebounceMs;
 
 // i18n keys; resolved with t() at the render site.
 const SCOPE_ACTION_ROUTE_COPY: Record<ScopeActionRoute, string> = {
@@ -172,7 +173,7 @@ function buildPrdDelta(
 }
 
 function criterionEvidenceRefs(criteria: AcceptanceCriterion[]): SupervisorEvidenceRefContract[] {
-  return criteria.slice(0, 6).map((criterion) => ({
+  return criteria.slice(0, SUPERVISION_POLICY.evidenceListMaxItems).map((criterion) => ({
     id: criterion.criterionId,
     source: "plan",
     kind: "acceptance_criteria",

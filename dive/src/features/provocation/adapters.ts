@@ -29,6 +29,7 @@ import { useLocaleStore } from "../../i18n";
 import { loadTauri } from "../../lib/tauri";
 import { hasConcreteVerificationEvidence } from "./verificationStatus";
 import { classifyChangedFilePath, isHighRiskCategory } from "./pathClassifier";
+import { SUPERVISION_POLICY } from "./policy";
 
 export function stringArray(value: unknown): string[] {
   return Array.isArray(value)
@@ -206,8 +207,29 @@ function matchingRetryPhrases(text: string): string[] {
   return RETRY_REQUEST_PATTERNS.filter((term) => normalized.includes(term.toLowerCase()));
 }
 
+// Secret/PII shapes mirrored from the Rust EventLog/export redactors. They must
+// run BEFORE digit masking: masking `ghp_ab12cd` to `ghp_ab#cd` would stop the
+// secret patterns from matching, and the fingerprint is logged and exported
+// (S-078 security review).
+const FAILURE_SECRET_PATTERNS: RegExp[] = [
+  /sk-[A-Za-z0-9_-]{3,}/g,
+  /(?:api[_-]?key|token|secret|authorization|password)["']?\s*[:=]\s*["']?[A-Za-z0-9_./+=-]{4,}/gi,
+  /bearer\s+[A-Za-z0-9_.-]{4,}/gi,
+  /\b(?:ghp_|github_pat_|glpat-|xoxb-)[A-Za-z0-9_-]+/g,
+  /\bAKIA[A-Z0-9]{12,}\b/g,
+];
+const FAILURE_EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+
+export function redactFailureText(value: string): string {
+  const withoutSecrets = FAILURE_SECRET_PATTERNS.reduce(
+    (text, pattern) => text.replace(pattern, "[redacted_secret]"),
+    value,
+  );
+  return withoutSecrets.replace(FAILURE_EMAIL_PATTERN, "[redacted_pii]");
+}
+
 function normalizeFailureKey(value: string): string {
-  return lowercase(value)
+  return lowercase(redactFailureText(value))
     .replace(/0x[0-9a-f]+/g, "0x#")
     .replace(/\d+/g, "#")
     .slice(0, 240);
@@ -238,12 +260,12 @@ function localHash(value: unknown): string {
   return `fnv1a:${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
-function compactText(value: string, limit = 160): string {
+function compactText(value: string, limit = SUPERVISION_POLICY.evidenceTextMaxChars): string {
   const trimmed = value.trim().replace(/\s+/g, " ");
   return trimmed.length > limit ? `${trimmed.slice(0, limit)}...` : trimmed;
 }
 
-function compactArray<T>(items: T[], limit = 6): T[] {
+function compactArray<T>(items: T[], limit = SUPERVISION_POLICY.evidenceListMaxItems): T[] {
   return items.slice(0, limit);
 }
 
@@ -317,7 +339,7 @@ export function assistantReportsFromConversation(
       }),
     )
     .filter((report): report is ProvocationAssistantReport => report !== null)
-    .slice(-3);
+    .slice(-SUPERVISION_POLICY.recentAssistantReportCount);
 }
 
 export function retrySignalsFromConversation(
@@ -473,7 +495,7 @@ function broadPlanStep(step: ProvocationPlanStep): boolean {
   const text = step.text.toLowerCase();
   const expectedFileCount = step.expectedFiles?.length ?? 0;
   return (
-    expectedFileCount >= 4 ||
+    expectedFileCount >= SUPERVISION_POLICY.broadStepMinExpectedFiles ||
     /\b(and|also|entire|all|everything)\b/.test(text) ||
     /(전체|모두|그리고|또한|한번에|한 번에)/.test(text)
   );
@@ -513,7 +535,10 @@ export function buildPlanDraftReviewAssessment(input: {
   return {
     eligible: reasonCodes.length > 0 && input.planSteps.length > 0,
     reasonCodes,
-    evidenceRefs: compactArray([...new Set(evidenceRefs)], 16),
+    evidenceRefs: compactArray(
+      [...new Set(evidenceRefs)],
+      SUPERVISION_POLICY.planDraftEvidenceRefCap,
+    ),
     stepCount: input.planSteps.length,
     criteriaCount: input.acceptanceCriteria.length,
     unverifiedStepIds,
@@ -591,7 +616,7 @@ export function buildPlanDraftEvidenceRefs(input: {
       }),
     );
   }
-  for (const step of input.planSteps.filter(broadPlanStep).slice(0, 6)) {
+  for (const step of compactArray(input.planSteps.filter(broadPlanStep))) {
     refs.push(
       evidenceRef({
         id: `plan.step.${step.id}.scope`,
@@ -606,7 +631,7 @@ export function buildPlanDraftEvidenceRefs(input: {
       }),
     );
   }
-  for (const [index, question] of (input.unresolvedQuestions ?? []).slice(0, 6).entries()) {
+  for (const [index, question] of compactArray(input.unresolvedQuestions ?? []).entries()) {
     refs.push(
       evidenceRef({
         id: `plan.unresolved.${index}`,
@@ -969,7 +994,7 @@ export function buildRetryLoopReviewAssessment(input: {
 }): RetryLoopReviewAssessmentContract {
   const failureFingerprint = input.failureFingerprint.trim();
   const reasonCodes: string[] = [];
-  if (failureFingerprint && input.failureCount >= 2) {
+  if (failureFingerprint && input.failureCount >= SUPERVISION_POLICY.retryLoopMinFailures) {
     reasonCodes.push("same_failure_repeated");
   }
   if (!input.recoveryAvailable) {
@@ -984,7 +1009,9 @@ export function buildRetryLoopReviewAssessment(input: {
   ];
 
   return {
-    eligible: failureFingerprint.length > 0 && input.failureCount >= 2,
+    eligible:
+      failureFingerprint.length > 0 &&
+      input.failureCount >= SUPERVISION_POLICY.retryLoopMinFailures,
     reasonCodes,
     evidenceRefs,
     failureFingerprint,
@@ -1400,9 +1427,12 @@ export async function evaluateProvocationSupervisor(
   }
   // Thread the active UI locale so the backend supervisor (LLM question +
   // locale-aware card titles/messages) responds in the user's language.
+  // Spec 015 FR-002: the request's assessment was computed under this policy
+  // version; the backend logs it on `provocation.supervisor_evaluated`.
   const requestWithLocale = {
     ...request,
     locale: request.locale ?? useLocaleStore.getState().locale,
+    policyVersion: SUPERVISION_POLICY.policyVersion,
   };
   const response = await api.invoke<unknown>("provocation_agent_evaluate", {
     request: requestWithLocale,

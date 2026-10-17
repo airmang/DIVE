@@ -1,0 +1,19 @@
+{
+  "id": "STEP-01",
+  "title": "Roadmap renders step status",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#STEP-01"
+  },
+  "areas": [
+    "roadmap"
+  ],
+  "pathGlobs": [],
+  "priority": "P0",
+  "requiresLlm": false,
+  "preconditions": "Project with plan (demo-clean-0930)",
+  "steps": [
+    "Observe right PROJECT PLAN"
+  ],
+  "expected": "Steps with status badges (진행 중/검토/완료) + progress (00/01) render (baseline PASS)"
+}

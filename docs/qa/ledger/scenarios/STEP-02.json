@@ -1,0 +1,21 @@
+{
+  "id": "STEP-02",
+  "title": "Open step detail slide-in",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#STEP-02"
+  },
+  "areas": [
+    "roadmap",
+    "verification",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P0",
+  "requiresLlm": false,
+  "preconditions": "Plan with a step",
+  "steps": [
+    "Click a step"
+  ],
+  "expected": "StepDetailSlideIn opens: title/desc/status/changed files/verification/AC list"
+}

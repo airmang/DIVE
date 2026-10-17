@@ -1,0 +1,40 @@
+{
+  "id": "STATIC-04",
+  "title": "A personal landing page ('link-in-bio' style): avatar, one-line headline, and a vertical list of 5 styled link buttons (GitHub, LinkedIn, blog, etc.), with a subtle hover effect — and she wants to understand each piece.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#STATIC-04"
+  },
+  "areas": [
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Sarah, a bootcamp prep learner (career-changer) who is using DIVE specifically to LEARN how a webpage is structured, not just to get an output. Bilingual; runs DIVE in English on purpose to practice. Has done a couple of HTML tutorials.",
+  "steps": [
+    "Design: Sarah states the goal and deliberately engages the Socratic interview as a learning tool, asking 'why' back. The interview clarifies scope (5 links, hover effect, centered card layout), non-goals (no analytics, no framework — pure HTML/CSS), and ACs like 'each button is a styled <a>', 'hover changes background', 'layout is centered and mobile-friendly'. She confirms the PRD and reads the FinalPrdReadView carefully.",
+    "Plan: Plan: step-1 HTML structure (card + avatar + headline), step-2 the 5 link buttons, step-3 CSS styling + hover, step-4 mobile centering. She reviews dependencies and uses the step list as a mental model of how a page comes together. Accept.",
+    "Implement: She runs steps one at a time on purpose, reading every PermissionCard diff to learn the HTML/CSS being added — for her the diff preview IS the lesson. She sometimes uses '요청 수정 / modify request' to tweak the agent's plan (e.g. asks for a CSS class name change) and approves with modified args. She opens the Code tab to study the file and the Preview (static_file) to see each change render.",
+    "Verify: Agent claims styling done. The provocation card asks a criterion-linked question: 'AC says hover changes the background — did you observe the hover state, or is it assumed from the CSS?'. Sarah, learning-minded, opens the rendered page and actually hovers, opens the diff to read the :hover rule, records the observation, and decides verified. She values that the stepper forces her to connect the CSS rule (code understanding) to the visible behavior (observation) — that's the learning loop.",
+    "Done: Complete index.html she understands line-by-line. She intentionally branched her understanding by using a checkpoint to try an alternative button style, compared, then restored — using recovery as an experimentation tool, not just rescue."
+  ],
+  "expected": "The diff-preview-before-write turns every approval into a teachable moment — she learns by reading real, small, scoped changes. The verify stepper's code-understanding → observation linkage is exactly the skill DIVE wants to build: she proves the hover works by both reading the rule and seeing it. modify-request lets her steer and learn cause/effect. Checkpoints double as a safe sandbox for experimentation. Running steps one at a time gives her a clean mental model of page assembly.",
+  "tags": [
+    "journey",
+    "static-web-pages-beginner",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: She runs DIVE in English to learn, so the LLM-replies-in-Korean tendency and DEF-01 Korean-badge leakage actively sabotage her — a learner can't trust labels she can't read, and mixed-language UI is worse for novices than for fluent users. The verify stepper could feel like friction if she already understands the change; the supervision needs to stay lightweight when she's clearly engaged (over-gating a motivated learner is its own failure). Risk that 'modify request' edits the agent args in a way she doesn't fully grasp, producing a confusing diff. If she expects deep per-line explanations and only gets a one-line summary, the 'learning' value is shallower than promised."
+}

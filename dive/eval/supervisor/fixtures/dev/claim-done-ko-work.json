@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "id": "claim-done-ko-work",
+  "event": "ai_claimed_done",
+  "locale": "ko-KR",
+  "mode": "work",
+  "description": "Negative: ai_claimed_done only records the claim; the provoke gate opens at verify_entered, so no prompt is sent.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "ai_claimed_done",
+    "artifactRef": {
+      "kind": "step",
+      "id": "step-2",
+      "label": "메모 삭제 버튼"
+    },
+    "contextHash": "sha256:6fd80f47b90e8a19e2ff364372345260be56e0d4ba8b35b7dfacb76cedc8b3be",
+    "mode": "work",
+    "locale": "ko-KR",
+    "allowedActionIds": ["open_diff", "open_preview"],
+    "goalSummary": "메모장 앱에서 메모를 삭제할 수 있다",
+    "planSummary": {
+      "stepCount": 5,
+      "activeStep": "메모 삭제 버튼"
+    },
+    "verificationState": {
+      "aiSelfReport": true,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": true,
+      "hasTests": false,
+      "diffAvailable": true
+    },
+    "evidenceRefs": [
+      {
+        "id": "agent.assistant_claim",
+        "source": "agent",
+        "kind": "assistant_claim",
+        "label": "AI 완료 주장",
+        "valueSummary": {
+          "kind": "enum",
+          "value": "claimed_done"
+        },
+        "verificationEvidence": false
+      }
+    ]
+  },
+  "expect": {
+    "shouldProvoke": false,
+    "gatePasses": false,
+    "allowedConcerns": ["ai_self_report_only"],
+    "requiredEvidenceRefIds": [],
+    "locale": "ko-KR"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":false,\"concern\":\"ai_self_report_only\",\"severity\":\"info\",\"question\":\"\",\"evidenceRefIds\":[\"agent.assistant_claim\"],\"suggestedActionIds\":[]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

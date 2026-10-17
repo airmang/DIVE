@@ -1,0 +1,162 @@
+# QA ledger record schema
+
+Field reference for `docs/qa/ledger/` records (spec 015, S-077 — FR-010/FR-011,
+D-015-07). The enforcing code is `schema.mjs` (per record) and `load.mjs`
+(cross-record); keep this file in sync with both. Workflow (how to add or
+transition a defect) lives in [`docs/qa/ledger/README.md`](../../../docs/qa/ledger/README.md).
+
+Conventions for every record:
+
+- One JSON object per file, named `<id>.json`. Unknown fields are errors (typo guard).
+- Dates are ISO 8601: `YYYY-MM-DD`, or a full timestamp with zone (`2026-09-29T10:15:00Z`).
+- Paths (`evidence[].path`, `pathGlobs[]`) are repo-relative POSIX paths — no
+  leading `/`, no `..`.
+- `sha256` is 64 lowercase hex characters; `commit` is a 7–40 character lowercase git sha.
+- Area names come from the table in `areas.mjs` (see [Areas](#areas)).
+
+## Defect — `defects/DEF-NNNN.json`
+
+| Field         | Type       | Required | Notes                                                                                                                                                                               |
+| ------------- | ---------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`          | `DEF-NNNN` | yes      | Zero-padded to 4 digits; allocate with `pnpm qa:ledger:validate -- --next-id`.                                                                                                      |
+| `title`       | string     | yes      | One line, symptom-first.                                                                                                                                                            |
+| `status`      | enum       | yes      | `open` · `fixing` · `fixed` · `verified` · `wontfix` · `duplicate` (lifecycle in the ledger README).                                                                                |
+| `severity`    | enum       | yes      | `P0` · `P1` · `P2`.                                                                                                                                                                 |
+| `area`        | area name  | yes      | Single primary area; drives triage clustering (S-084).                                                                                                                              |
+| `source`      | object     | yes      | `{ kind, ref, findingId? }` — see below.                                                                                                                                            |
+| `specRef`     | string     | no       | Governing spec/FR, e.g. `specs/002-provocation-supervisor-agent/spec.md#FR-030`.                                                                                                    |
+| `stageRef`    | string     | no       | Wily Stage id, e.g. `S-080`.                                                                                                                                                        |
+| `fixCommit`   | git sha    | no       | Commit that fixed it. Set it when moving to `fixed`: `live-scenario` guards then need a passing run _built from a descendant of this commit_ (S-080).                               |
+| `repro`       | string     | no       | Minimal reproduction steps.                                                                                                                                                         |
+| `notes`       | string     | no       | Free text. **Required** when `status` is `wontfix` (record why).                                                                                                                    |
+| `duplicateOf` | `DEF-NNNN` | iff dup  | Required when `status` is `duplicate`, forbidden otherwise; must name an existing, non-duplicate defect.                                                                            |
+| `guard`       | object     | cond.    | `{ kind, ref }`. **Required** when `status` is `fixed` or `verified` (FR-040).                                                                                                      |
+| `verified`    | object     | cond.    | `{ commit, buildVersion, date, runId, evidence? }`; `runId` must name a run that lists this defect in `defectsVerified`. Required when `status` is `verified`, forbidden otherwise. |
+| `created`     | date       | yes      |                                                                                                                                                                                     |
+| `updated`     | date       | yes      | Must not be earlier than `created`.                                                                                                                                                 |
+
+`source.kind` is one of `review` (a code-review report), `live-run` (a live QA
+run — `ref` is the run id), `eval` (an S-079 eval regression), `audit`, `user`.
+`source.ref` names the report/run/eval; `source.findingId` is the finding id
+inside that report when there is one.
+
+`guard.kind` and the shape of `guard.ref`:
+
+| `kind`          | `ref` format                                        | Example                                                            |
+| --------------- | --------------------------------------------------- | ------------------------------------------------------------------ |
+| `vitest`        | `<repo path>.test.{ts,tsx,mjs}::<test name>`        | `dive/src/features/provocation/rules.test.ts::locale > renders en` |
+| `cargo`         | Rust test path as printed by `cargo test -- --list` | `dive::supervisor::decision::tests::rejects_static_fallback`       |
+| `live-scenario` | scenario id; must exist under `scenarios/`          | `SUP-01`                                                           |
+| `eval-fixture`  | S-079 fixture id                                    | `verify-claim-done-ko-work`                                        |
+
+This validator only checks the shape. `pnpm verify:qa-ledger` (S-080,
+`guards.mjs`) resolves each guard of a `fixed`/`verified` defect through its
+runner and fails when it is missing, skipped or ignored:
+
+- `vitest` — `vitest list --json` must collect exactly one `<file>::<name>`
+  (a name shared by several tests is ambiguous), and the test must not be
+  declared with `.fails` anywhere in its describe chain. vitest
+  list leaves out `.skip`, `.todo` and `skipIf(true)` tests (and siblings of an
+  `.only`), so a skipped guard fails as absent. A runtime `ctx.skip()` inside a
+  test body is not visible to listing.
+- `cargo` — `cargo test --features dev-mock --all-targets -- --list` must list
+  it, and `-- --list --ignored` must not (an `#[ignore]`d guard never runs in CI).
+- `eval-fixture` — a fixture with that `id` under `dive/eval/supervisor/fixtures/`.
+- `live-scenario` — among run records that include the scenario and postdate the
+  fix, the latest (by `startedAt`) must be a `pass`. A commit missing from a
+  shallow clone makes it "unverifiable" (warning); missing from full history
+  it fails. "Postdate" = the run's `build.commit`
+  descends from `fixCommit` (git); without `fixCommit`, run `date` >= `updated`.
+  Set `fixCommit` for live-scenario guards — a date is a weaker proxy.
+
+`verified.evidence` is `[{ path, sha256 }]` — screenshots/logs stay gitignored
+or in the evidence archive; the hash pins exactly which artifact was seen.
+
+## Scenario — `scenarios/<ID>.json`
+
+| Field           | Type        | Required | Notes                                                                                                |
+| --------------- | ----------- | -------- | ---------------------------------------------------------------------------------------------------- |
+| `id`            | `PREFIX-NN` | yes      | Existing ids are kept (`ONB-01`, `STATIC-01`, …). Pattern `^[A-Z][A-Z0-9]*-\d{2,}$`.                 |
+| `title`         | string      | yes      |                                                                                                      |
+| `source`        | object      | yes      | `{ kind, ref }`; `kind` is `scenario-catalog` · `e2e-journey` · `ledger` (authored here directly).   |
+| `areas`         | area name[] | yes      | Non-empty, unique. The scenario's code footprint is the union of these areas' globs.                 |
+| `pathGlobs`     | glob[]      | yes      | Extra globs beyond the areas (may be `[]`). Same glob syntax as `areas.mjs`.                         |
+| `priority`      | enum        | yes      | `P0` · `P1` · `P2`.                                                                                  |
+| `requiresLlm`   | boolean     | no       | `true` when the scenario needs a live provider call (costs money; the queue may batch these).        |
+| `preconditions` | string      | no       | Starting state (journeys: the persona).                                                              |
+| `steps`         | string[]    | no       | Non-empty when present.                                                                              |
+| `expected`      | string      | no       | What a pass looks like.                                                                              |
+| `tags`          | string[]    | no       | Free-form (catalog risk probes such as `i18n`, `parse`; journeys: `journey`, category, skill level). |
+| `notes`         | string      | no       | Journeys keep their "Watch for" text here.                                                           |
+| `lastPass`      | object      | no       | `{ runId, date }`; `runId` must name an existing run record. Maintained by the S-082 run tooling.    |
+
+## Run record — `runs/<YYYY-MM-DD>-<slug>.json`
+
+Written by `pnpm qa:run apply` (S-082, FR-060) — see `docs/qa/ledger/README.md` § Runs.
+
+| Field             | Type         | Required | Notes                                                                                                                 |
+| ----------------- | ------------ | -------- | --------------------------------------------------------------------------------------------------------------------- |
+| `id`              | string       | yes      | `YYYY-MM-DD-<slug>` (lowercase, `-` separated); the date prefix equals `date`.                                        |
+| `date`            | date         | yes      |                                                                                                                       |
+| `startedAt`       | datetime     | yes      | Full ISO 8601 timestamp; orders runs of the same date (latest post-fix run decides a live-scenario guard).            |
+| `build`           | object       | yes      | `{ version, commit }` of the build under test.                                                                        |
+| `platform`        | string       | yes      | e.g. `macos-arm64`, `windows-x64`.                                                                                    |
+| `scenarios`       | object[]     | yes      | Non-empty `[{ id, result, notes? }]`; `result` is `pass` · `fail` · `blocked` · `skipped`; ids unique and must exist. |
+| `defectsOpened`   | `DEF-NNNN`[] | yes      | Defects this run created; each must exist.                                                                            |
+| `defectsVerified` | `DEF-NNNN`[] | yes      | Defects this run confirmed fixed; each must exist.                                                                    |
+| `evidence`        | object[]     | yes      | `[{ path, sha256 }]` (may be `[]`).                                                                                   |
+| `notes`           | string       | no       |                                                                                                                       |
+
+## Eval-gate result — input to `qa:triage --from-eval`
+
+Minimal shape `qa:triage` accepts until S-083 defines the gate's full output
+(`validateEvalGateResult` in `schema.mjs`; extra fields are ignored):
+
+```json
+{
+  "promptVersion": "1.2.0+abc123",
+  "baseline": "1.1.0+def456",
+  "regressions": [
+    {
+      "fixtureId": "verify-ko-work",
+      "metric": "localeCompliance",
+      "before": 1,
+      "after": 0.8,
+      "severity": "P1"
+    }
+  ]
+}
+```
+
+| Field                        | Type   | Required | Notes                                          |
+| ---------------------------- | ------ | -------- | ---------------------------------------------- |
+| `promptVersion`              | string | yes      | Version under test.                            |
+| `baseline`                   | string | yes      | Version it was compared against.               |
+| `regressions[].fixtureId`    | string | yes      | Becomes the defect's `eval-fixture` guard ref. |
+| `regressions[].metric`       | string | yes      | Deterministic metric that regressed.           |
+| `regressions[].before/after` | number | yes      | Metric values at baseline / under test.        |
+| `regressions[].severity`     | enum   | yes      | `P0` · `P1` · `P2`.                            |
+| `regressions[].area`         | area   | no       | Defaults to `supervision`.                     |
+
+Each regression becomes an `open` defect with `source: { kind: "eval", ref:
+"<promptVersion> vs <baseline>", findingId: "<fixtureId>:<metric>" }`; a
+regression whose `findingId` is already open/fixing is skipped.
+
+## Areas
+
+`areas.mjs` maps each area name to repo-relative path globs (`**` = any number
+of whole path segments, `*` = within one segment; `**` inside a segment such as
+`src**` is rejected). A unit test asserts every glob matches at least one
+tracked file, so renaming a file out from under an area fails
+`pnpm test:unit`.
+
+- `app-core` is cross-cutting (entry points, IPC registration, lockfiles,
+  `Cargo.toml`, build config; `dive/package.json` is non-product because a
+  dependency bump also changes the lockfile). No scenario lists it; a change there makes
+  `qa:queue` select every scenario.
+- `NON_PRODUCT` lists files that cannot change what a release build does
+  (tests, dev-only demo routes, docs, tooling), each with a reason. They never
+  trigger a re-run.
+- Every tracked file must be in an area or in `NON_PRODUCT` (test-enforced).
+  When adding a file, add it to the right area(s) — or to `NON_PRODUCT` with a
+  reason — in the same change; otherwise `qa:queue` selects everything and warns.

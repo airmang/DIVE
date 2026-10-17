@@ -1,0 +1,22 @@
+{
+  "id": "ONB-03",
+  "title": "New Project modal dismissal",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#ONB-03"
+  },
+  "areas": [
+    "onboarding",
+    "project-session"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": false,
+  "preconditions": "Modal open",
+  "steps": [
+    "Click `취소`",
+    "(reopen) Press Esc",
+    "(reopen) Click ✕"
+  ],
+  "expected": "Each dismisses the modal with no project created. **NOTE: 취소/Esc appeared not to dismiss in baseline (code looks correct) — verify carefully, cross-check vs code before logging**"
+}

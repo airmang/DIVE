@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0040",
+  "title": "Codex OAuth refresh token persists in stranded dive-pi-sidecar-* temp dirs; no startup sweep",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "pi-sidecar",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L383"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in db5b8c34 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src-tauri/src/pi_sidecar/credential.rs:51-73 adds sweep_stale_temp_auth_dirs() removing temp_dir()/dive-pi-sidecar-* dirs; wired at app setup in dive/src-tauri/src/lib.rs:54. Fixed in db5b8c34; test credential.rs:276 sweeps_stale_temp_auth_dirs_but_leaves_unrelated_entries. Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence.",
+  "fixCommit": "db5b8c34",
+  "guard": {
+    "kind": "cargo",
+    "ref": "pi_sidecar::credential::tests::sweeps_stale_temp_auth_dirs_but_leaves_unrelated_entries"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "id": "verify-tests-passed-ko-guided",
+  "event": "verify_entered",
+  "locale": "ko-KR",
+  "mode": "guided",
+  "description": "Negative: the student ran `pnpm test` and it passed (concrete evidence), so no card.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "verify_entered",
+    "artifactRef": {
+      "kind": "step",
+      "id": "step-2",
+      "label": "타이머 시작 버튼"
+    },
+    "contextHash": "sha256:9e148dcb37feaba865766c0b5544291069a361aa6581f771a512c7640087a727",
+    "mode": "guided",
+    "locale": "ko-KR",
+    "allowedActionIds": ["open_diff", "run_tests"],
+    "goalSummary": "공부 타이머에서 시작 버튼을 누르면 25분 카운트다운이 시작된다",
+    "planSummary": {
+      "stepCount": 3,
+      "activeStep": "타이머 시작 버튼"
+    },
+    "verificationState": {
+      "aiSelfReport": true,
+      "concreteEvidence": true,
+      "testResult": "pass"
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": false,
+      "hasTests": true,
+      "diffAvailable": true
+    },
+    "evidenceRefs": [
+      {
+        "id": "agent.assistant_claim",
+        "source": "agent",
+        "kind": "assistant_claim",
+        "label": "AI 완료 주장",
+        "valueSummary": {
+          "kind": "enum",
+          "value": "claimed_done"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "verify.test_result",
+        "source": "verification",
+        "kind": "test_result",
+        "label": "테스트 결과",
+        "valueSummary": {
+          "kind": "enum",
+          "value": "pass"
+        },
+        "verificationEvidence": true
+      }
+    ]
+  },
+  "expect": {
+    "shouldProvoke": false,
+    "gatePasses": false,
+    "allowedConcerns": ["ai_self_report_only"],
+    "requiredEvidenceRefIds": [],
+    "locale": "ko-KR"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":false,\"concern\":\"ai_self_report_only\",\"severity\":\"info\",\"question\":\"\",\"evidenceRefIds\":[\"verify.test_result\"],\"suggestedActionIds\":[]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

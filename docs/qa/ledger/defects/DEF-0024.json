@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0024",
+  "title": "useChatSession: cleanup during pending api.listen leaks chat listener + bufferedEvents",
+  "status": "fixed",
+  "severity": "P2",
+  "area": "chat",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L149"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in e6d1c576 (shipped in v1.0.0-rc.10). Re-check evidence: dive/src/hooks/useChatSession.ts:410-415 adds an idempotent stopListening(); after listen resolves, :553-556, :561-563 and the catch path :587-589 call stopListening() when cancelled; cleanup :600-604 also calls it. Landed in e6d1c576 with a useChatSession.test.ts regression test. Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence.",
+  "fixCommit": "e6d1c576",
+  "guard": {
+    "kind": "vitest",
+    "ref": "dive/src/hooks/useChatSession.test.ts::useChatSession runtime event reducer > unsubscribes the chat listener even when unmount races the pending api.listen() call"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

@@ -5,6 +5,9 @@ pub mod auth;
 pub mod checkpoint;
 pub mod db;
 pub mod dive;
+// Offline eval harnesses (spec 015 S-079): development tooling, not shipped.
+#[cfg(any(test, feature = "dev-mock"))]
+pub mod eval;
 pub mod export;
 pub(crate) mod http_client;
 pub mod ipc;
@@ -133,6 +136,9 @@ pub fn run() {
             ipc::preview_start,
             ipc::preview_open,
             ipc::research_settings_get,
+            ipc::replay_settings_get,
+            ipc::replay_settings_set,
+            ipc::replay_records_clear,
             ipc::research_settings_set,
             ipc::checkpoint_timeline,
             ipc::codex_oauth_start,

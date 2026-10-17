@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "kind": "supervisor-eval-judgment",
+  "note": "Example judgment for docs and tests; scores were written by hand, not by a judge model.",
+  "judgeModel": "example-judge",
+  "rubricVersion": "1",
+  "generatedAt": "2026-09-30T10:05:00Z",
+  "reportPromptVersion": "1.1.0+c0ffee12",
+  "items": [
+    {
+      "fixtureId": "verify-claim-done-ko-work",
+      "recordingIndex": 0,
+      "question": "AI는 할 일 추가 폼이 끝났다고 했지만 테스트는 건너뛰었어요. 미리보기에서 새 할 일이 목록에 추가되는지 직접 확인해 볼까요?",
+      "scores": {
+        "specific": true,
+        "criterionLinked": true,
+        "answerableByObservation": true,
+        "nonLeading": true
+      },
+      "rationale": "Names the form and an observable result in the preview."
+    },
+    {
+      "fixtureId": "retry-module-missing-ko-guided",
+      "recordingIndex": 0,
+      "question": "차트 라이브러리를 찾지 못하는 같은 오류가 2번 났어요. 어떤 명령에서 오류가 나는지 재현 단계를 먼저 정리할까요?",
+      "scores": {
+        "specific": true,
+        "criterionLinked": false,
+        "answerableByObservation": true,
+        "nonLeading": true
+      },
+      "rationale": "Asks about the error, not the monthly-chart criterion it blocks."
+    },
+    {
+      "fixtureId": "scope-new-area-en-guided",
+      "recordingIndex": 0,
+      "question": "Excel 내보내기가 이번 버전에 꼭 필요한가요, 아니면 다음 단계로 나눌까요?",
+      "scores": {
+        "specific": true,
+        "criterionLinked": true,
+        "answerableByObservation": false,
+        "nonLeading": false
+      },
+      "rationale": "Answer is a preference, not an observation; the second option steers the student."
+    }
+  ]
+}

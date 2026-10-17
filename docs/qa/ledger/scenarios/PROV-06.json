@@ -1,0 +1,20 @@
+{
+  "id": "PROV-06",
+  "title": "Codex OAuth dialog UI",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PROV-06"
+  },
+  "areas": [
+    "provider-settings"
+  ],
+  "pathGlobs": [],
+  "priority": "P2",
+  "requiresLlm": false,
+  "preconditions": "Settings open",
+  "steps": [
+    "Add provider → Codex",
+    "Observe OAuth dialog (do not complete)"
+  ],
+  "expected": "OAuth dialog renders with sign-in flow copy; cancel closes"
+}

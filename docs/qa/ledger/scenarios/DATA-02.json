@@ -1,0 +1,40 @@
+{
+  "id": "DATA-02",
+  "title": "Take a local products.json file (~50 rows: name, category, price, stock) and render it as an HTML table that is sortable by clicking column headers and filterable by a category dropdown.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#DATA-02"
+  },
+  "areas": [
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Daniel, a junior data analyst who lives in spreadsheets and wants to move a small workflow to the web. Comfortable with logic and tables conceptually, but has never written a click handler or managed component state.",
+  "steps": [
+    "Design: Daniel states the goal and, in the Socratic interview, pushes back that 'sortable + filterable' is obvious. DIVE drills into the ambiguous parts: should sort toggle ascending/descending? does the category filter combine with sort? what about an empty result? He expects the interview to surface the interaction details he'd hand-wave, and to end with crisp acceptance criteria (AC: clicking a header sorts asc then desc; AC: choosing a category hides non-matching rows; AC: filtered-to-zero shows an empty-state message).",
+    "Plan: AI proposes: (1) load and render the static table from products.json, (2) add column-header sort, (3) add the category filter, with sort and filter as separate steps so he can verify each independently. He expects the roadmap to keep sort and filter decoupled so a bug in one doesn't hide a bug in the other, and accepts.",
+    "Implement: He runs steps; the agent reads products.json (auto-approved) and writes index.html + a small script.js. Sort and filter steps produce edit-approval cards with diffs. He reads the diff for the sort comparator carefully — he wants to confirm it sorts numbers numerically, not lexicographically (so 100 doesn't sort before 9). He approves each edit, feeling in control of the logic.",
+    "Verify: The stepper: 코드 이해 (diff of the comparator + filter logic), 점검·관찰 (Preview the page; click a header, watch rows reorder; pick a category, watch rows shrink). A criterion-linked review card challenges 'did you verify numeric columns sort numerically, and that filter+sort compose?'. He opens Preview, sorts price, sees 9 below 100 (a real bug surfaced), goes back via recovery to fix it. After the fix he re-observes, ties the confirmation to the preview observation, and the Decision unlocks.",
+    "Done: Verified-with-evidence on all three steps; checkpoint saved. He expects to trust the table because he personally clicked, sorted, filtered, and saw it behave — including the numeric-sort edge he almost missed."
+  ],
+  "expected": "The provocation card asks the exact question that exposes the classic beginner bug (string vs numeric sort), and the evidence-gated stepper forces him to actually click the header in Preview rather than trust the AI's 'sorting works'. Decoupled plan steps let him catch the sort bug without the filter masking it, and recovery/checkpoint lets him fix-and-reverify cleanly.",
+  "tags": [
+    "journey",
+    "data-display-fetch",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: The agent may write a comparator that sorts price as a string (lexicographic) and then self-report 'sortable table done' — only real observation in Preview catches it. Loading a local products.json into the iframe can hit a file:// vs served-origin issue or a fetch path mismatch, so the table may render empty for a path/CORS reason the AI won't notice. If Preview can't serve the JSON, the observe stage is unsatisfiable. Watch that 'sortable/filterable' criteria are concrete enough that the review card can be criterion-linked rather than generic."
+}

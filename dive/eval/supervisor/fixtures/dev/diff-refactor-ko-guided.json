@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 1,
+  "id": "diff-refactor-ko-guided",
+  "event": "diff_ready",
+  "locale": "ko-KR",
+  "mode": "guided",
+  "description": "Rename-only refactor with no verification that memo behavior is unchanged.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "diff_ready",
+    "artifactRef": {
+      "kind": "diff",
+      "id": "step-8:diff",
+      "label": "메모 파일 이름 정리"
+    },
+    "contextHash": "sha256:4fb8baa95a2b70d9fb776bb12f11ae78c2304711d1063ee46dfbe1ac30686dcb",
+    "mode": "guided",
+    "locale": "ko-KR",
+    "allowedActionIds": [
+      "open_diff",
+      "ask_ai_for_rationale",
+      "revert_unrelated_changes",
+      "run_tests",
+      "dismiss_review"
+    ],
+    "goalSummary": "메모장 앱의 기능은 그대로 두고 코드 구조만 정리한다",
+    "planSummary": {
+      "stepCount": 4,
+      "activeStep": "메모 파일 이름 정리"
+    },
+    "verificationState": {
+      "aiSelfReport": false,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": true,
+      "hasTests": true,
+      "diffAvailable": true
+    },
+    "evidenceRefs": [
+      {
+        "id": "diff.changed_files",
+        "source": "diff",
+        "kind": "changed_file",
+        "label": "Changed files",
+        "valueSummary": {
+          "paths": ["src/memo/MemoList.tsx", "src/memo/useMemos.ts"],
+          "totalCount": 2
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "diff.expected_files",
+        "source": "plan",
+        "kind": "expected_file",
+        "label": "Expected files",
+        "valueSummary": {
+          "paths": ["src/memo/MemoList.tsx", "src/memo/useMemos.ts"],
+          "totalCount": 2
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "step.scope",
+        "source": "plan",
+        "kind": "step_scope",
+        "label": "Step scope",
+        "valueSummary": {
+          "goal": "메모장 앱의 기능은 그대로 두고 코드 구조만 정리한다",
+          "step": "메모 관련 파일 이름을 바꾸고 폴더를 정리"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "diff.viewed",
+        "source": "ui_observation",
+        "kind": "diff_view",
+        "label": "Diff viewed",
+        "valueSummary": {
+          "viewed": false
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "diff.behavior_preserving_refactor",
+        "source": "diff",
+        "kind": "diff_ready_assessment",
+        "label": "동작 보존 리팩터 신호",
+        "valueSummary": {
+          "hasVerificationEvidence": false,
+          "renamedFiles": ["src/memo/MemoList.tsx", "src/memo/useMemos.ts"],
+          "stepKind": "refactor"
+        },
+        "verificationEvidence": false
+      }
+    ],
+    "diffReadyAssessment": {
+      "eligible": true,
+      "reasonCodes": ["behavior_preserving_refactor"],
+      "evidenceRefs": [
+        "diff.changed_files",
+        "diff.expected_files",
+        "step.scope",
+        "diff.viewed",
+        "diff.behavior_preserving_refactor"
+      ],
+      "changedFileCount": 2,
+      "unexpectedFiles": [],
+      "highRiskFiles": [],
+      "diffViewed": false
+    }
+  },
+  "expect": {
+    "shouldProvoke": true,
+    "gatePasses": true,
+    "allowedConcerns": ["diff_scope_drift"],
+    "requiredEvidenceRefIds": ["diff.behavior_preserving_refactor"],
+    "relevantEvidenceRefIds": [
+      "diff.behavior_preserving_refactor",
+      "diff.changed_files",
+      "step.scope"
+    ],
+    "criterionTerms": ["기능은 그대로", "메모"],
+    "locale": "ko-KR"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"diff_scope_drift\",\"severity\":\"caution\",\"question\":\"파일 이름만 바꾼 정리라고 했지만 메모 기능이 그대로인지는 아직 확인하지 않았어요. 테스트로 먼저 확인해 볼까요?\",\"evidenceRefIds\":[\"diff.behavior_preserving_refactor\",\"diff.changed_files\"],\"suggestedActionIds\":[\"run_tests\",\"open_diff\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"diff_scope_drift\",\"severity\":\"caution\",\"question\":\"파일 이름 변경 외에 기능 동작에 영향을 주는 코드 변경은 없는지 확인하셨나요?\",\"evidenceRefIds\":[\"diff.changed_files\",\"step.scope\",\"diff.behavior_preserving_refactor\"],\"suggestedActionIds\":[\"open_diff\",\"run_tests\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
+      }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"diff_scope_drift\",\"severity\":\"caution\",\"question\":\"메모 파일 이름과 폴더만 정리하면서 기능은 그대로 두었는지 diff로 확인했나요?\",\"evidenceRefIds\":[\"diff.changed_files\",\"step.scope\",\"diff.behavior_preserving_refactor\"],\"suggestedActionIds\":[\"open_diff\",\"run_tests\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T05:49:42Z",
+        "source": "live",
+        "attempt": 0
+      }
+    ]
+  }
+}

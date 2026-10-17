@@ -1,0 +1,22 @@
+{
+  "id": "PROV-02",
+  "title": "Model selector reflects active provider",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PROV-02"
+  },
+  "areas": [
+    "provider-settings"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": false,
+  "preconditions": "Settings open",
+  "steps": [
+    "Open model dropdown"
+  ],
+  "expected": "Lists models; current = `claude-sonnet-4.6` (OpenRouter); selecting persists",
+  "tags": [
+    "visibility"
+  ]
+}

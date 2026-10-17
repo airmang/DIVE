@@ -1,0 +1,21 @@
+{
+  "id": "PRD-03",
+  "title": "Confirm PRD → final read view",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PRD-03"
+  },
+  "areas": [
+    "prd",
+    "chat",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Draft ready",
+  "steps": [
+    "Click Confirm PRD"
+  ],
+  "expected": "FinalPrdReadView renders with a version; chat ungates"
+}

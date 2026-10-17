@@ -1,0 +1,42 @@
+{
+  "id": "ADDFEATURE-05",
+  "title": "Add a 'Reset' button next to the counter that sets the count back to zero — a small, low-stakes addition she expects to be quick.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#ADDFEATURE-05"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Soo-ah, a beginner who built a simple click-counter page in DIVE (a number and a '+1' button). She is using DIVE with the UI language set to English. She has built one project and tends to trust whatever the AI says is done.",
+  "steps": [
+    "Design: Soo-ah reopens her counter project (English UI). She types in English: 'add a Reset button that sets the counter back to 0.' She expects an English-speaking flow end to end. DIVE should fold this into her existing project as a tiny step and, ideally, ask one clarifier ('should Reset also be disabled/hidden when the count is already 0?'). She does NOT expect a from-scratch interview, and she does NOT expect Korean text since her locale is English.",
+    "Plan: DIVE appends a one-step addition ('Add Reset button') with a single acceptance criterion ('clicking Reset shows 0'). PRD v1→v2. She reviews and accepts. Because she trusts the AI, the plan stage is partly there to slow her down and make her actually read the one criterion.",
+    "Implement: Agent reads the page (auto-approved), proposes a small edit (a Reset button + an onclick that zeroes the count and updates the display). PERM card shows a tiny diff. She approves. The edit is genuinely small, which is good — but it's exactly the case where she'd be tempted to approve without reading.",
+    "Verify: The verification stepper is the whole point for this persona. A criterion-linked provocation card challenges her automation bias on a 'trivial' change: 'It's easy to wire a button that doesn't actually update the displayed number — click Reset in preview and confirm the count shows 0.' She opens preview, clicks +1 a few times, clicks Reset, sees it return to 0 (and checks +1 still works after). She records the observation, which advances the stepper, then records the decision. The card is non-blocking, so she COULD skip — the test is whether DIVE makes verifying feel worth it for even a small feature.",
+    "Done: Step done at PRD v2 with a checkpoint. The real success signal is that a trust-the-AI beginner actually clicked Reset herself before believing it worked — DIVE built the verification habit on an easy case."
+  ],
+  "expected": "Even for a trivial one-button add, DIVE keeps the human in control without feeling like overhead: it scopes one step, shows one small readable diff, and the verification card gives a concrete, specific reason to actually click the button (the display-not-updating failure mode) — converting a trust-the-AI beginner into someone who confirms behavior, and it all renders in proper English for an English-locale user.",
+  "tags": [
+    "journey",
+    "add-a-feature-to-an-existing-project",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: (1) DEF-01 head-on: this is the English-locale persona, so any hardcoded-Korean status badge (검증 필요, 계획 검토 필요, 승인 필요) or a Korean LLM reply is a direct, visible failure that breaks trust for her. (2) For such a small change, the full plan→verify ceremony can feel like friction — if the steps don't feel proportionate, she'll learn to skip verification (the opposite of the goal). (3) The classic Reset bug: count variable resets but the DOM text doesn't update — verification must actually catch this, which requires her to truly look at the preview number, not just that 'a Reset button exists'. (4) Router treating such a tiny ask as plain 'chat' and not adding a step, so there's nothing to verify and the habit-building moment is lost."
+}

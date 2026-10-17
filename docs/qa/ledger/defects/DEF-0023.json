@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0023",
+  "title": "Closed-but-mounted StepDetailSlideIn fires verification-coach LLM calls and ledger events",
+  "status": "fixed",
+  "severity": "P1",
+  "area": "verification",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L110"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in a5801b30 (shipped in v1.0.0-rc.10). Re-check evidence: a5801b30: VerificationCoachPanel takes an `enabled` prop and returns early when it is false (VerificationCoachPanel.tsx:149-151). attemptedKeyRef dedupes a revisit or reopen that has unchanged inputs (:145-166). StepDetailSlideIn passes enabled={open && isActive} (StepDetailSlideIn.tsx:987). Test 'does not fire the verification coach guide while the panel is closed even if observe was the active stage at close' (StepDetailSlideIn.test.tsx:403). Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence.",
+  "fixCommit": "a5801b30",
+  "guard": {
+    "kind": "vitest",
+    "ref": "dive/src/components/product/StepDetailSlideIn.test.tsx::StepDetailSlideIn supervisor-backed review cards > does not fire the verification coach guide while the panel is closed even if observe was the active stage at close (S-064 regression)"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

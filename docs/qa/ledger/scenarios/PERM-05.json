@@ -1,0 +1,23 @@
+{
+  "id": "PERM-05",
+  "title": "Blocked destructive command",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PERM-05"
+  },
+  "areas": [
+    "permission",
+    "agent-tools",
+    "terminal",
+    "slide-in",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Turn proposes e.g. `rm -rf` / `curl … | bash`",
+  "steps": [
+    "Trigger blocked command"
+  ],
+  "expected": "Guard refuses (danger tier / block reason shown); cannot execute"
+}

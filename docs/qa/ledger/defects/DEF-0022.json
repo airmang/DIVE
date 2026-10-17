@@ -1,0 +1,20 @@
+{
+  "id": "DEF-0022",
+  "title": "Deleting a step's session leaves a zombie NULL-session mapping that roadmap_step_open returns as-is",
+  "status": "fixed",
+  "severity": "P1",
+  "area": "roadmap",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L92"
+  },
+  "notes": "Imported by S-080 (D-015-04 amended) from the 2026-09-29 re-check: verdict fixed in 961891ab (shipped in v1.0.0-rc.10). Re-check evidence: 961891ab: roadmap_step_open_impl returns an existing mapping only when session_id.is_some() (dive/src-tauri/src/ipc/workspace_plan/roadmap.rs:39-43); a NULL-session mapping falls through, a new session/card is minted and the zombie row is repaired in place, keeping verification_status/evidence/user_decision (:114-138). Test roadmap_step_open_repairs_zombie_mapping_after_session_delete (:298). Guard resolved through its runner on 2026-09-29. Status stays fixed, not verified, until a live re-run on a rebuilt release records evidence.",
+  "fixCommit": "961891ab",
+  "guard": {
+    "kind": "cargo",
+    "ref": "ipc::workspace_plan::roadmap::zombie_mapping_tests::roadmap_step_open_repairs_zombie_mapping_after_session_delete"
+  },
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

@@ -1,0 +1,23 @@
+{
+  "id": "SUP-03",
+  "title": "Card actions open evidence",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#SUP-03"
+  },
+  "areas": [
+    "supervision",
+    "slide-in",
+    "preview",
+    "terminal",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Card with actions",
+  "steps": [
+    "Click open_diff/open_preview/run_tests"
+  ],
+  "expected": "Action routes to slide-in (diff/preview/terminal)"
+}

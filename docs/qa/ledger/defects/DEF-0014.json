@@ -1,0 +1,16 @@
+{
+  "id": "DEF-0014",
+  "title": "buildPlanStepExecutionPrompt seeds composer with hardcoded Korean + English field labels regardless of locale",
+  "status": "open",
+  "severity": "P2",
+  "area": "plan",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L518"
+  },
+  "notes": "Partially fixed — remaining part per 2026-09-29 re-check: e6d1c576 threads locale: productShellPlanStepLogic.ts:70 buildPlanStepExecutionPrompt(item, locale), called with input.locale at useProductPlanStepRuntime.ts:87, and the directive/constraint sentences now branch on en/ko. Still present: the structural labels (\"Instruction:\", \"Objective:\", \"Expected files:\", \"Acceptance criteria:\", \"Verification:\", \"Execution constraints:\", Step ID/Title) are hardcoded English in both locales (productShellPlanStepLogic.ts:79-125), so the ko prompt is still mixed-language, which was the review's sharpening.",
+  "created": "2026-09-29",
+  "updated": "2026-09-29",
+  "repro": "ko locale -> open a plan step -> composer seed shows Korean directives under English 'Acceptance criteria:' / 'Execution constraints:' headers"
+}

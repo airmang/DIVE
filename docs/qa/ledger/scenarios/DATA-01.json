@@ -1,0 +1,41 @@
+{
+  "id": "DATA-01",
+  "title": "Build a single page that fetches a list of countries from a public REST API (restcountries.com) and renders them as cards showing flag, name, region, and population.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#DATA-01"
+  },
+  "areas": [
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Mina, a marketing-ops associate teaching herself frontend on weekends. Knows basic HTML/CSS, has copy-pasted a fetch() once but doesn't really understand promises, loading states, or why a request fails.",
+  "steps": [
+    "Design: Mina types her goal in plain language: 'show a list of countries from an API as cards'. The Socratic PRD interview asks her to clarify scope and acceptance criteria. She expects DIVE to help her name what 'done' means — she didn't think about loading or error states. She wants to see her vague idea turned into concrete, checkable criteria like 'AC: cards render with flag+name+region+population', 'AC: a loading indicator shows while fetching', 'AC: an error message shows if the fetch fails'. She reviews the final PRD (PRD 보기) and confirms goal/scope/non-goals.",
+    "Plan: AI drafts a roadmap: (1) static index.html + card grid CSS, (2) fetch the API and render real data, (3) add loading + empty + error states. She sees steps with dependencies (step 2 blocked-by step 1) and a parallel-group hint. She expects to understand WHY each step exists and accept the plan, not just hit go. She accepts the draft on the Plan approval screen.",
+    "Implement: Each step runs the agent loop. For step 1 (write index.html/style.css) she sees PERM write-approval cards with a diff preview; read calls auto-approve. She approves the file writes after glancing at the diff. For step 2 the agent edits the JS to call fetch(); she approves the edit. She expects every file change to be shown before it lands, and to feel she's the one deciding.",
+    "Verify: The evidence-gated stepper opens: 코드 이해 (open the diff of the fetch code) → 점검·관찰 (open Preview). She opens the Preview tab; because it's a static file DIVE serves it via preview_open and the iframe loads — she SEES real country cards populate. A criterion-linked review card asks 'how do you know the data is from the live API and not hardcoded?'. The Decision step stays locked until she ties her confirmation to the preview observation. She picks 'Tie to preview observation' and approves.",
+    "Done: Step marks verified-with-evidence (검증 증거 있음, green). A checkpoint is saved so she can undo. She expects a clear 'this works and I proved it' signal and a working page she can reopen in Preview anytime."
+  ],
+  "expected": "DIVE turns 'show countries' into explicit acceptance criteria she'd never have written (loading/empty/error), and the verification stepper makes her actually open the preview and watch real cards render before it lets her approve — so she learns that 'the AI said it works' is not the same as 'I saw it work'. The diff cards make each file change feel like her decision, not the AI's.",
+  "tags": [
+    "journey",
+    "data-display-fetch",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: Cards may render empty or stuck on a spinner if restcountries.com is slow, rate-limits, or its response shape changed — and a self-reporting AI will claim success it never observed. The whole flow hinges on the Preview iframe actually loading the static file via preview_open; if that fails she has no way to see the data and the observe stage can't be satisfied. Also (DEF-01) with locale=English the secondary status badges ('검증 필요' etc.) render in Korean, and the LLM may write code comments / the PRD in Korean even though her UI is English — confusing for a non-Korean beginner."
+}

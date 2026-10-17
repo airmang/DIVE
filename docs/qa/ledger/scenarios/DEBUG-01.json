@@ -1,0 +1,43 @@
+{
+  "id": "DEBUG-01",
+  "title": "Fix the broken hero layout so the headline and image sit side-by-side again on desktop, the way it looked before she edited the CSS.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#DEBUG-01"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "terminal",
+    "recovery",
+    "i18n",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Mina, a bootcamp student three weeks in. Built a simple landing page (index.html + style.css) by following a tutorial. The hero section's two-column layout collapsed into one column overnight after she 'tidied up' the CSS, and she has no idea which line broke it. Comfortable opening files but cannot read flexbox rules confidently.",
+  "steps": [
+    "Design: Mina opens her existing project folder in DIVE and types the bug as a goal in plain words: 'My hero section used to be two columns but now everything is stacked vertically — fix it.' She expects DIVE to just start fixing. Instead a short Socratic PRD interview asks her to pin down what 'fixed' means: which screen widths matter, should it still stack on mobile, what's the acceptance criterion. She answers 'side by side on desktop, stacked on phones is fine.' She expects to SEE her vague complaint turn into a concrete goal + acceptance criteria (AC: hero is 2-column ≥768px, 1-column below) on the PRD board.",
+    "Plan: DIVE drafts a tiny roadmap: (1) read index.html + style.css to locate the hero, (2) diagnose which CSS rule broke the columns, (3) apply the fix, (4) verify in preview at desktop and mobile widths. Mina reviews it, sees it's only 3-4 steps with the diagnose-before-edit ordering, and accepts. She expects the plan to feel proportionate to a small fix — not a 12-step enterprise project.",
+    "Implement: Step 1 runs read_file on both files — auto-approved, no card, she just sees the agent surface the relevant CSS. The agent identifies that `display: flex` was accidentally removed from `.hero` (or replaced with `display: block`). When it proposes the edit, a PermissionCard appears with a diff preview (+display:flex on .hero). Mina reads the one-line diff, understands it, clicks '이 변경 허용'. She expects to approve a tiny, legible change — not a giant rewrite of her CSS.",
+    "Verify: The verification stepper opens (코드 이해→점검·관찰→검토 응답→결정). Mina opens the preview tab; the hero now renders two columns. Opening the diff flips '코드 이해' to 'Diff 확인됨'; resizing/observing the preview records a preview observation. A provocation card asks a criterion-linked question: 'You confirmed desktop — did you check it still stacks correctly below 768px (AC-002)?' She resizes the preview narrow, sees it stack, records that observation. She expects to be nudged to actually look at BOTH widths, not just trust the AI's 'done'.",
+    "Done: With both observations recorded, Mina makes the 결정 (decision) to accept. A checkpoint was created before the edit, so the recovery badge shows she can undo. She closes feeling the layout is genuinely fixed because she watched it work at two widths herself."
+  ],
+  "expected": "The diagnose-before-edit step makes the root cause (one missing flex declaration) legible, the diff is a single readable line she can approve with confidence, and the verify stepper forces her to eyeball both desktop AND mobile so she leaves certain the fix is real, not just AI-asserted. The pre-edit checkpoint means trying the fix feels safe.",
+  "tags": [
+    "journey",
+    "debug-fix-broken-code",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: (1) The Socratic interview can feel like friction for what she sees as a trivial fix — if it asks too many questions she may abandon. (2) The agent might propose a broad CSS rewrite instead of the minimal one-line restoration, making the diff hard to trust. (3) DEF-01: with UI locale=English the step badges (변경 확인 필요/검증 필요) and the LLM's diagnosis prose can come back in Korean, confusing an English-speaking beginner. (4) Preview at a specific width needs a running dev server / correct address chip — if the iframe is empty she can't visually verify and may accept on AI self-report only."
+}

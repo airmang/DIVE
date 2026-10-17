@@ -1,0 +1,42 @@
+{
+  "id": "ADDFEATURE-01",
+  "title": "Add a 'Clear all' button to her existing to-do list page that removes every task at once, with a confirm so she doesn't wipe the list by accident.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#ADDFEATURE-01"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Mina, a high-school student who built a small personal to-do web page in DIVE last week (one index.html with a list and an 'Add' input). She knows almost no JavaScript and thinks in terms of 'I want it to do X', not code.",
+  "steps": [
+    "Design: Mina reopens her existing to-do project from the sidebar; the prior PRD (v1), plan, and index.html are already loaded. She types in chat, in plain language: 'add a button that clears all the tasks, but ask me to confirm first.' She does NOT expect a brand-new PRD interview from scratch — she expects DIVE to recognize this as an addition to the project she already has. What she should see: the plan router catches the request and offers to fold it in as a new step rather than treating it as idle chat, plus a short clarifier (e.g. 'should Clear all also work when the list is already empty?') that links to her existing acceptance criteria.",
+    "Plan: DIVE proposes a single new step ('Add Clear-all button with confirm') appended to her existing roadmap, shown as depending on the original 'render task list' step, with 1-2 new criterion-linked acceptance criteria (button visible; clicking it after confirm empties the list). She sees her PRD bump from v1 to v2 with the new criteria highlighted. She reviews and clicks accept. She expects this to be ONE small step, not a regenerated multi-step roadmap.",
+    "Implement: The agent loop runs the step. A read of index.html auto-approves (safe tier, no card). The write/edit to add the button and its click handler surfaces a PERM card with a diff preview (+the button markup, +a confirm()/handler block). Mina reads the diff, sees it only touches her page near the existing input, and clicks 'allow this change'. She expects exactly one approval prompt for the actual edit, with a readable before/after.",
+    "Verify: A verification stepper opens (코드 이해 → 점검·관찰 → 검토 응답 → 결정). A criterion-linked provocation card asks her to prove it actually works, not just that code was written: 'Did the list actually empty when you clicked Clear all — and did the confirm appear?' She opens the preview tab, runs her page, adds two tasks, clicks Clear all, sees the confirm, accepts, watches the list empty. Opening the diff flips '코드 이해' to Diff 확인됨; her live observation records the behavior. She then records the decision. The card is non-blocking but she's nudged to confirm with real evidence.",
+    "Done: The step is marked done, PRD is at v2, and a checkpoint is saved so she can undo if the button misbehaves later. She expects to see the new step as completed on the roadmap and to be able to keep going (or stop) cleanly."
+  ],
+  "expected": "DIVE treats the request as a precise, in-place addition to an existing project: it reuses her v1 PRD and roadmap instead of restarting an interview, scopes it to one reviewable step, surfaces exactly one clear diff to approve, and the verification card pushes her to actually click the button in preview before calling it done — so she learns the habit of confirming behavior, not trusting the AI's 'I added it'.",
+  "tags": [
+    "journey",
+    "add-a-feature-to-an-existing-project",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: (1) The router mis-classifying a clear feature add as plain 'chat' so nothing gets added to the plan, leaving Mina confused about whether it worked. (2) The agent scope-creeping (restyling the whole page, adding unrelated features) so the diff is bigger than 'one button + confirm'. (3) The confirm dialog being a native browser confirm() that the preview iframe may suppress, so verification 'looks' done but she never actually saw the confirm. (4) DEF-01 / Korean leakage: if her locale is English she may see Korean status badges (검증 필요, 계획 검토 필요) on the new step, and the LLM may answer her in Korean."
+}

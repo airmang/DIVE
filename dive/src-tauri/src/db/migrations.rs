@@ -24,9 +24,11 @@ const MIGRATIONS: &[(i64, MigrationFn)] = &[
     (17, migration_v17),
     (18, migration_v18),
     (19, migration_v19),
+    (20, migration_v20),
+    (21, migration_v21),
 ];
 
-pub const LATEST_SCHEMA_VERSION: i64 = 19;
+pub const LATEST_SCHEMA_VERSION: i64 = 21;
 
 pub fn migrate(conn: &mut Connection) -> Result<(), DbError> {
     migrate_with_migrations(conn, MIGRATIONS)
@@ -447,6 +449,40 @@ fn migration_v18(tx: &Transaction<'_>) -> rusqlite::Result<()> {
 /// change and no observable-output change (indexes never alter query results).
 fn migration_v19(tx: &Transaction<'_>) -> rusqlite::Result<()> {
     for index in schema::CREATE_V19_INDEXES {
+        tx.execute_batch(index)?;
+    }
+    Ok(())
+}
+
+/// Spec 015 FR-006 (S-076) — `Session.origin` (classroom | qa | dev) so
+/// QA/dev runs can be excluded from research aggregates. Guarded ADD COLUMN,
+/// same technique as migration_v18's `Project.status` (schema.rs
+/// `CREATE_SESSION` carries the column for fresh DBs). New rows default to
+/// 'classroom', but rows that already exist when the column is added are
+/// backfilled 'dev': no classroom pilot has run on a pre-v20 build, so every
+/// earlier session is development or QA data.
+fn migration_v20(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    let exists: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('Session') WHERE name = 'origin'",
+        [],
+        |row| row.get(0),
+    )?;
+    if exists == 0 {
+        tx.execute_batch(
+            "ALTER TABLE Session ADD COLUMN origin TEXT NOT NULL DEFAULT 'classroom' CHECK(origin IN ('classroom','qa','dev'));
+             UPDATE Session SET origin = 'dev';",
+        )?;
+    }
+    Ok(())
+}
+
+/// Spec 015 FR-020/FR-021 (S-078) — local replay corpus (`SupervisionReplay`)
+/// and the backend preference table that holds its capture switch. Purely
+/// additive `CREATE TABLE/INDEX IF NOT EXISTS`.
+fn migration_v21(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    tx.execute_batch(schema::CREATE_SUPERVISION_REPLAY)?;
+    tx.execute_batch(schema::CREATE_APP_PREFERENCE)?;
+    for index in schema::CREATE_V21_INDEXES {
         tx.execute_batch(index)?;
     }
     Ok(())
@@ -1205,6 +1241,182 @@ mod tests {
         let tx = db.conn_mut().transaction().unwrap();
         super::migration_v18(&tx).unwrap();
         tx.commit().unwrap();
+    }
+
+    #[test]
+    fn migration_v20_adds_session_origin_column_defaulting_classroom() {
+        let (db, _tmp) = fresh_db();
+        let column_default: String = db
+            .conn()
+            .query_row(
+                "SELECT dflt_value FROM pragma_table_info('Session') WHERE name = 'origin'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(column_default, "'classroom'");
+
+        // The CHECK constraint rejects anything outside the three origins.
+        let (project_id, _session_id) = seed_project_session(db.conn());
+        let invalid = db.conn().execute(
+            "INSERT INTO Session(project_id, title, started_at, status, origin) VALUES (?, 's', 0, 'active', 'pilot')",
+            [project_id],
+        );
+        assert!(invalid.is_err());
+
+        // A row inserted without an origin takes the classroom default.
+        db.conn()
+            .execute(
+                "INSERT INTO Session(project_id, title, started_at, status) VALUES (?, 's', 0, 'active')",
+                [project_id],
+            )
+            .unwrap();
+        let defaulted: String = db
+            .conn()
+            .query_row(
+                "SELECT origin FROM Session WHERE id = last_insert_rowid()",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(defaulted, "classroom");
+    }
+
+    #[test]
+    fn migration_v20_upgrades_existing_db_without_origin_column() {
+        // schema::CREATE_SESSION carries `origin` for fresh DBs (v18 pattern),
+        // so rebuild Session in its pre-v20 shape and apply migration_v20.
+        let (mut db, _tmp) = fresh_db();
+        db.conn()
+            .execute_batch(
+                "PRAGMA foreign_keys = OFF;
+                 DROP TABLE Session;
+                 CREATE TABLE Session (
+                    id INTEGER PRIMARY KEY,
+                    project_id INTEGER NOT NULL REFERENCES Project(id) ON DELETE CASCADE,
+                    title TEXT NOT NULL,
+                    started_at INTEGER NOT NULL,
+                    ended_at INTEGER,
+                    status TEXT NOT NULL CHECK(status IN ('active','ended','archived'))
+                 );
+                 PRAGMA foreign_keys = ON;",
+            )
+            .unwrap();
+        db.conn()
+            .execute_batch(
+                "INSERT INTO Project(id, name, path, created_at, updated_at) VALUES (1, 'p', '/tmp/p-v20', 0, 0);
+                 INSERT INTO Session(id, project_id, title, started_at, status) VALUES (1, 1, 's', 0, 'active');",
+            )
+            .unwrap();
+
+        let tx = db.conn_mut().transaction().unwrap();
+        super::migration_v20(&tx).unwrap();
+        tx.commit().unwrap();
+
+        let backfilled: String = db
+            .conn()
+            .query_row("SELECT origin FROM Session WHERE id = 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        // Pre-v20 rows are development/QA data (no classroom pilot yet).
+        assert_eq!(backfilled, "dev");
+
+        // Idempotent: re-running the guarded ADD COLUMN is a no-op, and it
+        // does not re-stamp rows created after the column exists.
+        db.conn()
+            .execute(
+                "INSERT INTO Session(id, project_id, title, started_at, status, origin) VALUES (2, 1, 'new', 0, 'active', 'classroom')",
+                [],
+            )
+            .unwrap();
+        let tx = db.conn_mut().transaction().unwrap();
+        super::migration_v20(&tx).unwrap();
+        tx.commit().unwrap();
+        let later: String = db
+            .conn()
+            .query_row("SELECT origin FROM Session WHERE id = 2", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(later, "classroom");
+    }
+
+    #[test]
+    fn migration_v21_upgrades_a_v20_db_and_reruns_cleanly() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON").unwrap();
+        // A database that stopped at v20.
+        super::migrate_with_migrations(&mut conn, &super::MIGRATIONS[..20]).unwrap();
+        let version = |conn: &rusqlite::Connection| -> i64 {
+            conn.query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
+            .unwrap()
+        };
+        let replay_tables = |conn: &rusqlite::Connection| -> i64 {
+            conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('SupervisionReplay','AppPreference')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(version(&conn), 20);
+        assert_eq!(replay_tables(&conn), 0);
+
+        migrations::migrate(&mut conn).unwrap();
+        assert_eq!(version(&conn), 21);
+        assert_eq!(replay_tables(&conn), 2);
+        conn.execute(
+            "INSERT INTO SupervisionReplay(evaluation_id, surface, created_at, prompt_version, context_json, validation_json) VALUES ('kept', 'coach', 0, '1.0.0+x', '{}', '{}')",
+            [],
+        )
+        .unwrap();
+
+        // Re-running v21 directly and the whole chain again changes nothing.
+        let tx = conn.transaction().unwrap();
+        super::migration_v21(&tx).unwrap();
+        tx.commit().unwrap();
+        migrations::migrate(&mut conn).unwrap();
+        assert_eq!(version(&conn), 21);
+        let kept: i64 = conn
+            .query_row("SELECT COUNT(*) FROM SupervisionReplay", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(kept, 1);
+    }
+
+    #[test]
+    fn migration_v21_creates_replay_and_preference_tables_idempotently() {
+        let (db, _tmp) = fresh_db();
+        let tables: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('SupervisionReplay','AppPreference')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 2);
+        let indexes: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name IN ('idx_supervision_replay_created','idx_supervision_replay_session')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(indexes, 2);
+        // The surface CHECK rejects unknown surfaces.
+        assert!(db
+            .conn()
+            .execute(
+                "INSERT INTO SupervisionReplay(evaluation_id, surface, created_at, prompt_version, context_json, validation_json) VALUES ('e', 'chat', 0, '1.0.0+x', '{}', '{}')",
+                [],
+            )
+            .is_err());
     }
 
     #[test]

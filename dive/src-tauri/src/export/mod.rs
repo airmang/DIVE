@@ -24,7 +24,15 @@
 //! Stability:
 //! - Record order within one export is deterministic: session_meta →
 //!   cards (position asc) → messages (id asc) → tool_calls (id asc) →
-//!   checkpoints (created_at asc) → events (id asc).
+//!   checkpoints (created_at asc) → events (id asc) → replay (id asc, only
+//!   with `include_replay`).
+//!
+//! Replay corpus (spec 015 FR-021 / D-015-02): `SupervisionReplay` rows hold
+//! the full prompt inputs (student text included) and raw model output, so
+//! they are never in the default export. `include_replay` is the explicit
+//! research replay export; each row passes through the same sanitizer and
+//! anonymizer, plus hashing of the known student-text fields of the prompt
+//! inputs when `hash_user_text` is on.
 //! - The record kind strings and field names are considered stable API
 //!   consumed by the pilot analysis scripts. Adding fields is safe;
 //!   removing/renaming requires a migration note.
@@ -38,6 +46,7 @@ use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::db::dao::supervision_replay::ReplaySurface;
 use crate::db::Database;
 
 pub mod anonymize;
@@ -85,6 +94,10 @@ pub struct ExportOptions {
     pub hash_file_paths: bool,
     #[serde(default = "default_true")]
     pub hash_ids: bool,
+    /// Research replay export: append one `kind: "replay"` record per local
+    /// replay-corpus row of the session. Off by default (D-015-02).
+    #[serde(default)]
+    pub include_replay: bool,
 }
 
 impl Default for ExportOptions {
@@ -98,6 +111,7 @@ impl Default for ExportOptions {
             hash_user_text: true,
             hash_file_paths: true,
             hash_ids: true,
+            include_replay: false,
         }
     }
 }
@@ -139,9 +153,9 @@ impl ExportEngine {
         let db = self.db.lock().map_err(|e| ExportError::Db(e.to_string()))?;
         let conn = db.conn();
 
-        let session: Option<(String, String, i64, Option<i64>)> = conn
+        let session: Option<(String, String, i64, Option<i64>, String)> = conn
             .query_row(
-                "SELECT title, status, started_at, ended_at FROM Session WHERE id = ?",
+                "SELECT title, status, started_at, ended_at, origin FROM Session WHERE id = ?",
                 [session_id],
                 |row| {
                     Ok((
@@ -149,13 +163,14 @@ impl ExportEngine {
                         row.get::<_, String>(1)?,
                         row.get::<_, i64>(2)?,
                         row.get::<_, Option<i64>>(3)?,
+                        row.get::<_, String>(4)?,
                     ))
                 },
             )
             .optional()
             .map_err(|e| ExportError::Db(e.to_string()))?;
 
-        let (title, status, started_at, ended_at) =
+        let (title, status, started_at, ended_at, origin) =
             session.ok_or(ExportError::SessionNotFound(session_id))?;
 
         let mut out = String::new();
@@ -169,6 +184,9 @@ impl ExportEngine {
                 "status": status,
                 "started_at": started_at,
                 "ended_at": ended_at,
+                // Spec 015 FR-006: classroom | qa | dev, so research
+                // aggregates can exclude QA and development sessions.
+                "origin": origin,
             }),
         )?;
 
@@ -482,7 +500,12 @@ impl ExportEngine {
                     .map(|value| {
                         let value = crate::dive::event_log::enrich_agency_payload(&ty, value);
                         let value = if ty.starts_with("provocation.") {
-                            sanitize_provocation_event_payload(&value)
+                            let value = sanitize_provocation_event_payload(&value);
+                            if options.hash_user_text {
+                                hash_failure_evidence_values(&value, salt)
+                            } else {
+                                value
+                            }
                         } else if ty.starts_with("verification_coach.")
                             || ty.starts_with("verification_observation.")
                         {
@@ -515,8 +538,219 @@ impl ExportEngine {
             }
         }
 
+        if options.include_replay {
+            let rows = crate::db::dao::supervision_replay::list_by_session(conn, session_id)
+                .map_err(|e| ExportError::Db(e.to_string()))?;
+            for row in rows {
+                write_record(&mut out, replay_record(&row, options, salt))?;
+            }
+        }
+
         Ok(out)
     }
+}
+
+/// Keys under which replay prompt inputs carry student-authored text: the PRD
+/// interview answer/conversation/draft, the coach step, and the supervisor
+/// goal/step/artifact labels. Hashed when `hash_user_text` is on.
+const REPLAY_USER_TEXT_KEYS: &[&str] = &[
+    "answer",
+    "conversation",
+    "draftJson",
+    "goalSummary",
+    "activeStep",
+    "label",
+    "title",
+    "summary",
+    "instruction",
+    "text",
+    "verificationCommand",
+    "verificationManualCheck",
+    "valueSummary",
+    "rejectedReasons",
+];
+
+fn hash_replay_user_text(value: &Value, salt: &str) -> Value {
+    fn hash_all(value: &Value, salt: &str) -> Value {
+        match value {
+            Value::String(text) => anonymize::hash_text(text, salt),
+            Value::Array(items) => Value::Array(items.iter().map(|v| hash_all(v, salt)).collect()),
+            Value::Object(map) => Value::Object(
+                map.iter()
+                    .map(|(key, nested)| (key.clone(), hash_all(nested, salt)))
+                    .collect(),
+            ),
+            other => other.clone(),
+        }
+    }
+    match value {
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, nested)| {
+                    let nested = if REPLAY_USER_TEXT_KEYS.contains(&key.as_str()) {
+                        hash_all(nested, salt)
+                    } else {
+                        hash_replay_user_text(nested, salt)
+                    };
+                    (key.clone(), nested)
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| hash_replay_user_text(item, salt))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+/// Evidence refs of kind `failure_summary` (RetryLoop) carry raw test/verify
+/// error text in `valueSummary`, sometimes as a bare string that no key-based
+/// rule can recognize. With `hash_user_text` on, every string under such a
+/// `valueSummary` is hashed (S-078 security review).
+fn hash_failure_evidence_values(value: &Value, salt: &str) -> Value {
+    fn hash_strings(value: &Value, salt: &str) -> Value {
+        match value {
+            Value::String(text) => anonymize::hash_text(text, salt),
+            Value::Array(items) => {
+                Value::Array(items.iter().map(|item| hash_strings(item, salt)).collect())
+            }
+            Value::Object(map) => Value::Object(
+                map.iter()
+                    .map(|(key, nested)| (key.clone(), hash_strings(nested, salt)))
+                    .collect(),
+            ),
+            other => other.clone(),
+        }
+    }
+    match value {
+        Value::Object(map) => {
+            let failure_evidence =
+                map.get("kind").and_then(Value::as_str) == Some("failure_summary");
+            Value::Object(
+                map.iter()
+                    .map(|(key, nested)| {
+                        let nested = if failure_evidence && key == "valueSummary" {
+                            hash_strings(nested, salt)
+                        } else {
+                            hash_failure_evidence_values(nested, salt)
+                        };
+                        (key.clone(), nested)
+                    })
+                    .collect(),
+            )
+        }
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| hash_failure_evidence_values(item, salt))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+/// Keys of a model reply that restate student-authored text: the coach's
+/// `criterionSummary` repeats the step's acceptance criteria.
+const REPLAY_RAW_OUTPUT_USER_TEXT_KEYS: &[&str] = &["criterionSummary"];
+
+fn hash_raw_output_user_text(value: &Value, salt: &str) -> Value {
+    match value {
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, nested)| {
+                    let nested = if REPLAY_RAW_OUTPUT_USER_TEXT_KEYS.contains(&key.as_str()) {
+                        match nested {
+                            Value::String(text) => anonymize::hash_text(text, salt),
+                            other => hash_raw_output_user_text(other, salt),
+                        }
+                    } else {
+                        hash_raw_output_user_text(nested, salt)
+                    };
+                    (key.clone(), nested)
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| hash_raw_output_user_text(item, salt))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+fn anonymize_replay_json(raw: &str, options: &ExportOptions, salt: &str) -> Value {
+    let value = serde_json::from_str::<Value>(raw).unwrap_or_else(|_| Value::String(raw.into()));
+    let value = sanitize_provocation_event_payload(&value);
+    let value = if options.hash_user_text {
+        hash_failure_evidence_values(&hash_replay_user_text(&value, salt), salt)
+    } else {
+        value
+    };
+    anonymize::anonymize_value(
+        &value,
+        options.hash_user_text,
+        options.hash_file_paths,
+        salt,
+    )
+}
+
+fn replay_record(
+    row: &crate::db::dao::supervision_replay::SupervisionReplayRow,
+    options: &ExportOptions,
+    salt: &str,
+) -> Value {
+    // Raw model output is AI output (D-015-03): kept as text, but secrets,
+    // emails, and account ids are redacted and PII-shaped output is hashed.
+    // PRD interview replies restate the student's goal, answers, and criteria
+    // nearly verbatim, so that surface's output is hashed as user text.
+    let raw_output = row.raw_output.as_deref().map(|raw| {
+        if options.hash_user_text && row.surface == ReplaySurface::PrdInterview.as_str() {
+            return anonymize::hash_text(raw, salt);
+        }
+        // A JSON reply (supervisor decision, coach guide) is anonymized field
+        // by field so path- and user-text keys are handled, then re-encoded
+        // so `raw_output` stays a string.
+        if let Ok(parsed @ (Value::Object(_) | Value::Array(_))) = serde_json::from_str(raw) {
+            let parsed = sanitize_provocation_event_payload(&parsed);
+            let parsed = if options.hash_user_text {
+                hash_raw_output_user_text(&parsed, salt)
+            } else {
+                parsed
+            };
+            let parsed = anonymize::anonymize_value(
+                &parsed,
+                options.hash_user_text,
+                options.hash_file_paths,
+                salt,
+            );
+            return Value::String(parsed.to_string());
+        }
+        anonymize::anonymize_value(
+            &Value::String(redact_export_string(raw)),
+            options.hash_user_text,
+            options.hash_file_paths,
+            salt,
+        )
+    });
+    json!({
+        "kind": "replay",
+        "id": anonymize::maybe_hash_id(options.hash_ids, "replay", row.id, salt),
+        "evaluation_id": row.evaluation_id,
+        "surface": row.surface,
+        "created_at": row.created_at,
+        "prompt_version": row.prompt_version,
+        "policy_version": row.policy_version,
+        "model": row.model,
+        "context": anonymize_replay_json(&row.context_json, options, salt),
+        "raw_output": raw_output,
+        "raw_truncated": row.raw_truncated,
+        "validation": anonymize_replay_json(&row.validation_json, options, salt),
+    })
 }
 
 fn write_record(out: &mut String, v: Value) -> Result<(), ExportError> {
@@ -1007,7 +1241,7 @@ fn contains_export_secret_or_pii(text: &str) -> bool {
         || EXPORT_ACCOUNT_RE.is_match(text)
 }
 
-fn redact_export_string(text: &str) -> String {
+pub(crate) fn redact_export_string(text: &str) -> String {
     let redacted = EXPORT_SECRET_RE.replace_all(text, "[REDACTED_SECRET]");
     let redacted = EXPORT_EMAIL_RE.replace_all(&redacted, "[REDACTED_PII]");
     let redacted = EXPORT_ACCOUNT_RE.replace_all(&redacted, "[REDACTED_PII]");

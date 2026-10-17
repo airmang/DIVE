@@ -1,0 +1,21 @@
+{
+  "id": "PROJ-04",
+  "title": "Session create / select / delete",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PROJ-04"
+  },
+  "areas": [
+    "project-session"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": false,
+  "preconditions": "Project selected",
+  "steps": [
+    "`+ 새 세션`",
+    "Select it",
+    "Delete via trash + confirm"
+  ],
+  "expected": "New session appears & selectable; delete confirms & removes; empty-state if none"
+}

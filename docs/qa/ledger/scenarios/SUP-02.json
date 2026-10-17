@@ -1,0 +1,23 @@
+{
+  "id": "SUP-02",
+  "title": "Review card hides revise/nudge",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#SUP-02"
+  },
+  "areas": [
+    "supervision",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P0",
+  "requiresLlm": false,
+  "preconditions": "A review (pure-provocation) card present (demo-clean-0930 has \"검토 열기\")",
+  "steps": [
+    "Open the review card"
+  ],
+  "expected": "Revise/nudge action buttons are HIDDEN (pure provocation)",
+  "tags": [
+    "review-card"
+  ]
+}

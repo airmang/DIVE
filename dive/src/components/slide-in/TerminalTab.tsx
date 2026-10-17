@@ -6,6 +6,7 @@ import {
   useProvocationScaffoldMode,
 } from "../../stores/ui-preferences";
 import { useChatComposerStore } from "../../stores/chatComposer";
+import { useProjectSessionStore } from "../../stores/project-session";
 import {
   ProvocationCardHost,
   type ProvocationCard,
@@ -37,6 +38,10 @@ export function TerminalTab() {
   const provocationEnabled = useProvocationCardsEnabled();
   const provocationMode = useProvocationScaffoldMode();
   const pushComposerSeed = useChatComposerStore((s) => s.pushSeed);
+  // Spec 015 FR-005: card events carry the active project/session so they
+  // reach that session's export.
+  const currentProjectId = useProjectSessionStore((s) => s.currentProjectId);
+  const currentSessionId = useProjectSessionStore((s) => s.currentSessionId);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -113,6 +118,8 @@ export function TerminalTab() {
         context={{
           mode: provocationMode,
           stage: "execute",
+          projectId: currentProjectId,
+          sessionId: currentProjectId === null ? null : currentSessionId,
         }}
         mode={provocationMode}
         onAction={handleProvocationAction}

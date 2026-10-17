@@ -476,7 +476,14 @@
     "auto_approval_description": "Advanced shortcut: only safe read tools can be auto-approved. File edits and commands still require manual approval.",
     "auto_approval_hint": "Warning and danger tools always stay manual.",
     "safe_read_auto_allowed": "Safe read · auto-approval allowed",
-    "file_changes_always_manual": "Changes files · always manual"
+    "file_changes_always_manual": "Changes files · always manual",
+    "replay_title": "Saved AI review records",
+    "replay_description": "DIVE keeps what review cards, the verification helper, and the PRD interview sent to the AI, together with the AI's replies, on this computer only. These records can later help improve review cards. They are never sent over the internet and are not in the normal export. Only records from the last 30 days are kept, up to 500. You can turn this off or delete them at any time.",
+    "replay_capture_label": "Keep records on this computer",
+    "replay_count": "{{count}} records saved",
+    "replay_clear": "Delete all records",
+    "replay_clear_confirm": "Delete all {{count}} saved AI review records? This cannot be undone.",
+    "replay_load_failed": "Could not load the saved records."
   },
   "chat": {
     "empty_no_project_title": "Choose a project folder",

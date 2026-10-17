@@ -166,8 +166,7 @@ impl AppState {
     pub fn from_app_handle(app: &AppHandle) -> Result<Self, AppStateError> {
         let data_dir = app_data_dir_from_environment(app)?;
         std::fs::create_dir_all(&data_dir)?;
-        let mut db = Database::open(data_dir.join("dive.db"))?;
-        db.migrate()?;
+        let db = open_app_database(&data_dir)?;
 
         let keyring = keyring_from_environment(data_dir.join("qa-secrets.json"));
         let runtime = ProviderRuntime::none();
@@ -437,6 +436,16 @@ impl AppState {
         *value = required;
         Ok(())
     }
+}
+
+/// Open and migrate `<data_dir>/dive.db`, then apply replay-corpus retention
+/// (spec 015 FR-021) so expired rows are removed at startup even when capture
+/// is off and no insert will trigger it.
+pub(crate) fn open_app_database(data_dir: &std::path::Path) -> Result<Database, AppStateError> {
+    let mut db = Database::open(data_dir.join("dive.db"))?;
+    db.migrate()?;
+    crate::dive::replay::prune_replay_corpus_best_effort(db.conn());
+    Ok(db)
 }
 
 pub(super) fn app_data_dir_from_environment(app: &AppHandle) -> Result<PathBuf, tauri::Error> {

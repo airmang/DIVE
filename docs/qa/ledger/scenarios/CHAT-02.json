@@ -1,0 +1,21 @@
+{
+  "id": "CHAT-02",
+  "title": "Cancel mid-stream",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#CHAT-02"
+  },
+  "areas": [
+    "chat",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "A stream in progress",
+  "steps": [
+    "Send",
+    "Click cancel"
+  ],
+  "expected": "Stream stops; session stays open; partial message preserved/labelled"
+}

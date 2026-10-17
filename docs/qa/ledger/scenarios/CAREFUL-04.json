@@ -1,0 +1,40 @@
+{
+  "id": "CAREFUL-04",
+  "title": "Add a 'Clear all' button to an existing to-do app that empties the list and localStorage — and ONLY that.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#CAREFUL-04"
+  },
+  "areas": [
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Daniel, a QA-minded analyst who treats the AI like an over-eager junior dev: he assumes it will over-deliver and quietly expand scope. He reads every diff for things he didn't ask for and rejects any unrequested 'improvement.'",
+  "steps": [
+    "Design: Daniel writes a deliberately narrow PRD: one button, one behavior, explicit non-goals ('do not refactor, do not add dependencies, do not touch styling beyond the one button'). He expects the interview to respect the narrowness and not balloon scope; if it tries to add features he pushes back. He confirms a tight, single-criterion PRD.",
+    "Plan: AI returns a plan. If the plan is bigger than one focused change (extra refactor steps, 7+ steps, multiple features), he expects an oversized_scope provocation ('is this really one task?') and uses 'split / first feature only' to keep it to the one button. He accepts only a minimal plan.",
+    "Implement: Agent implements. The diff touches to-do.js (expected) but ALSO reorders imports and edits package.json (unrequested). Daniel reads the PatchPreviewPanel and expects a diff_scope_drift card at risk severity flagging the high-risk file (package.json) as off-target. He clicks 'open diff per file,' asks the AI for its rationale, then REVERTS the unrelated changes — keeping only the button edit.",
+    "Verify: AI: 'Clear all works.' Daniel opens preview, clicks Clear all, confirms list empties AND localStorage is cleared (reload stays empty) — manual_observation tied to AC. Critically, because package.json was touched off-target, he expects the DecisionGate to carry a 'high_risk_unexpected_files' reason and REQUIRE a written risk reason even though the feature itself works — he won't get a clean green approve until the scope drift is reverted or explicitly justified in writing.",
+    "Done: One button added, every unrequested change reverted or justified in writing, feature verified by his own click-through. Checkpoint saved. Expects the roadmap to reflect exactly one focused change and the decision log to record his risk reason if he accepted any drift."
+  ],
+  "expected": "DIVE actively defends scope: oversized plans get challenged up front, off-target/high-risk files get flagged at risk severity with a per-file diff, and the DecisionGate refuses a clean approval while unexpected high-risk files are in the change — forcing the AI's scope creep into the open instead of letting it ride along under a working feature. 'Revert unrelated changes' is a one-click action, so enforcing 'only what I asked' is cheap.",
+  "tags": [
+    "journey",
+    "verification-heavy-skeptical-user",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: The scope-drift detection is heuristic (path patterns + goal-keyword category matching). A genuinely off-target edit that happens to look related (or an English goal that doesn't hit the Korean-leaning keyword lists in rules.ts) may NOT trigger the card, so Daniel's safety net silently has holes and he's back to manual diff-reading. Also: the shipped scope cards come from the SupervisorAgent (LLM) path, not the frontend rule cards (those are quarantined to dev) — so if the live supervisor call fails to produce a well-formed card (historical parse_error area), the drift may not surface at all. The frontend rule cards he might expect simply don't fire in production."
+}

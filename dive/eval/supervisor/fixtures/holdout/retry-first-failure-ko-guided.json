@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "id": "retry-first-failure-ko-guided",
+  "event": "retry_loop",
+  "locale": "ko-KR",
+  "mode": "guided",
+  "description": "Negative: the failure happened once (below retryLoopMinFailures=2), so no card.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "retry_loop",
+    "artifactRef": {
+      "kind": "failure",
+      "id": "step-5:failure:referenceerror_navigate_is_not_defined",
+      "label": "로그인 버튼 연결"
+    },
+    "contextHash": "sha256:6c67a4cfaf763f1755a6e748b948daa1ed54b885a12c8203e94b563a455c81ed",
+    "mode": "guided",
+    "locale": "ko-KR",
+    "allowedActionIds": [
+      "create_repro_steps",
+      "rollback_last_change",
+      "open_diff",
+      "run_tests",
+      "split_scope",
+      "dismiss_review"
+    ],
+    "goalSummary": "로그인 버튼을 누르면 홈 화면으로 이동한다",
+    "planSummary": {
+      "stepCount": 5,
+      "activeStep": "로그인 버튼 연결"
+    },
+    "verificationState": {
+      "aiSelfReport": false,
+      "concreteEvidence": false,
+      "testResult": "fail"
+    },
+    "feasibility": {
+      "runnable": true,
+      "previewable": false,
+      "hasTests": true,
+      "diffAvailable": true
+    },
+    "evidenceRefs": [
+      {
+        "id": "failure.fingerprint",
+        "source": "terminal",
+        "kind": "failure_summary",
+        "label": "Failure fingerprint",
+        "valueSummary": {
+          "fingerprint": "referenceerror_navigate_is_not_defined"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "failure.count",
+        "source": "verification",
+        "kind": "retry_loop_assessment",
+        "label": "Repeated failure count",
+        "valueSummary": {
+          "count": 1
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "failure.last",
+        "source": "verification",
+        "kind": "failure_summary",
+        "label": "Last failure",
+        "valueSummary": {
+          "occurredAt": 1759100060000,
+          "summaryHash": "h_3f9a1c"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "recovery.state",
+        "source": "ui_observation",
+        "kind": "recovery_state",
+        "label": "Recovery state",
+        "valueSummary": {
+          "recoveryAvailable": true
+        },
+        "verificationEvidence": false
+      }
+    ],
+    "retryLoopAssessment": {
+      "eligible": false,
+      "reasonCodes": [],
+      "evidenceRefs": ["failure.fingerprint", "failure.count", "failure.last", "recovery.state"],
+      "failureFingerprint": "referenceerror_navigate_is_not_defined",
+      "failureCount": 1,
+      "lastFailureAt": 1759100060000,
+      "lastActionSummary": null,
+      "recoveryAvailable": true
+    }
+  },
+  "expect": {
+    "shouldProvoke": false,
+    "gatePasses": false,
+    "allowedConcerns": ["retry_loop"],
+    "requiredEvidenceRefIds": [],
+    "locale": "ko-KR"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":false,\"concern\":\"retry_loop\",\"severity\":\"info\",\"question\":\"\",\"evidenceRefIds\":[\"failure.fingerprint\"],\"suggestedActionIds\":[]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      }
+    ]
+  }
+}

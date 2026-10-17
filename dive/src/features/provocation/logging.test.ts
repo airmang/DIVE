@@ -348,4 +348,62 @@ describe("provocation lifecycle logging payloads", () => {
     expect(risk.riskAccepted).toBe(true);
     expect(risk.decision).toMatchObject({ actionKind: "continue_with_risk" });
   });
+
+  it("records the shown question once per exposure and never under a raw-body key", () => {
+    const shown = buildProvocationLogPayload({
+      eventType: "provocation.card_shown",
+      card: card({ prompt: "  변경 내용으로 목표와 맞는지 확인할 수 있나요?  " }),
+      mode: "work",
+      exposureId: "exp-1",
+    });
+    expect(shown.question).toBe("변경 내용으로 목표와 맞는지 확인할 수 있나요?");
+    expect(shown.exposureId).toBe("exp-1");
+    expect(shown).not.toHaveProperty("prompt");
+    expect(shown.responseLatencyMs).toBeUndefined();
+
+    const clicked = buildProvocationLogPayload({
+      eventType: "provocation.action_clicked",
+      card: card({ prompt: "질문?" }),
+      mode: "work",
+      action: { id: "diff", kind: "open_diff", label: "변경 보기" },
+      exposureId: "exp-1",
+      responseLatencyMs: 1800,
+    });
+    expect(clicked.question).toBeUndefined();
+    expect(clicked.responseLatencyMs).toBe(1800);
+    expect(clicked.visibleMs).toBeUndefined();
+
+    const noPrompt = buildProvocationLogPayload({
+      eventType: "provocation.card_shown",
+      card: card({ prompt: undefined }),
+      mode: "work",
+    });
+    expect(noPrompt.question).toBeNull();
+    expect(noPrompt.exposureId).toBeNull();
+  });
+
+  it("builds card_unanswered with visibleMs and an enum reason outside the hashed `reason` key", () => {
+    const payload = buildProvocationLogPayload({
+      eventType: "provocation.card_unanswered",
+      card: card(),
+      mode: "work",
+      context: { projectId: 4, sessionId: null },
+      exposureId: "exp-2",
+      visibleMs: 5300,
+      unansweredReason: "replaced",
+    });
+    expect(payload.lifecycleEvent).toBe("card_unanswered");
+    expect(payload).toMatchObject({
+      exposureId: "exp-2",
+      visibleMs: 5300,
+      unansweredReason: "replaced",
+      reason: null,
+      selectedAction: null,
+      projectId: 4,
+      sessionId: null,
+    });
+    expect(payload.decision).toMatchObject({ event: "card_unanswered", actionKind: null });
+    expect(payload.responseLatencyMs).toBeUndefined();
+    expect(payload.question).toBeUndefined();
+  });
 });

@@ -1,0 +1,41 @@
+{
+  "id": "DEBUG-02",
+  "title": "Make the Add button work again so typing a task and clicking Add actually adds it to the list.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#DEBUG-02"
+  },
+  "areas": [
+    "chat",
+    "prd",
+    "plan",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "terminal",
+    "recovery",
+    "i18n",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Dev, 16, self-taught, building a vanilla-JS to-do list. The 'Add' button stopped working: clicking it does nothing and items never appear. He suspects 'JavaScript is broken' but has never opened the browser console and doesn't know what an error stack trace is.",
+  "steps": [
+    "Design: Dev states the goal: 'The Add button does nothing when I click it — make it add tasks again.' The interview clarifies the expected behavior precisely: what should happen on click (task text appears in the list, input clears), what counts as success, and whether empty input should be rejected. He confirms the acceptance criterion: 'clicking Add with text appends a <li> and clears the box.' He expects DIVE to understand this is a behavior bug, not a feature request.",
+    "Plan: DIVE proposes: (1) read app.js + index.html, (2) reproduce/diagnose why the click handler isn't firing, (3) fix the bug, (4) verify by adding a real task in preview and checking the console is clean. Dev accepts. He expects the plan to explicitly include 'find out WHY' rather than blindly editing.",
+    "Implement: Reads are auto-approved. The agent finds the cause — e.g. a typo'd id in getElementById (`addBtn` vs `add-btn`) so addEventListener silently bound to null, or a function defined after it's referenced. It explains the root cause in chat, then proposes a one-spot edit. The PermissionCard shows the diff (corrected selector). Dev reads the explanation, approves. He expects to learn what was actually wrong, not just get a silent fix.",
+    "Verify: The verify stepper opens. Dev opens the terminal/console area and the preview, types a task, clicks Add — the item appears and the input clears. A provocation card pushes him past a single happy click: 'You added one task — does the console show zero errors now, and does the input actually clear (AC)?' He checks the console (no red errors) and records a terminal/preview observation. He expects DIVE to make him confirm with the real running app and a clean console, not the AI saying 'fixed'.",
+    "Done: Observations recorded, he accepts the decision. Checkpoint exists for undo. Dev learns that the bug was a null event target and now knows the console exists — he leaves more capable, not just unblocked."
+  ],
+  "expected": "DIVE turns an opaque 'JS is broken' into a named root cause (handler bound to null because of a wrong id), teaches him to open the console as part of verification, and the provocation card stops him from accepting after one lucky click. The fix is minimal and the explanation is the real value.",
+  "tags": [
+    "journey",
+    "debug-fix-broken-code",
+    "skill-beginner"
+  ],
+  "notes": "Watch for: (1) If there's no running dev server, he can't reproduce the click in preview and the console stays empty — verification degrades to AI self-report (the exact thing the verify gate is meant to prevent). (2) The LLM may respond to the diagnosis in Korean despite English locale, and 'AI 자가보고만 있음' risk badge stays Korean (DEF-01). (3) The agent might 'fix' by adding defensive null-checks that mask the symptom rather than correcting the wrong id — Dev can't tell a band-aid from a real fix and the diff looks plausible. (4) Reproducing the bug may need typing into the preview iframe; if the preview is read-only or empty he's stuck confirming behavior."
+}

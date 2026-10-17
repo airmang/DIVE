@@ -1,0 +1,23 @@
+{
+  "id": "VC-01",
+  "title": "Generate guidance for criteria",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#VC-01"
+  },
+  "areas": [
+    "verification",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P0",
+  "requiresLlm": true,
+  "preconditions": "Step in verify with criteria",
+  "steps": [
+    "Open `검토 열기` / verification coach"
+  ],
+  "expected": "Guide renders: steps + recommended checks + acceptance criteria",
+  "tags": [
+    "sidecar"
+  ]
+}

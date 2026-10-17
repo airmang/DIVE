@@ -1,0 +1,15 @@
+{
+  "id": "DEF-0018",
+  "title": "Public repo self-contradicts on macOS as distribution target (README/dive README vs build.yml vs release.yml)",
+  "status": "open",
+  "severity": "P2",
+  "area": "docs-spec",
+  "source": {
+    "kind": "review",
+    "ref": "docs/qa/post-cleanup-review-2026-07-22.md",
+    "findingId": "L635"
+  },
+  "notes": "Partially fixed — remaining part per 2026-09-29 re-check: d74a9460 fixed the core: README.md:9 badge now includes macOS arm64, README.md:5 says 'Windows · macOS', README.md:113 names the macOS .app(zip)/.dmg with Gatekeeper guidance, and release.yml:308 attaches artifacts/DIVE-macos-arm64-app/*.zip. Still present: the README install section is '설치 (Windows)' (README.md:58-76) with Windows-only download/run steps. dive/README.md:94 still frames macOS as a 'local bundle' and dive/README.md:125 still says 'CI builds Windows x64 and ARM64 installers'. README.md:113 also advertises a .dmg that release.yml does not attach (only the .zip).",
+  "created": "2026-09-29",
+  "updated": "2026-09-29"
+}

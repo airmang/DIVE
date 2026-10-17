@@ -1,0 +1,21 @@
+{
+  "id": "PROJ-01",
+  "title": "Select project loads sessions/plan",
+  "source": {
+    "kind": "scenario-catalog",
+    "ref": "docs/archive/qa/scenario-catalog.md#PROJ-01"
+  },
+  "areas": [
+    "project-session",
+    "plan",
+    "roadmap"
+  ],
+  "pathGlobs": [],
+  "priority": "P0",
+  "requiresLlm": false,
+  "preconditions": "≥1 project with sessions",
+  "steps": [
+    "Click a project in sidebar"
+  ],
+  "expected": "Sessions list + center conversation + right PROJECT PLAN populate (verified baseline PASS on demo-clean-0930)"
+}

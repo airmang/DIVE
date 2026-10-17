@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "id": "scope-new-area-ko-work",
+  "event": "scope_expansion",
+  "locale": "ko-KR",
+  "mode": "work",
+  "description": "Add-step draft introduces an admin statistics dashboard that no PRD criterion covers.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "scope_expansion",
+    "artifactRef": {
+      "kind": "add_step_draft",
+      "id": "draft-11",
+      "label": "관리자 통계 대시보드 추가"
+    },
+    "contextHash": "sha256:a70d6853bcd165aa8a975e69df5943c8820ff7775712c5f31c9c833de25cf0a4",
+    "mode": "work",
+    "locale": "ko-KR",
+    "allowedActionIds": ["link_criterion", "split_scope", "edit_prd", "dismiss_review"],
+    "goalSummary": "로그인과 설정 화면만 있는 동아리 출석 앱 MVP",
+    "planSummary": {
+      "stepCount": 4,
+      "activeStep": "설정 화면"
+    },
+    "verificationState": {
+      "aiSelfReport": false,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": false,
+      "hasTests": false,
+      "diffAvailable": false
+    },
+    "evidenceRefs": [
+      {
+        "id": "add_step.title",
+        "source": "plan",
+        "kind": "add_step_draft",
+        "label": "관리자 통계 대시보드 추가",
+        "valueSummary": "관리자 통계 대시보드 추가",
+        "verificationEvidence": false
+      },
+      {
+        "id": "prd.ac_001",
+        "source": "plan",
+        "kind": "acceptance_criteria",
+        "label": "학생은 학번 없이 이메일로 로그인할 수 있다",
+        "valueSummary": {
+          "criterionId": "AC-001",
+          "text": "학생은 학번 없이 이메일로 로그인할 수 있다"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "prd_delta.scope_changes_0",
+        "source": "plan",
+        "kind": "prd_scope",
+        "label": "관리자 통계 대시보드",
+        "valueSummary": {
+          "scopeChange": "관리자 통계 대시보드"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "add_step.linked_criterion_ids",
+        "source": "plan",
+        "kind": "add_step_draft",
+        "label": "연결된 PRD 기준",
+        "valueSummary": {
+          "kind": "scope_evidence",
+          "sourceRef": "step.linkedCriterionIds"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "scope.assessment",
+        "source": "workmap",
+        "kind": "scope_expansion_assessment",
+        "label": "범위 확장 평가",
+        "valueSummary": {
+          "evidenceRefs": ["add_step.linked_criterion_ids", "prd_delta.scope_changes_0"],
+          "kind": "scope_expansion_assessment",
+          "reasonCodes": ["missing_criterion_link", "new_scope_area"]
+        },
+        "verificationEvidence": false
+      }
+    ],
+    "scopeExpansion": {
+      "expanded": true,
+      "reasonCodes": ["missing_criterion_link", "new_scope_area"],
+      "evidenceRefs": ["add_step.linked_criterion_ids", "prd_delta.scope_changes_0"]
+    }
+  },
+  "expect": {
+    "shouldProvoke": true,
+    "gatePasses": true,
+    "allowedConcerns": ["scope_expansion"],
+    "requiredEvidenceRefIds": ["prd_delta.scope_changes_0", "add_step.linked_criterion_ids"],
+    "relevantEvidenceRefIds": [
+      "add_step.title",
+      "prd_delta.scope_changes_0",
+      "add_step.linked_criterion_ids",
+      "scope.assessment",
+      "prd.ac_001"
+    ],
+    "criterionTerms": ["통계 대시보드", "로그인"],
+    "locale": "ko-KR"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"scope_expansion\",\"severity\":\"caution\",\"question\":\"'관리자 통계 대시보드'는 로그인·설정만 있는 MVP 기준에 없는 새 범위예요. 먼저 PRD 기준에 넣을지 정할까요?\",\"evidenceRefIds\":[\"prd_delta.scope_changes_0\",\"add_step.linked_criterion_ids\",\"scope.assessment\"],\"suggestedActionIds\":[\"edit_prd\",\"link_criterion\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"scope_expansion\",\"severity\":\"caution\",\"question\":\"관리자 통계 대시보드가 로그인/설정 MVP 범위의 PRD 기준과 어떻게 연결되나요?\",\"evidenceRefIds\":[\"add_step.linked_criterion_ids\",\"prd_delta.scope_changes_0\"],\"suggestedActionIds\":[\"link_criterion\",\"split_scope\",\"edit_prd\",\"dismiss_review\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
+      }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"scope_expansion\",\"severity\":\"caution\",\"question\":\"로그인과 설정 화면만 있는 동아리 출석 앱 MVP에 관리자 통계 대시보드가 꼭 필요한 범위인가요?\",\"evidenceRefIds\":[\"add_step.linked_criterion_ids\",\"prd_delta.scope_changes_0\"],\"suggestedActionIds\":[\"link_criterion\",\"split_scope\",\"edit_prd\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T05:49:42Z",
+        "source": "live",
+        "attempt": 0
+      }
+    ]
+  }
+}

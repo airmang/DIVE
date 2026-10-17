@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "id": "verify-claim-done-ko-work",
+  "event": "verify_entered",
+  "locale": "ko-KR",
+  "mode": "work",
+  "description": "AI reports the todo form done; tests were skipped and nothing was observed.",
+  "context": {
+    "schemaVersion": 1,
+    "event": "verify_entered",
+    "artifactRef": {
+      "kind": "step",
+      "id": "step-3",
+      "label": "할 일 추가 폼"
+    },
+    "contextHash": "sha256:77d6b590dfa30c8bb2f1c6dc26c05f4d90e67f370dc396bfc9975b7981d873b1",
+    "mode": "work",
+    "locale": "ko-KR",
+    "allowedActionIds": ["open_diff", "open_preview"],
+    "goalSummary": "할 일 목록 앱에서 새 할 일을 입력해 목록에 추가할 수 있다",
+    "planSummary": {
+      "stepCount": 4,
+      "activeStep": "할 일 추가 폼"
+    },
+    "verificationState": {
+      "aiSelfReport": true,
+      "concreteEvidence": false,
+      "testResult": null
+    },
+    "feasibility": {
+      "runnable": false,
+      "previewable": true,
+      "hasTests": false,
+      "diffAvailable": true
+    },
+    "evidenceRefs": [
+      {
+        "id": "agent.assistant_claim",
+        "source": "agent",
+        "kind": "assistant_claim",
+        "label": "AI 완료 주장",
+        "valueSummary": {
+          "kind": "enum",
+          "value": "claimed_done"
+        },
+        "verificationEvidence": false
+      },
+      {
+        "id": "verify.test_result",
+        "source": "verification",
+        "kind": "test_result",
+        "label": "테스트 결과",
+        "valueSummary": {
+          "kind": "enum",
+          "value": "skipped"
+        },
+        "verificationEvidence": false
+      }
+    ]
+  },
+  "expect": {
+    "shouldProvoke": true,
+    "gatePasses": true,
+    "allowedConcerns": ["ai_self_report_only"],
+    "requiredEvidenceRefIds": ["agent.assistant_claim"],
+    "relevantEvidenceRefIds": ["agent.assistant_claim", "verify.test_result"],
+    "criterionTerms": ["할 일"],
+    "locale": "ko-KR"
+  },
+  "recorded": {
+    "1.0.0+256c9520": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"ai_self_report_only\",\"severity\":\"caution\",\"question\":\"AI는 할 일 추가 폼이 끝났다고 했지만 테스트는 건너뛰었어요. 미리보기에서 새 할 일이 목록에 추가되는지 직접 확인해 볼까요?\",\"evidenceRefIds\":[\"agent.assistant_claim\",\"verify.test_result\"],\"suggestedActionIds\":[\"open_preview\"]}",
+        "model": "hand-authored",
+        "recordedAt": "2026-09-29",
+        "source": "hand-authored"
+      },
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"ai_self_report_only\",\"severity\":\"caution\",\"question\":\"할 일 추가 폼이 실제로 동작하는지 diff나 미리보기로 직접 확인하셨나요?\",\"evidenceRefIds\":[\"agent.assistant_claim\"],\"suggestedActionIds\":[\"open_diff\",\"open_preview\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T04:10:43Z",
+        "source": "live"
+      }
+    ],
+    "1.1.0+152895a8": [
+      {
+        "rawOutput": "{\"schemaVersion\":1,\"provoke\":true,\"concern\":\"ai_self_report_only\",\"severity\":\"caution\",\"question\":\"할 일 추가 폼에서 새 할 일을 입력해 목록에 실제로 추가되는지 diff나 미리보기로 확인하셨나요?\",\"evidenceRefIds\":[\"agent.assistant_claim\"],\"suggestedActionIds\":[\"open_diff\",\"open_preview\"]}",
+        "model": "openrouter/anthropic/claude-sonnet-5",
+        "recordedAt": "2026-09-29T05:49:42Z",
+        "source": "live",
+        "attempt": 0
+      }
+    ]
+  }
+}

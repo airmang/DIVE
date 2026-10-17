@@ -1,0 +1,42 @@
+{
+  "id": "STATIC-02",
+  "title": "A single-page portfolio: hero with his name + tagline, a 6-image gallery grid, an about blurb, and an email contact button — responsive, looks good on phone and desktop.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#STATIC-02"
+  },
+  "areas": [
+    "project-session",
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "agent-tools",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "i18n",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "David, a freelance illustrator in the US who wants a one-page portfolio/landing page to send to clients. Runs DIVE in English. Knows enough to recognize HTML tags but has never built a site from scratch.",
+  "steps": [
+    "Design: David sets locale to English, creates a project at ~/portfolio, and states his goal in English. The Socratic interview asks about the gallery (how many images, where they live, captions?), responsiveness target, and whether he wants a contact form (out of scope — just a mailto button). He notes his 6 images are already in an /images folder. The board captures non-goals (no CMS, no animations) and ACs like 'gallery is a responsive grid: 3 cols desktop, 1 col mobile' and 'contact button opens email client'. He confirms the PRD.",
+    "Plan: Plan: step-1 scaffold + hero, step-2 responsive gallery grid referencing /images, step-3 about + mailto contact, step-4 mobile breakpoints polish. He accepts. He expects clear steps and gets them, though he wonders whether the agent knows his image filenames.",
+    "Implement: Step-1/2 run; on the gallery step the agent proposes reading the /images directory (auto-approved read) to get real filenames, then a write to index.html wiring the <img> tags. The PermissionCard diff shows the actual img src paths — David checks they match his files before approving. He opens the Preview (static_file) and sees the grid with his real images load from disk.",
+    "Verify: Agent claims the responsive grid is done. The provocation card asks a criterion-linked question: 'AC says 1 column on mobile — did you observe it at a narrow width, or is that assumed?'. The verify stepper gates 결정/Decision on evidence. David opens Preview, but the in-app iframe is a fixed width, so to honor the mobile AC he opens index.html in a real browser and resizes / uses devtools, records that observation, then decides verified. He also confirms the mailto button opens his mail client.",
+    "Done: Roadmap complete; he has a portable index.html + images he can drag onto Netlify. He made a scope-split mid-way (decided captions were a later nice-to-have) using the plan-adjust flow rather than cramming it in, and a checkpoint let him revert a gradient experiment that looked bad."
+  ],
+  "expected": "DIVE reads his actual /images folder so the gallery wires real files, not placeholders — the diff approval is meaningful because he's verifying real paths. English locale stays English throughout. The verify stepper nudges him to actually check mobile rather than trust the AI's 'responsive ✓', and he catches that the iframe can't prove mobile, so he does the real check. Scope-split keeps the plan honest instead of bloating step-2.",
+  "tags": [
+    "journey",
+    "static-web-pages-beginner",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: DEF-01 i18n regression bites this English user hard: secondary status badges and supply-chain tags (실행 중 / 계획 검토 필요 / 검증 필요 / AI 자가보고만 있음) render in Korean even with locale=English, which is confusing and undermines trust for a non-Korean speaker. Also the LLM tends to reply in Korean even at locale=English — for David that's a real defect, not a preference. The mobile-responsive AC is again something the fixed-width iframe can't truly verify, so the supervision risks accepting screen-width-only evidence. If images are large, no risk to the static preview, but the agent guessing filenames instead of reading the dir would produce broken <img> tags."
+}

@@ -655,6 +655,20 @@ async fn verification_coach_provider_not_configured_logs_requested_and_evaluated
         evaluated.payload["evidenceSummary"]["aiGuidanceIsEvidence"],
         serde_json::json!(false)
     );
+    // Spec 015 FR-001: no coach prompt reached a model (no provider), so the
+    // evaluation records a null prompt version rather than a template that was
+    // never sent; the request event never carries one.
+    assert_eq!(evaluated.payload["promptVersion"], serde_json::Value::Null);
+    let requested = logs
+        .iter()
+        .find(|row| row.r#type == "verification_coach.requested")
+        .unwrap();
+    assert!(requested.payload.get("promptVersion").is_none());
+    // No prompt was sent, so nothing enters the replay corpus.
+    assert_eq!(
+        crate::db::dao::supervision_replay::count(db.conn()).unwrap(),
+        0
+    );
 }
 
 #[tokio::test]

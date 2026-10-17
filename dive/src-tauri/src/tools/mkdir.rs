@@ -41,26 +41,39 @@ impl Tool for Mkdir {
     }
 
     async fn run(&self, input: Value, ctx: &ToolContext) -> Result<ToolOutput, ToolError> {
-        let args: Input =
-            serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
-        let path = ctx.fs.resolve(&args.path)?;
-        if path.is_file() {
-            return Err(ToolError::InvalidInput(format!(
-                "path is a file: {}",
-                args.path
-            )));
-        }
-        if args.recursive {
-            tokio::fs::create_dir_all(&path).await?;
-        } else if !path.exists() {
-            tokio::fs::create_dir(&path).await?;
-        }
-        verify_created_dir_inside_root(&path, ctx).await?;
-        Ok(ToolOutput::success(
-            format!("created directory {}", args.path),
-            json!({ "path": args.path, "recursive": args.recursive }),
-        ))
+        run_mkdir(input, ctx, |_| {}).await
     }
+}
+
+/// The body of [`Mkdir::run`]. `before_create` runs between path resolution
+/// and the mkdir syscall — a no-op in production; tests use it to plant a
+/// parent symlink in exactly that window, so the post-create recheck is
+/// exercised through the real tool path.
+async fn run_mkdir(
+    input: Value,
+    ctx: &ToolContext,
+    before_create: impl FnOnce(&Path),
+) -> Result<ToolOutput, ToolError> {
+    let args: Input =
+        serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+    let path = ctx.fs.resolve(&args.path)?;
+    if path.is_file() {
+        return Err(ToolError::InvalidInput(format!(
+            "path is a file: {}",
+            args.path
+        )));
+    }
+    before_create(&path);
+    if args.recursive {
+        tokio::fs::create_dir_all(&path).await?;
+    } else if !path.exists() {
+        tokio::fs::create_dir(&path).await?;
+    }
+    verify_created_dir_inside_root(&path, ctx).await?;
+    Ok(ToolOutput::success(
+        format!("created directory {}", args.path),
+        json!({ "path": args.path, "recursive": args.recursive }),
+    ))
 }
 
 /// Re-check the just-created directory before reporting success. `resolve()`
@@ -110,6 +123,29 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, ToolError::PathDenied(_)));
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn mkdir_run_rejects_parent_symlinked_between_resolve_and_create() {
+        // DEF-0046 guard: the same race as below, but driven through the tool's
+        // own run path, so dropping the post-create recheck call fails this test.
+        let tmp = tempfile::tempdir().unwrap();
+        let project = tmp.path().join("project");
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let ctx = ToolContext::new(&project, 1);
+
+        let err = run_mkdir(
+            json!({ "path": "escape/newdir", "recursive": true }),
+            &ctx,
+            |_| std::os::unix::fs::symlink(&outside, project.join("escape")).unwrap(),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(err, ToolError::PathDenied(_)), "{err:?}");
     }
 
     #[tokio::test]

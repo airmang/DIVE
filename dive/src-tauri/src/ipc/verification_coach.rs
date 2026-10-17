@@ -3,15 +3,18 @@ use tauri::State;
 use uuid::Uuid;
 
 use crate::db::dao::provider_config as provider_dao;
+use crate::db::dao::supervision_replay::{NewSupervisionReplay, ReplaySurface};
 use crate::dive::event_log::{
     append_to_conn, VERIFICATION_COACH_EVALUATED_EVENT, VERIFICATION_COACH_REQUESTED_EVENT,
     VERIFICATION_OBSERVATION_RECORDED_EVENT,
 };
+use crate::dive::replay::capture_replay_best_effort;
 use crate::dive::verification_coach::{
     build_verification_coach_prompt, evidence_summary, fallback_guidance, next_guide_version,
-    parse_guide_json, unavailable_response, validate_guide, GuidanceReasonCode,
-    GuidanceValidationOutcome, ObservationEvidenceInput, ObservationEvidenceRecord,
-    VerificationCoachGenerateRequest, VerificationCoachGenerateResponse, VerificationCoachStatus,
+    parse_guide_json, unavailable_response, validate_guide, verification_coach_prompt_version,
+    GuidanceReasonCode, GuidanceValidationOutcome, ObservationEvidenceInput,
+    ObservationEvidenceRecord, VerificationCoachGenerateRequest, VerificationCoachGenerateResponse,
+    VerificationCoachStatus,
 };
 use crate::pi_sidecar::{
     run_supervisor_turn, supervisor_turn_timeout, PiSidecarSupervisorErrorKind,
@@ -36,6 +39,25 @@ pub(crate) async fn verification_coach_generate_impl(
     log_requested(state, &request, &event_id, guide_version)?;
 
     let output = generate_from_runtime(state, &request).await;
+    finish_coach_evaluation(state, request, event_id, guide_version, output)
+}
+
+/// Validates the runtime output, logs `verification_coach.evaluated`, and
+/// captures the replay-corpus row when the prompt reached a model.
+fn finish_coach_evaluation(
+    state: &AppState,
+    request: VerificationCoachGenerateRequest,
+    event_id: String,
+    guide_version: u32,
+    output: CoachRuntimeOutput,
+) -> Result<VerificationCoachGenerateResponse, String> {
+    // Spec 015 FR-001: `promptVersion` is logged only when the coach prompt
+    // actually reached a model (a returned turn or a mid-turn failure).
+    let prompt_sent = !matches!(output, CoachRuntimeOutput::Unavailable(_));
+    let raw_output = match &output {
+        CoachRuntimeOutput::Guide { raw, .. } => Some(raw.clone()),
+        _ => None,
+    };
     let mut response = match output {
         CoachRuntimeOutput::Guide {
             raw,
@@ -74,13 +96,52 @@ pub(crate) async fn verification_coach_generate_impl(
             }
             Err(reason) => unavailable_response(event_id.clone(), guide_version, reason, &request),
         },
-        CoachRuntimeOutput::Unavailable(reason) => {
+        CoachRuntimeOutput::Unavailable(reason) | CoachRuntimeOutput::TurnFailed(reason) => {
             unavailable_response(event_id.clone(), guide_version, reason, &request)
         }
     };
     response.event_id = event_id;
-    log_evaluated(state, &request, &response)?;
+    log_evaluated(state, &request, &response, prompt_sent)?;
+    if prompt_sent {
+        if let Some(replay) = coach_replay_record(&request, &response, raw_output) {
+            if let Ok(db) = state.db.lock() {
+                capture_replay_best_effort(db.conn(), &replay);
+            }
+        }
+    }
     Ok(response)
+}
+
+/// Replay row for a coach evaluation (spec 015 FR-020): the generate request
+/// is the builder input, so the prompt is reproducible from it plus
+/// `promptVersion`.
+fn coach_replay_record(
+    request: &VerificationCoachGenerateRequest,
+    response: &VerificationCoachGenerateResponse,
+    raw_output: Option<String>,
+) -> Option<NewSupervisionReplay> {
+    let context_json = serde_json::to_string(request)
+        .map_err(|err| tracing::warn!(error = %err, "coach replay context did not serialize"))
+        .ok()?;
+    let validation = response.validation.as_ref();
+    Some(NewSupervisionReplay {
+        evaluation_id: response.event_id.clone(),
+        surface: ReplaySurface::Coach,
+        session_id: Some(request.session_id),
+        project_id: request.project_id,
+        prompt_version: verification_coach_prompt_version().render(),
+        policy_version: None,
+        model: response.model.clone(),
+        context_json,
+        raw_output,
+        validation_json: json!({
+            "status": response.status,
+            "validationOutcome": validation.map(|value| &value.outcome),
+            "reasonCode": validation.map(|value| &value.reason_code).or(response.drop_reason.as_ref()),
+            "latencyMs": response.latency_ms,
+        })
+        .to_string(),
+    })
 }
 
 #[tauri::command]
@@ -128,7 +189,10 @@ enum CoachRuntimeOutput {
         model: Option<String>,
         latency_ms: Option<u64>,
     },
+    /// No prompt was sent (runtime, provider, credentials, or root missing).
     Unavailable(GuidanceReasonCode),
+    /// The prompt was sent but the Pi supervisor turn failed.
+    TurnFailed(GuidanceReasonCode),
 }
 
 async fn generate_from_runtime(
@@ -226,7 +290,7 @@ async fn generate_from_runtime(
                 message = %crate::telemetry::redact_log_text(&err.message),
                 "verification coach Pi supervisor turn failed"
             );
-            CoachRuntimeOutput::Unavailable(sidecar_failure_reason(err.kind))
+            CoachRuntimeOutput::TurnFailed(sidecar_failure_reason(err.kind))
         }
     }
 }
@@ -291,6 +355,7 @@ fn log_evaluated(
     state: &AppState,
     request: &VerificationCoachGenerateRequest,
     response: &VerificationCoachGenerateResponse,
+    prompt_sent: bool,
 ) -> Result<(), String> {
     let validation = response.validation.as_ref();
     let guide = response.guide.as_ref();
@@ -307,6 +372,7 @@ fn log_evaluated(
             "evidenceRefs": validation.map(|value| &value.evidence_refs),
             "model": response.model,
             "latencyMs": response.latency_ms,
+            "promptVersion": prompt_sent.then(|| verification_coach_prompt_version().render()),
             "guideSummary": guide.map(|guide| json!({
                 "criterionSummary": guide.criterion_summary,
                 "recommendedCheckCount": guide.recommended_checks.len(),
@@ -353,6 +419,98 @@ mod tests {
                 prior_observations: Vec::new(),
             },
         }
+    }
+
+    #[test]
+    fn coach_evaluation_captures_replay_only_when_the_prompt_was_sent() {
+        let state = AppState::dev_mock();
+        let (project_id, session_id) = {
+            let db = state.db.lock().unwrap();
+            crate::db::tests::seed_project_session(db.conn())
+        };
+        let mut request = coach_request();
+        request.session_id = session_id;
+        request.project_id = Some(project_id);
+        let raw = r#"{"criterionSummary":"열이 바뀐다","recommendedChecks":[{"kind":"manual","label":"크기 조절","instruction":"창을 375px로 줄여 보세요","expectedObservation":"열이 하나로 바뀝니다"}],"expectedObservations":["열이 하나"],"evidencePrompts":["무엇이 보였나요?"]}"#;
+        let response = finish_coach_evaluation(
+            &state,
+            request.clone(),
+            "event-sent".into(),
+            1,
+            CoachRuntimeOutput::Guide {
+                raw: raw.into(),
+                model: Some("mock-model".into()),
+                latency_ms: Some(10),
+            },
+        )
+        .unwrap();
+        assert_eq!(response.status, VerificationCoachStatus::Shown);
+        finish_coach_evaluation(
+            &state,
+            request.clone(),
+            "event-failed".into(),
+            1,
+            CoachRuntimeOutput::TurnFailed(GuidanceReasonCode::Timeout),
+        )
+        .unwrap();
+        finish_coach_evaluation(
+            &state,
+            request,
+            "event-unavailable".into(),
+            1,
+            CoachRuntimeOutput::Unavailable(GuidanceReasonCode::ProviderNotConfigured),
+        )
+        .unwrap();
+
+        let db = state.db.lock().unwrap();
+        let sent =
+            crate::db::dao::supervision_replay::get_by_evaluation_id(db.conn(), "event-sent")
+                .unwrap()
+                .expect("a sent coach prompt is captured");
+        assert_eq!(sent.surface, "coach");
+        assert_eq!(sent.raw_output.as_deref(), Some(raw));
+        assert!(crate::db::dao::supervision_replay::get_by_evaluation_id(
+            db.conn(),
+            "event-failed"
+        )
+        .unwrap()
+        .is_some_and(|row| row.raw_output.is_none()));
+        assert!(crate::db::dao::supervision_replay::get_by_evaluation_id(
+            db.conn(),
+            "event-unavailable"
+        )
+        .unwrap()
+        .is_none());
+    }
+
+    #[test]
+    fn coach_replay_record_stores_the_request_as_prompt_input() {
+        let request = coach_request();
+        let mut response = unavailable_response(
+            "event-9".to_string(),
+            1,
+            GuidanceReasonCode::Timeout,
+            &request,
+        );
+        response.model = Some("mock-model".into());
+        let replay = coach_replay_record(&request, &response, Some("{\"x\":1}".into())).unwrap();
+        assert_eq!(replay.evaluation_id, "event-9");
+        assert_eq!(replay.surface, ReplaySurface::Coach);
+        assert_eq!(replay.session_id, Some(1));
+        assert_eq!(replay.project_id, Some(1));
+        assert_eq!(replay.raw_output.as_deref(), Some("{\"x\":1}"));
+        assert_eq!(
+            replay.prompt_version,
+            verification_coach_prompt_version().render()
+        );
+        let stored: VerificationCoachGenerateRequest =
+            serde_json::from_str(&replay.context_json).unwrap();
+        assert_eq!(
+            build_verification_coach_prompt(&stored),
+            build_verification_coach_prompt(&request)
+        );
+        let validation: serde_json::Value = serde_json::from_str(&replay.validation_json).unwrap();
+        assert_eq!(validation["reasonCode"], serde_json::json!("timeout"));
     }
 
     #[test]

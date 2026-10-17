@@ -1,0 +1,39 @@
+{
+  "id": "FRICTION-02",
+  "title": "Ship a working to-do list (add/complete/delete tasks), but he repeatedly tries to cram auth, reminders, theming, and export into the same plan/step instead of sequencing them.",
+  "source": {
+    "kind": "e2e-journey",
+    "ref": "docs/qa/e2e-journeys.md#FRICTION-02"
+  },
+  "areas": [
+    "chat",
+    "prd",
+    "plan",
+    "roadmap",
+    "permission",
+    "supervision",
+    "verification",
+    "slide-in",
+    "preview",
+    "recovery",
+    "pi-sidecar"
+  ],
+  "pathGlobs": [],
+  "priority": "P1",
+  "requiresLlm": true,
+  "preconditions": "Jae, a self-taught hobbyist who's enthusiastic and over-asks. He's making a simple to-do list app but keeps piling on features ('also add reminders, and dark mode, and login, and export to PDF') in a single breath, classic scope creep.",
+  "steps": [
+    "Design: Jae dumps a long goal listing 6+ features at once. The Socratic interview tries to pin down a single observable 'done' and explicit non-goals; it asks him to name what's in scope NOW vs. later. He resists ('I want all of it'). He expects the interview to either accept everything or tell him plainly why it's pushing back.",
+    "Plan: AI proposes a focused 3-5 step plan for the core to-do CRUD and lists the deferred features as non-goals/later. Jae sees the deferred items and feels they were 'dropped.' He expects to understand WHY auth/export aren't in this plan and to see them parked, not deleted.",
+    "Implement: As core CRUD steps run, Jae tries to inject 'oh also add login now' via chat. An oversized_scope / scope-expansion provocation card fires (criterion-linked, non-blocking) with actions like 'split into features' and 'request first feature only.' PermissionCards still gate the writes. He expects the card to explain the cost of doing everything at once, not just block him.",
+    "Verify: The verification stepper for the core steps asks for real evidence (preview the app, add+complete a task, see it persist). A criterion-linked review card challenges any added work ('export to PDF') that isn't tied to AC-001/AC-002 and offers split-scope. He expects to confirm the core actually works before being tempted to pile on more.",
+    "Done: Core to-do app is verified done with a checkpoint; the deferred features remain as a clearly labeled backlog / non-goals he can turn into a follow-up plan. He expects a sense of real completion plus an obvious 'do the next feature' path."
+  ],
+  "expected": "DIVE keeps him honest about scope without feeling like a wall: it ships the core fast, the scope-expansion provocation card reframes 'add login too' as 'split into features → request the first one,' deferred features are visibly parked as non-goals (not silently dropped), and he ends with a verified app plus a clear backlog to tackle next — the supervision turns scope creep into sequencing.",
+  "tags": [
+    "journey",
+    "friction-edge-journeys",
+    "skill-intermediate"
+  ],
+  "notes": "Watch for: (1) The oversized_scope/scope-expansion card is non-blocking by design (FR-030~033), so an over-eager beginner can just click past it and approve a bloated step — does the card make the cost legible enough to actually change behavior?; (2) deferred features must not look 'deleted' or he loses trust; (3) if he forces auth in via 'just chat' bypass, write/edit must still hit PermissionCards and the verify stepper must still demand evidence; (4) a single step ballooning to 8+ sub-tasks breaks the 2-6 step execution envelope."
+}
