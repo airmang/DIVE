@@ -87,3 +87,6 @@ docs/qa/**/*.png
 docs/qa/**/*.jpg
 docs/qa/**/*.jpeg
 docs/qa/**/*.gif
+
+# CORE LAB 중간평가 준비자료(개인정보 포함 — 공개 repo 커밋 금지)
+docs/중간평가/
